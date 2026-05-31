@@ -45,7 +45,7 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertEqual(d["work_search[comments_count]"], ">10")
         XCTAssertEqual(d["work_search[bookmarks_count]"], ">5")
         XCTAssertEqual(d["work_search[revised_at]"], ">2024-01-01")
-        XCTAssertEqual(d["work_search[complete]"], "T")
+        XCTAssertEqual(d["work_search[complete]"], "true")
         XCTAssertEqual(d["work_search[crossover]"], "F")
         XCTAssertEqual(d["work_search[single_chapter]"], "1")
     }

@@ -17,6 +17,9 @@ struct SearchView: View {
     @State private var sortDirection: AO3SearchFilters.SortDirection = .desc
     @State private var showingSaveDialog: Bool = false
     @State private var saveName: String = ""
+    @State private var suppressParse: Bool = false
+    @State private var filtersResolved: Bool = false
+    @FocusState private var searchFocused: Bool
     private let parser = SearchPromptParser()
     private let enricher: any SearchEnricher = SearchEnricherFactory.make()
 
@@ -33,13 +36,29 @@ struct SearchView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    saveName = suggestName()
-                    showingSaveDialog = true
+                Menu {
+                    Button {
+                        saveName = suggestName()
+                        showingSaveDialog = true
+                    } label: {
+                        Label("Save this search", systemImage: "bookmark")
+                    }
+                    .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                    if !savedSearches.isEmpty {
+                        Section("Saved searches") {
+                            ForEach(savedSearches) { saved in
+                                Button(saved.name) {
+                                    load(saved)
+                                    searchFocused = false
+                                    Task { await runSearch() }
+                                }
+                            }
+                        }
+                    }
                 } label: {
                     Image(systemName: "bookmark")
                 }
-                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .alert("Save search", isPresented: $showingSaveDialog) {
@@ -57,17 +76,25 @@ struct SearchView: View {
                 .lineLimit(1...3)
                 .textFieldStyle(.roundedBorder)
                 .submitLabel(.search)
-                .onSubmit { Task { await runSearch() } }
+                .focused($searchFocused)
+                .onSubmit {
+                    searchFocused = false
+                    Task { await runSearch() }
+                }
                 .onChange(of: prompt) { _, newValue in
+                    if suppressParse { return }
                     // A vertical-axis TextField inserts a newline on Return
                     // rather than firing onSubmit. Treat a trailing newline
-                    // as "search now".
+                    // as "search now" and drop the keyboard.
                     if newValue.contains("\n") {
                         prompt = newValue.replacingOccurrences(of: "\n", with: "")
+                        searchFocused = false
                         lastParsed = parser.parse(prompt)
+                        filtersResolved = false
                         Task { await runSearch() }
                     } else {
                         lastParsed = parser.parse(prompt)
+                        filtersResolved = false
                     }
                 }
 
@@ -216,12 +243,12 @@ struct SearchView: View {
                 .font(.subheadline)
             }
             .onChange(of: sortColumn) { _, _ in
-                if !results.isEmpty { Task { await executeSearch() } }
+                if !results.isEmpty { Task { await executeSearch(resolve: false) } }
             }
 
             Button {
                 sortDirection = sortDirection == .asc ? .desc : .asc
-                if !results.isEmpty { Task { await executeSearch() } }
+                if !results.isEmpty { Task { await executeSearch(resolve: false) } }
             } label: {
                 Image(systemName: sortDirection.symbol)
                     .font(.subheadline)
@@ -237,18 +264,24 @@ struct SearchView: View {
 
     private func runSearch() async {
         lastParsed = parser.parse(prompt)
-        await executeSearch()
+        filtersResolved = false
+        await executeSearch(resolve: true)
     }
 
     /// Searches using the current `lastParsed` (without re-parsing the
     /// prompt, so chip removals stick). Resolves tags to AO3's canonical
-    /// names first — the same step Browse uses, so results match.
-    private func executeSearch() async {
+    /// names first — the same step Browse uses, so results match. Removing
+    /// a chip passes `resolve: false` (tags are already canonical) so the
+    /// re-search is instant instead of re-hitting autocomplete per tag.
+    private func executeSearch(resolve: Bool) async {
         var filters = lastParsed
-        if !filters.query.isEmpty {
-            filters = await enricher.enrich(filters: filters, prompt: filters.query)
+        if resolve {
+            if !filters.query.isEmpty {
+                filters = await enricher.enrich(filters: filters, prompt: filters.query)
+            }
+            filters = await TagResolver.resolve(filters, using: client)
+            filtersResolved = true
         }
-        filters = await TagResolver.resolve(filters, using: client)
         filters.sortColumn = sortColumn
         filters.sortDirection = sortDirection
         lastParsed = filters  // reflect canonical names in the chips
@@ -375,9 +408,58 @@ struct SearchView: View {
         return chips
     }
 
-    /// After a chip is removed, re-run the search if results are showing.
+    /// After a chip is removed: sync the search box to the remaining
+    /// filters (so the corresponding text disappears too) and re-run the
+    /// search — without re-resolving, since tags are already canonical.
     private func chipChanged() {
-        if !results.isEmpty { Task { await executeSearch() } }
+        syncPromptToFilters()
+        if !results.isEmpty { Task { await executeSearch(resolve: false) } }
+    }
+
+    /// Rewrites the search box to a normalized representation of the active
+    /// filters. `suppressParse` prevents the resulting onChange from
+    /// re-parsing (which would just reproduce the same filters).
+    private func syncPromptToFilters() {
+        suppressParse = true
+        prompt = reconstructedPrompt(from: lastParsed)
+        DispatchQueue.main.async { suppressParse = false }
+    }
+
+    private func reconstructedPrompt(from f: AO3SearchFilters) -> String {
+        var parts: [String] = []
+        parts += f.relationshipNames
+        parts += f.characterNames
+        parts += f.fandomNames
+        parts += f.freeformNames
+        parts += f.ratings.map(\.displayName)
+        parts += f.warnings.map(\.displayName)
+        parts += f.categories.map(\.displayName)
+        if f.singleChapter { parts.append("oneshot") }
+        switch f.complete {
+        case .yes: parts.append("complete")
+        case .no:  parts.append("wip")
+        case .any: break
+        }
+        switch f.crossover {
+        case .yes: parts.append("crossover")
+        case .no:  parts.append("no crossovers")
+        case .any: break
+        }
+        if !f.wordCount.isEmpty { parts.append(wordCountPhrase(f.wordCount)) }
+        if !f.languageId.isEmpty { parts.append("in \(f.languageId)") }
+        if !f.query.isEmpty { parts.append(f.query) }
+        parts += f.excludedFreeforms.map { "-\($0)" }
+        return parts.joined(separator: " ")
+    }
+
+    private func wordCountPhrase(_ wc: String) -> String {
+        if wc.hasPrefix(">") { return "over \(wc.dropFirst())" }
+        if wc.hasPrefix("<") { return "under \(wc.dropFirst())" }
+        if wc.contains("-") {
+            let p = wc.split(separator: "-")
+            if p.count == 2 { return "between \(p[0]) and \(p[1])" }
+        }
+        return "\(wc) words"
     }
 }
 

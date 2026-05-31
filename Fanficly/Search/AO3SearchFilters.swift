@@ -181,8 +181,8 @@ extension AO3SearchFilters {
             items.append(URLQueryItem(name: "work_search[revised_at]", value: revisedAt))
         }
         switch complete {
-        case .yes: items.append(URLQueryItem(name: "work_search[complete]", value: "T"))
-        case .no:  items.append(URLQueryItem(name: "work_search[complete]", value: "F"))
+        case .yes: items.append(URLQueryItem(name: "work_search[complete]", value: "true"))
+        case .no:  items.append(URLQueryItem(name: "work_search[complete]", value: "false"))
         case .any: break
         }
         switch crossover {

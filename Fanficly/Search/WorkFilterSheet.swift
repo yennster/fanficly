@@ -34,6 +34,7 @@ struct WorkFilterSheet: View {
                 tagsSection
                 languageSection
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
