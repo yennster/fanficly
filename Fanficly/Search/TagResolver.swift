@@ -23,13 +23,31 @@ enum TagResolver {
     }
 
     private static func resolveOne(_ term: String, field: AO3AutocompleteField, client: any AO3ClientProtocol) async -> String {
-        // Try the term as typed, then a few fallbacks — AO3's autocomplete
-        // is picky about slashes/order in ship names ("hermione/draco" may
-        // need to be "hermione draco" to match "Hermione Granger/Draco Malfoy").
+        // Try the term as typed, then a few simple fallbacks.
         for candidate in candidates(for: term, field: field) {
             if let matches = try? await client.autocomplete(field: field, term: candidate),
                let best = bestMatch(for: term, in: matches) {
                 return best
+            }
+        }
+        // Relationship couldn't be matched directly (AO3's autocomplete needs
+        // the canonical full names, e.g. "Hermione Granger/Draco Malfoy", not
+        // "hermione/draco"). Resolve each side to a canonical character, then
+        // look up the ship.
+        if field == .relationship, term.contains("/") {
+            let parts = term.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2 {
+                let a = await resolveOne(parts[0], field: .character, client: client)
+                let b = await resolveOne(parts[1], field: .character, client: client)
+                // Try the ship in both orders / separators.
+                for query in ["\(a)/\(b)", "\(a) \(b)", "\(b)/\(a)", "\(b) \(a)"] {
+                    if let matches = try? await client.autocomplete(field: .relationship, term: query),
+                       let first = matches.first {
+                        return first
+                    }
+                }
+                // Last resort: construct it from the resolved names.
+                if a != parts[0] || b != parts[1] { return "\(a)/\(b)" }
             }
         }
         return term

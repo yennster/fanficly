@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// AO3-style filter panel that edits an `AO3SearchFilters`. The fandom (or
 /// any other already-fixed field) is preserved by the caller; this sheet
@@ -7,6 +8,8 @@ struct WorkFilterSheet: View {
     @Binding var filters: AO3SearchFilters
     let onApply: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
 
     // Editable text mirrors for the comma-separated tag fields.
     @State private var relationshipsText: String = ""
@@ -15,10 +18,13 @@ struct WorkFilterSheet: View {
     @State private var excludeText: String = ""
     @State private var wordsFrom: String = ""
     @State private var wordsTo: String = ""
+    @State private var showingSaveDialog = false
+    @State private var saveName = ""
 
     var body: some View {
         NavigationStack {
             Form {
+                savedFiltersSection
                 sortSection
                 ratingsSection
                 warningsSection
@@ -44,7 +50,60 @@ struct WorkFilterSheet: View {
                 }
             }
             .onAppear(perform: seedText)
+            .alert("Save filter", isPresented: $showingSaveDialog) {
+                TextField("Name", text: $saveName)
+                Button("Save") { saveCurrentFilter() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Saves these filters (rating, tags, status, etc.) so you can apply them to any fandom later. The fandom itself isn't saved.")
+            }
         }
+    }
+
+    private var savedFiltersSection: some View {
+        Section("Saved filters") {
+            ForEach(savedFilters) { saved in
+                Button {
+                    applySaved(saved)
+                } label: {
+                    Label(saved.name, systemImage: "line.3.horizontal.decrease.circle")
+                        .foregroundStyle(.primary)
+                }
+                .swipeActions {
+                    Button(role: .destructive) {
+                        context.delete(saved); try? context.save()
+                    } label: { Label("Delete", systemImage: "trash") }
+                }
+            }
+            Button {
+                commitText()
+                saveName = ""
+                showingSaveDialog = true
+            } label: {
+                Label("Save current filters…", systemImage: "plus.circle")
+            }
+        }
+    }
+
+    private func applySaved(_ saved: SavedFilter) {
+        guard var loaded = AO3SearchFilters.from(savedJSON: saved.filtersJSON) else { return }
+        loaded.fandomNames = filters.fandomNames  // keep the current fandom
+        filters = loaded
+        seedText()
+    }
+
+    private func saveCurrentFilter() {
+        let name = saveName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        let json = filters.savedJSON()
+        let descriptor = FetchDescriptor<SavedFilter>(predicate: #Predicate { $0.name == name })
+        if let existing = (try? context.fetch(descriptor))?.first {
+            existing.filtersJSON = json
+            existing.savedAt = .now
+        } else {
+            context.insert(SavedFilter(name: name, filtersJSON: json))
+        }
+        try? context.save()
     }
 
     // MARK: - Sections

@@ -1,6 +1,6 @@
 import Foundation
 
-public struct AO3SearchFilters: Equatable, Sendable {
+public struct AO3SearchFilters: Equatable, Sendable, Codable {
     public var query: String = ""
     public var title: String = ""
     public var creators: String = ""
@@ -27,13 +27,13 @@ public struct AO3SearchFilters: Equatable, Sendable {
 
     public init() {}
 
-    public enum TriState: String, Equatable, Sendable {
+    public enum TriState: String, Equatable, Sendable, Codable {
         case any
         case yes
         case no
     }
 
-    public enum Rating: String, CaseIterable, Sendable {
+    public enum Rating: String, CaseIterable, Sendable, Codable {
         case general = "10"
         case teen = "11"
         case mature = "12"
@@ -51,7 +51,7 @@ public struct AO3SearchFilters: Equatable, Sendable {
         }
     }
 
-    public enum ArchiveWarning: String, CaseIterable, Sendable {
+    public enum ArchiveWarning: String, CaseIterable, Sendable, Codable {
         case chooseNotToUse = "14"
         case noWarningsApply = "16"
         case graphicViolence = "17"
@@ -71,7 +71,7 @@ public struct AO3SearchFilters: Equatable, Sendable {
         }
     }
 
-    public enum Category: String, CaseIterable, Sendable {
+    public enum Category: String, CaseIterable, Sendable, Codable {
         case ff = "116"
         case fm = "22"
         case gen = "21"
@@ -91,7 +91,7 @@ public struct AO3SearchFilters: Equatable, Sendable {
         }
     }
 
-    public enum SortColumn: String, CaseIterable, Sendable, Hashable {
+    public enum SortColumn: String, CaseIterable, Sendable, Hashable, Codable {
         case bestMatch = "_score"
         case author = "authors_to_sort_on"
         case title = "title_to_sort_on"
@@ -119,7 +119,7 @@ public struct AO3SearchFilters: Equatable, Sendable {
         }
     }
 
-    public enum SortDirection: String, CaseIterable, Sendable, Hashable {
+    public enum SortDirection: String, CaseIterable, Sendable, Hashable, Codable {
         case asc, desc
         public var displayName: String { self == .asc ? "Ascending" : "Descending" }
         public var symbol: String { self == .asc ? "arrow.up" : "arrow.down" }
@@ -151,6 +151,20 @@ public struct AO3SearchFilters: Equatable, Sendable {
 }
 
 extension AO3SearchFilters {
+    /// JSON for persisting a saved filter (fandom names excluded so the
+    /// config can be applied to any fandom).
+    public func savedJSON() -> String {
+        var copy = self
+        copy.fandomNames = []
+        guard let data = try? JSONEncoder().encode(copy) else { return "{}" }
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    public static func from(savedJSON json: String) -> AO3SearchFilters? {
+        guard let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(AO3SearchFilters.self, from: data)
+    }
+
     public func queryItems() -> [URLQueryItem] {
         var items: [URLQueryItem] = []
         let composedQuery = composedQueryString()

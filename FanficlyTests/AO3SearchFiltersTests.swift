@@ -83,6 +83,30 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertFalse(f.isEmpty)
     }
 
+    func test_savedJSONRoundTripsAndDropsFandom() {
+        var f = AO3SearchFilters()
+        f.fandomNames = ["Harry Potter - J. K. Rowling"]
+        f.relationshipNames = ["Hermione Granger/Draco Malfoy"]
+        f.ratings = [.explicit]
+        f.complete = .yes
+        f.excludedFreeforms = ["Angst"]
+        f.wordCount = ">10000"
+
+        let json = f.savedJSON()
+        let restored = AO3SearchFilters.from(savedJSON: json)
+        XCTAssertNotNil(restored)
+        XCTAssertTrue(restored!.fandomNames.isEmpty, "fandom should not be saved")
+        XCTAssertEqual(restored!.relationshipNames, ["Hermione Granger/Draco Malfoy"])
+        XCTAssertTrue(restored!.ratings.contains(.explicit))
+        XCTAssertEqual(restored!.complete, .yes)
+        XCTAssertEqual(restored!.excludedFreeforms, ["Angst"])
+        XCTAssertEqual(restored!.wordCount, ">10000")
+    }
+
+    func test_fromInvalidJSONIsNil() {
+        XCTAssertNil(AO3SearchFilters.from(savedJSON: "not json"))
+    }
+
     func test_ratingDisplayNames() {
         XCTAssertEqual(AO3SearchFilters.Rating.explicit.displayName, "Explicit")
         XCTAssertEqual(AO3SearchFilters.Category.mm.displayName, "M/M")

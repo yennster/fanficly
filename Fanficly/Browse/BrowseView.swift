@@ -162,6 +162,22 @@ struct FandomWorksView: View {
                 .listStyle(.plain)
             }
         }
+        // When re-filtering with results already showing, dim + spin so it's
+        // clear the search is running (filter changes resolve tags + refetch,
+        // which takes a moment).
+        .overlay {
+            if isLoading && !works.isEmpty {
+                ZStack {
+                    Color(.systemBackground).opacity(0.6).ignoresSafeArea()
+                    VStack(spacing: 10) {
+                        ProgressView()
+                        Text("Applying filters…").font(.callout).foregroundStyle(.secondary)
+                    }
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+        }
         .navigationTitle(fandom.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

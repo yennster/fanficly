@@ -158,7 +158,7 @@
 		DBE134CABB0F90B6C9B9DAD7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DE70E6F403D1F1C214C9555C /* WorkMetadataParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkMetadataParserTests.swift; sourceTree = "<group>"; };
 		F42DE1E292D1452982BBDC3C /* FoundationModelsEnricher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsEnricher.swift; sourceTree = "<group>"; };
-		"TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_A4504077-4D38-4E3B-A4F9-E23414DEFC76" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -375,10 +375,10 @@
 			path = HTMLParsers;
 			sourceTree = "<group>";
 		};
-		"TEMP_CE5143F8-C38F-414E-BBE5-AB3DCC43E47B" /* ao3-app */ = {
+		"TEMP_DD7DFB7A-1B43-4B24-9735-80FFFDB02258" /* ao3-app */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */,
+				"TEMP_A4504077-4D38-4E3B-A4F9-E23414DEFC76" /* Signing.xcconfig */,
 			);
 			path = "ao3-app";
 			sourceTree = "<group>";
@@ -456,7 +456,7 @@
 						ProvisioningStyle = Automatic;
 					};
 					D29D577690F525C823666755 = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = C3M77U97WH;
 						ProvisioningStyle = Automatic;
 					};
 					D45A361A66FB7255C05EB330 = {
@@ -690,7 +690,7 @@
 		};
 		6FAF1406E881D8C0AC736895 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A4504077-4D38-4E3B-A4F9-E23414DEFC76" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -713,7 +713,7 @@
 		};
 		C1C42BD5CB7E6D67B69726DD /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A4504077-4D38-4E3B-A4F9-E23414DEFC76" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

@@ -135,6 +135,19 @@ final class BookmarkRecord {
 }
 
 @Model
+final class SavedFilter {
+    @Attribute(.unique) var name: String
+    var filtersJSON: String
+    var savedAt: Date
+
+    init(name: String, filtersJSON: String, savedAt: Date = .now) {
+        self.name = name
+        self.filtersJSON = filtersJSON
+        self.savedAt = savedAt
+    }
+}
+
+@Model
 final class ReadingProgress {
     @Attribute(.unique) var ao3Id: Int
     var chapterIndex: Int
