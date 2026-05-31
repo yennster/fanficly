@@ -158,6 +158,7 @@
 		DBE134CABB0F90B6C9B9DAD7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DE70E6F403D1F1C214C9555C /* WorkMetadataParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkMetadataParserTests.swift; sourceTree = "<group>"; };
 		F42DE1E292D1452982BBDC3C /* FoundationModelsEnricher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsEnricher.swift; sourceTree = "<group>"; };
+		"TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -374,6 +375,14 @@
 			path = HTMLParsers;
 			sourceTree = "<group>";
 		};
+		"TEMP_CE5143F8-C38F-414E-BBE5-AB3DCC43E47B" /* ao3-app */ = {
+			isa = PBXGroup;
+			children = (
+				"TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */,
+			);
+			path = "ao3-app";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -444,7 +453,6 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					55919C3559BCDFF65ED7E925 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					D29D577690F525C823666755 = {
@@ -452,7 +460,6 @@
 						ProvisioningStyle = Automatic;
 					};
 					D45A361A66FB7255C05EB330 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 						TestTargetID = D29D577690F525C823666755;
 					};
@@ -648,7 +655,6 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -684,6 +690,7 @@
 		};
 		6FAF1406E881D8C0AC736895 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -706,6 +713,7 @@
 		};
 		C1C42BD5CB7E6D67B69726DD /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = "TEMP_DC115889-659A-43E7-98DA-D6D5C1EDC6B0" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -817,7 +825,6 @@
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;

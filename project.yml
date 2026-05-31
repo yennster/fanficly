@@ -17,7 +17,6 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1,2"
@@ -35,6 +34,11 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    # Your Apple Developer team ID lives in Signing.xcconfig (kept out of
+    # git so it isn't committed to the public repo). See the README.
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     sources:
       - path: Fanficly
         excludes:

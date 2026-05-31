@@ -1,0 +1,12 @@
+// Local code-signing config. Put your Apple Developer Team ID here to run
+// on a physical device. Leave empty for the simulator (no team needed).
+//
+// Find your Team ID:  Xcode ▸ Settings ▸ Accounts ▸ (your account) ▸
+//                     Manage Certificates, or developer.apple.com Membership.
+//
+// This file is committed empty. Set your team locally, then keep it out of
+// git so your ID isn't pushed to the public repo:
+//
+//     git update-index --skip-worktree Signing.xcconfig
+//
+DEVELOPMENT_TEAM =
