@@ -6,6 +6,7 @@ import SwiftData
 struct RecentlyViewedView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \RecentlyViewed.viewedAt, order: .reverse) private var recents: [RecentlyViewed]
+    @State private var showingClearConfirmation = false
 
     var body: some View {
         Group {
@@ -31,12 +32,15 @@ struct RecentlyViewedView: View {
                         }
                         .swipeActions {
                             Button(role: .destructive) {
-                                context.delete(item); try? context.save()
+                                remove(item)
                             } label: { Label("Remove", systemImage: "trash") }
                         }
                     }
+                    // Enables Edit-mode multi-select delete in addition to swipe.
+                    .onDelete(perform: removeAt)
                 }
                 .listStyle(.plain)
+                .toolbar { EditButton() }
             }
         }
         .navigationTitle("Recently Viewed")
@@ -46,14 +50,35 @@ struct RecentlyViewedView: View {
         }
         .toolbar {
             if !recents.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Clear") {
-                        for r in recents { context.delete(r) }
-                        try? context.save()
-                    }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Clear", role: .destructive) { showingClearConfirmation = true }
                 }
             }
         }
+        .confirmationDialog(
+            "Clear recently viewed?",
+            isPresented: $showingClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive, action: clearAll)
+        } message: {
+            Text("This removes all \(recents.count) entries. It won't delete anything from AO3 or your library.")
+        }
+    }
+
+    private func remove(_ item: RecentlyViewed) {
+        context.delete(item)
+        try? context.save()
+    }
+
+    private func removeAt(_ offsets: IndexSet) {
+        for index in offsets { context.delete(recents[index]) }
+        try? context.save()
+    }
+
+    private func clearAll() {
+        for item in recents { context.delete(item) }
+        try? context.save()
     }
 }
 
