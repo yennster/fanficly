@@ -166,6 +166,26 @@ final class ReadingProgress {
     }
 }
 
+/// A lightweight history entry for a work the user opened. Kept separate from
+/// `Work` so merely *viewing* a fic doesn't create a full saved/followed Work
+/// row — this mirrors `ReadingProgress`'s per-work-id footprint.
+@Model
+final class RecentlyViewed {
+    @Attribute(.unique) var ao3Id: Int
+    var title: String
+    var author: String
+    var fandom: String
+    var viewedAt: Date
+
+    init(ao3Id: Int, title: String, author: String = "", fandom: String = "", viewedAt: Date = .now) {
+        self.ao3Id = ao3Id
+        self.title = title
+        self.author = author
+        self.fandom = fandom
+        self.viewedAt = viewedAt
+    }
+}
+
 @Model
 final class SavedSearch {
     @Attribute(.unique) var name: String

@@ -21,6 +21,7 @@ struct RootView: View {
                 case .search: SearchView()
                 case .browse: BrowseView()
                 case .library: LibraryView()
+                case .recentlyViewed: RecentlyViewedView()
                 case .subscriptions: SubscriptionsView()
                 case .settings: SettingsView()
                 }
@@ -30,7 +31,7 @@ struct RootView: View {
 }
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case search, browse, library, subscriptions, settings
+    case search, browse, library, recentlyViewed, subscriptions, settings
 
     var id: String { rawValue }
 
@@ -39,6 +40,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .search: "Search"
         case .browse: "Browse"
         case .library: "Library"
+        case .recentlyViewed: "Recently Viewed"
         case .subscriptions: "Subscriptions"
         case .settings: "Settings"
         }
@@ -49,6 +51,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .search: "magnifyingglass"
         case .browse: "rectangle.stack"
         case .library: "books.vertical"
+        case .recentlyViewed: "clock.arrow.circlepath"
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }

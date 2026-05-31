@@ -559,7 +559,9 @@ struct WorkDetailView: View {
         epubURL = WorkPersistence.epubURL(workId: workId)
         followed = WorkPersistence.isFollowed(workId: workId, in: context)
         do {
-            payload = try await client.fetchWork(id: workId)
+            let fetched = try await client.fetchWork(id: workId)
+            payload = fetched
+            WorkPersistence.recordView(summary: fetched.summary, into: context)
         } catch {
             errorMessage = "\(error)"
         }

@@ -80,6 +80,34 @@ enum WorkPersistence {
         return work.isFollowed
     }
 
+    /// Record (or bump to "now") a work in the recently-viewed history,
+    /// trimming the list to the newest `limit` entries.
+    @MainActor
+    static func recordView(summary: AO3WorkSummary, into context: ModelContext, limit: Int = 50) {
+        let ao3Id = summary.id
+        let descriptor = FetchDescriptor<RecentlyViewed>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        if let existing = (try? context.fetch(descriptor))?.first {
+            existing.viewedAt = .now
+            existing.title = summary.title
+            existing.author = summary.author
+            existing.fandom = summary.fandoms.first ?? ""
+        } else {
+            context.insert(RecentlyViewed(
+                ao3Id: summary.id,
+                title: summary.title,
+                author: summary.author,
+                fandom: summary.fandoms.first ?? ""
+            ))
+        }
+
+        let all = (try? context.fetch(FetchDescriptor<RecentlyViewed>(
+            sortBy: [SortDescriptor(\.viewedAt, order: .reverse)]))) ?? []
+        if all.count > limit {
+            for stale in all[limit...] { context.delete(stale) }
+        }
+        try? context.save()
+    }
+
     static func epubURL(workId: Int) -> URL? {
         guard let docs = try? FileManager.default.url(
             for: .documentDirectory, in: .userDomainMask,
