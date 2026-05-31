@@ -6,7 +6,7 @@ A high-quality, open-source, ad-free iPhone & iPad reader for [Archive of Our Ow
 
 ## Features (planned for v1)
 
-- **Smart prompt-style search** — type `edward/bella romance all human explicit -mpreg` and watch it parse into proper AO3 filters
+- **Smart prompt-style search** — type `edward/bella romance all human complete -jacob` and watch it parse into proper AO3 filters
 - **AO3 account login** — bookmarks, history, subscriptions sync to your device
 - **Offline reading library** — save works as EPUB, read inside a polished reader with light/sepia/dark/OLED themes
 - **Share to Kindle and anywhere else** — iOS share sheet hands off EPUB/MOBI directly
