@@ -16,7 +16,7 @@ public struct AO3SearchResults: Sendable, Equatable {
     public let currentPage: Int
 }
 
-public struct AO3WorkSummary: Sendable, Equatable, Identifiable {
+public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
     public let id: Int
     public let title: String
     public let author: String
@@ -49,7 +49,7 @@ public struct AO3ChapterPayload: Sendable {
     public let bodyHTML: String
 }
 
-public enum AO3Error: Error, Sendable {
+public enum AO3Error: Error, Sendable, Equatable {
     case loginFailed(reason: String)
     case rateLimited
     case unauthorized
@@ -63,6 +63,7 @@ public actor AO3Client: AO3ClientProtocol {
     private let session: URLSession
     private let throttle = ThrottleActor(minimumInterval: 1.0)
     private let logger = Logger(subsystem: "io.github.yennster.fanficly", category: "AO3Client")
+    private var cachedUsername: String?
 
     public init(session: URLSession? = nil) {
         if let session {
@@ -86,37 +87,122 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func login(username: String, password: String) async throws {
-        logger.info("Login flow stub — to be implemented")
-        throw AO3Error.loginFailed(reason: "Login not yet implemented")
+        await throttle.wait()
+
+        let loginURL = try AO3Endpoints.login(base: baseURL)
+        let (formData, _) = try await performRequest(URLRequest(url: loginURL))
+        guard let formHTML = String(data: formData, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Login page not UTF-8")
+        }
+        guard let token = try LoginParser.authenticityToken(html: formHTML) else {
+            throw AO3Error.parseFailed(reason: "authenticity_token not found")
+        }
+
+        await throttle.wait()
+        var post = URLRequest(url: loginURL)
+        post.httpMethod = "POST"
+        post.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        post.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        post.setValue(loginURL.absoluteString, forHTTPHeaderField: "Referer")
+        let body = encodeForm([
+            "authenticity_token": token,
+            "user[login]": username,
+            "user[password]": password,
+            "user[remember_me]": "1",
+            "commit": "Log in",
+        ])
+        post.httpBody = body.data(using: .utf8)
+
+        let (loginRespData, loginResp) = try await performRequest(post)
+        let respHTML = String(data: loginRespData, encoding: .utf8) ?? ""
+
+        if let err = try LoginParser.detectLoginFailure(html: respHTML) {
+            throw AO3Error.loginFailed(reason: err)
+        }
+
+        if let cookieHeader = (loginResp.value(forHTTPHeaderField: "Set-Cookie")),
+           cookieHeader.contains("user_credentials") || cookieHeader.contains("remember_user_token") {
+            // success cookie observed
+        }
+
+        if let name = try LoginParser.currentUsername(html: respHTML) {
+            cachedUsername = name
+        } else {
+            cachedUsername = username
+        }
     }
 
     public func logout() async {
         if let cookies = HTTPCookieStorage.shared.cookies(for: baseURL) {
             for cookie in cookies { HTTPCookieStorage.shared.deleteCookie(cookie) }
         }
+        cachedUsername = nil
     }
 
     public func currentUsername() async -> String? {
-        nil
+        cachedUsername
     }
 
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
         await throttle.wait()
         let url = try AO3Endpoints.search(filters: filters, page: page, base: baseURL)
         logger.debug("GET \(url.absoluteString, privacy: .public)")
-        throw AO3Error.parseFailed(reason: "Search HTML parser not yet implemented")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Search response not UTF-8")
+        }
+        return try SearchResultsParser.parse(html: html)
     }
 
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         await throttle.wait()
-        _ = try AO3Endpoints.work(id: id, base: baseURL)
-        throw AO3Error.parseFailed(reason: "Work HTML parser not yet implemented")
+        let url = try AO3Endpoints.work(id: id, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Work response not UTF-8")
+        }
+        return try WorkPageParser.parse(html: html, workId: id)
     }
 
     public func downloadEPUB(workId: Int) async throws -> URL {
         await throttle.wait()
-        _ = try AO3Endpoints.epub(workId: workId, base: baseURL)
-        throw AO3Error.parseFailed(reason: "EPUB download not yet implemented")
+        let url = try AO3Endpoints.epub(workId: workId, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        let docs = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let dir = docs.appendingPathComponent("library", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let fileURL = dir.appendingPathComponent("\(workId).epub")
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw AO3Error.network(underlying: "Non-HTTP response")
+            }
+            switch http.statusCode {
+            case 200..<300, 302: return (data, http)
+            case 401, 403:        throw AO3Error.unauthorized
+            case 429:             throw AO3Error.rateLimited
+            default:              throw AO3Error.http(status: http.statusCode)
+            }
+        } catch let error as AO3Error {
+            throw error
+        } catch {
+            throw AO3Error.network(underlying: error.localizedDescription)
+        }
+    }
+
+    private func encodeForm(_ pairs: [String: String]) -> String {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "+&=")
+        return pairs.map { k, v in
+            let key = k.addingPercentEncoding(withAllowedCharacters: cs) ?? k
+            let val = v.addingPercentEncoding(withAllowedCharacters: cs) ?? v
+            return "\(key)=\(val)"
+        }.joined(separator: "&")
     }
 }
 
