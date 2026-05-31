@@ -27,6 +27,7 @@ struct SearchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Search")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: AO3WorkSummary.self) { work in
             WorkDetailView(workId: work.id)
         }
