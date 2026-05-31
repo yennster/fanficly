@@ -115,7 +115,3 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 ## Privacy posture (do not regress)
 
 The app stores **nothing** off-device. Don't add analytics, crash reporting, or remote logging. The only persisted secret is AO3's own session cookie (in iOS Keychain). See `PRIVACY.md` and `PrivacyInfo.xcprivacy`.
-
-## Commits
-
-Use `jenny@edgeimpulse.com` as the author email for this repo (already set in `.git/config` local) — it matches the GPG signing key UID so GitHub marks commits Verified. Don't change the GPG signing key.

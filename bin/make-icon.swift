@@ -1,7 +1,6 @@
 #!/usr/bin/env swift
 // Generates a 1024x1024 Fanficly app icon as PNG.
-// Usage: swift bin/make-icon.swift > /tmp/icon.png  (or pipe target)
-//        bin/make-icon.swift <out.png>
+// Usage: bin/make-icon.swift [out.png]
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -39,63 +38,106 @@ func gradient(_ ctx: CGContext) {
         options: [])
 }
 
-func drawBook(_ ctx: CGContext) {
-    let bookW = width * 0.56
-    let bookH = height * 0.62
-    let bookX = (width - bookW) / 2
-    let bookY = (height - bookH) / 2 + height * 0.02
+func drawOpenBook(_ ctx: CGContext) {
+    let bookW = width * 0.78
+    let bookH = height * 0.54
+    let cx = width / 2
+    let cy = height / 2 + height * 0.02
+    let halfW = bookW / 2
+    let halfH = bookH / 2
+    let tilt: CGFloat = 24
 
-    ctx.setShadow(offset: .init(width: 0, height: -24), blur: 48,
-                  color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -18), blur: 42,
+                  color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.32))
 
-    let rect = CGRect(x: bookX, y: bookY, width: bookW, height: bookH)
-    let bookPath = CGPath(roundedRect: rect, cornerWidth: 36, cornerHeight: 36, transform: nil)
-    ctx.addPath(bookPath)
-    ctx.setFillColor(CGColor(red: 0.99, green: 0.97, blue: 0.93, alpha: 1.0))
+    let cream = CGColor(red: 0.99, green: 0.97, blue: 0.92, alpha: 1.0)
+    let edge  = CGColor(red: 0.86, green: 0.78, blue: 0.66, alpha: 1.0)
+
+    let leftPage = CGMutablePath()
+    leftPage.move(to:    CGPoint(x: cx - 4,            y: cy - halfH))
+    leftPage.addLine(to: CGPoint(x: cx - halfW + tilt, y: cy - halfH + tilt * 0.8))
+    leftPage.addQuadCurve(to: CGPoint(x: cx - halfW + tilt, y: cy + halfH - tilt * 0.8),
+                          control: CGPoint(x: cx - halfW - tilt * 0.5, y: cy))
+    leftPage.addLine(to: CGPoint(x: cx - 4,            y: cy + halfH))
+    leftPage.closeSubpath()
+
+    let rightPage = CGMutablePath()
+    rightPage.move(to:    CGPoint(x: cx + 4,            y: cy - halfH))
+    rightPage.addLine(to: CGPoint(x: cx + halfW - tilt, y: cy - halfH + tilt * 0.8))
+    rightPage.addQuadCurve(to: CGPoint(x: cx + halfW - tilt, y: cy + halfH - tilt * 0.8),
+                           control: CGPoint(x: cx + halfW + tilt * 0.5, y: cy))
+    rightPage.addLine(to: CGPoint(x: cx + 4,            y: cy + halfH))
+    rightPage.closeSubpath()
+
+    ctx.setFillColor(cream)
+    ctx.addPath(leftPage)
+    ctx.fillPath()
+    ctx.setFillColor(cream)
+    ctx.addPath(rightPage)
     ctx.fillPath()
 
-    ctx.setShadow(offset: .zero, blur: 0, color: nil)
+    ctx.restoreGState()
 
-    let spineX = bookX + bookW / 2 - 4
-    ctx.setStrokeColor(CGColor(red: 0.85, green: 0.78, blue: 0.66, alpha: 1.0))
-    ctx.setLineWidth(6)
-    ctx.move(to: CGPoint(x: spineX, y: bookY + 32))
-    ctx.addLine(to: CGPoint(x: spineX, y: bookY + bookH - 32))
+    ctx.setStrokeColor(edge)
+    ctx.setLineWidth(3)
+    ctx.addPath(leftPage)
     ctx.strokePath()
+    ctx.addPath(rightPage)
+    ctx.strokePath()
+
+    let spineDarker = CGColor(red: 0.30, green: 0.08, blue: 0.40, alpha: 1.0)
+    ctx.setStrokeColor(spineDarker)
+    ctx.setLineWidth(6)
+    ctx.move(to: CGPoint(x: cx, y: cy - halfH + 4))
+    ctx.addLine(to: CGPoint(x: cx, y: cy + halfH - 4))
+    ctx.strokePath()
+
+    let textColor = CGColor(red: 0.45, green: 0.30, blue: 0.20, alpha: 0.55)
+    ctx.setFillColor(textColor)
+    let lineH: CGFloat = 14
+    let lineGap: CGFloat = 38
+    let lineCount = 7
+    let topY = cy + halfH - 60
+    for i in 0..<lineCount {
+        let y = topY - CGFloat(i) * lineGap
+        let pageInset: CGFloat = 36
+        let pageW = halfW - tilt - pageInset - 14
+        let leftWidth: CGFloat = pageW * (i == lineCount - 1 ? 0.55 : (i % 3 == 0 ? 0.95 : 0.82))
+        let rightWidth: CGFloat = pageW * (i == lineCount - 1 ? 0.48 : (i % 2 == 0 ? 0.9 : 0.78))
+        ctx.fill(CGRect(x: cx - halfW + tilt + pageInset, y: y,
+                        width: leftWidth, height: lineH))
+        ctx.fill(CGRect(x: cx + 14, y: y,
+                        width: rightWidth, height: lineH))
+    }
 }
 
-func drawLetter(_ ctx: CGContext) {
+func drawFAccent(_ ctx: CGContext) {
+    // Small F watermark on the left page, scrabble-tile style.
+    let badgeSize: CGFloat = 130
+    let bx = width * 0.20
+    let by = height * 0.62
+    let badge = CGRect(x: bx, y: by, width: badgeSize, height: badgeSize)
+    ctx.setFillColor(CGColor(red: 0.42, green: 0.12, blue: 0.55, alpha: 1.0))
+    ctx.addPath(CGPath(roundedRect: badge, cornerWidth: 24, cornerHeight: 24, transform: nil))
+    ctx.fillPath()
+
     let attrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont(name: "New York", size: 520) ?? NSFont.systemFont(ofSize: 520, weight: .bold),
-        .foregroundColor: NSColor(srgbRed: 0.42, green: 0.12, blue: 0.55, alpha: 1.0),
+        .font: NSFont(name: "New York Bold", size: 96) ?? NSFont.systemFont(ofSize: 96, weight: .heavy),
+        .foregroundColor: NSColor(srgbRed: 0.99, green: 0.97, blue: 0.92, alpha: 1.0),
     ]
     let s = NSAttributedString(string: "F", attributes: attrs)
     let line = CTLineCreateWithAttributedString(s)
     let bounds = CTLineGetImageBounds(line, ctx)
-    let x = (width - bounds.width) / 2 - bounds.origin.x
-    let y = (height - bounds.height) / 2 - bounds.origin.y - 12
-    ctx.textPosition = CGPoint(x: x, y: y)
-    CTLineDraw(line, ctx)
-}
-
-func drawHeart(_ ctx: CGContext) {
-    let attrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 220, weight: .heavy),
-        .foregroundColor: NSColor(srgbRed: 0.96, green: 0.30, blue: 0.45, alpha: 1.0),
-    ]
-    let s = NSAttributedString(string: "\u{2665}", attributes: attrs)
-    let line = CTLineCreateWithAttributedString(s)
-    let bounds = CTLineGetImageBounds(line, ctx)
-    let x = width * 0.71 - bounds.origin.x
-    let y = height * 0.18 - bounds.origin.y
+    let x = badge.midX - bounds.width / 2 - bounds.origin.x
+    let y = badge.midY - bounds.height / 2 - bounds.origin.y
     ctx.textPosition = CGPoint(x: x, y: y)
     CTLineDraw(line, ctx)
 }
 
 gradient(ctx)
-drawBook(ctx)
-drawLetter(ctx)
-// drawHeart(ctx) — Core Text glyph positioning misbehaved; clean F-on-book reads better anyway.
+drawOpenBook(ctx)
+drawFAccent(ctx)
 
 guard let image = ctx.makeImage() else {
     FileHandle.standardError.write("makeImage failed\n".data(using: .utf8)!)
