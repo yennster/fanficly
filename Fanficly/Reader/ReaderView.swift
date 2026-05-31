@@ -12,6 +12,7 @@ struct ReaderView: View {
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
     @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("reader.lineSpacing") private var lineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
+    @AppStorage("reader.paragraphSpacing") private var paragraphSpacingRaw: String = ReaderParagraphSpacing.normal.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var selectedChapterIndex: Int = 1
@@ -32,6 +33,7 @@ struct ReaderView: View {
     private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
     private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
     private var lineSpacing: ReaderLineSpacing { ReaderLineSpacing(rawValue: lineSpacingRaw) ?? .normal }
+    private var paragraphSpacing: ReaderParagraphSpacing { ReaderParagraphSpacing(rawValue: paragraphSpacingRaw) ?? .normal }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         self.title = title
@@ -160,7 +162,15 @@ struct ReaderView: View {
                 }
             }
             .onChange(of: selectedChapterIndex) { _, newIndex in
+                // Reveal chrome so the chapter-bar inset is reserved, then
+                // scroll — a second pass after layout lands it correctly
+                // (below the nav) instead of cut off underneath it.
+                if chromeHidden { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false } }
                 proxy.scrollTo(newIndex, anchor: .top)
+                Task {
+                    try? await Task.sleep(nanoseconds: 60_000_000)
+                    proxy.scrollTo(newIndex, anchor: .top)
+                }
             }
             .onChange(of: currentAnchor) { _, anchor in
                 if let anchor { saveProgress(anchor) }
@@ -290,7 +300,9 @@ struct ReaderView: View {
                     }
                     .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
                     .padding(.horizontal, width.horizontalPadding)
-                    .padding(.vertical, Spacing.lg)
+                    .padding(.top, Spacing.lg)
+                    // Clear the page-indicator dots at the bottom.
+                    .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .tag(chapter.index)
@@ -350,6 +362,7 @@ struct ReaderView: View {
             html: chapter.bodyHTML,
             font: fontFamily.font(size: fontSize.cgFloat),
             lineSpacing: lineSpacing.points,
+            paragraphSpacing: paragraphSpacing.points,
             foreground: fg,
             scrollSpace: scrollSpace
         )
@@ -413,6 +426,14 @@ struct ReaderView: View {
                 }
             } label: {
                 Label("Line spacing · \(lineSpacing.displayName)", systemImage: "arrow.up.and.down.text.horizontal")
+            }
+
+            Menu {
+                Picker("Paragraph spacing", selection: $paragraphSpacingRaw) {
+                    ForEach(ReaderParagraphSpacing.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
+            } label: {
+                Label("Paragraph spacing · \(paragraphSpacing.displayName)", systemImage: "text.justify.left")
             }
 
             Menu {

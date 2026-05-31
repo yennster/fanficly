@@ -153,6 +153,28 @@ enum ReaderLineSpacing: String, CaseIterable, Identifiable {
     }
 }
 
+enum ReaderParagraphSpacing: String, CaseIterable, Identifiable {
+    case compact, normal, roomy, airy
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .compact: "Compact"
+        case .normal:  "Normal"
+        case .roomy:   "Roomy"
+        case .airy:    "Airy"
+        }
+    }
+    var points: CGFloat {
+        switch self {
+        case .compact: 8
+        case .normal:  16
+        case .roomy:   26
+        case .airy:    38
+        }
+    }
+}
+
 enum ReadingMode: String, CaseIterable, Identifiable {
     case continuous, paginated
 

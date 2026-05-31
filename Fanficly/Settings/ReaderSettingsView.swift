@@ -7,6 +7,7 @@ struct ReaderSettingsView: View {
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
     @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("reader.lineSpacing") private var lineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
+    @AppStorage("reader.paragraphSpacing") private var paragraphSpacingRaw: String = ReaderParagraphSpacing.normal.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
 
     var body: some View {
@@ -80,6 +81,16 @@ struct ReaderSettingsView: View {
             Section("Line spacing") {
                 Picker("Line spacing", selection: $lineSpacingRaw) {
                     ForEach(ReaderLineSpacing.allCases) { s in
+                        Text(s.displayName).tag(s.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+
+            Section("Paragraph spacing") {
+                Picker("Paragraph spacing", selection: $paragraphSpacingRaw) {
+                    ForEach(ReaderParagraphSpacing.allCases) { s in
                         Text(s.displayName).tag(s.rawValue)
                     }
                 }

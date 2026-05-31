@@ -7,13 +7,14 @@ struct ChapterContentView: View {
     let html: String
     let font: Font
     let lineSpacing: CGFloat
+    let paragraphSpacing: CGFloat
     let foreground: Color
     let scrollSpace: String
 
     @State private var paragraphs: [AttributedString]?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: lineSpacing + 8) {
+        VStack(alignment: .leading, spacing: paragraphSpacing) {
             if let paragraphs {
                 ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, para in
                     Text(para)
