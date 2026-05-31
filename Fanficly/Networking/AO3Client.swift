@@ -12,6 +12,7 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
     func downloadEPUB(workId: Int) async throws -> URL
     func postKudos(workId: Int) async throws
+    func subscribeToWork(workId: Int) async throws
 }
 
 public struct AO3SearchResults: Sendable, Equatable {
@@ -210,6 +211,36 @@ public actor AO3Client: AO3ClientProtocol {
         return fileURL
     }
 
+    public func subscribeToWork(workId: Int) async throws {
+        await throttle.wait()
+        let pageURL = try AO3Endpoints.work(id: workId, base: baseURL)
+        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let pageHTML = String(data: pageData, encoding: .utf8),
+              let token = try LoginParser.authenticityToken(html: pageHTML) else {
+            throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
+        }
+
+        await throttle.wait()
+        let subsURL = try AO3Endpoints.workSubscriptions(id: workId, base: baseURL)
+        var request = URLRequest(url: subsURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        let body = encodeForm([
+            "authenticity_token": token,
+            "subscription[subscribable_id]": String(workId),
+            "subscription[subscribable_type]": "Work",
+        ])
+        request.httpBody = body.data(using: .utf8)
+
+        let (_, response) = try await performRequest(request)
+        if response.statusCode >= 400 && response.statusCode != 422 {
+            throw AO3Error.http(status: response.statusCode)
+        }
+    }
+
     public func postKudos(workId: Int) async throws {
         await throttle.wait()
         let pageURL = try AO3Endpoints.work(id: workId, base: baseURL)
@@ -305,4 +336,5 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }
     public func postKudos(workId: Int) async throws {}
+    public func subscribeToWork(workId: Int) async throws {}
 }

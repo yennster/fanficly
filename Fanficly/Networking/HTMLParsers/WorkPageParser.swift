@@ -11,9 +11,24 @@ enum WorkPageParser {
             "h2.title.heading",
             "h2.title",
         ])
-        let author = try doc.select("h3.byline a[rel=author], h3.byline.heading a").array()
-            .compactMap { try? $0.text() }
-            .joined(separator: ", ")
+        let author: String = {
+            if let byline = try? doc.select("h3.byline").first() {
+                let linkTexts = (try? byline.select("a").array().compactMap { try? $0.text() }) ?? []
+                let nonEmpty = linkTexts.filter { !$0.isEmpty }
+                if !nonEmpty.isEmpty {
+                    return nonEmpty.joined(separator: ", ")
+                }
+                if let txt = try? byline.text().trimmingCharacters(in: .whitespaces), !txt.isEmpty {
+                    let lower = txt.lowercased()
+                    if lower.hasPrefix("by ") { return String(txt.dropFirst(3)).trimmingCharacters(in: .whitespaces) }
+                    return txt
+                }
+            }
+            if let creator = try? doc.select("dl.work.meta dd.creator a, dl.work.meta dd.creator").first()?.text() {
+                return creator.trimmingCharacters(in: .whitespaces)
+            }
+            return "Anonymous"
+        }()
 
         let meta = try doc.select("dl.work.meta.group").first()
         let rating = try meta?.select("dd.rating a.tag").first()?.text() ?? "Not Rated"

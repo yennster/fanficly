@@ -3,19 +3,23 @@ import SwiftUI
 struct ReaderSettingsView: View {
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontSize") private var fontSizeRaw: Int = ReaderFontSize.medium.rawValue
+    @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
+    @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
 
     var body: some View {
         let theme = ReaderTheme(rawValue: themeRaw) ?? .system
+        let family = ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork
+        let size = ReaderFontSize(rawValue: fontSizeRaw) ?? .medium
         let scheme = theme.preferredColorScheme ?? systemColorScheme
 
         Form {
             Section("Preview") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("A Coffee Shop Tale")
-                        .font(.system(size: CGFloat(fontSizeRaw) + 6, weight: .bold, design: .serif))
+                        .font(family.font(size: size.cgFloat + 6, weight: .bold))
                     Text("Bella poured the latte. It was hot. Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
-                        .font(.system(size: CGFloat(fontSizeRaw), design: .serif))
+                        .font(family.font(size: size.cgFloat))
                         .lineSpacing(6)
                 }
                 .padding()
@@ -36,10 +40,30 @@ struct ReaderSettingsView: View {
                 .labelsHidden()
             }
 
+            Section("Font") {
+                Picker("Font", selection: $fontFamilyRaw) {
+                    ForEach(ReaderFontFamily.allCases) { f in
+                        Text(f.displayName).tag(f.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+
             Section("Font size") {
                 Picker("Font size", selection: $fontSizeRaw) {
                     ForEach(ReaderFontSize.allCases) { f in
                         Text(f.displayName).tag(f.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+
+            Section("Text width") {
+                Picker("Text width", selection: $widthRaw) {
+                    ForEach(ReaderWidth.allCases) { w in
+                        Text(w.displayName).tag(w.rawValue)
                     }
                 }
                 .pickerStyle(.inline)

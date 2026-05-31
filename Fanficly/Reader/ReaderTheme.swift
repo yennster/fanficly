@@ -45,16 +45,74 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
 }
 
 enum ReaderFontSize: Int, CaseIterable, Identifiable {
-    case small = 14, medium = 17, large = 20, xlarge = 23
+    case xs = 13, small = 15, medium = 17, large = 20, xlarge = 23, xxlarge = 27
 
     var id: Int { rawValue }
     var displayName: String {
         switch self {
-        case .small:  "Small"
-        case .medium: "Medium"
-        case .large:  "Large"
-        case .xlarge: "Extra Large"
+        case .xs:      "Extra Small"
+        case .small:   "Small"
+        case .medium:  "Medium"
+        case .large:   "Large"
+        case .xlarge:  "Extra Large"
+        case .xxlarge: "Huge"
         }
     }
     var cgFloat: CGFloat { CGFloat(rawValue) }
+}
+
+enum ReaderFontFamily: String, CaseIterable, Identifiable {
+    case newYork  = "newYork"
+    case serif    = "serif"
+    case sans     = "sans"
+    case rounded  = "rounded"
+    case mono     = "mono"
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .newYork: "New York"
+        case .serif:   "System Serif"
+        case .sans:    "System Sans"
+        case .rounded: "Rounded"
+        case .mono:    "Monospaced"
+        }
+    }
+
+    func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        switch self {
+        case .newYork:
+            if let custom = UIFont(name: "NewYorkLarge-Regular", size: size)
+                ?? UIFont(name: "NewYork-Regular", size: size) {
+                return Font(custom)
+            }
+            return .system(size: size, weight: weight, design: .serif)
+        case .serif:   return .system(size: size, weight: weight, design: .serif)
+        case .sans:    return .system(size: size, weight: weight, design: .default)
+        case .rounded: return .system(size: size, weight: weight, design: .rounded)
+        case .mono:    return .system(size: size, weight: weight, design: .monospaced)
+        }
+    }
+}
+
+enum ReaderWidth: String, CaseIterable, Identifiable {
+    case narrow, medium, wide, full
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .narrow: "Narrow"
+        case .medium: "Medium"
+        case .wide:   "Wide"
+        case .full:   "Full width"
+        }
+    }
+    var maxWidth: CGFloat? {
+        switch self {
+        case .narrow: 520
+        case .medium: 680
+        case .wide:   860
+        case .full:   nil
+        }
+    }
 }

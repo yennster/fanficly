@@ -2,31 +2,21 @@ import SwiftUI
 
 struct HTMLText: View {
     let html: String
+    @State private var converted: AttributedString?
 
     var body: some View {
-        if let attr = Self.attributed(from: html) {
-            Text(attr)
-        } else {
-            Text(stripped(html))
+        Group {
+            if let converted {
+                Text(converted)
+            } else {
+                Text(html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression))
+            }
         }
-    }
-
-    private func stripped(_ html: String) -> String {
-        html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-    }
-
-    private static func attributed(from html: String) -> AttributedString? {
-        guard let data = html.data(using: .utf8) else { return nil }
-        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
-            .documentType: NSAttributedString.DocumentType.html,
-            .characterEncoding: String.Encoding.utf8.rawValue,
-        ]
-        guard let ns = try? NSAttributedString(data: data, options: options, documentAttributes: nil) else {
-            return nil
+        .task(id: html) {
+            let attr = await Task.detached(priority: .userInitiated) {
+                HTMLToAttributed.convert(html)
+            }.value
+            await MainActor.run { converted = attr }
         }
-        var attr = AttributedString(ns)
-        attr.foregroundColor = nil
-        attr.font = nil
-        return attr
     }
 }

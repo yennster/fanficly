@@ -36,6 +36,21 @@ enum AO3Endpoints {
         base.appending(path: "/users/login")
     }
 
+    static func workComments(id: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "view_adult", value: "true"),
+            URLQueryItem(name: "show_comments", value: "true"),
+        ]
+        components?.fragment = "comments"
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad comments URL") }
+        return url
+    }
+
+    static func workSubscriptions(id: Int, base: URL) throws -> URL {
+        base.appending(path: "/works/\(id)/subscriptions")
+    }
+
     static func mediaFandoms(categoryName: String, base: URL) throws -> URL {
         let encoded = ao3PathEncode(categoryName)
         guard let url = URL(string: "\(base.absoluteString)/media/\(encoded)/fandoms") else {

@@ -7,10 +7,14 @@ struct ReaderView: View {
 
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontSize") private var fontSizeRaw: Int = ReaderFontSize.medium.rawValue
+    @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
+    @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
     private var fontSize: ReaderFontSize { ReaderFontSize(rawValue: fontSizeRaw) ?? .medium }
+    private var fontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork }
+    private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload]) {
         self.title = title
@@ -34,49 +38,91 @@ struct ReaderView: View {
 
     var body: some View {
         let scheme = theme.preferredColorScheme ?? systemColorScheme
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.lg) {
-                Text(title).font(.system(size: fontSize.cgFloat + 14, weight: .bold, design: .serif))
-                Text("by \(author)").foregroundStyle(theme.foreground(for: scheme).opacity(0.65))
-                Divider().overlay(theme.foreground(for: scheme).opacity(0.2))
-                ForEach(chapters, id: \.index) { chapter in
+        let fg = theme.foreground(for: scheme)
+        let bg = theme.background(for: scheme)
+
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Spacing.lg) {
                     VStack(alignment: .leading, spacing: Spacing.sm) {
-                        if !chapter.title.isEmpty {
-                            Text(chapter.title)
-                                .font(.system(size: fontSize.cgFloat + 4, weight: .semibold, design: .serif))
+                        Text(title)
+                            .font(fontFamily.font(size: fontSize.cgFloat + 14, weight: .bold))
+                        if !author.isEmpty {
+                            Text("by \(author)").foregroundStyle(fg.opacity(0.65))
                         }
-                        HTMLText(html: chapter.bodyHTML)
-                            .font(.system(size: fontSize.cgFloat, design: .serif))
-                            .lineSpacing(6)
-                            .textSelection(.enabled)
+                        Divider().overlay(fg.opacity(0.2))
                     }
-                    .padding(.vertical, Spacing.sm)
+                    .id("__top")
+
+                    ForEach(chapters, id: \.index) { chapter in
+                        VStack(alignment: .leading, spacing: Spacing.sm) {
+                            if !chapter.title.isEmpty {
+                                Text(chapter.title)
+                                    .font(fontFamily.font(size: fontSize.cgFloat + 4, weight: .semibold))
+                            }
+                            HTMLText(html: chapter.bodyHTML)
+                                .font(fontFamily.font(size: fontSize.cgFloat))
+                                .lineSpacing(6)
+                                .foregroundStyle(fg)
+                                .textSelection(.enabled)
+                        }
+                        .padding(.vertical, Spacing.sm)
+                        .id(chapter.index)
+                    }
+                }
+                .frame(maxWidth: width.maxWidth, alignment: .leading)
+                .padding()
+            }
+            .frame(maxWidth: .infinity)
+            .background(bg)
+            .foregroundStyle(fg)
+            .preferredColorScheme(theme.preferredColorScheme)
+            .toolbar {
+                if chapters.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        chaptersMenu(proxy: proxy)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    typographyMenu
                 }
             }
-            .frame(maxWidth: 680, alignment: .leading)
-            .padding()
         }
-        .frame(maxWidth: .infinity)
-        .background(theme.background(for: scheme))
-        .foregroundStyle(theme.foreground(for: scheme))
-        .preferredColorScheme(theme.preferredColorScheme)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Theme", selection: $themeRaw) {
-                        ForEach(ReaderTheme.allCases) { t in
-                            Text(t.displayName).tag(t.rawValue)
-                        }
-                    }
-                    Picker("Font Size", selection: $fontSizeRaw) {
-                        ForEach(ReaderFontSize.allCases) { f in
-                            Text(f.displayName).tag(f.rawValue)
-                        }
-                    }
+    }
+
+    private func chaptersMenu(proxy: ScrollViewProxy) -> some View {
+        Menu {
+            ForEach(chapters, id: \.index) { chapter in
+                Button {
+                    withAnimation { proxy.scrollTo(chapter.index, anchor: .top) }
                 } label: {
-                    Image(systemName: "textformat.size")
+                    let label = chapter.title.isEmpty
+                        ? "Chapter \(chapter.index)"
+                        : "Chapter \(chapter.index): \(chapter.title)"
+                    Text(label)
                 }
             }
+        } label: {
+            Image(systemName: "list.bullet")
+        }
+    }
+
+    private var typographyMenu: some View {
+        Menu {
+            Picker("Theme", selection: $themeRaw) {
+                ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
+            }
+            Picker("Font", selection: $fontFamilyRaw) {
+                ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
+            }
+            Picker("Font size", selection: $fontSizeRaw) {
+                ForEach(ReaderFontSize.allCases) { Text($0.displayName).tag($0.rawValue) }
+            }
+            Picker("Width", selection: $widthRaw) {
+                ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
+            }
+        } label: {
+            Image(systemName: "textformat.size")
         }
     }
 }

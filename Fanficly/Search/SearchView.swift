@@ -365,8 +365,11 @@ struct WorkDetailView: View {
     @State private var errorMessage: String?
     @State private var isSavingOffline: Bool = false
     @State private var isKudosing: Bool = false
+    @State private var isSubscribing: Bool = false
     @State private var kudosed: Bool = false
+    @State private var subscribed: Bool = false
     @State private var epubURL: URL?
+    @State private var showingComments: Bool = false
 
     var body: some View {
         Group {
@@ -386,6 +389,23 @@ struct WorkDetailView: View {
                                     }
                                 }
                                 .disabled(isKudosing || kudosed)
+
+                                Button {
+                                    Task { await subscribe() }
+                                } label: {
+                                    if isSubscribing {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: subscribed ? "bell.fill" : "bell")
+                                            .foregroundStyle(subscribed ? .orange : .primary)
+                                    }
+                                }
+                                .disabled(isSubscribing || subscribed)
+                            }
+                            Button {
+                                showingComments = true
+                            } label: {
+                                Image(systemName: "text.bubble")
                             }
                             if let epubURL {
                                 ShareLink(item: epubURL) {
@@ -402,6 +422,12 @@ struct WorkDetailView: View {
                                 }
                             }
                             .disabled(isSavingOffline)
+                        }
+                    }
+                    .sheet(isPresented: $showingComments) {
+                        if let url = try? AO3Endpoints.workComments(id: workId, base: URL(string: "https://archiveofourown.org")!) {
+                            SafariView(url: url)
+                                .ignoresSafeArea()
                         }
                     }
             } else if let errorMessage {
@@ -443,6 +469,17 @@ struct WorkDetailView: View {
             kudosed = true
         } catch {
             errorMessage = "Couldn't post kudos: \(error)"
+        }
+    }
+
+    private func subscribe() async {
+        isSubscribing = true
+        defer { isSubscribing = false }
+        do {
+            try await client.subscribeToWork(workId: workId)
+            subscribed = true
+        } catch {
+            errorMessage = "Couldn't subscribe: \(error)"
         }
     }
 }
