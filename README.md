@@ -80,6 +80,12 @@ xcodebuild test \
   -only-testing:FanficlyTests
 ```
 
+<!-- screenshots:start -->
+## Screenshots
+
+_Run `bin/take-screenshots.sh` to populate this section._
+<!-- screenshots:end -->
+
 ## About AO3
 
 AO3 has no public JSON API; Fanficly works by parsing the same HTML pages the AO3 website serves. We're respectful guests:

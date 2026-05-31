@@ -4,6 +4,7 @@ struct ReaderView: View {
     let title: String
     let author: String
     let chapters: [AO3ChapterPayload]
+    let summary: AO3WorkSummary?
 
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontSize") private var fontSizeRaw: Int = ReaderFontSize.medium.rawValue
@@ -19,10 +20,11 @@ struct ReaderView: View {
     private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
     private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
 
-    init(title: String, author: String, chapters: [AO3ChapterPayload]) {
+    init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         self.title = title
         self.author = author
         self.chapters = chapters
+        self.summary = summary
     }
 
     init(work: Work) {
@@ -31,12 +33,34 @@ struct ReaderView: View {
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
             .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML) }
+        self.summary = AO3WorkSummary(
+            id: work.ao3Id,
+            title: work.title,
+            author: work.authorName,
+            summary: work.summary,
+            rating: work.rating,
+            warnings: work.warnings,
+            categories: work.categories,
+            fandoms: work.fandoms,
+            characters: work.characters,
+            relationships: work.relationships,
+            freeforms: work.freeforms,
+            wordCount: work.wordCount,
+            chapterCount: work.chapterCount,
+            totalChapters: work.totalChapters,
+            language: work.language,
+            kudos: work.kudos,
+            hits: work.hits,
+            isComplete: work.isComplete,
+            updatedAt: work.updatedAt
+        )
     }
 
     init(payload: AO3WorkPayload) {
         self.title = payload.summary.title
         self.author = payload.summary.author
         self.chapters = payload.chapters
+        self.summary = payload.summary
     }
 
     var body: some View {
@@ -117,11 +141,24 @@ struct ReaderView: View {
     }
 
     private func titleHeader(fg: Color) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
+        VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(fontFamily.font(size: fontSize.cgFloat + 14, weight: .bold))
             if !author.isEmpty {
                 Text("by \(author)").foregroundStyle(fg.opacity(0.65))
+            }
+            if let summary {
+                WorkHeaderMetadata(summary: summary, foreground: fg)
+                if !summary.summary.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Summary")
+                            .font(.caption.smallCaps())
+                            .foregroundStyle(fg.opacity(0.55))
+                        HTMLText(html: summary.summary)
+                            .font(fontFamily.font(size: fontSize.cgFloat - 1))
+                            .foregroundStyle(fg.opacity(0.85))
+                    }
+                }
             }
             Divider().overlay(fg.opacity(0.2))
         }

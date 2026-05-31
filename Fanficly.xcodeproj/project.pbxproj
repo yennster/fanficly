@@ -10,6 +10,7 @@
 		009E61A437B7836540A5154D /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 85A309174B415ED2A3953364 /* SwiftSoup */; };
 		01A57A69F4D7F11702AB8264 /* SearchResultsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14407D4A1F4D7FEA9348D29 /* SearchResultsParser.swift */; };
 		057AD6C4830B77B0B3B85499 /* SearchPromptParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ADAAAAAF22BFA604DFA7888 /* SearchPromptParser.swift */; };
+		23A71321A483F4E4E883CC18 /* WorkHeaderMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = D94247AD61C6DA486565213D /* WorkHeaderMetadata.swift */; };
 		2ED817B218FE0ECFCDD96E2E /* WorkMetadataParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53C938A31AB0808A608D1C0B /* WorkMetadataParser.swift */; };
 		34F2E2B5519196AD259969BF /* MediaCategoryParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BCB5C2C145A18FCF28C9641 /* MediaCategoryParser.swift */; };
 		3528FBB5A0464BAE48C868C1 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A31871FB34CAC5A1FC2477 /* SearchView.swift */; };
@@ -120,6 +121,7 @@
 		D14407D4A1F4D7FEA9348D29 /* SearchResultsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsParser.swift; sourceTree = "<group>"; };
 		D37DD02D31E9311ACDAA3185 /* ReaderTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTheme.swift; sourceTree = "<group>"; };
 		D61FC33BEF13778096BD270D /* Fanficly.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fanficly.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D94247AD61C6DA486565213D /* WorkHeaderMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkHeaderMetadata.swift; sourceTree = "<group>"; };
 		D9A31871FB34CAC5A1FC2477 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		DA91CA4D906D56ACC8598AE1 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
 		DBE134CABB0F90B6C9B9DAD7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -293,6 +295,7 @@
 				2FE3850146E78C3A77DA8A3C /* HTMLToAttributed.swift */,
 				D37DD02D31E9311ACDAA3185 /* ReaderTheme.swift */,
 				10A2644B4858FABB2ADA9434 /* ReaderView.swift */,
+				D94247AD61C6DA486565213D /* WorkHeaderMetadata.swift */,
 			);
 			path = Reader;
 			sourceTree = "<group>";
@@ -482,6 +485,7 @@
 				B8DCFE701781255AA7EB7D98 /* ThrottleActor.swift in Sources */,
 				69B57CD1457945B978BA756A /* Typography.swift in Sources */,
 				F498D7773BE1BEB8529BCB5D /* Work.swift in Sources */,
+				23A71321A483F4E4E883CC18 /* WorkHeaderMetadata.swift in Sources */,
 				2ED817B218FE0ECFCDD96E2E /* WorkMetadataParser.swift in Sources */,
 				656B2D78C44A9768D212AF4A /* WorkPageParser.swift in Sources */,
 				3AA565C777348A43C0CCC5FB /* WorkPersistence.swift in Sources */,
