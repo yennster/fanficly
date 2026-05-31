@@ -107,9 +107,12 @@ struct ReaderView: View {
         // `.toolbarColorScheme` is scoped to the bar, so there's nothing to
         // unwind on exit. The reader's body already paints its own fg/bg.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
-        // Drop the nav bar's translucent gray material so the page shows through
-        // — the buttons already sit in their own pills (Apple Books style).
-        .toolbarBackground(.hidden, for: .navigationBar)
+        // Paint the nav bar with the reader's own background instead of the
+        // default translucent gray material, so the bar blends into the page
+        // (the buttons keep their own pills). `.hidden` left the window's gray
+        // showing through, so force it visible and colored.
+        .toolbarBackground(bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .statusBarHidden(chromeHidden)
         .toolbar {
             if chapters.count > 1 {
