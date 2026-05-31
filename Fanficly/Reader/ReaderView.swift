@@ -256,37 +256,54 @@ struct ReaderView: View {
 
     private var typographyMenu: some View {
         Menu {
-            Section("Reading mode") {
+            Menu {
                 Picker("Reading mode", selection: $modeRaw) {
                     ForEach(ReadingMode.allCases) {
                         Label($0.displayName, systemImage: $0.symbol).tag($0.rawValue)
                     }
                 }
+            } label: {
+                Label("Reading mode · \(mode.displayName)", systemImage: "book.pages")
             }
-            Section("Theme") {
+
+            Menu {
                 Picker("Theme", selection: $themeRaw) {
                     ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
+            } label: {
+                Label("Theme · \(theme.displayName)", systemImage: "paintpalette")
             }
-            Section("Font") {
+
+            Menu {
                 Picker("Font", selection: $fontFamilyRaw) {
                     ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
+            } label: {
+                Label("Font · \(fontFamily.displayName)", systemImage: "character")
             }
-            Section("Font size") {
-                Picker("Font size", selection: $fontSizeRaw) {
+
+            Menu {
+                Picker("Text size", selection: $fontSizeRaw) {
                     ForEach(ReaderFontSize.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
+            } label: {
+                Label("Text size · \(fontSize.displayName)", systemImage: "textformat.size")
             }
-            Section("Line spacing") {
+
+            Menu {
                 Picker("Line spacing", selection: $lineSpacingRaw) {
                     ForEach(ReaderLineSpacing.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
+            } label: {
+                Label("Line spacing · \(lineSpacing.displayName)", systemImage: "arrow.up.and.down.text.horizontal")
             }
-            Section("Text width") {
-                Picker("Text width", selection: $widthRaw) {
+
+            Menu {
+                Picker("Margins", selection: $widthRaw) {
                     ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
+            } label: {
+                Label("Margins · \(width.displayName)", systemImage: "rectangle.compress.vertical")
             }
         } label: {
             Image(systemName: "textformat")

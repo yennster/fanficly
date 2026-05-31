@@ -44,6 +44,20 @@ final class HTMLToAttributedTests: XCTestCase {
         XCTAssertTrue(String(out.characters).contains("Visible"))
     }
 
+    func test_emptyParagraphsDoNotStackBlankLines() {
+        // AO3 fics use empty <p> / whitespace paragraphs for scene breaks.
+        let out = HTMLToAttributed.convert("<p>First.</p><p></p><p>&nbsp;</p><p>Second.</p>")
+        let s = String(out.characters)
+        XCTAssertTrue(s.contains("First."))
+        XCTAssertTrue(s.contains("Second."))
+        XCTAssertFalse(s.contains("\n\n\n"), "should never have 3+ consecutive newlines")
+    }
+
+    func test_sourceWhitespaceCollapsed() {
+        let out = HTMLToAttributed.convert("<p>Hello    \n    world.</p>")
+        XCTAssertTrue(String(out.characters).contains("Hello world."))
+    }
+
     func test_nestedFormatting() {
         let out = HTMLToAttributed.convert("<p><strong><em>both</em></strong></p>")
         let r = out.runs.first { run in

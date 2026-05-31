@@ -69,10 +69,7 @@ struct LibraryView: View {
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: Work.self) { work in
-            ReaderView(work: work)
-                .toolbar {
-                    WorkExportButton(workId: work.ao3Id, title: work.title)
-                }
+            SavedWorkReader(work: work)
         }
     }
 
