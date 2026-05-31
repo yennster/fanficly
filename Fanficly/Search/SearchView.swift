@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct SearchView: View {
     @Environment(\.ao3Client) private var client
@@ -175,14 +176,36 @@ struct ChipView: View {
 
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
+    @Environment(\.modelContext) private var context
     let workId: Int
     @State private var payload: AO3WorkPayload?
     @State private var errorMessage: String?
+    @State private var isSavingOffline: Bool = false
+    @State private var epubURL: URL?
 
     var body: some View {
         Group {
             if let payload {
                 ReaderView(payload: payload)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if let epubURL {
+                                ShareLink(item: epubURL) {
+                                    Image(systemName: "square.and.arrow.up")
+                                }
+                            }
+                            Button {
+                                Task { await saveOffline(payload) }
+                            } label: {
+                                if isSavingOffline {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
+                                }
+                            }
+                            .disabled(isSavingOffline)
+                        }
+                    }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
@@ -194,10 +217,23 @@ struct WorkDetailView: View {
     }
 
     private func load() async {
+        epubURL = WorkPersistence.epubURL(workId: workId)
         do {
             payload = try await client.fetchWork(id: workId)
         } catch {
             errorMessage = "\(error)"
+        }
+    }
+
+    private func saveOffline(_ payload: AO3WorkPayload) async {
+        isSavingOffline = true
+        defer { isSavingOffline = false }
+        _ = WorkPersistence.upsert(payload: payload, into: context)
+        do {
+            let url = try await client.downloadEPUB(workId: payload.summary.id)
+            epubURL = url
+        } catch {
+            errorMessage = "Saved metadata but EPUB download failed: \(error)"
         }
     }
 }

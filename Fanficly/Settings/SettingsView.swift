@@ -1,10 +1,20 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(AuthState.self) private var auth
+
     var body: some View {
         List {
             Section("Account") {
-                NavigationLink("AO3 Login") { LoginPlaceholderView() }
+                NavigationLink {
+                    LoginView()
+                } label: {
+                    if let username = auth.username {
+                        LabeledContent("AO3 Login", value: username)
+                    } else {
+                        Text("AO3 Login")
+                    }
+                }
             }
             Section("Reader") {
                 Text("Theme and typography options will live here.")
@@ -68,30 +78,13 @@ struct PrivacyTransparencyView: View {
     }
 }
 
-struct LoginPlaceholderView: View {
-    @State private var username = ""
-    @State private var password = ""
-
-    var body: some View {
-        Form {
-            Section {
-                TextField("Username", text: $username).textContentType(.username).autocapitalization(.none)
-                SecureField("Password", text: $password).textContentType(.password)
-            } footer: {
-                Text("We pass these to AO3 to log in and store the resulting session cookie in your iOS Keychain. We never store your password.")
-            }
-            Button("Log in") {}
-                .disabled(true)
-        }
-        .navigationTitle("AO3 Login")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
 extension Bundle {
     var shortVersionString: String {
         (object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0.1.0"
     }
 }
 
-#Preview { NavigationStack { SettingsView() } }
+#Preview {
+    NavigationStack { SettingsView() }
+        .environment(AuthState())
+}
