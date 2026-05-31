@@ -154,7 +154,16 @@ final class SearchPromptParserTests: XCTestCase {
         XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
         XCTAssertTrue(filters.ratings.contains(.explicit))
         XCTAssertTrue(filters.freeformNames.contains("All Human"))
-        XCTAssertEqual(filters.query, "romance")
+        // "romance" is a recognised freeform tag, not leftover query text.
+        XCTAssertTrue(filters.freeformNames.contains("Romance"))
+        XCTAssertEqual(filters.query, "")
+    }
+
+    func test_romanceIsAFreeformTag() {
+        let filters = parser.parse("romance fluff")
+        XCTAssertTrue(filters.freeformNames.contains("Romance"))
+        XCTAssertTrue(filters.freeformNames.contains("Fluff"))
+        XCTAssertEqual(filters.query, "")
     }
 
     func test_queryItemsRoundTripIncludesAllStandardFields() {

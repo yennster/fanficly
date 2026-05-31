@@ -60,6 +60,7 @@
 		D038A05D8AA36A020FF7AB66 /* SearchPromptParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C27A7CFAECCBC8991BEE84 /* SearchPromptParserTests.swift */; };
 		DF3E2176E6D631CEA095174C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A272FB51659AD4DBA99A7EB9 /* PrivacyInfo.xcprivacy */; };
 		EC670074E6FC17855CA2E7EA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DBE134CABB0F90B6C9B9DAD7 /* Assets.xcassets */; };
+		F1AB327990E846942F810703 /* TagResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1856816C43554EF5BF0180F3 /* TagResolver.swift */; };
 		F34FD1A3F781F0ED764362E9 /* SearchResultsParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF32C50D24CC6533F2C9D36D /* SearchResultsParserTests.swift */; };
 		F498D7773BE1BEB8529BCB5D /* Work.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E0EC624A66C97D2B788D3B6 /* Work.swift */; };
 		F74BE84F8DE28D9F18359BFC /* AO3ClientEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE807CFF2DB0F1B916323F5A /* AO3ClientEnvironment.swift */; };
@@ -88,6 +89,7 @@
 		0A3FC719543292C992F5486E /* ChapterTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterTracking.swift; sourceTree = "<group>"; };
 		0CC6F1589C16DE6F26765FBB /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
 		10A2644B4858FABB2ADA9434 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
+		1856816C43554EF5BF0180F3 /* TagResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagResolver.swift; sourceTree = "<group>"; };
 		1BCB5C2C145A18FCF28C9641 /* MediaCategoryParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCategoryParser.swift; sourceTree = "<group>"; };
 		1E3470AAB37F7FC5A29385D8 /* WorkPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkPersistence.swift; sourceTree = "<group>"; };
 		2713168F72647EA18FC7D54D /* AO3SearchFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3SearchFilters.swift; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 				4EEA4522460B6B01FA40030C /* KnownTags.swift */,
 				6ADAAAAAF22BFA604DFA7888 /* SearchPromptParser.swift */,
 				D9A31871FB34CAC5A1FC2477 /* SearchView.swift */,
+				1856816C43554EF5BF0180F3 /* TagResolver.swift */,
 				8E5D506137E5E8CD47C34FEF /* WorkFilterSheet.swift */,
 			);
 			path = Search;
@@ -514,6 +517,7 @@
 				9903BF2D84AF27DE34C8FE4B /* SubscriptionPoller.swift in Sources */,
 				A4220FE80C820732CA00966C /* SubscriptionsParser.swift in Sources */,
 				87C8C79CDC66FA3660B97D39 /* SubscriptionsView.swift in Sources */,
+				F1AB327990E846942F810703 /* TagResolver.swift in Sources */,
 				B8DCFE701781255AA7EB7D98 /* ThrottleActor.swift in Sources */,
 				69B57CD1457945B978BA756A /* Typography.swift in Sources */,
 				F498D7773BE1BEB8529BCB5D /* Work.swift in Sources */,

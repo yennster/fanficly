@@ -75,11 +75,13 @@ struct SearchView: View {
 
             if !lastParsed.isEmpty {
                 FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach(includeChips(), id: \.self) { chip in
-                        ChipView(text: chip, kind: .include)
-                    }
-                    ForEach(lastParsed.excludedFreeforms, id: \.self) { tag in
-                        ChipView(text: tag, kind: .exclude)
+                    ForEach(filterChips()) { chip in
+                        Button {
+                            chip.remove()
+                        } label: {
+                            ChipView(text: chip.label, kind: chip.kind, removable: true)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -214,12 +216,12 @@ struct SearchView: View {
                 .font(.subheadline)
             }
             .onChange(of: sortColumn) { _, _ in
-                if !results.isEmpty { Task { await runSearch() } }
+                if !results.isEmpty { Task { await executeSearch() } }
             }
 
             Button {
                 sortDirection = sortDirection == .asc ? .desc : .asc
-                if !results.isEmpty { Task { await runSearch() } }
+                if !results.isEmpty { Task { await executeSearch() } }
             } label: {
                 Image(systemName: sortDirection.symbol)
                     .font(.subheadline)
@@ -234,13 +236,22 @@ struct SearchView: View {
     }
 
     private func runSearch() async {
-        var filters = parser.parse(prompt)
+        lastParsed = parser.parse(prompt)
+        await executeSearch()
+    }
+
+    /// Searches using the current `lastParsed` (without re-parsing the
+    /// prompt, so chip removals stick). Resolves tags to AO3's canonical
+    /// names first — the same step Browse uses, so results match.
+    private func executeSearch() async {
+        var filters = lastParsed
         if !filters.query.isEmpty {
             filters = await enricher.enrich(filters: filters, prompt: filters.query)
         }
+        filters = await TagResolver.resolve(filters, using: client)
         filters.sortColumn = sortColumn
         filters.sortDirection = sortDirection
-        lastParsed = filters
+        lastParsed = filters  // reflect canonical names in the chips
         errorMessage = nil
         isSearching = true
         currentPage = 1
@@ -280,30 +291,93 @@ struct SearchView: View {
         }
     }
 
-    private func includeChips() -> [String] {
-        var chips: [String] = []
-        chips.append(contentsOf: lastParsed.relationshipNames.map { "♥ \($0)" })
-        chips.append(contentsOf: lastParsed.characterNames.map { "👤 \($0)" })
-        chips.append(contentsOf: lastParsed.fandomNames.map { "📚 \($0)" })
-        chips.append(contentsOf: lastParsed.freeformNames)
-        chips.append(contentsOf: lastParsed.ratings.map(\.displayName))
-        chips.append(contentsOf: lastParsed.warnings.map(\.displayName))
-        chips.append(contentsOf: lastParsed.categories.map(\.displayName))
-        if !lastParsed.wordCount.isEmpty { chips.append("words \(lastParsed.wordCount)") }
-        if !lastParsed.languageId.isEmpty { chips.append("lang \(lastParsed.languageId)") }
-        if lastParsed.singleChapter { chips.append("oneshot") }
-        switch lastParsed.complete {
-        case .yes: chips.append("complete")
-        case .no:  chips.append("WIP")
-        case .any: break
+    struct FilterChip: Identifiable {
+        let id = UUID()
+        let label: String
+        let kind: ChipView.Kind
+        let remove: () -> Void
+    }
+
+    /// Tap a chip to remove that filter and re-run the search.
+    private func filterChips() -> [FilterChip] {
+        var chips: [FilterChip] = []
+
+        for ship in lastParsed.relationshipNames {
+            chips.append(FilterChip(label: "♥ \(ship)", kind: .include) {
+                lastParsed.relationshipNames.removeAll { $0 == ship }; chipChanged()
+            })
         }
-        switch lastParsed.crossover {
-        case .yes: chips.append("crossover")
-        case .no:  chips.append("no crossover")
-        case .any: break
+        for character in lastParsed.characterNames {
+            chips.append(FilterChip(label: "👤 \(character)", kind: .include) {
+                lastParsed.characterNames.removeAll { $0 == character }; chipChanged()
+            })
         }
-        if !lastParsed.query.isEmpty { chips.append("\u{201C}\(lastParsed.query)\u{201D}") }
+        for fandom in lastParsed.fandomNames {
+            chips.append(FilterChip(label: "📚 \(fandom)", kind: .include) {
+                lastParsed.fandomNames.removeAll { $0 == fandom }; chipChanged()
+            })
+        }
+        for tag in lastParsed.freeformNames {
+            chips.append(FilterChip(label: tag, kind: .include) {
+                lastParsed.freeformNames.removeAll { $0 == tag }; chipChanged()
+            })
+        }
+        for rating in lastParsed.ratings.sorted(by: { $0.rawValue < $1.rawValue }) {
+            chips.append(FilterChip(label: rating.displayName, kind: .include) {
+                lastParsed.ratings.remove(rating); chipChanged()
+            })
+        }
+        for warning in lastParsed.warnings.sorted(by: { $0.rawValue < $1.rawValue }) {
+            chips.append(FilterChip(label: warning.displayName, kind: .include) {
+                lastParsed.warnings.remove(warning); chipChanged()
+            })
+        }
+        for category in lastParsed.categories.sorted(by: { $0.rawValue < $1.rawValue }) {
+            chips.append(FilterChip(label: category.displayName, kind: .include) {
+                lastParsed.categories.remove(category); chipChanged()
+            })
+        }
+        if !lastParsed.wordCount.isEmpty {
+            chips.append(FilterChip(label: "words \(lastParsed.wordCount)", kind: .include) {
+                lastParsed.wordCount = ""; chipChanged()
+            })
+        }
+        if !lastParsed.languageId.isEmpty {
+            chips.append(FilterChip(label: "lang \(lastParsed.languageId)", kind: .include) {
+                lastParsed.languageId = ""; chipChanged()
+            })
+        }
+        if lastParsed.singleChapter {
+            chips.append(FilterChip(label: "oneshot", kind: .include) {
+                lastParsed.singleChapter = false; chipChanged()
+            })
+        }
+        if lastParsed.complete == .yes {
+            chips.append(FilterChip(label: "complete", kind: .include) { lastParsed.complete = .any; chipChanged() })
+        } else if lastParsed.complete == .no {
+            chips.append(FilterChip(label: "WIP", kind: .include) { lastParsed.complete = .any; chipChanged() })
+        }
+        if lastParsed.crossover == .yes {
+            chips.append(FilterChip(label: "crossover", kind: .include) { lastParsed.crossover = .any; chipChanged() })
+        } else if lastParsed.crossover == .no {
+            chips.append(FilterChip(label: "no crossover", kind: .include) { lastParsed.crossover = .any; chipChanged() })
+        }
+        if !lastParsed.query.isEmpty {
+            chips.append(FilterChip(label: "\u{201C}\(lastParsed.query)\u{201D}", kind: .include) {
+                lastParsed.query = ""; chipChanged()
+            })
+        }
+        for excluded in lastParsed.excludedFreeforms {
+            chips.append(FilterChip(label: excluded, kind: .exclude) {
+                lastParsed.excludedFreeforms.removeAll { $0 == excluded }; chipChanged()
+            })
+        }
         return chips
+    }
+
+    /// After a chip is removed, re-run the search if results are showing.
+    private func chipChanged() {
+        if !results.isEmpty { Task { await executeSearch() } }
     }
 }
 
@@ -342,15 +416,22 @@ struct ChipView: View {
     enum Kind { case include, exclude }
     let text: String
     let kind: Kind
+    var removable: Bool = false
 
     var body: some View {
-        Text(text)
-            .font(.caption)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(background)
-            .foregroundStyle(foreground)
-            .clipShape(Capsule())
+        HStack(spacing: 4) {
+            Text(text)
+            if removable {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).opacity(0.6)
+            }
+        }
+        .font(.caption)
+        .padding(.leading, 10)
+        .padding(.trailing, removable ? 8 : 10)
+        .padding(.vertical, 5)
+        .background(background)
+        .foregroundStyle(foreground)
+        .clipShape(Capsule())
     }
 
     private var background: Color {
@@ -377,12 +458,9 @@ struct WorkDetailView: View {
     @State private var errorMessage: String?
     @State private var isSavingOffline: Bool = false
     @State private var isKudosing: Bool = false
-    @State private var isSubscribing: Bool = false
     @State private var kudosed: Bool = false
-    @State private var subscribed: Bool = false
     @State private var followed: Bool = false
     @State private var epubURL: URL?
-    @State private var showingComments: Bool = false
 
     var body: some View {
         Group {
@@ -398,13 +476,7 @@ struct WorkDetailView: View {
 
                             WorkExportButton(workId: workId, title: payload.summary.title)
 
-                            moreMenu(payload: payload)
-                        }
-                    }
-                    .sheet(isPresented: $showingComments) {
-                        if let url = try? AO3Endpoints.workComments(id: workId, base: URL(string: "https://archiveofourown.org")!) {
-                            SafariView(url: url)
-                                .ignoresSafeArea()
+                            saveOfflineButton(payload: payload)
                         }
                     }
             } else if let errorMessage {
@@ -443,37 +515,19 @@ struct WorkDetailView: View {
         .disabled(isKudosing || kudosed)
     }
 
-    private func moreMenu(payload: AO3WorkPayload) -> some View {
-        Menu {
-            saveOfflineRow(payload: payload)
-            Button {
-                showingComments = true
-            } label: {
-                Label("Comments", systemImage: "text.bubble")
-            }
-            if auth.isLoggedIn {
-                Button {
-                    Task { await subscribe() }
-                } label: {
-                    Label(subscribed ? "Subscribed on AO3" : "Subscribe on AO3",
-                          systemImage: subscribed ? "bell.fill" : "bell")
-                }
-                .disabled(isSubscribing || subscribed)
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-    }
-
-    @ViewBuilder
-    private func saveOfflineRow(payload: AO3WorkPayload) -> some View {
+    private func saveOfflineButton(payload: AO3WorkPayload) -> some View {
         Button {
             Task { await saveOffline(payload) }
         } label: {
-            Label(epubURL == nil ? "Save offline" : "Saved offline ✓",
-                  systemImage: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
+            if isSavingOffline {
+                ProgressView()
+            } else {
+                Image(systemName: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
+                    .foregroundStyle(epubURL == nil ? Color.primary : .green)
+            }
         }
         .disabled(isSavingOffline || epubURL != nil)
+        .accessibilityLabel(epubURL == nil ? "Save offline" : "Saved offline")
     }
 
     // MARK: - Actions
@@ -508,17 +562,6 @@ struct WorkDetailView: View {
             kudosed = true
         } catch {
             errorMessage = "Couldn't post kudos: \(error)"
-        }
-    }
-
-    private func subscribe() async {
-        isSubscribing = true
-        defer { isSubscribing = false }
-        do {
-            try await client.subscribeToWork(workId: workId)
-            subscribed = true
-        } catch {
-            errorMessage = "Couldn't subscribe: \(error)"
         }
     }
 }

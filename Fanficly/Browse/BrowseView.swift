@@ -250,37 +250,11 @@ struct FandomWorksView: View {
     }
 
     /// Resolve user-typed tags to AO3's canonical names, then search.
-    /// e.g. "Hermione/Draco" → "Hermione Granger/Draco Malfoy".
     private func applyFilters() async {
         isLoading = true
         errorMessage = nil
-        filters.relationshipNames = await resolveTags(filters.relationshipNames, field: .relationship)
-        filters.characterNames = await resolveTags(filters.characterNames, field: .character)
-        filters.freeformNames = await resolveTags(filters.freeformNames, field: .freeform)
+        filters = await TagResolver.resolve(filters, using: client)
         await loadFirst()
-    }
-
-    private func resolveTags(_ terms: [String], field: AO3AutocompleteField) async -> [String] {
-        var resolved: [String] = []
-        for term in terms {
-            if let matches = try? await client.autocomplete(field: field, term: term),
-               let best = bestMatch(for: term, in: matches) {
-                resolved.append(best)
-            } else {
-                resolved.append(term)
-            }
-        }
-        return resolved
-    }
-
-    /// Prefer an exact (case-insensitive) match, otherwise the first
-    /// suggestion, otherwise the original term.
-    private func bestMatch(for term: String, in matches: [String]) -> String? {
-        if matches.isEmpty { return nil }
-        if let exact = matches.first(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
-            return exact
-        }
-        return matches.first
     }
 
     private func loadFirst() async {
