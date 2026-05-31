@@ -39,6 +39,49 @@ final class HTMLToAttributedTests: XCTestCase {
         XCTAssertTrue(s.contains("\n\nQuote\n\n") || s.contains("Before\n\nQuote"))
     }
 
+    func test_headingBecomesItsOwnParagraph() {
+        let out = HTMLToAttributed.convert("<h2>Title</h2><p>Body.</p>")
+        let s = String(out.characters)
+        XCTAssertTrue(s.contains("Title"))
+        XCTAssertTrue(s.contains("Body."))
+        XCTAssertTrue(s.contains("Title\n\nBody."))
+    }
+
+    func test_listItemsBullet() {
+        let out = HTMLToAttributed.convert("<ul><li>One</li><li>Two</li></ul>")
+        let s = String(out.characters)
+        XCTAssertTrue(s.contains("•"))
+        XCTAssertTrue(s.contains("One"))
+        XCTAssertTrue(s.contains("Two"))
+    }
+
+    func test_horizontalRuleSceneBreak() {
+        let out = HTMLToAttributed.convert("<p>Before</p><hr><p>After</p>")
+        let s = String(out.characters)
+        XCTAssertTrue(s.contains("·"))
+        XCTAssertTrue(s.contains("Before"))
+        XCTAssertTrue(s.contains("After"))
+    }
+
+    func test_underlineAndStrike() {
+        let u = HTMLToAttributed.convert("<u>under</u>")
+        XCTAssertTrue(u.runs.contains { $0.underlineStyle != nil })
+        let s = HTMLToAttributed.convert("<s>strike</s>")
+        XCTAssertTrue(s.runs.contains { $0.strikethroughStyle != nil })
+    }
+
+    func test_convertParagraphsSplitsBlocks() {
+        let paras = HTMLToAttributed.convertParagraphs("<p>First.</p><p>Second.</p><p>Third.</p>")
+        XCTAssertEqual(paras.count, 3)
+        XCTAssertEqual(String(paras[0].characters), "First.")
+        XCTAssertEqual(String(paras[2].characters), "Third.")
+    }
+
+    func test_emptyHTMLProducesNoParagraphs() {
+        XCTAssertTrue(HTMLToAttributed.convertParagraphs("").isEmpty)
+        XCTAssertTrue(HTMLToAttributed.convertParagraphs("<p></p><p>  </p>").isEmpty)
+    }
+
     func test_stripsHtmlTagsWhenUnknown() {
         let out = HTMLToAttributed.convert("<span class='foo'>Visible</span>")
         XCTAssertTrue(String(out.characters).contains("Visible"))

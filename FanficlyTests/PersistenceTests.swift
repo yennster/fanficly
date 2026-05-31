@@ -1,0 +1,82 @@
+import XCTest
+import SwiftData
+@testable import Fanficly
+
+@MainActor
+final class PersistenceTests: XCTestCase {
+    private func makeContext() throws -> ModelContext {
+        let schema = Schema([
+            Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
+            SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
+        ])
+        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [config])
+        return ModelContext(container)
+    }
+
+    private func payload(id: Int, chapters: Int) -> AO3WorkPayload {
+        let summary = AO3WorkSummary(
+            id: id, title: "Test Work \(id)", author: "tester",
+            summary: "A summary", rating: "Mature", warnings: ["No Archive Warnings Apply"],
+            categories: ["M/M"], fandoms: ["Harry Potter - J. K. Rowling"],
+            characters: ["Harry Potter"], relationships: ["Harry/Draco"],
+            freeforms: ["Fluff"], wordCount: 5000, chapterCount: chapters,
+            totalChapters: chapters, language: "English", kudos: 100, hits: 2000,
+            isComplete: true, updatedAt: nil
+        )
+        let chs = (1...chapters).map { AO3ChapterPayload(index: $0, title: "Ch \($0)", bodyHTML: "<p>Body \($0)</p>") }
+        return AO3WorkPayload(summary: summary, chapters: chs)
+    }
+
+    func test_upsertInsertsThenUpdates() throws {
+        let ctx = try makeContext()
+        let w1 = WorkPersistence.upsert(payload: payload(id: 1, chapters: 3), into: ctx)
+        XCTAssertEqual(w1.chapters.count, 3)
+        XCTAssertEqual(w1.fandoms, ["Harry Potter - J. K. Rowling"])
+
+        // Re-upsert with fewer chapters replaces them, no duplicate Work.
+        let w2 = WorkPersistence.upsert(payload: payload(id: 1, chapters: 2), into: ctx)
+        XCTAssertEqual(w2.chapters.count, 2)
+        let all = try ctx.fetch(FetchDescriptor<Work>())
+        XCTAssertEqual(all.count, 1)
+    }
+
+    func test_upsertMetadataDoesNotTouchChapters() throws {
+        let ctx = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 7, chapters: 4), into: ctx)
+        let summary = payload(id: 7, chapters: 4).summary
+        let w = WorkPersistence.upsertMetadata(summary: summary, into: ctx)
+        XCTAssertEqual(w.chapters.count, 4, "metadata upsert must keep existing chapters")
+    }
+
+    func test_toggleFollow() throws {
+        let ctx = try makeContext()
+        let summary = payload(id: 9, chapters: 1).summary
+        XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
+
+        let nowFollowed = WorkPersistence.toggleFollow(summary: summary, into: ctx)
+        XCTAssertTrue(nowFollowed)
+        XCTAssertTrue(WorkPersistence.isFollowed(workId: 9, in: ctx))
+
+        let nowUnfollowed = WorkPersistence.toggleFollow(summary: summary, into: ctx)
+        XCTAssertFalse(nowUnfollowed)
+        XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
+    }
+
+    func test_readingProgressRoundTrips() throws {
+        let ctx = try makeContext()
+        XCTAssertNil(ReadingProgressStore.load(ao3Id: 42, in: ctx))
+
+        ReadingProgressStore.save(ao3Id: 42, anchor: ReadingAnchor(chapter: 5, paragraph: 12),
+                                  title: "T", author: "A", in: ctx)
+        let a = ReadingProgressStore.load(ao3Id: 42, in: ctx)
+        XCTAssertEqual(a?.chapter, 5)
+        XCTAssertEqual(a?.paragraph, 12)
+
+        // Saving again updates in place (no duplicate row).
+        ReadingProgressStore.save(ao3Id: 42, anchor: ReadingAnchor(chapter: 6, paragraph: 0),
+                                  title: "T", author: "A", in: ctx)
+        XCTAssertEqual(ReadingProgressStore.load(ao3Id: 42, in: ctx)?.chapter, 6)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingProgress>()).count, 1)
+    }
+}

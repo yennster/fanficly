@@ -35,7 +35,7 @@ enum TagResolver {
         return term
     }
 
-    private static func candidates(for term: String, field: AO3AutocompleteField) -> [String] {
+    static func candidates(for term: String, field: AO3AutocompleteField) -> [String] {
         var list = [term]
         if field == .relationship, term.contains("/") {
             let spaced = term.replacingOccurrences(of: "/", with: " ")
@@ -51,7 +51,7 @@ enum TagResolver {
 
     /// Prefer a case-insensitive exact match, else the top suggestion,
     /// else keep the original term.
-    private static func bestMatch(for term: String, in matches: [String]) -> String? {
+    static func bestMatch(for term: String, in matches: [String]) -> String? {
         guard !matches.isEmpty else { return nil }
         if let exact = matches.first(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
             return exact
