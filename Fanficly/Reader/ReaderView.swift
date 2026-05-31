@@ -25,6 +25,8 @@ struct ReaderView: View {
     @State private var chromeHidden = false
     @State private var lastScrollOffset: CGFloat = 0
     @State private var scrollAccum: CGFloat = 0
+    // Paginated-mode one-shot paragraph restore.
+    @State private var pendingParagraphRestore: ReadingAnchor?
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -292,24 +294,8 @@ struct ReaderView: View {
     private func paginatedBody(fg: Color, bg: Color) -> some View {
         TabView(selection: $selectedChapterIndex) {
             ForEach(chapters, id: \.index) { chapter in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Spacing.lg) {
-                        if chapter.index == chapters.first?.index {
-                            titleHeader(fg: fg)
-                        }
-                        if chapters.count > 1 {
-                            chapterHeader(chapter, fg: fg)
-                        }
-                        chapterBlock(chapter, fg: fg)
-                    }
-                    .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
-                    .padding(.horizontal, width.horizontalPadding)
-                    .padding(.top, Spacing.lg)
-                    // Clear the page-indicator dots at the bottom.
-                    .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .tag(chapter.index)
+                paginatedPage(chapter, fg: fg)
+                    .tag(chapter.index)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: chapters.count > 1 ? .automatic : .never))
@@ -317,23 +303,73 @@ struct ReaderView: View {
         .background(bg)
         .foregroundStyle(fg)
         .task {
-            // Restore the chapter (paginated mode is chapter-granular).
             isRestoring = true
             if let anchor = loadAnchorIfNeeded() {
                 selectedChapterIndex = anchor.chapter
+                if anchor.paragraph > 0 { pendingParagraphRestore = anchor }
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
             isRestoring = false
         }
         .onChange(of: selectedChapterIndex) { _, chapter in
             visibleChapterIndex = chapter
-            if !isRestoring {
+            if !isRestoring && pendingParagraphRestore == nil {
                 let anchor = ReadingAnchor(chapter: chapter, paragraph: 0)
                 currentAnchor = anchor
                 saveProgress(anchor, force: true)
             }
         }
         .onDisappear { persistNow() }
+    }
+
+    private func paginatedPage(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        ScrollViewReader { pageProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: Spacing.lg) {
+                    if chapter.index == chapters.first?.index {
+                        titleHeader(fg: fg)
+                    }
+                    if chapters.count > 1 {
+                        chapterHeader(chapter, fg: fg)
+                    }
+                    chapterBlock(chapter, fg: fg)
+                }
+                .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
+                .padding(.horizontal, width.horizontalPadding)
+                .padding(.top, Spacing.lg)
+                .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            // Each page has its own scroll space; the handler below only sees
+            // this page's paragraph anchors.
+            .coordinateSpace(name: scrollSpace)
+            .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                guard chapter.index == selectedChapterIndex, !isRestoring else { return }
+                if let anchor = ChapterTracking.topmostAnchor(offsets) {
+                    let updated = ReadingAnchor(chapter: chapter.index, paragraph: anchor.paragraph)
+                    currentAnchor = updated
+                    saveProgress(updated)
+                }
+            }
+            .task(id: selectedChapterIndex) {
+                await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
+            }
+        }
+    }
+
+    private func restorePaginatedParagraph(chapter: AO3ChapterPayload, proxy: ScrollViewProxy) async {
+        guard chapter.index == selectedChapterIndex,
+              let pending = pendingParagraphRestore,
+              pending.chapter == chapter.index,
+              pending.paragraph > 0 else { return }
+        pendingParagraphRestore = nil  // consume — one shot
+        isRestoring = true
+        let key = ChapterTracking.key(chapter: chapter.index, paragraph: pending.paragraph)
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            proxy.scrollTo(key, anchor: .top)
+        }
+        isRestoring = false
     }
 
     private func titleHeader(fg: Color) -> some View {
