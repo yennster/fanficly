@@ -146,7 +146,9 @@ struct ReaderView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: titleOffset < -30)
             .onChange(of: selectedChapterIndex) { _, newIndex in
-                withAnimation { proxy.scrollTo(newIndex, anchor: .top) }
+                // Jump straight to the chapter — no animated scroll through
+                // everything in between.
+                proxy.scrollTo(newIndex, anchor: .top)
             }
             .onChange(of: currentAnchor) { _, anchor in
                 if let anchor { saveProgress(anchor) }
