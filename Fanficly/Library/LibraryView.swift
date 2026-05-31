@@ -84,6 +84,16 @@ struct LibraryRow: View {
     let work: Work
     let downloaded: Bool
 
+    /// Show the first fandom, shortened from AO3's canonical form
+    /// ("Harry Potter - J. K. Rowling" → "Harry Potter"), plus a count
+    /// if the work spans more than one.
+    private var fandomLabel: String {
+        guard let first = work.fandoms.first else { return "" }
+        let short = first.components(separatedBy: " - ").first ?? first
+        let extra = work.fandoms.count - 1
+        return extra > 0 ? "\(short)  +\(extra)" : short
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
@@ -96,6 +106,12 @@ struct LibraryRow: View {
                 Text(work.title).font(.headline)
             }
             Text("by \(work.authorName)").font(.subheadline).foregroundStyle(.secondary)
+            if !work.fandoms.isEmpty {
+                Label(fandomLabel, systemImage: "books.vertical")
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+                    .lineLimit(1)
+            }
             HStack(spacing: 8) {
                 Text(work.rating).font(.caption).foregroundStyle(.secondary)
                 if work.wordCount > 0 {
