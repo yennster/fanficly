@@ -24,18 +24,48 @@ A high-quality, open-source, ad-free iPhone & iPad reader for [Archive of Our Ow
 
 ## Development
 
+Set up:
 ```bash
 brew install xcodegen
 xcodegen generate
 open Fanficly.xcodeproj
 ```
 
-Tests:
+### Run locally in the simulator (no Xcode UI needed)
+
+```bash
+xcrun simctl boot "iPhone 17"
+open -a Simulator
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project Fanficly.xcodeproj -scheme Fanficly \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+
+xcrun simctl install booted \
+  build/Build/Products/Debug-iphonesimulator/Fanficly.app
+xcrun simctl launch booted io.github.yennster.fanficly
+```
+
+`DEVELOPER_DIR` is only needed if `xcode-select -p` still points at Command
+Line Tools — fix that permanently with:
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+To rebuild after edits, re-run the `xcodebuild build` and `simctl install`
+lines (the simulator stays booted). To swap to iPad, replace `iPhone 17`
+with `iPad Pro 13-inch (M5)` in both places.
+
+### Tests
+
 ```bash
 xcodebuild test \
   -project Fanficly.xcodeproj \
   -scheme Fanficly \
-  -destination 'platform=iOS Simulator,name=iPhone 15'
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  CODE_SIGNING_ALLOWED=NO \
+  -only-testing:FanficlyTests
 ```
 
 ## About AO3
