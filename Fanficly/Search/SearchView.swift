@@ -421,45 +421,8 @@ struct SearchView: View {
     /// re-parsing (which would just reproduce the same filters).
     private func syncPromptToFilters() {
         suppressParse = true
-        prompt = reconstructedPrompt(from: lastParsed)
+        prompt = lastParsed.promptText()
         DispatchQueue.main.async { suppressParse = false }
-    }
-
-    private func reconstructedPrompt(from f: AO3SearchFilters) -> String {
-        var parts: [String] = []
-        parts += f.relationshipNames
-        parts += f.characterNames
-        parts += f.fandomNames
-        parts += f.freeformNames
-        parts += f.ratings.map(\.displayName)
-        parts += f.warnings.map(\.displayName)
-        parts += f.categories.map(\.displayName)
-        if f.singleChapter { parts.append("oneshot") }
-        switch f.complete {
-        case .yes: parts.append("complete")
-        case .no:  parts.append("wip")
-        case .any: break
-        }
-        switch f.crossover {
-        case .yes: parts.append("crossover")
-        case .no:  parts.append("no crossovers")
-        case .any: break
-        }
-        if !f.wordCount.isEmpty { parts.append(wordCountPhrase(f.wordCount)) }
-        if !f.languageId.isEmpty { parts.append("in \(f.languageId)") }
-        if !f.query.isEmpty { parts.append(f.query) }
-        parts += f.excludedFreeforms.map { "-\($0)" }
-        return parts.joined(separator: " ")
-    }
-
-    private func wordCountPhrase(_ wc: String) -> String {
-        if wc.hasPrefix(">") { return "over \(wc.dropFirst())" }
-        if wc.hasPrefix("<") { return "under \(wc.dropFirst())" }
-        if wc.contains("-") {
-            let p = wc.split(separator: "-")
-            if p.count == 2 { return "between \(p[0]) and \(p[1])" }
-        }
-        return "\(wc) words"
     }
 }
 

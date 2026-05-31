@@ -38,4 +38,34 @@ final class TagResolverTests: XCTestCase {
         let resolved = await TagResolver.resolve(filters, using: MockAO3Client())
         XCTAssertEqual(resolved.relationshipNames, ["Edward/Bella"])
     }
+
+    func test_resolve_shipViaCharacterFallback() async {
+        // AO3 can't match "hermione/draco" directly, but can match each
+        // character and then the ship from the full names.
+        let stub = StubAO3Client()
+        stub.autocompleteResponses = [
+            // Direct relationship lookups return nothing for the short forms…
+            "hermione/draco": [],
+            "hermione draco": [],
+            "draco hermione": [],
+            // …character lookups succeed…
+            "hermione": ["Hermione Granger"],
+            "draco": ["Draco Malfoy"],
+            // …and the ship from the canonical names resolves.
+            "hermione granger/draco malfoy": ["Hermione Granger/Draco Malfoy"],
+        ]
+        var filters = AO3SearchFilters()
+        filters.relationshipNames = ["hermione/draco"]
+        let resolved = await TagResolver.resolve(filters, using: stub)
+        XCTAssertEqual(resolved.relationshipNames, ["Hermione Granger/Draco Malfoy"])
+    }
+
+    func test_resolve_directRelationshipMatch() async {
+        let stub = StubAO3Client()
+        stub.autocompleteResponses = ["edward/bella": ["Edward Cullen/Bella Swan"]]
+        var filters = AO3SearchFilters()
+        filters.relationshipNames = ["edward/bella"]
+        let resolved = await TagResolver.resolve(filters, using: stub)
+        XCTAssertEqual(resolved.relationshipNames, ["Edward Cullen/Bella Swan"])
+    }
 }

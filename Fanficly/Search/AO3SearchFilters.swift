@@ -151,6 +151,46 @@ public struct AO3SearchFilters: Equatable, Sendable, Codable {
 }
 
 extension AO3SearchFilters {
+    /// A normalized prompt-style string of the active filters. Used to keep
+    /// the search box in sync when a chip is removed (so the matching text
+    /// disappears too).
+    public func promptText() -> String {
+        var parts: [String] = []
+        parts += relationshipNames
+        parts += characterNames
+        parts += fandomNames
+        parts += freeformNames
+        parts += ratings.map(\.displayName)
+        parts += warnings.map(\.displayName)
+        parts += categories.map(\.displayName)
+        if singleChapter { parts.append("oneshot") }
+        switch complete {
+        case .yes: parts.append("complete")
+        case .no:  parts.append("wip")
+        case .any: break
+        }
+        switch crossover {
+        case .yes: parts.append("crossover")
+        case .no:  parts.append("no crossovers")
+        case .any: break
+        }
+        if !wordCount.isEmpty { parts.append(Self.wordCountPhrase(wordCount)) }
+        if !languageId.isEmpty { parts.append("in \(languageId)") }
+        if !query.isEmpty { parts.append(query) }
+        parts += excludedFreeforms.map { "-\($0)" }
+        return parts.joined(separator: " ")
+    }
+
+    static func wordCountPhrase(_ wc: String) -> String {
+        if wc.hasPrefix(">") { return "over \(wc.dropFirst())" }
+        if wc.hasPrefix("<") { return "under \(wc.dropFirst())" }
+        if wc.contains("-") {
+            let p = wc.split(separator: "-")
+            if p.count == 2 { return "between \(p[0]) and \(p[1])" }
+        }
+        return "\(wc) words"
+    }
+
     /// JSON for persisting a saved filter (fandom names excluded so the
     /// config can be applied to any fandom).
     public func savedJSON() -> String {

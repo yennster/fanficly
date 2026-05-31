@@ -54,7 +54,7 @@ Fanficly/
   Settings/                    # SettingsView + ReaderSettingsView + privacy
   DesignSystem/                # Typography, Spacing, FlowLayout, SafariView, ShareSheet
   PrivacyInfo.xcprivacy        # zero collection, zero tracking
-FanficlyTests/                 # ~100 XCTest cases — parsers, filters, endpoints,
+FanficlyTests/                 # ~120 XCTest cases — parsers, filters, endpoints,
                                #   HTML render, tracking, in-memory persistence
 FanficlyUITests/               # smoke test + ScreenshotTests (README shots)
 ```
@@ -97,12 +97,13 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 
 CI runs the same on both an iPhone and an iPad simulator. CI picks the newest installed Xcode and the newest available sim UDIDs at runtime — don't hardcode device names anywhere.
 
-~100 unit tests (`FanficlyTests`), all pure/fixture-based (no network):
+~120 unit tests (`FanficlyTests`), all pure/fixture-based (no network):
 - **Parsers** — `SearchResultsParserTests`, `WorkPageParserTests` (+ `LoginParserTests`), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
-- **Search** — `SearchPromptParserTests` (ships, characters, ratings, warnings, categories, freeforms incl. romance, fandoms, word count, status, engagement, language, exclusions), `AO3SearchFiltersTests` (every `work_search[*]` field mapping + NOT-exclusion composition), `TagResolverTests` (canonical resolution, ship slash variants).
+- **Search** — `SearchPromptParserTests` (ships, characters, ratings, warnings, categories, freeforms incl. romance, fandoms, word count, status, engagement, language, exclusions), `AO3SearchFiltersTests` (every `work_search[*]` field mapping, NOT-exclusion composition, Codable round-trip for saved filters), `TagResolverTests` (canonical resolution, ship slash variants, character-fallback ship resolution via `StubAO3Client`), `PromptTextTests` (chip-removal → search-box text), `FandomCatalogTests` (fandom → category icon).
 - **Endpoints** — `AO3EndpointsTests` (URLs, pagination, AO3 media path-encoding).
 - **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter).
 - **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow) and `ReadingProgressStore` (save/load round-trips).
+- **Misc** — `ThrottleActorTests` (1 req/sec throttle timing). `StubAO3Client` is a scriptable `AO3ClientProtocol` test double for resolution logic.
 
 When you add a feature, add its tests here. Make a private helper `internal` if it needs direct testing (see `TagResolver.candidates/bestMatch`).
 
