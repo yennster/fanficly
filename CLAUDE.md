@@ -54,7 +54,8 @@ Fanficly/
   Settings/                    # SettingsView + ReaderSettingsView + privacy
   DesignSystem/                # Typography, Spacing, FlowLayout, SafariView, ShareSheet
   PrivacyInfo.xcprivacy        # zero collection, zero tracking
-FanficlyTests/                 # XCTest — parsers, prompt parser, HTML render, tracking
+FanficlyTests/                 # ~100 XCTest cases — parsers, filters, endpoints,
+                               #   HTML render, tracking, in-memory persistence
 FanficlyUITests/               # smoke test + ScreenshotTests (README shots)
 ```
 
@@ -95,6 +96,15 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 ```
 
 CI runs the same on both an iPhone and an iPad simulator. CI picks the newest installed Xcode and the newest available sim UDIDs at runtime — don't hardcode device names anywhere.
+
+~100 unit tests (`FanficlyTests`), all pure/fixture-based (no network):
+- **Parsers** — `SearchResultsParserTests`, `WorkPageParserTests` (+ `LoginParserTests`), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
+- **Search** — `SearchPromptParserTests` (ships, characters, ratings, warnings, categories, freeforms incl. romance, fandoms, word count, status, engagement, language, exclusions), `AO3SearchFiltersTests` (every `work_search[*]` field mapping + NOT-exclusion composition), `TagResolverTests` (canonical resolution, ship slash variants).
+- **Endpoints** — `AO3EndpointsTests` (URLs, pagination, AO3 media path-encoding).
+- **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter).
+- **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow) and `ReadingProgressStore` (save/load round-trips).
+
+When you add a feature, add its tests here. Make a private helper `internal` if it needs direct testing (see `TagResolver.candidates/bestMatch`).
 
 The CoreData "Sandbox access to file-write-create denied" noise during test runs is harmless — it comes from SwiftUI booting the SwiftData container in the test host. Filter it out with `| grep -v CoreData:`.
 
