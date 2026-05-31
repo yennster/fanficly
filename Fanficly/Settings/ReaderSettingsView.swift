@@ -5,6 +5,7 @@ struct ReaderSettingsView: View {
     @AppStorage("reader.fontSize") private var fontSizeRaw: Int = ReaderFontSize.medium.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
+    @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
 
     var body: some View {
@@ -28,6 +29,20 @@ struct ReaderSettingsView: View {
                 .foregroundStyle(theme.foreground(for: scheme))
                 .cornerRadius(8)
                 .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+            }
+
+            Section {
+                Picker("Reading mode", selection: $modeRaw) {
+                    ForEach(ReadingMode.allCases) { m in
+                        Label(m.displayName, systemImage: m.symbol).tag(m.rawValue)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } header: {
+                Text("Reading mode")
+            } footer: {
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page; flick left/right to advance.")
             }
 
             Section("Theme") {

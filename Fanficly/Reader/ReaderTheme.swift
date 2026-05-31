@@ -104,15 +104,47 @@ enum ReaderWidth: String, CaseIterable, Identifiable {
         case .narrow: "Narrow"
         case .medium: "Medium"
         case .wide:   "Wide"
-        case .full:   "Full width"
+        case .full:   "Full"
         }
     }
-    var maxWidth: CGFloat? {
+
+    /// Horizontal padding around the text column. Applied to the
+    /// scroll content so that the text actually narrows on any device.
+    var horizontalPadding: CGFloat {
         switch self {
-        case .narrow: 520
-        case .medium: 680
-        case .wide:   860
+        case .narrow: 44
+        case .medium: 24
+        case .wide:   12
+        case .full:   2
+        }
+    }
+
+    /// Maximum text-column width on large screens (iPad/landscape).
+    /// Returns nil for `.full`, letting it stretch edge-to-edge.
+    var maxColumnWidth: CGFloat? {
+        switch self {
+        case .narrow: 540
+        case .medium: 720
+        case .wide:   900
         case .full:   nil
+        }
+    }
+}
+
+enum ReadingMode: String, CaseIterable, Identifiable {
+    case continuous, paginated
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .continuous: "Continuous scroll"
+        case .paginated:  "Swipe by chapter"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .continuous: "arrow.down"
+        case .paginated:  "rectangle.split.3x1"
         }
     }
 }

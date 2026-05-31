@@ -9,12 +9,15 @@ struct ReaderView: View {
     @AppStorage("reader.fontSize") private var fontSizeRaw: Int = ReaderFontSize.medium.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
+    @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
+    @State private var selectedChapterIndex: Int = 1
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
     private var fontSize: ReaderFontSize { ReaderFontSize(rawValue: fontSizeRaw) ?? .medium }
     private var fontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork }
     private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
+    private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload]) {
         self.title = title
@@ -41,65 +44,112 @@ struct ReaderView: View {
         let fg = theme.foreground(for: scheme)
         let bg = theme.background(for: scheme)
 
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: Spacing.lg) {
-                    VStack(alignment: .leading, spacing: Spacing.sm) {
-                        Text(title)
-                            .font(fontFamily.font(size: fontSize.cgFloat + 14, weight: .bold))
-                        if !author.isEmpty {
-                            Text("by \(author)").foregroundStyle(fg.opacity(0.65))
-                        }
-                        Divider().overlay(fg.opacity(0.2))
-                    }
-                    .id("__top")
-
-                    ForEach(chapters, id: \.index) { chapter in
-                        VStack(alignment: .leading, spacing: Spacing.sm) {
-                            if !chapter.title.isEmpty {
-                                Text(chapter.title)
-                                    .font(fontFamily.font(size: fontSize.cgFloat + 4, weight: .semibold))
-                            }
-                            HTMLText(html: chapter.bodyHTML)
-                                .font(fontFamily.font(size: fontSize.cgFloat))
-                                .lineSpacing(6)
-                                .foregroundStyle(fg)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.vertical, Spacing.sm)
-                        .id(chapter.index)
-                    }
-                }
-                .frame(maxWidth: width.maxWidth, alignment: .leading)
-                .padding()
+        Group {
+            switch mode {
+            case .continuous: continuousBody(fg: fg, bg: bg)
+            case .paginated:  paginatedBody(fg: fg, bg: bg)
             }
-            .frame(maxWidth: .infinity)
-            .background(bg)
-            .foregroundStyle(fg)
-            .preferredColorScheme(theme.preferredColorScheme)
-            .toolbar {
-                if chapters.count > 1 {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        chaptersMenu(proxy: proxy)
-                    }
-                }
+        }
+        .preferredColorScheme(theme.preferredColorScheme)
+        .toolbar {
+            if chapters.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
-                    typographyMenu
+                    chaptersMenu
                 }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                typographyMenu
             }
         }
     }
 
-    private func chaptersMenu(proxy: ScrollViewProxy) -> some View {
-        Menu {
+    // MARK: - Continuous
+
+    private func continuousBody(fg: Color, bg: Color) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Spacing.lg) {
+                    titleHeader(fg: fg)
+                        .id("__top")
+
+                    ForEach(chapters, id: \.index) { chapter in
+                        chapterBlock(chapter, fg: fg)
+                            .id(chapter.index)
+                    }
+                }
+                .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
+                .padding(.horizontal, width.horizontalPadding)
+                .padding(.vertical, Spacing.lg)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .background(bg)
+            .foregroundStyle(fg)
+            .onChange(of: selectedChapterIndex) { _, newIndex in
+                withAnimation { proxy.scrollTo(newIndex, anchor: .top) }
+            }
+        }
+    }
+
+    // MARK: - Paginated
+
+    private func paginatedBody(fg: Color, bg: Color) -> some View {
+        TabView(selection: $selectedChapterIndex) {
             ForEach(chapters, id: \.index) { chapter in
-                Button {
-                    withAnimation { proxy.scrollTo(chapter.index, anchor: .top) }
-                } label: {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Spacing.lg) {
+                        if chapter.index == chapters.first?.index {
+                            titleHeader(fg: fg)
+                        }
+                        chapterBlock(chapter, fg: fg)
+                    }
+                    .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
+                    .padding(.horizontal, width.horizontalPadding)
+                    .padding(.vertical, Spacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .tag(chapter.index)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: chapters.count > 1 ? .automatic : .never))
+        .indexViewStyle(.page(backgroundDisplayMode: .always))
+        .background(bg)
+        .foregroundStyle(fg)
+    }
+
+    private func titleHeader(fg: Color) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text(title)
+                .font(fontFamily.font(size: fontSize.cgFloat + 14, weight: .bold))
+            if !author.isEmpty {
+                Text("by \(author)").foregroundStyle(fg.opacity(0.65))
+            }
+            Divider().overlay(fg.opacity(0.2))
+        }
+    }
+
+    private func chapterBlock(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            if !chapter.title.isEmpty {
+                Text(chapter.title)
+                    .font(fontFamily.font(size: fontSize.cgFloat + 4, weight: .semibold))
+            }
+            HTMLText(html: chapter.bodyHTML)
+                .font(fontFamily.font(size: fontSize.cgFloat))
+                .lineSpacing(6)
+                .foregroundStyle(fg)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, Spacing.sm)
+    }
+
+    private var chaptersMenu: some View {
+        Menu {
+            Picker("Jump to chapter", selection: $selectedChapterIndex) {
+                ForEach(chapters, id: \.index) { chapter in
                     let label = chapter.title.isEmpty
                         ? "Chapter \(chapter.index)"
                         : "Chapter \(chapter.index): \(chapter.title)"
-                    Text(label)
+                    Text(label).tag(chapter.index)
                 }
             }
         } label: {
@@ -109,17 +159,32 @@ struct ReaderView: View {
 
     private var typographyMenu: some View {
         Menu {
-            Picker("Theme", selection: $themeRaw) {
-                ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
+            Section("Reading mode") {
+                Picker("Reading mode", selection: $modeRaw) {
+                    ForEach(ReadingMode.allCases) {
+                        Label($0.displayName, systemImage: $0.symbol).tag($0.rawValue)
+                    }
+                }
             }
-            Picker("Font", selection: $fontFamilyRaw) {
-                ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
+            Section("Theme") {
+                Picker("Theme", selection: $themeRaw) {
+                    ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
             }
-            Picker("Font size", selection: $fontSizeRaw) {
-                ForEach(ReaderFontSize.allCases) { Text($0.displayName).tag($0.rawValue) }
+            Section("Font") {
+                Picker("Font", selection: $fontFamilyRaw) {
+                    ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
             }
-            Picker("Width", selection: $widthRaw) {
-                ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
+            Section("Font size") {
+                Picker("Font size", selection: $fontSizeRaw) {
+                    ForEach(ReaderFontSize.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
+            }
+            Section("Text width") {
+                Picker("Text width", selection: $widthRaw) {
+                    ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
             }
         } label: {
             Image(systemName: "textformat.size")
