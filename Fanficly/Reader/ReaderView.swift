@@ -7,12 +7,12 @@ struct ReaderView: View {
     let summary: AO3WorkSummary?
 
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
-    @AppStorage("reader.fontSize") private var fontSizeRaw: Int = ReaderFontSize.medium.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
     @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage("reader.lineSpacing") private var lineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
-    @AppStorage("reader.paragraphSpacing") private var paragraphSpacingRaw: String = ReaderParagraphSpacing.normal.rawValue
+    @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
+    @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var selectedChapterIndex: Int = 1
@@ -31,12 +31,12 @@ struct ReaderView: View {
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
-    private var fontSize: ReaderFontSize { ReaderFontSize(rawValue: fontSizeRaw) ?? .medium }
     private var fontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork }
     private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
     private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
-    private var lineSpacing: ReaderLineSpacing { ReaderLineSpacing(rawValue: lineSpacingRaw) ?? .normal }
-    private var paragraphSpacing: ReaderParagraphSpacing { ReaderParagraphSpacing(rawValue: paragraphSpacingRaw) ?? .normal }
+    private var fontSize: CGFloat { CGFloat(fontSizePt) }
+    private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) }
+    private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         self.title = title
@@ -286,7 +286,7 @@ struct ReaderView: View {
             }
             if !chapter.title.isEmpty {
                 Text(chapter.title)
-                    .font(fontFamily.font(size: fontSize.cgFloat + 5, weight: .bold))
+                    .font(fontFamily.font(size: fontSize + 5, weight: .bold))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
@@ -384,7 +384,7 @@ struct ReaderView: View {
     private func titleHeader(fg: Color) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
-                .font(fontFamily.font(size: fontSize.cgFloat + 14, weight: .bold))
+                .font(fontFamily.font(size: fontSize + 14, weight: .bold))
             if !author.isEmpty {
                 Text("by \(author)").foregroundStyle(fg.opacity(0.65))
             }
@@ -396,7 +396,7 @@ struct ReaderView: View {
                             .font(.caption.smallCaps())
                             .foregroundStyle(fg.opacity(0.55))
                         HTMLText(html: summary.summary)
-                            .font(fontFamily.font(size: fontSize.cgFloat - 1))
+                            .font(fontFamily.font(size: fontSize - 1))
                             .foregroundStyle(fg.opacity(0.85))
                     }
                 }
@@ -409,9 +409,9 @@ struct ReaderView: View {
         ChapterContentView(
             chapterIndex: chapter.index,
             html: chapter.bodyHTML,
-            font: fontFamily.font(size: fontSize.cgFloat),
-            lineSpacing: lineSpacing.points,
-            paragraphSpacing: paragraphSpacing.points,
+            font: fontFamily.font(size: fontSize),
+            lineSpacing: lineSpacing,
+            paragraphSpacing: paragraphSpacing,
             foreground: fg,
             scrollSpace: scrollSpace
         )
@@ -462,35 +462,18 @@ struct ReaderView: View {
             }
 
             Menu {
-                Picker("Text size", selection: $fontSizeRaw) {
-                    ForEach(ReaderFontSize.allCases) { Text($0.displayName).tag($0.rawValue) }
-                }
-            } label: {
-                Label("Text size · \(fontSize.displayName)", systemImage: "textformat.size")
-            }
-
-            Menu {
-                Picker("Line spacing", selection: $lineSpacingRaw) {
-                    ForEach(ReaderLineSpacing.allCases) { Text($0.displayName).tag($0.rawValue) }
-                }
-            } label: {
-                Label("Line spacing · \(lineSpacing.displayName)", systemImage: "arrow.up.and.down.text.horizontal")
-            }
-
-            Menu {
-                Picker("Paragraph spacing", selection: $paragraphSpacingRaw) {
-                    ForEach(ReaderParagraphSpacing.allCases) { Text($0.displayName).tag($0.rawValue) }
-                }
-            } label: {
-                Label("Paragraph spacing · \(paragraphSpacing.displayName)", systemImage: "text.justify.left")
-            }
-
-            Menu {
                 Picker("Margins", selection: $widthRaw) {
                     ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
             } label: {
                 Label("Margins · \(width.displayName)", systemImage: "rectangle.compress.vertical")
+            }
+
+            Divider()
+            NavigationLink {
+                ReaderSettingsView()
+            } label: {
+                Label("Text size & spacing…", systemImage: "slider.horizontal.3")
             }
         } label: {
             Image(systemName: "textformat")

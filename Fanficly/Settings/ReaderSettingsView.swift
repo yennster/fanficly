@@ -2,29 +2,30 @@ import SwiftUI
 
 struct ReaderSettingsView: View {
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
-    @AppStorage("reader.fontSize") private var fontSizeRaw: Int = ReaderFontSize.medium.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
     @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage("reader.lineSpacing") private var lineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
-    @AppStorage("reader.paragraphSpacing") private var paragraphSpacingRaw: String = ReaderParagraphSpacing.normal.rawValue
+    @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
+    @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @Environment(\.colorScheme) private var systemColorScheme
 
     var body: some View {
         let theme = ReaderTheme(rawValue: themeRaw) ?? .system
         let family = ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork
-        let size = ReaderFontSize(rawValue: fontSizeRaw) ?? .medium
-        let spacing = ReaderLineSpacing(rawValue: lineSpacingRaw) ?? .normal
         let scheme = theme.preferredColorScheme ?? systemColorScheme
 
         Form {
             Section("Preview") {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: paragraphSpacingPt) {
                     Text("A Coffee Shop Tale")
-                        .font(family.font(size: size.cgFloat + 6, weight: .bold))
-                    Text("Bella poured the latte. It was hot. Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
-                        .font(family.font(size: size.cgFloat))
-                        .lineSpacing(spacing.points)
+                        .font(family.font(size: fontSizePt + 6, weight: .bold))
+                    Text("Bella poured the latte. It was hot.")
+                        .font(family.font(size: fontSizePt))
+                        .lineSpacing(lineSpacingPt)
+                    Text("Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
+                        .font(family.font(size: fontSizePt))
+                        .lineSpacing(lineSpacingPt)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -35,81 +36,82 @@ struct ReaderSettingsView: View {
             }
 
             Section {
+                metricSlider("Text size", value: $fontSizePt, range: ReaderMetrics.fontSizeRange,
+                             step: 1, unit: "pt", icon: "textformat.size")
+                metricSlider("Line spacing", value: $lineSpacingPt, range: ReaderMetrics.lineSpacingRange,
+                             step: 1, unit: "pt", icon: "arrow.up.and.down.text.horizontal")
+                metricSlider("Paragraph spacing", value: $paragraphSpacingPt, range: ReaderMetrics.paragraphSpacingRange,
+                             step: 2, unit: "pt", icon: "text.justify.left")
+            } header: {
+                Text("Text size & spacing")
+            } footer: {
+                Text("Drag the sliders, or tap − / + to fine-tune.")
+            }
+
+            Section {
                 Picker("Reading mode", selection: $modeRaw) {
                     ForEach(ReadingMode.allCases) { m in
                         Label(m.displayName, systemImage: m.symbol).tag(m.rawValue)
                     }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
+                .pickerStyle(.inline).labelsHidden()
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page; flick left/right to advance.")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page.")
             }
 
             Section("Theme") {
                 Picker("Theme", selection: $themeRaw) {
-                    ForEach(ReaderTheme.allCases) { t in
-                        Text(t.displayName).tag(t.rawValue)
-                    }
+                    ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
+                .pickerStyle(.inline).labelsHidden()
             }
 
             Section("Font") {
                 Picker("Font", selection: $fontFamilyRaw) {
-                    ForEach(ReaderFontFamily.allCases) { f in
-                        Text(f.displayName).tag(f.rawValue)
-                    }
+                    ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
+                .pickerStyle(.inline).labelsHidden()
             }
 
-            Section("Font size") {
-                Picker("Font size", selection: $fontSizeRaw) {
-                    ForEach(ReaderFontSize.allCases) { f in
-                        Text(f.displayName).tag(f.rawValue)
-                    }
+            Section("Margins") {
+                Picker("Margins", selection: $widthRaw) {
+                    ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-
-            Section("Line spacing") {
-                Picker("Line spacing", selection: $lineSpacingRaw) {
-                    ForEach(ReaderLineSpacing.allCases) { s in
-                        Text(s.displayName).tag(s.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-
-            Section("Paragraph spacing") {
-                Picker("Paragraph spacing", selection: $paragraphSpacingRaw) {
-                    ForEach(ReaderParagraphSpacing.allCases) { s in
-                        Text(s.displayName).tag(s.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-
-            Section("Text width") {
-                Picker("Text width", selection: $widthRaw) {
-                    ForEach(ReaderWidth.allCases) { w in
-                        Text(w.displayName).tag(w.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
+                .pickerStyle(.inline).labelsHidden()
             }
         }
         .navigationTitle("Reader")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private func metricSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,
+                              step: Double, unit: String, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label(title, systemImage: icon).font(.subheadline)
+                Spacer()
+                Text("\(Int(value.wrappedValue.rounded())) \(unit)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 12) {
+                Button {
+                    value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
+                } label: { Image(systemName: "minus.circle") }
+                .buttonStyle(.borderless)
+
+                Slider(value: value, in: range, step: step)
+
+                Button {
+                    value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
+                } label: { Image(systemName: "plus.circle") }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

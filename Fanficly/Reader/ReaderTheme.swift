@@ -44,21 +44,17 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
     }
 }
 
-enum ReaderFontSize: Int, CaseIterable, Identifiable {
-    case xs = 13, small = 15, medium = 17, large = 20, xlarge = 23, xxlarge = 27
+/// Numeric reader metrics adjusted by sliders in Settings. Stored as raw
+/// point values in @AppStorage so they can vary continuously.
+enum ReaderMetrics {
+    static let defaultFontSize: Double = 18
+    static let fontSizeRange: ClosedRange<Double> = 12...30
 
-    var id: Int { rawValue }
-    var displayName: String {
-        switch self {
-        case .xs:      "Extra Small"
-        case .small:   "Small"
-        case .medium:  "Medium"
-        case .large:   "Large"
-        case .xlarge:  "Extra Large"
-        case .xxlarge: "Huge"
-        }
-    }
-    var cgFloat: CGFloat { CGFloat(rawValue) }
+    static let defaultLineSpacing: Double = 6
+    static let lineSpacingRange: ClosedRange<Double> = 0...20
+
+    static let defaultParagraphSpacing: Double = 16
+    static let paragraphSpacingRange: ClosedRange<Double> = 2...44
 }
 
 enum ReaderFontFamily: String, CaseIterable, Identifiable {
@@ -131,49 +127,6 @@ enum ReaderWidth: String, CaseIterable, Identifiable {
     }
 }
 
-enum ReaderLineSpacing: String, CaseIterable, Identifiable {
-    case tight, normal, relaxed, loose
-
-    var id: String { rawValue }
-    var displayName: String {
-        switch self {
-        case .tight:   "Tight"
-        case .normal:  "Normal"
-        case .relaxed: "Relaxed"
-        case .loose:   "Loose"
-        }
-    }
-    var points: CGFloat {
-        switch self {
-        case .tight:   2
-        case .normal:  6
-        case .relaxed: 11
-        case .loose:   16
-        }
-    }
-}
-
-enum ReaderParagraphSpacing: String, CaseIterable, Identifiable {
-    case compact, normal, roomy, airy
-
-    var id: String { rawValue }
-    var displayName: String {
-        switch self {
-        case .compact: "Compact"
-        case .normal:  "Normal"
-        case .roomy:   "Roomy"
-        case .airy:    "Airy"
-        }
-    }
-    var points: CGFloat {
-        switch self {
-        case .compact: 8
-        case .normal:  16
-        case .roomy:   26
-        case .airy:    38
-        }
-    }
-}
 
 enum ReadingMode: String, CaseIterable, Identifiable {
     case continuous, paginated
