@@ -10,6 +10,7 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
     func downloadEPUB(workId: Int) async throws -> URL
+    func postKudos(workId: Int) async throws
 }
 
 public struct AO3SearchResults: Sendable, Equatable {
@@ -198,6 +199,41 @@ public actor AO3Client: AO3ClientProtocol {
         return fileURL
     }
 
+    public func postKudos(workId: Int) async throws {
+        await throttle.wait()
+        let pageURL = try AO3Endpoints.work(id: workId, base: baseURL)
+        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let pageHTML = String(data: pageData, encoding: .utf8),
+              let token = try LoginParser.authenticityToken(html: pageHTML) else {
+            throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
+        }
+
+        await throttle.wait()
+        var request = URLRequest(url: baseURL.appending(path: "/kudos.js"))
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        let body = encodeForm([
+            "authenticity_token": token,
+            "kudo[commentable_id]": String(workId),
+            "kudo[commentable_type]": "Work",
+        ])
+        request.httpBody = body.data(using: .utf8)
+
+        let (data, response) = try await performRequest(request)
+        let bodyString = String(data: data, encoding: .utf8) ?? ""
+        if response.statusCode == 422 || bodyString.contains("already left kudos") {
+            return
+        }
+        if response.statusCode >= 400 {
+            throw AO3Error.http(status: response.statusCode)
+        }
+    }
+
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
             let (data, response) = try await session.data(for: request)
@@ -256,4 +292,5 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func downloadEPUB(workId: Int) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }
+    public func postKudos(workId: Int) async throws {}
 }

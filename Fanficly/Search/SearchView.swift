@@ -3,6 +3,8 @@ import SwiftData
 
 struct SearchView: View {
     @Environment(\.ao3Client) private var client
+    @Environment(\.modelContext) private var context
+    @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
     @State private var prompt: String = ""
     @State private var lastParsed: AO3SearchFilters = AO3SearchFilters()
     @State private var results: [AO3WorkSummary] = []
@@ -13,6 +15,8 @@ struct SearchView: View {
     @State private var errorMessage: String?
     @State private var sortColumn: AO3SearchFilters.SortColumn = .bestMatch
     @State private var sortDirection: AO3SearchFilters.SortDirection = .desc
+    @State private var showingSaveDialog: Bool = false
+    @State private var saveName: String = ""
     private let parser = SearchPromptParser()
     private let enricher: any SearchEnricher = SearchEnricherFactory.make()
 
@@ -25,6 +29,24 @@ struct SearchView: View {
         .navigationTitle("Search")
         .navigationDestination(for: AO3WorkSummary.self) { work in
             WorkDetailView(workId: work.id)
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    saveName = suggestName()
+                    showingSaveDialog = true
+                } label: {
+                    Image(systemName: "bookmark")
+                }
+                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .alert("Save search", isPresented: $showingSaveDialog) {
+            TextField("Name", text: $saveName)
+            Button("Save") { saveCurrent() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves the prompt and sort options so you can re-run it later.")
         }
     }
 
@@ -66,6 +88,8 @@ struct SearchView: View {
             }
         } else if let error = errorMessage {
             ContentUnavailableView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
+        } else if results.isEmpty && !savedSearches.isEmpty {
+            savedSearchesList
         } else if results.isEmpty {
             ContentUnavailableView("Type a prompt", systemImage: "sparkle.magnifyingglass",
                 description: Text("e.g. \"edward/bella romance all human complete\""))
@@ -93,6 +117,72 @@ struct SearchView: View {
             }
             .listStyle(.plain)
         }
+    }
+
+    private var savedSearchesList: some View {
+        List {
+            Section("Saved searches") {
+                ForEach(savedSearches) { saved in
+                    Button {
+                        load(saved)
+                        Task { await runSearch() }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(saved.name).font(.headline).foregroundStyle(.primary)
+                            Text(saved.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            if let col = AO3SearchFilters.SortColumn(rawValue: saved.sortColumn) {
+                                Text("Sort: \(col.displayName) \(saved.sortDirection == "asc" ? "↑" : "↓")")
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            context.delete(saved)
+                            try? context.save()
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    private func load(_ saved: SavedSearch) {
+        prompt = saved.prompt
+        sortColumn = AO3SearchFilters.SortColumn(rawValue: saved.sortColumn) ?? .bestMatch
+        sortDirection = AO3SearchFilters.SortDirection(rawValue: saved.sortDirection) ?? .desc
+        lastParsed = parser.parse(saved.prompt)
+    }
+
+    private func suggestName() -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return "Untitled" }
+        return String(trimmed.prefix(40))
+    }
+
+    private func saveCurrent() {
+        let name = saveName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == name })
+        let existing = (try? context.fetch(descriptor))?.first
+        if let existing {
+            existing.prompt = prompt
+            existing.sortColumn = sortColumn.rawValue
+            existing.sortDirection = sortDirection.rawValue
+            existing.savedAt = .now
+        } else {
+            let new = SavedSearch(
+                name: name,
+                prompt: prompt,
+                sortColumn: sortColumn.rawValue,
+                sortDirection: sortDirection.rawValue
+            )
+            context.insert(new)
+        }
+        try? context.save()
     }
 
     private var sortBar: some View {
@@ -182,7 +272,7 @@ struct SearchView: View {
         var chips: [String] = []
         chips.append(contentsOf: lastParsed.relationshipNames.map { "♥ \($0)" })
         chips.append(contentsOf: lastParsed.characterNames.map { "👤 \($0)" })
-        chips.append(contentsOf: lastParsed.fandomNames)
+        chips.append(contentsOf: lastParsed.fandomNames.map { "📚 \($0)" })
         chips.append(contentsOf: lastParsed.freeformNames)
         chips.append(contentsOf: lastParsed.ratings.map(\.displayName))
         chips.append(contentsOf: lastParsed.warnings.map(\.displayName))
@@ -269,10 +359,13 @@ struct ChipView: View {
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(AuthState.self) private var auth
     let workId: Int
     @State private var payload: AO3WorkPayload?
     @State private var errorMessage: String?
     @State private var isSavingOffline: Bool = false
+    @State private var isKudosing: Bool = false
+    @State private var kudosed: Bool = false
     @State private var epubURL: URL?
 
     var body: some View {
@@ -281,6 +374,19 @@ struct WorkDetailView: View {
                 ReaderView(payload: payload)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
+                            if auth.isLoggedIn {
+                                Button {
+                                    Task { await postKudos() }
+                                } label: {
+                                    if isKudosing {
+                                        ProgressView()
+                                    } else {
+                                        Image(systemName: kudosed ? "heart.fill" : "heart")
+                                            .foregroundStyle(kudosed ? .pink : .primary)
+                                    }
+                                }
+                                .disabled(isKudosing || kudosed)
+                            }
                             if let epubURL {
                                 ShareLink(item: epubURL) {
                                     Image(systemName: "square.and.arrow.up")
@@ -326,6 +432,17 @@ struct WorkDetailView: View {
             epubURL = url
         } catch {
             errorMessage = "Saved metadata but EPUB download failed: \(error)"
+        }
+    }
+
+    private func postKudos() async {
+        isKudosing = true
+        defer { isKudosing = false }
+        do {
+            try await client.postKudos(workId: workId)
+            kudosed = true
+        } catch {
+            errorMessage = "Couldn't post kudos: \(error)"
         }
     }
 }

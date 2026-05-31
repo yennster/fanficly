@@ -14,6 +14,7 @@ struct FanficlyApp: App {
             TagRecord.self,
             BookmarkRecord.self,
             SubscriptionRecord.self,
+            SavedSearch.self,
         ])
         return try! ModelContainer(for: schema)
     }()

@@ -129,6 +129,23 @@ final class BookmarkRecord {
 }
 
 @Model
+final class SavedSearch {
+    @Attribute(.unique) var name: String
+    var prompt: String
+    var sortColumn: String
+    var sortDirection: String
+    var savedAt: Date
+
+    init(name: String, prompt: String, sortColumn: String = "_score", sortDirection: String = "desc", savedAt: Date = .now) {
+        self.name = name
+        self.prompt = prompt
+        self.sortColumn = sortColumn
+        self.sortDirection = sortDirection
+        self.savedAt = savedAt
+    }
+}
+
+@Model
 final class SubscriptionRecord {
     @Attribute(.unique) var key: String
     var kind: String
