@@ -23,6 +23,40 @@ extension View {
     }
 }
 
+/// Reports the top offset of each paragraph (keyed "c<chapter>-p<para>")
+/// so the reader can remember the exact reading position.
+struct ScrollAnchorKey: PreferenceKey {
+    static var defaultValue: [String: CGFloat] { [:] }
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+struct ReadingAnchor: Equatable {
+    let chapter: Int
+    let paragraph: Int
+}
+
+extension ChapterTracking {
+    /// The topmost paragraph anchor currently at/above the threshold line.
+    static func topmostAnchor(_ offsets: [String: CGFloat], threshold: CGFloat = 80) -> ReadingAnchor? {
+        let passed = offsets.filter { $0.value <= threshold }
+        let pick = passed.max(by: { $0.value < $1.value })
+            ?? offsets.min(by: { $0.value < $1.value })
+        guard let key = pick?.key else { return nil }
+        return parse(key)
+    }
+
+    static func parse(_ key: String) -> ReadingAnchor? {
+        // "c12-p3"
+        let parts = key.dropFirst().split(separator: "-p")
+        guard parts.count == 2, let c = Int(parts[0]), let p = Int(parts[1]) else { return nil }
+        return ReadingAnchor(chapter: c, paragraph: p)
+    }
+
+    static func key(chapter: Int, paragraph: Int) -> String { "c\(chapter)-p\(paragraph)" }
+}
+
 enum ChapterTracking {
     /// Given each chapter's top offset (in scroll-content coordinates),
     /// return the index of the chapter currently at the top of the viewport.

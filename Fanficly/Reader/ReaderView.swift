@@ -13,9 +13,13 @@ struct ReaderView: View {
     @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("reader.lineSpacing") private var lineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.modelContext) private var modelContext
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
     @State private var titleOffset: CGFloat = .greatestFiniteMagnitude
+    @State private var currentAnchor: ReadingAnchor?
+    @State private var pendingRestore: ReadingAnchor?
+    @State private var hasRestored = false
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -125,6 +129,11 @@ struct ReaderView: View {
                 }
                 titleOffset = offsets[0] ?? .greatestFiniteMagnitude
             }
+            .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                if hasRestored, let anchor = ChapterTracking.topmostAnchor(offsets) {
+                    currentAnchor = anchor
+                }
+            }
             .background(bg)
             .foregroundStyle(fg)
             .overlay(alignment: .top) {
@@ -139,7 +148,35 @@ struct ReaderView: View {
             .onChange(of: selectedChapterIndex) { _, newIndex in
                 withAnimation { proxy.scrollTo(newIndex, anchor: .top) }
             }
+            .onChange(of: currentAnchor) { _, anchor in
+                if let anchor { saveProgress(anchor) }
+            }
+            .task { await restore(proxy: proxy) }
+            .onDisappear { if let currentAnchor { saveProgress(currentAnchor, force: true) } }
         }
+    }
+
+    private func restore(proxy: ScrollViewProxy) async {
+        guard !hasRestored, let id = summary?.id else { hasRestored = true; return }
+        let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext)
+        try? await Task.sleep(nanoseconds: 300_000_000)  // let first layout settle
+        if let saved, saved.chapter > 1 || saved.paragraph > 0 {
+            // Scroll to the chapter first (a top-level lazy id), which renders
+            // its paragraphs, then home in on the exact paragraph.
+            proxy.scrollTo(saved.chapter, anchor: .top)
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            proxy.scrollTo(ChapterTracking.key(chapter: saved.chapter, paragraph: saved.paragraph), anchor: .top)
+        }
+        hasRestored = true
+    }
+
+    @State private var lastSaveAt: Date = .distantPast
+    private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false) {
+        guard let id = summary?.id else { return }
+        let now = Date()
+        if !force && now.timeIntervalSince(lastSaveAt) < 1.5 { return }
+        lastSaveAt = now
+        ReadingProgressStore.save(ao3Id: id, anchor: anchor, title: title, author: author, in: modelContext)
     }
 
     private func chapterIndicatorPill(fg: Color, bg: Color) -> some View {
@@ -204,6 +241,19 @@ struct ReaderView: View {
         .indexViewStyle(.page(backgroundDisplayMode: .always))
         .background(bg)
         .foregroundStyle(fg)
+        .task {
+            // Restore the chapter (paginated mode is chapter-granular).
+            guard !hasRestored, let id = summary?.id else { hasRestored = true; return }
+            if let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext) {
+                selectedChapterIndex = saved.chapter
+            }
+            hasRestored = true
+        }
+        .onChange(of: selectedChapterIndex) { _, chapter in
+            if hasRestored {
+                saveProgress(ReadingAnchor(chapter: chapter, paragraph: 0), force: true)
+            }
+        }
     }
 
     private func titleHeader(fg: Color) -> some View {
@@ -231,12 +281,15 @@ struct ReaderView: View {
     }
 
     private func chapterBlock(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
-        HTMLText(html: chapter.bodyHTML)
-            .font(fontFamily.font(size: fontSize.cgFloat))
-            .lineSpacing(lineSpacing.points)
-            .foregroundStyle(fg)
-            .textSelection(.enabled)
-            .padding(.vertical, Spacing.sm)
+        ChapterContentView(
+            chapterIndex: chapter.index,
+            html: chapter.bodyHTML,
+            font: fontFamily.font(size: fontSize.cgFloat),
+            lineSpacing: lineSpacing.points,
+            foreground: fg,
+            scrollSpace: scrollSpace
+        )
+        .padding(.vertical, Spacing.sm)
     }
 
     private var chaptersMenu: some View {

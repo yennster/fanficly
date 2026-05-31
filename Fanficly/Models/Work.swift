@@ -135,6 +135,25 @@ final class BookmarkRecord {
 }
 
 @Model
+final class ReadingProgress {
+    @Attribute(.unique) var ao3Id: Int
+    var chapterIndex: Int
+    var paragraphIndex: Int
+    var title: String
+    var author: String
+    var updatedAt: Date
+
+    init(ao3Id: Int, chapterIndex: Int = 1, paragraphIndex: Int = 0, title: String = "", author: String = "", updatedAt: Date = .now) {
+        self.ao3Id = ao3Id
+        self.chapterIndex = chapterIndex
+        self.paragraphIndex = paragraphIndex
+        self.title = title
+        self.author = author
+        self.updatedAt = updatedAt
+    }
+}
+
+@Model
 final class SavedSearch {
     @Attribute(.unique) var name: String
     var prompt: String

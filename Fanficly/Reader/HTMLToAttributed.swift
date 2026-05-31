@@ -3,17 +3,31 @@ import SwiftSoup
 import SwiftUI
 
 enum HTMLToAttributed {
+    /// The whole body as one AttributedString (paragraphs joined by blank lines).
     static func convert(_ html: String) -> AttributedString {
+        let paragraphs = convertParagraphs(html)
+        var out = AttributedString()
+        for (i, para) in paragraphs.enumerated() {
+            if i > 0 { out.append(AttributedString("\n\n")) }
+            out.append(para)
+        }
+        return out
+    }
+
+    /// The body split into individual paragraphs, so the reader can render
+    /// and track each one (for precise reading-position restore).
+    static func convertParagraphs(_ html: String) -> [AttributedString] {
         guard let doc = try? SwiftSoup.parseBodyFragment(html),
               let body = doc.body() else {
-            return AttributedString(html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression))
+            let stripped = html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            return stripped.isEmpty ? [] : [AttributedString(stripped)]
         }
         var ctx = RenderContext()
         let children = (try? body.getChildNodes()) ?? []
         for child in children {
             renderNode(child, into: &ctx, style: InlineStyle())
         }
-        return ctx.output
+        return ctx.finish()
     }
 
     private struct InlineStyle {
@@ -23,49 +37,66 @@ enum HTMLToAttributed {
         var strike = false
     }
 
-    /// Accumulates output while collapsing whitespace and ensuring at most
-    /// one blank line between blocks — so AO3's empty `<p>` scene breaks
-    /// and source-indentation whitespace don't create big vertical gaps.
+    /// Accumulates the body into discrete paragraphs, collapsing whitespace
+    /// so AO3's empty `<p>` scene breaks and source indentation don't create
+    /// empty paragraphs or big gaps.
     private struct RenderContext {
-        var output = AttributedString()
+        private var paragraphs: [AttributedString] = []
+        private var current = AttributedString()
         private var pendingParagraph = false
 
         mutating func append(_ fragment: AttributedString) {
             guard !fragment.characters.isEmpty else { return }
             flushParagraph()
-            output.append(fragment)
+            current.append(fragment)
         }
 
-        /// A <br> — a single soft line break within a paragraph.
+        /// A <br> — a single soft line break within the current paragraph.
         mutating func softBreak() {
-            guard !output.characters.isEmpty else { return }
-            if trailingNewlines() < 2 {
-                output.append(AttributedString("\n"))
+            guard !current.characters.isEmpty else { return }
+            if trailingNewlines(current) < 2 {
+                current.append(AttributedString("\n"))
             }
         }
 
-        /// End of a block element — request a paragraph break before the
-        /// next text, without stacking up if several blocks end in a row.
+        /// End of a block element — finish the current paragraph (if any).
+        /// Coalesces so several empty blocks in a row don't add empties.
         mutating func paragraphBreak() {
-            if !output.characters.isEmpty { pendingParagraph = true }
+            if !current.characters.isEmpty { pendingParagraph = true }
         }
 
         private mutating func flushParagraph() {
             guard pendingParagraph else { return }
-            switch trailingNewlines() {
-            case 0: output.append(AttributedString("\n\n"))
-            case 1: output.append(AttributedString("\n"))
-            default: break
-            }
+            let trimmed = trimmedParagraph(current)
+            if !trimmed.characters.isEmpty { paragraphs.append(trimmed) }
+            current = AttributedString()
             pendingParagraph = false
         }
 
-        private func trailingNewlines() -> Int {
+        mutating func finish() -> [AttributedString] {
+            let trimmed = trimmedParagraph(current)
+            if !trimmed.characters.isEmpty { paragraphs.append(trimmed) }
+            current = AttributedString()
+            return paragraphs
+        }
+
+        private func trailingNewlines(_ s: AttributedString) -> Int {
             var count = 0
-            for ch in output.characters.reversed() {
+            for ch in s.characters.reversed() {
                 if ch == "\n" { count += 1; if count >= 2 { break } } else { break }
             }
             return count
+        }
+
+        private func trimmedParagraph(_ s: AttributedString) -> AttributedString {
+            var result = s
+            while let first = result.characters.first, first == "\n" || first == " " {
+                result.removeSubrange(result.startIndex..<result.characters.index(after: result.startIndex))
+            }
+            while let last = result.characters.last, last == "\n" || last == " " {
+                result.removeSubrange(result.characters.index(before: result.endIndex)..<result.endIndex)
+            }
+            return result
         }
     }
 
