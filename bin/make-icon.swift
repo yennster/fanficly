@@ -45,41 +45,59 @@ func colors(for variant: Variant) -> (bg: CGColor?, ink: CGColor) {
     }
 }
 
+/// A quadrilateral with lightly rounded corners.
+func roundedQuad(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint, radius: CGFloat) -> CGPath {
+    let pts = [p0, p1, p2, p3]
+    let path = CGMutablePath()
+    for i in 0..<4 {
+        let curr = pts[i]
+        let prev = pts[(i + 3) % 4]
+        let next = pts[(i + 1) % 4]
+        let toPrev = normalize(CGPoint(x: prev.x - curr.x, y: prev.y - curr.y))
+        let toNext = normalize(CGPoint(x: next.x - curr.x, y: next.y - curr.y))
+        let start = CGPoint(x: curr.x + toPrev.x * radius, y: curr.y + toPrev.y * radius)
+        let end = CGPoint(x: curr.x + toNext.x * radius, y: curr.y + toNext.y * radius)
+        if i == 0 { path.move(to: start) } else { path.addLine(to: start) }
+        path.addQuadCurve(to: end, control: curr)
+    }
+    path.closeSubpath()
+    return path
+}
+
+func normalize(_ p: CGPoint) -> CGPoint {
+    let len = max(1, (p.x * p.x + p.y * p.y).squareRoot())
+    return CGPoint(x: p.x / len, y: p.y / len)
+}
+
 /// A clean open book: two solid pages meeting at a spine, with thin
-/// background-coloured text lines cut into each page.
+/// background-coloured text lines cut into each page. Pages are flat
+/// quadrilaterals (straight edges) with only a slight fan at the spine.
 func drawBook(_ ctx: CGContext, ink: CGColor, bg: CGColor?) {
-    let bookW = width * 0.64
-    let bookH = height * 0.46
+    let bookW = width * 0.66
+    let bookH = height * 0.52
     let cx = width / 2
     let cy = height / 2
     let halfW = bookW / 2
     let halfH = bookH / 2
-    let lift: CGFloat = bookH * 0.16   // outer edges lift up
-    let spineGap: CGFloat = width * 0.018
+    let fan: CGFloat = bookH * 0.06    // pages a touch taller at the outer edge
+    let spineDrop: CGFloat = bookH * 0.05  // slight dip at the spine
+    let spineGap: CGFloat = width * 0.02
+    let corner: CGFloat = width * 0.02 // tiny corner rounding only
 
-    // Left page outline.
-    let left = CGMutablePath()
-    left.move(to: CGPoint(x: cx - spineGap, y: cy - halfH + lift * 0.2))
-    left.addCurve(to: CGPoint(x: cx - halfW, y: cy - halfH + lift),
-                  control1: CGPoint(x: cx - halfW * 0.45, y: cy - halfH - lift * 0.35),
-                  control2: CGPoint(x: cx - halfW * 0.8, y: cy - halfH + lift * 0.4))
-    left.addLine(to: CGPoint(x: cx - halfW, y: cy + halfH - lift))
-    left.addCurve(to: CGPoint(x: cx - spineGap, y: cy + halfH),
-                  control1: CGPoint(x: cx - halfW * 0.8, y: cy + halfH - lift * 0.4),
-                  control2: CGPoint(x: cx - halfW * 0.45, y: cy + halfH + lift * 0.2))
-    left.closeSubpath()
+    // Left page — straight edges (top-left, top-spine, spine-bottom, bottom-left).
+    let left = roundedQuad(
+        p0: CGPoint(x: cx - halfW,    y: cy - halfH + fan),       // outer top
+        p1: CGPoint(x: cx - spineGap, y: cy - halfH + spineDrop), // spine top
+        p2: CGPoint(x: cx - spineGap, y: cy + halfH - spineDrop), // spine bottom
+        p3: CGPoint(x: cx - halfW,    y: cy + halfH - fan),       // outer bottom
+        radius: corner)
 
-    // Right page (mirror).
-    let right = CGMutablePath()
-    right.move(to: CGPoint(x: cx + spineGap, y: cy - halfH + lift * 0.2))
-    right.addCurve(to: CGPoint(x: cx + halfW, y: cy - halfH + lift),
-                   control1: CGPoint(x: cx + halfW * 0.45, y: cy - halfH - lift * 0.35),
-                   control2: CGPoint(x: cx + halfW * 0.8, y: cy - halfH + lift * 0.4))
-    right.addLine(to: CGPoint(x: cx + halfW, y: cy + halfH - lift))
-    right.addCurve(to: CGPoint(x: cx + spineGap, y: cy + halfH),
-                   control1: CGPoint(x: cx + halfW * 0.8, y: cy + halfH - lift * 0.4),
-                   control2: CGPoint(x: cx + halfW * 0.45, y: cy + halfH + lift * 0.2))
-    right.closeSubpath()
+    let right = roundedQuad(
+        p0: CGPoint(x: cx + spineGap, y: cy - halfH + spineDrop),
+        p1: CGPoint(x: cx + halfW,    y: cy - halfH + fan),
+        p2: CGPoint(x: cx + halfW,    y: cy + halfH - fan),
+        p3: CGPoint(x: cx + spineGap, y: cy + halfH - spineDrop),
+        radius: corner)
 
     ctx.setFillColor(ink)
     ctx.addPath(left)
