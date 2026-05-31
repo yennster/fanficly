@@ -1,0 +1,215 @@
+import Foundation
+
+public struct AO3SearchFilters: Equatable, Sendable {
+    public var query: String = ""
+    public var title: String = ""
+    public var creators: String = ""
+    public var revisedAt: String = ""
+    public var complete: TriState = .any
+    public var crossover: TriState = .any
+    public var singleChapter: Bool = false
+    public var wordCount: String = ""
+    public var languageId: String = ""
+    public var fandomNames: [String] = []
+    public var characterNames: [String] = []
+    public var relationshipNames: [String] = []
+    public var freeformNames: [String] = []
+    public var excludedFreeforms: [String] = []
+    public var ratings: Set<Rating> = []
+    public var warnings: Set<ArchiveWarning> = []
+    public var categories: Set<Category> = []
+    public var hits: String = ""
+    public var kudosCount: String = ""
+    public var commentsCount: String = ""
+    public var bookmarksCount: String = ""
+    public var sortColumn: SortColumn = .revisedAt
+    public var sortDirection: SortDirection = .desc
+
+    public init() {}
+
+    public enum TriState: String, Equatable, Sendable {
+        case any
+        case yes
+        case no
+    }
+
+    public enum Rating: String, CaseIterable, Sendable {
+        case general = "10"
+        case teen = "11"
+        case mature = "12"
+        case explicit = "13"
+        case notRated = "9"
+
+        public var displayName: String {
+            switch self {
+            case .general: "General Audiences"
+            case .teen: "Teen And Up Audiences"
+            case .mature: "Mature"
+            case .explicit: "Explicit"
+            case .notRated: "Not Rated"
+            }
+        }
+    }
+
+    public enum ArchiveWarning: String, CaseIterable, Sendable {
+        case chooseNotToUse = "14"
+        case noWarningsApply = "16"
+        case graphicViolence = "17"
+        case majorCharacterDeath = "18"
+        case rapeNonCon = "19"
+        case underage = "20"
+
+        public var displayName: String {
+            switch self {
+            case .chooseNotToUse: "Creator Chose Not To Use Archive Warnings"
+            case .noWarningsApply: "No Archive Warnings Apply"
+            case .graphicViolence: "Graphic Depictions Of Violence"
+            case .majorCharacterDeath: "Major Character Death"
+            case .rapeNonCon: "Rape/Non-Con"
+            case .underage: "Underage"
+            }
+        }
+    }
+
+    public enum Category: String, CaseIterable, Sendable {
+        case ff = "116"
+        case fm = "22"
+        case gen = "21"
+        case mm = "23"
+        case multi = "2246"
+        case other = "24"
+
+        public var displayName: String {
+            switch self {
+            case .ff: "F/F"
+            case .fm: "F/M"
+            case .gen: "Gen"
+            case .mm: "M/M"
+            case .multi: "Multi"
+            case .other: "Other"
+            }
+        }
+    }
+
+    public enum SortColumn: String, Sendable {
+        case revisedAt = "revised_at"
+        case createdAt = "created_at"
+        case wordCount = "word_count"
+        case hits
+        case kudosCount = "kudos_count"
+        case commentsCount = "comments_count"
+        case bookmarksCount = "bookmarks_count"
+    }
+
+    public enum SortDirection: String, Sendable {
+        case asc, desc
+    }
+
+    public var isEmpty: Bool {
+        query.isEmpty &&
+        title.isEmpty &&
+        creators.isEmpty &&
+        revisedAt.isEmpty &&
+        complete == .any &&
+        crossover == .any &&
+        singleChapter == false &&
+        wordCount.isEmpty &&
+        languageId.isEmpty &&
+        fandomNames.isEmpty &&
+        characterNames.isEmpty &&
+        relationshipNames.isEmpty &&
+        freeformNames.isEmpty &&
+        excludedFreeforms.isEmpty &&
+        ratings.isEmpty &&
+        warnings.isEmpty &&
+        categories.isEmpty &&
+        hits.isEmpty &&
+        kudosCount.isEmpty &&
+        commentsCount.isEmpty &&
+        bookmarksCount.isEmpty
+    }
+}
+
+extension AO3SearchFilters {
+    public func queryItems() -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        let composedQuery = composedQueryString()
+        if !composedQuery.isEmpty {
+            items.append(URLQueryItem(name: "work_search[query]", value: composedQuery))
+        }
+        if !title.isEmpty {
+            items.append(URLQueryItem(name: "work_search[title]", value: title))
+        }
+        if !creators.isEmpty {
+            items.append(URLQueryItem(name: "work_search[creators]", value: creators))
+        }
+        if !revisedAt.isEmpty {
+            items.append(URLQueryItem(name: "work_search[revised_at]", value: revisedAt))
+        }
+        switch complete {
+        case .yes: items.append(URLQueryItem(name: "work_search[complete]", value: "T"))
+        case .no:  items.append(URLQueryItem(name: "work_search[complete]", value: "F"))
+        case .any: break
+        }
+        switch crossover {
+        case .yes: items.append(URLQueryItem(name: "work_search[crossover]", value: "T"))
+        case .no:  items.append(URLQueryItem(name: "work_search[crossover]", value: "F"))
+        case .any: break
+        }
+        if singleChapter {
+            items.append(URLQueryItem(name: "work_search[single_chapter]", value: "1"))
+        }
+        if !wordCount.isEmpty {
+            items.append(URLQueryItem(name: "work_search[word_count]", value: wordCount))
+        }
+        if !languageId.isEmpty {
+            items.append(URLQueryItem(name: "work_search[language_id]", value: languageId))
+        }
+        if !fandomNames.isEmpty {
+            items.append(URLQueryItem(name: "work_search[fandom_names]", value: fandomNames.joined(separator: ", ")))
+        }
+        if !characterNames.isEmpty {
+            items.append(URLQueryItem(name: "work_search[character_names]", value: characterNames.joined(separator: ", ")))
+        }
+        if !relationshipNames.isEmpty {
+            items.append(URLQueryItem(name: "work_search[relationship_names]", value: relationshipNames.joined(separator: ", ")))
+        }
+        if !freeformNames.isEmpty {
+            items.append(URLQueryItem(name: "work_search[freeform_names]", value: freeformNames.joined(separator: ", ")))
+        }
+        for rating in ratings.sorted(by: { $0.rawValue < $1.rawValue }) {
+            items.append(URLQueryItem(name: "work_search[rating_ids][]", value: rating.rawValue))
+        }
+        for warning in warnings.sorted(by: { $0.rawValue < $1.rawValue }) {
+            items.append(URLQueryItem(name: "work_search[archive_warning_ids][]", value: warning.rawValue))
+        }
+        for category in categories.sorted(by: { $0.rawValue < $1.rawValue }) {
+            items.append(URLQueryItem(name: "work_search[category_ids][]", value: category.rawValue))
+        }
+        if !hits.isEmpty {
+            items.append(URLQueryItem(name: "work_search[hits]", value: hits))
+        }
+        if !kudosCount.isEmpty {
+            items.append(URLQueryItem(name: "work_search[kudos_count]", value: kudosCount))
+        }
+        if !commentsCount.isEmpty {
+            items.append(URLQueryItem(name: "work_search[comments_count]", value: commentsCount))
+        }
+        if !bookmarksCount.isEmpty {
+            items.append(URLQueryItem(name: "work_search[bookmarks_count]", value: bookmarksCount))
+        }
+        items.append(URLQueryItem(name: "work_search[sort_column]", value: sortColumn.rawValue))
+        items.append(URLQueryItem(name: "work_search[sort_direction]", value: sortDirection.rawValue))
+        return items
+    }
+
+    func composedQueryString() -> String {
+        var parts: [String] = []
+        if !query.isEmpty { parts.append(query) }
+        for excluded in excludedFreeforms {
+            let quoted = excluded.contains(" ") ? "\"\(excluded)\"" : excluded
+            parts.append("NOT \(quoted)")
+        }
+        return parts.joined(separator: " ")
+    }
+}

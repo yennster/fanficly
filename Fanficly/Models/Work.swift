@@ -1,0 +1,144 @@
+import Foundation
+import SwiftData
+
+@Model
+final class Work {
+    @Attribute(.unique) var ao3Id: Int
+    var title: String
+    var authorName: String
+    var summary: String
+    var rating: String
+    var warnings: [String]
+    var categories: [String]
+    var fandoms: [String]
+    var characters: [String]
+    var relationships: [String]
+    var freeforms: [String]
+    var language: String
+    var wordCount: Int
+    var chapterCount: Int
+    var totalChapters: Int?
+    var kudos: Int
+    var hits: Int
+    var bookmarksCount: Int
+    var commentsCount: Int
+    var isComplete: Bool
+    var publishedAt: Date?
+    var updatedAt: Date?
+    var savedAt: Date
+    var lastReadAt: Date?
+    var lastReadChapter: Int?
+    var lastReadProgress: Double?
+    var epubLocalPath: String?
+
+    @Relationship(deleteRule: .cascade, inverse: \Chapter.work)
+    var chapters: [Chapter] = []
+
+    init(
+        ao3Id: Int,
+        title: String,
+        authorName: String,
+        summary: String = "",
+        rating: String = "Not Rated",
+        warnings: [String] = [],
+        categories: [String] = [],
+        fandoms: [String] = [],
+        characters: [String] = [],
+        relationships: [String] = [],
+        freeforms: [String] = [],
+        language: String = "en",
+        wordCount: Int = 0,
+        chapterCount: Int = 1,
+        totalChapters: Int? = nil,
+        kudos: Int = 0,
+        hits: Int = 0,
+        bookmarksCount: Int = 0,
+        commentsCount: Int = 0,
+        isComplete: Bool = false,
+        publishedAt: Date? = nil,
+        updatedAt: Date? = nil,
+        savedAt: Date = .now
+    ) {
+        self.ao3Id = ao3Id
+        self.title = title
+        self.authorName = authorName
+        self.summary = summary
+        self.rating = rating
+        self.warnings = warnings
+        self.categories = categories
+        self.fandoms = fandoms
+        self.characters = characters
+        self.relationships = relationships
+        self.freeforms = freeforms
+        self.language = language
+        self.wordCount = wordCount
+        self.chapterCount = chapterCount
+        self.totalChapters = totalChapters
+        self.kudos = kudos
+        self.hits = hits
+        self.bookmarksCount = bookmarksCount
+        self.commentsCount = commentsCount
+        self.isComplete = isComplete
+        self.publishedAt = publishedAt
+        self.updatedAt = updatedAt
+        self.savedAt = savedAt
+    }
+}
+
+@Model
+final class Chapter {
+    var work: Work?
+    var index: Int
+    var title: String
+    var bodyHTML: String
+
+    init(work: Work? = nil, index: Int, title: String, bodyHTML: String) {
+        self.work = work
+        self.index = index
+        self.title = title
+        self.bodyHTML = bodyHTML
+    }
+}
+
+@Model
+final class TagRecord {
+    @Attribute(.unique) var name: String
+    var kind: String
+
+    init(name: String, kind: String) {
+        self.name = name
+        self.kind = kind
+    }
+}
+
+@Model
+final class BookmarkRecord {
+    @Attribute(.unique) var ao3Id: Int
+    var workAo3Id: Int
+    var notes: String
+    var tags: [String]
+    var savedAt: Date
+
+    init(ao3Id: Int, workAo3Id: Int, notes: String = "", tags: [String] = [], savedAt: Date = .now) {
+        self.ao3Id = ao3Id
+        self.workAo3Id = workAo3Id
+        self.notes = notes
+        self.tags = tags
+        self.savedAt = savedAt
+    }
+}
+
+@Model
+final class SubscriptionRecord {
+    @Attribute(.unique) var key: String
+    var kind: String
+    var displayName: String
+    var lastSeenChapterCount: Int?
+    var lastCheckedAt: Date?
+
+    init(key: String, kind: String, displayName: String) {
+        self.key = key
+        self.kind = kind
+        self.displayName = displayName
+    }
+}
