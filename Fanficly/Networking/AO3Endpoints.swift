@@ -12,7 +12,10 @@ enum AO3Endpoints {
 
     static func work(id: Int, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [URLQueryItem(name: "view_full_work", value: "true")]
+        components?.queryItems = [
+            URLQueryItem(name: "view_full_work", value: "true"),
+            URLQueryItem(name: "view_adult", value: "true"),
+        ]
         guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad work URL") }
         return url
     }

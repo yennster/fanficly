@@ -17,6 +17,7 @@ public struct SearchPromptParser: Sendable {
         extractCategories(from: working, into: &filters)
         extractRatings(from: working, into: &filters)
         extractWarnings(from: working, into: &filters)
+        extractFandoms(from: working, into: &filters)
         extractFreeformTags(from: working, into: &filters)
 
         let remainder = collapseWhitespace(working as String)
@@ -28,8 +29,10 @@ public struct SearchPromptParser: Sendable {
 
     private func extractExclusions(from working: NSMutableString, into filters: inout AO3SearchFilters) {
         let patterns = [
-            #"(?:^|\s)-([a-z0-9][a-z0-9 /'\-]*?)(?=\s+(?:-|and|with|in|of|for|romance|all|under|over|over\s|complete|wip|popular|crossover|no\s+crossovers|recently)|\s*$)"#,
-            #"(?:^|\s)not\s+([a-z0-9][a-z0-9 /'\-]+?)(?=\s+(?:-|and|with|in|of|for|romance|all|under|over|complete|wip|popular|crossover|no\s+crossovers|recently)|\s*$)"#,
+            #"(?:^|\s)-"([^"]+)""#,
+            #"(?:^|\s)-([a-z0-9][a-z0-9'\-]*)\b"#,
+            #"(?:^|\s)not\s+"([^"]+)""#,
+            #"(?:^|\s)not\s+([a-z0-9][a-z0-9'\-]*)\b"#,
         ]
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
@@ -191,6 +194,19 @@ public struct SearchPromptParser: Sendable {
             let escaped = NSRegularExpression.escapedPattern(for: tag)
             if removeFirst(in: working, pattern: #"\b\#(escaped)\b"#) {
                 filters.freeformNames.append(canonicalize(tag))
+            }
+        }
+    }
+
+    private func extractFandoms(from working: NSMutableString, into filters: inout AO3SearchFilters) {
+        let sortedAliases = KnownTags.fandomAliases.keys.sorted { $0.count > $1.count }
+        for alias in sortedAliases {
+            guard let canonical = KnownTags.fandomAliases[alias] else { continue }
+            let escaped = NSRegularExpression.escapedPattern(for: alias)
+            if removeFirst(in: working, pattern: #"\b\#(escaped)\b"#) {
+                if !filters.fandomNames.contains(canonical) {
+                    filters.fandomNames.append(canonical)
+                }
             }
         }
     }

@@ -124,6 +124,31 @@ final class SearchPromptParserTests: XCTestCase {
         XCTAssertEqual(filters.complete, .yes)
     }
 
+    func test_exclusionStopsAtNextWord_doesNotEatTrailingFandom() {
+        let filters = parser.parse("draco/hermione complete -omegaverse harry potter")
+        XCTAssertEqual(filters.excludedFreeforms, ["omegaverse"])
+        XCTAssertTrue(filters.fandomNames.contains("Harry Potter - J. K. Rowling"))
+        XCTAssertEqual(filters.relationshipNames, ["Draco/Hermione"])
+        XCTAssertEqual(filters.complete, .yes)
+    }
+
+    func test_exclusionQuotedPhrase() {
+        let filters = parser.parse("harry/draco -\"slow burn\" complete")
+        XCTAssertTrue(filters.excludedFreeforms.contains("slow burn"))
+        XCTAssertEqual(filters.complete, .yes)
+    }
+
+    func test_fandomHarryPotter() {
+        let filters = parser.parse("harry potter slow burn")
+        XCTAssertEqual(filters.fandomNames, ["Harry Potter - J. K. Rowling"])
+        XCTAssertTrue(filters.freeformNames.contains("Slow Burn"))
+    }
+
+    func test_fandomMcuAlias() {
+        let filters = parser.parse("mcu fluff")
+        XCTAssertTrue(filters.fandomNames.contains("Marvel Cinematic Universe"))
+    }
+
     func test_exampleFromUser_edwardBellaRomanceAllHumanExplicit() {
         let filters = parser.parse("edward/bella romance all human explicit")
         XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])

@@ -5,9 +5,15 @@ enum WorkPageParser {
     static func parse(html: String, workId: Int) throws -> AO3WorkPayload {
         let doc = try SwiftSoup.parse(html)
 
-        let title = try doc.select("h2.title.heading").first()?.text() ?? ""
-        let author = try doc.select("h3.byline.heading a[rel=author]").array()
-            .map { try $0.text() }.joined(separator: ", ")
+        let title = try firstNonEmptyText(in: doc, selectors: [
+            "#workskin .preface.group h2.title.heading",
+            "#workskin h2.title.heading",
+            "h2.title.heading",
+            "h2.title",
+        ])
+        let author = try doc.select("h3.byline a[rel=author], h3.byline.heading a").array()
+            .compactMap { try? $0.text() }
+            .joined(separator: ", ")
 
         let meta = try doc.select("dl.work.meta.group").first()
         let rating = try meta?.select("dd.rating a.tag").first()?.text() ?? "Not Rated"
@@ -28,11 +34,11 @@ enum WorkPageParser {
 
         let chaptersText = try statsDl?.select("dd.chapters").first()?.text() ?? "1/1"
         let (chapterCount, totalChapters) = parseChapterFraction(chaptersText)
-        let isComplete: Bool = (totalChapters != nil && chapterCount == totalChapters)
+        let isComplete = (totalChapters != nil && chapterCount == totalChapters)
 
-        let summary = try doc.select("div.summary blockquote.userstuff").first()?.html() ?? ""
+        let summary = try doc.select("#workskin .summary blockquote.userstuff, .summary blockquote.userstuff").first()?.html() ?? ""
 
-        let chapters = try parseChapters(doc: doc)
+        let chapters = try parseChapters(doc: doc, totalDeclared: chapterCount)
 
         let publishedAt = parseAO3Date(try statsDl?.select("dd.published").first()?.text() ?? "")
         let updatedAt = parseAO3Date(try statsDl?.select("dd.status").first()?.text() ?? "") ?? publishedAt
@@ -63,10 +69,10 @@ enum WorkPageParser {
         return AO3WorkPayload(summary: summaryStruct, chapters: chapters)
     }
 
-    private static func parseChapters(doc: Document) throws -> [AO3ChapterPayload] {
-        let chapterDivs = try doc.select("div.chapter[id^=chapter-]")
-        if !chapterDivs.isEmpty() {
-            return try chapterDivs.array().enumerated().map { index, div in
+    private static func parseChapters(doc: Document, totalDeclared: Int) throws -> [AO3ChapterPayload] {
+        let nestedChapters = try doc.select("div.chapter[id^=chapter-]")
+        if !nestedChapters.isEmpty() {
+            return try nestedChapters.array().enumerated().map { index, div in
                 let title = try div.select("h3.title").first()?.text() ?? ""
                 let bodyEl = try div.select("div.userstuff").first()
                 let body = try bodyEl?.html() ?? ""
@@ -74,12 +80,31 @@ enum WorkPageParser {
             }
         }
 
-        if let single = try doc.select("div#chapters div.userstuff").first() {
-            let title = try doc.select("h2.title.heading").first()?.text() ?? ""
+        let workskinChapters = try doc.select("#workskin > div.chapter, #workskin div[role=article]")
+        if !workskinChapters.isEmpty() {
+            return try workskinChapters.array().enumerated().map { index, div in
+                let title = try div.select("h3.title, h2.title").first()?.text() ?? ""
+                let body = try (div.select("div.userstuff").first()?.html()) ?? ""
+                return AO3ChapterPayload(index: index + 1, title: title, bodyHTML: body)
+            }
+        }
+
+        if let single = try doc.select("#workskin .userstuff, div#chapters div.userstuff, div#chapters").first() {
+            let title = try doc.select("#workskin h2.title.heading, h2.title.heading").first()?.text() ?? ""
             return [AO3ChapterPayload(index: 1, title: title, bodyHTML: try single.html())]
         }
 
         return []
+    }
+
+    private static func firstNonEmptyText(in doc: Document, selectors: [String]) throws -> String {
+        for sel in selectors {
+            if let el = try doc.select(sel).first() {
+                let text = try el.text().trimmingCharacters(in: .whitespaces)
+                if !text.isEmpty { return text }
+            }
+        }
+        return ""
     }
 
     private static func parseInt(_ s: String) -> Int {

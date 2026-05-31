@@ -17,56 +17,10 @@ struct SearchView: View {
     private let enricher: any SearchEnricher = SearchEnricherFactory.make()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            promptField
-            sortBar
-
-            if !lastParsed.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(includeChips(), id: \.self) { chip in
-                            ChipView(text: chip, kind: .include)
-                        }
-                        ForEach(lastParsed.excludedFreeforms, id: \.self) { tag in
-                            ChipView(text: tag, kind: .exclude)
-                        }
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                }
-            }
-
-            if isSearching {
-                ProgressView("Searching AO3…").frame(maxWidth: .infinity).padding()
-            } else if let error = errorMessage {
-                ContentUnavailableView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
-            } else if results.isEmpty {
-                ContentUnavailableView("Type a prompt", systemImage: "sparkle.magnifyingglass",
-                    description: Text("e.g. \"edward/bella romance all human complete\""))
-            } else {
-                List {
-                    ForEach(results) { work in
-                        NavigationLink(value: work) { WorkRow(work: work) }
-                    }
-                    if currentPage < totalPages {
-                        HStack {
-                            Spacer()
-                            if isLoadingMore {
-                                ProgressView()
-                            } else {
-                                Button("Load more (page \(currentPage + 1) of \(totalPages))") {
-                                    Task { await loadMore() }
-                                }
-                                .font(.callout)
-                            }
-                            Spacer()
-                        }
-                        .padding(.vertical, 8)
-                        .listRowSeparator(.hidden)
-                    }
-                }
-                .listStyle(.plain)
-            }
+        VStack(spacing: 0) {
+            searchHeader
+            contentArea
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Search")
         .navigationDestination(for: AO3WorkSummary.self) { work in
@@ -74,19 +28,75 @@ struct SearchView: View {
         }
     }
 
-    private var promptField: some View {
-        TextField("e.g. edward/bella romance all human explicit -mpreg", text: $prompt, axis: .vertical)
-            .lineLimit(1...3)
-            .textFieldStyle(.roundedBorder)
-            .submitLabel(.search)
-            .onSubmit { Task { await runSearch() } }
-            .onChange(of: prompt) { _, _ in lastParsed = parser.parse(prompt) }
-            .padding(.horizontal)
-            .padding(.top, 12)
+    private var searchHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("e.g. edward/bella romance all human complete", text: $prompt, axis: .vertical)
+                .lineLimit(1...3)
+                .textFieldStyle(.roundedBorder)
+                .submitLabel(.search)
+                .onSubmit { Task { await runSearch() } }
+                .onChange(of: prompt) { _, _ in lastParsed = parser.parse(prompt) }
+
+            sortBar
+
+            if !lastParsed.isEmpty {
+                FlowLayout(spacing: 6, lineSpacing: 6) {
+                    ForEach(includeChips(), id: \.self) { chip in
+                        ChipView(text: chip, kind: .include)
+                    }
+                    ForEach(lastParsed.excludedFreeforms, id: \.self) { tag in
+                        ChipView(text: tag, kind: .exclude)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(Color(.systemBackground))
+    }
+
+    @ViewBuilder
+    private var contentArea: some View {
+        if isSearching {
+            VStack {
+                Spacer()
+                ProgressView("Searching AO3…")
+                Spacer()
+            }
+        } else if let error = errorMessage {
+            ContentUnavailableView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
+        } else if results.isEmpty {
+            ContentUnavailableView("Type a prompt", systemImage: "sparkle.magnifyingglass",
+                description: Text("e.g. \"edward/bella romance all human complete\""))
+        } else {
+            List {
+                ForEach(results) { work in
+                    NavigationLink(value: work) { WorkRow(work: work) }
+                }
+                if currentPage < totalPages {
+                    HStack {
+                        Spacer()
+                        if isLoadingMore {
+                            ProgressView()
+                        } else {
+                            Button("Load more (page \(currentPage + 1) of \(totalPages))") {
+                                Task { await loadMore() }
+                            }
+                            .font(.callout)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 8)
+                    .listRowSeparator(.hidden)
+                }
+            }
+            .listStyle(.plain)
+        }
     }
 
     private var sortBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             Menu {
                 Picker("Sort by", selection: $sortColumn) {
                     ForEach(AO3SearchFilters.SortColumn.allCases, id: \.self) { column in
@@ -94,10 +104,13 @@ struct SearchView: View {
                     }
                 }
             } label: {
-                Label(sortColumn.displayName, systemImage: "arrow.up.arrow.down")
-                    .font(.caption)
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.arrow.down")
+                    Text(sortColumn.displayName)
+                    Image(systemName: "chevron.down").font(.caption2)
+                }
+                .font(.subheadline)
             }
-            .menuStyle(.borderlessButton)
             .onChange(of: sortColumn) { _, _ in
                 if !results.isEmpty { Task { await runSearch() } }
             }
@@ -107,14 +120,15 @@ struct SearchView: View {
                 if !results.isEmpty { Task { await runSearch() } }
             } label: {
                 Image(systemName: sortDirection.symbol)
-                    .font(.caption)
+                    .font(.subheadline)
+                    .frame(width: 32, height: 32)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(Circle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
 
             Spacer()
         }
-        .padding(.horizontal)
-        .padding(.top, 6)
     }
 
     private func runSearch() async {
