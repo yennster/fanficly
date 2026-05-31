@@ -176,7 +176,7 @@ final class SearchPromptParserTests: XCTestCase {
         let items = filters.queryItems()
         let names = items.map(\.name)
         XCTAssertTrue(names.contains("work_search[relationship_names]"))
-        XCTAssertTrue(names.contains("work_search[rating_ids][]"))
+        XCTAssertTrue(names.contains("work_search[rating_ids]"))   // single rating → scalar field
         XCTAssertTrue(names.contains("work_search[freeform_names]"))
         XCTAssertTrue(names.contains("work_search[complete]"))
         XCTAssertTrue(names.contains("work_search[word_count]"))

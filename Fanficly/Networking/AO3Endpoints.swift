@@ -57,7 +57,12 @@ enum AO3Endpoints {
 
     static func autocomplete(field: String, term: String, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/autocomplete/\(field)"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [URLQueryItem(name: "term", value: term)]
+        // Percent-encode the term ourselves: URLComponents leaves "/" literal in
+        // query values (it's RFC-legal there), but AO3's autocomplete 404s on a
+        // raw slash — so ships like "Hermione/Draco" must send "%2F".
+        let allowed = CharacterSet.urlQueryAllowed.subtracting(CharacterSet(charactersIn: "/+&=?"))
+        let encoded = term.addingPercentEncoding(withAllowedCharacters: allowed) ?? term
+        components?.percentEncodedQuery = "term=\(encoded)"
         guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad autocomplete URL") }
         return url
     }

@@ -22,6 +22,7 @@
 		41B451BF95D793594BB5AA12 /* ChapterTrackingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32B3C5F0A68BE8524C92D9A /* ChapterTrackingTests.swift */; };
 		439C7ED113C7972DE2915072 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31ABEF72A383E0C4AD8DDACC /* RootView.swift */; };
 		44F2C4F0FD91247C70E510BD /* ThrottleActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CEA2F373D507F3282D733F /* ThrottleActorTests.swift */; };
+		48BF03C9780A56EBC787A14A /* LiveResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0969C4D9BD5F96573BF43A15 /* LiveResolutionTests.swift */; };
 		4A99F49139A429A15B017F4E /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 22763D2E3B0EAC69D3167A0F /* KeychainAccess */; };
 		598701A3456706C6A7E34D95 /* HTMLToAttributedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B69A7DDA66AA7FB98A69A19E /* HTMLToAttributedTests.swift */; };
 		5ABAA77C11C106F517413B85 /* FlowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA91CA4D906D56ACC8598AE1 /* FlowLayout.swift */; };
@@ -95,6 +96,7 @@
 
 /* Begin PBXFileReference section */
 		0482479EDEACF907E0D0072F /* HTMLText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLText.swift; sourceTree = "<group>"; };
+		0969C4D9BD5F96573BF43A15 /* LiveResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveResolutionTests.swift; sourceTree = "<group>"; };
 		0A3FC719543292C992F5486E /* ChapterTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterTracking.swift; sourceTree = "<group>"; };
 		0CC6F1589C16DE6F26765FBB /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
 		10A2644B4858FABB2ADA9434 /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
@@ -164,7 +166,7 @@
 		DE70E6F403D1F1C214C9555C /* WorkMetadataParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkMetadataParserTests.swift; sourceTree = "<group>"; };
 		F42DE1E292D1452982BBDC3C /* FoundationModelsEnricher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsEnricher.swift; sourceTree = "<group>"; };
 		FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTextTests.swift; sourceTree = "<group>"; };
-		"TEMP_6869CAA1-BF31-47E8-B302-41ABB9E29B20" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_F57D3FAD-30B8-45E4-B1BA-111BAB7E9F41" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -356,6 +358,7 @@
 				B32B3C5F0A68BE8524C92D9A /* ChapterTrackingTests.swift */,
 				C97B027978587DDDCA8B4C41 /* FandomCatalogTests.swift */,
 				B69A7DDA66AA7FB98A69A19E /* HTMLToAttributedTests.swift */,
+				0969C4D9BD5F96573BF43A15 /* LiveResolutionTests.swift */,
 				C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */,
 				9F667B1136698256D6B0A641 /* PersistenceTests.swift */,
 				FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */,
@@ -384,10 +387,10 @@
 			path = HTMLParsers;
 			sourceTree = "<group>";
 		};
-		"TEMP_34402164-3BE4-4AD4-91E4-FE59693B63D6" /* ao3-app */ = {
+		"TEMP_34A9674A-6CA5-4839-804A-2270623DCED0" /* ao3-app */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_6869CAA1-BF31-47E8-B302-41ABB9E29B20" /* Signing.xcconfig */,
+				"TEMP_F57D3FAD-30B8-45E4-B1BA-111BAB7E9F41" /* Signing.xcconfig */,
 			);
 			path = "ao3-app";
 			sourceTree = "<group>";
@@ -573,6 +576,7 @@
 				41B451BF95D793594BB5AA12 /* ChapterTrackingTests.swift in Sources */,
 				B1BF546C967418F60B6FFA2F /* FandomCatalogTests.swift in Sources */,
 				598701A3456706C6A7E34D95 /* HTMLToAttributedTests.swift in Sources */,
+				48BF03C9780A56EBC787A14A /* LiveResolutionTests.swift in Sources */,
 				AEDF3AD7C78F563F454DE499 /* MediaCategoryParserTests.swift in Sources */,
 				B0D8442B64B5A18AC1E17F06 /* PersistenceTests.swift in Sources */,
 				D90E237DC130AA3A1DBC764B /* PromptTextTests.swift in Sources */,
@@ -702,7 +706,7 @@
 		};
 		6FAF1406E881D8C0AC736895 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_6869CAA1-BF31-47E8-B302-41ABB9E29B20" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_F57D3FAD-30B8-45E4-B1BA-111BAB7E9F41" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -725,7 +729,7 @@
 		};
 		C1C42BD5CB7E6D67B69726DD /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_6869CAA1-BF31-47E8-B302-41ABB9E29B20" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_F57D3FAD-30B8-45E4-B1BA-111BAB7E9F41" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

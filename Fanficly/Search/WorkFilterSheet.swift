@@ -78,7 +78,7 @@ struct WorkFilterSheet: View {
             }
             Button {
                 commitText()
-                saveName = ""
+                saveName = filters.suggestedName()
                 showingSaveDialog = true
             } label: {
                 Label("Save current filters…", systemImage: "plus.circle")

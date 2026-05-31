@@ -249,7 +249,12 @@ public actor AO3Client: AO3ClientProtocol {
         guard !trimmed.isEmpty else { return [] }
         await throttle.wait()
         let url = try AO3Endpoints.autocomplete(field: field.rawValue, term: trimmed, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        var request = URLRequest(url: url)
+        // The shared session sends `Accept: text/html`, but AO3's autocomplete
+        // only serves JSON — Rails content-negotiation 404s an HTML request.
+        request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        let (data, _) = try await performRequest(request)
         struct Item: Decodable { let id: String?; let name: String? }
         let items = (try? JSONDecoder().decode([Item].self, from: data)) ?? []
         return items.compactMap { $0.name ?? $0.id }

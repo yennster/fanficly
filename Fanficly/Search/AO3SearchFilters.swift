@@ -191,6 +191,28 @@ extension AO3SearchFilters {
         return "\(wc) words"
     }
 
+    /// A human-readable default name for a saved filter, built from the
+    /// selected tags and options. Fandom names are intentionally excluded —
+    /// saved filters are fandom-agnostic (see `savedJSON()`) — and the result
+    /// is capped to the few most identifying parts so it stays a short title.
+    public func suggestedName() -> String {
+        var parts: [String] = []
+        parts += relationshipNames
+        parts += characterNames
+        parts += freeformNames
+        parts += ratings.sorted { $0.rawValue < $1.rawValue }.map(\.displayName)
+        parts += categories.sorted { $0.rawValue < $1.rawValue }.map(\.displayName)
+        switch complete {
+        case .yes: parts.append("Complete")
+        case .no:  parts.append("WIP")
+        case .any: break
+        }
+        if singleChapter { parts.append("Oneshot") }
+        if crossover == .yes { parts.append("Crossover") }
+        if !wordCount.isEmpty { parts.append(Self.wordCountPhrase(wordCount)) }
+        return parts.prefix(4).joined(separator: " · ")
+    }
+
     /// JSON for persisting a saved filter (fandom names excluded so the
     /// config can be applied to any fandom).
     public func savedJSON() -> String {
@@ -251,8 +273,11 @@ extension AO3SearchFilters {
         if !freeformNames.isEmpty {
             items.append(URLQueryItem(name: "work_search[freeform_names]", value: freeformNames.joined(separator: ", ")))
         }
-        for rating in ratings.sorted(by: { $0.rawValue < $1.rawValue }) {
-            items.append(URLQueryItem(name: "work_search[rating_ids][]", value: rating.rawValue))
+        // A single rating uses AO3's dedicated form field; 2+ ratings are
+        // OR-ed via the query field in composedQueryString() above, because
+        // the array form AND-matches and returns nothing.
+        if ratings.count == 1, let only = ratings.first {
+            items.append(URLQueryItem(name: "work_search[rating_ids]", value: only.rawValue))
         }
         for warning in warnings.sorted(by: { $0.rawValue < $1.rawValue }) {
             items.append(URLQueryItem(name: "work_search[archive_warning_ids][]", value: warning.rawValue))
@@ -283,6 +308,19 @@ extension AO3SearchFilters {
         for excluded in excludedFreeforms {
             let quoted = excluded.contains(" ") ? "\"\(excluded)\"" : excluded
             parts.append("NOT \(quoted)")
+        }
+        // AO3's Rating field is a single-select, so a rating_ids[] array is
+        // AND-ed and matches nothing (every work has exactly one rating).
+        // To OR multiple ratings we fold them into the query field instead —
+        // `(rating_ids:12 OR rating_ids:13)` — which AO3's search honors.
+        // The single-rating case still goes through the dedicated form field
+        // (see queryItems()).
+        if ratings.count > 1 {
+            let clause = ratings
+                .sorted { $0.rawValue < $1.rawValue }
+                .map { "rating_ids:\($0.rawValue)" }
+                .joined(separator: " OR ")
+            parts.append("(\(clause))")
         }
         return parts.joined(separator: " ")
     }

@@ -19,10 +19,18 @@ final class AO3EndpointsTests: XCTestCase {
         }
     }
 
-    func test_autocompleteURL() throws {
+    func test_autocompleteURL_percentEncodesSlash() throws {
+        // AO3's autocomplete 404s on a raw slash in the query, so the term's
+        // "/" must be percent-encoded as %2F (a ship like "Hermione/Draco").
         let url = try AO3Endpoints.autocomplete(field: "relationship", term: "harry/draco", base: base)
         XCTAssertTrue(url.absoluteString.contains("/autocomplete/relationship"))
-        XCTAssertTrue(url.absoluteString.contains("term=harry/draco") || url.absoluteString.contains("term=harry%2Fdraco"))
+        XCTAssertTrue(url.absoluteString.contains("term=harry%2Fdraco"), url.absoluteString)
+        XCTAssertFalse(url.absoluteString.contains("term=harry/draco"), url.absoluteString)
+    }
+
+    func test_autocompleteURL_encodesSpaces() throws {
+        let url = try AO3Endpoints.autocomplete(field: "character", term: "Hermione Granger", base: base)
+        XCTAssertTrue(url.absoluteString.contains("term=Hermione%20Granger"), url.absoluteString)
     }
 
     func test_mediaFandomsURL_encodesAO3Path() throws {
