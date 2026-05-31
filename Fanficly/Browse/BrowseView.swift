@@ -22,16 +22,73 @@ struct BrowseView: View {
 }
 
 struct CategoryFandomsView: View {
+    @Environment(\.ao3Client) private var client
     let category: FandomCategory
+    @State private var liveFandoms: [BrowseFandom] = []
+    @State private var isLoading: Bool = false
+    @State private var errorMessage: String?
+    @State private var query: String = ""
+
+    private var displayed: [BrowseFandom] {
+        let base = liveFandoms.isEmpty ? category.fandoms : liveFandoms
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return base }
+        return base.filter {
+            $0.displayName.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
 
     var body: some View {
-        List(category.fandoms) { fandom in
-            NavigationLink(value: fandom) {
-                Text(fandom.displayName).font(.body)
+        List {
+            if let errorMessage {
+                Section {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                }
+            }
+            Section {
+                ForEach(displayed) { fandom in
+                    NavigationLink(value: fandom) {
+                        Text(fandom.displayName).font(.body)
+                    }
+                }
+                if isLoading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowSeparator(.hidden)
+                }
+            } header: {
+                let count = displayed.count
+                let total = liveFandoms.isEmpty ? category.fandoms.count : liveFandoms.count
+                if liveFandoms.isEmpty && isLoading {
+                    Text("\(category.fandoms.count) popular · loading full list…")
+                        .textCase(nil)
+                } else if !liveFandoms.isEmpty {
+                    Text("\(count) of \(total) fandoms")
+                        .textCase(nil)
+                } else {
+                    Text("\(count) popular fandoms")
+                        .textCase(nil)
+                }
             }
         }
         .navigationTitle(category.name)
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search fandoms")
+        .task { await loadLive() }
+    }
+
+    private func loadLive() async {
+        guard liveFandoms.isEmpty else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            liveFandoms = try await client.fetchFandomsInCategory(categoryName: category.ao3CanonicalName)
+        } catch let AO3Error.http(status) where status == 404 {
+            errorMessage = "AO3 didn't recognise that category. Showing popular fandoms only."
+        } catch {
+            errorMessage = "Couldn't load full list (\(error)). Showing popular fandoms only."
+        }
     }
 }
 

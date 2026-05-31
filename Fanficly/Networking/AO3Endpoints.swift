@@ -35,4 +35,33 @@ enum AO3Endpoints {
     static func login(base: URL) throws -> URL {
         base.appending(path: "/users/login")
     }
+
+    static func mediaFandoms(categoryName: String, base: URL) throws -> URL {
+        let encoded = ao3PathEncode(categoryName)
+        guard let url = URL(string: "\(base.absoluteString)/media/\(encoded)/fandoms") else {
+            throw AO3Error.parseFailed(reason: "Bad media URL")
+        }
+        return url
+    }
+
+    private static func ao3PathEncode(_ s: String) -> String {
+        var result = ""
+        for ch in s {
+            switch ch {
+            case "&": result += "*a*"
+            case "/": result += "*s*"
+            case ".": result += "*d*"
+            case "?": result += "*q*"
+            case "'": result += "*at*"
+            case " ": result += "%20"
+            default:
+                if let escaped = String(ch).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+                    result += escaped
+                } else {
+                    result.append(ch)
+                }
+            }
+        }
+        return result
+    }
 }

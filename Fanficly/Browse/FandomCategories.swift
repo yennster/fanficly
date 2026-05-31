@@ -5,6 +5,8 @@ public struct FandomCategory: Identifiable, Hashable, Sendable {
     public let name: String
     public let symbol: String
     public let fandoms: [BrowseFandom]
+
+    public var ao3CanonicalName: String { name }
 }
 
 public struct BrowseFandom: Identifiable, Hashable, Sendable {
@@ -62,7 +64,7 @@ enum FandomCatalog {
         ),
         FandomCategory(
             id: "cartoons-comics",
-            name: "Cartoons, Comics & Graphic Novels",
+            name: "Cartoons & Comics & Graphic Novels",
             symbol: "paintbrush.pointed",
             fandoms: [
                 BrowseFandom("Marvel"),

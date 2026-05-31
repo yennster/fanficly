@@ -9,6 +9,7 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
+    func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
     func downloadEPUB(workId: Int) async throws -> URL
     func postKudos(workId: Int) async throws
 }
@@ -187,6 +188,16 @@ public actor AO3Client: AO3ClientProtocol {
         return try SubscriptionsParser.parse(html: html)
     }
 
+    public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] {
+        await throttle.wait()
+        let url = try AO3Endpoints.mediaFandoms(categoryName: categoryName, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Media category response not UTF-8")
+        }
+        return try MediaCategoryParser.parse(html: html)
+    }
+
     public func downloadEPUB(workId: Int) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.epub(workId: workId, base: baseURL)
@@ -289,6 +300,7 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
+    public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     public func downloadEPUB(workId: Int) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }
