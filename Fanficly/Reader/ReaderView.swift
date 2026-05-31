@@ -16,10 +16,14 @@ struct ReaderView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
-    @State private var titleOffset: CGFloat = .greatestFiniteMagnitude
     @State private var currentAnchor: ReadingAnchor?
-    @State private var pendingRestore: ReadingAnchor?
-    @State private var hasRestored = false
+    @State private var loadedFromDisk = false
+    @State private var isRestoring = false
+    @State private var lastSaveAt: Date = .distantPast
+    // Chrome auto-hide on scroll.
+    @State private var chromeHidden = false
+    @State private var lastScrollOffset: CGFloat = 0
+    @State private var scrollAccum: CGFloat = 0
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -84,6 +88,7 @@ struct ReaderView: View {
             }
         }
         .preferredColorScheme(theme.preferredColorScheme)
+        .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             if chapters.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -93,6 +98,10 @@ struct ReaderView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 typographyMenu
             }
+        }
+        .onChange(of: modeRaw) { _, _ in
+            // Mode switched — show chrome and re-anchor in the new mode.
+            chromeHidden = false
         }
     }
 
@@ -121,55 +130,97 @@ struct ReaderView: View {
                 .padding(.horizontal, width.horizontalPadding)
                 .padding(.vertical, Spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ScrollOffsetKey.self,
+                                               value: geo.frame(in: .named(scrollSpace)).minY)
+                    }
+                )
             }
             .coordinateSpace(name: scrollSpace)
             .onPreferenceChange(ChapterOffsetKey.self) { offsets in
                 if let current = ChapterTracking.currentChapter(offsets: offsets) {
                     visibleChapterIndex = current
                 }
-                titleOffset = offsets[0] ?? .greatestFiniteMagnitude
             }
             .onPreferenceChange(ScrollAnchorKey.self) { offsets in
-                if hasRestored, let anchor = ChapterTracking.topmostAnchor(offsets) {
+                if !isRestoring, let anchor = ChapterTracking.topmostAnchor(offsets) {
                     currentAnchor = anchor
                 }
+            }
+            .onPreferenceChange(ScrollOffsetKey.self) { offset in
+                updateChrome(forScrollOffset: offset)
             }
             .background(bg)
             .foregroundStyle(fg)
             .safeAreaInset(edge: .top, spacing: 0) {
-                // Always-visible slim bar showing the current chapter.
-                if chapters.count > 1 {
+                if chapters.count > 1 && !chromeHidden {
                     chapterIndicatorBar(fg: fg, bg: bg)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .onChange(of: selectedChapterIndex) { _, newIndex in
-                // Jump straight to the chapter — no animated scroll through
-                // everything in between.
                 proxy.scrollTo(newIndex, anchor: .top)
             }
             .onChange(of: currentAnchor) { _, anchor in
                 if let anchor { saveProgress(anchor) }
             }
-            .task { await restore(proxy: proxy) }
-            .onDisappear { if let currentAnchor { saveProgress(currentAnchor, force: true) } }
+            .task { await restoreContinuous(proxy: proxy) }
+            .onDisappear { persistNow() }
         }
     }
 
-    private func restore(proxy: ScrollViewProxy) async {
-        guard !hasRestored, let id = summary?.id else { hasRestored = true; return }
-        let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext)
-        try? await Task.sleep(nanoseconds: 300_000_000)  // let first layout settle
-        if let saved, saved.chapter > 1 || saved.paragraph > 0 {
-            // Scroll to the chapter first (a top-level lazy id), which renders
-            // its paragraphs, then home in on the exact paragraph.
-            proxy.scrollTo(saved.chapter, anchor: .top)
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            proxy.scrollTo(ChapterTracking.key(chapter: saved.chapter, paragraph: saved.paragraph), anchor: .top)
+    private func updateChrome(forScrollOffset offset: CGFloat) {
+        let delta = offset - lastScrollOffset
+        lastScrollOffset = offset
+        // Near the top: always show chrome.
+        if offset > -80 {
+            if chromeHidden { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false } }
+            scrollAccum = 0
+            return
         }
-        hasRestored = true
+        guard abs(delta) > 1 else { return }
+        // Reset the accumulator when direction flips.
+        if (delta < 0) != (scrollAccum < 0) { scrollAccum = 0 }
+        scrollAccum += delta
+        if scrollAccum < -50, !chromeHidden {            // scrolled down enough
+            withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = true }
+            scrollAccum = 0
+        } else if scrollAccum > 24, chromeHidden {        // scrolled up a bit
+            withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false }
+            scrollAccum = 0
+        }
     }
 
-    @State private var lastSaveAt: Date = .distantPast
+    private func restoreContinuous(proxy: ScrollViewProxy) async {
+        let anchor = loadAnchorIfNeeded()
+        guard let anchor, anchor.chapter > 1 || anchor.paragraph > 0 else { return }
+        isRestoring = true
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        proxy.scrollTo(anchor.chapter, anchor: .top)
+        try? await Task.sleep(nanoseconds: 250_000_000)
+        proxy.scrollTo(ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph), anchor: .top)
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        isRestoring = false
+    }
+
+    /// Loads the saved anchor from disk the first time; afterwards returns
+    /// the live in-memory anchor (so mode switches re-anchor correctly).
+    private func loadAnchorIfNeeded() -> ReadingAnchor? {
+        if !loadedFromDisk {
+            loadedFromDisk = true
+            if let id = summary?.id, let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext) {
+                currentAnchor = saved
+                selectedChapterIndex = saved.chapter
+            }
+        }
+        return currentAnchor
+    }
+
+    private func persistNow() {
+        if let currentAnchor { saveProgress(currentAnchor, force: true) }
+    }
+
     private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false) {
         guard let id = summary?.id else { return }
         let now = Date()
@@ -251,17 +302,22 @@ struct ReaderView: View {
         .foregroundStyle(fg)
         .task {
             // Restore the chapter (paginated mode is chapter-granular).
-            guard !hasRestored, let id = summary?.id else { hasRestored = true; return }
-            if let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext) {
-                selectedChapterIndex = saved.chapter
+            isRestoring = true
+            if let anchor = loadAnchorIfNeeded() {
+                selectedChapterIndex = anchor.chapter
             }
-            hasRestored = true
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            isRestoring = false
         }
         .onChange(of: selectedChapterIndex) { _, chapter in
-            if hasRestored {
-                saveProgress(ReadingAnchor(chapter: chapter, paragraph: 0), force: true)
+            visibleChapterIndex = chapter
+            if !isRestoring {
+                let anchor = ReadingAnchor(chapter: chapter, paragraph: 0)
+                currentAnchor = anchor
+                saveProgress(anchor, force: true)
             }
         }
+        .onDisappear { persistNow() }
     }
 
     private func titleHeader(fg: Color) -> some View {
