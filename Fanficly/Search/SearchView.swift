@@ -507,11 +507,14 @@ struct WorkDetailView: View {
     var body: some View {
         Group {
             if let payload {
-                ReaderView(payload: payload) {
-                    followButton(payload: payload)
-                    WorkExportButton(workId: workId, title: payload.summary.title)
-                    saveOfflineButton(payload: payload)
-                }
+                ReaderView(payload: payload)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            followButton(payload: payload)
+                            WorkExportButton(workId: workId, title: payload.summary.title)
+                            saveOfflineButton(payload: payload)
+                        }
+                    }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))

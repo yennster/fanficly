@@ -37,15 +37,6 @@ struct ReadingAnchor: Equatable {
     let paragraph: Int
 }
 
-/// Reports the scroll content's top offset (0 at top, negative as you
-/// scroll down) so the reader can detect scroll direction.
-struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat { 0 }
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 extension ChapterTracking {
     /// The topmost paragraph anchor currently at/above the threshold line.
     static func topmostAnchor(_ offsets: [String: CGFloat], threshold: CGFloat = 80) -> ReadingAnchor? {

@@ -17,17 +17,12 @@ struct SavedWorkReader: View {
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
 
-    @ViewBuilder private var readerActions: some View {
-        WorkExportButton(workId: work.ao3Id, title: work.title)
-        saveOfflineButton
-    }
-
     var body: some View {
         Group {
             if hasOfflineText {
-                ReaderView(work: work) { readerActions }
+                ReaderView(work: work)
             } else if let payload {
-                ReaderView(payload: payload) { readerActions }
+                ReaderView(payload: payload)
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -44,6 +39,12 @@ struct SavedWorkReader: View {
                 }
             } else {
                 Color.clear
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                WorkExportButton(workId: work.ao3Id, title: work.title)
+                saveOfflineButton
             }
         }
         .task { await load() }

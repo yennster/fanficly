@@ -5,10 +5,6 @@ struct ReaderView: View {
     let author: String
     let chapters: [AO3ChapterPayload]
     let summary: AO3WorkSummary?
-    /// Parent-supplied action buttons (follow, kudos, export, save…). They live
-    /// in the reader's own floating toolbar rather than the system nav bar, so
-    /// the reader can reliably hide all of its chrome on scroll.
-    let actions: AnyView
 
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
@@ -19,17 +15,12 @@ struct ReaderView: View {
     @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
     @State private var currentAnchor: ReadingAnchor?
     @State private var loadedFromDisk = false
     @State private var isRestoring = false
     @State private var lastSaveAt: Date = .distantPast
-    // Chrome auto-hide on scroll.
-    @State private var chromeHidden = false
-    @State private var lastScrollOffset: CGFloat = 0
-    @State private var scrollAccum: CGFloat = 0
     // Paginated-mode one-shot paragraph restore.
     @State private var pendingParagraphRestore: ReadingAnchor?
     @State private var lastAnchorSampleAt: Date = .distantPast
@@ -43,17 +34,14 @@ struct ReaderView: View {
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) }
 
-    init<A: View>(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil,
-                  @ViewBuilder actions: () -> A = { EmptyView() }) {
+    init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         self.title = title
         self.author = author
         self.chapters = chapters
         self.summary = summary
-        self.actions = AnyView(actions())
     }
 
-    init<A: View>(work: Work, @ViewBuilder actions: () -> A = { EmptyView() }) {
-        self.actions = AnyView(actions())
+    init(work: Work) {
         self.title = work.title
         self.author = work.authorName
         self.chapters = work.chapters
@@ -82,8 +70,7 @@ struct ReaderView: View {
         )
     }
 
-    init<A: View>(payload: AO3WorkPayload, @ViewBuilder actions: () -> A = { EmptyView() }) {
-        self.actions = AnyView(actions())
+    init(payload: AO3WorkPayload) {
         self.title = payload.summary.title
         self.author = payload.summary.author
         self.chapters = payload.chapters
@@ -101,56 +88,17 @@ struct ReaderView: View {
             case .paginated:  paginatedBody(fg: fg, bg: bg)
             }
         }
-        // The reader draws its OWN chrome (a floating toolbar + chapter bar) as
-        // a top safe-area inset, so hiding it is just a conditional view — no
-        // dependence on the system nav bar, which wouldn't reliably hide.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if !chromeHidden {
-                floatingChrome(fg: fg, bg: bg)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .statusBarHidden(chromeHidden)
-        .onChange(of: modeRaw) { _, _ in
-            // Mode switched — show chrome and re-anchor in the new mode.
-            chromeHidden = false
-        }
-    }
-
-    /// The reader's own top chrome: a back button, the parent's actions + the
-    /// chapters/typography menus in a floating pill, and the chapter indicator.
-    /// Painted with the reader background so nothing reads as system gray.
-    private func floatingChrome(fg: Color, bg: Color) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                        .background(.regularMaterial, in: Circle())
-                }
-                Spacer(minLength: 8)
-                HStack(spacing: 20) {
-                    actions
-                    if chapters.count > 1 { chaptersMenu }
-                    typographyMenu
-                }
-                .font(.body)
-                .padding(.horizontal, 18)
-                .frame(height: 40)
-                .background(.regularMaterial, in: Capsule())
-            }
-            .tint(fg)
-            .padding(.horizontal, 14)
-            .padding(.top, 4)
-            .padding(.bottom, 8)
-
+        // Paint the nav bar with the reader's own background so it blends into
+        // the page instead of showing the default translucent gray material.
+        .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
+        .toolbarBackground(bg, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
             if chapters.count > 1 {
-                chapterIndicatorBar(fg: fg, bg: bg)
+                ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
             }
+            ToolbarItem(placement: .topBarTrailing) { typographyMenu }
         }
-        .background(bg)
     }
 
     // MARK: - Continuous
@@ -178,12 +126,6 @@ struct ReaderView: View {
                 .padding(.horizontal, width.horizontalPadding)
                 .padding(.vertical, Spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ScrollOffsetKey.self,
-                                               value: geo.frame(in: .named(scrollSpace)).minY)
-                    }
-                )
             }
             .coordinateSpace(name: scrollSpace)
             .onPreferenceChange(ChapterOffsetKey.self) { offsets in
@@ -201,16 +143,14 @@ struct ReaderView: View {
                     currentAnchor = anchor
                 }
             }
-            .onPreferenceChange(ScrollOffsetKey.self) { offset in
-                updateChrome(forScrollOffset: offset)
-            }
             .background(bg)
             .foregroundStyle(fg)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if chapters.count > 1 {
+                    chapterIndicatorBar(fg: fg, bg: bg)
+                }
+            }
             .onChange(of: selectedChapterIndex) { _, newIndex in
-                // Reveal chrome so the chapter-bar inset is reserved, then
-                // scroll — a second pass after layout lands it correctly
-                // (below the nav) instead of cut off underneath it.
-                if chromeHidden { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false } }
                 proxy.scrollTo(newIndex, anchor: .top)
                 Task {
                     try? await Task.sleep(nanoseconds: 60_000_000)
@@ -222,28 +162,6 @@ struct ReaderView: View {
             }
             .task { await restoreContinuous(proxy: proxy) }
             .onDisappear { persistNow() }
-        }
-    }
-
-    private func updateChrome(forScrollOffset offset: CGFloat) {
-        let delta = offset - lastScrollOffset
-        lastScrollOffset = offset
-        // Right at the very top: always show chrome.
-        if offset > -16 {
-            if chromeHidden { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false } }
-            scrollAccum = 0
-            return
-        }
-        guard abs(delta) > 0.5 else { return }
-        // Reset the accumulator when direction flips.
-        if (delta < 0) != (scrollAccum < 0) { scrollAccum = 0 }
-        scrollAccum += delta
-        if scrollAccum < -18, !chromeHidden {            // scrolled down a bit
-            withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = true }
-            scrollAccum = 0
-        } else if scrollAccum > 16, chromeHidden {        // scrolled up a bit
-            withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false }
-            scrollAccum = 0
         }
     }
 

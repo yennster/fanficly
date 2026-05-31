@@ -34,6 +34,5 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
-    func postKudos(workId: Int) async throws {}
     func subscribeToWork(workId: Int) async throws {}
 }
