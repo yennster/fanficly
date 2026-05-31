@@ -33,11 +33,21 @@ open Fanficly.xcodeproj
 
 ### Run locally in the simulator (no Xcode UI needed)
 
+**One-time setup.** Point the command-line tools at full Xcode (not the
+Command Line Tools shim — `simctl` only ships with full Xcode):
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+xcode-select -p   # should print /Applications/Xcode.app/Contents/Developer
+```
+
+If you skip this you'll get `xcrun: error: unable to find utility "simctl"`.
+
+**Build and run:**
 ```bash
 xcrun simctl boot "iPhone 17"
 open -a Simulator
 
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+xcodebuild \
   -project Fanficly.xcodeproj -scheme Fanficly \
   -destination 'platform=iOS Simulator,name=iPhone 17' \
   -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
@@ -47,15 +57,17 @@ xcrun simctl install booted \
 xcrun simctl launch booted io.github.yennster.fanficly
 ```
 
-`DEVELOPER_DIR` is only needed if `xcode-select -p` still points at Command
-Line Tools — fix that permanently with:
-```bash
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-```
+Rebuild after edits with the `xcodebuild build` + `simctl install` lines
+(the simulator stays booted). To swap to iPad, replace `iPhone 17` with
+`iPad Pro 13-inch (M5)` in both places.
 
-To rebuild after edits, re-run the `xcodebuild build` and `simctl install`
-lines (the simulator stays booted). To swap to iPad, replace `iPhone 17`
-with `iPad Pro 13-inch (M5)` in both places.
+**One-shot without changing `xcode-select`** (if you can't sudo):
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+# then run the four commands above as-is
+```
+`xcrun` honours `DEVELOPER_DIR`, so `xcrun simctl …` will resolve to the
+binary inside Xcode.app.
 
 ### Tests
 
