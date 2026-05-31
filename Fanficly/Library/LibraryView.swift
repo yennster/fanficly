@@ -4,6 +4,22 @@ import SwiftData
 struct LibraryView: View {
     @Query(sort: \Work.savedAt, order: .reverse) private var works: [Work]
     @Environment(\.modelContext) private var context
+    @State private var filter: LibraryFilter = .all
+
+    enum LibraryFilter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case following = "Following"
+        case downloaded = "Downloaded"
+        var id: String { rawValue }
+    }
+
+    private var filtered: [Work] {
+        switch filter {
+        case .all:        works
+        case .following:  works.filter(\.isFollowed)
+        case .downloaded: works.filter { WorkPersistence.epubURL(workId: $0.ao3Id) != nil }
+        }
+    }
 
     var body: some View {
         Group {
@@ -11,13 +27,13 @@ struct LibraryView: View {
                 ContentUnavailableView(
                     "Nothing saved yet",
                     systemImage: "books.vertical",
-                    description: Text("Tap 'Save offline' on any work to add it here.")
+                    description: Text("Tap the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed.")
                 )
             } else {
                 List {
-                    ForEach(works) { work in
+                    ForEach(filtered) { work in
                         NavigationLink(value: work) {
-                            LibraryRow(work: work)
+                            LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
@@ -25,10 +41,29 @@ struct LibraryView: View {
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
+                            if work.isFollowed {
+                                Button {
+                                    work.isFollowed = false
+                                    work.followedAt = nil
+                                    try? context.save()
+                                } label: {
+                                    Label("Unfollow", systemImage: "bookmark.slash")
+                                }
+                                .tint(.orange)
+                            }
                         }
                     }
                 }
                 .listStyle(.plain)
+                .safeAreaInset(edge: .top) {
+                    Picker("Filter", selection: $filter) {
+                        ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+                }
             }
         }
         .navigationTitle("Library")
@@ -55,10 +90,19 @@ struct LibraryView: View {
 
 struct LibraryRow: View {
     let work: Work
+    let downloaded: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(work.title).font(.headline)
+            HStack(spacing: 6) {
+                if work.isFollowed {
+                    Image(systemName: "bookmark.fill").font(.caption2).foregroundStyle(Color.accentColor)
+                }
+                if downloaded {
+                    Image(systemName: "arrow.down.circle.fill").font(.caption2).foregroundStyle(.green)
+                }
+                Text(work.title).font(.headline)
+            }
             Text("by \(work.authorName)").font(.subheadline).foregroundStyle(.secondary)
             HStack(spacing: 8) {
                 Text(work.rating).font(.caption).foregroundStyle(.secondary)
@@ -66,7 +110,8 @@ struct LibraryRow: View {
                     Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
                 }
                 if let total = work.totalChapters {
-                    Text("\(work.chapterCount)/\(total)").font(.caption).foregroundStyle(.secondary)
+                    Text(work.chapterCount == total ? "\(total) ch · complete" : "\(work.chapterCount)/\(total) · WIP")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }

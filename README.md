@@ -1,8 +1,12 @@
 # Fanficly
 
-A high-quality, open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://archiveofourown.org).
+An open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://archiveofourown.org).
 
-> **Project status:** very early. The scaffold and search parser are in; networking, login, and reader are skeletons being filled in.
+<!-- screenshots:start -->
+## Screenshots
+
+_Run `bin/take-screenshots.sh` to populate this section._
+<!-- screenshots:end -->
 
 ## Features (planned for v1)
 
@@ -79,12 +83,6 @@ xcodebuild test \
   CODE_SIGNING_ALLOWED=NO \
   -only-testing:FanficlyTests
 ```
-
-<!-- screenshots:start -->
-## Screenshots
-
-_Run `bin/take-screenshots.sh` to populate this section._
-<!-- screenshots:end -->
 
 ## About AO3
 

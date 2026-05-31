@@ -13,6 +13,8 @@ struct ReaderView: View {
     @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var selectedChapterIndex: Int = 1
+    @State private var visibleChapterIndex: Int = 1
+    private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
     private var fontSize: ReaderFontSize { ReaderFontSize(rawValue: fontSizeRaw) ?? .medium }
@@ -97,8 +99,14 @@ struct ReaderView: View {
                         .id("__top")
 
                     ForEach(chapters, id: \.index) { chapter in
-                        chapterBlock(chapter, fg: fg)
-                            .id(chapter.index)
+                        VStack(alignment: .leading, spacing: Spacing.sm) {
+                            if chapters.count > 1 {
+                                chapterHeader(chapter, fg: fg)
+                            }
+                            chapterBlock(chapter, fg: fg)
+                        }
+                        .id(chapter.index)
+                        .trackChapterOffset(index: chapter.index, in: scrollSpace)
                     }
                 }
                 .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
@@ -106,12 +114,58 @@ struct ReaderView: View {
                 .padding(.vertical, Spacing.lg)
                 .frame(maxWidth: .infinity, alignment: .center)
             }
+            .coordinateSpace(name: scrollSpace)
+            .onPreferenceChange(ChapterOffsetKey.self) { offsets in
+                if let current = ChapterTracking.currentChapter(offsets: offsets) {
+                    visibleChapterIndex = current
+                }
+            }
             .background(bg)
             .foregroundStyle(fg)
+            .overlay(alignment: .top) {
+                if chapters.count > 1 {
+                    chapterIndicatorPill(fg: fg, bg: bg)
+                }
+            }
             .onChange(of: selectedChapterIndex) { _, newIndex in
                 withAnimation { proxy.scrollTo(newIndex, anchor: .top) }
             }
         }
+    }
+
+    private func chapterIndicatorPill(fg: Color, bg: Color) -> some View {
+        let chapter = chapters.first(where: { $0.index == visibleChapterIndex })
+        let label = chapter?.title.isEmpty == false
+            ? "Ch. \(visibleChapterIndex) · \(chapter!.title)"
+            : "Chapter \(visibleChapterIndex) of \(chapters.count)"
+        return Text(label)
+            .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().stroke(fg.opacity(0.12)))
+            .foregroundStyle(fg.opacity(0.9))
+            .padding(.top, 6)
+            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+    }
+
+    private func chapterHeader(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("CHAPTER \(chapter.index)")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+                Rectangle()
+                    .fill(fg.opacity(0.15))
+                    .frame(height: 1)
+            }
+            if !chapter.title.isEmpty && chapter.title != "Chapter \(chapter.index)" {
+                Text(chapter.title)
+                    .font(fontFamily.font(size: fontSize.cgFloat + 5, weight: .bold))
+            }
+        }
+        .padding(.top, Spacing.lg)
     }
 
     // MARK: - Paginated
@@ -123,6 +177,9 @@ struct ReaderView: View {
                     VStack(alignment: .leading, spacing: Spacing.lg) {
                         if chapter.index == chapters.first?.index {
                             titleHeader(fg: fg)
+                        }
+                        if chapters.count > 1 {
+                            chapterHeader(chapter, fg: fg)
                         }
                         chapterBlock(chapter, fg: fg)
                     }
@@ -165,18 +222,12 @@ struct ReaderView: View {
     }
 
     private func chapterBlock(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            if !chapter.title.isEmpty {
-                Text(chapter.title)
-                    .font(fontFamily.font(size: fontSize.cgFloat + 4, weight: .semibold))
-            }
-            HTMLText(html: chapter.bodyHTML)
-                .font(fontFamily.font(size: fontSize.cgFloat))
-                .lineSpacing(6)
-                .foregroundStyle(fg)
-                .textSelection(.enabled)
-        }
-        .padding(.vertical, Spacing.sm)
+        HTMLText(html: chapter.bodyHTML)
+            .font(fontFamily.font(size: fontSize.cgFloat))
+            .lineSpacing(6)
+            .foregroundStyle(fg)
+            .textSelection(.enabled)
+            .padding(.vertical, Spacing.sm)
     }
 
     private var chaptersMenu: some View {

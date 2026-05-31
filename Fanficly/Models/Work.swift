@@ -31,6 +31,12 @@ final class Work {
     var lastReadProgress: Double?
     var epubLocalPath: String?
 
+    /// Local "follow" — saved to the device without needing an AO3 login.
+    /// Followed works are checked for new chapters by the background poller.
+    var isFollowed: Bool = false
+    var followedAt: Date?
+    var lastSeenChapterCount: Int?
+
     @Relationship(deleteRule: .cascade, inverse: \Chapter.work)
     var chapters: [Chapter] = []
 

@@ -7,10 +7,13 @@ import os
 struct SubscriptionPoller {
     let client: any AO3ClientProtocol
     let context: ModelContext
-    let username: String
+    /// AO3 username for syncing account subscriptions; nil when logged out
+    /// (locally-followed works are still polled).
+    let username: String?
     private let logger = Logger(subsystem: "io.github.yennster.fanficly", category: "SubscriptionPoller")
 
     func syncSubscriptionList() async throws -> [AO3Subscription] {
+        guard let username else { return [] }
         let fresh = try await client.fetchSubscriptions(username: username)
         let freshKeys = Set(fresh.map(\.key))
 
@@ -64,13 +67,44 @@ struct SubscriptionPoller {
         return notifyCount
     }
 
+    /// Poll locally-followed works (no AO3 login required) for new chapters.
+    func checkFollowedWorks() async -> Int {
+        var notifyCount = 0
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.isFollowed == true })
+        let followed = (try? context.fetch(descriptor)) ?? []
+        for work in followed {
+            do {
+                let meta = try await client.fetchWorkMetadata(id: work.ao3Id)
+                if let lastSeen = work.lastSeenChapterCount, meta.chapterCount > lastSeen {
+                    await postNewChapterNotification(
+                        title: work.title,
+                        oldCount: lastSeen,
+                        newCount: meta.chapterCount,
+                        workId: work.ao3Id
+                    )
+                    notifyCount += 1
+                }
+                work.lastSeenChapterCount = meta.chapterCount
+            } catch {
+                logger.warning("Skipping followed work \(work.ao3Id): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        try? context.save()
+        return notifyCount
+    }
+
     func runFullPoll() async -> Int {
         do {
             _ = try await syncSubscriptionList()
         } catch {
             logger.warning("Subscriptions list fetch failed: \(error.localizedDescription, privacy: .public)")
         }
-        return await checkForNewChapters()
+        var total = 0
+        if username != nil {
+            total += await checkForNewChapters()
+        }
+        total += await checkFollowedWorks()
+        return total
     }
 
     private func postNewChapterNotification(title: String, oldCount: Int, newCount: Int, workId: Int) async {

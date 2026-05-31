@@ -368,6 +368,7 @@ struct WorkDetailView: View {
     @State private var isSubscribing: Bool = false
     @State private var kudosed: Bool = false
     @State private var subscribed: Bool = false
+    @State private var followed: Bool = false
     @State private var epubURL: URL?
     @State private var showingComments: Bool = false
 
@@ -377,51 +378,15 @@ struct WorkDetailView: View {
                 ReaderView(payload: payload)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
-                            if auth.isLoggedIn {
-                                Button {
-                                    Task { await postKudos() }
-                                } label: {
-                                    if isKudosing {
-                                        ProgressView()
-                                    } else {
-                                        Image(systemName: kudosed ? "heart.fill" : "heart")
-                                            .foregroundStyle(kudosed ? .pink : .primary)
-                                    }
-                                }
-                                .disabled(isKudosing || kudosed)
+                            followButton(payload: payload)
 
-                                Button {
-                                    Task { await subscribe() }
-                                } label: {
-                                    if isSubscribing {
-                                        ProgressView()
-                                    } else {
-                                        Image(systemName: subscribed ? "bell.fill" : "bell")
-                                            .foregroundStyle(subscribed ? .orange : .primary)
-                                    }
-                                }
-                                .disabled(isSubscribing || subscribed)
+                            if auth.isLoggedIn {
+                                kudosButton
                             }
-                            Button {
-                                showingComments = true
-                            } label: {
-                                Image(systemName: "text.bubble")
-                            }
-                            if let epubURL {
-                                ShareLink(item: epubURL) {
-                                    Image(systemName: "square.and.arrow.up")
-                                }
-                            }
-                            Button {
-                                Task { await saveOffline(payload) }
-                            } label: {
-                                if isSavingOffline {
-                                    ProgressView()
-                                } else {
-                                    Image(systemName: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
-                                }
-                            }
-                            .disabled(isSavingOffline)
+
+                            saveOfflineButton(payload: payload)
+
+                            moreMenu(payload: payload)
                         }
                     }
                     .sheet(isPresented: $showingComments) {
@@ -440,8 +405,76 @@ struct WorkDetailView: View {
         .task { await load() }
     }
 
+    // MARK: - Toolbar buttons
+
+    private func followButton(payload: AO3WorkPayload) -> some View {
+        Button {
+            followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
+        } label: {
+            Image(systemName: followed ? "bookmark.fill" : "bookmark")
+                .foregroundStyle(followed ? Color.accentColor : Color.primary)
+        }
+        .accessibilityLabel(followed ? "Following" : "Follow")
+    }
+
+    private var kudosButton: some View {
+        Button {
+            Task { await postKudos() }
+        } label: {
+            if isKudosing {
+                ProgressView()
+            } else {
+                Image(systemName: kudosed ? "heart.fill" : "heart")
+                    .foregroundStyle(kudosed ? .pink : .primary)
+            }
+        }
+        .disabled(isKudosing || kudosed)
+    }
+
+    private func saveOfflineButton(payload: AO3WorkPayload) -> some View {
+        Button {
+            Task { await saveOffline(payload) }
+        } label: {
+            if isSavingOffline {
+                ProgressView()
+            } else {
+                Image(systemName: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
+            }
+        }
+        .disabled(isSavingOffline)
+    }
+
+    private func moreMenu(payload: AO3WorkPayload) -> some View {
+        Menu {
+            Button {
+                showingComments = true
+            } label: {
+                Label("Comments", systemImage: "text.bubble")
+            }
+            if let epubURL {
+                ShareLink(item: epubURL) {
+                    Label("Share / Send to Kindle", systemImage: "square.and.arrow.up")
+                }
+            }
+            if auth.isLoggedIn {
+                Button {
+                    Task { await subscribe() }
+                } label: {
+                    Label(subscribed ? "Subscribed on AO3" : "Subscribe on AO3",
+                          systemImage: subscribed ? "bell.fill" : "bell")
+                }
+                .disabled(isSubscribing || subscribed)
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+    }
+
+    // MARK: - Actions
+
     private func load() async {
         epubURL = WorkPersistence.epubURL(workId: workId)
+        followed = WorkPersistence.isFollowed(workId: workId, in: context)
         do {
             payload = try await client.fetchWork(id: workId)
         } catch {
