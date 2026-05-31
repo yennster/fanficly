@@ -7,18 +7,18 @@ An open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://ar
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/01-search-empty.png" width="250" alt="Smart search"><br><sub>Smart prompt search</sub></td>
-<td align="center"><img src="docs/screenshots/05-browse.png" width="250" alt="Browse categories &amp; saved filters"><br><sub>Browse &amp; saved filters</sub></td>
-<td align="center"><img src="docs/screenshots/06-browse-fandoms.png" width="250" alt="Fandoms"><br><sub>Every fandom, searchable</sub></td>
+<td align="center"><img src="docs/screenshots/02-search.png" width="250" alt="Smart prompt search"><br><sub>Smart prompt search</sub></td>
+<td align="center"><img src="docs/screenshots/03-search-results.png" width="250" alt="Search results"><br><sub>Results, your way</sub></td>
+<td align="center"><img src="docs/screenshots/04-reader.png" width="250" alt="Reader"><br><sub>Distraction-free reader</sub></td>
 </tr>
 <tr>
+<td align="center"><img src="docs/screenshots/05-browse.png" width="250" alt="Browse categories &amp; saved filters"><br><sub>Browse &amp; saved filters</sub></td>
 <td align="center"><img src="docs/screenshots/07-library.png" width="250" alt="Library"><br><sub>Library: follow &amp; download</sub></td>
 <td align="center"><img src="docs/screenshots/09-reader-settings.png" width="250" alt="Reader settings"><br><sub>Reader themes &amp; type</sub></td>
-<td align="center"><img src="docs/screenshots/08-settings.png" width="250" alt="Settings"><br><sub>Settings</sub></td>
 </tr>
 </table>
 
-_Regenerate with `bin/take-screenshots.sh`, or run the `ScreenshotTests` UI test which writes PNGs straight to `docs/screenshots/`. The reader/search-results shots need a live AO3 fetch and are flaky under automation (AO3 rate-limits fresh simulators) — capture those manually._
+_Regenerate by running the `ScreenshotTests` UI test, which writes PNGs straight to `docs/screenshots/`. The search-results, reader, and fandom-list shots need a live AO3 fetch and are flaky under automation (AO3 rate-limits fresh simulators) — re-run until they land, or capture manually._
 <!-- screenshots:end -->
 
 ## Features

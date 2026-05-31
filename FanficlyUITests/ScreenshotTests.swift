@@ -56,54 +56,54 @@ final class ScreenshotTests: XCTestCase {
     }
 
     func testCaptureMainScreens() throws {
-        // 1. Search empty state (launch lands here)
+        // Launch lands on the sidebar — that's the "Fanficly" home.
         usleep(800_000)
-        snap("01-search-empty")
+        snap("01-home")
 
-        // 2 + 3. Search results and reader (best-effort; needs network)
+        // Search: capture the (deterministic) screen, then results + reader
+        // best-effort — those need a live AO3 fetch and are flaky in automation.
+        openSidebarItem("Search")
+        usleep(600_000)
+        snap("02-search")
         let field = app.textFields.firstMatch
         if field.waitForExistence(timeout: 3) {
             field.tap()
             usleep(400_000)
             // Trailing newline triggers the search (handled in SearchView).
             field.typeText("draco/hermione enemies to lovers complete\n")
-            // Results: AO3 round-trip + parse, allow generous time.
             if app.cells.firstMatch.waitForExistence(timeout: 25) {
                 usleep(700_000)
-                snap("02-search-results")
+                snap("03-search-results")
                 app.cells.firstMatch.tap()
-                // Full work fetch + chapter render.
                 sleep(3)
                 _ = app.staticTexts.firstMatch.waitForExistence(timeout: 18)
                 sleep(2)
-                snap("03-reader")
-                let typo = app.buttons["textformat.size"].firstMatch
-                if typo.waitForExistence(timeout: 3) {
-                    typo.tap()
-                    usleep(900_000)
-                    snap("04-typography")
-                    app.tap()
-                }
-                revealSidebar()
+                snap("04-reader")
             }
         }
 
-        // Browse categories and a category's fandoms
+        // Browse categories, then a category's live fandom list (needs network).
         openSidebarItem("Browse")
+        usleep(600_000)
         snap("05-browse")
         let firstCategory = app.cells.firstMatch
         if firstCategory.waitForExistence(timeout: 3) {
             firstCategory.tap()
             sleep(4)
-            snap("06-browse-fandoms")
+            // Only keep this shot if we actually navigated off the category list.
+            if app.navigationBars["Browse"].exists == false {
+                snap("06-browse-fandoms")
+            }
         }
 
         // Library
         openSidebarItem("Library")
+        usleep(600_000)
         snap("07-library")
 
         // Settings and Reader settings
         openSidebarItem("Settings")
+        usleep(600_000)
         snap("08-settings")
         let readerRow = app.staticTexts["Theme & typography"].firstMatch
         if readerRow.waitForExistence(timeout: 3) {
