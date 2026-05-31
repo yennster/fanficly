@@ -497,13 +497,10 @@ struct ChipView: View {
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
-    @Environment(AuthState.self) private var auth
     let workId: Int
     @State private var payload: AO3WorkPayload?
     @State private var errorMessage: String?
     @State private var isSavingOffline: Bool = false
-    @State private var isKudosing: Bool = false
-    @State private var kudosed: Bool = false
     @State private var followed: Bool = false
     @State private var epubURL: URL?
 
@@ -512,9 +509,6 @@ struct WorkDetailView: View {
             if let payload {
                 ReaderView(payload: payload) {
                     followButton(payload: payload)
-                    if auth.isLoggedIn {
-                        kudosButton
-                    }
                     WorkExportButton(workId: workId, title: payload.summary.title)
                     saveOfflineButton(payload: payload)
                 }
@@ -540,19 +534,6 @@ struct WorkDetailView: View {
         .accessibilityLabel(followed ? "Following" : "Follow")
     }
 
-    private var kudosButton: some View {
-        Button {
-            Task { await postKudos() }
-        } label: {
-            if isKudosing {
-                ProgressView()
-            } else {
-                Image(systemName: kudosed ? "heart.fill" : "heart")
-                    .foregroundStyle(kudosed ? .pink : .primary)
-            }
-        }
-        .disabled(isKudosing || kudosed)
-    }
 
     private func saveOfflineButton(payload: AO3WorkPayload) -> some View {
         Button {
@@ -593,16 +574,6 @@ struct WorkDetailView: View {
         }
     }
 
-    private func postKudos() async {
-        isKudosing = true
-        defer { isKudosing = false }
-        do {
-            try await client.postKudos(workId: workId)
-            kudosed = true
-        } catch {
-            errorMessage = "Couldn't post kudos: \(error)"
-        }
-    }
 }
 
 #Preview {
