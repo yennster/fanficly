@@ -136,15 +136,12 @@ struct ReaderView: View {
             }
             .background(bg)
             .foregroundStyle(fg)
-            .overlay(alignment: .top) {
-                // Only show once the work title has scrolled off the top,
-                // so the pill never overlaps the title.
-                if chapters.count > 1 && titleOffset < -30 {
-                    chapterIndicatorPill(fg: fg, bg: bg)
-                        .transition(.move(edge: .top).combined(with: .opacity))
+            .safeAreaInset(edge: .top, spacing: 0) {
+                // Always-visible slim bar showing the current chapter.
+                if chapters.count > 1 {
+                    chapterIndicatorBar(fg: fg, bg: bg)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: titleOffset < -30)
             .onChange(of: selectedChapterIndex) { _, newIndex in
                 // Jump straight to the chapter — no animated scroll through
                 // everything in between.
@@ -181,39 +178,48 @@ struct ReaderView: View {
         ReadingProgressStore.save(ao3Id: id, anchor: anchor, title: title, author: author, in: modelContext)
     }
 
-    private func chapterIndicatorPill(fg: Color, bg: Color) -> some View {
+    private func chapterIndicatorBar(fg: Color, bg: Color) -> some View {
         let chapter = chapters.first(where: { $0.index == visibleChapterIndex })
         let label = chapter?.title.isEmpty == false
-            ? "Ch. \(visibleChapterIndex) · \(chapter!.title)"
+            ? "Chapter \(visibleChapterIndex) · \(chapter!.title)"
             : "Chapter \(visibleChapterIndex) of \(chapters.count)"
-        return Text(label)
-            .font(.caption.weight(.semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().stroke(fg.opacity(0.12)))
-            .foregroundStyle(fg.opacity(0.9))
-            .padding(.top, 6)
-            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+        return HStack {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .foregroundStyle(fg.opacity(0.85))
+            Spacer()
+            Text("\(visibleChapterIndex)/\(chapters.count)")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(fg.opacity(0.5))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+        }
     }
 
     private func chapterHeader(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                Rectangle().fill(Color.accentColor.opacity(0.3)).frame(height: 1)
                 Text("CHAPTER \(chapter.index)")
-                    .font(.caption.weight(.bold))
+                    .font(.subheadline.weight(.heavy))
                     .foregroundStyle(Color.accentColor)
-                Rectangle()
-                    .fill(fg.opacity(0.15))
-                    .frame(height: 1)
+                    .fixedSize()
+                Rectangle().fill(Color.accentColor.opacity(0.3)).frame(height: 1)
             }
             if !chapter.title.isEmpty {
                 Text(chapter.title)
                     .font(fontFamily.font(size: fontSize.cgFloat + 5, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
         }
-        .padding(.top, Spacing.lg)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.sm)
     }
 
     // MARK: - Paginated

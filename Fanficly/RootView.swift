@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct RootView: View {
-    @State private var selectedTab: SidebarItem? = .search
+    // Start with no selection so the app opens on the sidebar menu
+    // (on iPhone) rather than pushing straight into Search.
+    @State private var selectedTab: SidebarItem? = nil
 
     var body: some View {
         NavigationSplitView {
