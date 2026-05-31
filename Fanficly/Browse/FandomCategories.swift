@@ -21,6 +21,33 @@ public struct BrowseFandom: Identifiable, Hashable, Sendable {
 }
 
 enum FandomCatalog {
+    /// SF Symbol for a fandom, matching the Browse category it belongs to.
+    /// Uses an exact catalog match first, then AO3's canonical-name type
+    /// suffixes ("(Video Game)", "(TV)", "(Movies)", …).
+    static func symbol(for fandom: String) -> String {
+        if let known = symbolByFandom[fandom] { return known }
+        let lower = fandom.lowercased()
+        func has(_ subs: String...) -> Bool { subs.contains { lower.contains($0) } }
+        if has("(anime", "manga", "アニメ", "| my hero", "no kyojin")  { return "sparkles" }
+        if has("(video game", "(visual novel", "(vrchat")              { return "gamecontroller" }
+        if has("(podcast", "(radio", "(audio")                         { return "headphones" }
+        if has("musical", "broadway", "- miranda", "lloyd webber")     { return "theatermasks" }
+        if has("cinematic universe", "movies)", "(movie", "(film")     { return "film" }
+        if has("(cartoon", "(web series", "(webcomic", "(web comic")   { return "paintbrush.pointed" }
+        if has("(tv", " tv ", "us tv)", "uk tv)")                      { return "tv" }
+        if has("rpf")                                                  { return "person.fill" }
+        if has("(band", "(musician", "k-pop", "kpop", "방탄소년단")      { return "music.note" }
+        return "book.closed"
+    }
+
+    private static let symbolByFandom: [String: String] = {
+        var map: [String: String] = [:]
+        for category in all {
+            for fandom in category.fandoms { map[fandom.canonicalName] = category.symbol }
+        }
+        return map
+    }()
+
     static let all: [FandomCategory] = [
         FandomCategory(
             id: "anime-manga",

@@ -106,9 +106,9 @@ struct LibraryRow: View {
                 Text(work.title).font(.headline)
             }
             Text("by \(work.authorName)").font(.subheadline).foregroundStyle(.secondary)
-            if !work.fandoms.isEmpty {
+            if let firstFandom = work.fandoms.first {
                 HStack(spacing: 4) {
-                    Image(systemName: "books.vertical").font(.caption2)
+                    Image(systemName: FandomCatalog.symbol(for: firstFandom)).font(.caption2)
                     Text(fandomLabel).font(.caption)
                 }
                 .foregroundStyle(.secondary)

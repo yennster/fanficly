@@ -51,6 +51,7 @@
 		ABA9BC278DE0C4B0B69FBAD0 /* SubscriptionsParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C33994FE037E47981A5F9 /* SubscriptionsParserTests.swift */; };
 		AEDF3AD7C78F563F454DE499 /* MediaCategoryParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */; };
 		B0D8442B64B5A18AC1E17F06 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F667B1136698256D6B0A641 /* PersistenceTests.swift */; };
+		B1BF546C967418F60B6FFA2F /* FandomCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97B027978587DDDCA8B4C41 /* FandomCatalogTests.swift */; };
 		B515A9C7A2C578BC374C0800 /* AO3Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AAEA3501A7C05470BA9B9DF /* AO3Client.swift */; };
 		B695B997CB2F8A98165533AC /* ChapterContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A9B95678D459F38A75389DB /* ChapterContentView.swift */; };
 		B8DCFE701781255AA7EB7D98 /* ThrottleActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DBE194BD55409AE171449B7 /* ThrottleActor.swift */; };
@@ -143,6 +144,7 @@
 		C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCategoryParserTests.swift; sourceTree = "<group>"; };
 		C800E1CBCB775F93A3B718FB /* FanficlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanficlyApp.swift; sourceTree = "<group>"; };
 		C9514E85985142BCB7F62DCB /* ReadingProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgressStore.swift; sourceTree = "<group>"; };
+		C97B027978587DDDCA8B4C41 /* FandomCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FandomCatalogTests.swift; sourceTree = "<group>"; };
 		CC5A8E8054D0CC319F382113 /* TagResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagResolverTests.swift; sourceTree = "<group>"; };
 		CDD6DC08376FF6AAB0BCE651 /* Credentials.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Credentials.swift; sourceTree = "<group>"; };
 		CE807CFF2DB0F1B916323F5A /* AO3ClientEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3ClientEnvironment.swift; sourceTree = "<group>"; };
@@ -345,6 +347,7 @@
 				958A36B95570920660E8048F /* AO3EndpointsTests.swift */,
 				9A6E16021EBDB3AE9E77EB6F /* AO3SearchFiltersTests.swift */,
 				B32B3C5F0A68BE8524C92D9A /* ChapterTrackingTests.swift */,
+				C97B027978587DDDCA8B4C41 /* FandomCatalogTests.swift */,
 				B69A7DDA66AA7FB98A69A19E /* HTMLToAttributedTests.swift */,
 				C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */,
 				9F667B1136698256D6B0A641 /* PersistenceTests.swift */,
@@ -552,6 +555,7 @@
 				9AC41B8243A955860021EC28 /* AO3EndpointsTests.swift in Sources */,
 				F75BBAEC0A2F5A81EF2AED13 /* AO3SearchFiltersTests.swift in Sources */,
 				41B451BF95D793594BB5AA12 /* ChapterTrackingTests.swift in Sources */,
+				B1BF546C967418F60B6FFA2F /* FandomCatalogTests.swift in Sources */,
 				598701A3456706C6A7E34D95 /* HTMLToAttributedTests.swift in Sources */,
 				AEDF3AD7C78F563F454DE499 /* MediaCategoryParserTests.swift in Sources */,
 				B0D8442B64B5A18AC1E17F06 /* PersistenceTests.swift in Sources */,
