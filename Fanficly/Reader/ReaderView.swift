@@ -27,6 +27,7 @@ struct ReaderView: View {
     @State private var scrollAccum: CGFloat = 0
     // Paginated-mode one-shot paragraph restore.
     @State private var pendingParagraphRestore: ReadingAnchor?
+    @State private var lastAnchorSampleAt: Date = .distantPast
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -148,6 +149,11 @@ struct ReaderView: View {
                 }
             }
             .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                // Sample at most ~3x/sec so progress tracking never competes
+                // with the scroll for main-thread time.
+                let now = Date()
+                guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
+                lastAnchorSampleAt = now
                 if !isRestoring, let anchor = ChapterTracking.topmostAnchor(offsets) {
                     currentAnchor = anchor
                 }
@@ -345,6 +351,9 @@ struct ReaderView: View {
             .coordinateSpace(name: scrollSpace)
             .onPreferenceChange(ScrollAnchorKey.self) { offsets in
                 guard chapter.index == selectedChapterIndex, !isRestoring else { return }
+                let now = Date()
+                guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
+                lastAnchorSampleAt = now
                 if let anchor = ChapterTracking.topmostAnchor(offsets) {
                     let updated = ReadingAnchor(chapter: chapter.index, paragraph: anchor.paragraph)
                     currentAnchor = updated

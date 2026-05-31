@@ -68,7 +68,7 @@ public enum WorkExportFormat: String, CaseIterable, Sendable, Identifiable {
 
     public var displayName: String {
         switch self {
-        case .azw3: "Kindle (AZW3)"
+        case .azw3: "AZW3"
         case .epub: "EPUB"
         case .mobi: "MOBI"
         case .pdf:  "PDF"

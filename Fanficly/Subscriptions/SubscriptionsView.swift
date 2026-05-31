@@ -10,6 +10,44 @@ struct SubscriptionsView: View {
     @State private var lastError: String?
     @State private var lastNotifyCount: Int?
     @State private var hasRequestedNotifications: Bool = false
+    @State private var browserURL: ShareItem?
+
+    @ViewBuilder
+    private func subscriptionRow(_ sub: SubscriptionRecord) -> some View {
+        if sub.kind == "work", let workId = workId(from: sub) {
+            // Tap a work subscription to open the fic.
+            NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+                SubscriptionRow(sub: sub)
+            }
+        } else {
+            // Series / author → open the AO3 page.
+            Button {
+                browserURL = ao3Page(for: sub)
+            } label: {
+                SubscriptionRow(sub: sub)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func workId(from sub: SubscriptionRecord) -> Int? {
+        let parts = sub.key.split(separator: ":")
+        guard parts.count == 2, parts[0] == "work" else { return nil }
+        return Int(parts[1])
+    }
+
+    private func ao3Page(for sub: SubscriptionRecord) -> ShareItem? {
+        let parts = sub.key.split(separator: ":")
+        guard parts.count == 2 else { return nil }
+        let id = String(parts[1])
+        let path: String
+        switch parts[0] {
+        case "series": path = "/series/\(id)"
+        case "user":   path = "/users/\(id)"
+        default:       return nil
+        }
+        return URL(string: "https://archiveofourown.org\(path)").map { ShareItem(url: $0) }
+    }
 
     var body: some View {
         Group {
@@ -52,7 +90,7 @@ struct SubscriptionsView: View {
                     }
                     Section {
                         ForEach(subs) { sub in
-                            SubscriptionRow(sub: sub)
+                            subscriptionRow(sub)
                         }
                     } header: {
                         Text("\(subs.count) subscription\(subs.count == 1 ? "" : "s")")
@@ -61,6 +99,12 @@ struct SubscriptionsView: View {
             }
         }
         .navigationTitle("Subscriptions")
+        .navigationDestination(for: AO3WorkSummary.self) { work in
+            WorkDetailView(workId: work.id)
+        }
+        .sheet(item: $browserURL) { item in
+            SafariView(url: item.url).ignoresSafeArea()
+        }
         .toolbar {
             if auth.username != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -85,20 +129,24 @@ struct SubscriptionsView: View {
         guard let username = auth.username else { return }
         isRefreshing = true
         lastError = nil
-        defer { isRefreshing = false }
         let poller = SubscriptionPoller(client: client, context: context, username: username)
         do {
+            // Fetch the subscription list first — this is fast and updates
+            // the UI immediately.
             _ = try await poller.syncSubscriptionList()
-            lastNotifyCount = await poller.checkForNewChapters()
         } catch let AO3Error.parseFailed(reason) {
             lastError = "Couldn't parse AO3's response: \(reason)"
-        } catch let AO3Error.unauthorized {
+        } catch AO3Error.unauthorized {
             lastError = "Not logged in. Open Settings → AO3 Login."
         } catch let AO3Error.network(underlying) {
             lastError = "Network: \(underlying)"
         } catch {
             lastError = error.localizedDescription
         }
+        isRefreshing = false
+        // The per-work new-chapter check is throttled (1 req/sec) and only
+        // feeds notifications, so run it after the list is already showing.
+        lastNotifyCount = await poller.checkForNewChapters()
     }
 }
 
@@ -111,7 +159,7 @@ struct SubscriptionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(sub.displayName).font(.headline).lineLimit(2)
                 HStack(spacing: 6) {
-                    Text(sub.kind.capitalized).font(.caption).foregroundStyle(.secondary)
+                    Text(kindLabel).font(.caption).foregroundStyle(.secondary)
                     if let count = sub.lastSeenChapterCount {
                         Text("·").foregroundStyle(.tertiary)
                         Text("\(count) chapter\(count == 1 ? "" : "s")")
@@ -136,6 +184,30 @@ struct SubscriptionRow: View {
         case "user":   "person"
         default:       "bell"
         }
+    }
+
+    /// "Work" is AO3's term for a fic — show something friendlier.
+    private var kindLabel: String {
+        switch sub.kind {
+        case "work":   "Story"
+        case "series": "Series"
+        case "user":   "Author"
+        default:       sub.kind.capitalized
+        }
+    }
+}
+
+extension AO3WorkSummary {
+    /// A minimal summary carrying just an id (used as a navigation value
+    /// when the full work will be fetched by the destination).
+    static func stub(id: Int, title: String) -> AO3WorkSummary {
+        AO3WorkSummary(
+            id: id, title: title, author: "", summary: "", rating: "",
+            warnings: [], categories: [], fandoms: [], characters: [],
+            relationships: [], freeforms: [], wordCount: 0, chapterCount: 0,
+            totalChapters: nil, language: "", kudos: 0, hits: 0,
+            isComplete: false, updatedAt: nil
+        )
     }
 }
 

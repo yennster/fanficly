@@ -13,6 +13,11 @@ struct ChapterContentView: View {
 
     @State private var paragraphs: [AttributedString]?
 
+    /// Position is sampled every N paragraphs — enough for "resume where you
+    /// left off" without a GeometryReader on every paragraph (which made
+    /// scrolling stutter).
+    private let anchorStride = 6
+
     var body: some View {
         VStack(alignment: .leading, spacing: paragraphSpacing) {
             if let paragraphs {
@@ -24,7 +29,11 @@ struct ChapterContentView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(ChapterTracking.key(chapter: chapterIndex, paragraph: index))
-                        .background(anchorReporter(paragraph: index))
+                        .background {
+                            if index % anchorStride == 0 {
+                                anchorReporter(paragraph: index)
+                            }
+                        }
                 }
             } else {
                 Text(plainFallback)
