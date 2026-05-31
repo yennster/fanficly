@@ -6,14 +6,20 @@ struct SearchView: View {
     @State private var prompt: String = ""
     @State private var lastParsed: AO3SearchFilters = AO3SearchFilters()
     @State private var results: [AO3WorkSummary] = []
+    @State private var currentPage: Int = 1
+    @State private var totalPages: Int = 1
     @State private var isSearching: Bool = false
+    @State private var isLoadingMore: Bool = false
     @State private var errorMessage: String?
+    @State private var sortColumn: AO3SearchFilters.SortColumn = .bestMatch
+    @State private var sortDirection: AO3SearchFilters.SortDirection = .desc
     private let parser = SearchPromptParser()
     private let enricher: any SearchEnricher = SearchEnricherFactory.make()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             promptField
+            sortBar
 
             if !lastParsed.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -36,11 +42,27 @@ struct SearchView: View {
                 ContentUnavailableView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if results.isEmpty {
                 ContentUnavailableView("Type a prompt", systemImage: "sparkle.magnifyingglass",
-                    description: Text("e.g. \"edward/bella romance all human explicit\""))
+                    description: Text("e.g. \"edward/bella romance all human complete\""))
             } else {
-                List(results) { work in
-                    NavigationLink(value: work) {
-                        WorkRow(work: work)
+                List {
+                    ForEach(results) { work in
+                        NavigationLink(value: work) { WorkRow(work: work) }
+                    }
+                    if currentPage < totalPages {
+                        HStack {
+                            Spacer()
+                            if isLoadingMore {
+                                ProgressView()
+                            } else {
+                                Button("Load more (page \(currentPage + 1) of \(totalPages))") {
+                                    Task { await loadMore() }
+                                }
+                                .font(.callout)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 8)
+                        .listRowSeparator(.hidden)
                     }
                 }
                 .listStyle(.plain)
@@ -53,16 +75,46 @@ struct SearchView: View {
     }
 
     private var promptField: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("e.g. edward/bella romance all human explicit -mpreg", text: $prompt, axis: .vertical)
-                .lineLimit(1...3)
-                .textFieldStyle(.roundedBorder)
-                .submitLabel(.search)
-                .onSubmit { Task { await runSearch() } }
-                .onChange(of: prompt) { _, _ in lastParsed = parser.parse(prompt) }
+        TextField("e.g. edward/bella romance all human explicit -mpreg", text: $prompt, axis: .vertical)
+            .lineLimit(1...3)
+            .textFieldStyle(.roundedBorder)
+            .submitLabel(.search)
+            .onSubmit { Task { await runSearch() } }
+            .onChange(of: prompt) { _, _ in lastParsed = parser.parse(prompt) }
+            .padding(.horizontal)
+            .padding(.top, 12)
+    }
+
+    private var sortBar: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Picker("Sort by", selection: $sortColumn) {
+                    ForEach(AO3SearchFilters.SortColumn.allCases, id: \.self) { column in
+                        Text(column.displayName).tag(column)
+                    }
+                }
+            } label: {
+                Label(sortColumn.displayName, systemImage: "arrow.up.arrow.down")
+                    .font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .onChange(of: sortColumn) { _, _ in
+                if !results.isEmpty { Task { await runSearch() } }
+            }
+
+            Button {
+                sortDirection = sortDirection == .asc ? .desc : .asc
+                if !results.isEmpty { Task { await runSearch() } }
+            } label: {
+                Image(systemName: sortDirection.symbol)
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+
+            Spacer()
         }
         .padding(.horizontal)
-        .padding(.top, 12)
+        .padding(.top, 6)
     }
 
     private func runSearch() async {
@@ -70,13 +122,18 @@ struct SearchView: View {
         if !filters.query.isEmpty {
             filters = await enricher.enrich(filters: filters, prompt: filters.query)
         }
+        filters.sortColumn = sortColumn
+        filters.sortDirection = sortDirection
         lastParsed = filters
         errorMessage = nil
         isSearching = true
+        currentPage = 1
         defer { isSearching = false }
         do {
             let result = try await client.search(filters: filters, page: 1)
             results = result.works
+            totalPages = result.totalPages
+            currentPage = result.currentPage
         } catch let AO3Error.loginFailed(reason) {
             errorMessage = reason
         } catch let AO3Error.http(status) {
@@ -87,6 +144,23 @@ struct SearchView: View {
             errorMessage = "Network: \(underlying)"
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadMore() async {
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        var filters = lastParsed
+        filters.sortColumn = sortColumn
+        filters.sortDirection = sortDirection
+        do {
+            let result = try await client.search(filters: filters, page: currentPage + 1)
+            let existing = Set(results.map(\.id))
+            results.append(contentsOf: result.works.filter { !existing.contains($0.id) })
+            currentPage = result.currentPage
+            totalPages = result.totalPages
+        } catch {
+            errorMessage = "Couldn't load more: \(error)"
         }
     }
 

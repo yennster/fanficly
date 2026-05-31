@@ -22,7 +22,7 @@ public struct AO3SearchFilters: Equatable, Sendable {
     public var kudosCount: String = ""
     public var commentsCount: String = ""
     public var bookmarksCount: String = ""
-    public var sortColumn: SortColumn = .revisedAt
+    public var sortColumn: SortColumn = .bestMatch
     public var sortDirection: SortDirection = .desc
 
     public init() {}
@@ -91,18 +91,38 @@ public struct AO3SearchFilters: Equatable, Sendable {
         }
     }
 
-    public enum SortColumn: String, Sendable {
-        case revisedAt = "revised_at"
+    public enum SortColumn: String, CaseIterable, Sendable, Hashable {
+        case bestMatch = "_score"
+        case author = "authors_to_sort_on"
+        case title = "title_to_sort_on"
         case createdAt = "created_at"
+        case revisedAt = "revised_at"
         case wordCount = "word_count"
         case hits
         case kudosCount = "kudos_count"
         case commentsCount = "comments_count"
         case bookmarksCount = "bookmarks_count"
+
+        public var displayName: String {
+            switch self {
+            case .bestMatch:      "Best Match"
+            case .author:         "Author"
+            case .title:          "Title"
+            case .createdAt:      "Date Posted"
+            case .revisedAt:      "Date Updated"
+            case .wordCount:      "Word Count"
+            case .hits:           "Hits"
+            case .kudosCount:     "Kudos"
+            case .commentsCount:  "Comments"
+            case .bookmarksCount: "Bookmarks"
+            }
+        }
     }
 
-    public enum SortDirection: String, Sendable {
+    public enum SortDirection: String, CaseIterable, Sendable, Hashable {
         case asc, desc
+        public var displayName: String { self == .asc ? "Ascending" : "Descending" }
+        public var symbol: String { self == .asc ? "arrow.up" : "arrow.down" }
     }
 
     public var isEmpty: Bool {

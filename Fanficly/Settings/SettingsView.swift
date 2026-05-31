@@ -17,8 +17,9 @@ struct SettingsView: View {
                 }
             }
             Section("Reader") {
-                Text("Theme and typography options will live here.")
-                    .foregroundStyle(.secondary)
+                NavigationLink("Theme & typography") {
+                    ReaderSettingsView()
+                }
             }
             Section("Privacy") {
                 NavigationLink("What this app sees and stores") {

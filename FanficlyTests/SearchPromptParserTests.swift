@@ -110,6 +110,20 @@ final class SearchPromptParserTests: XCTestCase {
         XCTAssertTrue(filters.excludedFreeforms.contains("omegaverse"))
     }
 
+    func test_exclusionAngstAtEnd() {
+        let filters = parser.parse("draco/hermione explicit complete -angst")
+        XCTAssertEqual(filters.relationshipNames, ["Draco/Hermione"])
+        XCTAssertTrue(filters.ratings.contains(.explicit))
+        XCTAssertEqual(filters.complete, .yes)
+        XCTAssertEqual(filters.excludedFreeforms, ["angst"])
+    }
+
+    func test_exclusionAngstInMiddle() {
+        let filters = parser.parse("draco/hermione -angst complete")
+        XCTAssertTrue(filters.excludedFreeforms.contains("angst"))
+        XCTAssertEqual(filters.complete, .yes)
+    }
+
     func test_exampleFromUser_edwardBellaRomanceAllHumanExplicit() {
         let filters = parser.parse("edward/bella romance all human explicit")
         XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
