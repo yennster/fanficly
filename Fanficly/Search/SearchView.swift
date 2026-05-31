@@ -511,7 +511,9 @@ struct WorkDetailView: View {
     var body: some View {
         Group {
             if let payload {
-                ReaderView(payload: payload, onChromeChange: { chromeHidden = $0 })
+                ReaderView(payload: payload, onChromeChange: { hidden in
+                    withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = hidden }
+                })
                     .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {

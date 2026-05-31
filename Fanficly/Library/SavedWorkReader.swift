@@ -21,9 +21,9 @@ struct SavedWorkReader: View {
     var body: some View {
         Group {
             if hasOfflineText {
-                ReaderView(work: work, onChromeChange: { chromeHidden = $0 })
+                ReaderView(work: work, onChromeChange: { hidden in withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = hidden } })
             } else if let payload {
-                ReaderView(payload: payload, onChromeChange: { chromeHidden = $0 })
+                ReaderView(payload: payload, onChromeChange: { hidden in withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = hidden } })
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()

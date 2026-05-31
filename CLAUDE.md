@@ -30,13 +30,17 @@ Fanficly/
     FoundationModelsEnricher.swift   # iOS 26+ on-device LLM fallback (no-op elsewhere)
   Browse/
     FandomCategories.swift     # 10 AO3 media categories + curated seed lists
-    BrowseView.swift           # category → live fandom list → filtered works
+    BrowseView.swift           # category → live fandom list → filtered works;
+                               #   landing page also lists saved filters.
+                               #   FandomWorksView is drivable by filters+title
+                               #   (fandom OR a saved filter), not just a fandom.
   Search/
     WorkFilterSheet.swift      # AO3-style filter panel editing AO3SearchFilters
   Reader/
     ReaderView.swift           # continuous + paginated modes, chapter header,
                                #   floating chapter indicator, typography menu,
-                               #   reading-position save/restore
+                               #   reading-position save/restore; immersive
+                               #   chrome (auto-hides on scroll — see below)
     ChapterContentView.swift   # renders a chapter as paragraphs w/ scroll anchors
     HTMLText.swift             # async cached HTML → AttributedString (summary)
     HTMLToAttributed.swift     # SwiftSoup → AttributedString / paragraphs
@@ -145,6 +149,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - The search field is a vertical-axis `TextField`, so Return inserts a newline rather than firing `.onSubmit`. SearchView watches `onChange` for a `\n` and triggers the search itself.
 - Top-level tab views (Search, Library) use an **inline** nav title — a large title pops in awkwardly because those screens have a custom header VStack, not a scroll view for the title to anchor against.
 - AO3 may return 429 if we hit it too fast. The throttle should prevent this but handle the case anyway.
+- **Reader chrome hides on scroll, but the parent owns the nav bar.** The reader's top buttons come from *two* places: `ReaderView`'s own toolbar (chapters, Aa) and the parent's (`WorkDetailView` / `SavedWorkReader` add follow/kudos/export/save). Applying `.toolbar(.hidden, for: .navigationBar)` from *inside* `ReaderView` does **not** reliably hide a bar whose items are declared one level up — so `ReaderView` instead reports its scroll-driven `chromeHidden` via an `onChromeChange` callback, and each parent applies the `.toolbar(.hidden/.visible)` itself (wrapped in `withAnimation` for the fade). The reader also drops the bar's translucent material with `.toolbarBackground(.hidden, …)` and themes only the bar via `.toolbarColorScheme` (never `.preferredColorScheme`, which propagates to the whole window and makes the app flip light↔dark when you leave a light reader).
 
 ## Local follow vs. AO3 subscribe
 

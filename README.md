@@ -8,24 +8,24 @@ An open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://ar
 <table>
 <tr>
 <td align="center"><img src="docs/screenshots/01-search-empty.png" width="250" alt="Smart search"><br><sub>Smart prompt search</sub></td>
-<td align="center"><img src="docs/screenshots/02-browse.png" width="250" alt="Browse categories"><br><sub>Browse by category</sub></td>
-<td align="center"><img src="docs/screenshots/03-browse-fandoms.png" width="250" alt="Fandoms"><br><sub>Every fandom, searchable</sub></td>
+<td align="center"><img src="docs/screenshots/05-browse.png" width="250" alt="Browse categories &amp; saved filters"><br><sub>Browse &amp; saved filters</sub></td>
+<td align="center"><img src="docs/screenshots/06-browse-fandoms.png" width="250" alt="Fandoms"><br><sub>Every fandom, searchable</sub></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/screenshots/04-library.png" width="250" alt="Library"><br><sub>Library: follow &amp; download</sub></td>
-<td align="center"><img src="docs/screenshots/05-settings.png" width="250" alt="Settings"><br><sub>Settings</sub></td>
-<td align="center"><img src="docs/screenshots/06-reader-settings.png" width="250" alt="Reader settings"><br><sub>Reader themes &amp; type</sub></td>
+<td align="center"><img src="docs/screenshots/07-library.png" width="250" alt="Library"><br><sub>Library: follow &amp; download</sub></td>
+<td align="center"><img src="docs/screenshots/09-reader-settings.png" width="250" alt="Reader settings"><br><sub>Reader themes &amp; type</sub></td>
+<td align="center"><img src="docs/screenshots/08-settings.png" width="250" alt="Settings"><br><sub>Settings</sub></td>
 </tr>
 </table>
 
-_Regenerate with `bin/take-screenshots.sh`, or run the `ScreenshotTests` UI test which writes PNGs straight to `docs/screenshots/`._
+_Regenerate with `bin/take-screenshots.sh`, or run the `ScreenshotTests` UI test which writes PNGs straight to `docs/screenshots/`. The reader/search-results shots need a live AO3 fetch and are flaky under automation (AO3 rate-limits fresh simulators) — capture those manually._
 <!-- screenshots:end -->
 
 ## Features
 
-- **Smart prompt-style search** — type `draco/hermione enemies to lovers complete -angst` and it parses into proper AO3 filters (ships, characters, fandoms, ratings, warnings, categories, tags, word count, language, and `-`/`not` exclusions). Full AO3 sort options and pagination.
-- **Browse by fandom, with AO3's full filter set** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search. A fandom's works can be filtered exactly like on AO3 (rating, warnings, category, completion, crossovers, word count, relationships/characters/tags include & exclude) — and typed tags resolve to AO3's canonical names via autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`.
-- **Reader** — continuous scroll or swipe-by-chapter, with a floating chapter indicator. Light / sepia / dark / OLED themes, five font families, six text sizes, line-spacing and margin controls — all persisted. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
+- **Smart prompt-style search** — type `draco/hermione enemies to lovers complete -angst` and it parses into proper AO3 filters (ships, characters, fandoms, ratings, warnings, categories, tags, word count, language, and `-`/`not` exclusions). Quote a phrase — `"Hermione Granger/Draco Malfoy"` — to pin an exact tag, pick several ratings at once, and use AO3's full sort options and pagination.
+- **Browse by fandom, with AO3's full filter set** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search. A fandom's works can be filtered exactly like on AO3 (rating, warnings, category, completion, crossovers, word count, relationships/characters/tags include & exclude) — and typed tags resolve to AO3's canonical names via autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`. Save a filter preset once and reapply it to any fandom — or straight from the Browse home.
+- **Reader** — continuous scroll or swipe-by-chapter, with a floating chapter indicator and an immersive chrome that tucks the toolbar away as you read and brings it back when you scroll up. Light / sepia / dark / OLED themes, five font families, six text sizes, line-spacing and margin controls — all persisted. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
 - **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story.
 - **Follow & save — no account needed** — bookmark any story to your device with one tap; followed works load on demand and are polled in the background, with a local notification when new chapters drop. Or download for fully offline reading.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3 (Kindle), PDF, or HTML through the iOS share sheet (AirDrop, Send to Kindle, Books, Files, …).
