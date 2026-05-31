@@ -111,30 +111,33 @@ struct FandomWorksView: View {
     @State private var isLoading: Bool = false
     @State private var isLoadingMore: Bool = false
     @State private var errorMessage: String?
-    @State private var sortColumn: AO3SearchFilters.SortColumn = .revisedAt
-    @State private var sortDirection: AO3SearchFilters.SortDirection = .desc
+    @State private var filters: AO3SearchFilters
+    @State private var showingFilters = false
+
+    init(fandom: BrowseFandom) {
+        self.fandom = fandom
+        var initial = AO3SearchFilters()
+        initial.fandomNames = [fandom.canonicalName]
+        initial.sortColumn = .revisedAt
+        initial.sortDirection = .desc
+        _filters = State(initialValue: initial)
+    }
 
     var body: some View {
         Group {
             if isLoading && works.isEmpty {
-                VStack {
-                    Spacer()
-                    ProgressView("Loading…")
-                    Spacer()
-                }
+                VStack { Spacer(); ProgressView("Loading…"); Spacer() }
             } else if let errorMessage, works.isEmpty {
                 ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
             } else if works.isEmpty {
                 ContentUnavailableView("No works found", systemImage: "tray",
-                    description: Text("This fandom doesn't seem to have any visible works."))
+                    description: Text("Nothing matched these filters. Try loosening them."))
             } else {
                 List {
                     Section {
                         ForEach(works) { work in
-                            NavigationLink(value: work) {
-                                WorkRow(work: work)
-                            }
+                            NavigationLink(value: work) { WorkRow(work: work) }
                         }
                         if currentPage < totalPages {
                             HStack {
@@ -153,12 +156,7 @@ struct FandomWorksView: View {
                             .listRowSeparator(.hidden)
                         }
                     } header: {
-                        HStack {
-                            sortMenu
-                            Spacer()
-                        }
-                        .textCase(nil)
-                        .padding(.vertical, 4)
+                        activeFilterSummary
                     }
                 }
                 .listStyle(.plain)
@@ -166,47 +164,79 @@ struct FandomWorksView: View {
         }
         .navigationTitle(fandom.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingFilters = true
+                } label: {
+                    Image(systemName: activeFilterCount > 0
+                          ? "line.3.horizontal.decrease.circle.fill"
+                          : "line.3.horizontal.decrease.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showingFilters) {
+            WorkFilterSheet(filters: $filters) {
+                Task { await loadFirst() }
+            }
+        }
         .task { await loadFirst() }
     }
 
-    private var sortMenu: some View {
-        HStack(spacing: 10) {
-            Menu {
-                Picker("Sort by", selection: $sortColumn) {
-                    ForEach(AO3SearchFilters.SortColumn.allCases, id: \.self) { column in
-                        Text(column.displayName).tag(column)
+    @ViewBuilder
+    private var activeFilterSummary: some View {
+        if !filterChips.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(filterChips, id: \.self) { chip in
+                        Text(chip)
+                            .font(.caption2)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Color.accentColor.opacity(0.15))
+                            .foregroundStyle(Color.accentColor)
+                            .clipShape(Capsule())
                     }
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.arrow.down")
-                    Text(sortColumn.displayName)
-                    Image(systemName: "chevron.down").font(.caption2)
-                }
-                .font(.subheadline)
             }
-            .onChange(of: sortColumn) { _, _ in Task { await loadFirst() } }
-
-            Button {
-                sortDirection = sortDirection == .asc ? .desc : .asc
-                Task { await loadFirst() }
-            } label: {
-                Image(systemName: sortDirection.symbol)
-                    .font(.subheadline)
-                    .frame(width: 28, height: 28)
-                    .background(Color.accentColor.opacity(0.12))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
+            .textCase(nil)
+            .padding(.vertical, 2)
         }
     }
 
-    private func makeFilters() -> AO3SearchFilters {
-        var filters = AO3SearchFilters()
-        filters.fandomNames = [fandom.canonicalName]
-        filters.sortColumn = sortColumn
-        filters.sortDirection = sortDirection
-        return filters
+    private var filterChips: [String] {
+        var chips: [String] = ["\(filters.sortColumn.displayName) \(filters.sortDirection == .asc ? "↑" : "↓")"]
+        chips += filters.ratings.map(\.displayName)
+        chips += filters.warnings.map { $0.displayName }
+        chips += filters.categories.map(\.displayName)
+        chips += filters.relationshipNames
+        chips += filters.characterNames
+        chips += filters.freeformNames
+        chips += filters.excludedFreeforms.map { "−\($0)" }
+        switch filters.complete {
+        case .yes: chips.append("Complete")
+        case .no:  chips.append("WIP")
+        case .any: break
+        }
+        switch filters.crossover {
+        case .yes: chips.append("Crossovers only")
+        case .no:  chips.append("No crossovers")
+        case .any: break
+        }
+        if filters.singleChapter { chips.append("Oneshot") }
+        if !filters.wordCount.isEmpty { chips.append("words \(filters.wordCount)") }
+        if !filters.languageId.isEmpty { chips.append("lang \(filters.languageId)") }
+        return chips
+    }
+
+    private var activeFilterCount: Int {
+        filters.ratings.count + filters.warnings.count + filters.categories.count
+            + filters.relationshipNames.count + filters.characterNames.count
+            + filters.freeformNames.count + filters.excludedFreeforms.count
+            + (filters.complete != .any ? 1 : 0)
+            + (filters.crossover != .any ? 1 : 0)
+            + (filters.singleChapter ? 1 : 0)
+            + (filters.wordCount.isEmpty ? 0 : 1)
+            + (filters.languageId.isEmpty ? 0 : 1)
     }
 
     private func loadFirst() async {
@@ -214,7 +244,7 @@ struct FandomWorksView: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let result = try await client.search(filters: makeFilters(), page: 1)
+            let result = try await client.search(filters: filters, page: 1)
             works = result.works
             currentPage = result.currentPage
             totalPages = result.totalPages
@@ -227,7 +257,7 @@ struct FandomWorksView: View {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let result = try await client.search(filters: makeFilters(), page: currentPage + 1)
+            let result = try await client.search(filters: filters, page: currentPage + 1)
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
