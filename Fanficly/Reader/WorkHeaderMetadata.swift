@@ -3,10 +3,17 @@ import SwiftUI
 struct WorkHeaderMetadata: View {
     let summary: AO3WorkSummary
     let foreground: Color
+    @State private var showDetails = false
+
+    private var hasDetails: Bool {
+        !summary.fandoms.isEmpty || !summary.relationships.isEmpty
+            || !summary.characters.isEmpty || !summary.freeforms.isEmpty
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
+            // Always visible: rating, warnings, categories, stats.
+            FlowLayout(spacing: 6, lineSpacing: 6) {
                 RatingBadge(rating: summary.rating)
                 ForEach(summary.warnings, id: \.self) { warning in
                     SmallChip(text: warning, kind: .warning)
@@ -16,32 +23,41 @@ struct WorkHeaderMetadata: View {
                 }
             }
 
-            if !summary.fandoms.isEmpty {
-                MetadataRow(label: "Fandom",
-                            values: summary.fandoms,
-                            kind: .fandom,
-                            foreground: foreground)
-            }
-            if !summary.relationships.isEmpty {
-                MetadataRow(label: "Relationship",
-                            values: summary.relationships,
-                            kind: .relationship,
-                            foreground: foreground)
-            }
-            if !summary.characters.isEmpty {
-                MetadataRow(label: "Characters",
-                            values: summary.characters,
-                            kind: .character,
-                            foreground: foreground)
-            }
-            if !summary.freeforms.isEmpty {
-                MetadataRow(label: "Tags",
-                            values: summary.freeforms,
-                            kind: .tag,
-                            foreground: foreground)
-            }
-
             StatsRow(summary: summary, foreground: foreground)
+
+            // Collapsible: fandoms, relationships, characters, tags.
+            if hasDetails {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { showDetails.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(showDetails ? "Hide tags & relationships" : "Tags & relationships")
+                        Image(systemName: showDetails ? "chevron.up" : "chevron.down")
+                            .font(.caption2)
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+
+                if showDetails {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !summary.fandoms.isEmpty {
+                            MetadataRow(label: "Fandom", values: summary.fandoms, kind: .fandom, foreground: foreground)
+                        }
+                        if !summary.relationships.isEmpty {
+                            MetadataRow(label: "Relationship", values: summary.relationships, kind: .relationship, foreground: foreground)
+                        }
+                        if !summary.characters.isEmpty {
+                            MetadataRow(label: "Characters", values: summary.characters, kind: .character, foreground: foreground)
+                        }
+                        if !summary.freeforms.isEmpty {
+                            MetadataRow(label: "Tags", values: summary.freeforms, kind: .tag, foreground: foreground)
+                        }
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
         }
     }
 }
@@ -96,12 +112,14 @@ private struct SmallChip: View {
     var body: some View {
         Text(text)
             .font(.caption)
-            .lineLimit(1)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(kind.background)
             .foregroundStyle(kind.foreground)
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

@@ -45,8 +45,14 @@ struct FlowLayout: Layout {
         var lineWidth: CGFloat = 0
         var lineHeight: CGFloat = 0
 
+        let cap = maxWidth.isFinite ? maxWidth : .infinity
         for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
+            // Constrain each subview to the available width so an item wider
+            // than the column wraps (or truncates) instead of overflowing.
+            var size = subviews[index].sizeThatFits(
+                ProposedViewSize(width: cap.isFinite ? cap : nil, height: nil)
+            )
+            if cap.isFinite { size.width = min(size.width, cap) }
             let widthIfAdded = lineWidth + (lineSizes.isEmpty ? 0 : spacing) + size.width
             if widthIfAdded > maxWidth, !lineSizes.isEmpty {
                 rows.append(Row(

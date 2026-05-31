@@ -29,11 +29,13 @@ enum ChapterTracking {
     /// That's the chapter with the greatest offset still at/above the
     /// threshold line just below the navigation bar.
     static func currentChapter(offsets: [Int: CGFloat], threshold: CGFloat = 80) -> Int? {
-        let passed = offsets.filter { $0.value <= threshold }
+        // Index 0 is the title header — exclude it from chapter selection.
+        let chapters = offsets.filter { $0.key >= 1 }
+        let passed = chapters.filter { $0.value <= threshold }
         if let top = passed.max(by: { $0.value < $1.value }) {
             return top.key
         }
         // Nothing has scrolled past yet — we're in the first chapter.
-        return offsets.min(by: { $0.value < $1.value })?.key
+        return chapters.min(by: { $0.value < $1.value })?.key
     }
 }

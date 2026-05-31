@@ -14,6 +14,7 @@ struct ReaderView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
+    @State private var titleOffset: CGFloat = .greatestFiniteMagnitude
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -97,6 +98,7 @@ struct ReaderView: View {
                 LazyVStack(alignment: .leading, spacing: Spacing.lg) {
                     titleHeader(fg: fg)
                         .id("__top")
+                        .trackChapterOffset(index: 0, in: scrollSpace)
 
                     ForEach(chapters, id: \.index) { chapter in
                         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -119,14 +121,19 @@ struct ReaderView: View {
                 if let current = ChapterTracking.currentChapter(offsets: offsets) {
                     visibleChapterIndex = current
                 }
+                titleOffset = offsets[0] ?? .greatestFiniteMagnitude
             }
             .background(bg)
             .foregroundStyle(fg)
             .overlay(alignment: .top) {
-                if chapters.count > 1 {
+                // Only show once the work title has scrolled off the top,
+                // so the pill never overlaps the title.
+                if chapters.count > 1 && titleOffset < -30 {
                     chapterIndicatorPill(fg: fg, bg: bg)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+            .animation(.easeInOut(duration: 0.2), value: titleOffset < -30)
             .onChange(of: selectedChapterIndex) { _, newIndex in
                 withAnimation { proxy.scrollTo(newIndex, anchor: .top) }
             }
