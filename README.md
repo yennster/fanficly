@@ -88,6 +88,22 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 `xcrun` honours `DEVELOPER_DIR`, so `xcrun simctl …` will resolve to the
 binary inside Xcode.app.
 
+### Running on a physical device (code signing)
+
+The simulator needs no signing. To run on a device, put your Apple
+Developer **Team ID** in `Signing.xcconfig` (the project reads
+`DEVELOPMENT_TEAM` from there), then keep that local edit out of git:
+
+```bash
+echo 'DEVELOPMENT_TEAM = ABCDE12345' > Signing.xcconfig   # your team ID
+git update-index --skip-worktree Signing.xcconfig          # don't commit it
+xcodegen generate
+```
+
+Find your Team ID in Xcode ▸ Settings ▸ Accounts, or at
+developer.apple.com ▸ Membership. Make sure that Apple ID is signed into
+Xcode so automatic signing can create a provisioning profile.
+
 ### Tests
 
 ```bash
