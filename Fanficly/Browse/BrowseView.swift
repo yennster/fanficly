@@ -29,46 +29,49 @@ struct CategoryFandomsView: View {
     @State private var errorMessage: String?
     @State private var query: String = ""
 
+    /// The source list: live data once loaded, otherwise the curated
+    /// seed — but only as a fallback after the live fetch fails, never
+    /// during loading (which would flash the short list then swap).
+    private var source: [BrowseFandom] {
+        if !liveFandoms.isEmpty { return liveFandoms }
+        if errorMessage != nil { return category.fandoms }
+        return []
+    }
+
     private var displayed: [BrowseFandom] {
-        let base = liveFandoms.isEmpty ? category.fandoms : liveFandoms
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return base }
-        return base.filter {
+        if trimmed.isEmpty { return source }
+        return source.filter {
             $0.displayName.localizedCaseInsensitiveContains(trimmed)
         }
     }
 
     var body: some View {
-        List {
-            if let errorMessage {
-                Section {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.caption)
+        Group {
+            if source.isEmpty && isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Loading fandoms…").font(.callout).foregroundStyle(.secondary)
                 }
-            }
-            Section {
-                ForEach(displayed) { fandom in
-                    NavigationLink(value: fandom) {
-                        Text(fandom.displayName).font(.body)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    if let errorMessage {
+                        Section {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.caption)
+                        }
                     }
-                }
-                if isLoading {
-                    HStack { Spacer(); ProgressView(); Spacer() }
-                        .listRowSeparator(.hidden)
-                }
-            } header: {
-                let count = displayed.count
-                let total = liveFandoms.isEmpty ? category.fandoms.count : liveFandoms.count
-                if liveFandoms.isEmpty && isLoading {
-                    Text("\(category.fandoms.count) popular · loading full list…")
-                        .textCase(nil)
-                } else if !liveFandoms.isEmpty {
-                    Text("\(count) of \(total) fandoms")
-                        .textCase(nil)
-                } else {
-                    Text("\(count) popular fandoms")
-                        .textCase(nil)
+                    Section {
+                        ForEach(displayed) { fandom in
+                            NavigationLink(value: fandom) {
+                                Text(fandom.displayName).font(.body)
+                            }
+                        }
+                    } header: {
+                        Text(headerText).textCase(nil)
+                    }
                 }
             }
         }
@@ -76,6 +79,13 @@ struct CategoryFandomsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search fandoms")
         .task { await loadLive() }
+    }
+
+    private var headerText: String {
+        if !liveFandoms.isEmpty {
+            return "\(displayed.count) of \(liveFandoms.count) fandoms"
+        }
+        return "\(displayed.count) popular fandoms"
     }
 
     private func loadLive() async {

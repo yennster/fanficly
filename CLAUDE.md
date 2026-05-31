@@ -22,25 +22,33 @@ Fanficly/
     ThrottleActor.swift
     HTMLParsers/               # one file per page kind
   Search/
-    SearchView.swift           # smart-search UI, results, saved searches
+    SearchView.swift           # smart-search UI, results, saved searches,
+                               #   WorkDetailView (reader + toolbar actions)
     SearchPromptParser.swift   # rules-based prompt → AO3SearchFilters
     AO3SearchFilters.swift     # 1:1 mapping of AO3's /works/search fields
     KnownTags.swift            # curated freeform + fandom dictionaries
-    FoundationModelsEnricher.swift   # iOS 26+ on-device LLM fallback
+    FoundationModelsEnricher.swift   # iOS 26+ on-device LLM fallback (no-op elsewhere)
+  Browse/
+    FandomCategories.swift     # 10 AO3 media categories + curated seed lists
+    BrowseView.swift           # category → live fandom list → works
   Reader/
-    ReaderView.swift           # paginated chapter reader
-    HTMLText.swift             # NSAttributedString HTML → SwiftUI Text
-    ReaderTheme.swift          # light/sepia/dark/oled + font size, @AppStorage
+    ReaderView.swift           # continuous + paginated modes, chapter header,
+                               #   floating chapter indicator, typography menu
+    HTMLText.swift             # async cached HTML → AttributedString
+    HTMLToAttributed.swift     # SwiftSoup → AttributedString (fast, themeable)
+    WorkHeaderMetadata.swift   # rating/warnings/tags/stats chips
+    ChapterTracking.swift      # PreferenceKey for current-chapter detection
+    ReaderTheme.swift          # theme/font family/size/width/mode, @AppStorage
   Library/
-    LibraryView.swift          # downloaded works
-    WorkPersistence.swift      # AO3WorkPayload → SwiftData Work
+    LibraryView.swift          # All/Following/Downloaded filter
+    WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow
   Auth/                        # AuthState (Keychain) + LoginView
-  Subscriptions/               # poller, view, BGAppRefreshTask wiring
+  Subscriptions/               # poller (AO3 subs + local follows), BG task
   Settings/                    # SettingsView + ReaderSettingsView + privacy
-  DesignSystem/                # Typography, Spacing, FlowLayout
+  DesignSystem/                # Typography, Spacing, FlowLayout, SafariView
   PrivacyInfo.xcprivacy        # zero collection, zero tracking
-FanficlyTests/                 # XCTest — parsers + prompt parser
-FanficlyUITests/               # minimal UI smoke test
+FanficlyTests/                 # XCTest — parsers, prompt parser, HTML render
+FanficlyUITests/               # smoke test + ScreenshotTests (README shots)
 ```
 
 ## Build & run
@@ -110,7 +118,21 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - Login is form-based. GET `/users/login` → scrape the `authenticity_token` (either `<meta name="csrf-token">` or `<input name="authenticity_token">`), then POST with cookies. Session cookie persists in `HTTPCookieStorage.shared`.
 - The structured `dl.work.meta.group` on a work page contains the canonical tags. Chapters are wrapped in `div.chapter[id^=chapter-]` — use that exact selector to avoid matching the nested `.preface` divs.
 - Kudos is a POST to `/kudos.js` with `kudo[commentable_type]=Work` and the authenticity_token (both in body and `X-CSRF-Token` header). 422 means "already kudo'd by you" — treat as success.
+- Work subscription is a POST to `/works/<id>/subscriptions` with `subscription[subscribable_type]=Work` + token. Requires login.
+- Browse-by-fandom hits `/media/<category>/fandoms`; category names are path-encoded with AO3's scheme (`&`→`*a*`, `/`→`*s*`, `.`→`*d*`, etc. — see `AO3Endpoints.ao3PathEncode`).
+- The search field is a vertical-axis `TextField`, so Return inserts a newline rather than firing `.onSubmit`. SearchView watches `onChange` for a `\n` and triggers the search itself.
 - AO3 may return 429 if we hit it too fast. The throttle should prevent this but handle the case anyway.
+
+## Local follow vs. AO3 subscribe
+
+Two distinct concepts — don't conflate them:
+- **Follow** (bookmark icon) is local-only, no login. `WorkPersistence.toggleFollow` saves the work's metadata to SwiftData with `isFollowed = true`. The background poller checks followed works for new chapters and fires a local notification — works fully logged out.
+- **Subscribe** (bell, in the … menu) POSTs to AO3 and requires login. It mirrors into AO3's own subscription list.
+Both feed `SubscriptionPoller`; `username` is optional so the poller runs for follows even with no account.
+
+## Screenshots
+
+`bin/take-screenshots.sh` is the interactive capture (manual navigation). `FanficlyUITests/ScreenshotTests` is the automated version — it drives the app and writes PNGs to `docs/screenshots/` (path derived from `#filePath`; the simulator runs as the host user so it can write there). Run it with `-only-testing:FanficlyUITests/ScreenshotTests/testCaptureMainScreens`. Network-dependent shots (search results, reader) are flaky under automation because AO3 rate-limits fresh sim sessions; capture those manually if needed. CI never runs UI tests (`-only-testing:FanficlyTests`).
 
 ## Privacy posture (do not regress)
 

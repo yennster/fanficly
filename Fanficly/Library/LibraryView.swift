@@ -55,7 +55,7 @@ struct LibraryView: View {
                     }
                 }
                 .listStyle(.plain)
-                .safeAreaInset(edge: .top) {
+                .safeAreaInset(edge: .top, spacing: 0) {
                     Picker("Filter", selection: $filter) {
                         ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
                     }
@@ -67,6 +67,7 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: Work.self) { work in
             ReaderView(work: work)
                 .toolbar {

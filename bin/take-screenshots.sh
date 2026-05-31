@@ -40,13 +40,12 @@ mkdir -p "$out_dir"
 # Each entry: filename:label:hint-shown-to-the-user
 shots=(
     "01-search-empty:Empty search:Open the app on the Search tab"
-    "02-search-results:Search results:Type a smart prompt and press search"
-    "03-reader:Reader view:Tap a work and let it load"
-    "04-typography:Typography menu:In the reader, open the textformat menu"
-    "05-browse:Browse categories:Tap Browse in the sidebar"
-    "06-browse-fandoms:Fandoms in a category:Tap a category"
-    "07-library:Library tab:Tap Library in the sidebar"
-    "08-settings:Settings:Tap Settings in the sidebar"
+    "02-reader:Reader view:Tap a work and let it load"
+    "03-typography:Typography menu:In the reader, open the textformat menu"
+    "04-browse:Browse categories:Tap Browse in the sidebar"
+    "05-browse-fandoms:Fandoms in a category:Tap a category"
+    "06-library:Library tab:Tap Library in the sidebar"
+    "07-settings:Settings:Tap Settings in the sidebar"
 )
 
 [[ -n "$only_index" ]] && shots=("${shots[$((only_index - 1))]}")

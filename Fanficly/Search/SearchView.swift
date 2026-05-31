@@ -57,7 +57,18 @@ struct SearchView: View {
                 .textFieldStyle(.roundedBorder)
                 .submitLabel(.search)
                 .onSubmit { Task { await runSearch() } }
-                .onChange(of: prompt) { _, _ in lastParsed = parser.parse(prompt) }
+                .onChange(of: prompt) { _, newValue in
+                    // A vertical-axis TextField inserts a newline on Return
+                    // rather than firing onSubmit. Treat a trailing newline
+                    // as "search now".
+                    if newValue.contains("\n") {
+                        prompt = newValue.replacingOccurrences(of: "\n", with: "")
+                        lastParsed = parser.parse(prompt)
+                        Task { await runSearch() }
+                    } else {
+                        lastParsed = parser.parse(prompt)
+                    }
+                }
 
             sortBar
 
