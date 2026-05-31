@@ -127,9 +127,7 @@ struct WorkFilterSheet: View {
     private var ratingsSection: some View {
         Section("Rating") {
             ForEach(AO3SearchFilters.Rating.allCases, id: \.self) { rating in
-                toggleRow(rating.displayName, isOn: filters.ratings.contains(rating)) { on in
-                    if on { filters.ratings.insert(rating) } else { filters.ratings.remove(rating) }
-                }
+                toggleRow(rating.displayName, in: $filters.ratings, element: rating)
             }
         }
     }
@@ -137,9 +135,7 @@ struct WorkFilterSheet: View {
     private var warningsSection: some View {
         Section("Archive warnings") {
             ForEach(AO3SearchFilters.ArchiveWarning.allCases, id: \.self) { warning in
-                toggleRow(warning.displayName, isOn: filters.warnings.contains(warning)) { on in
-                    if on { filters.warnings.insert(warning) } else { filters.warnings.remove(warning) }
-                }
+                toggleRow(warning.displayName, in: $filters.warnings, element: warning)
             }
         }
     }
@@ -147,9 +143,7 @@ struct WorkFilterSheet: View {
     private var categoriesSection: some View {
         Section("Category") {
             ForEach(AO3SearchFilters.Category.allCases, id: \.self) { category in
-                toggleRow(category.displayName, isOn: filters.categories.contains(category)) { on in
-                    if on { filters.categories.insert(category) } else { filters.categories.remove(category) }
-                }
+                toggleRow(category.displayName, in: $filters.categories, element: category)
             }
         }
     }
@@ -215,8 +209,17 @@ struct WorkFilterSheet: View {
 
     // MARK: - Helpers
 
-    private func toggleRow(_ title: String, isOn: Bool, set: @escaping (Bool) -> Void) -> some View {
-        Toggle(title, isOn: Binding(get: { isOn }, set: set))
+    private func toggleRow<Element: Hashable & Sendable>(
+        _ title: String,
+        in set: Binding<Set<Element>>,
+        element: Element
+    ) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { set.wrappedValue.contains(element) },
+            set: { on in
+                if on { set.wrappedValue.insert(element) } else { set.wrappedValue.remove(element) }
+            }
+        ))
     }
 
     private func tagField(_ label: String, text: Binding<String>, example: String) -> some View {

@@ -7,7 +7,7 @@ enum WorkPageParser {
 
         // Strip AO3's screen-reader-only landmark headings ("Chapter Text",
         // "Work Text", "Notes", etc.) so they don't render in the body.
-        try? doc.select("h3.landmark, .landmark.heading").remove()
+        _ = try? doc.select("h3.landmark, .landmark.heading").remove()
 
         let title = try firstNonEmptyText(in: doc, selectors: [
             "#workskin .preface.group h2.title.heading",

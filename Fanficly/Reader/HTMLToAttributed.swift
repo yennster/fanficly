@@ -23,7 +23,7 @@ enum HTMLToAttributed {
             return stripped.isEmpty ? [] : [AttributedString(stripped)]
         }
         var ctx = RenderContext()
-        let children = (try? body.getChildNodes()) ?? []
+        let children = body.getChildNodes()
         for child in children {
             renderNode(child, into: &ctx, style: InlineStyle())
         }
@@ -129,7 +129,7 @@ enum HTMLToAttributed {
         case "s", "strike", "del":     next.strike = true
         case "p", "div", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6":
             ctx.paragraphBreak()
-            for child in (try? el.getChildNodes()) ?? [] {
+            for child in el.getChildNodes() {
                 renderNode(child, into: &ctx, style: next)
             }
             ctx.paragraphBreak()
@@ -137,7 +137,7 @@ enum HTMLToAttributed {
         case "li":
             ctx.paragraphBreak()
             ctx.append(AttributedString("•  "))
-            for child in (try? el.getChildNodes()) ?? [] {
+            for child in el.getChildNodes() {
                 renderNode(child, into: &ctx, style: next)
             }
             ctx.paragraphBreak()
@@ -146,7 +146,7 @@ enum HTMLToAttributed {
             break
         }
 
-        for child in (try? el.getChildNodes()) ?? [] {
+        for child in el.getChildNodes() {
             renderNode(child, into: &ctx, style: next)
         }
     }
