@@ -1,11 +1,34 @@
 import SwiftUI
+import SwiftData
 
 struct BrowseView: View {
+    @Environment(\.modelContext) private var context
+    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
+
     var body: some View {
-        List(FandomCatalog.all) { category in
-            NavigationLink(value: category) {
-                Label(category.name, systemImage: category.symbol)
-                    .font(.body)
+        List {
+            if !savedFilters.isEmpty {
+                Section("Saved filters") {
+                    ForEach(savedFilters) { saved in
+                        NavigationLink(value: saved) {
+                            Label(saved.name, systemImage: "line.3.horizontal.decrease.circle")
+                                .font(.body)
+                        }
+                        .swipeActions {
+                            Button(role: .destructive) {
+                                context.delete(saved); try? context.save()
+                            } label: { Label("Delete", systemImage: "trash") }
+                        }
+                    }
+                }
+            }
+            Section(savedFilters.isEmpty ? "" : "Categories") {
+                ForEach(FandomCatalog.all) { category in
+                    NavigationLink(value: category) {
+                        Label(category.name, systemImage: category.symbol)
+                            .font(.body)
+                    }
+                }
             }
         }
         .navigationTitle("Browse")
@@ -14,6 +37,9 @@ struct BrowseView: View {
         }
         .navigationDestination(for: BrowseFandom.self) { fandom in
             FandomWorksView(fandom: fandom)
+        }
+        .navigationDestination(for: SavedFilter.self) { saved in
+            FandomWorksView(savedFilter: saved)
         }
         .navigationDestination(for: AO3WorkSummary.self) { work in
             WorkDetailView(workId: work.id)
@@ -104,7 +130,7 @@ struct CategoryFandomsView: View {
 
 struct FandomWorksView: View {
     @Environment(\.ao3Client) private var client
-    let fandom: BrowseFandom
+    let title: String
     @State private var works: [AO3WorkSummary] = []
     @State private var currentPage: Int = 1
     @State private var totalPages: Int = 1
@@ -114,13 +140,23 @@ struct FandomWorksView: View {
     @State private var filters: AO3SearchFilters
     @State private var showingFilters = false
 
+    init(filters: AO3SearchFilters, title: String) {
+        self.title = title
+        _filters = State(initialValue: filters)
+    }
+
     init(fandom: BrowseFandom) {
-        self.fandom = fandom
         var initial = AO3SearchFilters()
         initial.fandomNames = [fandom.canonicalName]
         initial.sortColumn = .revisedAt
         initial.sortDirection = .desc
-        _filters = State(initialValue: initial)
+        self.init(filters: initial, title: fandom.displayName)
+    }
+
+    /// Applies a fandom-agnostic saved filter from the Browse landing page.
+    init(savedFilter: SavedFilter) {
+        let initial = AO3SearchFilters.from(savedJSON: savedFilter.filtersJSON) ?? AO3SearchFilters()
+        self.init(filters: initial, title: savedFilter.name)
     }
 
     var body: some View {
@@ -178,7 +214,7 @@ struct FandomWorksView: View {
                 }
             }
         }
-        .navigationTitle(fandom.displayName)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

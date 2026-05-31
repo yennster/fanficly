@@ -14,15 +14,16 @@ struct SavedWorkReader: View {
     @State private var errorMessage: String?
     @State private var isSavingOffline = false
     @State private var isDownloaded = false
+    @State private var chromeHidden = false
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
 
     var body: some View {
         Group {
             if hasOfflineText {
-                ReaderView(work: work)
+                ReaderView(work: work, onChromeChange: { chromeHidden = $0 })
             } else if let payload {
-                ReaderView(payload: payload)
+                ReaderView(payload: payload, onChromeChange: { chromeHidden = $0 })
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -41,6 +42,7 @@ struct SavedWorkReader: View {
                 Color.clear
             }
         }
+        .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkExportButton(workId: work.ao3Id, title: work.title)

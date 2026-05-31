@@ -5,6 +5,10 @@ struct ReaderView: View {
     let author: String
     let chapters: [AO3ChapterPayload]
     let summary: AO3WorkSummary?
+    /// Reports chrome show/hide as the user scrolls, so the parent — which owns
+    /// the nav-bar items — can hide the whole bar. Applying `.toolbar(.hidden)`
+    /// from inside the reader is unreliable when items are declared one level up.
+    var onChromeChange: ((Bool) -> Void)? = nil
 
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
@@ -38,14 +42,17 @@ struct ReaderView: View {
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) }
 
-    init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
+    init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil,
+         onChromeChange: ((Bool) -> Void)? = nil) {
         self.title = title
         self.author = author
         self.chapters = chapters
         self.summary = summary
+        self.onChromeChange = onChromeChange
     }
 
-    init(work: Work) {
+    init(work: Work, onChromeChange: ((Bool) -> Void)? = nil) {
+        self.onChromeChange = onChromeChange
         self.title = work.title
         self.author = work.authorName
         self.chapters = work.chapters
@@ -74,7 +81,8 @@ struct ReaderView: View {
         )
     }
 
-    init(payload: AO3WorkPayload) {
+    init(payload: AO3WorkPayload, onChromeChange: ((Bool) -> Void)? = nil) {
+        self.onChromeChange = onChromeChange
         self.title = payload.summary.title
         self.author = payload.summary.author
         self.chapters = payload.chapters
@@ -99,7 +107,9 @@ struct ReaderView: View {
         // `.toolbarColorScheme` is scoped to the bar, so there's nothing to
         // unwind on exit. The reader's body already paints its own fg/bg.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
-        .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
+        // Drop the nav bar's translucent gray material so the page shows through
+        // — the buttons already sit in their own pills (Apple Books style).
+        .toolbarBackground(.hidden, for: .navigationBar)
         .statusBarHidden(chromeHidden)
         .toolbar {
             if chapters.count > 1 {
@@ -111,10 +121,14 @@ struct ReaderView: View {
                 typographyMenu
             }
         }
+        // The parent owns the nav bar (its items live there), so it applies the
+        // .toolbar(.hidden) — we just tell it when the scroll state flips.
+        .onChange(of: chromeHidden) { _, hidden in onChromeChange?(hidden) }
         .onChange(of: modeRaw) { _, _ in
             // Mode switched — show chrome and re-anchor in the new mode.
             chromeHidden = false
         }
+        .onAppear { onChromeChange?(chromeHidden) }
     }
 
     // MARK: - Continuous
@@ -198,8 +212,8 @@ struct ReaderView: View {
     private func updateChrome(forScrollOffset offset: CGFloat) {
         let delta = offset - lastScrollOffset
         lastScrollOffset = offset
-        // Near the top: always show chrome.
-        if offset > -40 {
+        // Right at the very top: always show chrome.
+        if offset > -16 {
             if chromeHidden { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false } }
             scrollAccum = 0
             return
@@ -208,7 +222,7 @@ struct ReaderView: View {
         // Reset the accumulator when direction flips.
         if (delta < 0) != (scrollAccum < 0) { scrollAccum = 0 }
         scrollAccum += delta
-        if scrollAccum < -30, !chromeHidden {            // scrolled down a bit
+        if scrollAccum < -18, !chromeHidden {            // scrolled down a bit
             withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = true }
             scrollAccum = 0
         } else if scrollAccum > 16, chromeHidden {        // scrolled up a bit

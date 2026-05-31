@@ -506,11 +506,13 @@ struct WorkDetailView: View {
     @State private var kudosed: Bool = false
     @State private var followed: Bool = false
     @State private var epubURL: URL?
+    @State private var chromeHidden = false
 
     var body: some View {
         Group {
             if let payload {
-                ReaderView(payload: payload)
+                ReaderView(payload: payload, onChromeChange: { chromeHidden = $0 })
+                    .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             followButton(payload: payload)
