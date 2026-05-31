@@ -9,6 +9,7 @@ struct SearchView: View {
     @State private var isSearching: Bool = false
     @State private var errorMessage: String?
     private let parser = SearchPromptParser()
+    private let enricher: any SearchEnricher = SearchEnricherFactory.make()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -65,7 +66,10 @@ struct SearchView: View {
     }
 
     private func runSearch() async {
-        let filters = parser.parse(prompt)
+        var filters = parser.parse(prompt)
+        if !filters.query.isEmpty {
+            filters = await enricher.enrich(filters: filters, prompt: filters.query)
+        }
         lastParsed = filters
         errorMessage = nil
         isSearching = true
