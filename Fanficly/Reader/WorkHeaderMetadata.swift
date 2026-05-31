@@ -55,7 +55,12 @@ struct WorkHeaderMetadata: View {
                             MetadataRow(label: "Tags", values: summary.freeforms, kind: .tag, foreground: foreground)
                         }
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    // A plain fade — no `.move`, which would slide the chips up
+                    // over the chapter text mid-animation. `.clipped()` keeps the
+                    // FlowLayout from drawing outside its bounds if it's briefly
+                    // mis-sized (it gets proposed an unbounded width on insertion).
+                    .transition(.opacity)
+                    .clipped()
                 }
             }
         }

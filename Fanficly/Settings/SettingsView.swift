@@ -3,6 +3,11 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AuthState.self) private var auth
 
+    /// Pre-filled feedback email (subject percent-encoded so it survives the mailto).
+    static let feedbackMailto = URL(
+        string: "mailto:jenny+fanficly@jennyplunkett.me?subject=Fanficly%20feedback"
+    )!
+
     var body: some View {
         List {
             Section("Account") {
@@ -34,6 +39,9 @@ struct SettingsView: View {
                 Link(destination: URL(string: "https://github.com/sponsors/yennster/")!) {
                     Label("Sponsor me on GitHub", systemImage: "heart.fill")
                         .foregroundStyle(.pink)
+                }
+                Link(destination: Self.feedbackMailto) {
+                    Label("Send feedback", systemImage: "envelope")
                 }
             }
         }

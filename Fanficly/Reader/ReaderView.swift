@@ -92,8 +92,15 @@ struct ReaderView: View {
             case .paginated:  paginatedBody(fg: fg, bg: bg)
             }
         }
-        .preferredColorScheme(theme.preferredColorScheme)
+        // Theme only the nav bar to match the reader, NOT the whole window.
+        // `.preferredColorScheme` would propagate up to the scene, forcing the
+        // Browse/Library views underneath into the reader's scheme — so leaving
+        // a light reader made the app visibly flip back to dark a beat later.
+        // `.toolbarColorScheme` is scoped to the bar, so there's nothing to
+        // unwind on exit. The reader's body already paints its own fg/bg.
+        .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
+        .statusBarHidden(chromeHidden)
         .toolbar {
             if chapters.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) {

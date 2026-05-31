@@ -8,6 +8,7 @@ public struct SearchPromptParser: Sendable {
         let working = NSMutableString(string: prompt.lowercased())
 
         extractExclusions(from: working, into: &filters)
+        extractQuoted(from: working, into: &filters)
         extractShips(from: working, into: &filters)
         extractWordCount(from: working, into: &filters)
         extractEngagement(from: working, into: &filters)
@@ -45,6 +46,27 @@ public struct SearchPromptParser: Sendable {
                 }
                 working.deleteCharacters(in: match.range)
             }
+        }
+    }
+
+    /// Pulls out double-quoted phrases as exact tags before the ship regex can
+    /// mangle them — so `"Hermione Granger/Draco Malfoy"` stays one relationship
+    /// instead of the ship matcher grabbing "granger/draco". A quoted phrase with
+    /// a slash is a relationship; otherwise it's a freeform tag. (Exclusions like
+    /// `-"…"` were already consumed above.) Resolution later canonicalizes it.
+    private func extractQuoted(from working: NSMutableString, into filters: inout AO3SearchFilters) {
+        guard let regex = try? NSRegularExpression(pattern: #""([^"]+)""#) else { return }
+        let matches = regex.matches(in: working as String, range: NSRange(location: 0, length: working.length))
+        for match in matches.reversed() where match.numberOfRanges > 1 {
+            let phrase = working.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+            if !phrase.isEmpty {
+                if phrase.contains("/") {
+                    filters.relationshipNames.append(phrase.capitalized)
+                } else {
+                    filters.freeformNames.append(phrase.capitalized)
+                }
+            }
+            working.deleteCharacters(in: match.range)
         }
     }
 

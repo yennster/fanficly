@@ -2,6 +2,12 @@ import XCTest
 @testable import Fanficly
 
 final class TagResolverTests: XCTestCase {
+    override func setUp() async throws {
+        // The resolution cache is process-global; clear it so a memoized result
+        // from one case can't leak into the next.
+        await TagResolver.clearCacheForTesting()
+    }
+
     func test_bestMatch_prefersExactCaseInsensitive() {
         let matches = ["Hermione Granger/Draco Malfoy", "Draco Malfoy/Harry Potter"]
         XCTAssertEqual(

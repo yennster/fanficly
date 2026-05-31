@@ -10,6 +10,23 @@ final class SearchPromptParserTests: XCTestCase {
         XCTAssertEqual(filters.query, "")
     }
 
+    func test_quotedRelationshipStaysWholeNotResplitOnSlash() {
+        // Without quotes the ship regex would grab "Granger/Draco"; quoting
+        // keeps the full canonical pairing as one relationship.
+        let filters = parser.parse("\"Hermione Granger/Draco Malfoy\" slow burn")
+        XCTAssertEqual(filters.relationshipNames, ["Hermione Granger/Draco Malfoy"])
+        XCTAssertFalse(filters.relationshipNames.contains("Granger/Draco"))
+        XCTAssertTrue(filters.freeformNames.contains("Slow Burn"))
+        XCTAssertEqual(filters.query, "")
+    }
+
+    func test_quotedPhraseWithoutSlashIsFreeform() {
+        let filters = parser.parse("\"Coffee Shop AU\"")
+        XCTAssertTrue(filters.freeformNames.contains("Coffee Shop Au"))
+        XCTAssertTrue(filters.relationshipNames.isEmpty)
+        XCTAssertEqual(filters.query, "")
+    }
+
     func test_categorySlashIsNotMistakenForShip() {
         let filters = parser.parse("f/f romance")
         XCTAssertTrue(filters.categories.contains(.ff))

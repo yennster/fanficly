@@ -4,14 +4,40 @@ import Foundation
 /// endpoint, so a search matches the same works whether it comes from the
 /// Search tab or the Browse filters. e.g. "Draco/Hermione" →
 /// "Hermione Granger/Draco Malfoy".
+/// Process-lifetime memo of `term → canonical` so re-applying the same filters
+/// (or sharing a tag across Search and Browse) doesn't re-hit AO3's throttled
+/// autocomplete. Canonical tag names are stable, so this never goes stale.
+private actor ResolutionCache {
+    static let shared = ResolutionCache()
+    private var store: [String: String] = [:]
+    func value(for key: String) -> String? { store[key] }
+    func set(_ value: String, for key: String) { store[key] = value }
+    func clear() { store.removeAll() }
+}
+
 enum TagResolver {
-    static func resolve(_ filters: AO3SearchFilters, using client: any AO3ClientProtocol) async -> AO3SearchFilters {
+    /// - Parameter resolveFandoms: Browse passes `false` — its fandom is picked
+    ///   from AO3's own fandom list and is already canonical, so resolving it is
+    ///   a wasted round-trip (and risks matching a different fandom).
+    static func resolve(
+        _ filters: AO3SearchFilters,
+        using client: any AO3ClientProtocol,
+        resolveFandoms: Bool = true
+    ) async -> AO3SearchFilters {
         var resolved = filters
         resolved.relationshipNames = await resolveList(filters.relationshipNames, field: .relationship, client: client)
         resolved.characterNames    = await resolveList(filters.characterNames,    field: .character,    client: client)
         resolved.freeformNames     = await resolveList(filters.freeformNames,     field: .freeform,     client: client)
-        resolved.fandomNames       = await resolveList(filters.fandomNames,       field: .fandom,       client: client)
+        if resolveFandoms {
+            resolved.fandomNames   = await resolveList(filters.fandomNames,       field: .fandom,       client: client)
+        }
         return resolved
+    }
+
+    /// Clears the process-lifetime resolution cache. For tests, so a memoized
+    /// result from one case can't bleed into another.
+    static func clearCacheForTesting() async {
+        await ResolutionCache.shared.clear()
     }
 
     private static func resolveList(_ terms: [String], field: AO3AutocompleteField, client: any AO3ClientProtocol) async -> [String] {
@@ -23,6 +49,16 @@ enum TagResolver {
     }
 
     private static func resolveOne(_ term: String, field: AO3AutocompleteField, client: any AO3ClientProtocol) async -> String {
+        let cacheKey = "\(field.rawValue)|\(term.lowercased())"
+        if let cached = await ResolutionCache.shared.value(for: cacheKey) {
+            return cached
+        }
+        let result = await resolveUncached(term, field: field, client: client)
+        await ResolutionCache.shared.set(result, for: cacheKey)
+        return result
+    }
+
+    private static func resolveUncached(_ term: String, field: AO3AutocompleteField, client: any AO3ClientProtocol) async -> String {
         // Try the term as typed, then a few simple fallbacks.
         for candidate in candidates(for: term, field: field) {
             if let matches = try? await client.autocomplete(field: field, term: candidate),

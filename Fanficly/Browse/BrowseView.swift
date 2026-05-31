@@ -269,7 +269,9 @@ struct FandomWorksView: View {
     private func applyFilters() async {
         isLoading = true
         errorMessage = nil
-        filters = await TagResolver.resolve(filters, using: client)
+        // The fandom is already an AO3-canonical name (picked from the live
+        // fandom list), so skip resolving it — fewer throttled round-trips.
+        filters = await TagResolver.resolve(filters, using: client, resolveFandoms: false)
         await loadFirst()
     }
 
