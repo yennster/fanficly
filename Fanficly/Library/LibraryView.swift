@@ -31,6 +31,14 @@ struct LibraryView: View {
                 )
             } else {
                 List {
+                    Section {
+                        Picker("Filter", selection: $filter) {
+                            ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                    }
                     ForEach(filtered) { work in
                         NavigationLink(value: work) {
                             LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
@@ -55,19 +63,9 @@ struct LibraryView: View {
                     }
                 }
                 .listStyle(.plain)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    Picker("Filter", selection: $filter) {
-                        ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .background(.bar)
-                }
             }
         }
         .navigationTitle("Library")
-        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: Work.self) { work in
             SavedWorkReader(work: work)
         }
