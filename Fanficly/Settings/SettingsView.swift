@@ -28,7 +28,13 @@ struct SettingsView: View {
             }
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.shortVersionString)
-                Link("Source on GitHub", destination: URL(string: "https://github.com/yennster/fanficly")!)
+                Link(destination: URL(string: "https://github.com/yennster/fanficly")!) {
+                    Label("Source on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                Link(destination: URL(string: "https://github.com/sponsors/yennster/")!) {
+                    Label("Sponsor me on GitHub", systemImage: "heart.fill")
+                        .foregroundStyle(.pink)
+                }
             }
         }
         .navigationTitle("Settings")
