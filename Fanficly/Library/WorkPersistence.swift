@@ -80,24 +80,32 @@ enum WorkPersistence {
         return work.isFollowed
     }
 
-    /// Record (or bump to "now") a work in the recently-viewed history,
-    /// trimming the list to the newest `limit` entries.
+    /// Record (or bump to "now") a work in the recently-viewed history.
     @MainActor
     static func recordView(summary: AO3WorkSummary, into context: ModelContext, limit: Int = 50) {
-        let ao3Id = summary.id
+        recordView(ao3Id: summary.id, title: summary.title, author: summary.author,
+                   fandom: summary.fandoms.first ?? "", into: context, limit: limit)
+    }
+
+    /// Overload for Library reads, which carry a `Work` rather than a summary.
+    @MainActor
+    static func recordView(work: Work, into context: ModelContext, limit: Int = 50) {
+        recordView(ao3Id: work.ao3Id, title: work.title, author: work.authorName,
+                   fandom: work.fandoms.first ?? "", into: context, limit: limit)
+    }
+
+    /// Upsert a recently-viewed entry, then trim the list to the newest `limit`.
+    @MainActor
+    static func recordView(ao3Id: Int, title: String, author: String, fandom: String,
+                           into context: ModelContext, limit: Int = 50) {
         let descriptor = FetchDescriptor<RecentlyViewed>(predicate: #Predicate { $0.ao3Id == ao3Id })
         if let existing = (try? context.fetch(descriptor))?.first {
             existing.viewedAt = .now
-            existing.title = summary.title
-            existing.author = summary.author
-            existing.fandom = summary.fandoms.first ?? ""
+            existing.title = title
+            existing.author = author
+            existing.fandom = fandom
         } else {
-            context.insert(RecentlyViewed(
-                ao3Id: summary.id,
-                title: summary.title,
-                author: summary.author,
-                fandom: summary.fandoms.first ?? ""
-            ))
+            context.insert(RecentlyViewed(ao3Id: ao3Id, title: title, author: author, fandom: fandom))
         }
 
         let all = (try? context.fetch(FetchDescriptor<RecentlyViewed>(

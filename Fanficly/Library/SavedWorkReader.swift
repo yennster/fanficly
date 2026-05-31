@@ -7,6 +7,8 @@ import SwiftUI
 struct SavedWorkReader: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(\.colorScheme) private var systemColorScheme
+    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     let work: Work
 
     @State private var payload: AO3WorkPayload?
@@ -16,6 +18,15 @@ struct SavedWorkReader: View {
     @State private var isDownloaded = false
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
+
+    /// The reader's themed page colour (same derivation as `ReaderView`), so the
+    /// screen is opaque from the first frame instead of letting the Library list
+    /// show through while a bookmarked work loads on demand.
+    private var readerBackground: Color {
+        let theme = ReaderTheme(rawValue: themeRaw) ?? .system
+        let scheme = theme.preferredColorScheme ?? systemColorScheme
+        return theme.background(for: scheme)
+    }
 
     var body: some View {
         Group {
@@ -41,6 +52,8 @@ struct SavedWorkReader: View {
                 Color.clear
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(readerBackground.ignoresSafeArea())
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkExportButton(workId: work.ao3Id, title: work.title)
@@ -48,7 +61,10 @@ struct SavedWorkReader: View {
             }
         }
         .task { await load() }
-        .onAppear { isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil }
+        .onAppear {
+            isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
+            WorkPersistence.recordView(work: work, into: context)
+        }
     }
 
     @ViewBuilder

@@ -138,18 +138,17 @@ struct SearchView: View {
             List {
                 ForEach(results) { work in
                     NavigationLink(value: work) { WorkRow(work: work) }
-                }
-                if currentPage < totalPages {
-                    HStack {
-                        Spacer()
-                        if isLoadingMore {
-                            ProgressView()
-                        } else {
-                            Button("Load more (page \(currentPage + 1) of \(totalPages))") {
+                        // Infinite scroll: pull the next page as the last row appears.
+                        .onAppear {
+                            if work.id == results.last?.id {
                                 Task { await loadMore() }
                             }
-                            .font(.callout)
                         }
+                }
+                if isLoadingMore {
+                    HStack {
+                        Spacer()
+                        ProgressView()
                         Spacer()
                     }
                     .padding(.vertical, 8)
@@ -308,6 +307,8 @@ struct SearchView: View {
     }
 
     private func loadMore() async {
+        // onAppear can fire repeatedly, and there's no page past totalPages.
+        guard !isLoadingMore, currentPage < totalPages else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
         var filters = lastParsed
