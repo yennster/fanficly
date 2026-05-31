@@ -131,6 +131,28 @@ enum ReaderWidth: String, CaseIterable, Identifiable {
     }
 }
 
+enum ReaderLineSpacing: String, CaseIterable, Identifiable {
+    case tight, normal, relaxed, loose
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .tight:   "Tight"
+        case .normal:  "Normal"
+        case .relaxed: "Relaxed"
+        case .loose:   "Loose"
+        }
+    }
+    var points: CGFloat {
+        switch self {
+        case .tight:   2
+        case .normal:  6
+        case .relaxed: 11
+        case .loose:   16
+        }
+    }
+}
+
 enum ReadingMode: String, CaseIterable, Identifiable {
     case continuous, paginated
 

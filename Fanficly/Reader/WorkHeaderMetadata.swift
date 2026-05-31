@@ -156,8 +156,8 @@ private struct StatsRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 14) {
-                stat("textformat.alt", "\(summary.wordCount.formatted()) words")
-                stat("doc.text", chapterText)
+                stat("text.alignleft", "\(summary.wordCount.formatted()) words")
+                stat("book.closed", chapterText)
                 if summary.kudos > 0 { stat("heart", summary.kudos.formatted()) }
                 if summary.hits > 0  { stat("eye",   summary.hits.formatted()) }
             }

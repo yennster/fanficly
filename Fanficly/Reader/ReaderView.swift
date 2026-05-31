@@ -11,6 +11,7 @@ struct ReaderView: View {
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
     @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
+    @AppStorage("reader.lineSpacing") private var lineSpacingRaw: String = ReaderLineSpacing.normal.rawValue
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
@@ -22,6 +23,7 @@ struct ReaderView: View {
     private var fontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork }
     private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
     private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
+    private var lineSpacing: ReaderLineSpacing { ReaderLineSpacing(rawValue: lineSpacingRaw) ?? .normal }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         self.title = title
@@ -167,7 +169,7 @@ struct ReaderView: View {
                     .fill(fg.opacity(0.15))
                     .frame(height: 1)
             }
-            if !chapter.title.isEmpty && chapter.title != "Chapter \(chapter.index)" {
+            if !chapter.title.isEmpty {
                 Text(chapter.title)
                     .font(fontFamily.font(size: fontSize.cgFloat + 5, weight: .bold))
             }
@@ -231,7 +233,7 @@ struct ReaderView: View {
     private func chapterBlock(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
         HTMLText(html: chapter.bodyHTML)
             .font(fontFamily.font(size: fontSize.cgFloat))
-            .lineSpacing(6)
+            .lineSpacing(lineSpacing.points)
             .foregroundStyle(fg)
             .textSelection(.enabled)
             .padding(.vertical, Spacing.sm)
@@ -276,13 +278,18 @@ struct ReaderView: View {
                     ForEach(ReaderFontSize.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
             }
+            Section("Line spacing") {
+                Picker("Line spacing", selection: $lineSpacingRaw) {
+                    ForEach(ReaderLineSpacing.allCases) { Text($0.displayName).tag($0.rawValue) }
+                }
+            }
             Section("Text width") {
                 Picker("Text width", selection: $widthRaw) {
                     ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
             }
         } label: {
-            Image(systemName: "textformat.size")
+            Image(systemName: "textformat")
         }
     }
 }

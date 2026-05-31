@@ -84,13 +84,39 @@ final class WorkPageParserTests: XCTestCase {
         XCTAssertTrue(s.isComplete)
     }
 
+    func test_cleanChapterTitle_stripsAO3Prefix() {
+        XCTAssertEqual(WorkPageParser.cleanChapterTitle("Chapter 1: The Real Title", index: 1), "The Real Title")
+        XCTAssertEqual(WorkPageParser.cleanChapterTitle("Chapter 6: Chapter 6", index: 6), "")
+        XCTAssertEqual(WorkPageParser.cleanChapterTitle("Chapter 3", index: 3), "")
+        XCTAssertEqual(WorkPageParser.cleanChapterTitle("A Standalone Title", index: 2), "A Standalone Title")
+        XCTAssertEqual(WorkPageParser.cleanChapterTitle("Chapter 10: Chapter 10", index: 10), "")
+    }
+
+    func test_landmarkChapterTextStripped() throws {
+        let html = """
+        <html><body><div id="workskin">
+        <div class="chapter" id="chapter-1">
+          <div class="chapter preface group"><h3 class="title">Chapter 1</h3></div>
+          <h3 class="landmark heading">Chapter Text</h3>
+          <div class="userstuff module"><p>The actual story begins.</p></div>
+        </div>
+        </div></body></html>
+        """
+        let payload = try WorkPageParser.parse(html: html, workId: 5)
+        XCTAssertEqual(payload.chapters.count, 1)
+        XCTAssertEqual(payload.chapters[0].title, "")
+        XCTAssertFalse(payload.chapters[0].bodyHTML.contains("Chapter Text"))
+        XCTAssertTrue(payload.chapters[0].bodyHTML.contains("The actual story begins."))
+    }
+
     func test_extractsChapters() throws {
         let payload = try WorkPageParser.parse(html: html, workId: 12345)
         XCTAssertEqual(payload.chapters.count, 2)
-        XCTAssertEqual(payload.chapters[0].title, "Chapter 1: Latte")
+        // AO3's "Chapter N: " prefix is stripped; only the custom title remains.
+        XCTAssertEqual(payload.chapters[0].title, "Latte")
         XCTAssertTrue(payload.chapters[0].bodyHTML.contains("Bella poured"))
         XCTAssertTrue(payload.chapters[0].bodyHTML.contains("<em>It was hot.</em>"))
-        XCTAssertEqual(payload.chapters[1].title, "Chapter 2: Espresso")
+        XCTAssertEqual(payload.chapters[1].title, "Espresso")
     }
 }
 

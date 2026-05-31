@@ -5,6 +5,10 @@ enum WorkPageParser {
     static func parse(html: String, workId: Int) throws -> AO3WorkPayload {
         let doc = try SwiftSoup.parse(html)
 
+        // Strip AO3's screen-reader-only landmark headings ("Chapter Text",
+        // "Work Text", "Notes", etc.) so they don't render in the body.
+        try? doc.select("h3.landmark, .landmark.heading").remove()
+
         let title = try firstNonEmptyText(in: doc, selectors: [
             "#workskin .preface.group h2.title.heading",
             "#workskin h2.title.heading",
@@ -88,28 +92,43 @@ enum WorkPageParser {
         let nestedChapters = try doc.select("div.chapter[id^=chapter-]")
         if !nestedChapters.isEmpty() {
             return try nestedChapters.array().enumerated().map { index, div in
-                let title = try div.select("h3.title").first()?.text() ?? ""
+                let rawTitle = try div.select("h3.title").first()?.text() ?? ""
                 let bodyEl = try div.select("div.userstuff").first()
                 let body = try bodyEl?.html() ?? ""
-                return AO3ChapterPayload(index: index + 1, title: title, bodyHTML: body)
+                return AO3ChapterPayload(index: index + 1, title: cleanChapterTitle(rawTitle, index: index + 1), bodyHTML: body)
             }
         }
 
         let workskinChapters = try doc.select("#workskin > div.chapter, #workskin div[role=article]")
         if !workskinChapters.isEmpty() {
             return try workskinChapters.array().enumerated().map { index, div in
-                let title = try div.select("h3.title, h2.title").first()?.text() ?? ""
+                let rawTitle = try div.select("h3.title, h2.title").first()?.text() ?? ""
                 let body = try (div.select("div.userstuff").first()?.html()) ?? ""
-                return AO3ChapterPayload(index: index + 1, title: title, bodyHTML: body)
+                return AO3ChapterPayload(index: index + 1, title: cleanChapterTitle(rawTitle, index: index + 1), bodyHTML: body)
             }
         }
 
         if let single = try doc.select("#workskin .userstuff, div#chapters div.userstuff, div#chapters").first() {
-            let title = try doc.select("#workskin h2.title.heading, h2.title.heading").first()?.text() ?? ""
-            return [AO3ChapterPayload(index: 1, title: title, bodyHTML: try single.html())]
+            return [AO3ChapterPayload(index: 1, title: "", bodyHTML: try single.html())]
         }
 
         return []
+    }
+
+    /// AO3 prefixes each chapter heading with "Chapter N: ". Strip that so
+    /// the UI can render the chapter number itself, and treat a bare
+    /// "Chapter N" (author gave no real title) as no title at all.
+    static func cleanChapterTitle(_ raw: String, index: Int) -> String {
+        var t = raw.trimmingCharacters(in: .whitespaces)
+        // Strip a leading "Chapter <number>: " or "Chapter <number>".
+        if let r = t.range(of: #"^Chapter\s+\d+\s*:?\s*"#, options: .regularExpression) {
+            t = String(t[r.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        // What remains being just "Chapter N" (any number) means no real title.
+        if t.range(of: #"^Chapter\s+\d+$"#, options: .regularExpression) != nil {
+            return ""
+        }
+        return t
     }
 
     private static func firstNonEmptyText(in doc: Document, selectors: [String]) throws -> String {
