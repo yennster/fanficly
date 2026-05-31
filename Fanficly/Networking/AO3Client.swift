@@ -10,6 +10,7 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
+    func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String]
     func downloadEPUB(workId: Int) async throws -> URL
     func postKudos(workId: Int) async throws
     func subscribeToWork(workId: Int) async throws
@@ -52,6 +53,10 @@ public struct AO3ChapterPayload: Sendable {
     public let index: Int
     public let title: String
     public let bodyHTML: String
+}
+
+public enum AO3AutocompleteField: String, Sendable {
+    case relationship, character, freeform, fandom
 }
 
 public enum AO3Error: Error, Sendable, Equatable {
@@ -199,6 +204,17 @@ public actor AO3Client: AO3ClientProtocol {
         return try MediaCategoryParser.parse(html: html)
     }
 
+    public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
+        let trimmed = term.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        await throttle.wait()
+        let url = try AO3Endpoints.autocomplete(field: field.rawValue, term: trimmed, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        struct Item: Decodable { let id: String?; let name: String? }
+        let items = (try? JSONDecoder().decode([Item].self, from: data)) ?? []
+        return items.compactMap { $0.name ?? $0.id }
+    }
+
     public func downloadEPUB(workId: Int) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.epub(workId: workId, base: baseURL)
@@ -332,6 +348,7 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
+    public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] { [term] }
     public func downloadEPUB(workId: Int) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }

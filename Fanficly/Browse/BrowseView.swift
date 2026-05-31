@@ -177,7 +177,7 @@ struct FandomWorksView: View {
         }
         .sheet(isPresented: $showingFilters) {
             WorkFilterSheet(filters: $filters) {
-                Task { await loadFirst() }
+                Task { await applyFilters() }
             }
         }
         .task { await loadFirst() }
@@ -186,18 +186,28 @@ struct FandomWorksView: View {
     @ViewBuilder
     private var activeFilterSummary: some View {
         if !filterChips.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(filterChips, id: \.self) { chip in
-                        Text(chip)
+            // Tapping the summary opens the filter dialog.
+            Button {
+                showingFilters = true
+            } label: {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(filterChips, id: \.self) { chip in
+                            Text(chip)
+                                .font(.caption2)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(Color.accentColor.opacity(0.15))
+                                .foregroundStyle(Color.accentColor)
+                                .clipShape(Capsule())
+                        }
+                        Image(systemName: "slider.horizontal.3")
                             .font(.caption2)
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(Color.accentColor.opacity(0.15))
                             .foregroundStyle(Color.accentColor)
-                            .clipShape(Capsule())
+                            .padding(.leading, 2)
                     }
                 }
             }
+            .buttonStyle(.plain)
             .textCase(nil)
             .padding(.vertical, 2)
         }
@@ -237,6 +247,40 @@ struct FandomWorksView: View {
             + (filters.singleChapter ? 1 : 0)
             + (filters.wordCount.isEmpty ? 0 : 1)
             + (filters.languageId.isEmpty ? 0 : 1)
+    }
+
+    /// Resolve user-typed tags to AO3's canonical names, then search.
+    /// e.g. "Hermione/Draco" → "Hermione Granger/Draco Malfoy".
+    private func applyFilters() async {
+        isLoading = true
+        errorMessage = nil
+        filters.relationshipNames = await resolveTags(filters.relationshipNames, field: .relationship)
+        filters.characterNames = await resolveTags(filters.characterNames, field: .character)
+        filters.freeformNames = await resolveTags(filters.freeformNames, field: .freeform)
+        await loadFirst()
+    }
+
+    private func resolveTags(_ terms: [String], field: AO3AutocompleteField) async -> [String] {
+        var resolved: [String] = []
+        for term in terms {
+            if let matches = try? await client.autocomplete(field: field, term: term),
+               let best = bestMatch(for: term, in: matches) {
+                resolved.append(best)
+            } else {
+                resolved.append(term)
+            }
+        }
+        return resolved
+    }
+
+    /// Prefer an exact (case-insensitive) match, otherwise the first
+    /// suggestion, otherwise the original term.
+    private func bestMatch(for term: String, in matches: [String]) -> String? {
+        if matches.isEmpty { return nil }
+        if let exact = matches.first(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
+            return exact
+        }
+        return matches.first
     }
 
     private func loadFirst() async {

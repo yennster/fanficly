@@ -51,6 +51,13 @@ enum AO3Endpoints {
         base.appending(path: "/works/\(id)/subscriptions")
     }
 
+    static func autocomplete(field: String, term: String, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/autocomplete/\(field)"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "term", value: term)]
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad autocomplete URL") }
+        return url
+    }
+
     static func mediaFandoms(categoryName: String, base: URL) throws -> URL {
         let encoded = ao3PathEncode(categoryName)
         guard let url = URL(string: "\(base.absoluteString)/media/\(encoded)/fandoms") else {
