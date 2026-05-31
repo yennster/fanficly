@@ -111,10 +111,15 @@ public actor AO3Client: AO3ClientProtocol {
             cfg.httpAdditionalHeaders = [
                 "User-Agent": Self.userAgent,
                 "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
             ]
             cfg.httpCookieAcceptPolicy = .always
             cfg.httpShouldSetCookies = true
-            cfg.requestCachePolicy = .useProtocolCachePolicy
+            cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+            // Don't let a stalled request hang forever (default resource
+            // timeout is ~7 days) — surface an error instead.
+            cfg.timeoutIntervalForRequest = 30
+            cfg.timeoutIntervalForResource = 45
             self.session = URLSession(configuration: cfg)
         }
     }
@@ -143,6 +148,7 @@ public actor AO3Client: AO3ClientProtocol {
         post.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
         post.setValue(loginURL.absoluteString, forHTTPHeaderField: "Referer")
         let body = encodeForm([
+            "utf8": "\u{2713}",
             "authenticity_token": token,
             "user[login]": username,
             "user[password]": password,
@@ -151,23 +157,29 @@ public actor AO3Client: AO3ClientProtocol {
         ])
         post.httpBody = body.data(using: .utf8)
 
-        let (loginRespData, loginResp) = try await performRequest(post)
+        let (loginRespData, _) = try await performRequest(post)
         let respHTML = String(data: loginRespData, encoding: .utf8) ?? ""
 
+        // Success: the response shows the logged-in user navigation.
+        if let name = try LoginParser.currentUsername(html: respHTML) {
+            cachedUsername = name
+            return
+        }
+        // Explicit AO3 error flash.
         if let err = try LoginParser.detectLoginFailure(html: respHTML) {
             throw AO3Error.loginFailed(reason: err)
         }
-
-        if let cookieHeader = (loginResp.value(forHTTPHeaderField: "Set-Cookie")),
-           cookieHeader.contains("user_credentials") || cookieHeader.contains("remember_user_token") {
-            // success cookie observed
+        // Still on the login form → credentials rejected.
+        if try LoginParser.hasLoginForm(html: respHTML) {
+            throw AO3Error.loginFailed(reason: "Incorrect username or password.")
         }
-
-        if let name = try LoginParser.currentUsername(html: respHTML) {
-            cachedUsername = name
-        } else {
+        // Unexpected response — assume the session cookie was set anyway.
+        if let cookies = HTTPCookieStorage.shared.cookies(for: baseURL),
+           cookies.contains(where: { $0.name.contains("user_credentials") || $0.name.contains("remember_user_token") }) {
             cachedUsername = username
+            return
         }
+        throw AO3Error.loginFailed(reason: "Couldn't confirm login. Please try again.")
     }
 
     public func logout() async {

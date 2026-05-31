@@ -26,13 +26,30 @@ enum LoginParser {
 
     static func currentUsername(html: String) throws -> String? {
         let doc = try SwiftSoup.parse(html)
-        if let link = try doc.select("ul#user-navigation a[href^=/users/]").first() {
-            let href = try link.attr("href")
-            let parts = href.split(separator: "/")
-            if parts.count >= 2, parts[0] == "users" {
-                return String(parts[1])
+        // AO3's logged-in navbar (#greeting dropdown) links to /users/<name>.
+        let selectors = [
+            "#greeting a[href^=/users/]",
+            "ul.user.navigation a[href^=/users/]",
+            "ul#user-navigation a[href^=/users/]",
+            "#header a[href^=/users/]",
+        ]
+        for sel in selectors {
+            for link in try doc.select(sel).array() {
+                let href = try link.attr("href")
+                let parts = href.split(separator: "/").map(String.init)
+                guard parts.count >= 2, parts[0] == "users" else { continue }
+                let name = parts[1]
+                // Skip the login/logout/signup action links.
+                if ["login", "logout", "signup", "activate"].contains(name.lowercased()) { continue }
+                return name
             }
         }
         return nil
+    }
+
+    /// True if the page still shows the login form (i.e. we're not logged in).
+    static func hasLoginForm(html: String) throws -> Bool {
+        let doc = try SwiftSoup.parse(html)
+        return try !doc.select("form#new_user, input[name=user[login]], #loginform").isEmpty()
     }
 }

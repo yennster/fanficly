@@ -167,4 +167,29 @@ final class LoginParserTests: XCTestCase {
         let html = "<html><body><ul id=\"user-navigation\"></ul></body></html>"
         XCTAssertNil(try LoginParser.currentUsername(html: html))
     }
+
+    func test_usernameFromGreetingDropdown() throws {
+        let html = """
+        <html><body>
+        <div id="greeting"><ul class="user navigation actions">
+          <li class="dropdown"><a class="dropdown-toggle" href="/users/yennster">yennster</a></li>
+          <li><a href="/users/logout">Log Out</a></li>
+        </ul></div>
+        </body></html>
+        """
+        XCTAssertEqual(try LoginParser.currentUsername(html: html), "yennster")
+    }
+
+    func test_currentUsernameSkipsActionLinks() throws {
+        // A logged-out page links to /users/login — must not be read as a name.
+        let html = "<html><body><div id=\"header\"><a href=\"/users/login\">Log In</a></div></body></html>"
+        XCTAssertNil(try LoginParser.currentUsername(html: html))
+    }
+
+    func test_hasLoginForm() throws {
+        let withForm = "<html><body><form id=\"new_user\"><input name=\"user[login]\"></form></body></html>"
+        XCTAssertTrue(try LoginParser.hasLoginForm(html: withForm))
+        let dashboard = "<html><body><div id=\"greeting\">Hi!</div></body></html>"
+        XCTAssertFalse(try LoginParser.hasLoginForm(html: dashboard))
+    }
 }
