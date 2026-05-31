@@ -30,24 +30,31 @@ Fanficly/
     FoundationModelsEnricher.swift   # iOS 26+ on-device LLM fallback (no-op elsewhere)
   Browse/
     FandomCategories.swift     # 10 AO3 media categories + curated seed lists
-    BrowseView.swift           # category → live fandom list → works
+    BrowseView.swift           # category → live fandom list → filtered works
+  Search/
+    WorkFilterSheet.swift      # AO3-style filter panel editing AO3SearchFilters
   Reader/
     ReaderView.swift           # continuous + paginated modes, chapter header,
-                               #   floating chapter indicator, typography menu
-    HTMLText.swift             # async cached HTML → AttributedString
-    HTMLToAttributed.swift     # SwiftSoup → AttributedString (fast, themeable)
-    WorkHeaderMetadata.swift   # rating/warnings/tags/stats chips
-    ChapterTracking.swift      # PreferenceKey for current-chapter detection
-    ReaderTheme.swift          # theme/font family/size/width/mode, @AppStorage
+                               #   floating chapter indicator, typography menu,
+                               #   reading-position save/restore
+    ChapterContentView.swift   # renders a chapter as paragraphs w/ scroll anchors
+    HTMLText.swift             # async cached HTML → AttributedString (summary)
+    HTMLToAttributed.swift     # SwiftSoup → AttributedString / paragraphs
+    WorkHeaderMetadata.swift   # rating/warnings/tags/stats; collapsible drawer
+    ChapterTracking.swift      # PreferenceKeys: current chapter + paragraph anchor
+    ReadingProgressStore.swift # load/save ReadingProgress by ao3Id
+    WorkExportButton.swift     # multi-format export → share sheet
+    ReaderTheme.swift          # theme/font/size/spacing/width/mode, @AppStorage
   Library/
     LibraryView.swift          # All/Following/Downloaded filter
+    SavedWorkReader.swift      # offline if downloaded, else fetch on demand
     WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow
   Auth/                        # AuthState (Keychain) + LoginView
   Subscriptions/               # poller (AO3 subs + local follows), BG task
   Settings/                    # SettingsView + ReaderSettingsView + privacy
-  DesignSystem/                # Typography, Spacing, FlowLayout, SafariView
+  DesignSystem/                # Typography, Spacing, FlowLayout, SafariView, ShareSheet
   PrivacyInfo.xcprivacy        # zero collection, zero tracking
-FanficlyTests/                 # XCTest — parsers, prompt parser, HTML render
+FanficlyTests/                 # XCTest — parsers, prompt parser, HTML render, tracking
 FanficlyUITests/               # smoke test + ScreenshotTests (README shots)
 ```
 
@@ -120,7 +127,11 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - Kudos is a POST to `/kudos.js` with `kudo[commentable_type]=Work` and the authenticity_token (both in body and `X-CSRF-Token` header). 422 means "already kudo'd by you" — treat as success.
 - Work subscription is a POST to `/works/<id>/subscriptions` with `subscription[subscribable_type]=Work` + token. Requires login.
 - Browse-by-fandom hits `/media/<category>/fandoms`; category names are path-encoded with AO3's scheme (`&`→`*a*`, `/`→`*s*`, `.`→`*d*`, etc. — see `AO3Endpoints.ao3PathEncode`).
+- Tag autocomplete: `/autocomplete/{relationship,character,freeform,fandom}?term=…` returns JSON `[{id,name}]`. Used to resolve user-typed filter tags to canonical names before searching.
+- Multi-format export: `/downloads/<id>/work.<ext>` where ext ∈ {azw3, epub, mobi, pdf, html}. `WorkExportButton` downloads to a temp file and presents `ShareSheet` (UIActivityViewController).
+- Reading position: stored per-work in `ReadingProgress` (ao3Id, chapterIndex, paragraphIndex). The reader renders each chapter as paragraphs (`ChapterContentView`) tagged `c<chapter>-p<index>`, tracks the topmost one via `ScrollAnchorKey`, and restores by scrolling to the chapter then the paragraph.
 - The search field is a vertical-axis `TextField`, so Return inserts a newline rather than firing `.onSubmit`. SearchView watches `onChange` for a `\n` and triggers the search itself.
+- Top-level tab views (Search, Library) use an **inline** nav title — a large title pops in awkwardly because those screens have a custom header VStack, not a scroll view for the title to anchor against.
 - AO3 may return 429 if we hit it too fast. The throttle should prevent this but handle the case anyway.
 
 ## Local follow vs. AO3 subscribe

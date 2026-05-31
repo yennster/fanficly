@@ -24,11 +24,12 @@ _Regenerate with `bin/take-screenshots.sh`, or run the `ScreenshotTests` UI test
 ## Features
 
 - **Smart prompt-style search** — type `draco/hermione enemies to lovers complete -angst` and it parses into proper AO3 filters (ships, characters, fandoms, ratings, warnings, categories, tags, word count, language, and `-`/`not` exclusions). Full AO3 sort options and pagination.
-- **Browse by fandom** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search.
-- **Reader** — continuous scroll or swipe-by-chapter, with a floating chapter indicator. Light / sepia / dark / OLED themes, five font families, six text sizes, four column widths — all persisted. Full work metadata (rating, warnings, relationships, characters, tags, stats) in the header.
-- **Follow & save — no account needed** — bookmark any story to your device with one tap; followed works are polled in the background and you get a local notification when new chapters drop. Or download the EPUB for fully offline reading.
+- **Browse by fandom, with AO3's full filter set** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search. A fandom's works can be filtered exactly like on AO3 (rating, warnings, category, completion, crossovers, word count, relationships/characters/tags include & exclude) — and typed tags resolve to AO3's canonical names via autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`.
+- **Reader** — continuous scroll or swipe-by-chapter, with a floating chapter indicator. Light / sepia / dark / OLED themes, five font families, six text sizes, line-spacing and margin controls — all persisted. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
+- **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story.
+- **Follow & save — no account needed** — bookmark any story to your device with one tap; followed works load on demand and are polled in the background, with a local notification when new chapters drop. Or download for fully offline reading.
+- **Export in any format** — share the work as EPUB, MOBI, AZW3 (Kindle), PDF, or HTML through the iOS share sheet (AirDrop, Send to Kindle, Books, Files, …).
 - **AO3 account (optional)** — log in to post kudos, subscribe on AO3, and sync your subscriptions. Credentials never stored; only the session cookie, in the Keychain.
-- **Share to Kindle and anywhere else** — iOS share sheet hands off the EPUB directly.
 - **iPad-native** — adaptive `NavigationSplitView` from day one.
 - **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
 
