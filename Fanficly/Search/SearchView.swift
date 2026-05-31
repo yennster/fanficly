@@ -395,7 +395,7 @@ struct WorkDetailView: View {
                                 kudosButton
                             }
 
-                            saveOfflineButton(payload: payload)
+                            WorkExportButton(workId: workId, title: payload.summary.title)
 
                             moreMenu(payload: payload)
                         }
@@ -442,30 +442,13 @@ struct WorkDetailView: View {
         .disabled(isKudosing || kudosed)
     }
 
-    private func saveOfflineButton(payload: AO3WorkPayload) -> some View {
-        Button {
-            Task { await saveOffline(payload) }
-        } label: {
-            if isSavingOffline {
-                ProgressView()
-            } else {
-                Image(systemName: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
-            }
-        }
-        .disabled(isSavingOffline)
-    }
-
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
+            saveOfflineRow(payload: payload)
             Button {
                 showingComments = true
             } label: {
                 Label("Comments", systemImage: "text.bubble")
-            }
-            if let epubURL {
-                ShareLink(item: epubURL) {
-                    Label("Share / Send to Kindle", systemImage: "square.and.arrow.up")
-                }
             }
             if auth.isLoggedIn {
                 Button {
@@ -479,6 +462,17 @@ struct WorkDetailView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
+    }
+
+    @ViewBuilder
+    private func saveOfflineRow(payload: AO3WorkPayload) -> some View {
+        Button {
+            Task { await saveOffline(payload) }
+        } label: {
+            Label(epubURL == nil ? "Save offline" : "Saved offline ✓",
+                  systemImage: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
+        }
+        .disabled(isSavingOffline || epubURL != nil)
     }
 
     // MARK: - Actions

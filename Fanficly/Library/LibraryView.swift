@@ -71,11 +71,7 @@ struct LibraryView: View {
         .navigationDestination(for: Work.self) { work in
             ReaderView(work: work)
                 .toolbar {
-                    if let url = WorkPersistence.epubURL(workId: work.ao3Id) {
-                        ShareLink(item: url) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
+                    WorkExportButton(workId: work.ao3Id, title: work.title)
                 }
         }
     }

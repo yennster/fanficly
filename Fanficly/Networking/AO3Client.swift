@@ -12,6 +12,7 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String]
     func downloadEPUB(workId: Int) async throws -> URL
+    func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL
     func postKudos(workId: Int) async throws
     func subscribeToWork(workId: Int) async throws
 }
@@ -57,6 +58,33 @@ public struct AO3ChapterPayload: Sendable {
 
 public enum AO3AutocompleteField: String, Sendable {
     case relationship, character, freeform, fandom
+}
+
+public enum WorkExportFormat: String, CaseIterable, Sendable, Identifiable {
+    case azw3, epub, mobi, pdf, html
+
+    public var id: String { rawValue }
+    public var ext: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .azw3: "Kindle (AZW3)"
+        case .epub: "EPUB"
+        case .mobi: "MOBI"
+        case .pdf:  "PDF"
+        case .html: "HTML"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .azw3: "books.vertical"
+        case .epub: "book"
+        case .mobi: "book.closed"
+        case .pdf:  "doc.richtext"
+        case .html: "globe"
+        }
+    }
 }
 
 public enum AO3Error: Error, Sendable, Equatable {
@@ -227,6 +255,25 @@ public actor AO3Client: AO3ClientProtocol {
         return fileURL
     }
 
+    public func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
+        await throttle.wait()
+        let url = try AO3Endpoints.download(workId: workId, format: format, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safe = Self.sanitizeFilename(filename.isEmpty ? "work-\(workId)" : filename)
+        let fileURL = dir.appendingPathComponent("\(safe).\(format.ext)")
+        try? FileManager.default.removeItem(at: fileURL)
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    private static func sanitizeFilename(_ name: String) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
+        let cleaned = name.components(separatedBy: invalid).joined(separator: "-")
+        return String(cleaned.prefix(80)).trimmingCharacters(in: .whitespaces)
+    }
+
     public func subscribeToWork(workId: Int) async throws {
         await throttle.wait()
         let pageURL = try AO3Endpoints.work(id: workId, base: baseURL)
@@ -351,6 +398,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] { [term] }
     public func downloadEPUB(workId: Int) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
+    }
+    public func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
     public func postKudos(workId: Int) async throws {}
     public func subscribeToWork(workId: Int) async throws {}

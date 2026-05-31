@@ -24,6 +24,10 @@ enum AO3Endpoints {
         base.appending(path: "/downloads/\(workId)/work.epub")
     }
 
+    static func download(workId: Int, format: WorkExportFormat, base: URL) throws -> URL {
+        base.appending(path: "/downloads/\(workId)/work.\(format.ext)")
+    }
+
     static func userBookmarks(name: String, base: URL) throws -> URL {
         base.appending(path: "/users/\(name)/bookmarks")
     }
