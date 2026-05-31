@@ -5,10 +5,10 @@ struct ReaderView: View {
     let author: String
     let chapters: [AO3ChapterPayload]
     let summary: AO3WorkSummary?
-    /// Reports chrome show/hide as the user scrolls, so the parent — which owns
-    /// the nav-bar items — can hide the whole bar. Applying `.toolbar(.hidden)`
-    /// from inside the reader is unreliable when items are declared one level up.
-    var onChromeChange: ((Bool) -> Void)? = nil
+    /// Parent-supplied action buttons (follow, kudos, export, save…). They live
+    /// in the reader's own floating toolbar rather than the system nav bar, so
+    /// the reader can reliably hide all of its chrome on scroll.
+    let actions: AnyView
 
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
@@ -19,6 +19,7 @@ struct ReaderView: View {
     @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
     @State private var currentAnchor: ReadingAnchor?
@@ -42,17 +43,17 @@ struct ReaderView: View {
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) }
 
-    init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil,
-         onChromeChange: ((Bool) -> Void)? = nil) {
+    init<A: View>(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil,
+                  @ViewBuilder actions: () -> A = { EmptyView() }) {
         self.title = title
         self.author = author
         self.chapters = chapters
         self.summary = summary
-        self.onChromeChange = onChromeChange
+        self.actions = AnyView(actions())
     }
 
-    init(work: Work, onChromeChange: ((Bool) -> Void)? = nil) {
-        self.onChromeChange = onChromeChange
+    init<A: View>(work: Work, @ViewBuilder actions: () -> A = { EmptyView() }) {
+        self.actions = AnyView(actions())
         self.title = work.title
         self.author = work.authorName
         self.chapters = work.chapters
@@ -81,8 +82,8 @@ struct ReaderView: View {
         )
     }
 
-    init(payload: AO3WorkPayload, onChromeChange: ((Bool) -> Void)? = nil) {
-        self.onChromeChange = onChromeChange
+    init<A: View>(payload: AO3WorkPayload, @ViewBuilder actions: () -> A = { EmptyView() }) {
+        self.actions = AnyView(actions())
         self.title = payload.summary.title
         self.author = payload.summary.author
         self.chapters = payload.chapters
@@ -100,38 +101,56 @@ struct ReaderView: View {
             case .paginated:  paginatedBody(fg: fg, bg: bg)
             }
         }
-        // Theme only the nav bar to match the reader, NOT the whole window.
-        // `.preferredColorScheme` would propagate up to the scene, forcing the
-        // Browse/Library views underneath into the reader's scheme — so leaving
-        // a light reader made the app visibly flip back to dark a beat later.
-        // `.toolbarColorScheme` is scoped to the bar, so there's nothing to
-        // unwind on exit. The reader's body already paints its own fg/bg.
-        .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
-        // Paint the nav bar with the reader's own background instead of the
-        // default translucent gray material, so the bar blends into the page
-        // (the buttons keep their own pills). `.hidden` left the window's gray
-        // showing through, so force it visible and colored.
-        .toolbarBackground(bg, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .statusBarHidden(chromeHidden)
-        .toolbar {
-            if chapters.count > 1 {
-                ToolbarItem(placement: .topBarTrailing) {
-                    chaptersMenu
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                typographyMenu
+        // The reader draws its OWN chrome (a floating toolbar + chapter bar) as
+        // a top safe-area inset, so hiding it is just a conditional view — no
+        // dependence on the system nav bar, which wouldn't reliably hide.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !chromeHidden {
+                floatingChrome(fg: fg, bg: bg)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        // The parent owns the nav bar (its items live there), so it applies the
-        // .toolbar(.hidden) — we just tell it when the scroll state flips.
-        .onChange(of: chromeHidden) { _, hidden in onChromeChange?(hidden) }
+        .toolbar(.hidden, for: .navigationBar)
+        .statusBarHidden(chromeHidden)
         .onChange(of: modeRaw) { _, _ in
             // Mode switched — show chrome and re-anchor in the new mode.
             chromeHidden = false
         }
-        .onAppear { onChromeChange?(chromeHidden) }
+    }
+
+    /// The reader's own top chrome: a back button, the parent's actions + the
+    /// chapters/typography menus in a floating pill, and the chapter indicator.
+    /// Painted with the reader background so nothing reads as system gray.
+    private func floatingChrome(fg: Color, bg: Color) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 40, height: 40)
+                        .background(.regularMaterial, in: Circle())
+                }
+                Spacer(minLength: 8)
+                HStack(spacing: 20) {
+                    actions
+                    if chapters.count > 1 { chaptersMenu }
+                    typographyMenu
+                }
+                .font(.body)
+                .padding(.horizontal, 18)
+                .frame(height: 40)
+                .background(.regularMaterial, in: Capsule())
+            }
+            .tint(fg)
+            .padding(.horizontal, 14)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
+
+            if chapters.count > 1 {
+                chapterIndicatorBar(fg: fg, bg: bg)
+            }
+        }
+        .background(bg)
     }
 
     // MARK: - Continuous
@@ -187,12 +206,6 @@ struct ReaderView: View {
             }
             .background(bg)
             .foregroundStyle(fg)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if chapters.count > 1 && !chromeHidden {
-                    chapterIndicatorBar(fg: fg, bg: bg)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
             .onChange(of: selectedChapterIndex) { _, newIndex in
                 // Reveal chrome so the chapter-bar inset is reserved, then
                 // scroll — a second pass after layout lands it correctly
@@ -292,7 +305,7 @@ struct ReaderView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
-        .background(.ultraThinMaterial)
+        .background(bg)
         .overlay(alignment: .bottom) {
             Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
         }

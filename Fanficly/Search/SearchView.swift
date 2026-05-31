@@ -506,28 +506,18 @@ struct WorkDetailView: View {
     @State private var kudosed: Bool = false
     @State private var followed: Bool = false
     @State private var epubURL: URL?
-    @State private var chromeHidden = false
 
     var body: some View {
         Group {
             if let payload {
-                ReaderView(payload: payload, onChromeChange: { hidden in
-                    withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = hidden }
-                })
-                    .toolbar(chromeHidden ? .hidden : .visible, for: .navigationBar)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            followButton(payload: payload)
-
-                            if auth.isLoggedIn {
-                                kudosButton
-                            }
-
-                            WorkExportButton(workId: workId, title: payload.summary.title)
-
-                            saveOfflineButton(payload: payload)
-                        }
+                ReaderView(payload: payload) {
+                    followButton(payload: payload)
+                    if auth.isLoggedIn {
+                        kudosButton
                     }
+                    WorkExportButton(workId: workId, title: payload.summary.title)
+                    saveOfflineButton(payload: payload)
+                }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
