@@ -107,10 +107,12 @@ struct LibraryRow: View {
             }
             Text("by \(work.authorName)").font(.subheadline).foregroundStyle(.secondary)
             if !work.fandoms.isEmpty {
-                Label(fandomLabel, systemImage: "books.vertical")
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: "books.vertical").font(.caption2)
+                    Text(fandomLabel).font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             }
             HStack(spacing: 8) {
                 Text(work.rating).font(.caption).foregroundStyle(.secondary)
