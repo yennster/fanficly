@@ -1,8 +1,8 @@
 #!/usr/bin/env swift
-// Generates Fanficly app icon variants:
-//   icon-1024.png         — light/default (gradient bg)
-//   icon-1024-dark.png    — dark mode (transparent bg, lighter book)
-//   icon-1024-tinted.png  — iOS 18 tinted (grayscale on transparent bg)
+// Generates a clean, monochrome open-book app icon in three variants:
+//   icon-1024.png         — light: black book on white
+//   icon-1024-dark.png    — dark:  white book on black
+//   icon-1024-tinted.png  — tinted: light book on transparent (iOS tints it)
 //
 // Usage:
 //   bin/make-icon.swift            -> writes all three into the asset catalog
@@ -33,131 +33,105 @@ func makeContext() -> CGContext {
     return ctx
 }
 
-func paintBackground(_ ctx: CGContext, _ variant: Variant) {
+func colors(for variant: Variant) -> (bg: CGColor?, ink: CGColor) {
     switch variant {
     case .light:
-        let colors = [
-            CGColor(red: 0.69, green: 0.18, blue: 0.38, alpha: 1.0),
-            CGColor(red: 0.42, green: 0.12, blue: 0.55, alpha: 1.0),
-        ] as CFArray
-        guard let grad = CGGradient(colorsSpace: colorSpace, colors: colors, locations: [0, 1]) else { return }
-        ctx.drawLinearGradient(grad,
-            start: CGPoint(x: 0, y: height),
-            end: CGPoint(x: width, y: 0),
-            options: [])
-    case .dark, .tinted:
-        // Leave transparent. iOS composites onto its own dark backing.
-        ctx.clear(CGRect(x: 0, y: 0, width: width, height: height))
-    }
-}
-
-func colors(for variant: Variant) -> (pageFill: CGColor, pageStroke: CGColor, spine: CGColor, text: CGColor) {
-    switch variant {
-    case .light:
-        return (
-            pageFill:   CGColor(red: 0.99, green: 0.97, blue: 0.92, alpha: 1.0),
-            pageStroke: CGColor(red: 0.86, green: 0.78, blue: 0.66, alpha: 1.0),
-            spine:      CGColor(red: 0.30, green: 0.08, blue: 0.40, alpha: 1.0),
-            text:       CGColor(red: 0.45, green: 0.30, blue: 0.20, alpha: 0.55)
-        )
+        return (CGColor(gray: 1.0, alpha: 1.0), CGColor(gray: 0.06, alpha: 1.0))
     case .dark:
-        // Cream pages stay readable on dark background, slightly dimmer.
-        return (
-            pageFill:   CGColor(red: 0.97, green: 0.94, blue: 0.88, alpha: 1.0),
-            pageStroke: CGColor(red: 0.75, green: 0.66, blue: 0.55, alpha: 1.0),
-            spine:      CGColor(red: 0.60, green: 0.40, blue: 0.75, alpha: 1.0),
-            text:       CGColor(red: 0.40, green: 0.28, blue: 0.18, alpha: 0.60)
-        )
+        return (CGColor(gray: 0.0, alpha: 1.0), CGColor(gray: 0.96, alpha: 1.0))
     case .tinted:
-        // Grayscale-only. iOS applies the user's tint to the lightest pixels.
-        return (
-            pageFill:   CGColor(gray: 1.00, alpha: 1.0),
-            pageStroke: CGColor(gray: 0.85, alpha: 1.0),
-            spine:      CGColor(gray: 0.50, alpha: 1.0),
-            text:       CGColor(gray: 0.55, alpha: 1.0)
-        )
+        // Transparent background; light ink so iOS tints by luminance.
+        return (nil, CGColor(gray: 0.92, alpha: 1.0))
     }
 }
 
-func drawOpenBook(_ ctx: CGContext, _ variant: Variant) {
-    let palette = colors(for: variant)
-    let bookW = width * 0.78
-    let bookH = height * 0.54
+/// A clean open book: two solid pages meeting at a spine, with thin
+/// background-coloured text lines cut into each page.
+func drawBook(_ ctx: CGContext, ink: CGColor, bg: CGColor?) {
+    let bookW = width * 0.64
+    let bookH = height * 0.46
     let cx = width / 2
-    let cy = height / 2 + height * 0.02
+    let cy = height / 2
     let halfW = bookW / 2
     let halfH = bookH / 2
-    let tilt: CGFloat = 24
+    let lift: CGFloat = bookH * 0.16   // outer edges lift up
+    let spineGap: CGFloat = width * 0.018
 
-    ctx.saveGState()
-    if variant == .light {
-        ctx.setShadow(offset: CGSize(width: 0, height: -18), blur: 42,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.32))
-    } else if variant == .dark {
-        ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 32,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.45))
+    // Left page outline.
+    let left = CGMutablePath()
+    left.move(to: CGPoint(x: cx - spineGap, y: cy - halfH + lift * 0.2))
+    left.addCurve(to: CGPoint(x: cx - halfW, y: cy - halfH + lift),
+                  control1: CGPoint(x: cx - halfW * 0.45, y: cy - halfH - lift * 0.35),
+                  control2: CGPoint(x: cx - halfW * 0.8, y: cy - halfH + lift * 0.4))
+    left.addLine(to: CGPoint(x: cx - halfW, y: cy + halfH - lift))
+    left.addCurve(to: CGPoint(x: cx - spineGap, y: cy + halfH),
+                  control1: CGPoint(x: cx - halfW * 0.8, y: cy + halfH - lift * 0.4),
+                  control2: CGPoint(x: cx - halfW * 0.45, y: cy + halfH + lift * 0.2))
+    left.closeSubpath()
+
+    // Right page (mirror).
+    let right = CGMutablePath()
+    right.move(to: CGPoint(x: cx + spineGap, y: cy - halfH + lift * 0.2))
+    right.addCurve(to: CGPoint(x: cx + halfW, y: cy - halfH + lift),
+                   control1: CGPoint(x: cx + halfW * 0.45, y: cy - halfH - lift * 0.35),
+                   control2: CGPoint(x: cx + halfW * 0.8, y: cy - halfH + lift * 0.4))
+    right.addLine(to: CGPoint(x: cx + halfW, y: cy + halfH - lift))
+    right.addCurve(to: CGPoint(x: cx + spineGap, y: cy + halfH),
+                   control1: CGPoint(x: cx + halfW * 0.8, y: cy + halfH - lift * 0.4),
+                   control2: CGPoint(x: cx + halfW * 0.45, y: cy + halfH + lift * 0.2))
+    right.closeSubpath()
+
+    ctx.setFillColor(ink)
+    ctx.addPath(left)
+    ctx.fillPath()
+    ctx.addPath(right)
+    ctx.fillPath()
+
+    // Text lines, cut out in the background colour (or cleared for tinted).
+    let lineColor = bg ?? CGColor(gray: 0, alpha: 1)
+    let lineCount = 5
+    let lineH: CGFloat = bookH * 0.045
+    let gap = (bookH * 0.62) / CGFloat(lineCount)
+    let inset: CGFloat = bookW * 0.10
+    for i in 0..<lineCount {
+        let y = cy - bookH * 0.27 + CGFloat(i) * gap
+        let pageW = halfW - spineGap - inset - bookW * 0.06
+        let leftW = pageW * (i == lineCount - 1 ? 0.6 : 0.95)
+        let rightW = pageW * (i == lineCount - 1 ? 0.55 : 0.9)
+        let leftRect = CGRect(x: cx - halfW + inset, y: y, width: leftW, height: lineH)
+        let rightRect = CGRect(x: cx + spineGap + bookW * 0.06, y: y, width: rightW, height: lineH)
+        if bg == nil {
+            // tinted: clear the lines so they read as gaps
+            ctx.setBlendMode(.clear)
+            ctx.fill(leftRect); ctx.fill(rightRect)
+            ctx.setBlendMode(.normal)
+        } else {
+            ctx.setFillColor(lineColor)
+            ctx.fill(leftRect); ctx.fill(rightRect)
+        }
     }
 
-    let leftPage = CGMutablePath()
-    leftPage.move(to:    CGPoint(x: cx - 4,            y: cy - halfH))
-    leftPage.addLine(to: CGPoint(x: cx - halfW + tilt, y: cy - halfH + tilt * 0.8))
-    leftPage.addQuadCurve(to: CGPoint(x: cx - halfW + tilt, y: cy + halfH - tilt * 0.8),
-                          control: CGPoint(x: cx - halfW - tilt * 0.5, y: cy))
-    leftPage.addLine(to: CGPoint(x: cx - 4,            y: cy + halfH))
-    leftPage.closeSubpath()
-
-    let rightPage = CGMutablePath()
-    rightPage.move(to:    CGPoint(x: cx + 4,            y: cy - halfH))
-    rightPage.addLine(to: CGPoint(x: cx + halfW - tilt, y: cy - halfH + tilt * 0.8))
-    rightPage.addQuadCurve(to: CGPoint(x: cx + halfW - tilt, y: cy + halfH - tilt * 0.8),
-                           control: CGPoint(x: cx + halfW + tilt * 0.5, y: cy))
-    rightPage.addLine(to: CGPoint(x: cx + 4,            y: cy + halfH))
-    rightPage.closeSubpath()
-
-    ctx.setFillColor(palette.pageFill)
-    ctx.addPath(leftPage)
-    ctx.fillPath()
-    ctx.setFillColor(palette.pageFill)
-    ctx.addPath(rightPage)
-    ctx.fillPath()
-
-    ctx.restoreGState()
-
-    ctx.setStrokeColor(palette.pageStroke)
-    ctx.setLineWidth(3)
-    ctx.addPath(leftPage)
-    ctx.strokePath()
-    ctx.addPath(rightPage)
-    ctx.strokePath()
-
-    ctx.setStrokeColor(palette.spine)
-    ctx.setLineWidth(6)
-    ctx.move(to: CGPoint(x: cx, y: cy - halfH + 4))
-    ctx.addLine(to: CGPoint(x: cx, y: cy + halfH - 4))
-    ctx.strokePath()
-
-    ctx.setFillColor(palette.text)
-    let lineH: CGFloat = 14
-    let lineGap: CGFloat = 38
-    let lineCount = 7
-    let topY = cy + halfH - 60
-    for i in 0..<lineCount {
-        let y = topY - CGFloat(i) * lineGap
-        let pageInset: CGFloat = 36
-        let pageW = halfW - tilt - pageInset - 14
-        let leftWidth: CGFloat = pageW * (i == lineCount - 1 ? 0.55 : (i % 3 == 0 ? 0.95 : 0.82))
-        let rightWidth: CGFloat = pageW * (i == lineCount - 1 ? 0.48 : (i % 2 == 0 ? 0.9 : 0.78))
-        ctx.fill(CGRect(x: cx - halfW + tilt + pageInset, y: y,
-                        width: leftWidth, height: lineH))
-        ctx.fill(CGRect(x: cx + 14, y: y,
-                        width: rightWidth, height: lineH))
+    // Spine gap.
+    if bg == nil {
+        ctx.setBlendMode(.clear)
+        ctx.fill(CGRect(x: cx - spineGap, y: cy - halfH + 8, width: spineGap * 2, height: bookH - 16))
+        ctx.setBlendMode(.normal)
+    } else {
+        ctx.setFillColor(lineColor)
+        ctx.fill(CGRect(x: cx - spineGap, y: cy - halfH + 8, width: spineGap * 2, height: bookH - 16))
     }
 }
 
 func render(_ variant: Variant, to path: String) {
     let ctx = makeContext()
-    paintBackground(ctx, variant)
-    drawOpenBook(ctx, variant)
+    let palette = colors(for: variant)
+    if let bg = palette.bg {
+        ctx.setFillColor(bg)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    } else {
+        ctx.clear(CGRect(x: 0, y: 0, width: width, height: height))
+    }
+    drawBook(ctx, ink: palette.ink, bg: palette.bg)
 
     guard let image = ctx.makeImage() else {
         FileHandle.standardError.write("makeImage failed\n".data(using: .utf8)!)

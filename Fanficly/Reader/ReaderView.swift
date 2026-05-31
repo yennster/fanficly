@@ -184,19 +184,19 @@ struct ReaderView: View {
         let delta = offset - lastScrollOffset
         lastScrollOffset = offset
         // Near the top: always show chrome.
-        if offset > -80 {
+        if offset > -40 {
             if chromeHidden { withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false } }
             scrollAccum = 0
             return
         }
-        guard abs(delta) > 1 else { return }
+        guard abs(delta) > 0.5 else { return }
         // Reset the accumulator when direction flips.
         if (delta < 0) != (scrollAccum < 0) { scrollAccum = 0 }
         scrollAccum += delta
-        if scrollAccum < -50, !chromeHidden {            // scrolled down enough
+        if scrollAccum < -30, !chromeHidden {            // scrolled down a bit
             withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = true }
             scrollAccum = 0
-        } else if scrollAccum > 24, chromeHidden {        // scrolled up a bit
+        } else if scrollAccum > 16, chromeHidden {        // scrolled up a bit
             withAnimation(.easeInOut(duration: 0.2)) { chromeHidden = false }
             scrollAccum = 0
         }
@@ -206,11 +206,15 @@ struct ReaderView: View {
         let anchor = loadAnchorIfNeeded()
         guard let anchor, anchor.chapter > 1 || anchor.paragraph > 0 else { return }
         isRestoring = true
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        proxy.scrollTo(anchor.chapter, anchor: .top)
         try? await Task.sleep(nanoseconds: 250_000_000)
-        proxy.scrollTo(ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph), anchor: .top)
-        try? await Task.sleep(nanoseconds: 150_000_000)
+        proxy.scrollTo(anchor.chapter, anchor: .top)
+        // Paragraphs render asynchronously, so the exact paragraph id may
+        // not exist yet — retry until it lands.
+        let key = ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph)
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            proxy.scrollTo(key, anchor: .top)
+        }
         isRestoring = false
     }
 
