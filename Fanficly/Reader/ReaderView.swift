@@ -461,6 +461,13 @@ struct ReaderView: View {
                 Label("Font · \(fontFamily.displayName)", systemImage: "character")
             }
 
+            presetMenu("Text size", value: $fontSizePt, presets: ReaderMetrics.fontSizePresets,
+                       icon: "textformat.size")
+            presetMenu("Line spacing", value: $lineSpacingPt, presets: ReaderMetrics.lineSpacingPresets,
+                       icon: "arrow.up.and.down.text.horizontal")
+            presetMenu("Paragraph spacing", value: $paragraphSpacingPt, presets: ReaderMetrics.paragraphSpacingPresets,
+                       icon: "text.justify.left")
+
             Menu {
                 Picker("Margins", selection: $widthRaw) {
                     ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
@@ -468,15 +475,30 @@ struct ReaderView: View {
             } label: {
                 Label("Margins · \(width.displayName)", systemImage: "rectangle.compress.vertical")
             }
-
-            Divider()
-            NavigationLink {
-                ReaderSettingsView()
-            } label: {
-                Label("Text size & spacing…", systemImage: "slider.horizontal.3")
-            }
         } label: {
             Image(systemName: "textformat")
+        }
+    }
+
+    /// Quick-pick submenu of named presets that set a numeric reader metric.
+    /// (The continuous slider for the same value lives in Settings → Reader.)
+    private func presetMenu(_ title: String, value: Binding<Double>,
+                            presets: [(name: String, value: Double)], icon: String) -> some View {
+        let current = presets.first { abs($0.value - value.wrappedValue) < 0.5 }?.name
+        return Menu {
+            ForEach(presets, id: \.name) { preset in
+                Button {
+                    value.wrappedValue = preset.value
+                } label: {
+                    if abs(preset.value - value.wrappedValue) < 0.5 {
+                        Label(preset.name, systemImage: "checkmark")
+                    } else {
+                        Text(preset.name)
+                    }
+                }
+            }
+        } label: {
+            Label("\(title) · \(current ?? "Custom")", systemImage: icon)
         }
     }
 }

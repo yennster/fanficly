@@ -55,6 +55,19 @@ enum ReaderMetrics {
 
     static let defaultParagraphSpacing: Double = 16
     static let paragraphSpacingRange: ClosedRange<Double> = 2...44
+
+    // Named presets for the reader's quick (Aa) menu. The Settings screen
+    // exposes the same values as continuous sliders.
+    static let fontSizePresets: [(name: String, value: Double)] = [
+        ("Extra Small", 13), ("Small", 15), ("Medium", 18),
+        ("Large", 20), ("Extra Large", 23), ("Huge", 27),
+    ]
+    static let lineSpacingPresets: [(name: String, value: Double)] = [
+        ("Tight", 2), ("Normal", 6), ("Relaxed", 11), ("Loose", 16),
+    ]
+    static let paragraphSpacingPresets: [(name: String, value: Double)] = [
+        ("Compact", 8), ("Normal", 16), ("Roomy", 26), ("Airy", 38),
+    ]
 }
 
 enum ReaderFontFamily: String, CaseIterable, Identifiable {
