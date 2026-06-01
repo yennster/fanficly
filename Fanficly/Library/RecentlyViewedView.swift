@@ -20,22 +20,7 @@ struct RecentlyViewedView: View {
                 List {
                     ForEach(recents) { item in
                         NavigationLink(value: item.ao3Id) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.title).font(.headline).lineLimit(2)
-                                if !item.author.isEmpty {
-                                    Text("by \(item.author)").font(.subheadline).foregroundStyle(.secondary)
-                                }
-                                if !item.fandom.isEmpty {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: FandomCatalog.symbol(for: item.fandom)).font(.caption2)
-                                        Text(item.fandom.components(separatedBy: " - ").first ?? item.fandom)
-                                            .font(.caption)
-                                    }
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                                }
-                            }
-                            .padding(.vertical, 4)
+                            RecentlyViewedRow(item: item)
                         }
                         .swipeActions {
                             Button(role: .destructive) {
@@ -85,6 +70,36 @@ struct RecentlyViewedView: View {
     private func clearAll() {
         for item in recents { context.delete(item) }
         try? context.save()
+    }
+}
+
+/// Mirrors `LibraryRow`'s visual hierarchy so the two lists feel like one app.
+/// `RecentlyViewed` carries less metadata than `Work` (no rating/word/chapter
+/// counts), so those rows are omitted rather than faked.
+struct RecentlyViewedRow: View {
+    let item: RecentlyViewed
+
+    private var fandomShort: String {
+        guard !item.fandom.isEmpty else { return "" }
+        return item.fandom.components(separatedBy: " - ").first ?? item.fandom
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.title).font(.headline)
+            if !item.author.isEmpty {
+                Text("by \(item.author)").font(.subheadline).foregroundStyle(.secondary)
+            }
+            if !fandomShort.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: FandomCatalog.symbol(for: item.fandom)).font(.caption2)
+                    Text(fandomShort).font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

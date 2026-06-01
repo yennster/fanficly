@@ -208,12 +208,14 @@ final class SubscriptionRecord {
     @Attribute(.unique) var key: String
     var kind: String
     var displayName: String
+    var authorName: String = ""
     var lastSeenChapterCount: Int?
     var lastCheckedAt: Date?
 
-    init(key: String, kind: String, displayName: String) {
+    init(key: String, kind: String, displayName: String, authorName: String = "") {
         self.key = key
         self.kind = kind
         self.displayName = displayName
+        self.authorName = authorName
     }
 }
