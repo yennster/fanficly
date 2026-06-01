@@ -15,9 +15,15 @@ struct SubscriptionsView: View {
     @ViewBuilder
     private func subscriptionRow(_ sub: SubscriptionRecord) -> some View {
         if sub.kind == "work", let workId = workId(from: sub) {
-            // Tap a work subscription to open the fic.
+            // Tap a work subscription to open the fic. Render the same
+            // LibraryRow when we have the work cached locally — the
+            // subscription record alone only carries title + chapter count.
             NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
-                SubscriptionRow(sub: sub)
+                if let work = cachedWork(ao3Id: workId) {
+                    LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: workId) != nil)
+                } else {
+                    SubscriptionRow(sub: sub)
+                }
             }
         } else {
             // Series / author → open the AO3 page.
@@ -28,6 +34,11 @@ struct SubscriptionsView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    private func cachedWork(ao3Id: Int) -> Work? {
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        return (try? context.fetch(descriptor))?.first
     }
 
     private func workId(from sub: SubscriptionRecord) -> Int? {
@@ -74,28 +85,21 @@ struct SubscriptionsView: View {
             } else {
                 List {
                     if let lastError {
-                        Section {
-                            Label(lastError, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                        }
+                        Label(lastError, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
                     }
                     if let count = lastNotifyCount {
-                        Section {
-                            Text(count == 0
-                                 ? "No new chapters."
-                                 : "\(count) work\(count == 1 ? "" : "s") have new chapters.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
+                        Text(count == 0
+                             ? "No new chapters."
+                             : "\(count) work\(count == 1 ? "" : "s") have new chapters.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
-                    Section {
-                        ForEach(subs) { sub in
-                            subscriptionRow(sub)
-                        }
-                    } header: {
-                        Text("\(subs.count) subscription\(subs.count == 1 ? "" : "s")")
+                    ForEach(subs) { sub in
+                        subscriptionRow(sub)
                     }
                 }
+                .listStyle(.plain)
             }
         }
         .navigationTitle("Subscriptions")
@@ -150,31 +154,36 @@ struct SubscriptionsView: View {
     }
 }
 
+/// Visually mirrors `LibraryRow` so subscriptions and the library feel like
+/// the same list. We don't have full work metadata for uncached subs (no
+/// fandom/rating/wordcount), so those rows show kind + chapter/checked stats
+/// in the same caption slot that LibraryRow uses for rating/words/chapters.
 struct SubscriptionRow: View {
     let sub: SubscriptionRecord
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(sub.displayName).font(.headline).lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(kindLabel).font(.caption).foregroundStyle(.secondary)
-                    if let count = sub.lastSeenChapterCount {
-                        Text("·").foregroundStyle(.tertiary)
-                        Text("\(count) chapter\(count == 1 ? "" : "s")")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let checked = sub.lastCheckedAt {
-                        Text("·").foregroundStyle(.tertiary)
-                        Text("checked \(checked, style: .relative) ago")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(sub.displayName).font(.headline)
+            if !sub.authorName.isEmpty {
+                Text("by \(sub.authorName)").font(.subheadline).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    Image(systemName: icon).font(.caption2)
+                    Text(kindLabel).font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                if sub.kind == "work", let count = sub.lastSeenChapterCount {
+                    Text("\(count) chapter\(count == 1 ? "" : "s")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let checked = sub.lastCheckedAt {
+                    Text("checked \(checked, style: .relative) ago")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Spacer()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private var icon: String {

@@ -11,13 +11,16 @@ enum SearchResultsParser {
         var currentPage = 1
         var totalPages = 1
         for li in pagination.array() {
-            let cls = try li.attr("class")
-            if cls.contains("current") {
-                currentPage = Int(try li.text().trimmingCharacters(in: .whitespaces)) ?? 1
-            }
-            if let num = Int(try li.text().trimmingCharacters(in: .whitespaces)) {
-                totalPages = max(totalPages, num)
-            }
+            guard let num = Int(try li.text().trimmingCharacters(in: .whitespaces)) else { continue }
+            totalPages = max(totalPages, num)
+            // AO3 (Rails will_paginate) marks the current page with a "current"
+            // class. Depending on the page it lands on the <li> itself OR on an
+            // inner <span>/<em> — e.g. `<li><span class="current">2</span></li>`,
+            // where the <li> has no class. Check both, or currentPage stuck at 1
+            // and "Load more" keeps re-requesting the same page.
+            let liIsCurrent = try li.attr("class").contains("current")
+            let innerIsCurrent = try !li.select(".current").array().isEmpty
+            if liIsCurrent || innerIsCurrent { currentPage = num }
         }
 
         return AO3SearchResults(works: works, totalPages: totalPages, currentPage: currentPage)

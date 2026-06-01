@@ -66,6 +66,19 @@ final class TagResolverTests: XCTestCase {
         XCTAssertEqual(resolved.relationshipNames, ["Hermione Granger/Draco Malfoy"])
     }
 
+    func test_bestMatch_relationshipPrefersSameArityWholeWordMatch() {
+        // "Bella/Edward" must not resolve to a 3-person ship where "Bella"
+        // is only a substring of "Isabella".
+        let matches = [
+            "Oswald Cobblepot/Isabella/Edward Nygma",
+            "Bella Swan/Edward Cullen"
+        ]
+        XCTAssertEqual(
+            TagResolver.bestMatch(for: "Bella/Edward", in: matches, field: .relationship),
+            "Bella Swan/Edward Cullen"
+        )
+    }
+
     func test_resolve_directRelationshipMatch() async {
         let stub = StubAO3Client()
         stub.autocompleteResponses = ["edward/bella": ["Edward Cullen/Bella Swan"]]

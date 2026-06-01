@@ -62,7 +62,7 @@ enum TagResolver {
         // Try the term as typed, then a few simple fallbacks.
         for candidate in candidates(for: term, field: field) {
             if let matches = try? await client.autocomplete(field: field, term: candidate),
-               let best = bestMatch(for: term, in: matches) {
+               let best = bestMatch(for: term, in: matches, field: field) {
                 return best
             }
         }
@@ -78,8 +78,8 @@ enum TagResolver {
                 // Try the ship in both orders / separators.
                 for query in ["\(a)/\(b)", "\(a) \(b)", "\(b)/\(a)", "\(b) \(a)"] {
                     if let matches = try? await client.autocomplete(field: .relationship, term: query),
-                       let first = matches.first {
-                        return first
+                       let best = bestMatch(for: "\(a)/\(b)", in: matches, field: .relationship) {
+                        return best
                     }
                 }
                 // Last resort: construct it from the resolved names.
@@ -105,11 +105,54 @@ enum TagResolver {
 
     /// Prefer a case-insensitive exact match, else the top suggestion,
     /// else keep the original term.
-    static func bestMatch(for term: String, in matches: [String]) -> String? {
+    static func bestMatch(for term: String, in matches: [String], field: AO3AutocompleteField = .freeform) -> String? {
         guard !matches.isEmpty else { return nil }
         if let exact = matches.first(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
             return exact
         }
+        if field == .relationship, term.contains("/") {
+            return bestRelationshipMatch(for: term, in: matches) ?? matches.first
+        }
         return matches.first
+    }
+
+    /// Score each candidate ship against the typed term. Penalize candidates
+    /// whose `/`-arity doesn't match (a 2-person query shouldn't resolve to a
+    /// 3+person ship), and reward candidates where each typed side appears as a
+    /// whole word in the corresponding side of the candidate.
+    /// e.g. "Bella/Edward" → prefer "Bella Swan/Edward Cullen" over
+    /// "Oswald Cobblepot/Isabella/Edward Nygma" (3 parts; "Bella" only matches
+    /// inside "Isabella").
+    private static func bestRelationshipMatch(for term: String, in matches: [String]) -> String? {
+        let typed = term.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        guard typed.count >= 2 else { return nil }
+        var best: (score: Int, value: String)?
+        for candidate in matches {
+            let parts = candidate.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
+            var score = 0
+            if parts.count == typed.count { score += 10 }
+            else { score -= 5 * abs(parts.count - typed.count) }
+            // Each typed side should be a whole-word match in *some* part.
+            // Slightly prefer same-order alignment.
+            for (i, side) in typed.enumerated() {
+                if i < parts.count, containsWholeWord(side, in: parts[i].lowercased()) {
+                    score += 3
+                } else if parts.contains(where: { containsWholeWord(side, in: $0.lowercased()) }) {
+                    score += 2
+                } else {
+                    score -= 2
+                }
+            }
+            if best == nil || score > best!.score {
+                best = (score, candidate)
+            }
+        }
+        return best?.value
+    }
+
+    private static func containsWholeWord(_ needle: String, in haystack: String) -> Bool {
+        guard !needle.isEmpty else { return false }
+        let tokens = haystack.split { !$0.isLetter && !$0.isNumber }.map(String.init)
+        return tokens.contains(needle)
     }
 }

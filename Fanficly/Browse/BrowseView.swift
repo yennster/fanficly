@@ -174,18 +174,18 @@ struct FandomWorksView: View {
                     Section {
                         ForEach(works) { work in
                             NavigationLink(value: work) { WorkRow(work: work) }
-                        }
-                        if currentPage < totalPages {
-                            HStack {
-                                Spacer()
-                                if isLoadingMore {
-                                    ProgressView()
-                                } else {
-                                    Button("Load more (page \(currentPage + 1) of \(totalPages))") {
+                                // Infinite scroll: when the last loaded row comes
+                                // into view, pull the next page automatically.
+                                .onAppear {
+                                    if work.id == works.last?.id {
                                         Task { await loadMore() }
                                     }
-                                    .font(.callout)
                                 }
+                        }
+                        if isLoadingMore {
+                            HStack {
+                                Spacer()
+                                ProgressView()
                                 Spacer()
                             }
                             .padding(.vertical, 8)
@@ -326,6 +326,9 @@ struct FandomWorksView: View {
     }
 
     private func loadMore() async {
+        // Re-entrancy / bounds guard: onAppear can fire repeatedly, and there's
+        // no page beyond totalPages.
+        guard !isLoadingMore, currentPage < totalPages else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {

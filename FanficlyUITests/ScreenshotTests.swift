@@ -101,6 +101,11 @@ final class ScreenshotTests: XCTestCase {
         usleep(600_000)
         snap("07-library")
 
+        // Recently Viewed — the search-results tap above seeds at least one entry.
+        openSidebarItem("Recently Viewed")
+        usleep(600_000)
+        snap("10-recently-viewed")
+
         // Settings and Reader settings
         openSidebarItem("Settings")
         usleep(600_000)

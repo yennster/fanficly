@@ -138,18 +138,17 @@ struct SearchView: View {
             List {
                 ForEach(results) { work in
                     NavigationLink(value: work) { WorkRow(work: work) }
-                }
-                if currentPage < totalPages {
-                    HStack {
-                        Spacer()
-                        if isLoadingMore {
-                            ProgressView()
-                        } else {
-                            Button("Load more (page \(currentPage + 1) of \(totalPages))") {
+                        // Infinite scroll: pull the next page as the last row appears.
+                        .onAppear {
+                            if work.id == results.last?.id {
                                 Task { await loadMore() }
                             }
-                            .font(.callout)
                         }
+                }
+                if isLoadingMore {
+                    HStack {
+                        Spacer()
+                        ProgressView()
                         Spacer()
                     }
                     .padding(.vertical, 8)
@@ -308,6 +307,8 @@ struct SearchView: View {
     }
 
     private func loadMore() async {
+        // onAppear can fire repeatedly, and there's no page past totalPages.
+        guard !isLoadingMore, currentPage < totalPages else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
         var filters = lastParsed
@@ -497,12 +498,22 @@ struct ChipView: View {
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(\.colorScheme) private var systemColorScheme
+    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     let workId: Int
     @State private var payload: AO3WorkPayload?
     @State private var errorMessage: String?
     @State private var isSavingOffline: Bool = false
     @State private var followed: Bool = false
     @State private var epubURL: URL?
+
+    /// The reader's themed page colour, computed the same way `ReaderView`
+    /// does, so the detail screen is opaque from the first frame.
+    private var readerBackground: Color {
+        let theme = ReaderTheme(rawValue: themeRaw) ?? .system
+        let scheme = theme.preferredColorScheme ?? systemColorScheme
+        return theme.background(for: scheme)
+    }
 
     var body: some View {
         Group {
@@ -522,6 +533,11 @@ struct WorkDetailView: View {
                 ProgressView("Loading…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // Opaque, full-bleed backing so the screen we pushed from (e.g. the
+        // Browse list with its filter chips) never shows through while the work
+        // loads or during the push transition.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(readerBackground.ignoresSafeArea())
         .task { await load() }
     }
 
@@ -559,7 +575,9 @@ struct WorkDetailView: View {
         epubURL = WorkPersistence.epubURL(workId: workId)
         followed = WorkPersistence.isFollowed(workId: workId, in: context)
         do {
-            payload = try await client.fetchWork(id: workId)
+            let fetched = try await client.fetchWork(id: workId)
+            payload = fetched
+            WorkPersistence.recordView(summary: fetched.summary, into: context)
         } catch {
             errorMessage = "\(error)"
         }

@@ -24,8 +24,14 @@ struct SubscriptionPoller {
         for sub in fresh {
             if let rec = existingByKey[sub.key] {
                 rec.displayName = sub.title
+                rec.authorName = sub.author ?? rec.authorName
             } else {
-                let rec = SubscriptionRecord(key: sub.key, kind: sub.kind.rawValue, displayName: sub.title)
+                let rec = SubscriptionRecord(
+                    key: sub.key,
+                    kind: sub.kind.rawValue,
+                    displayName: sub.title,
+                    authorName: sub.author ?? ""
+                )
                 context.insert(rec)
             }
         }

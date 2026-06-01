@@ -8,6 +8,7 @@ final class PersistenceTests: XCTestCase {
         let schema = Schema([
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
+            RecentlyViewed.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
@@ -61,6 +62,27 @@ final class PersistenceTests: XCTestCase {
         let nowUnfollowed = WorkPersistence.toggleFollow(summary: summary, into: ctx)
         XCTAssertFalse(nowUnfollowed)
         XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
+    }
+
+    func test_recordViewInsertsBumpsAndTrims() throws {
+        let ctx = try makeContext()
+        // First view inserts.
+        WorkPersistence.recordView(summary: payload(id: 1, chapters: 1).summary, into: ctx)
+        WorkPersistence.recordView(summary: payload(id: 2, chapters: 1).summary, into: ctx)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).count, 2)
+
+        // Re-viewing id 1 bumps it to the front without duplicating.
+        WorkPersistence.recordView(summary: payload(id: 1, chapters: 1).summary, into: ctx)
+        let ordered = try ctx.fetch(FetchDescriptor<RecentlyViewed>(
+            sortBy: [SortDescriptor(\.viewedAt, order: .reverse)]))
+        XCTAssertEqual(ordered.count, 2)
+        XCTAssertEqual(ordered.first?.ao3Id, 1)
+
+        // Trims to the newest `limit`.
+        for id in 100..<110 {
+            WorkPersistence.recordView(summary: payload(id: id, chapters: 1).summary, into: ctx, limit: 3)
+        }
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).count, 3)
     }
 
     func test_readingProgressRoundTrips() throws {

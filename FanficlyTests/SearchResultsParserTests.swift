@@ -68,10 +68,11 @@ final class SearchResultsParserTests: XCTestCase {
       </li>
     </ol>
     <ol class="pagination actions">
-      <li class="current"><span>1</span></li>
-      <li><a href="?page=2">2</a></li>
+      <li class="previous"><a href="?page=1">Previous</a></li>
+      <li><a href="?page=1">1</a></li>
+      <li><span class="current">2</span></li>
       <li><a href="?page=3">3</a></li>
-      <li class="next"><a rel="next" href="?page=2">Next</a></li>
+      <li class="next"><a rel="next" href="?page=3">Next</a></li>
     </ol>
     </body></html>
     """
@@ -117,8 +118,28 @@ final class SearchResultsParserTests: XCTestCase {
 
     func test_paginationCount() throws {
         let result = try SearchResultsParser.parse(html: html)
-        XCTAssertEqual(result.currentPage, 1)
+        // Current page is marked by an inner `<span class="current">`, as AO3
+        // renders it on real pages — the <li> has no "current" class.
+        XCTAssertEqual(result.currentPage, 2)
         XCTAssertEqual(result.totalPages, 3)
+    }
+
+    func test_currentPageFromLiClass() throws {
+        // Some AO3 pages put the "current" class on the <li> itself; both forms
+        // must resolve so "Load more" advances past page 2.
+        let liForm = """
+        <html><body>
+        <ol class="pagination actions">
+          <li><a href="?page=1">1</a></li>
+          <li class="current">3</li>
+          <li><a href="?page=4">4</a></li>
+          <li><a href="?page=9">9</a></li>
+        </ol>
+        </body></html>
+        """
+        let result = try SearchResultsParser.parse(html: liForm)
+        XCTAssertEqual(result.currentPage, 3)
+        XCTAssertEqual(result.totalPages, 9)
     }
 
     func test_emptyResultsDoNotCrash() throws {
