@@ -60,6 +60,7 @@
 		B8DCFE701781255AA7EB7D98 /* ThrottleActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DBE194BD55409AE171449B7 /* ThrottleActor.swift */; };
 		B9B431892C23DB6492C91B8C /* FanficlyUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52838C1ACEDD22576C399750 /* FanficlyUITests.swift */; };
 		BA12B516B16127F8960278FC /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7878F783AFB1158EA7107223 /* LibraryView.swift */; };
+		2DECAFBADC0FFEE0FEEDFACE /* RecentlyViewedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DECAFBADC0FFEE0FEEDFACE /* RecentlyViewedView.swift */; };
 		BCAAFA39CD6D89DF362034DC /* ReaderTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37DD02D31E9311ACDAA3185 /* ReaderTheme.swift */; };
 		CB58E0B983839DCC26C305F3 /* ChapterTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3FC719543292C992F5486E /* ChapterTracking.swift */; };
 		CEB79AC4D2563F3331894162 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CC6F1589C16DE6F26765FBB /* BrowseView.swift */; };
@@ -126,6 +127,7 @@
 		6F0F0FF56D72C1AA78B8A646 /* AO3Endpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3Endpoints.swift; sourceTree = "<group>"; };
 		72C033CBA388EA9FBB5E9D85 /* ScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotTests.swift; sourceTree = "<group>"; };
 		7878F783AFB1158EA7107223 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		1DECAFBADC0FFEE0FEEDFACE /* RecentlyViewedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentlyViewedView.swift; sourceTree = "<group>"; };
 		7A9B95678D459F38A75389DB /* ChapterContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterContentView.swift; sourceTree = "<group>"; };
 		7BBA5133F4C84CF5EBB14A1F /* FanficlyUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FanficlyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8AAEA3501A7C05470BA9B9DF /* AO3Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3Client.swift; sourceTree = "<group>"; };
@@ -245,6 +247,7 @@
 			isa = PBXGroup;
 			children = (
 				7878F783AFB1158EA7107223 /* LibraryView.swift */,
+				1DECAFBADC0FFEE0FEEDFACE /* RecentlyViewedView.swift */,
 				8C632D73A950AC343EBDB92D /* SavedWorkReader.swift */,
 				1E3470AAB37F7FC5A29385D8 /* WorkPersistence.swift */,
 			);
@@ -536,6 +539,7 @@
 				7B7A43CBC68F499274C69EAB /* HTMLToAttributed.swift in Sources */,
 				8C5869066ACD7F9B92B39777 /* KnownTags.swift in Sources */,
 				BA12B516B16127F8960278FC /* LibraryView.swift in Sources */,
+				2DECAFBADC0FFEE0FEEDFACE /* RecentlyViewedView.swift in Sources */,
 				9BED255255BD7A5E8D9D5327 /* LoginParser.swift in Sources */,
 				6E9229F121F4EAA8F30B094C /* LoginView.swift in Sources */,
 				34F2E2B5519196AD259969BF /* MediaCategoryParser.swift in Sources */,
