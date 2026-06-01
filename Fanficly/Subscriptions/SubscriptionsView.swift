@@ -96,6 +96,7 @@ struct SubscriptionsView: View {
                         Text("\(subs.count) subscription\(subs.count == 1 ? "" : "s")")
                     }
                 }
+                .listStyle(.plain)
             }
         }
         .navigationTitle("Subscriptions")

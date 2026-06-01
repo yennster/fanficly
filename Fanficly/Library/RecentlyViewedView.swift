@@ -20,15 +20,22 @@ struct RecentlyViewedView: View {
                 List {
                     ForEach(recents) { item in
                         NavigationLink(value: item.ao3Id) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.title).font(.body).lineLimit(2)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.title).font(.headline).lineLimit(2)
                                 if !item.author.isEmpty {
-                                    Text(item.author).font(.caption).foregroundStyle(.secondary)
+                                    Text("by \(item.author)").font(.subheadline).foregroundStyle(.secondary)
                                 }
                                 if !item.fandom.isEmpty {
-                                    Text(item.fandom).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                                    HStack(spacing: 4) {
+                                        Image(systemName: FandomCatalog.symbol(for: item.fandom)).font(.caption2)
+                                        Text(item.fandom.components(separatedBy: " - ").first ?? item.fandom)
+                                            .font(.caption)
+                                    }
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                                 }
                             }
+                            .padding(.vertical, 4)
                         }
                         .swipeActions {
                             Button(role: .destructive) {
@@ -44,7 +51,6 @@ struct RecentlyViewedView: View {
             }
         }
         .navigationTitle("Recently Viewed")
-        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: Int.self) { id in
             WorkDetailView(workId: id)
         }
