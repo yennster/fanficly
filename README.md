@@ -14,6 +14,9 @@ An open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://ar
 <tr>
 <td align="center"><img src="docs/screenshots/05-browse.png" width="250" alt="Browse categories &amp; saved filters"><br><sub>Browse &amp; saved filters</sub></td>
 <td align="center"><img src="docs/screenshots/07-library.png" width="250" alt="Library"><br><sub>Library: follow &amp; download</sub></td>
+<td align="center"><img src="docs/screenshots/10-recently-viewed.png" width="250" alt="Recently Viewed"><br><sub>Recently Viewed</sub></td>
+</tr>
+<tr>
 <td align="center"><img src="docs/screenshots/09-reader-settings.png" width="250" alt="Reader settings"><br><sub>Reader themes &amp; type</sub></td>
 </tr>
 </table>
