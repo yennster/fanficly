@@ -41,13 +41,9 @@ Package.resolved
 Pods/
 Podfile.lock
 
-# fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots
-fastlane/test_output
-fastlane/api_key.json
-fastlane/.env
+# fastlane — App Store release tooling (Fastfile, metadata, screenshots, keys)
+# is kept LOCAL only and intentionally not tracked in this public repo.
+/fastlane/
 
 # Secrets / signing
 *.p8
