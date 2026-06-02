@@ -64,3 +64,9 @@ cache/
 # Environment
 .env
 .env.local
+
+# App Store review contact details (PII — kept local, never committed)
+fastlane/metadata/review_information/phone_number.txt
+fastlane/metadata/review_information/first_name.txt
+fastlane/metadata/review_information/last_name.txt
+fastlane/metadata/review_information/email_address.txt
