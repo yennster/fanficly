@@ -1,25 +1,32 @@
 import XCTest
+import UIKit
 
-/// Drives the app through its main screens and writes PNG screenshots to
-/// the directory given by the FANFICLY_SHOT_DIR environment variable.
-/// Run with:
+/// Drives the app **in demo mode** (`-demoMode`) through its hero screens and
+/// writes PNG screenshots to `docs/screenshots/`. Demo mode serves a curated,
+/// all-ages, fully-offline catalog (see `DemoAO3Client`/`DemoSeed`), so these
+/// shots are deterministic and contain no explicit/mature content — exactly
+/// what's needed for the App Store.
+///
+/// Run (per device size):
 ///   xcodebuild test -only-testing:FanficlyUITests/ScreenshotTests \
-///     -destination '...' FANFICLY_SHOT_DIR=/abs/path
+///     -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' ...
 final class ScreenshotTests: XCTestCase {
     var app: XCUIApplication!
     var shotDir: String!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        // Derive repo/docs/screenshots from this source file's path —
-        // the simulator runs as the host user and can write there.
         // #filePath = <repo>/FanficlyUITests/ScreenshotTests.swift
         let repoRoot = (((#filePath as NSString)
-            .deletingLastPathComponent as NSString)  // FanficlyUITests/
-            .deletingLastPathComponent)               // <repo>/
-        shotDir = (repoRoot as NSString).appendingPathComponent("docs/screenshots")
+            .deletingLastPathComponent as NSString)
+            .deletingLastPathComponent)
+        // Group raw shots by device so the 6.9" and 13" sets don't clobber.
+        let device = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
+            .appendingPathComponent(device)
         try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
         app = XCUIApplication()
+        app.launchArguments = ["-demoMode"]
         app.launch()
     }
 
@@ -29,7 +36,6 @@ final class ScreenshotTests: XCTestCase {
         do {
             try shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
         } catch {
-            // Fall back to an attachment so it's still recoverable.
             let att = XCTAttachment(screenshot: shot)
             att.name = name
             att.lifetime = .keepAlways
@@ -38,12 +44,11 @@ final class ScreenshotTests: XCTestCase {
     }
 
     /// Tap the leading nav-bar (back) button until the sidebar is showing.
-    /// The sidebar is the only screen whose navigation bar is titled "Fanficly".
     private func revealSidebar() {
-        for _ in 0..<5 {
+        for _ in 0..<6 {
             if app.navigationBars["Fanficly"].exists { return }
             let back = app.navigationBars.buttons.element(boundBy: 0)
-            if back.exists && back.isHittable { back.tap(); usleep(700_000) } else { break }
+            if back.exists && back.isHittable { back.tap(); usleep(600_000) } else { break }
         }
     }
 
@@ -52,69 +57,55 @@ final class ScreenshotTests: XCTestCase {
         let cell = app.collectionViews.staticTexts[title].firstMatch
         let fallback = app.staticTexts[title].firstMatch
         let target = cell.waitForExistence(timeout: 2) ? cell : fallback
-        if target.waitForExistence(timeout: 2) { target.tap(); usleep(900_000) }
+        if target.waitForExistence(timeout: 2) { target.tap(); usleep(800_000) }
     }
 
     func testCaptureMainScreens() throws {
-        // Launch lands on the sidebar — that's the "Fanficly" home.
-        usleep(800_000)
+        usleep(900_000)
         snap("01-home")
 
-        // Search: capture the (deterministic) screen, then results + reader
-        // best-effort — those need a live AO3 fetch and are flaky in automation.
+        // Search — type a prompt; demo data returns results instantly (offline).
         openSidebarItem("Search")
-        usleep(600_000)
-        snap("02-search")
+        usleep(500_000)
         let field = app.textFields.firstMatch
         if field.waitForExistence(timeout: 3) {
             field.tap()
-            usleep(400_000)
-            // Trailing newline triggers the search (handled in SearchView).
-            field.typeText("draco/hermione enemies to lovers complete\n")
-            if app.cells.firstMatch.waitForExistence(timeout: 25) {
-                usleep(700_000)
-                snap("03-search-results")
-                app.cells.firstMatch.tap()
-                sleep(3)
-                _ = app.staticTexts.firstMatch.waitForExistence(timeout: 18)
-                sleep(2)
-                snap("04-reader")
-            }
+            usleep(300_000)
+            field.typeText("found family slow burn complete\n")
+            _ = app.cells.firstMatch.waitForExistence(timeout: 6)
+            usleep(700_000)
+            snap("02-search-results")
+
+            // Reader — open the first result.
+            app.cells.firstMatch.tap()
+            _ = app.staticTexts.firstMatch.waitForExistence(timeout: 6)
+            usleep(900_000)
+            snap("03-reader")
         }
 
-        // Browse categories, then a category's live fandom list (needs network).
-        openSidebarItem("Browse")
-        usleep(600_000)
-        snap("05-browse")
-        let firstCategory = app.cells.firstMatch
-        if firstCategory.waitForExistence(timeout: 3) {
-            firstCategory.tap()
-            sleep(4)
-            // Only keep this shot if we actually navigated off the category list.
-            if app.navigationBars["Browse"].exists == false {
-                snap("06-browse-fandoms")
-            }
-        }
-
-        // Library
+        // Library — seeded with followed + downloaded works.
         openSidebarItem("Library")
-        usleep(600_000)
-        snap("07-library")
+        usleep(700_000)
+        snap("04-library")
 
-        // Recently Viewed — the search-results tap above seeds at least one entry.
+        // Browse — category catalog.
+        openSidebarItem("Browse")
+        usleep(700_000)
+        snap("05-browse")
+
+        // Recently Viewed — seeded history.
         openSidebarItem("Recently Viewed")
-        usleep(600_000)
-        snap("10-recently-viewed")
+        usleep(700_000)
+        snap("06-recently-viewed")
 
-        // Settings and Reader settings
+        // Reader settings — themes & typography (the customization story).
         openSidebarItem("Settings")
-        usleep(600_000)
-        snap("08-settings")
+        usleep(500_000)
         let readerRow = app.staticTexts["Theme & typography"].firstMatch
         if readerRow.waitForExistence(timeout: 3) {
             readerRow.tap()
-            sleep(1)
-            snap("09-reader-settings")
+            usleep(800_000)
+            snap("07-reader-settings")
         }
     }
 }

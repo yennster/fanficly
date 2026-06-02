@@ -46,9 +46,20 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots
 fastlane/test_output
+fastlane/api_key.json
+fastlane/.env
+
+# Secrets / signing
+*.p8
+*.p12
+*.mobileprovision
+
+# Python venv for screenshot framing
+bin/.venv/
+
+# Local tool scratch dirs
+.antigravitycli/
 
 # Environment
 .env
 .env.local
-*.p12
-*.mobileprovision

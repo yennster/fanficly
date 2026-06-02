@@ -203,6 +203,21 @@ final class SavedSearch {
     }
 }
 
+/// A work the user has hidden ("block objectionable content" — App Store
+/// guideline 1.2). Hidden ids are filtered out of Search and Browse results.
+@Model
+final class HiddenWork {
+    @Attribute(.unique) var ao3Id: Int
+    var title: String
+    var hiddenAt: Date
+
+    init(ao3Id: Int, title: String = "", hiddenAt: Date = .now) {
+        self.ao3Id = ao3Id
+        self.title = title
+        self.hiddenAt = hiddenAt
+    }
+}
+
 @Model
 final class SubscriptionRecord {
     @Attribute(.unique) var key: String

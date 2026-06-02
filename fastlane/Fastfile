@@ -1,0 +1,74 @@
+default_platform(:ios)
+
+PROJECT = "Fanficly.xcodeproj"
+SCHEME  = "Fanficly"
+API_KEY_JSON = File.expand_path("api_key.json", __dir__)
+
+# 6.9" iPhone + 13" iPad are the two required App Store display sizes.
+SHOT_DEVICES = ["iPhone 17 Pro Max", "iPad Pro 13-inch (M5)"]
+
+platform :ios do
+  desc "Capture deterministic demo-mode screenshots on the 6.9\" iPhone and 13\" iPad, then frame them into App Store marketing images."
+  lane :screenshots do
+    run_tests(
+      project: PROJECT,
+      scheme: SCHEME,
+      only_testing: ["FanficlyUITests/ScreenshotTests"],
+      devices: SHOT_DEVICES,
+      code_coverage: false,
+      xcargs: "CODE_SIGNING_ALLOWED=NO"
+    )
+    # Frame raw shots (docs/screenshots/{iphone,ipad}) → fastlane/screenshots/en-US.
+    venv = File.expand_path("../bin/.venv/bin/python", __dir__)
+    py   = File.exist?(venv) ? venv : "python3"
+    sh("#{py} #{File.expand_path('../bin/frame-screenshots.py', __dir__)}")
+  end
+
+  desc "Build a signed App Store .ipa (requires signing config)."
+  lane :build do
+    build_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      export_method: "app-store",
+      output_directory: "build/ipa",
+      clean: true
+    )
+  end
+
+  desc "Push metadata + framed screenshots + the build to App Store Connect. Does NOT auto-submit — review and click Submit in App Store Connect."
+  lane :release do
+    ensure_api_key
+    build
+    deliver(
+      api_key_path: API_KEY_JSON,
+      submit_for_review: false,
+      force: true,                              # skip the HTML preview prompt
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false
+    )
+  end
+
+  desc "Push only metadata + screenshots (no binary). Handy for copy/screenshot tweaks."
+  lane :metadata_only do
+    ensure_api_key
+    deliver(
+      api_key_path: API_KEY_JSON,
+      skip_binary_upload: true,
+      submit_for_review: false,
+      force: true,
+      overwrite_screenshots: true,
+      run_precheck_before_submit: false
+    )
+  end
+
+  def ensure_api_key
+    unless File.exist?(API_KEY_JSON)
+      UI.user_error!(
+        "Missing fastlane/api_key.json. Create an App Store Connect API key " \
+        "(Users & Access > Integrations > App Store Connect API), then save it as " \
+        "fastlane/api_key.json — see appstore/CHECKLIST.md."
+      )
+    end
+  end
+end
