@@ -6,10 +6,12 @@ Reads the deterministic demo-mode shots captured by
 `FanficlyUITests/ScreenshotTests` from docs/screenshots/{iphone,ipad}/ and
 turns each into a high-converting App Store screenshot: a real Apple device
 frame (via `fastlane frameit`) on a solid brand-violet canvas with a bold
-two-line headline (action verb + benefit). Output goes to
-fastlane/screenshots/en-US/ at exact App Store pixel sizes, so
-`fastlane deliver` can upload them directly (it picks the 6.9"/13" slot by
-resolution).
+two-line headline (action verb + benefit). Each image is written to BOTH:
+  - screenshots/final/{iphone,ipad}/   — the tracked marketing set (README)
+  - fastlane/screenshots/en-US/        — what `fastlane deliver` uploads
+…at exact App Store pixel sizes (deliver picks the 6.9"/13" slot by resolution).
+It also (re)builds screenshots/showcase.png — the README hero strip — from the
+first three iPhone shots, so re-running keeps the README assets in sync.
 
 Pipeline per screenshot:
   1. frameit wraps the raw shot in a genuine Apple bezel → device-on-transparent
@@ -33,10 +35,15 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(REPO, "docs", "screenshots")
-OUT = os.path.join(REPO, "fastlane", "screenshots", "en-US")
+OUT = os.path.join(REPO, "fastlane", "screenshots", "en-US")   # what `deliver` uploads
+FINAL = os.path.join(REPO, "screenshots", "final")             # tracked marketing set (README)
+SHOWCASE = os.path.join(REPO, "screenshots", "showcase.png")   # README hero strip
+GITHUB_URL = "github.com/yennster/fanficly"
 
 BG = (0x6D, 0x28, 0xD9)  # Electric Violet — the ASO brand background
 FONT = "/Library/Fonts/SF-Pro-Display-Black.otf"
+# Caption font for the showcase strip (falls back to the headline font, then default).
+SHOWCASE_FONTS = ["/Library/Fonts/SF-Pro-Display-Regular.otf", FONT]
 
 # (raw basename, output slug, action verb, benefit descriptor). Output order =
 # this order; deliver sorts by filename, so the NN prefix preserves it.
@@ -125,14 +132,39 @@ def compose(g, verb, desc, framed_path, out_path):
     Image.alpha_composite(canvas, layer).convert("RGB").save(out_path, "PNG")
 
 
+def make_showcase(paths, out_path):
+    """README hero strip: up to 3 marketing shots side-by-side + the GitHub URL."""
+    target_h, pad, gap, bar = 800, 60, 40, 100
+    scaled = [Image.open(p).convert("RGBA") for p in paths]
+    scaled = [im.resize((round(im.width * target_h / im.height), target_h), Image.LANCZOS)
+              for im in scaled]
+    W = sum(s.width for s in scaled) + gap * (len(scaled) - 1) + pad * 2
+    H = target_h + pad * 2 + bar
+    canvas = Image.new("RGB", (W, H), (255, 255, 255))
+    x = pad
+    for s in scaled:
+        canvas.paste(s, (x, pad), s)
+        x += s.width + gap
+    font = next((ImageFont.truetype(f, 40) for f in SHOWCASE_FONTS if os.path.exists(f)),
+                ImageFont.load_default())
+    ImageDraw.Draw(canvas).text((W // 2, pad + target_h + bar // 2), GITHUB_URL,
+                                fill="#000000", font=font, anchor="mm")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    canvas.save(out_path)
+    print(f"  ✓ {os.path.relpath(out_path, REPO)}")
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     made = 0
+    iphone_finals = []
     for device, g in DEVICES.items():
         src = os.path.join(RAW, device)
         if not os.path.isdir(src):
             print(f"skip {device}: {src} not found")
             continue
+        final_dir = os.path.join(FINAL, device)
+        os.makedirs(final_dir, exist_ok=True)
         work = tempfile.mkdtemp(prefix=f"frameit-{device}-")
         # Stage slug-named (and frame-sized) screenshots for frameit.
         staged = []
@@ -148,16 +180,22 @@ def main():
             shot.save(os.path.join(work, f"{slug}.png"))
             staged.append((slug, verb, desc))
         if not staged:
+            shutil.rmtree(work, ignore_errors=True)
             continue
         run_frameit(work)
         for slug, verb, desc in staged:
             framed = os.path.join(work, f"{slug}_framed.png")
-            out = os.path.join(OUT, f"{device}-{slug}.png")
-            compose(g, verb, desc, framed, out)
-            print(f"  ✓ {os.path.basename(out)}")
+            final_out = os.path.join(final_dir, f"{slug}.png")
+            compose(g, verb, desc, framed, final_out)              # tracked marketing image
+            shutil.copy(final_out, os.path.join(OUT, f"{device}-{slug}.png"))  # deliver upload
+            print(f"  ✓ {device}-{slug}.png")
             made += 1
+            if device == "iphone":
+                iphone_finals.append(final_out)
         shutil.rmtree(work, ignore_errors=True)
-    print(f"Done — {made} framed images in {OUT}")
+    if iphone_finals:
+        make_showcase(iphone_finals[:3], SHOWCASE)
+    print(f"Done — {made} framed images → screenshots/final/ and fastlane/screenshots/en-US/")
 
 
 if __name__ == "__main__":
