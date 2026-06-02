@@ -2,24 +2,9 @@
 
 An open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://archiveofourown.org).
 
-<!-- screenshots:start -->
-## Screenshots
-
-<table>
-<tr>
-<td align="center"><img src="screenshots/final/iphone/01-search-plain-english.png" width="250" alt="Search in plain English"></td>
-<td align="center"><img src="screenshots/final/iphone/02-zero-tracking.png" width="250" alt="Zero tracking, zero ads"></td>
-<td align="center"><img src="screenshots/final/iphone/03-customize-every-page.png" width="250" alt="Customize every page"></td>
-</tr>
-<tr>
-<td align="center"><img src="screenshots/final/iphone/04-read-offline.png" width="250" alt="Read anywhere, offline"></td>
-<td align="center"><img src="screenshots/final/iphone/05-never-miss-chapter.png" width="250" alt="Never miss a chapter"></td>
-<td></td>
-</tr>
-</table>
+<img src="screenshots/showcase.png" alt="Fanficly showcase">
 
 _These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots` (or `python3 bin/frame-screenshots.py` once the raw demo-mode shots exist): the `ScreenshotTests` UI test captures the raw screens to `docs/screenshots/{iphone,ipad}/`, then `bin/frame-screenshots.py` frames them in real Apple bezels via `fastlane frameit` and writes the finals to `screenshots/final/` and `fastlane/screenshots/en-US/`._
-<!-- screenshots:end -->
 
 ## Features
 
