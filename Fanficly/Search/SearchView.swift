@@ -5,6 +5,8 @@ struct SearchView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
     @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
+    @Query private var hiddenWorks: [HiddenWork]
+    @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @State private var prompt: String = ""
     @State private var lastParsed: AO3SearchFilters = AO3SearchFilters()
     @State private var results: [AO3WorkSummary] = []
@@ -119,6 +121,11 @@ struct SearchView: View {
         .background(Color(.systemBackground))
     }
 
+    /// Results minus hidden works and (optionally) Mature/Explicit-rated ones.
+    private var visibleResults: [AO3WorkSummary] {
+        ContentFilter.apply(results, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+    }
+
     @ViewBuilder
     private var contentArea: some View {
         if isSearching {
@@ -134,13 +141,16 @@ struct SearchView: View {
         } else if results.isEmpty {
             ContentUnavailableView("Type a prompt", systemImage: "sparkle.magnifyingglass",
                 description: Text("e.g. \"edward/bella romance all human complete\""))
+        } else if visibleResults.isEmpty {
+            ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
+                description: Text("Every match is hidden or filtered out by your content settings."))
         } else {
             List {
-                ForEach(results) { work in
+                ForEach(visibleResults) { work in
                     NavigationLink(value: work) { WorkRow(work: work) }
                         // Infinite scroll: pull the next page as the last row appears.
                         .onAppear {
-                            if work.id == results.last?.id {
+                            if work.id == visibleResults.last?.id {
                                 Task { await loadMore() }
                             }
                         }
@@ -500,12 +510,14 @@ struct WorkDetailView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
+    @Environment(\.dismiss) private var dismiss
     let workId: Int
     @State private var payload: AO3WorkPayload?
     @State private var errorMessage: String?
     @State private var isSavingOffline: Bool = false
     @State private var followed: Bool = false
     @State private var epubURL: URL?
+    @State private var showingReport: Bool = false
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -524,7 +536,12 @@ struct WorkDetailView: View {
                             followButton(payload: payload)
                             WorkExportButton(workId: workId, title: payload.summary.title)
                             saveOfflineButton(payload: payload)
+                            moreMenu(payload: payload)
                         }
+                    }
+                    .sheet(isPresented: $showingReport) {
+                        SafariView(url: URL(string: "https://archiveofourown.org/abuse_reports/new")!)
+                            .ignoresSafeArea()
                     }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
@@ -553,6 +570,28 @@ struct WorkDetailView: View {
         .accessibilityLabel(followed ? "Following" : "Follow")
     }
 
+
+    /// Overflow menu with the UGC safeguards (App Store guideline 1.2):
+    /// report objectionable content to AO3 (the host/moderator), and hide the
+    /// work locally so it never appears in results again.
+    private func moreMenu(payload: AO3WorkPayload) -> some View {
+        Menu {
+            Button {
+                showingReport = true
+            } label: {
+                Label("Report this work", systemImage: "flag")
+            }
+            Button(role: .destructive) {
+                HiddenWorkStore.hide(ao3Id: payload.summary.id, title: payload.summary.title, into: context)
+                dismiss()
+            } label: {
+                Label("Hide this work", systemImage: "eye.slash")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("More")
+    }
 
     private func saveOfflineButton(payload: AO3WorkPayload) -> some View {
         Button {

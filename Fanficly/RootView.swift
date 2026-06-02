@@ -4,6 +4,8 @@ struct RootView: View {
     // Start with no selection so the app opens on the sidebar menu
     // (on iPhone) rather than pushing straight into Search.
     @State private var selectedTab: SidebarItem? = nil
+    @Environment(\.modelContext) private var context
+    @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
 
     var body: some View {
         NavigationSplitView {
@@ -26,6 +28,14 @@ struct RootView: View {
                 case .settings: SettingsView()
                 }
             }
+        }
+        .task {
+            if FanficlyApp.isDemoMode { DemoSeed.seed(into: context) }
+        }
+        // 17+ confirmation on first launch (UGC safeguard). Skipped in demo
+        // mode so screenshot automation isn't blocked.
+        .fullScreenCover(isPresented: .constant(!ageConfirmed && !FanficlyApp.isDemoMode)) {
+            AgeGateView()
         }
     }
 }

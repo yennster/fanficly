@@ -3,7 +3,12 @@ import SwiftData
 
 @main
 struct FanficlyApp: App {
-    private let client: AO3Client = AO3Client()
+    /// True when launched for App Store screenshots / manual demos. Swaps in a
+    /// fully offline, curated, all-ages client and an in-memory store so nothing
+    /// touches the network or real storage. See `DemoAO3Client` / `DemoSeed`.
+    static var isDemoMode: Bool { ProcessInfo.processInfo.arguments.contains("-demoMode") }
+
+    private let client: any AO3ClientProtocol = FanficlyApp.isDemoMode ? DemoAO3Client() : AO3Client()
     @State private var auth = AuthState()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -18,8 +23,10 @@ struct FanficlyApp: App {
             ReadingProgress.self,
             SavedFilter.self,
             RecentlyViewed.self,
+            HiddenWork.self,
         ])
-        return try! ModelContainer(for: schema)
+        let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode)
+        return try! ModelContainer(for: schema, configurations: config)
     }()
 
     var body: some Scene {

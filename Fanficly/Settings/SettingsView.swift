@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AuthState.self) private var auth
+    @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
 
     /// Pre-filled feedback email (subject percent-encoded so it survives the mailto).
     static let feedbackMailto = URL(
@@ -25,6 +26,19 @@ struct SettingsView: View {
                 NavigationLink("Theme & typography") {
                     ReaderSettingsView()
                 }
+            }
+            Section {
+                Toggle("Filter mature & explicit works", isOn: $filterMature)
+                NavigationLink("Hidden works") {
+                    HiddenWorksView()
+                }
+                NavigationLink("Content policy") {
+                    ContentPolicyView()
+                }
+            } header: {
+                Text("Content & Safety")
+            } footer: {
+                Text("Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results.")
             }
             Section("Privacy") {
                 NavigationLink("What this app sees and stores") {

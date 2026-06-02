@@ -1,0 +1,6 @@
+{
+  "key_id": "XXXXXXXXXX",
+  "issuer_id": "00000000-0000-0000-0000-000000000000",
+  "key": "-----BEGIN PRIVATE KEY-----\nPASTE THE CONTENTS OF YOUR .p8 FILE HERE\n(keep the \\n escapes, all on one line)\n-----END PRIVATE KEY-----",
+  "in_house": false
+}

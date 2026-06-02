@@ -130,6 +130,8 @@ struct CategoryFandomsView: View {
 
 struct FandomWorksView: View {
     @Environment(\.ao3Client) private var client
+    @Query private var hiddenWorks: [HiddenWork]
+    @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     let title: String
     @State private var works: [AO3WorkSummary] = []
     @State private var currentPage: Int = 1
@@ -159,6 +161,11 @@ struct FandomWorksView: View {
         self.init(filters: initial, title: savedFilter.name)
     }
 
+    /// Works minus hidden ones and (optionally) Mature/Explicit-rated ones.
+    private var visibleWorks: [AO3WorkSummary] {
+        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+    }
+
     var body: some View {
         Group {
             if isLoading && works.isEmpty {
@@ -166,18 +173,18 @@ struct FandomWorksView: View {
             } else if let errorMessage, works.isEmpty {
                 ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
-            } else if works.isEmpty {
-                ContentUnavailableView("No works found", systemImage: "tray",
-                    description: Text("Nothing matched these filters. Try loosening them."))
+            } else if visibleWorks.isEmpty {
+                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
+                    description: Text("Every match is hidden or filtered out by your content settings."))
             } else {
                 List {
                     Section {
-                        ForEach(works) { work in
+                        ForEach(visibleWorks) { work in
                             NavigationLink(value: work) { WorkRow(work: work) }
                                 // Infinite scroll: when the last loaded row comes
                                 // into view, pull the next page automatically.
                                 .onAppear {
-                                    if work.id == works.last?.id {
+                                    if work.id == visibleWorks.last?.id {
                                         Task { await loadMore() }
                                     }
                                 }
