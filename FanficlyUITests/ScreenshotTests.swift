@@ -107,5 +107,19 @@ final class ScreenshotTests: XCTestCase {
             usleep(800_000)
             snap("07-reader-settings")
         }
+
+        // Privacy — "what this app sees and stores" (the zero-tracking story).
+        // We're in Theme & typography (pushed from Settings). Pop back ONE level
+        // to the Settings root, then open the privacy page. On iPad's split view
+        // re-selecting the Settings sidebar item won't pop the detail stack, so
+        // navigate via the back button instead of openSidebarItem.
+        let settingsBack = app.navigationBars.buttons.element(boundBy: 0)
+        if settingsBack.exists && settingsBack.isHittable { settingsBack.tap(); usleep(700_000) }
+        let privacyRow = app.staticTexts["What this app sees and stores"].firstMatch
+        if privacyRow.waitForExistence(timeout: 3) {
+            privacyRow.tap()
+            usleep(800_000)
+            snap("08-privacy")
+        }
     }
 }

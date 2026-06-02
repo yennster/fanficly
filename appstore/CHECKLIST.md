@@ -16,12 +16,17 @@ Prepared assets already in the repo:
 ## 0. One-time local setup  [local]
 
 ```bash
-# Ruby fastlane (uses the Gemfile)
-bundle install
+# fastlane (the bundled brew build ships its own Ruby — simplest on modern macOS)
+brew install fastlane imagemagick   # imagemagick is required by `frameit` for the framed screenshots
 
 # Screenshots venv already exists at bin/.venv; if not:
 python3 -m venv bin/.venv && bin/.venv/bin/pip install Pillow
 ```
+
+> The screenshot framing (`fastlane screenshots`) uses `fastlane frameit` (real
+> Apple device bezels) + ImageMagick, then composites the ASO headline. If you
+> prefer the Ruby `bundle exec fastlane` path, `bundle install` also works on a
+> modern Ruby (the system Ruby 2.6 is too old).
 
 ## 1. App Store Connect API key  [portal] → [local]
 

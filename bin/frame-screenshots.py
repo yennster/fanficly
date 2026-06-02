@@ -4,162 +4,159 @@ Frame raw simulator screenshots into App Store marketing images.
 
 Reads the deterministic demo-mode shots captured by
 `FanficlyUITests/ScreenshotTests` from docs/screenshots/{iphone,ipad}/ and
-composes each onto a branded gradient with a short headline caption and a
-rounded, shadowed device card. Output goes to fastlane/screenshots/en-US/ at
-the exact App Store pixel sizes, so `fastlane deliver` can upload them directly
-(it picks the 6.9"/13" slot by resolution).
+turns each into a high-converting App Store screenshot: a real Apple device
+frame (via `fastlane frameit`) on a solid brand-violet canvas with a bold
+two-line headline (action verb + benefit). Output goes to
+fastlane/screenshots/en-US/ at exact App Store pixel sizes, so
+`fastlane deliver` can upload them directly (it picks the 6.9"/13" slot by
+resolution).
+
+Pipeline per screenshot:
+  1. frameit wraps the raw shot in a genuine Apple bezel → device-on-transparent
+     PNG. (iPad's 13" 2064x2752 isn't in frameit's frame set, so we frame at the
+     supported iPad Pro 12.9" size 2048x2732, then composite onto the 13" canvas.)
+  2. We composite that framed device onto the violet canvas and draw the headline.
 
 Run:
-    bin/.venv/bin/python bin/frame-screenshots.py
-Requires Pillow (installed into bin/.venv by the setup step).
+    bin/.venv/bin/python bin/frame-screenshots.py     # (or: python3 bin/frame-screenshots.py)
+
+Requires: Pillow, a working `fastlane` (frameit) on PATH, and ImageMagick
+(frameit's image engine). On macOS: `brew install fastlane imagemagick`.
 """
 
 from __future__ import annotations
 import os
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import shutil
+import subprocess
+import tempfile
+from PIL import Image, ImageDraw, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(REPO, "docs", "screenshots")
 OUT = os.path.join(REPO, "fastlane", "screenshots", "en-US")
 
-# Brand gradient (top → bottom), in the app's purple accent family.
-GRAD_TOP = (74, 50, 130)     # deep violet
-GRAD_BOTTOM = (150, 110, 224)  # lavender
-CAPTION_RGB = (255, 255, 255)
+BG = (0x6D, 0x28, 0xD9)  # Electric Violet — the ASO brand background
+FONT = "/Library/Fonts/SF-Pro-Display-Black.otf"
 
-# (raw basename, caption). Output order follows this list (deliver sorts by name).
+# (raw basename, output slug, action verb, benefit descriptor). Output order =
+# this order; deliver sorts by filename, so the NN prefix preserves it.
 SLIDES = [
-    ("02-search-results", "Search in plain English"),
-    ("03-reader",         "A reader built for long nights"),
-    ("04-library",        "Your library, fully offline"),
-    ("07-reader-settings","Make it yours — themes & type"),
-    ("05-browse",         "Browse every fandom"),
-    ("06-recently-viewed","Pick up where you left off"),
+    ("02-search-results",  "search-plain-english", "SEARCH",        "IN PLAIN ENGLISH"),
+    ("08-privacy",         "zero-tracking",        "ZERO TRACKING", "ZERO ADS"),
+    ("07-reader-settings", "customize-every-page", "CUSTOMIZE",     "EVERY PAGE"),
+    ("03-reader",          "read-offline",         "READ",          "ANYWHERE, OFFLINE"),
+    ("04-library",         "never-miss-chapter",   "NEVER MISS",    "A CHAPTER"),
 ]
 
-FONT_CANDIDATES = [
-    "/System/Library/Fonts/SFNSRounded.ttf",
-    "/System/Library/Fonts/SFNS.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-]
-
-
-def load_font(size: int) -> ImageFont.FreeTypeFont:
-    for path in FONT_CANDIDATES:
-        if os.path.exists(path):
-            font = ImageFont.truetype(path, size)
-            # Variable SF fonts: nudge to a bold-ish instance when available.
-            try:
-                font.set_variation_by_name("Bold")
-            except Exception:
-                pass
-            return font
-    return ImageFont.load_default()
-
-
-def vertical_gradient(w: int, h: int) -> Image.Image:
-    base = Image.new("RGB", (w, h), GRAD_TOP)
-    top = Image.new("RGB", (w, h), GRAD_TOP)
-    bottom = Image.new("RGB", (w, h), GRAD_BOTTOM)
-    mask = Image.new("L", (1, h))
-    for y in range(h):
-        mask.putpixel((0, y), int(255 * y / max(1, h - 1)))
-    mask = mask.resize((w, h))
-    return Image.composite(bottom, top, mask)
-
-
-def rounded(img: Image.Image, radius: int) -> Image.Image:
-    mask = Image.new("L", img.size, 0)
-    d = ImageDraw.Draw(mask)
-    d.rounded_rectangle([0, 0, img.size[0], img.size[1]], radius=radius, fill=255)
-    out = img.convert("RGBA")
-    out.putalpha(mask)
-    return out
+# Per-device geometry. `out_w/out_h` are the exact App Store dimensions we emit;
+# `frame_w/frame_h` are what we feed frameit (must be a size frameit has a frame
+# for — iPad 13" has none, so we frame at 12.9" and composite onto the 13" canvas).
+DEVICES = {
+    "iphone": dict(out_w=1320, out_h=2868, frame_w=1320, frame_h=2868,
+                   text_top=0.045, verb_max=232, verb_min=120, desc=116,
+                   dev_w=0.86, dev_top=0.275),
+    "ipad":   dict(out_w=2064, out_h=2752, frame_w=2048, frame_h=2732,
+                   text_top=0.052, verb_max=300, verb_min=150, desc=150,
+                   dev_w=0.70, dev_top=0.300),
+}
 
 
 def wrap(draw, text, font, max_w):
-    words, lines, cur = text.split(), [], ""
-    for word in words:
-        trial = (cur + " " + word).strip()
-        if draw.textlength(trial, font=font) <= max_w:
-            cur = trial
+    out, cur = [], ""
+    for w in text.split():
+        t = f"{cur} {w}".strip()
+        if draw.textlength(t, font=font) <= max_w:
+            cur = t
         else:
             if cur:
-                lines.append(cur)
-            cur = word
+                out.append(cur)
+            cur = w
     if cur:
-        lines.append(cur)
-    return lines
+        out.append(cur)
+    return out
 
 
-def frame(raw_path: str, caption: str, out_path: str):
-    shot = Image.open(raw_path).convert("RGB")
-    W, H = shot.size
-    is_pad = W / H > 0.6
+def fit_font(text, max_w, smax, smin):
+    d = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    for s in range(smax, smin - 1, -4):
+        f = ImageFont.truetype(FONT, s)
+        if d.textbbox((0, 0), text, font=f)[2] <= max_w:
+            return f
+    return ImageFont.truetype(FONT, smin)
 
-    canvas = vertical_gradient(W, H)
-    draw = ImageDraw.Draw(canvas)
 
-    # Caption.
-    font = load_font(int(W * (0.040 if is_pad else 0.050)))
-    side = int(W * 0.08)
-    lines = wrap(draw, caption, font, W - 2 * side)
-    line_h = int(font.size * 1.18)
-    y = int(H * (0.05 if is_pad else 0.055))
-    for line in lines:
-        tw = draw.textlength(line, font=font)
-        draw.text(((W - tw) / 2, y), line, font=font, fill=CAPTION_RGB)
-        y += line_h
-    caption_bottom = y + int(H * 0.012)
+def centered(draw, cx, y, text, font, max_w, gap):
+    for line in wrap(draw, text, font, max_w):
+        b = draw.textbbox((0, 0), line, font=font)
+        draw.text((cx, y - b[1]), line, fill="white", font=font, anchor="mt")
+        y += (b[3] - b[1]) + gap
+    return y
 
-    # Device card: scale to a fraction of width, place below the caption.
-    target_w = int(W * (0.74 if is_pad else 0.80))
-    scale = target_w / W
-    target_h = int(H * scale)
-    card = shot.resize((target_w, target_h), Image.LANCZOS)
-    radius = int(target_w * 0.045)
-    card = rounded(card, radius)
 
-    cx = (W - target_w) // 2
-    # Vertically center the card in the space between the caption and the
-    # bottom margin (so iPad's shorter aspect doesn't leave a big gap below).
-    bottom_limit = H - int(H * 0.04)
-    avail = bottom_limit - caption_bottom
-    cy = caption_bottom + max(0, (avail - target_h) // 2)
+def run_frameit(workdir: str):
+    """Frame every PNG in workdir into a device-on-transparent *_framed.png."""
+    fastlane = shutil.which("fastlane") or "/opt/homebrew/bin/fastlane"
+    env = {**os.environ, "LC_ALL": "en_US.UTF-8", "LANG": "en_US.UTF-8"}
+    res = subprocess.run([fastlane, "frameit"], cwd=workdir, env=env,
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError("frameit failed:\n" + res.stdout[-2000:] + res.stderr[-2000:])
 
-    # Soft drop shadow.
-    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    pad = int(W * 0.02)
-    sd.rounded_rectangle(
-        [cx - pad // 2, cy + pad, cx + target_w + pad // 2, cy + target_h + pad * 2],
-        radius=radius, fill=(20, 10, 40, 150),
-    )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(int(W * 0.018)))
-    canvas = Image.alpha_composite(canvas.convert("RGBA"), shadow)
-    canvas.alpha_composite(card, (cx, cy))
 
-    canvas.convert("RGB").save(out_path, "PNG")
+def compose(g, verb, desc, framed_path, out_path):
+    W, H = g["out_w"], g["out_h"]
+    canvas = Image.new("RGBA", (W, H), (*BG, 255))
+    d = ImageDraw.Draw(canvas)
+    cx, mw, gap = W // 2, int(W * 0.88), int(W * 0.012)
+
+    vf = fit_font(verb.upper(), mw, g["verb_max"], g["verb_min"])
+    df = ImageFont.truetype(FONT, g["desc"])
+    y = int(H * g["text_top"])
+    y = centered(d, cx, y, verb.upper(), vf, mw, gap)
+    y += gap
+    centered(d, cx, y, desc.upper(), df, mw, gap)
+
+    dev = Image.open(framed_path).convert("RGBA")
+    tw = int(W * g["dev_w"])
+    th = int(dev.height * tw / dev.width)
+    dev = dev.resize((tw, th), Image.LANCZOS)
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    layer.alpha_composite(dev, ((W - tw) // 2, int(H * g["dev_top"])))
+    Image.alpha_composite(canvas, layer).convert("RGB").save(out_path, "PNG")
 
 
 def main():
     os.makedirs(OUT, exist_ok=True)
     made = 0
-    for device in ("iphone", "ipad"):
+    for device, g in DEVICES.items():
         src = os.path.join(RAW, device)
         if not os.path.isdir(src):
             print(f"skip {device}: {src} not found")
             continue
-        for i, (base, caption) in enumerate(SLIDES, start=1):
+        work = tempfile.mkdtemp(prefix=f"frameit-{device}-")
+        # Stage slug-named (and frame-sized) screenshots for frameit.
+        staged = []
+        for i, (base, out_slug, verb, desc) in enumerate(SLIDES, start=1):
             raw = os.path.join(src, f"{base}.png")
             if not os.path.exists(raw):
                 print(f"  missing {raw}")
                 continue
-            slug = base.split("-", 1)[1]
-            out = os.path.join(OUT, f"{device}-{i:02d}-{slug}.png")
-            frame(raw, caption, out)
+            slug = f"{i:02d}-{out_slug}"
+            shot = Image.open(raw).convert("RGB")
+            if shot.size != (g["frame_w"], g["frame_h"]):
+                shot = shot.resize((g["frame_w"], g["frame_h"]), Image.LANCZOS)
+            shot.save(os.path.join(work, f"{slug}.png"))
+            staged.append((slug, verb, desc))
+        if not staged:
+            continue
+        run_frameit(work)
+        for slug, verb, desc in staged:
+            framed = os.path.join(work, f"{slug}_framed.png")
+            out = os.path.join(OUT, f"{device}-{slug}.png")
+            compose(g, verb, desc, framed, out)
             print(f"  ✓ {os.path.basename(out)}")
             made += 1
+        shutil.rmtree(work, ignore_errors=True)
     print(f"Done — {made} framed images in {OUT}")
 
 

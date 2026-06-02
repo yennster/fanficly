@@ -18,7 +18,10 @@ platform :ios do
       code_coverage: false,
       xcargs: "CODE_SIGNING_ALLOWED=NO"
     )
-    # Frame raw shots (docs/screenshots/{iphone,ipad}) → fastlane/screenshots/en-US.
+    # Frame raw shots (docs/screenshots/{iphone,ipad}) into App Store marketing
+    # images → fastlane/screenshots/en-US. Uses `fastlane frameit` for genuine
+    # Apple device bezels, then composites them onto the violet brand canvas with
+    # the bold ASO headlines. Requires frameit + ImageMagick: `brew install fastlane imagemagick`.
     venv = File.expand_path("../bin/.venv/bin/python", __dir__)
     py   = File.exist?(venv) ? venv : "python3"
     sh("#{py} #{File.expand_path('../bin/frame-screenshots.py', __dir__)}")

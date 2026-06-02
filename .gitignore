@@ -59,6 +59,9 @@ bin/.venv/
 
 # Local tool scratch dirs
 .antigravitycli/
+cache/
+# Working area for ASO marketing screenshots (the deliverables live in fastlane/screenshots, also ignored)
+/screenshots/
 
 # Environment
 .env
