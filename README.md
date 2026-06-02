@@ -7,18 +7,18 @@ An open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://ar
 
 <table>
 <tr>
-<td align="center"><img src="docs/screenshots/03-search-results.png" width="250" alt="Search results"><br><sub>Results, your way</sub></td>
-<td align="center"><img src="docs/screenshots/04-reader.png" width="250" alt="Reader"><br><sub>Distraction-free reader</sub></td>
-<td align="center"><img src="docs/screenshots/05-browse.png" width="250" alt="Browse categories &amp; saved filters"><br><sub>Browse &amp; saved filters</sub></td>
+<td align="center"><img src="screenshots/final/iphone/01-search-plain-english.png" width="250" alt="Search in plain English"></td>
+<td align="center"><img src="screenshots/final/iphone/02-zero-tracking.png" width="250" alt="Zero tracking, zero ads"></td>
+<td align="center"><img src="screenshots/final/iphone/03-customize-every-page.png" width="250" alt="Customize every page"></td>
 </tr>
 <tr>
-<td align="center"><img src="docs/screenshots/07-library.png" width="250" alt="Library"><br><sub>Library: follow &amp; download</sub></td>
-<td align="center"><img src="docs/screenshots/10-recently-viewed.png" width="250" alt="Recently Viewed"><br><sub>Recently Viewed</sub></td>
-<td align="center"><img src="docs/screenshots/09-reader-settings.png" width="250" alt="Reader settings"><br><sub>Reader themes &amp; type</sub></td>
+<td align="center"><img src="screenshots/final/iphone/04-read-offline.png" width="250" alt="Read anywhere, offline"></td>
+<td align="center"><img src="screenshots/final/iphone/05-never-miss-chapter.png" width="250" alt="Never miss a chapter"></td>
+<td></td>
 </tr>
 </table>
 
-_Regenerate by running the `ScreenshotTests` UI test, which writes PNGs straight to `docs/screenshots/`. The search-results, reader, and fandom-list shots need a live AO3 fetch and are flaky under automation (AO3 rate-limits fresh simulators) — re-run until they land, or capture manually._
+_These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots` (or `python3 bin/frame-screenshots.py` once the raw demo-mode shots exist): the `ScreenshotTests` UI test captures the raw screens to `docs/screenshots/{iphone,ipad}/`, then `bin/frame-screenshots.py` frames them in real Apple bezels via `fastlane frameit` and writes the finals to `screenshots/final/` and `fastlane/screenshots/en-US/`._
 <!-- screenshots:end -->
 
 ## Features
