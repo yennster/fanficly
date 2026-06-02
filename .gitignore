@@ -41,13 +41,9 @@ Package.resolved
 Pods/
 Podfile.lock
 
-# fastlane
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots
-fastlane/test_output
-fastlane/api_key.json
-fastlane/.env
+# fastlane — App Store release tooling (Fastfile, metadata, screenshots, keys)
+# is kept LOCAL only and intentionally not tracked in this public repo.
+/fastlane/
 
 # Secrets / signing
 *.p8
@@ -64,9 +60,3 @@ cache/
 # Environment
 .env
 .env.local
-
-# App Store review contact details (PII — kept local, never committed)
-fastlane/metadata/review_information/phone_number.txt
-fastlane/metadata/review_information/first_name.txt
-fastlane/metadata/review_information/last_name.txt
-fastlane/metadata/review_information/email_address.txt
