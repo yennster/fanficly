@@ -50,10 +50,6 @@ struct SettingsView: View {
                 Link(destination: URL(string: "https://github.com/yennster/fanficly")!) {
                     Label("Source on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
-                Link(destination: URL(string: "https://github.com/sponsors/yennster/")!) {
-                    Label("Sponsor me on GitHub", systemImage: "heart.fill")
-                        .foregroundStyle(.pink)
-                }
                 Link(destination: Self.feedbackMailto) {
                     Label("Send feedback", systemImage: "envelope")
                 }

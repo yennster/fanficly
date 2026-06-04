@@ -39,8 +39,8 @@ Fanficly/
   Reader/
     ReaderView.swift           # continuous + paginated modes, chapter header,
                                #   floating chapter indicator, typography menu,
-                               #   reading-position save/restore; immersive
-                               #   chrome (auto-hides on scroll — see below)
+                               #   reading-position save/restore; plain system
+                               #   nav bar (no auto-hide — see below)
     ChapterContentView.swift   # renders a chapter as paragraphs w/ scroll anchors
     HTMLText.swift             # async cached HTML → AttributedString (summary)
     HTMLToAttributed.swift     # SwiftSoup → AttributedString / paragraphs

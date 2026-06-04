@@ -14,7 +14,7 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 - **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story.
 - **Follow & save — no account needed** — bookmark any story to your device with one tap; followed works load on demand and are polled in the background, with a local notification when new chapters drop. Or download for fully offline reading.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3 (Kindle), PDF, or HTML through the iOS share sheet (AirDrop, Send to Kindle, Books, Files, …).
-- **AO3 account (optional)** — log in to post kudos, subscribe on AO3, and sync your subscriptions. Credentials never stored; only the session cookie, in the Keychain.
+- **AO3 account (optional)** — log in to subscribe on AO3, and sync your subscriptions. Credentials never stored; only the session cookie, in the Keychain.
 - **iPad-native** — adaptive `NavigationSplitView` from day one.
 - **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
 
