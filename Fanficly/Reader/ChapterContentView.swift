@@ -10,6 +10,9 @@ struct ChapterContentView: View {
     let paragraphSpacing: CGFloat
     let foreground: Color
     let scrollSpace: String
+    /// Paragraph index to emphasise while it's being read aloud (TTS karaoke),
+    /// or nil when this chapter isn't the one narrating.
+    var highlightParagraph: Int? = nil
 
     @State private var paragraphs: [AttributedString]?
 
@@ -28,12 +31,19 @@ struct ChapterContentView: View {
                         .foregroundStyle(foreground)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        // Karaoke highlight: a flush fill behind the paragraph's
+                        // existing frame, so toggling it never reflows the text.
+                        .background(
+                            highlightParagraph == index ? Color.accentColor.opacity(0.15) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 5)
+                        )
                         .id(ChapterTracking.key(chapter: chapterIndex, paragraph: index))
                         .background {
                             if index % anchorStride == 0 {
                                 anchorReporter(paragraph: index)
                             }
                         }
+                        .animation(.easeInOut(duration: 0.2), value: highlightParagraph == index)
                 }
             } else {
                 Text(plainFallback)

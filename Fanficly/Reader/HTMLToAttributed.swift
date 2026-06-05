@@ -29,19 +29,20 @@ enum HTMLToAttributed {
         return ctx.finish()
     }
 
-    /// Plain-text paragraphs for narration (text-to-speech). Reuses the same
-    /// block splitting as the reader, then flattens soft line breaks, drops
-    /// list bullets and scene-break separators, so the synthesizer reads clean
-    /// prose with sensible pauses between paragraphs.
-    static func plainTextParagraphs(_ html: String) -> [String] {
-        convertParagraphs(html)
-            .map { para in
-                String(para.characters)
-                    .replacingOccurrences(of: "\n", with: " ")
-                    .replacingOccurrences(of: "•", with: "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            .filter { !$0.isEmpty && $0 != "· · ·" }
+    /// One speech string per *rendered* paragraph — same count and order as
+    /// `convertParagraphs` (what `ChapterContentView` displays) — so the TTS
+    /// narrator and the karaoke highlight share a paragraph index. Scene-break
+    /// separators become "" (they occupy an index but aren't read aloud); soft
+    /// line breaks are flattened and list bullets dropped so the synthesizer
+    /// reads clean prose. The controller skips the empty entries when speaking.
+    static func speechParagraphs(_ html: String) -> [String] {
+        convertParagraphs(html).map { para in
+            let s = String(para.characters)
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "•", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return s == "· · ·" ? "" : s
+        }
     }
 
     private struct InlineStyle {

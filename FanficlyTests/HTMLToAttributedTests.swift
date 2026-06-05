@@ -10,23 +10,29 @@ final class HTMLToAttributedTests: XCTestCase {
         XCTAssertTrue(s.contains("\n\n"))
     }
 
-    func test_plainTextParagraphsSplitsAndCleans() {
-        let paras = HTMLToAttributed.plainTextParagraphs("<p>Hello.</p><p>World.</p>")
+    func test_speechParagraphsSplitsAndCleans() {
+        let paras = HTMLToAttributed.speechParagraphs("<p>Hello.</p><p>World.</p>")
         XCTAssertEqual(paras, ["Hello.", "World."])
     }
 
-    func test_plainTextParagraphsDropsSceneBreaksAndBullets() {
+    func test_speechParagraphsStaysIndexAlignedWithRenderedParagraphs() {
         let html = "<p>One.</p><hr><ul><li>a</li><li>b</li></ul>"
-        let paras = HTMLToAttributed.plainTextParagraphs(html)
-        // The "· · ·" scene break is removed; bullets are stripped from list items.
-        XCTAssertFalse(paras.contains("· · ·"))
-        XCTAssertFalse(paras.contains { $0.contains("•") })
-        XCTAssertTrue(paras.contains("One."))
-        XCTAssertTrue(paras.contains { $0.contains("a") })
+        let rendered = HTMLToAttributed.convertParagraphs(html)
+        let speech = HTMLToAttributed.speechParagraphs(html)
+        // Same count as what the reader renders — the karaoke highlight relies
+        // on a 1:1 paragraph index.
+        XCTAssertEqual(speech.count, rendered.count)
+        // The "· · ·" scene break becomes an empty (unspoken) entry; bullets
+        // are stripped but the paragraph keeps its slot.
+        XCTAssertFalse(speech.contains { $0.contains("•") })
+        XCTAssertFalse(speech.contains("· · ·"))
+        XCTAssertTrue(speech.contains(""))   // the separator's slot
+        XCTAssertTrue(speech.contains("One."))
+        XCTAssertTrue(speech.contains("a"))
     }
 
-    func test_plainTextParagraphsFlattensSoftBreaks() {
-        let paras = HTMLToAttributed.plainTextParagraphs("<p>Line 1<br>Line 2</p>")
+    func test_speechParagraphsFlattensSoftBreaks() {
+        let paras = HTMLToAttributed.speechParagraphs("<p>Line 1<br>Line 2</p>")
         XCTAssertEqual(paras, ["Line 1 Line 2"])
     }
 

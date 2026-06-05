@@ -22,10 +22,14 @@ final class SpeechController: NSObject {
     private(set) var isActive = false
     /// Audio is currently being produced (vs. paused).
     private(set) var isPlaying = false
-    /// Index of the paragraph currently being spoken.
+    /// Index of the *rendered* paragraph currently being spoken — aligned with
+    /// `ChapterContentView`'s paragraphs so the reader can highlight it.
     private(set) var currentParagraph = 0
-    /// Total paragraphs in the loaded chapter.
-    private(set) var paragraphCount = 0
+    /// Number of spoken (non-empty) paragraphs in the loaded chapter.
+    private(set) var spokenCount = 0
+    /// 1-based position of the current paragraph among the spoken ones (for the
+    /// "¶ x / y" mini-player readout).
+    private(set) var spokenPosition = 0
     /// Label for the loaded chapter (shown in the mini-player / lock screen).
     private(set) var chapterLabel = ""
     /// Bumped when a chapter finishes so the reader can advance to the next
@@ -38,7 +42,11 @@ final class SpeechController: NSObject {
     static var defaultRate: Float { AVSpeechUtteranceDefaultSpeechRate }
 
     private let synthesizer = AVSpeechSynthesizer()
+    /// Index-aligned with the reader's rendered paragraphs; empty entries
+    /// (scene breaks) are skipped when speaking but keep their slot.
     private var paragraphs: [String] = []
+    /// The rendered indices that actually get spoken (non-empty), in order.
+    private var spokenIndices: [Int] = []
     private var indexOf: [ObjectIdentifier: Int] = [:]
     private var workTitle = ""
     private var author = ""
@@ -72,16 +80,20 @@ final class SpeechController: NSObject {
     /// Loads a chapter's paragraphs and starts speaking from `paragraph`.
     func play(paragraphs: [String], workTitle: String, author: String,
               chapterLabel: String, from paragraph: Int = 0) {
-        guard !paragraphs.isEmpty else { return }
+        let spoken = paragraphs.indices.filter {
+            !paragraphs[$0].trimmingCharacters(in: .whitespaces).isEmpty
+        }
+        guard !spoken.isEmpty else { return }
         self.paragraphs = paragraphs
-        self.paragraphCount = paragraphs.count
+        self.spokenIndices = spoken
+        self.spokenCount = spoken.count
         self.workTitle = workTitle
         self.author = author
         self.chapterLabel = chapterLabel
         isActive = true
         activateSession()
         wireRemoteCommands()
-        enqueue(from: max(0, min(paragraph, paragraphs.count - 1)))
+        enqueue(from: max(0, paragraph))
     }
 
     func togglePlayPause() {
@@ -107,10 +119,9 @@ final class SpeechController: NSObject {
         updateNowPlaying()
     }
 
-    /// Jump to the next paragraph, or end the chapter if already at the last.
+    /// Jump to the next spoken paragraph, or end the chapter if at the last.
     func skipForward() {
-        let next = currentParagraph + 1
-        if next < paragraphs.count {
+        if let next = spokenIndices.first(where: { $0 > currentParagraph }) {
             enqueue(from: next)
         } else {
             finishChapter()
@@ -118,7 +129,9 @@ final class SpeechController: NSObject {
     }
 
     func skipBackward() {
-        enqueue(from: max(0, currentParagraph - 1))
+        let prev = spokenIndices.last(where: { $0 < currentParagraph })
+            ?? spokenIndices.first ?? 0
+        enqueue(from: prev)
     }
 
     /// Tears everything down — used when the reader closes, or when playback
@@ -127,10 +140,12 @@ final class SpeechController: NSObject {
         synthesizer.stopSpeaking(at: .immediate)
         indexOf.removeAll()
         paragraphs = []
+        spokenIndices = []
         isPlaying = false
         isActive = false
         currentParagraph = 0
-        paragraphCount = 0
+        spokenCount = 0
+        spokenPosition = 0
         chapterLabel = ""
         unwireRemoteCommands()
         clearNowPlaying()
@@ -139,14 +154,18 @@ final class SpeechController: NSObject {
 
     // MARK: - Internals
 
-    private func enqueue(from index: Int) {
+    /// `renderedIndex` is a paragraph index in the reader's coordinate space;
+    /// we enqueue every spoken paragraph at or after it.
+    private func enqueue(from renderedIndex: Int) {
         synthesizer.stopSpeaking(at: .immediate)
         indexOf.removeAll()
-        guard paragraphs.indices.contains(index) else { return }
-        currentParagraph = index
+        let toSpeak = spokenIndices.filter { $0 >= renderedIndex }
+        guard let first = toSpeak.first else { finishChapter(); return }
+        currentParagraph = first
+        spokenPosition = (spokenIndices.firstIndex(of: first) ?? 0) + 1
         let v = voice
         let r = rate
-        for i in index..<paragraphs.count {
+        for i in toSpeak {
             let utterance = AVSpeechUtterance(string: paragraphs[i])
             utterance.rate = r
             utterance.voice = v
@@ -205,8 +224,8 @@ final class SpeechController: NSObject {
             MPMediaItemPropertyTitle: chapterLabel.isEmpty ? workTitle : chapterLabel,
             MPMediaItemPropertyArtist: author,
             MPMediaItemPropertyAlbumTitle: workTitle,
-            MPNowPlayingInfoPropertyPlaybackQueueCount: paragraphCount,
-            MPNowPlayingInfoPropertyPlaybackQueueIndex: currentParagraph,
+            MPNowPlayingInfoPropertyPlaybackQueueCount: spokenCount,
+            MPNowPlayingInfoPropertyPlaybackQueueIndex: max(0, spokenPosition - 1),
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
         info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
@@ -230,6 +249,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
         Task { @MainActor in
             if let i = indexOf[id] {
                 currentParagraph = i
+                spokenPosition = (spokenIndices.firstIndex(of: i) ?? 0) + 1
                 updateNowPlaying()
             }
         }
@@ -239,9 +259,9 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
                                              didFinish utterance: AVSpeechUtterance) {
         let id = ObjectIdentifier(utterance)
         Task { @MainActor in
-            // Only the last paragraph's natural finish ends the chapter;
+            // Only the last spoken paragraph's natural finish ends the chapter;
             // stopSpeaking(.immediate) fires didCancel instead, not didFinish.
-            if let i = indexOf[id], i == paragraphs.count - 1 {
+            if let i = indexOf[id], i == spokenIndices.last {
                 finishChapter()
             }
         }

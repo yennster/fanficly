@@ -139,18 +139,19 @@ struct ReaderView: View {
     }
 
     private func startNarration() {
-        // Read the chapter you're currently on, from its start. (The spoken
-        // paragraph list isn't 1:1 with the reader's paragraph anchors —
-        // scene breaks are dropped — so resuming mid-chapter could skip text.)
+        // Speech paragraphs are index-aligned with the rendered ones, so for the
+        // chapter you're already reading we can pick up from your position;
+        // otherwise start that chapter from the top.
         let chapterIndex = (mode == .paginated ? selectedChapterIndex : visibleChapterIndex)
-        narrate(chapter: chapterIndex, from: 0)
+        let from = (currentAnchor?.chapter == chapterIndex) ? (currentAnchor?.paragraph ?? 0) : 0
+        narrate(chapter: chapterIndex, from: from)
     }
 
     private func narrate(chapter index: Int, from paragraph: Int) {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
         listeningChapter = index
-        speech.play(paragraphs: HTMLToAttributed.plainTextParagraphs(chapter.bodyHTML),
+        speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML),
                     workTitle: title, author: author, chapterLabel: label, from: paragraph)
     }
 
@@ -181,7 +182,7 @@ struct ReaderView: View {
                 Text(speech.chapterLabel)
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
-                Text("¶ \(min(speech.currentParagraph + 1, speech.paragraphCount)) / \(speech.paragraphCount)")
+                Text("¶ \(speech.spokenPosition) / \(speech.spokenCount)")
                     .font(.caption2)
                     .foregroundStyle(fg.opacity(0.6))
             }
@@ -261,8 +262,21 @@ struct ReaderView: View {
             .onChange(of: currentAnchor) { _, anchor in
                 if let anchor { saveProgress(anchor) }
             }
+            // Karaoke: keep the paragraph being read aloud in view.
+            .onChange(of: speech.currentParagraph) { _, _ in scrollToSpokenParagraph(proxy) }
+            .onChange(of: listeningChapter) { _, _ in scrollToSpokenParagraph(proxy) }
             .task { await restoreContinuous(proxy: proxy) }
             .onDisappear { persistNow() }
+        }
+    }
+
+    /// Scrolls the currently-narrated paragraph toward the upper third of the
+    /// viewport (continuous mode). No-op unless narration is running.
+    private func scrollToSpokenParagraph(_ proxy: ScrollViewProxy) {
+        guard speech.isActive, let chapter = listeningChapter else { return }
+        let key = ChapterTracking.key(chapter: chapter, paragraph: speech.currentParagraph)
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo(key, anchor: UnitPoint(x: 0.5, y: 0.32))
         }
     }
 
@@ -457,6 +471,14 @@ struct ReaderView: View {
             .task(id: selectedChapterIndex) {
                 await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
             }
+            // Karaoke: follow the narrated paragraph on this page.
+            .onChange(of: speech.currentParagraph) { _, p in
+                guard speech.isActive, chapter.index == listeningChapter else { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    pageProxy.scrollTo(ChapterTracking.key(chapter: chapter.index, paragraph: p),
+                                       anchor: UnitPoint(x: 0.5, y: 0.32))
+                }
+            }
         }
     }
 
@@ -520,9 +542,17 @@ struct ReaderView: View {
             lineSpacing: lineSpacing,
             paragraphSpacing: paragraphSpacing,
             foreground: fg,
-            scrollSpace: scrollSpace
+            scrollSpace: scrollSpace,
+            highlightParagraph: highlightedParagraph(for: chapter.index)
         )
         .padding(.vertical, Spacing.sm)
+    }
+
+    /// The paragraph to karaoke-highlight in `chapterIndex`, or nil when that
+    /// chapter isn't the one currently being narrated.
+    private func highlightedParagraph(for chapterIndex: Int) -> Int? {
+        guard speech.isActive, listeningChapter == chapterIndex else { return nil }
+        return speech.currentParagraph
     }
 
     private var chaptersMenu: some View {
