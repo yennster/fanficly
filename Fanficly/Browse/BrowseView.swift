@@ -315,10 +315,27 @@ struct FandomWorksView: View {
         // The fandom is already an AO3-canonical name (picked from the live
         // fandom list), so skip resolving it — fewer throttled round-trips.
         filters = await TagResolver.resolve(filters, using: client, resolveFandoms: false)
-        await loadFirst()
+        // Filters changed: force a page-1 refetch even though `works` is
+        // populated (loadFirst would no-op). `reload` swaps in the new results
+        // only once they arrive, so the old list stays visible (dimmed by the
+        // overlay) during the fetch.
+        await reload()
     }
 
+    /// Initial load driven by `.task`. Navigating into a work and back makes
+    /// SwiftUI re-run the `.task`, so guard against re-fetching: a blind reload
+    /// would reset `works`/`currentPage`/`totalPages` to page 1, and because the
+    /// already-mounted first-page rows keep their identities, the last row's
+    /// `.onAppear` never re-fires — leaving infinite scroll permanently stuck on
+    /// page 1. Re-filtering still refetches unconditionally via `reload`.
     private func loadFirst() async {
+        guard works.isEmpty else { return }
+        await reload()
+    }
+
+    /// Unconditional page-1 fetch, used on first appearance and after the user
+    /// changes the active filters.
+    private func reload() async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
