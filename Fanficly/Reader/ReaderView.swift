@@ -253,34 +253,66 @@ struct ReaderView: View {
     // MARK: - Paginated
 
     private func paginatedBody(fg: Color, bg: Color) -> some View {
-        TabView(selection: $selectedChapterIndex) {
-            ForEach(chapters, id: \.index) { chapter in
-                paginatedPage(chapter, fg: fg)
-                    .tag(chapter.index)
+        GeometryReader { geo in
+            TabView(selection: $selectedChapterIndex) {
+                ForEach(chapters, id: \.index) { chapter in
+                    paginatedPage(chapter, fg: fg)
+                        .tag(chapter.index)
+                }
             }
-        }
-        .tabViewStyle(.page(indexDisplayMode: chapters.count > 1 ? .automatic : .never))
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
-        .background(bg)
-        .foregroundStyle(fg)
-        .task {
-            isRestoring = true
-            if let anchor = loadAnchorIfNeeded() {
-                selectedChapterIndex = anchor.chapter
-                if anchor.paragraph > 0 { pendingParagraphRestore = anchor }
+            .tabViewStyle(.page(indexDisplayMode: chapters.count > 1 ? .automatic : .never))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
+            .background(bg)
+            .foregroundStyle(fg)
+            // Kindle-style tap-to-turn: tapping the left third goes to the
+            // previous chapter, the right third to the next; the middle third is
+            // a dead zone so taps on mid-page links/text don't flip the page. A
+            // *simultaneous* spatial tap leaves the TabView's swipe paging and
+            // each page's vertical scroll fully intact (a plain gesture would
+            // swallow them). Disabled for single-chapter works (nothing to turn).
+            .simultaneousGesture(
+                chapters.count > 1
+                    ? SpatialTapGesture().onEnded { value in
+                        let x = value.location.x
+                        if x < geo.size.width / 3 {
+                            turnPage(forward: false)
+                        } else if x > geo.size.width * 2 / 3 {
+                            turnPage(forward: true)
+                        }
+                    }
+                    : nil
+            )
+            .task {
+                isRestoring = true
+                if let anchor = loadAnchorIfNeeded() {
+                    selectedChapterIndex = anchor.chapter
+                    if anchor.paragraph > 0 { pendingParagraphRestore = anchor }
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                isRestoring = false
             }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            isRestoring = false
-        }
-        .onChange(of: selectedChapterIndex) { _, chapter in
-            visibleChapterIndex = chapter
-            if !isRestoring && pendingParagraphRestore == nil {
-                let anchor = ReadingAnchor(chapter: chapter, paragraph: 0)
-                currentAnchor = anchor
-                saveProgress(anchor, force: true)
+            .onChange(of: selectedChapterIndex) { _, chapter in
+                visibleChapterIndex = chapter
+                if !isRestoring && pendingParagraphRestore == nil {
+                    let anchor = ReadingAnchor(chapter: chapter, paragraph: 0)
+                    currentAnchor = anchor
+                    saveProgress(anchor, force: true)
+                }
             }
+            .onDisappear { persistNow() }
         }
-        .onDisappear { persistNow() }
+    }
+
+    /// Advances to the adjacent chapter (the unit of a "page" in paginated
+    /// mode), clamped to the ends. Used by the tap-to-turn zones; the TabView
+    /// animates the selection change into a page slide.
+    private func turnPage(forward: Bool) {
+        let order = chapters.map(\.index)
+        guard let target = ChapterTracking.adjacentChapter(in: order, current: selectedChapterIndex, forward: forward)
+        else { return }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            selectedChapterIndex = target
+        }
     }
 
     private func paginatedPage(_ chapter: AO3ChapterPayload, fg: Color) -> some View {

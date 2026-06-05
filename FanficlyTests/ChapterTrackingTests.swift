@@ -27,4 +27,30 @@ final class ChapterTrackingTests: XCTestCase {
         let offsets: [Int: CGFloat] = [0: -500, 1: -100, 2: 200]
         XCTAssertEqual(ChapterTracking.currentChapter(offsets: offsets), 1)
     }
+
+    // MARK: - adjacentChapter (tap-to-turn page zones)
+
+    func test_adjacentChapterMovesForwardAndBack() {
+        let order = [1, 2, 3, 4]
+        XCTAssertEqual(ChapterTracking.adjacentChapter(in: order, current: 2, forward: true), 3)
+        XCTAssertEqual(ChapterTracking.adjacentChapter(in: order, current: 2, forward: false), 1)
+    }
+
+    func test_adjacentChapterClampsAtEnds() {
+        let order = [1, 2, 3]
+        XCTAssertNil(ChapterTracking.adjacentChapter(in: order, current: 3, forward: true))
+        XCTAssertNil(ChapterTracking.adjacentChapter(in: order, current: 1, forward: false))
+    }
+
+    func test_adjacentChapterFollowsReadingOrderNotIndexValue() {
+        // Indices need not be contiguous or 1-based; navigation follows the
+        // array order, stepping to the literal neighbour index.
+        let order = [3, 7, 8, 15]
+        XCTAssertEqual(ChapterTracking.adjacentChapter(in: order, current: 7, forward: true), 8)
+        XCTAssertEqual(ChapterTracking.adjacentChapter(in: order, current: 15, forward: false), 8)
+    }
+
+    func test_adjacentChapterUnknownCurrentReturnsNil() {
+        XCTAssertNil(ChapterTracking.adjacentChapter(in: [1, 2, 3], current: 9, forward: true))
+    }
 }
