@@ -16,8 +16,7 @@ enum HTMLToAttributed {
 
     /// The body split into individual paragraphs, so the reader can render
     /// and track each one (for precise reading-position restore).
-    static func convertParagraphs(_ html: String) -> [AttributedString] {
-        guard let doc = try? SwiftSoup.parseBodyFragment(html),
+    static func convertParagraphs(_ html: String) -> [AttributedString] {        guard let doc = try? SwiftSoup.parseBodyFragment(html),
               let body = doc.body() else {
             let stripped = html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             return stripped.isEmpty ? [] : [AttributedString(stripped)]
@@ -28,6 +27,21 @@ enum HTMLToAttributed {
             renderNode(child, into: &ctx, style: InlineStyle())
         }
         return ctx.finish()
+    }
+
+    /// Plain-text paragraphs for narration (text-to-speech). Reuses the same
+    /// block splitting as the reader, then flattens soft line breaks, drops
+    /// list bullets and scene-break separators, so the synthesizer reads clean
+    /// prose with sensible pauses between paragraphs.
+    static func plainTextParagraphs(_ html: String) -> [String] {
+        convertParagraphs(html)
+            .map { para in
+                String(para.characters)
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "•", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty && $0 != "· · ·" }
     }
 
     private struct InlineStyle {

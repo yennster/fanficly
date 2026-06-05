@@ -10,6 +10,26 @@ final class HTMLToAttributedTests: XCTestCase {
         XCTAssertTrue(s.contains("\n\n"))
     }
 
+    func test_plainTextParagraphsSplitsAndCleans() {
+        let paras = HTMLToAttributed.plainTextParagraphs("<p>Hello.</p><p>World.</p>")
+        XCTAssertEqual(paras, ["Hello.", "World."])
+    }
+
+    func test_plainTextParagraphsDropsSceneBreaksAndBullets() {
+        let html = "<p>One.</p><hr><ul><li>a</li><li>b</li></ul>"
+        let paras = HTMLToAttributed.plainTextParagraphs(html)
+        // The "· · ·" scene break is removed; bullets are stripped from list items.
+        XCTAssertFalse(paras.contains("· · ·"))
+        XCTAssertFalse(paras.contains { $0.contains("•") })
+        XCTAssertTrue(paras.contains("One."))
+        XCTAssertTrue(paras.contains { $0.contains("a") })
+    }
+
+    func test_plainTextParagraphsFlattensSoftBreaks() {
+        let paras = HTMLToAttributed.plainTextParagraphs("<p>Line 1<br>Line 2</p>")
+        XCTAssertEqual(paras, ["Line 1 Line 2"])
+    }
+
     func test_italicHasInlineIntent() {
         let out = HTMLToAttributed.convert("<p>He said <em>hello</em>.</p>")
         let italic = out.runs.first { $0.inlinePresentationIntent?.contains(.emphasized) == true }

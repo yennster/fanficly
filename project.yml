@@ -67,6 +67,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIBackgroundModes:
+          - audio
           - fetch
           - processing
         BGTaskSchedulerPermittedIdentifiers:

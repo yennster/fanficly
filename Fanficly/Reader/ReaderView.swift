@@ -25,6 +25,9 @@ struct ReaderView: View {
     // Paginated-mode one-shot paragraph restore.
     @State private var pendingParagraphRestore: ReadingAnchor?
     @State private var lastAnchorSampleAt: Date = .distantPast
+    // Text-to-speech ("Listen") narration of the current chapter.
+    @State private var speech = SpeechController()
+    @State private var listeningChapter: Int?
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -89,6 +92,10 @@ struct ReaderView: View {
             case .paginated:  paginatedBody(fg: fg, bg: bg)
             }
         }
+        // Floating narration controls when "Listen" is active.
+        .safeAreaInset(edge: .bottom) {
+            if speech.isActive { narrationBar(fg: fg, bg: bg) }
+        }
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
@@ -99,6 +106,94 @@ struct ReaderView: View {
                 ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
             }
             ToolbarItem(placement: .topBarTrailing) { typographyMenu }
+        }
+        // When a chapter finishes narrating, roll on to the next (or stop).
+        .onChange(of: speech.finishedTick) { _, _ in advanceNarration() }
+        // Don't leave audio playing after the reader is dismissed.
+        .onDisappear { speech.stop() }
+    }
+
+    // MARK: - Narration (text-to-speech)
+
+    /// Lives at the top of the typography (Aa) menu rather than as its own
+    /// toolbar icon — the reader's nav bar already carries several actions and
+    /// the live controls live in the bottom bar once playback starts.
+    @ViewBuilder
+    private var listenMenuButton: some View {
+        Button {
+            if speech.isActive {
+                speech.stop()
+                listeningChapter = nil
+            } else {
+                startNarration()
+            }
+        } label: {
+            Label(speech.isActive ? "Stop listening" : "Listen to chapter",
+                  systemImage: speech.isActive ? "stop.circle" : "headphones")
+        }
+    }
+
+    private func startNarration() {
+        // Read the chapter you're currently on, from its start. (The spoken
+        // paragraph list isn't 1:1 with the reader's paragraph anchors —
+        // scene breaks are dropped — so resuming mid-chapter could skip text.)
+        let chapterIndex = (mode == .paginated ? selectedChapterIndex : visibleChapterIndex)
+        narrate(chapter: chapterIndex, from: 0)
+    }
+
+    private func narrate(chapter index: Int, from paragraph: Int) {
+        guard let chapter = chapters.first(where: { $0.index == index }) else { return }
+        let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
+        listeningChapter = index
+        speech.play(paragraphs: HTMLToAttributed.plainTextParagraphs(chapter.bodyHTML),
+                    workTitle: title, author: author, chapterLabel: label, from: paragraph)
+    }
+
+    private func advanceNarration() {
+        guard let current = listeningChapter,
+              let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
+                                                           current: current, forward: true) else {
+            speech.stop()
+            listeningChapter = nil
+            return
+        }
+        // Follow along visually so the page tracks what's being read.
+        selectedChapterIndex = target
+        visibleChapterIndex = target
+        narrate(chapter: target, from: 0)
+    }
+
+    private func narrationBar(fg: Color, bg: Color) -> some View {
+        HStack(spacing: 20) {
+            Button { speech.skipBackward() } label: { Image(systemName: "backward.fill") }
+            Button { speech.togglePlayPause() } label: {
+                Image(systemName: speech.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.title3)
+            }
+            Button { speech.skipForward() } label: { Image(systemName: "forward.fill") }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(speech.chapterLabel)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text("¶ \(min(speech.currentParagraph + 1, speech.paragraphCount)) / \(speech.paragraphCount)")
+                    .font(.caption2)
+                    .foregroundStyle(fg.opacity(0.6))
+            }
+            Spacer()
+            Button {
+                speech.stop()
+                listeningChapter = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(fg.opacity(0.45))
+            }
+        }
+        .foregroundStyle(fg)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(bg)
+        .overlay(alignment: .top) {
+            Rectangle().fill(fg.opacity(0.12)).frame(height: 0.5)
         }
     }
 
@@ -429,6 +524,9 @@ struct ReaderView: View {
 
     private var typographyMenu: some View {
         Menu {
+            listenMenuButton
+            Divider()
+
             Menu {
                 Picker("Reading mode", selection: $modeRaw) {
                     ForEach(ReadingMode.allCases) {
