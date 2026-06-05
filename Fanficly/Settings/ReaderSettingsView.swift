@@ -8,6 +8,7 @@ struct ReaderSettingsView: View {
     @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
     @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
+    @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
     @Environment(\.colorScheme) private var systemColorScheme
 
     var body: some View {
@@ -55,10 +56,14 @@ struct ReaderSettingsView: View {
                     }
                 }
                 .pickerStyle(.inline).labelsHidden()
+
+                Toggle(isOn: $pageTurnHaptics) {
+                    Label("Page-turn haptics", systemImage: "hand.tap")
+                }
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page.")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — swipe or tap the left/right edge to turn. Page-turn haptics add a light tap when you turn a page.")
             }
 
             Section("Theme") {

@@ -13,6 +13,7 @@ struct ReaderView: View {
     @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
     @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
+    @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var selectedChapterIndex: Int = 1
@@ -298,6 +299,12 @@ struct ReaderView: View {
                     currentAnchor = anchor
                     saveProgress(anchor, force: true)
                 }
+            }
+            // Optional light tap on a page turn (tap-to-turn or swipe), off by
+            // default. Suppressed while restoring so opening a work doesn't buzz.
+            .sensoryFeedback(trigger: selectedChapterIndex) { _, _ in
+                (pageTurnHaptics && !isRestoring && pendingParagraphRestore == nil)
+                    ? .impact(weight: .light) : nil
             }
             .onDisappear { persistNow() }
         }
