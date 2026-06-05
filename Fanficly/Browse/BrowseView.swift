@@ -41,9 +41,7 @@ struct BrowseView: View {
         .navigationDestination(for: SavedFilter.self) { saved in
             FandomWorksView(savedFilter: saved)
         }
-        .navigationDestination(for: AO3WorkSummary.self) { work in
-            WorkDetailView(workId: work.id)
-        }
+        .workAndAuthorDestinations()
     }
 }
 

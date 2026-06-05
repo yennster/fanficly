@@ -28,6 +28,14 @@ enum AO3Endpoints {
         base.appending(path: "/downloads/\(workId)/work.\(format.ext)")
     }
 
+    static func authorWorks(name: String, page: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/users/\(name)/works"),
+                                       resolvingAgainstBaseURL: false)
+        if page > 1 { components?.queryItems = [URLQueryItem(name: "page", value: String(page))] }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad author works URL") }
+        return url
+    }
+
     static func userBookmarks(name: String, base: URL) throws -> URL {
         base.appending(path: "/users/\(name)/bookmarks")
     }

@@ -39,6 +39,7 @@ struct RecentlyViewedView: View {
         .navigationDestination(for: Int.self) { id in
             WorkDetailView(workId: id)
         }
+        .workAndAuthorDestinations()
         .toolbar {
             if !recents.isEmpty {
                 ToolbarItem(placement: .topBarLeading) {

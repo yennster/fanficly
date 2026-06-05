@@ -33,9 +33,7 @@ struct SearchView: View {
         }
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: AO3WorkSummary.self) { work in
-            WorkDetailView(workId: work.id)
-        }
+        .workAndAuthorDestinations()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {

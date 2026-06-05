@@ -33,8 +33,9 @@ enum SearchResultsParser {
         let titleAnchor = try li.select("h4.heading a").first()
         let title = try titleAnchor?.text() ?? ""
 
-        let authors = try li.select("h4.heading a[rel=author]").array().map { try $0.text() }
-        let author = authors.joined(separator: ", ")
+        let authorAnchors = try li.select("h4.heading a[rel=author]").array()
+        let author = try authorAnchors.map { try $0.text() }.joined(separator: ", ")
+        let authorUsername = authorLogin(fromHref: (try? authorAnchors.first?.attr("href")) ?? "")
 
         let fandoms = try li.select("h5.fandoms a.tag").array().map { try $0.text() }
 
@@ -71,6 +72,7 @@ enum SearchResultsParser {
             id: id,
             title: title,
             author: author,
+            authorUsername: authorUsername,
             summary: summaryHTML,
             rating: rating,
             warnings: warnings,
@@ -88,6 +90,15 @@ enum SearchResultsParser {
             isComplete: isComplete,
             updatedAt: updatedAt
         )
+    }
+
+    /// The AO3 login from an author byline href like
+    /// `/users/HoweverSheWrites/pseuds/HoweverSheWrites` → `HoweverSheWrites`.
+    /// Returns "" for anonymous works (no/empty href).
+    static func authorLogin(fromHref href: String) -> String {
+        guard let r = href.range(of: "/users/") else { return "" }
+        let seg = href[r.upperBound...].split(separator: "/").first.map(String.init) ?? ""
+        return seg.removingPercentEncoding ?? seg
     }
 
     private static func parseChapterFraction(_ s: String) -> (current: Int, total: Int?) {

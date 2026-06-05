@@ -3,6 +3,7 @@ import SwiftUI
 struct ReaderView: View {
     let title: String
     let author: String
+    let authorUsername: String
     let chapters: [AO3ChapterPayload]
     let summary: AO3WorkSummary?
 
@@ -41,6 +42,7 @@ struct ReaderView: View {
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         self.title = title
         self.author = author
+        self.authorUsername = summary?.authorUsername ?? ""
         self.chapters = chapters
         self.summary = summary
     }
@@ -48,6 +50,7 @@ struct ReaderView: View {
     init(work: Work) {
         self.title = work.title
         self.author = work.authorName
+        self.authorUsername = work.authorUsername
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
             .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML) }
@@ -55,6 +58,7 @@ struct ReaderView: View {
             id: work.ao3Id,
             title: work.title,
             author: work.authorName,
+            authorUsername: work.authorUsername,
             summary: work.summary,
             rating: work.rating,
             warnings: work.warnings,
@@ -77,6 +81,7 @@ struct ReaderView: View {
     init(payload: AO3WorkPayload) {
         self.title = payload.summary.title
         self.author = payload.summary.author
+        self.authorUsername = payload.summary.authorUsername
         self.chapters = payload.chapters
         self.summary = payload.summary
     }
@@ -475,7 +480,20 @@ struct ReaderView: View {
             Text(title)
                 .font(fontFamily.font(size: fontSize + 14, weight: .bold))
             if !author.isEmpty {
-                Text("by \(author)").foregroundStyle(fg.opacity(0.65))
+                if authorUsername.isEmpty {
+                    Text("by \(author)").foregroundStyle(fg.opacity(0.65))
+                } else {
+                    // Tappable byline → the author's other works.
+                    NavigationLink(value: AuthorRef(username: authorUsername, displayName: author)) {
+                        HStack(spacing: 4) {
+                            Text("by \(author)")
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }
+                        .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
             }
             if let summary {
                 WorkHeaderMetadata(summary: summary, foreground: fg)

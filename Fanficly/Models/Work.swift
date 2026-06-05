@@ -6,6 +6,9 @@ final class Work {
     @Attribute(.unique) var ao3Id: Int
     var title: String
     var authorName: String
+    /// AO3 login for "more by this author"; "" when unknown. Additive field
+    /// (defaulted) so SwiftData migrates existing stores automatically.
+    var authorUsername: String = ""
     var summary: String
     var rating: String
     var warnings: [String]
