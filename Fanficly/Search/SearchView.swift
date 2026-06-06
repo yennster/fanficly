@@ -588,7 +588,7 @@ struct WorkDetailView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .accessibilityLabel("More")
+        .accessibilityLabel("Work options")
     }
 
     private func saveOfflineButton(payload: AO3WorkPayload) -> some View {

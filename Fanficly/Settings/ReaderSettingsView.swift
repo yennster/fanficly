@@ -10,6 +10,7 @@ struct ReaderSettingsView: View {
     @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
+    @AppStorage("reader.pageTurnAnimations") private var pageTurnAnimations: Bool = true
     @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
@@ -72,10 +73,14 @@ struct ReaderSettingsView: View {
                 Toggle(isOn: $pageTurnHaptics) {
                     Label("Page-turn haptics", systemImage: "hand.tap")
                 }
+
+                Toggle(isOn: $pageTurnAnimations) {
+                    Label("Page-turn animation", systemImage: "square.2.layers.3d")
+                }
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — swipe or tap the left/right edge to turn. Page-turn haptics add a light tap when you turn a page.")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn. Page-turn options configure haptic feedback and animations.")
             }
 
             Section {
@@ -103,7 +108,7 @@ struct ReaderSettingsView: View {
             } header: {
                 Text("Spoken audio")
             } footer: {
-                Text("Tap the headphones in the reader to have a chapter read aloud — it keeps playing with the screen locked. Voices run entirely on-device; download higher-quality ones in iOS Settings → Accessibility → Spoken Content → Voices.")
+                Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {

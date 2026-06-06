@@ -15,6 +15,7 @@ struct ReaderView: View {
     @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
+    @AppStorage("reader.pageTurnAnimations") private var pageTurnAnimations: Bool = true
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @State private var selectedChapterIndex: Int = 1
@@ -28,7 +29,12 @@ struct ReaderView: View {
     @State private var lastAnchorSampleAt: Date = .distantPast
     // Text-to-speech ("Listen") narration of the current chapter.
     @State private var speech = SpeechController()
+    @State private var isUIMinimized: Bool = false
     @State private var listeningChapter: Int?
+    // Page-by-page mode
+    @State private var paginatedPages: [ChapterPage] = []
+    @State private var selectedPageId: String = ""
+    @State private var parsedParagraphs: [Int: [AttributedString]] = [:]
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -95,22 +101,37 @@ struct ReaderView: View {
             switch mode {
             case .continuous: continuousBody(fg: fg, bg: bg)
             case .paginated:  paginatedBody(fg: fg, bg: bg)
+            case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
-            if speech.isActive { narrationBar(fg: fg, bg: bg) }
+            if speech.isActive {
+                narrationBar(fg: fg, bg: bg)
+            } else if mode == .pageByPage && !isUIMinimized {
+                pageFooterBar(fg: fg, bg: bg)
+            }
         }
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbarBackground(bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar(isUIMinimized ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             if chapters.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
             }
             ToolbarItem(placement: .topBarTrailing) { typographyMenu }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isUIMinimized = true
+                    }
+                } label: {
+                    Label("Maximize", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+            }
         }
         // When a chapter finishes narrating, roll on to the next (or stop).
         .onChange(of: speech.finishedTick) { _, _ in advanceNarration() }
@@ -247,8 +268,15 @@ struct ReaderView: View {
             }
             .background(bg)
             .foregroundStyle(fg)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isUIMinimized.toggle()
+                    }
+                }
+            )
             .safeAreaInset(edge: .top, spacing: 0) {
-                if chapters.count > 1 {
+                if chapters.count > 1 && !isUIMinimized {
                     chapterIndicatorBar(fg: fg, bg: bg)
                 }
             }
@@ -375,7 +403,7 @@ struct ReaderView: View {
                         .tag(chapter.index)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: chapters.count > 1 ? .automatic : .never))
+            .tabViewStyle(.page(indexDisplayMode: (chapters.count > 1 && !isUIMinimized) ? .automatic : .never))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
             .background(bg)
             .foregroundStyle(fg)
@@ -386,16 +414,11 @@ struct ReaderView: View {
             // each page's vertical scroll fully intact (a plain gesture would
             // swallow them). Disabled for single-chapter works (nothing to turn).
             .simultaneousGesture(
-                chapters.count > 1
-                    ? SpatialTapGesture().onEnded { value in
-                        let x = value.location.x
-                        if x < geo.size.width / 3 {
-                            turnPage(forward: false)
-                        } else if x > geo.size.width * 2 / 3 {
-                            turnPage(forward: true)
-                        }
+                TapGesture().onEnded {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isUIMinimized.toggle()
                     }
-                    : nil
+                }
             )
             .task {
                 isRestoring = true
@@ -495,6 +518,533 @@ struct ReaderView: View {
             proxy.scrollTo(key, anchor: .top)
         }
         isRestoring = false
+    }
+
+    // MARK: - Page-by-page (Kindle-like) mode
+
+    private func pageByPageBody(fg: Color, bg: Color) -> some View {
+        GeometryReader { geo in
+            let trigger = PaginationTrigger(
+                chapter: selectedChapterIndex,
+                fontSize: fontSizePt,
+                fontFamily: fontFamilyRaw,
+                width: widthRaw,
+                lineSpacing: lineSpacingPt,
+                paragraphSpacing: paragraphSpacingPt,
+                size: geo.size
+            )
+            
+            let content = Group {
+                if paginatedPages.isEmpty {
+                    VStack {
+                        Spacer()
+                        ProgressView()
+                            .tint(fg.opacity(0.5))
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    TabView(selection: $selectedPageId) {
+                        ForEach(paginatedPages, id: \.id) { page in
+                            makePageCell(page: page, fg: fg)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .simultaneousGesture(
+                        SpatialTapGesture().onEnded { value in
+                            let x = value.location.x
+                            let w = geo.size.width
+                            if x < w / 3 {
+                                turnPageByPage(forward: false)
+                            } else if x > w * 2 / 3 {
+                                turnPageByPage(forward: true)
+                            } else {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isUIMinimized.toggle()
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            .background(bg)
+            .foregroundStyle(fg)
+            
+            content
+                .task(id: trigger) {
+                    await handlePaginationTrigger(trigger)
+                }
+                .task {
+                    isRestoring = true
+                    _ = loadAnchorIfNeeded()
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    isRestoring = false
+                }
+                .onChange(of: selectedPageId) { _, pageId in
+                    handlePageIdChange(pageId)
+                }
+                .onChange(of: selectedChapterIndex) { _, newChapter in
+                    handleChapterIndexChange(newChapter)
+                }
+                .onChange(of: speech.currentParagraph) { _, p in
+                    handleSpeechParagraphChange(p)
+                }
+                .onChange(of: listeningChapter) { _, chapter in
+                    handleListeningChapterChange(chapter)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func makePageCell(page: ChapterPage, fg: Color) -> some View {
+        if let chapter = chapters.first(where: { $0.index == page.chapterIndex }),
+           let paragraphs = parsedParagraphs[page.chapterIndex] {
+            
+            ReaderPageCell(
+                page: page,
+                chapter: chapter,
+                paragraphs: paragraphs,
+                showTitleHeader: page.pageIndex == 0 && page.chapterIndex == chapters.first?.index,
+                showChapterHeader: page.pageIndex == 0 && chapters.count > 1,
+                titleHeaderView: AnyView(titleHeader(fg: fg)),
+                chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg)),
+                font: fontFamily.font(size: fontSize),
+                lineSpacing: lineSpacing,
+                paragraphSpacing: paragraphSpacing,
+                foreground: fg,
+                highlightParagraph: highlightedParagraph(for: page.chapterIndex)
+            )
+            .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
+            .padding(.horizontal, width.horizontalPadding)
+            .padding(.top, 20)
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .tag(page.id)
+        } else {
+            ProgressView()
+                .tag(page.id)
+        }
+    }
+
+    private func handlePaginationTrigger(_ trigger: PaginationTrigger) async {
+        let result = await performPagination(trigger: trigger)
+        await MainActor.run {
+            var activeChapters = Set<Int>()
+            activeChapters.insert(selectedChapterIndex)
+            if let prev = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: false) {
+                activeChapters.insert(prev)
+            }
+            if let next = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: true) {
+                activeChapters.insert(next)
+            }
+            
+            self.parsedParagraphs = self.parsedParagraphs.filter { activeChapters.contains($0.key) }
+            self.parsedParagraphs.merge(result.paragraphs) { _, new in new }
+            self.paginatedPages = result.pages
+            
+            restoreOrValidatePageSelection()
+        }
+    }
+
+    private func handlePageIdChange(_ pageId: String) {
+        guard mode == .pageByPage else { return }
+        let pagesList = self.paginatedPages
+        guard let page = pagesList.first(where: { $0.id == pageId }) else { return }
+        
+        if page.chapterIndex != selectedChapterIndex {
+            selectedChapterIndex = page.chapterIndex
+            visibleChapterIndex = page.chapterIndex
+        }
+        
+        if !isRestoring {
+            let firstPara = page.paragraphIndices.lowerBound
+            let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: firstPara)
+            currentAnchor = anchor
+            saveProgress(anchor)
+        }
+    }
+
+    private func handleChapterIndexChange(_ newChapter: Int) {
+        guard mode == .pageByPage else { return }
+        let pagesList = self.paginatedPages
+        let currentPage = pagesList.first { $0.id == selectedPageId }
+        if currentPage?.chapterIndex != newChapter {
+            let anchor = ReadingAnchor(chapter: newChapter, paragraph: 0)
+            currentAnchor = anchor
+            saveProgress(anchor, force: true)
+        }
+    }
+
+    private func updatePageSelection(_ pageId: String) {
+        if pageTurnAnimations {
+            withAnimation {
+                selectedPageId = pageId
+            }
+        } else {
+            selectedPageId = pageId
+        }
+    }
+
+    private func handleSpeechParagraphChange(_ p: Int) {
+        guard mode == .pageByPage else { return }
+        guard speech.isActive else { return }
+        guard let chapter = listeningChapter else { return }
+        
+        let pagesList = self.paginatedPages
+        if let page = pagesList.first(where: { $0.chapterIndex == chapter && $0.paragraphIndices.contains(p) }) {
+            if selectedPageId != page.id {
+                updatePageSelection(page.id)
+            }
+        }
+    }
+
+    private func handleListeningChapterChange(_ chapter: Int?) {
+        guard mode == .pageByPage else { return }
+        guard speech.isActive else { return }
+        guard let targetChapter = chapter else { return }
+        
+        let pagesList = self.paginatedPages
+        if let page = pagesList.first(where: { $0.chapterIndex == targetChapter }) {
+            if selectedPageId != page.id {
+                updatePageSelection(page.id)
+            }
+        }
+    }
+
+    private func turnPageByPage(forward: Bool) {
+        guard let currentIndex = paginatedPages.firstIndex(where: { $0.id == selectedPageId }) else { return }
+        
+        let targetIndex = forward ? currentIndex + 1 : currentIndex - 1
+        guard targetIndex >= 0 && targetIndex < paginatedPages.count else { return }
+        
+        let targetPage = paginatedPages[targetIndex]
+        
+        if pageTurnHaptics {
+            let generator = UIImpactFeedbackGenerator(style: .light)
+            generator.impactOccurred()
+        }
+        
+        updatePageSelection(targetPage.id)
+    }
+
+    private func restoreOrValidatePageSelection() {
+        let pagesList: [ChapterPage] = paginatedPages
+        guard !pagesList.isEmpty else { return }
+        
+        if let anchor = currentAnchor {
+            let targetChapter: Int = anchor.chapter
+            let targetParagraph: Int = anchor.paragraph
+            if let matchingPage = pagesList.first(where: { (page: ChapterPage) -> Bool in
+                page.chapterIndex == targetChapter &&
+                (page.paragraphIndices.contains(targetParagraph) || 
+                 (page.paragraphIndices.isEmpty && targetParagraph == 0))
+            }) {
+                selectedPageId = matchingPage.id
+                return
+            }
+            
+            let chapterPages = pagesList.filter { $0.chapterIndex == targetChapter }
+            if !chapterPages.isEmpty {
+                let closest = chapterPages.first { $0.paragraphIndices.lowerBound >= targetParagraph }
+                    ?? chapterPages.last!
+                selectedPageId = closest.id
+                return
+            }
+        }
+        
+        let targetPageId = selectedPageId
+        if !pagesList.contains(where: { (page: ChapterPage) -> Bool in page.id == targetPageId }) {
+            let targetChapter = selectedChapterIndex
+            if let firstPage = pagesList.first(where: { (page: ChapterPage) -> Bool in
+                page.chapterIndex == targetChapter
+            }) {
+                selectedPageId = firstPage.id
+            } else if let firstPage = pagesList.first {
+                selectedPageId = firstPage.id
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pageFooterBar(fg: Color, bg: Color) -> some View {
+        let pagesList: [ChapterPage] = paginatedPages
+        let targetId = selectedPageId
+        if let currentPage = pagesList.first(where: { (page: ChapterPage) -> Bool in
+            page.id == targetId
+        }) {
+            let chapterPages = pagesList.filter { $0.chapterIndex == currentPage.chapterIndex }
+            let currentPageNum = currentPage.pageIndex + 1
+            let totalPagesInChapter = chapterPages.count
+            
+            let chapter = chapters.first(where: { $0.index == currentPage.chapterIndex })
+            let label = chapter?.title.isEmpty == false
+                ? "Chapter \(currentPage.chapterIndex) · \(chapter!.title)"
+                : "Chapter \(currentPage.chapterIndex) of \(chapters.count)"
+                
+            HStack {
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(fg.opacity(0.85))
+                Spacer()
+                Text("Page \(currentPageNum) of \(totalPagesInChapter)")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(fg.opacity(0.5))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .background(bg)
+            .overlay(alignment: .top) {
+                Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+            }
+        }
+    }
+
+    // MARK: - Pagination algorithm helpers
+
+    private func performPagination(trigger: PaginationTrigger) async -> PaginationResult {
+        let w = trigger.size.width - width.horizontalPadding * 2
+        let h = trigger.size.height - 40 // margins
+        
+        guard w > 50 && h > 100 else {
+            return PaginationResult(pages: [], paragraphs: [:])
+        }
+        
+        var targetChapters: [Int] = [trigger.chapter]
+        if let prev = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: trigger.chapter, forward: false) {
+            targetChapters.append(prev)
+        }
+        if let next = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: trigger.chapter, forward: true) {
+            targetChapters.append(next)
+        }
+        
+        var allPages: [ChapterPage] = []
+        var allParagraphs: [Int: [AttributedString]] = [:]
+        
+        for chIndex in targetChapters.sorted() {
+            guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
+            
+            let paragraphs = HTMLToAttributed.convertParagraphs(chapter.bodyHTML)
+            allParagraphs[chIndex] = paragraphs
+            
+            let heights = calculateParagraphHeights(
+                paragraphs: paragraphs,
+                width: w,
+                fontSize: CGFloat(trigger.fontSize),
+                fontFamily: fontFamily,
+                lineSpacing: CGFloat(trigger.lineSpacing)
+            )
+            
+            let titleHeaderHeight = estimateTitleHeaderHeight(
+                title: title,
+                author: author,
+                authorUsername: authorUsername,
+                summary: summary,
+                width: w,
+                fontSize: CGFloat(trigger.fontSize),
+                fontFamily: fontFamily
+            )
+            
+            let chapterHeaderHeight = estimateChapterHeaderHeight(
+                title: chapter.title,
+                width: w,
+                fontSize: CGFloat(trigger.fontSize),
+                fontFamily: fontFamily
+            )
+            
+            let isFirstChapter = chIndex == chapters.first?.index
+            let showChapterHeader = chapters.count > 1
+            
+            let chPages = paginateChapter(
+                chapterIndex: chIndex,
+                paragraphs: paragraphs,
+                heights: heights,
+                viewportHeight: h,
+                titleHeaderHeight: titleHeaderHeight,
+                chapterHeaderHeight: chapterHeaderHeight,
+                isFirstChapter: isFirstChapter,
+                showChapterHeader: showChapterHeader,
+                paragraphSpacing: CGFloat(trigger.paragraphSpacing)
+            )
+            
+            allPages.append(contentsOf: chPages)
+        }
+        
+        return PaginationResult(pages: allPages, paragraphs: allParagraphs)
+    }
+
+    private func calculateParagraphHeights(
+        paragraphs: [AttributedString],
+        width: CGFloat,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily,
+        lineSpacing: CGFloat
+    ) -> [CGFloat] {
+        var heights: [CGFloat] = []
+        for para in paragraphs {
+            let ns = NSAttributedString(para)
+            let mutableNs = NSMutableAttributedString(attributedString: ns)
+            
+            mutableNs.enumerateAttribute(.font, in: NSRange(location: 0, length: mutableNs.length), options: []) { value, range, _ in
+                let originalFont = value as? UIFont ?? UIFont.systemFont(ofSize: fontSize)
+                let isBold = originalFont.fontDescriptor.symbolicTraits.contains(.traitBold)
+                let isItalic = originalFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
+                
+                var targetFont = fontFamily.uiFont(size: fontSize)
+                var traits = UIFontDescriptor.SymbolicTraits()
+                if isBold { traits.insert(.traitBold) }
+                if isItalic { traits.insert(.traitItalic) }
+                if !traits.isEmpty {
+                    if let desc = targetFont.fontDescriptor.withSymbolicTraits(traits) {
+                        targetFont = UIFont(descriptor: desc, size: fontSize)
+                    }
+                }
+                mutableNs.addAttribute(.font, value: targetFont, range: range)
+            }
+            
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.lineSpacing = lineSpacing
+            mutableNs.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: mutableNs.length))
+            
+            let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+            let rect = mutableNs.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            heights.append(ceil(rect.height))
+        }
+        return heights
+    }
+
+    private func estimateChapterHeaderHeight(
+        title: String,
+        width: CGFloat,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily
+    ) -> CGFloat {
+        var height: CGFloat = 42 + 15
+        if !title.isEmpty {
+            let titleFont = fontFamily.uiFont(size: fontSize + 5)
+            let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+            let attrString = NSAttributedString(string: title, attributes: [.font: titleFont])
+            let rect = attrString.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            height += ceil(rect.height) + 10
+        }
+        return height
+    }
+
+    private func estimateTitleHeaderHeight(
+        title: String,
+        author: String,
+        authorUsername: String,
+        summary: AO3WorkSummary?,
+        width: CGFloat,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily
+    ) -> CGFloat {
+        var height: CGFloat = 0
+        
+        let titleFont = fontFamily.uiFont(size: fontSize + 14)
+        let titleRect = NSAttributedString(string: title, attributes: [.font: titleFont])
+            .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        height += ceil(titleRect.height) + 14
+        
+        if !author.isEmpty {
+            let authorFont = UIFont.systemFont(ofSize: fontSize)
+            let authorRect = NSAttributedString(string: "by \(author)", attributes: [.font: authorFont])
+                .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            height += ceil(authorRect.height) + 14
+        }
+        
+        height += 80
+        
+        if let summary, !summary.summary.isEmpty {
+            height += 15 + 4
+            let plainSummary = summary.summary.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            let summaryFont = fontFamily.uiFont(size: fontSize - 1)
+            let summaryRect = NSAttributedString(string: plainSummary, attributes: [.font: summaryFont])
+                .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            height += ceil(summaryRect.height) + 14
+        }
+        
+        height += 10
+        
+        return height
+    }
+
+    private func paginateChapter(
+        chapterIndex: Int,
+        paragraphs: [AttributedString],
+        heights: [CGFloat],
+        viewportHeight: CGFloat,
+        titleHeaderHeight: CGFloat,
+        chapterHeaderHeight: CGFloat,
+        isFirstChapter: Bool,
+        showChapterHeader: Bool,
+        paragraphSpacing: CGFloat
+    ) -> [ChapterPage] {
+        var pages: [ChapterPage] = []
+        
+        var startIndex = 0
+        var pageIndex = 0
+        while startIndex < paragraphs.count {
+            var endIndex = startIndex
+            
+            var pageMaxHeight = viewportHeight
+            if pageIndex == 0 {
+                var headerHeight: CGFloat = 0
+                if isFirstChapter {
+                    headerHeight += titleHeaderHeight
+                }
+                if showChapterHeader {
+                    headerHeight += chapterHeaderHeight
+                }
+                pageMaxHeight = max(0, viewportHeight - headerHeight)
+            }
+            
+            var currentHeight: CGFloat = 0
+            var includedAny = false
+            
+            if pageMaxHeight > 40 {
+                currentHeight = heights[startIndex]
+                includedAny = true
+                
+                while endIndex + 1 < paragraphs.count {
+                    let nextHeight = heights[endIndex + 1]
+                    let potentialHeight = currentHeight + paragraphSpacing + nextHeight
+                    if potentialHeight <= pageMaxHeight {
+                        endIndex += 1
+                        currentHeight = potentialHeight
+                    } else {
+                        break
+                    }
+                }
+            }
+            
+            let range: Range<Int>
+            if includedAny {
+                range = startIndex..<(endIndex + 1)
+                startIndex = endIndex + 1
+            } else {
+                range = startIndex..<startIndex
+            }
+            
+            pages.append(ChapterPage(
+                id: "c\(chapterIndex)-p\(pageIndex)",
+                chapterIndex: chapterIndex,
+                pageIndex: pageIndex,
+                paragraphIndices: range
+            ))
+            pageIndex += 1
+        }
+        
+        if pages.isEmpty {
+            pages.append(ChapterPage(
+                id: "c\(chapterIndex)-p0",
+                chapterIndex: chapterIndex,
+                pageIndex: 0,
+                paragraphIndices: 0..<0
+            ))
+        }
+        
+        return pages
     }
 
     private func titleHeader(fg: Color) -> some View {
@@ -618,6 +1168,8 @@ struct ReaderView: View {
         } label: {
             Image(systemName: "textformat")
         }
+        .accessibilityLabel("Reader settings")
+        .accessibilityIdentifier("reader_settings_button")
     }
 
     /// Quick-pick submenu of named presets that set a numeric reader metric.
@@ -639,6 +1191,75 @@ struct ReaderView: View {
             }
         } label: {
             Label("\(title) · \(current ?? "Custom")", systemImage: icon)
+        }
+    }
+}
+
+struct ChapterPage: Identifiable, Hashable {
+    let id: String
+    let chapterIndex: Int
+    let pageIndex: Int
+    let paragraphIndices: Range<Int>
+}
+
+struct PaginationTrigger: Equatable {
+    let chapter: Int
+    let fontSize: Double
+    let fontFamily: String
+    let width: String
+    let lineSpacing: Double
+    let paragraphSpacing: Double
+    let size: CGSize
+}
+
+struct PaginationResult {
+    let pages: [ChapterPage]
+    let paragraphs: [Int: [AttributedString]]
+}
+
+struct ReaderPageCell: View {
+    let page: ChapterPage
+    let chapter: AO3ChapterPayload
+    let paragraphs: [AttributedString]
+    let showTitleHeader: Bool
+    let showChapterHeader: Bool
+    let titleHeaderView: AnyView?
+    let chapterHeaderView: AnyView
+    
+    let font: Font
+    let lineSpacing: CGFloat
+    let paragraphSpacing: CGFloat
+    let foreground: Color
+    let highlightParagraph: Int?
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showTitleHeader, let titleHeaderView {
+                titleHeaderView
+                    .padding(.bottom, Spacing.lg)
+            }
+            if showChapterHeader {
+                chapterHeaderView
+                    .padding(.bottom, Spacing.sm)
+            }
+            
+            VStack(alignment: .leading, spacing: paragraphSpacing) {
+                ForEach(Array(page.paragraphIndices), id: \.self) { index in
+                    if index < paragraphs.count {
+                        Text(paragraphs[index])
+                            .font(font)
+                            .lineSpacing(lineSpacing)
+                            .foregroundStyle(foreground)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                highlightParagraph == index ? Color.accentColor.opacity(0.15) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                    }
+                }
+            }
+            Spacer(minLength: 0)
         }
     }
 }
