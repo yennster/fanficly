@@ -105,10 +105,8 @@ struct ReaderSettingsView: View {
                            in: Double(AVSpeechUtteranceMinimumSpeechRate)...Double(AVSpeechUtteranceMaximumSpeechRate))
                 }
                 .padding(.vertical, 2)
-            } header: {
-                Text("Spoken audio")
             } footer: {
-                Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or Personal Voice). System voices run entirely on-device and are completely free.")
+                Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {

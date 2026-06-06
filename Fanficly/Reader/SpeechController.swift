@@ -9,7 +9,8 @@ import Observation
 /// Deliberately no third-party model and no network: the system voices run
 /// entirely on-device, which keeps the app's privacy posture intact (nothing
 /// leaves the device). Users can download higher-quality/natural voices in
-/// iOS Settings → Accessibility → Spoken Content → Voices and pick one in
+/// iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice
+/// under Settings → Accessibility → Personal Voice) and pick one in
 /// Reader settings; otherwise the platform default voice is used.
 ///
 /// Paragraphs are enqueued up-front so playback is gapless. We map each
@@ -41,6 +42,27 @@ final class SpeechController: NSObject {
     static let voiceKey = "reader.ttsVoiceId"
     static var defaultRate: Float { AVSpeechUtteranceDefaultSpeechRate }
 
+    /// Current speaking rate multiplier (e.g. 1.0, 1.25, 1.5).
+    var rateMultiplier: Double = 1.0 {
+        didSet {
+            let minMult = Double(AVSpeechUtteranceMinimumSpeechRate / Self.defaultRate)
+            let maxMult = Double(AVSpeechUtteranceMaximumSpeechRate / Self.defaultRate)
+            let clamped = max(minMult, min(maxMult, rateMultiplier))
+            if clamped != rateMultiplier {
+                rateMultiplier = clamped
+                return
+            }
+            let newRaw = rateMultiplier * Double(Self.defaultRate)
+            let oldRaw = UserDefaults.standard.double(forKey: Self.rateKey)
+            if abs(newRaw - oldRaw) > 0.001 {
+                UserDefaults.standard.set(newRaw, forKey: Self.rateKey)
+                if isActive {
+                    enqueue(from: currentParagraph)
+                }
+            }
+        }
+    }
+
     private let synthesizer = AVSpeechSynthesizer()
     /// Index-aligned with the reader's rendered paragraphs; empty entries
     /// (scene breaks) are skipped when speaking but keep their slot.
@@ -55,17 +77,39 @@ final class SpeechController: NSObject {
     override init() {
         super.init()
         synthesizer.delegate = self
+        
+        // Load stored rate multiplier from UserDefaults
+        if let stored = UserDefaults.standard.object(forKey: Self.rateKey) as? Double {
+            self.rateMultiplier = stored / Double(Self.defaultRate)
+        } else {
+            self.rateMultiplier = 1.0
+        }
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleUserDefaultsChange),
+            name: UserDefaults.didChangeNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleUserDefaultsChange() {
+        if let stored = UserDefaults.standard.object(forKey: Self.rateKey) as? Double {
+            let newMultiplier = stored / Double(Self.defaultRate)
+            if abs(self.rateMultiplier - newMultiplier) > 0.001 {
+                self.rateMultiplier = newMultiplier
+            }
+        }
     }
 
     // MARK: - Live settings (read from @AppStorage's backing store)
 
     private var rate: Float {
-        // @AppStorage("reader.ttsRate") stores a Double; nil until the user
-        // first changes it, in which case fall back to the platform default.
-        if let stored = UserDefaults.standard.object(forKey: Self.rateKey) as? Double {
-            return Float(stored)
-        }
-        return Self.defaultRate
+        Float(rateMultiplier * Double(Self.defaultRate))
     }
 
     private var voice: AVSpeechSynthesisVoice? {

@@ -208,6 +208,30 @@ struct ReaderView: View {
                     .foregroundStyle(fg.opacity(0.6))
             }
             Spacer()
+            
+            // Speaking rate selection menu
+            Menu {
+                ForEach([0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0], id: \.self) { rate in
+                    Button {
+                        speech.rateMultiplier = rate
+                    } label: {
+                        HStack {
+                            Text(String(format: "%.1f×", rate))
+                            if abs(speech.rateMultiplier - rate) < 0.05 {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Text(String(format: "%.1f×", speech.rateMultiplier))
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(fg.opacity(0.12))
+                    .cornerRadius(5)
+            }
+            
             Button {
                 speech.stop()
                 listeningChapter = nil
