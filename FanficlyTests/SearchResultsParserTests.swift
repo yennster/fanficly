@@ -88,6 +88,7 @@ final class SearchResultsParserTests: XCTestCase {
         XCTAssertEqual(work.id, 12345)
         XCTAssertEqual(work.title, "A Coffee Shop Tale")
         XCTAssertEqual(work.author, "alice")
+        XCTAssertEqual(work.authorUsername, "alice")
         XCTAssertEqual(work.rating, "Mature")
         XCTAssertEqual(work.fandoms, ["Twilight"])
         XCTAssertEqual(work.relationships, ["Edward Cullen/Bella Swan"])

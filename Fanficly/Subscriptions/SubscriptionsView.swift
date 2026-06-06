@@ -103,9 +103,7 @@ struct SubscriptionsView: View {
             }
         }
         .navigationTitle("Subscriptions")
-        .navigationDestination(for: AO3WorkSummary.self) { work in
-            WorkDetailView(workId: work.id)
-        }
+        .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
         }

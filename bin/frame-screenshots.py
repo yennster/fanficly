@@ -53,6 +53,8 @@ SLIDES = [
     ("07-reader-settings", "customize-every-page", "CUSTOMIZE",     "EVERY PAGE"),
     ("03-reader",          "read-offline",         "READ",          "ANYWHERE, OFFLINE"),
     ("04-library",         "never-miss-chapter",   "NEVER MISS",    "A CHAPTER"),
+    ("05-browse",          "browse-fandoms",       "BROWSE",        "BY FANDOM"),
+    ("09-tts",             "listen-on-the-go",     "LISTEN",        "ON THE GO"),
 ]
 
 # Per-device geometry. `out_w/out_h` are the exact App Store dimensions we emit;

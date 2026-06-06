@@ -6,6 +6,7 @@ public protocol AO3ClientProtocol: Sendable {
     func logout() async
     func currentUsername() async -> String?
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults
+    func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
@@ -26,6 +27,9 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
     public let id: Int
     public let title: String
     public let author: String
+    /// The author's AO3 login (the `/users/<login>` segment), used to open
+    /// their works page. Empty for anonymous works or when not parsed.
+    public let authorUsername: String
     public let summary: String
     public let rating: String
     public let warnings: [String]
@@ -42,6 +46,37 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
     public let hits: Int
     public let isComplete: Bool
     public let updatedAt: Date?
+
+    // Explicit init (rather than the synthesized memberwise one) so adding
+    // `authorUsername` with a default keeps every existing call site compiling.
+    public init(
+        id: Int, title: String, author: String, authorUsername: String = "",
+        summary: String, rating: String, warnings: [String], categories: [String],
+        fandoms: [String], characters: [String], relationships: [String], freeforms: [String],
+        wordCount: Int, chapterCount: Int, totalChapters: Int?, language: String,
+        kudos: Int, hits: Int, isComplete: Bool, updatedAt: Date?
+    ) {
+        self.id = id
+        self.title = title
+        self.author = author
+        self.authorUsername = authorUsername
+        self.summary = summary
+        self.rating = rating
+        self.warnings = warnings
+        self.categories = categories
+        self.fandoms = fandoms
+        self.characters = characters
+        self.relationships = relationships
+        self.freeforms = freeforms
+        self.wordCount = wordCount
+        self.chapterCount = chapterCount
+        self.totalChapters = totalChapters
+        self.language = language
+        self.kudos = kudos
+        self.hits = hits
+        self.isComplete = isComplete
+        self.updatedAt = updatedAt
+    }
 }
 
 public struct AO3WorkPayload: Sendable {
@@ -203,6 +238,19 @@ public actor AO3Client: AO3ClientProtocol {
         return try SearchResultsParser.parse(html: html)
     }
 
+    public func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
+        await throttle.wait()
+        let url = try AO3Endpoints.authorWorks(name: username, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Author works response not UTF-8")
+        }
+        // An author's works page lists works with the same `li.work.blurb`
+        // markup as search, so the search parser handles it unchanged.
+        return try SearchResultsParser.parse(html: html)
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         await throttle.wait()
         let url = try AO3Endpoints.work(id: id, base: baseURL)
@@ -357,6 +405,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func logout() async {}
     public func currentUsername() async -> String? { nil }
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
+    public func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {

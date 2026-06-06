@@ -16,8 +16,7 @@ enum HTMLToAttributed {
 
     /// The body split into individual paragraphs, so the reader can render
     /// and track each one (for precise reading-position restore).
-    static func convertParagraphs(_ html: String) -> [AttributedString] {
-        guard let doc = try? SwiftSoup.parseBodyFragment(html),
+    static func convertParagraphs(_ html: String) -> [AttributedString] {        guard let doc = try? SwiftSoup.parseBodyFragment(html),
               let body = doc.body() else {
             let stripped = html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             return stripped.isEmpty ? [] : [AttributedString(stripped)]
@@ -28,6 +27,22 @@ enum HTMLToAttributed {
             renderNode(child, into: &ctx, style: InlineStyle())
         }
         return ctx.finish()
+    }
+
+    /// One speech string per *rendered* paragraph — same count and order as
+    /// `convertParagraphs` (what `ChapterContentView` displays) — so the TTS
+    /// narrator and the karaoke highlight share a paragraph index. Scene-break
+    /// separators become "" (they occupy an index but aren't read aloud); soft
+    /// line breaks are flattened and list bullets dropped so the synthesizer
+    /// reads clean prose. The controller skips the empty entries when speaking.
+    static func speechParagraphs(_ html: String) -> [String] {
+        convertParagraphs(html).map { para in
+            let s = String(para.characters)
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "•", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return s == "· · ·" ? "" : s
+        }
     }
 
     private struct InlineStyle {

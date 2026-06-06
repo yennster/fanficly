@@ -59,7 +59,31 @@ final class ScreenshotTests: XCTestCase {
         let target = cell.waitForExistence(timeout: 2) ? cell : fallback
         if target.waitForExistence(timeout: 2) { target.tap(); usleep(800_000) }
     }
-
+    private func findSettingsButton() -> XCUIElement {
+        let identifier = app.descendants(matching: .any).element(matching: .any, identifier: "reader_settings_button")
+        if identifier.exists && identifier.isHittable { return identifier }
+        
+        let label = app.buttons["Reader settings"]
+        if label.exists && label.isHittable { return label }
+        
+        let textFormatting = app.buttons["text formatting"]
+        if textFormatting.exists && textFormatting.isHittable { return textFormatting }
+        
+        let aaButton = app.buttons["Aa"]
+        if aaButton.exists && aaButton.isHittable { return aaButton }
+        
+        let aaText = app.staticTexts["Aa"]
+        if aaText.exists && aaText.isHittable { return aaText }
+        
+        // Non-hittable existence checks (for iPhone collapsed state)
+        if identifier.exists { return identifier }
+        if label.exists { return label }
+        if textFormatting.exists { return textFormatting }
+        if aaButton.exists { return aaButton }
+        if aaText.exists { return aaText }
+        
+        return identifier // return the non-existent identifier instead of the back button fallback
+    }
     func testCaptureMainScreens() throws {
         usleep(900_000)
         snap("01-home")
@@ -81,6 +105,58 @@ final class ScreenshotTests: XCTestCase {
             _ = app.staticTexts.firstMatch.waitForExistence(timeout: 6)
             usleep(900_000)
             snap("03-reader")
+
+            // Text to speech narration
+            var ttsButton = findSettingsButton()
+            if !ttsButton.isHittable {
+                // On iPhone, trailing toolbar items are collapsed into a default overflow button at the far right
+                let navButtons = app.navigationBars.buttons
+                let count = navButtons.count
+                if count > 0 {
+                    let overflowButton = app.buttons["More"].exists ? app.buttons["More"] : navButtons.element(boundBy: count - 1)
+                    if overflowButton.waitForExistence(timeout: 3) {
+                        overflowButton.tap()
+                        usleep(600_000)
+                    }
+                }
+                ttsButton = findSettingsButton() // Refresh after opening overflow menu
+            }
+
+            if ttsButton.waitForExistence(timeout: 3) {
+                ttsButton.tap()
+                usleep(600_000)
+                let listenButton = app.buttons["Listen to chapter"]
+                if listenButton.waitForExistence(timeout: 3) {
+                    listenButton.tap()
+                    usleep(1_200_000) // Wait for playback to begin and player bar to appear
+                    snap("09-tts")
+                    
+                    // Stop narration to clean up
+                    var ttsButtonToStop = findSettingsButton()
+                    if !ttsButtonToStop.isHittable {
+                        let navButtons = app.navigationBars.buttons
+                        let count = navButtons.count
+                        if count > 0 {
+                            let overflowButton = app.buttons["More"].exists ? app.buttons["More"] : navButtons.element(boundBy: count - 1)
+                            if overflowButton.waitForExistence(timeout: 3) {
+                                overflowButton.tap()
+                                usleep(600_000)
+                            }
+                        }
+                        ttsButtonToStop = findSettingsButton() // Refresh after opening overflow menu
+                    }
+                    
+                    if ttsButtonToStop.waitForExistence(timeout: 3) {
+                        ttsButtonToStop.tap()
+                        usleep(600_000)
+                        let stopButton = app.buttons["Stop listening"]
+                        if stopButton.waitForExistence(timeout: 3) {
+                            stopButton.tap()
+                            usleep(600_000)
+                        }
+                    }
+                }
+            }
         }
 
         // Library — seeded with followed + downloaded works.
@@ -92,6 +168,18 @@ final class ScreenshotTests: XCTestCase {
         openSidebarItem("Browse")
         usleep(700_000)
         snap("05-browse")
+
+        // Fandoms list within a category (TV Shows)
+        let tvShowsCell = app.staticTexts["TV Shows"].firstMatch
+        if tvShowsCell.waitForExistence(timeout: 3) {
+            tvShowsCell.tap()
+            usleep(900_000)
+            snap("05-browse-fandoms")
+            
+            // Pop back to Browse so that the rest of the flow is clean
+            let browseBack = app.navigationBars.buttons.element(boundBy: 0)
+            if browseBack.exists && browseBack.isHittable { browseBack.tap(); usleep(600_000) }
+        }
 
         // Recently Viewed — seeded history.
         openSidebarItem("Recently Viewed")

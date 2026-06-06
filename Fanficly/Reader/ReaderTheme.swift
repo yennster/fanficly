@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum ReaderTheme: String, CaseIterable, Identifiable {
-    case system, light, sepia, dark, oledBlack
+    case system, light, sepia, dark, oledBlack, dracula
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
         case .sepia:     "Sepia"
         case .dark:      "Dark"
         case .oledBlack: "OLED Black"
+        case .dracula:   "Dracula Navy"
         }
     }
 
@@ -22,6 +23,7 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
         case .sepia:     Color(red: 0.97, green: 0.93, blue: 0.85)
         case .dark:      Color(red: 0.12, green: 0.12, blue: 0.13)
         case .oledBlack: Color.black
+        case .dracula:   Color(red: 0.157, green: 0.165, blue: 0.212)
         }
     }
 
@@ -32,6 +34,7 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
         case .sepia:     Color(red: 0.30, green: 0.20, blue: 0.10)
         case .dark:      Color(red: 0.92, green: 0.92, blue: 0.90)
         case .oledBlack: Color(red: 0.88, green: 0.88, blue: 0.85)
+        case .dracula:   Color(red: 0.973, green: 0.973, blue: 0.949)
         }
     }
 
@@ -39,7 +42,7 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
         switch self {
         case .system:                          nil
         case .light, .sepia:                   .light
-        case .dark, .oledBlack:                .dark
+        case .dark, .oledBlack, .dracula:      .dark
         }
     }
 }
@@ -102,6 +105,34 @@ enum ReaderFontFamily: String, CaseIterable, Identifiable {
         case .mono:    return .system(size: size, weight: weight, design: .monospaced)
         }
     }
+
+    func uiFont(size: CGFloat) -> UIFont {
+        switch self {
+        case .newYork:
+            if let custom = UIFont(name: "NewYorkLarge-Regular", size: size)
+                ?? UIFont(name: "NewYork-Regular", size: size) {
+                return custom
+            }
+            if let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif) {
+                return UIFont(descriptor: descriptor, size: size)
+            }
+            return .systemFont(ofSize: size)
+        case .serif:
+            if let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif) {
+                return UIFont(descriptor: descriptor, size: size)
+            }
+            return .systemFont(ofSize: size)
+        case .sans:
+            return .systemFont(ofSize: size)
+        case .rounded:
+            if let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withDesign(.rounded) {
+                return UIFont(descriptor: descriptor, size: size)
+            }
+            return .systemFont(ofSize: size)
+        case .mono:
+            return .monospacedSystemFont(ofSize: size, weight: .regular)
+        }
+    }
 }
 
 enum ReaderWidth: String, CaseIterable, Identifiable {
@@ -142,19 +173,21 @@ enum ReaderWidth: String, CaseIterable, Identifiable {
 
 
 enum ReadingMode: String, CaseIterable, Identifiable {
-    case continuous, paginated
+    case continuous, paginated, pageByPage
 
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .continuous: "Continuous scroll"
         case .paginated:  "Swipe by chapter"
+        case .pageByPage: "Page-by-page"
         }
     }
     var symbol: String {
         switch self {
         case .continuous: "arrow.down"
         case .paginated:  "rectangle.split.3x1"
+        case .pageByPage: "book.closed"
         }
     }
 }

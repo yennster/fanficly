@@ -72,4 +72,14 @@ enum ChapterTracking {
         // Nothing has scrolled past yet — we're in the first chapter.
         return chapters.min(by: { $0.value < $1.value })?.key
     }
+
+    /// The chapter index one step before/after `current` within `order`
+    /// (the chapter indices in reading order), or `nil` at the ends or when
+    /// `current` isn't found. Used by the reader's tap-to-turn page zones.
+    static func adjacentChapter(in order: [Int], current: Int, forward: Bool) -> Int? {
+        guard let pos = order.firstIndex(of: current) else { return nil }
+        let target = forward ? pos + 1 : pos - 1
+        guard order.indices.contains(target) else { return nil }
+        return order[target]
+    }
 }

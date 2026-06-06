@@ -33,9 +33,7 @@ struct SearchView: View {
         }
         .navigationTitle("Search")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: AO3WorkSummary.self) { work in
-            WorkDetailView(workId: work.id)
-        }
+        .workAndAuthorDestinations()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -590,7 +588,7 @@ struct WorkDetailView: View {
         } label: {
             Image(systemName: "ellipsis.circle")
         }
-        .accessibilityLabel("More")
+        .accessibilityLabel("Work options")
     }
 
     private func saveOfflineButton(payload: AO3WorkPayload) -> some View {

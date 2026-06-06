@@ -69,6 +69,7 @@ struct LibraryView: View {
         .navigationDestination(for: Work.self) { work in
             SavedWorkReader(work: work)
         }
+        .workAndAuthorDestinations()
     }
 
     private func delete(_ work: Work) {

@@ -20,6 +20,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
+    func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
     func fetchWork(id: Int) async throws -> AO3WorkPayload {
         AO3WorkPayload(summary: .stub(id: id, title: "x"), chapters: [])
     }

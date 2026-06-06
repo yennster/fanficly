@@ -36,6 +36,7 @@ enum WorkPersistence {
 
         work.title = summary.title
         work.authorName = summary.author
+        work.authorUsername = summary.authorUsername
         work.summary = summary.summary
         work.rating = summary.rating
         work.warnings = summary.warnings

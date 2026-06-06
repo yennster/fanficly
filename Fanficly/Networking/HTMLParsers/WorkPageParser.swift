@@ -33,6 +33,13 @@ enum WorkPageParser {
             }
             return "Anonymous"
         }()
+        // First byline link's /users/<login> segment, for "more by this author".
+        let authorUsername: String = {
+            let byline = try? doc.select("h3.byline a").first()?.attr("href")          // String??
+            let creator = try? doc.select("dl.work.meta dd.creator a").first()?.attr("href")
+            let href = (byline ?? nil) ?? (creator ?? nil) ?? ""
+            return SearchResultsParser.authorLogin(fromHref: href)
+        }()
 
         let meta = try doc.select("dl.work.meta.group").first()
         let rating = try meta?.select("dd.rating a.tag").first()?.text() ?? "Not Rated"
@@ -66,6 +73,7 @@ enum WorkPageParser {
             id: workId,
             title: title,
             author: author,
+            authorUsername: authorUsername,
             summary: summary,
             rating: rating,
             warnings: warnings,

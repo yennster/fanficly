@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct ReaderSettingsView: View {
@@ -8,7 +9,20 @@ struct ReaderSettingsView: View {
     @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
     @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
+    @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
+    @AppStorage("reader.pageTurnAnimations") private var pageTurnAnimations: Bool = true
+    @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
+    @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
+
+    /// On-device voices for the current language (fall back to all installed
+    /// voices if the language has none), sorted by name.
+    private var voices: [AVSpeechSynthesisVoice] {
+        let all = AVSpeechSynthesisVoice.speechVoices()
+        let lang = Locale.current.language.languageCode?.identifier ?? "en"
+        let matching = all.filter { $0.language.hasPrefix(lang) }
+        return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
+    }
 
     var body: some View {
         let theme = ReaderTheme(rawValue: themeRaw) ?? .system
@@ -55,10 +69,44 @@ struct ReaderSettingsView: View {
                     }
                 }
                 .pickerStyle(.inline).labelsHidden()
+
+                Toggle(isOn: $pageTurnHaptics) {
+                    Label("Page-turn haptics", systemImage: "hand.tap")
+                }
+
+                Toggle(isOn: $pageTurnAnimations) {
+                    Label("Page-turn animation", systemImage: "square.2.layers.3d")
+                }
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page.")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn. Page-turn options configure haptic feedback and animations.")
+            }
+
+            Section {
+                Picker(selection: $ttsVoiceId) {
+                    Text("System default").tag("")
+                    ForEach(voices, id: \.identifier) { voice in
+                        Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                    }
+                } label: {
+                    Label("Voice", systemImage: "person.wave.2")
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("Speaking rate", systemImage: "speedometer").font(.subheadline)
+                        Spacer()
+                        Text(String(format: "%.1f×", ttsRate / Double(SpeechController.defaultRate)))
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $ttsRate,
+                           in: Double(AVSpeechUtteranceMinimumSpeechRate)...Double(AVSpeechUtteranceMaximumSpeechRate))
+                }
+                .padding(.vertical, 2)
+            } footer: {
+                Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {

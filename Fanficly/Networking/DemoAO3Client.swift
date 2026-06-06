@@ -54,6 +54,12 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         return AO3SearchResults(works: works, totalPages: 1, currentPage: page)
     }
 
+    public func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
+        let mine = DemoCatalog.works.filter { $0.authorUsername == username || $0.author == username }
+        return AO3SearchResults(works: mine.isEmpty ? DemoCatalog.works : mine,
+                                totalPages: 1, currentPage: page)
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         DemoCatalog.payload(for: id)
     }
@@ -186,7 +192,7 @@ enum DemoCatalog {
         complete: Bool, daysAgo: Int
     ) -> AO3WorkSummary {
         AO3WorkSummary(
-            id: id, title: title, author: author, summary: summary,
+            id: id, title: title, author: author, authorUsername: author, summary: summary,
             rating: rating, warnings: ["No Archive Warnings Apply"],
             categories: categories, fandoms: fandoms, characters: characters,
             relationships: relationships, freeforms: freeforms,
