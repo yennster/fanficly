@@ -654,7 +654,8 @@ struct ReaderView: View {
                 chapter: chapter,
                 atoms: atoms,
                 showTitleHeader: page.pageIndex == 0 && page.chapterIndex == chapters.first?.index,
-                showChapterHeader: page.pageIndex == 0 && chapters.count > 1,
+                showChapterHeader: (page.pageIndex == 0 && page.chapterIndex != chapters.first?.index && chapters.count > 1) ||
+                                   (page.pageIndex == 1 && page.chapterIndex == chapters.first?.index && chapters.count > 1),
                 titleHeaderView: AnyView(titleHeader(fg: fg)),
                 chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg)),
                 font: fontFamily.font(size: fontSize),
@@ -1082,19 +1083,30 @@ struct ReaderView: View {
         
         var startIndex = 0
         var pageIndex = 0
+        
+        if isFirstChapter {
+            // Page 0 is a dedicated cover/metadata page with no story text.
+            pages.append(ChapterPage(
+                id: "c\(chapterIndex)-p0",
+                chapterIndex: chapterIndex,
+                pageIndex: 0,
+                paragraphIndices: 0..<0
+            ))
+            pageIndex = 1
+        }
+        
         while startIndex < atoms.count {
             var endIndex = startIndex
             
             var pageMaxHeight = viewportHeight
-            if pageIndex == 0 {
-                var headerHeight: CGFloat = 0
-                if isFirstChapter {
-                    headerHeight += titleHeaderHeight
-                }
-                if showChapterHeader {
-                    headerHeight += chapterHeaderHeight
-                }
-                pageMaxHeight = max(0, viewportHeight - headerHeight)
+            
+            // Check if this page should display the chapter header
+            let displaysChapterHeader = showChapterHeader && (
+                isFirstChapter ? (pageIndex == 1) : (pageIndex == 0)
+            )
+            
+            if displaysChapterHeader {
+                pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
             }
             
             var currentHeight: CGFloat = 0

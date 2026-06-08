@@ -3,8 +3,10 @@ import Social
 import UniformTypeIdentifiers
 
 class ShareViewController: UIViewController {
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        self.view.backgroundColor = .clear
         
         guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem] else {
             self.cancelRequest()
