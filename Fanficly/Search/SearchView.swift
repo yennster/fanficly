@@ -13,6 +13,7 @@ struct SearchView: View {
     @State private var currentPage: Int = 1
     @State private var totalPages: Int = 1
     @State private var isSearching: Bool = false
+    @State private var hasSearched = false
     @State private var isLoadingMore: Bool = false
     @State private var errorMessage: String?
     @State private var sortColumn: AO3SearchFilters.SortColumn = .bestMatch
@@ -52,6 +53,7 @@ struct SearchView: View {
                                 Button(saved.name) {
                                     load(saved)
                                     searchFocused = false
+                                    hasSearched = false
                                     Task { await runSearch() }
                                 }
                             }
@@ -96,10 +98,12 @@ struct SearchView: View {
                             searchFocused = false
                             lastParsed = parser.parse(prompt)
                             filtersResolved = false
+                            hasSearched = false
                             Task { await runSearch() }
                         } else {
                             lastParsed = parser.parse(prompt)
                             filtersResolved = false
+                            hasSearched = false
                         }
                     }
 
@@ -151,11 +155,14 @@ struct SearchView: View {
             }
         } else if let error = errorMessage {
             ContentUnavailableView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
-        } else if results.isEmpty && !savedSearches.isEmpty {
+        } else if results.isEmpty && !hasSearched && !savedSearches.isEmpty {
             savedSearchesList
-        } else if results.isEmpty {
+        } else if results.isEmpty && !hasSearched {
             ContentUnavailableView("Type a prompt", systemImage: "sparkle.magnifyingglass",
                 description: Text("e.g. \"edward/bella romance all human complete\""))
+        } else if results.isEmpty {
+            ContentUnavailableView("No results found", systemImage: "magnifyingglass",
+                description: Text("Try adjusting your filters or search terms."))
         } else if visibleResults.isEmpty {
             ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
                 description: Text("Every match is hidden or filtered out by your content settings."))
@@ -326,16 +333,22 @@ struct SearchView: View {
             results = result.works
             totalPages = result.totalPages
             currentPage = result.currentPage
+            hasSearched = true
         } catch let AO3Error.loginFailed(reason) {
             errorMessage = reason
+            hasSearched = false
         } catch let AO3Error.http(status) {
             errorMessage = "AO3 returned HTTP \(status)"
+            hasSearched = false
         } catch let AO3Error.parseFailed(reason) {
             errorMessage = "Couldn't parse AO3's response: \(reason)"
+            hasSearched = false
         } catch let AO3Error.network(underlying) {
             errorMessage = "Network: \(underlying)"
+            hasSearched = false
         } catch {
             errorMessage = error.localizedDescription
+            hasSearched = false
         }
     }
 

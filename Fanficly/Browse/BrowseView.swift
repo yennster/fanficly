@@ -171,6 +171,9 @@ struct FandomWorksView: View {
             } else if let errorMessage, works.isEmpty {
                 ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
+            } else if works.isEmpty {
+                ContentUnavailableView("No works found", systemImage: "magnifyingglass",
+                    description: Text("Try adjusting your filters or search terms."))
             } else if visibleWorks.isEmpty {
                 ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
                     description: Text("Every match is hidden or filtered out by your content settings."))

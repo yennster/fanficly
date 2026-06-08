@@ -35,9 +35,12 @@ struct AuthorWorksView: View {
             } else if let errorMessage, works.isEmpty {
                 ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
-            } else if visibleWorks.isEmpty {
+            } else if works.isEmpty {
                 ContentUnavailableView("No works to show", systemImage: "person.slash",
-                    description: Text("This author has no visible works, or they're all filtered out by your content settings."))
+                    description: Text("This author has no works published."))
+            } else if visibleWorks.isEmpty {
+                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
+                    description: Text("Every work by this author is filtered out by your content settings."))
             } else {
                 List {
                     ForEach(visibleWorks) { work in
