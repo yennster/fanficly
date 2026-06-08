@@ -56,26 +56,6 @@ struct SavedWorkReader: View {
         .background(readerBackground.ignoresSafeArea())
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    work.isStarred.toggle()
-                    try? context.save()
-                    iCloudSyncManager.shared.queueBackup(context: context)
-                } label: {
-                    Image(systemName: work.isStarred ? "star.fill" : "star")
-                        .foregroundStyle(work.isStarred ? .yellow : Color.primary)
-                }
-                .accessibilityLabel(work.isStarred ? "Starred" : "Star")
-                
-                Button {
-                    work.isPinned.toggle()
-                    try? context.save()
-                    iCloudSyncManager.shared.queueBackup(context: context)
-                } label: {
-                    Image(systemName: work.isPinned ? "pin.fill" : "pin")
-                        .foregroundStyle(work.isPinned ? .blue : Color.primary)
-                }
-                .accessibilityLabel(work.isPinned ? "Pinned" : "Pin")
-
                 WorkExportButton(workId: work.ao3Id, title: work.title)
                 saveOfflineButton
             }

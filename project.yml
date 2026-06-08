@@ -49,6 +49,7 @@ targets:
     dependencies:
       - package: SwiftSoup
       - package: KeychainAccess
+      - target: FanficlyShare
     info:
       path: Fanficly/Info.plist
       properties:

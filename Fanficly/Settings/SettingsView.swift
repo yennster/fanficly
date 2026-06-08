@@ -160,6 +160,9 @@ struct SettingsView: View {
         .onAppear {
             lastSync = syncManager.lastBackupDate
         }
+        .onChange(of: filterMature) { _, _ in
+            syncManager.queueBackup(context: context)
+        }
         .alert("Library Restored", isPresented: $showingRestoreSuccess) {
             Button("OK", role: .cancel) {}
         } message: {

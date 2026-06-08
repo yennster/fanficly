@@ -48,16 +48,37 @@ class ShareViewController: UIViewController {
             return
         }
         
-        // Use extensionContext to open URL
-        self.extensionContext?.open(appURL, completionHandler: { [weak self] success in
-            Task { @MainActor in
-                guard let self = self else { return }
-                self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+        // Bypassing Safari Share Extension url opening restrictions via dynamic UIApplication retrieval
+        if let applicationClass = NSClassFromString("UIApplication") as? NSObject.Type,
+           let sharedApplication = applicationClass.perform(#selector(getter: ShareExtensionUIApplicationBypass.sharedApplication))?.takeUnretainedValue() as? NSObject {
+            let selector = #selector(ShareExtensionUIApplicationBypass.openURL(_:options:completionHandler:))
+            typealias OpenURLMethod = @convention(c) (AnyObject, Selector, NSURL, NSDictionary, (@convention(block) (Bool) -> Void)?) -> Void
+            
+            let method = unsafeBitCast(sharedApplication.method(for: selector), to: OpenURLMethod.self)
+            let completion: @convention(block) (Bool) -> Void = { [weak self] success in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+                }
             }
-        })
+            method(sharedApplication, selector, appURL as NSURL, [:] as NSDictionary, completion)
+        } else {
+            // Fallback to standard context opening
+            self.extensionContext?.open(appURL, completionHandler: { [weak self] success in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+                }
+            })
+        }
     }
     
     private func cancelRequest() {
         self.extensionContext?.cancelRequest(withError: NSError(domain: "FanficlyShare", code: 1, userInfo: [NSLocalizedDescriptionKey: "No URL found"]))
     }
+}
+
+@objc protocol ShareExtensionUIApplicationBypass {
+    var sharedApplication: AnyObject? { get }
+    func openURL(_ url: URL, options: [String: Any], completionHandler: ((Bool) -> Void)?)
 }

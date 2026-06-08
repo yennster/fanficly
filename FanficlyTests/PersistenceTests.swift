@@ -101,4 +101,50 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(ReadingProgressStore.load(ao3Id: 42, in: ctx)?.chapter, 6)
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingProgress>()).count, 1)
     }
+
+    func test_iCloudSyncRestoresSettings() async throws {
+        let ctx = try makeContext()
+        
+        // Setup temporary override URL for testing
+        let tempDir = FileManager.default.temporaryDirectory
+        let testBackupURL = tempDir.appendingPathComponent("test_library_backup.json")
+        iCloudSyncManager.overrideBackupURL = testBackupURL
+        
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: testBackupURL)
+        }
+        
+        // 1. Set some settings in UserDefaults
+        let defaults = UserDefaults.standard
+        defaults.set("sepia", forKey: "reader.theme")
+        defaults.set("rounded", forKey: "reader.fontFamily")
+        defaults.set("wide", forKey: "reader.width")
+        defaults.set(22.0, forKey: "reader.fontSizePt")
+        defaults.set(true, forKey: "content.filterMatureExplicit")
+        
+        // 2. Perform backup
+        let syncManager = iCloudSyncManager.shared
+        syncManager.backupToiCloud(context: ctx)
+        
+        // 3. Reset settings in UserDefaults
+        defaults.removeObject(forKey: "reader.theme")
+        defaults.removeObject(forKey: "reader.fontFamily")
+        defaults.removeObject(forKey: "reader.width")
+        defaults.removeObject(forKey: "reader.fontSizePt")
+        defaults.removeObject(forKey: "content.filterMatureExplicit")
+        
+        XCTAssertNil(defaults.string(forKey: "reader.theme"))
+        
+        // 4. Restore from backup
+        let success = await syncManager.restoreFromiCloud(context: ctx)
+        XCTAssertTrue(success)
+        
+        // 5. Verify they are restored
+        XCTAssertEqual(defaults.string(forKey: "reader.theme"), "sepia")
+        XCTAssertEqual(defaults.string(forKey: "reader.fontFamily"), "rounded")
+        XCTAssertEqual(defaults.string(forKey: "reader.width"), "wide")
+        XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt"), 22.0)
+        XCTAssertTrue(defaults.bool(forKey: "content.filterMatureExplicit"))
+    }
 }

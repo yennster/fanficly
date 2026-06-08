@@ -54,7 +54,6 @@ struct RootView: View {
                     .transition(.opacity)
                 
                 ImportOverlay(workId: workId) { work in
-                    self.importedWork = work
                     self.importingWorkId = nil
                     selectedTab = .library
                 } onCancel: {
@@ -155,16 +154,14 @@ struct ImportOverlay: View {
             do {
                 status = "Fetching metadata..."
                 let payload = try await client.fetchWork(id: workId)
-                status = "Saving chapters..."
-                let work = WorkPersistence.upsert(payload: payload, into: context)
-                status = "Downloading EPUB for offline..."
-                do {
-                    _ = try await client.downloadEPUB(workId: workId)
-                } catch {
-                    print("EPUB download failed during import: \(error)")
-                }
+                status = "Saving to library..."
+                let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
+                work.isFollowed = true
+                work.followedAt = .now
+                work.savedAt = .now
                 status = "Done!"
                 try? context.save()
+                iCloudSyncManager.shared.queueBackup(context: context)
                 try? await Task.sleep(for: .seconds(1))
                 onComplete(work)
             } catch {

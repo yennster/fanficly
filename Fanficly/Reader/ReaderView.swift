@@ -137,6 +137,17 @@ struct ReaderView: View {
         .onChange(of: speech.finishedTick) { _, _ in advanceNarration() }
         // Don't leave audio playing after the reader is dismissed.
         .onDisappear { speech.stop() }
+        .onChange(of: themeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
+        .onChange(of: widthRaw) { _, _ in queueBackup() }
+        .onChange(of: modeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontSizePt) { _, _ in queueBackup() }
+        .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
+        .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
+    }
+
+    private func queueBackup() {
+        iCloudSyncManager.shared.queueBackup(context: modelContext)
     }
 
     // MARK: - Narration (text-to-speech)
@@ -867,7 +878,10 @@ struct ReaderView: View {
     // MARK: - Pagination algorithm helpers
 
     private func performPagination(trigger: PaginationTrigger) async -> PaginationResult {
-        let w = trigger.size.width - width.horizontalPadding * 2
+        var w = trigger.size.width - width.horizontalPadding * 2
+        if let maxW = width.maxColumnWidth {
+            w = min(w, maxW)
+        }
         let h = trigger.size.height - 40 // margins
         
         guard w > 50 && h > 100 else {
@@ -903,14 +917,6 @@ struct ReaderView: View {
             }
             allAtoms[chIndex] = atoms
             
-            let heights = calculateParagraphHeights(
-                paragraphs: atoms.map(\.text),
-                width: w,
-                fontSize: CGFloat(trigger.fontSize),
-                fontFamily: fontFamily,
-                lineSpacing: CGFloat(trigger.lineSpacing)
-            )
-            
             let titleHeaderHeight = estimateTitleHeaderHeight(
                 title: title,
                 author: author,
@@ -934,12 +940,15 @@ struct ReaderView: View {
             let chPages = paginateChapter(
                 chapterIndex: chIndex,
                 atoms: atoms,
-                heights: heights,
+                width: w,
                 viewportHeight: h,
                 titleHeaderHeight: titleHeaderHeight,
                 chapterHeaderHeight: chapterHeaderHeight,
                 isFirstChapter: isFirstChapter,
                 showChapterHeader: showChapterHeader,
+                fontSize: CGFloat(trigger.fontSize),
+                fontFamily: fontFamily,
+                lineSpacing: CGFloat(trigger.lineSpacing),
                 paragraphSpacing: CGFloat(trigger.paragraphSpacing)
             )
             
@@ -949,44 +958,40 @@ struct ReaderView: View {
         return PaginationResult(pages: allPages, atoms: allAtoms)
     }
 
-    private func calculateParagraphHeights(
-        paragraphs: [AttributedString],
+    private func calculateHeight(
+        for attributedString: AttributedString,
         width: CGFloat,
         fontSize: CGFloat,
         fontFamily: ReaderFontFamily,
         lineSpacing: CGFloat
-    ) -> [CGFloat] {
-        var heights: [CGFloat] = []
-        for para in paragraphs {
-            let ns = NSAttributedString(para)
-            let mutableNs = NSMutableAttributedString(attributedString: ns)
+    ) -> CGFloat {
+        let ns = NSAttributedString(attributedString)
+        let mutableNs = NSMutableAttributedString(attributedString: ns)
+        
+        mutableNs.enumerateAttribute(.font, in: NSRange(location: 0, length: mutableNs.length), options: []) { value, range, _ in
+            let originalFont = value as? UIFont ?? UIFont.systemFont(ofSize: fontSize)
+            let isBold = originalFont.fontDescriptor.symbolicTraits.contains(.traitBold)
+            let isItalic = originalFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
             
-            mutableNs.enumerateAttribute(.font, in: NSRange(location: 0, length: mutableNs.length), options: []) { value, range, _ in
-                let originalFont = value as? UIFont ?? UIFont.systemFont(ofSize: fontSize)
-                let isBold = originalFont.fontDescriptor.symbolicTraits.contains(.traitBold)
-                let isItalic = originalFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
-                
-                var targetFont = fontFamily.uiFont(size: fontSize)
-                var traits = UIFontDescriptor.SymbolicTraits()
-                if isBold { traits.insert(.traitBold) }
-                if isItalic { traits.insert(.traitItalic) }
-                if !traits.isEmpty {
-                    if let desc = targetFont.fontDescriptor.withSymbolicTraits(traits) {
-                        targetFont = UIFont(descriptor: desc, size: fontSize)
-                    }
+            var targetFont = fontFamily.uiFont(size: fontSize)
+            var traits = UIFontDescriptor.SymbolicTraits()
+            if isBold { traits.insert(.traitBold) }
+            if isItalic { traits.insert(.traitItalic) }
+            if !traits.isEmpty {
+                if let desc = targetFont.fontDescriptor.withSymbolicTraits(traits) {
+                    targetFont = UIFont(descriptor: desc, size: fontSize)
                 }
-                mutableNs.addAttribute(.font, value: targetFont, range: range)
             }
-            
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.lineSpacing = lineSpacing
-            mutableNs.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: mutableNs.length))
-            
-            let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
-            let rect = mutableNs.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-            heights.append(ceil(rect.height))
+            mutableNs.addAttribute(.font, value: targetFont, range: range)
         }
-        return heights
+        
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = lineSpacing
+        mutableNs.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: mutableNs.length))
+        
+        let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+        let rect = mutableNs.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        return ceil(rect.height)
     }
 
     private func estimateChapterHeaderHeight(
@@ -1048,12 +1053,15 @@ struct ReaderView: View {
     private func paginateChapter(
         chapterIndex: Int,
         atoms: [ParagraphAtom],
-        heights: [CGFloat],
+        width: CGFloat,
         viewportHeight: CGFloat,
         titleHeaderHeight: CGFloat,
         chapterHeaderHeight: CGFloat,
         isFirstChapter: Bool,
         showChapterHeader: Bool,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily,
+        lineSpacing: CGFloat,
         paragraphSpacing: CGFloat
     ) -> [ChapterPage] {
         var pages: [ChapterPage] = []
@@ -1079,20 +1087,64 @@ struct ReaderView: View {
             var includedAny = false
             
             if pageMaxHeight > 40 {
-                currentHeight = heights[startIndex]
+                var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
+                var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
+                var currentBlockHeight = calculateHeight(
+                    for: ReaderPageCell.concatenateAtoms(currentBlockAtoms),
+                    width: width,
+                    fontSize: fontSize,
+                    fontFamily: fontFamily,
+                    lineSpacing: lineSpacing
+                )
+                
+                currentHeight = currentBlockHeight
                 includedAny = true
+                
+                var completedBlocksHeight: CGFloat = 0
                 
                 while endIndex + 1 < atoms.count {
                     let nextAtom = atoms[endIndex + 1]
-                    let nextHeight = heights[endIndex + 1]
                     
-                    let spacing = nextAtom.isContinuation ? 0 : paragraphSpacing
-                    let potentialHeight = currentHeight + spacing + nextHeight
-                    if potentialHeight <= pageMaxHeight {
-                        endIndex += 1
-                        currentHeight = potentialHeight
+                    if nextAtom.originalParagraphIndex == currentBlockParaIndex {
+                        let proposedBlockAtoms = currentBlockAtoms + [nextAtom]
+                        let proposedBlockHeight = calculateHeight(
+                            for: ReaderPageCell.concatenateAtoms(proposedBlockAtoms),
+                            width: width,
+                            fontSize: fontSize,
+                            fontFamily: fontFamily,
+                            lineSpacing: lineSpacing
+                        )
+                        
+                        let potentialHeight = completedBlocksHeight + proposedBlockHeight
+                        if potentialHeight <= pageMaxHeight {
+                            endIndex += 1
+                            currentBlockAtoms = proposedBlockAtoms
+                            currentBlockHeight = proposedBlockHeight
+                            currentHeight = potentialHeight
+                        } else {
+                            break
+                        }
                     } else {
-                        break
+                        let proposedBlockAtoms = [nextAtom]
+                        let proposedBlockHeight = calculateHeight(
+                            for: ReaderPageCell.concatenateAtoms(proposedBlockAtoms),
+                            width: width,
+                            fontSize: fontSize,
+                            fontFamily: fontFamily,
+                            lineSpacing: lineSpacing
+                        )
+                        
+                        let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
+                        if potentialHeight <= pageMaxHeight {
+                            endIndex += 1
+                            completedBlocksHeight += currentBlockHeight + paragraphSpacing
+                            currentBlockParaIndex = nextAtom.originalParagraphIndex
+                            currentBlockAtoms = proposedBlockAtoms
+                            currentBlockHeight = proposedBlockHeight
+                            currentHeight = potentialHeight
+                        } else {
+                            break
+                        }
                     }
                 }
             }

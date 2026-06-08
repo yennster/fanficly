@@ -9,8 +9,12 @@ final class iCloudSyncManager {
     
     private init() {}
     
+    /// An optional local URL override for testing.
+    static var overrideBackupURL: URL? = nil
+    
     /// The URL to the backup file in the iCloud ubiquitous container.
     static var backupURL: URL? {
+        if let overrideBackupURL { return overrideBackupURL }
         guard let ubiquityURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else { return nil }
         let docsURL = ubiquityURL.appendingPathComponent("Documents")
         try? FileManager.default.createDirectory(at: docsURL, withIntermediateDirectories: true)
@@ -139,6 +143,23 @@ final class iCloudSyncManager {
                 HiddenBackup(ao3Id: $0.ao3Id, title: $0.title, hiddenAt: $0.hiddenAt)
             }
             
+            let defaults = UserDefaults.standard
+            let settingsBackup = SettingsBackup(
+                theme: defaults.string(forKey: "reader.theme"),
+                fontFamily: defaults.string(forKey: "reader.fontFamily"),
+                width: defaults.string(forKey: "reader.width"),
+                mode: defaults.string(forKey: "reader.mode"),
+                fontSizePt: defaults.object(forKey: "reader.fontSizePt") as? Double,
+                lineSpacingPt: defaults.object(forKey: "reader.lineSpacingPt") as? Double,
+                paragraphSpacingPt: defaults.object(forKey: "reader.paragraphSpacingPt") as? Double,
+                pageTurnHaptics: defaults.object(forKey: "reader.pageTurnHaptics") as? Bool,
+                pageTurnAnimations: defaults.object(forKey: "reader.pageTurnAnimations") as? Bool,
+                ttsRate: defaults.object(forKey: "reader.ttsRate") as? Double,
+                ttsVoiceId: defaults.string(forKey: "reader.ttsVoiceId"),
+                filterMatureExplicit: defaults.object(forKey: "content.filterMatureExplicit") as? Bool,
+                ageConfirmed: defaults.object(forKey: "content.ageConfirmed") as? Bool
+            )
+            
             let backup = LibraryBackup(
                 works: workBackups,
                 bookmarks: bookmarkBackups,
@@ -147,6 +168,7 @@ final class iCloudSyncManager {
                 progress: progressBackups,
                 filters: filterBackups,
                 hidden: hiddenBackups,
+                settings: settingsBackup,
                 timestamp: .now
             )
             
@@ -207,6 +229,24 @@ final class iCloudSyncManager {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let backup = try decoder.decode(LibraryBackup.self, from: data)
+            
+            // 0. Restore settings and themes
+            if let s = backup.settings {
+                let defaults = UserDefaults.standard
+                if let theme = s.theme { defaults.set(theme, forKey: "reader.theme") }
+                if let fontFamily = s.fontFamily { defaults.set(fontFamily, forKey: "reader.fontFamily") }
+                if let width = s.width { defaults.set(width, forKey: "reader.width") }
+                if let mode = s.mode { defaults.set(mode, forKey: "reader.mode") }
+                if let fontSizePt = s.fontSizePt { defaults.set(fontSizePt, forKey: "reader.fontSizePt") }
+                if let lineSpacingPt = s.lineSpacingPt { defaults.set(lineSpacingPt, forKey: "reader.lineSpacingPt") }
+                if let paragraphSpacingPt = s.paragraphSpacingPt { defaults.set(paragraphSpacingPt, forKey: "reader.paragraphSpacingPt") }
+                if let pageTurnHaptics = s.pageTurnHaptics { defaults.set(pageTurnHaptics, forKey: "reader.pageTurnHaptics") }
+                if let pageTurnAnimations = s.pageTurnAnimations { defaults.set(pageTurnAnimations, forKey: "reader.pageTurnAnimations") }
+                if let ttsRate = s.ttsRate { defaults.set(ttsRate, forKey: "reader.ttsRate") }
+                if let ttsVoiceId = s.ttsVoiceId { defaults.set(ttsVoiceId, forKey: "reader.ttsVoiceId") }
+                if let filterMatureExplicit = s.filterMatureExplicit { defaults.set(filterMatureExplicit, forKey: "content.filterMatureExplicit") }
+                if let ageConfirmed = s.ageConfirmed { defaults.set(ageConfirmed, forKey: "content.ageConfirmed") }
+            }
             
             // 1. Restore Works and their Chapters
             for w in backup.works {
@@ -384,7 +424,24 @@ struct LibraryBackup: Codable {
     let progress: [ProgressBackup]
     let filters: [FilterBackup]
     let hidden: [HiddenBackup]
+    let settings: SettingsBackup?
     let timestamp: Date
+}
+
+struct SettingsBackup: Codable {
+    let theme: String?
+    let fontFamily: String?
+    let width: String?
+    let mode: String?
+    let fontSizePt: Double?
+    let lineSpacingPt: Double?
+    let paragraphSpacingPt: Double?
+    let pageTurnHaptics: Bool?
+    let pageTurnAnimations: Bool?
+    let ttsRate: Double?
+    let ttsVoiceId: String?
+    let filterMatureExplicit: Bool?
+    let ageConfirmed: Bool?
 }
 
 struct WorkBackup: Codable {

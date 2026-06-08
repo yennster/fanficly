@@ -1,7 +1,9 @@
 import AVFoundation
 import SwiftUI
+import SwiftData
 
 struct ReaderSettingsView: View {
+    @Environment(\.modelContext) private var context
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
@@ -132,6 +134,21 @@ struct ReaderSettingsView: View {
         }
         .navigationTitle("Reader")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: themeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
+        .onChange(of: widthRaw) { _, _ in queueBackup() }
+        .onChange(of: modeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontSizePt) { _, _ in queueBackup() }
+        .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
+        .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
+        .onChange(of: pageTurnHaptics) { _, _ in queueBackup() }
+        .onChange(of: pageTurnAnimations) { _, _ in queueBackup() }
+        .onChange(of: ttsRate) { _, _ in queueBackup() }
+        .onChange(of: ttsVoiceId) { _, _ in queueBackup() }
+    }
+
+    private func queueBackup() {
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     @ViewBuilder
