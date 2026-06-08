@@ -75,6 +75,8 @@ final class iCloudSyncManager {
                     isFollowed: work.isFollowed,
                     followedAt: work.followedAt,
                     lastSeenChapterCount: work.lastSeenChapterCount,
+                    isStarred: work.isStarred,
+                    isPinned: work.isPinned,
                     chapters: work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
                         ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML)
                     }
@@ -188,6 +190,8 @@ final class iCloudSyncManager {
                 work.isFollowed = w.isFollowed
                 work.followedAt = w.followedAt
                 work.lastSeenChapterCount = w.lastSeenChapterCount
+                work.isStarred = w.isStarred ?? false
+                work.isPinned = w.isPinned ?? false
                 
                 // Clear existing chapters first to prevent duplicates
                 for ch in work.chapters { context.delete(ch) }
@@ -354,6 +358,8 @@ struct WorkBackup: Codable {
     let isFollowed: Bool
     let followedAt: Date?
     let lastSeenChapterCount: Int?
+    let isStarred: Bool?
+    let isPinned: Bool?
     let chapters: [ChapterBackup]
 }
 

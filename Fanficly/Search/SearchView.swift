@@ -21,6 +21,7 @@ struct SearchView: View {
     @State private var saveName: String = ""
     @State private var suppressParse: Bool = false
     @State private var filtersResolved: Bool = false
+    @State private var showingHelpSheet: Bool = false
     @FocusState private var searchFocused: Bool
     private let parser = SearchPromptParser()
     private let enricher: any SearchEnricher = SearchEnricherFactory.make()
@@ -68,35 +69,52 @@ struct SearchView: View {
         } message: {
             Text("Saves the prompt and sort options so you can re-run it later.")
         }
+        .sheet(isPresented: $showingHelpSheet) {
+            SearchHelpView()
+        }
     }
 
     private var searchHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("e.g. edward/bella romance all human complete", text: $prompt, axis: .vertical)
-                .lineLimit(1...3)
-                .textFieldStyle(.roundedBorder)
-                .submitLabel(.search)
-                .focused($searchFocused)
-                .onSubmit {
-                    searchFocused = false
-                    Task { await runSearch() }
-                }
-                .onChange(of: prompt) { _, newValue in
-                    if suppressParse { return }
-                    // A vertical-axis TextField inserts a newline on Return
-                    // rather than firing onSubmit. Treat a trailing newline
-                    // as "search now" and drop the keyboard.
-                    if newValue.contains("\n") {
-                        prompt = newValue.replacingOccurrences(of: "\n", with: "")
+            HStack(alignment: .top, spacing: 8) {
+                TextField("e.g. edward/bella romance all human complete", text: $prompt, axis: .vertical)
+                    .lineLimit(1...3)
+                    .textFieldStyle(.roundedBorder)
+                    .submitLabel(.search)
+                    .focused($searchFocused)
+                    .onSubmit {
                         searchFocused = false
-                        lastParsed = parser.parse(prompt)
-                        filtersResolved = false
                         Task { await runSearch() }
-                    } else {
-                        lastParsed = parser.parse(prompt)
-                        filtersResolved = false
                     }
+                    .onChange(of: prompt) { _, newValue in
+                        if suppressParse { return }
+                        // A vertical-axis TextField inserts a newline on Return
+                        // rather than firing onSubmit. Treat a trailing newline
+                        // as "search now" and drop the keyboard.
+                        if newValue.contains("\n") {
+                            prompt = newValue.replacingOccurrences(of: "\n", with: "")
+                            searchFocused = false
+                            lastParsed = parser.parse(prompt)
+                            filtersResolved = false
+                            Task { await runSearch() }
+                        } else {
+                            lastParsed = parser.parse(prompt)
+                            filtersResolved = false
+                        }
+                    }
+
+                Button {
+                    showingHelpSheet = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.top, 6)
+                        .frame(width: 32, height: 32)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Search Help")
+            }
 
             sortBar
 
@@ -672,6 +690,145 @@ struct WorkDetailView: View {
         }
     }
 
+}
+
+struct SearchHelpView: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Search Syntax Guide")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .padding(.top)
+                    
+                    Text("Fanficly supports advanced search prompt parsing to quickly find the exact fanfictions you want.")
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                    
+                    Divider()
+                    
+                    Group {
+                        HelpSection(
+                            title: "Story Title",
+                            icon: "doc.text",
+                            color: .blue,
+                            examples: [
+                                ("title:Gatsby", "Find works with 'Gatsby' in the title."),
+                                ("title:\"The Great Gatsby\"", "Use quotes for multi-word titles.")
+                            ]
+                        )
+                        
+                        HelpSection(
+                            title: "Relationships (Ships)",
+                            icon: "heart.fill",
+                            color: .red,
+                            examples: [
+                                ("harry/draco", "Search for relationships using a slash."),
+                                ("\"Hermione Granger/Draco Malfoy\"", "Use quotes for full canonical relationships.")
+                            ]
+                        )
+                        
+                        HelpSection(
+                            title: "Excluding Terms/Tags",
+                            icon: "minus.circle.fill",
+                            color: .orange,
+                            examples: [
+                                ("-angst", "Exclude works containing the word 'angst'."),
+                                ("not \"happy ending\"", "Exclude works tagged with 'happy ending'.")
+                            ]
+                        )
+                        
+                        HelpSection(
+                            title: "Word Count",
+                            icon: "number",
+                            color: .green,
+                            examples: [
+                                ("under 10k", "Less than 10,000 words."),
+                                ("over 50k", "More than 50,000 words."),
+                                ("between 10k and 50k", "Range of word count.")
+                            ]
+                        )
+                    }
+                    
+                    Group {
+                        HelpSection(
+                            title: "Completion & Format",
+                            icon: "checkmark.circle.fill",
+                            color: .purple,
+                            examples: [
+                                ("complete", "Show only completed works."),
+                                ("wip", "Show works in progress (unfinished)."),
+                                ("oneshot", "Show single-chapter works.")
+                            ]
+                        )
+                        
+                        HelpSection(
+                            title: "Engagement & Sorting",
+                            icon: "arrow.up.arrow.down.circle.fill",
+                            color: .teal,
+                            examples: [
+                                ("popular", "Show works with >1,000 kudos."),
+                                ("most kudos", "Sort results by kudos count."),
+                                ("most hits", "Sort results by hits count."),
+                                ("recently updated", "Sort by update date.")
+                            ]
+                        )
+                    }
+                }
+                .padding(.horizontal)
+            }
+            .navigationTitle("Search Help")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct HelpSection: View {
+    let title: String
+    let icon: String
+    let color: Color
+    let examples: [(query: String, description: String)]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .foregroundStyle(color)
+                    .font(.headline)
+                Text(title)
+                    .font(.headline)
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(examples, id: \.query) { example in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(example.query)
+                            .font(.system(.subheadline, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(.secondarySystemBackground))
+                            .cornerRadius(4)
+                        Text(example.description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, 8)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
 }
 
 #Preview {

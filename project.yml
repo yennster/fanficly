@@ -55,6 +55,10 @@ targets:
         CFBundleDisplayName: Fanficly
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.yennster.fanficly
+            CFBundleURLSchemes:
+              - fanficly
         UILaunchScreen:
           UIColorName: ""
         UISupportedInterfaceOrientations:
@@ -112,11 +116,33 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.uitests
         GENERATE_INFOPLIST_FILE: YES
 
+  FanficlyShare:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    sources:
+      - path: FanficlyShare
+    info:
+      path: FanficlyShare/Info.plist
+      properties:
+        CFBundleDisplayName: Fanficly
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.share
+        PRODUCT_NAME: FanficlyShare
+        GENERATE_INFOPLIST_FILE: NO
+
 schemes:
   Fanficly:
     build:
       targets:
         Fanficly: all
+        FanficlyShare: all
         FanficlyTests: [test]
         FanficlyUITests: [test]
     test:

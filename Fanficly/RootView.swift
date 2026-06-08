@@ -1,11 +1,16 @@
 import SwiftUI
+import SwiftData
 
 struct RootView: View {
     // Start with no selection so the app opens on the sidebar menu
     // (on iPhone) rather than pushing straight into Search.
     @State private var selectedTab: SidebarItem? = nil
     @Environment(\.modelContext) private var context
+    @Environment(\.ao3Client) private var client
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
+    
+    @State private var importingWorkId: Int? = nil
+    @State private var importedWork: Work? = nil
 
     var body: some View {
         NavigationSplitView {
@@ -37,8 +42,138 @@ struct RootView: View {
         .fullScreenCover(isPresented: .constant(!ageConfirmed && !FanficlyApp.isDemoMode)) {
             AgeGateView()
         }
+        .onOpenURL { url in
+            if let workId = parseWorkId(from: url) {
+                importingWorkId = workId
+            }
+        }
+        .overlay {
+            if let workId = importingWorkId {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                
+                ImportOverlay(workId: workId) { work in
+                    self.importedWork = work
+                    self.importingWorkId = nil
+                    selectedTab = .library
+                } onCancel: {
+                    self.importingWorkId = nil
+                }
+                .transition(.scale)
+            }
+        }
+        .sheet(item: $importedWork) { work in
+            NavigationStack {
+                SavedWorkReader(work: work)
+                    .navigationTitle(work.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Close") {
+                                importedWork = nil
+                            }
+                        }
+                    }
+            }
+        }
+    }
+    
+    private func parseWorkId(from url: URL) -> Int? {
+        var targetURL = url
+        if url.scheme == "fanficly" {
+            if url.host == "import" {
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let queryItem = components.queryItems?.first(where: { $0.name == "url" }),
+                   let urlString = queryItem.value,
+                   let decodedURL = URL(string: urlString) {
+                    targetURL = decodedURL
+                }
+            } else if let host = url.host, host == "works" || host == "work",
+                      let firstPath = url.pathComponents.dropFirst().first,
+                      let id = Int(firstPath) {
+                return id
+            } else if let firstPath = url.pathComponents.dropFirst().first,
+                      let id = Int(firstPath) {
+                return id
+            }
+        }
+        
+        let path = targetURL.absoluteString
+        guard let regex = try? NSRegularExpression(pattern: #"works/(\d+)"#, options: .caseInsensitive) else { return nil }
+        let range = NSRange(location: 0, length: path.utf16.count)
+        if let match = regex.firstMatch(in: path, range: range) {
+            if let idRange = Range(match.range(at: 1), in: path),
+               let id = Int(path[idRange]) {
+                return id
+            }
+        }
+        return nil
     }
 }
+
+struct ImportOverlay: View {
+    let workId: Int
+    @Environment(\.ao3Client) private var client
+    @Environment(\.modelContext) private var context
+    var onComplete: (Work) -> Void
+    var onCancel: () -> Void
+    
+    @State private var status = "Connecting to AO3..."
+    @State private var error: String? = nil
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Importing Work")
+                .font(.headline)
+                .foregroundStyle(.primary)
+            
+            if let error {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.red)
+                Text(error)
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                Button("Close", action: onCancel)
+                    .buttonStyle(.borderedProminent)
+            } else {
+                ProgressView()
+                Text(status)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(30)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(radius: 10)
+        .frame(width: 280)
+        .task {
+            do {
+                status = "Fetching metadata..."
+                let payload = try await client.fetchWork(id: workId)
+                status = "Saving chapters..."
+                let work = WorkPersistence.upsert(payload: payload, into: context)
+                status = "Downloading EPUB for offline..."
+                do {
+                    _ = try await client.downloadEPUB(workId: workId)
+                } catch {
+                    print("EPUB download failed during import: \(error)")
+                }
+                status = "Done!"
+                try? context.save()
+                try? await Task.sleep(for: .seconds(1))
+                onComplete(work)
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+}
+
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     case search, browse, library, recentlyViewed, subscriptions, settings
