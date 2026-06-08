@@ -25,7 +25,7 @@ struct FanficlyApp: App {
             RecentlyViewed.self,
             HiddenWork.self,
         ])
-        let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode)
+        let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
     }()
 
