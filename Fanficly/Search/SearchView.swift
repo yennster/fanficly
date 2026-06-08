@@ -76,7 +76,7 @@ struct SearchView: View {
 
     private var searchHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 TextField("e.g. edward/bella romance all human complete", text: $prompt, axis: .vertical)
                     .lineLimit(1...3)
                     .textFieldStyle(.roundedBorder)
@@ -109,7 +109,6 @@ struct SearchView: View {
                     Image(systemName: "questionmark.circle")
                         .font(.title3)
                         .foregroundStyle(Color.accentColor)
-                        .padding(.top, 6)
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
