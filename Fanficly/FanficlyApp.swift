@@ -34,6 +34,16 @@ struct FanficlyApp: App {
             RootView()
                 .environment(\.ao3Client, client)
                 .environment(auth)
+                .task {
+                    let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
+                    if iCloudEnabled && !Self.isDemoMode {
+                        let context = Self.sharedModelContainer.mainContext
+                        let worksCount = (try? context.fetchCount(FetchDescriptor<Work>())) ?? 0
+                        if worksCount == 0 && iCloudSyncManager.shared.isBackupAvailable {
+                            iCloudSyncManager.shared.restoreFromiCloud(context: context)
+                        }
+                    }
+                }
         }
         .modelContainer(Self.sharedModelContainer)
         .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
@@ -43,6 +53,11 @@ struct FanficlyApp: App {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
                 BackgroundRefresh.scheduleNext()
+                
+                let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
+                if iCloudEnabled && !Self.isDemoMode {
+                    iCloudSyncManager.shared.backupToiCloud(context: Self.sharedModelContainer.mainContext)
+                }
             }
         }
     }

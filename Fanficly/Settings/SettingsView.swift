@@ -2,7 +2,11 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AuthState.self) private var auth
+    @Environment(\.modelContext) private var context
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
+    @AppStorage("settings.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = false
+    @State private var lastSync: Date? = nil
+    private let syncManager = iCloudSyncManager.shared
 
     /// Pre-filled feedback email (subject percent-encoded so it survives the mailto).
     static let feedbackMailto = URL(
@@ -25,6 +29,26 @@ struct SettingsView: View {
             Section("Reader") {
                 NavigationLink("Theme & typography") {
                     ReaderSettingsView()
+                }
+            }
+            Section("iCloud Sync") {
+                Toggle("Sync Library to iCloud", isOn: $iCloudSyncEnabled)
+                if iCloudSyncEnabled {
+                    if let date = lastSync {
+                        LabeledContent("Last synced", value: date.formatted())
+                    } else {
+                        LabeledContent("Last synced", value: "Never")
+                    }
+                    
+                    Button("Sync Now") {
+                        syncManager.backupToiCloud(context: context)
+                        lastSync = syncManager.lastBackupDate
+                    }
+                    
+                    Button("Clear iCloud Data", role: .destructive) {
+                        syncManager.clearFromiCloud()
+                        lastSync = nil
+                    }
                 }
             }
             Section {
@@ -56,6 +80,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .onAppear {
+            lastSync = syncManager.lastBackupDate
+        }
     }
 }
 
@@ -78,6 +105,7 @@ struct PrivacyTransparencyView: View {
                     • Your AO3 session cookie (in iOS Keychain), so you stay logged in.
                     • Works you've saved offline and your reading position (in app storage).
                     • Your preferences (theme, font size).
+                    • An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled.
                     """
                 )
                 section(
