@@ -623,11 +623,8 @@ struct ReaderView: View {
                         stableHeight = max(stableHeight, newSize.height)
                     }
                 }
-                .task {
+                .onAppear {
                     isRestoring = true
-                    _ = loadAnchorIfNeeded()
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                    isRestoring = false
                 }
                 .onDisappear {
                     persistNow()
@@ -739,7 +736,9 @@ struct ReaderView: View {
 
     private func handleChapterIndexChange(_ newChapter: Int) {
         guard mode == .pageByPage else { return }
+        guard !isRestoring else { return }
         let pagesList = self.paginatedPages
+        guard !pagesList.isEmpty else { return }
         let currentPage = pagesList.first { $0.id == selectedPageId }
         if currentPage?.chapterIndex != newChapter {
             let anchor = ReadingAnchor(chapter: newChapter, paragraph: 0)
