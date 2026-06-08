@@ -70,6 +70,7 @@ final class iCloudSyncManager {
             let progress = (try? context.fetch(FetchDescriptor<ReadingProgress>())) ?? []
             let filters = (try? context.fetch(FetchDescriptor<SavedFilter>())) ?? []
             let hidden = (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
+            let folders = (try? context.fetch(FetchDescriptor<CustomFolder>())) ?? []
             
             // 2. Map them to Codable structures
             let workBackups = works.map { work in
@@ -108,7 +109,8 @@ final class iCloudSyncManager {
                     isPinned: work.isPinned,
                     chapters: work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
                         ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML)
-                    }
+                    },
+                    folderName: work.folder?.name
                 )
             }
             
@@ -160,6 +162,10 @@ final class iCloudSyncManager {
                 ageConfirmed: defaults.object(forKey: "content.ageConfirmed") as? Bool
             )
             
+            let folderBackups = folders.map {
+                FolderBackup(name: $0.name, createdAt: $0.createdAt)
+            }
+            
             let backup = LibraryBackup(
                 works: workBackups,
                 bookmarks: bookmarkBackups,
@@ -169,6 +175,7 @@ final class iCloudSyncManager {
                 filters: filterBackups,
                 hidden: hiddenBackups,
                 settings: settingsBackup,
+                folders: folderBackups,
                 timestamp: .now
             )
             
@@ -248,6 +255,17 @@ final class iCloudSyncManager {
                 if let ageConfirmed = s.ageConfirmed { defaults.set(ageConfirmed, forKey: "content.ageConfirmed") }
             }
             
+            // 0.5. Restore CustomFolders
+            if let customFolders = backup.folders {
+                for f in customFolders {
+                    let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == f.name })
+                    let existing = (try? context.fetch(descriptor))?.first
+                    if existing == nil {
+                        context.insert(CustomFolder(name: f.name, createdAt: f.createdAt))
+                    }
+                }
+            }
+            
             // 1. Restore Works and their Chapters
             for w in backup.works {
                 let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == w.ao3Id })
@@ -292,6 +310,13 @@ final class iCloudSyncManager {
                 work.lastSeenChapterCount = w.lastSeenChapterCount
                 work.isStarred = w.isStarred ?? false
                 work.isPinned = w.isPinned ?? false
+                
+                if let folderName = w.folderName {
+                    let folderDescriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == folderName })
+                    work.folder = (try? context.fetch(folderDescriptor))?.first
+                } else {
+                    work.folder = nil
+                }
                 
                 // Clear existing chapters first to prevent duplicates
                 for ch in work.chapters { context.delete(ch) }
@@ -425,7 +450,13 @@ struct LibraryBackup: Codable {
     let filters: [FilterBackup]
     let hidden: [HiddenBackup]
     let settings: SettingsBackup?
+    let folders: [FolderBackup]?
     let timestamp: Date
+}
+
+struct FolderBackup: Codable {
+    let name: String
+    let createdAt: Date
 }
 
 struct SettingsBackup: Codable {
@@ -478,6 +509,7 @@ struct WorkBackup: Codable {
     let isStarred: Bool?
     let isPinned: Bool?
     let chapters: [ChapterBackup]
+    let folderName: String?
 }
 
 struct ChapterBackup: Codable {
