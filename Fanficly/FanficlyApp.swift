@@ -12,6 +12,22 @@ struct FanficlyApp: App {
     @State private var auth = AuthState()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        if Self.isDemoMode {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: "reader.theme")
+            defaults.removeObject(forKey: "reader.fontFamily")
+            defaults.removeObject(forKey: "reader.width")
+            defaults.removeObject(forKey: "reader.mode")
+            defaults.removeObject(forKey: "reader.fontSizePt")
+            defaults.removeObject(forKey: "reader.lineSpacingPt")
+            defaults.removeObject(forKey: "reader.paragraphSpacingPt")
+            defaults.removeObject(forKey: "reader.pageTurnHaptics")
+            defaults.removeObject(forKey: "reader.pageTurnAnimations")
+            defaults.removeObject(forKey: "settings.iCloudSyncEnabled")
+        }
+    }
+
     private static let sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Work.self,
