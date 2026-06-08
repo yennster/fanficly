@@ -35,6 +35,8 @@ struct ReaderView: View {
     @State private var paginatedPages: [ChapterPage] = []
     @State private var selectedPageId: String = ""
     @State private var parsedAtoms: [Int: [ParagraphAtom]] = [:]
+    @State private var stableWidth: CGFloat = 0
+    @State private var stableHeight: CGFloat = 0
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -566,7 +568,10 @@ struct ReaderView: View {
                 width: widthRaw,
                 lineSpacing: lineSpacingPt,
                 paragraphSpacing: paragraphSpacingPt,
-                size: geo.size
+                size: CGSize(
+                    width: geo.size.width,
+                    height: (isUIMinimized && stableHeight > 0) ? stableHeight : geo.size.height
+                )
             )
             
             let content = Group {
@@ -608,6 +613,13 @@ struct ReaderView: View {
             content
                 .task(id: trigger) {
                     await handlePaginationTrigger(trigger)
+                }
+                .onChange(of: geo.size) { _, newSize in
+                    let widthChanged = abs(stableWidth - newSize.width) > 1
+                    if !isUIMinimized || widthChanged {
+                        stableWidth = newSize.width
+                        stableHeight = newSize.height
+                    }
                 }
                 .task {
                     isRestoring = true
