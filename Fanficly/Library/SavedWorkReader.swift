@@ -59,6 +59,7 @@ struct SavedWorkReader: View {
                 Button {
                     work.isStarred.toggle()
                     try? context.save()
+                    iCloudSyncManager.shared.queueBackup(context: context)
                 } label: {
                     Image(systemName: work.isStarred ? "star.fill" : "star")
                         .foregroundStyle(work.isStarred ? .yellow : Color.primary)
@@ -68,6 +69,7 @@ struct SavedWorkReader: View {
                 Button {
                     work.isPinned.toggle()
                     try? context.save()
+                    iCloudSyncManager.shared.queueBackup(context: context)
                 } label: {
                     Image(systemName: work.isPinned ? "pin.fill" : "pin")
                         .foregroundStyle(work.isPinned ? .blue : Color.primary)

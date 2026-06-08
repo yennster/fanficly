@@ -64,6 +64,7 @@ struct LibraryView: View {
                                     work.isFollowed = false
                                     work.followedAt = nil
                                     try? context.save()
+                                    iCloudSyncManager.shared.queueBackup(context: context)
                                 } label: {
                                     Label("Unfollow", systemImage: "bookmark.slash")
                                 }
@@ -74,6 +75,7 @@ struct LibraryView: View {
                             Button {
                                 work.isStarred.toggle()
                                 try? context.save()
+                                iCloudSyncManager.shared.queueBackup(context: context)
                             } label: {
                                 Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
                             }
@@ -82,6 +84,7 @@ struct LibraryView: View {
                             Button {
                                 work.isPinned.toggle()
                                 try? context.save()
+                                iCloudSyncManager.shared.queueBackup(context: context)
                             } label: {
                                 Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
                             }
@@ -105,6 +108,7 @@ struct LibraryView: View {
         }
         context.delete(work)
         try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 }
 

@@ -72,7 +72,9 @@ struct WorkFilterSheet: View {
                 }
                 .swipeActions {
                     Button(role: .destructive) {
-                        context.delete(saved); try? context.save()
+                        context.delete(saved)
+                        try? context.save()
+                        iCloudSyncManager.shared.queueBackup(context: context)
                     } label: { Label("Delete", systemImage: "trash") }
                 }
             }
@@ -105,6 +107,7 @@ struct WorkFilterSheet: View {
             context.insert(SavedFilter(name: name, filtersJSON: json))
         }
         try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     // MARK: - Sections

@@ -689,6 +689,7 @@ struct WorkDetailView: View {
         work.isStarred.toggle()
         starred = work.isStarred
         try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
     
     private func togglePinned(payload: AO3WorkPayload) {
@@ -696,6 +697,7 @@ struct WorkDetailView: View {
         work.isPinned.toggle()
         pinned = work.isPinned
         try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     private func saveOffline(_ payload: AO3WorkPayload) async {

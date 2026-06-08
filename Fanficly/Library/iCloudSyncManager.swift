@@ -5,6 +5,8 @@ import SwiftData
 final class iCloudSyncManager {
     static let shared = iCloudSyncManager()
     
+    private var backupTask: Task<Void, Never>? = nil
+    
     private init() {}
     
     /// The URL to the backup file in the iCloud ubiquitous container.
@@ -32,6 +34,23 @@ final class iCloudSyncManager {
         guard let url = Self.backupURL else { return nil }
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attrs?[.modificationDate] as? Date
+    }
+    
+    /// Triggers a debounced backup to iCloud.
+    func queueBackup(context: ModelContext) {
+        let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
+        guard iCloudEnabled else { return }
+        
+        backupTask?.cancel()
+        backupTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(2))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self.backupToiCloud(context: context)
+        }
     }
     
     /// Performs a backup of the SwiftData database to iCloud.

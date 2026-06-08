@@ -78,6 +78,7 @@ enum WorkPersistence {
             work.followedAt = nil
         }
         try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
         return work.isFollowed
     }
 
