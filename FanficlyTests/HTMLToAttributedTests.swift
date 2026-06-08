@@ -148,3 +148,4 @@ final class HTMLToAttributedTests: XCTestCase {
         XCTAssertNotNil(italicRun)
     }
 }
+

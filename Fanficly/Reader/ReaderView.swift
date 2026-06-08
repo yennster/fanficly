@@ -570,7 +570,7 @@ struct ReaderView: View {
                 paragraphSpacing: paragraphSpacingPt,
                 size: CGSize(
                     width: geo.size.width,
-                    height: (isUIMinimized && stableHeight > 0) ? stableHeight : geo.size.height
+                    height: stableHeight > 0 ? stableHeight : geo.size.height
                 )
             )
             
@@ -616,9 +616,11 @@ struct ReaderView: View {
                 }
                 .onChange(of: geo.size) { _, newSize in
                     let widthChanged = abs(stableWidth - newSize.width) > 1
-                    if !isUIMinimized || widthChanged {
+                    if widthChanged || stableWidth == 0 {
                         stableWidth = newSize.width
                         stableHeight = newSize.height
+                    } else {
+                        stableHeight = max(stableHeight, newSize.height)
                     }
                 }
                 .task {
@@ -662,7 +664,8 @@ struct ReaderView: View {
                 lineSpacing: lineSpacing,
                 paragraphSpacing: paragraphSpacing,
                 foreground: fg,
-                highlightParagraph: highlightedParagraph(for: page.chapterIndex)
+                highlightParagraph: highlightedParagraph(for: page.chapterIndex),
+                isScrollable: !isUIMinimized
             )
             .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
             .padding(.horizontal, width.horizontalPadding)
@@ -1389,6 +1392,7 @@ struct ReaderPageCell: View {
     let paragraphSpacing: CGFloat
     let foreground: Color
     let highlightParagraph: Int?
+    let isScrollable: Bool
     
     private var renderedBlocks: [RenderedBlock] {
         var blocks: [RenderedBlock] = []
@@ -1453,7 +1457,7 @@ struct ReaderPageCell: View {
     
     var body: some View {
         Group {
-            if showTitleHeader {
+            if showTitleHeader || isScrollable {
                 ScrollView(.vertical, showsIndicators: false) {
                     content
                 }
