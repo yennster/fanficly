@@ -147,7 +147,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - No JSON API. We are a respectful guest of `archiveofourown.org`. The `User-Agent` identifies the app and links to the repo so AO3 ops can find us.
 - Explicit-rated works show an age-gate page unless the request includes `view_adult=true` (we set this).
 - `?view_full_work=true` inlines all chapters on a single page.
-- Login is form-based. GET `/users/login` → scrape the `authenticity_token` (either `<meta name="csrf-token">` or `<input name="authenticity_token">`), then POST with cookies. Session cookie persists in `HTTPCookieStorage.shared`.
+- Login is form-based. GET `/users/login` → scrape the `authenticity_token` (either `<meta name="csrf-token">` or `<input name="authenticity_token">`), then POST with cookies. Session cookie is kept in `HTTPCookieStorage.shared` and automatically serialized & persisted to/from the secure iOS Keychain via `CredentialStore` to prevent logouts when the app is terminated or restarted.
 - The structured `dl.work.meta.group` on a work page contains the canonical tags. Chapters are wrapped in `div.chapter[id^=chapter-]` — use that exact selector to avoid matching the nested `.preface` divs.
 - Work subscription is a POST to `/works/<id>/subscriptions` with `subscription[subscribable_type]=Work` + token. Requires login.
 - Browse-by-fandom hits `/media/<category>/fandoms`; category names are path-encoded with AO3's scheme (`&`→`*a*`, `/`→`*s*`, `.`→`*d*`, etc. — see `AO3Endpoints.ao3PathEncode`).
