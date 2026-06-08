@@ -131,9 +131,6 @@ struct LibraryRow: View {
                 if work.isStarred {
                     Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow)
                 }
-                if work.isFollowed {
-                    Image(systemName: "bookmark.fill").font(.caption2).foregroundStyle(Color.accentColor)
-                }
                 if downloaded {
                     Image(systemName: "arrow.down.circle.fill").font(.caption2).foregroundStyle(.green)
                 }
