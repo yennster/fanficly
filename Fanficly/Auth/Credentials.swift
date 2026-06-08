@@ -1,11 +1,46 @@
 import Foundation
 import KeychainAccess
 
+struct SerializableCookie: Codable, Sendable {
+    let name: String
+    let value: String
+    let domain: String
+    let path: String
+    let expiresDate: Date?
+    let isSecure: Bool
+    let isHTTPOnly: Bool
+    
+    init(cookie: HTTPCookie) {
+        self.name = cookie.name
+        self.value = cookie.value
+        self.domain = cookie.domain
+        self.path = cookie.path
+        self.expiresDate = cookie.expiresDate
+        self.isSecure = cookie.isSecure
+        self.isHTTPOnly = cookie.isHTTPOnly
+    }
+    
+    var properties: [HTTPCookiePropertyKey: Any] {
+        var props: [HTTPCookiePropertyKey: Any] = [
+            .name: name,
+            .value: value,
+            .domain: domain,
+            .path: path
+        ]
+        if let expiresDate {
+            props[.expires] = expiresDate
+        }
+        props[.secure] = isSecure ? "TRUE" : "FALSE"
+        return props
+    }
+}
+
 actor CredentialStore {
     static let shared = CredentialStore()
 
     private let keychain = Keychain(service: "io.github.yennster.fanficly")
     private let usernameKey = "ao3.username"
+    private let cookiesKey = "ao3.cookies"
 
     func storedUsername() -> String? {
         try? keychain.get(usernameKey)
@@ -16,7 +51,25 @@ actor CredentialStore {
             try? keychain.set(username, key: usernameKey)
         } else {
             try? keychain.remove(usernameKey)
+            try? keychain.remove(cookiesKey)
         }
+    }
+    
+    func saveCookies(_ cookies: [HTTPCookie]) {
+        let serializable = cookies.map { SerializableCookie(cookie: $0) }
+        if let data = try? JSONEncoder().encode(serializable),
+           let jsonString = String(data: data, encoding: .utf8) {
+            try? keychain.set(jsonString, key: cookiesKey)
+        }
+    }
+
+    func loadCookies() -> [HTTPCookie] {
+        guard let jsonString = try? keychain.get(cookiesKey),
+              let data = jsonString.data(using: .utf8),
+              let serializable = try? JSONDecoder().decode([SerializableCookie].self, from: data) else {
+            return []
+        }
+        return serializable.compactMap { HTTPCookie(properties: $0.properties) }
     }
 }
 

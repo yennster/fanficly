@@ -156,6 +156,18 @@ public actor AO3Client: AO3ClientProtocol {
             cfg.timeoutIntervalForResource = 45
             self.session = URLSession(configuration: cfg)
         }
+        
+        // Listen for cookie storage changes to automatically save them to the Keychain
+        NotificationCenter.default.addObserver(
+            forName: .NSHTTPCookieManagerCookiesChanged,
+            object: HTTPCookieStorage.shared,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            Task {
+                await self.saveCookiesToKeychain()
+            }
+        }
     }
 
     public static var userAgent: String {
@@ -369,7 +381,24 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
 
+    private var cookiesLoaded = false
+
+    private func ensureCookiesLoaded() async {
+        guard !cookiesLoaded else { return }
+        let cookies = await CredentialStore.shared.loadCookies()
+        for cookie in cookies {
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
+        cookiesLoaded = true
+    }
+
+    private func saveCookiesToKeychain() async {
+        let cookies = HTTPCookieStorage.shared.cookies(for: baseURL) ?? []
+        await CredentialStore.shared.saveCookies(cookies)
+    }
+
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        await ensureCookiesLoaded()
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
