@@ -19,11 +19,14 @@ class ShareViewController: UIViewController {
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     urlFound = true
                     provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] (item, error) in
-                        guard let self = self else { return }
-                        if let url = item as? URL {
-                            self.openMainApp(with: url)
-                        } else {
-                            self.cancelRequest()
+                        let url = item as? URL
+                        Task { @MainActor in
+                            guard let self = self else { return }
+                            if let url = url {
+                                self.openMainApp(with: url)
+                            } else {
+                                self.cancelRequest()
+                            }
                         }
                     }
                     break
@@ -47,8 +50,10 @@ class ShareViewController: UIViewController {
         
         // Use extensionContext to open URL
         self.extensionContext?.open(appURL, completionHandler: { [weak self] success in
-            guard let self = self else { return }
-            self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            Task { @MainActor in
+                guard let self = self else { return }
+                self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+            }
         })
     }
     
