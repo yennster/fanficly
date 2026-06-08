@@ -40,6 +40,9 @@ final class Work {
     var followedAt: Date?
     var lastSeenChapterCount: Int?
 
+    var isStarred: Bool = false
+    var isPinned: Bool = false
+
     @Relationship(deleteRule: .cascade, inverse: \Chapter.work)
     var chapters: [Chapter] = []
 

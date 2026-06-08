@@ -179,4 +179,22 @@ enum HTMLToAttributed {
         if style.strike { fragment.strikethroughStyle = .single }
         return fragment
     }
+
+    /// Splits an AttributedString into individual sentence slices using locale-aware options.
+    static func splitIntoSentences(_ attributed: AttributedString) -> [AttributedString] {
+        let string = String(attributed.characters)
+        var result: [AttributedString] = []
+        
+        string.enumerateSubstrings(in: string.startIndex..<string.endIndex, options: .bySentences) { substring, range, _, _ in
+            guard let substring = substring, !substring.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            if let attrRange = Range(range, in: attributed) {
+                result.append(AttributedString(attributed[attrRange]))
+            }
+        }
+        
+        if result.isEmpty && !attributed.characters.isEmpty {
+            result.append(attributed)
+        }
+        return result
+    }
 }

@@ -34,7 +34,7 @@ struct ReaderView: View {
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
     @State private var selectedPageId: String = ""
-    @State private var parsedParagraphs: [Int: [AttributedString]] = [:]
+    @State private var parsedAtoms: [Int: [ParagraphAtom]] = [:]
     private let scrollSpace = "readerScroll"
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -604,6 +604,9 @@ struct ReaderView: View {
                     try? await Task.sleep(nanoseconds: 200_000_000)
                     isRestoring = false
                 }
+                .onDisappear {
+                    persistNow()
+                }
                 .onChange(of: selectedPageId) { _, pageId in
                     handlePageIdChange(pageId)
                 }
@@ -622,12 +625,12 @@ struct ReaderView: View {
     @ViewBuilder
     private func makePageCell(page: ChapterPage, fg: Color) -> some View {
         if let chapter = chapters.first(where: { $0.index == page.chapterIndex }),
-           let paragraphs = parsedParagraphs[page.chapterIndex] {
+           let atoms = parsedAtoms[page.chapterIndex] {
             
             ReaderPageCell(
                 page: page,
                 chapter: chapter,
-                paragraphs: paragraphs,
+                atoms: atoms,
                 showTitleHeader: page.pageIndex == 0 && page.chapterIndex == chapters.first?.index,
                 showChapterHeader: page.pageIndex == 0 && chapters.count > 1,
                 titleHeaderView: AnyView(titleHeader(fg: fg)),
@@ -651,6 +654,17 @@ struct ReaderView: View {
     }
 
     private func handlePaginationTrigger(_ trigger: PaginationTrigger) async {
+        await MainActor.run {
+            _ = loadAnchorIfNeeded()
+        }
+        if trigger.chapter != selectedChapterIndex {
+            return
+        }
+        
+        await MainActor.run {
+            isRestoring = true
+        }
+
         let result = await performPagination(trigger: trigger)
         await MainActor.run {
             var activeChapters = Set<Int>()
@@ -662,8 +676,8 @@ struct ReaderView: View {
                 activeChapters.insert(next)
             }
             
-            self.parsedParagraphs = self.parsedParagraphs.filter { activeChapters.contains($0.key) }
-            self.parsedParagraphs.merge(result.paragraphs) { _, new in new }
+            self.parsedAtoms = self.parsedAtoms.filter { activeChapters.contains($0.key) }
+            self.parsedAtoms.merge(result.atoms) { _, new in new }
             self.paginatedPages = result.pages
             
             restoreOrValidatePageSelection()
@@ -681,10 +695,19 @@ struct ReaderView: View {
         }
         
         if !isRestoring {
-            let firstPara = page.paragraphIndices.lowerBound
-            let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: firstPara)
-            currentAnchor = anchor
-            saveProgress(anchor)
+            if let atoms = parsedAtoms[page.chapterIndex], !page.paragraphIndices.isEmpty {
+                let firstParaAtomIndex = page.paragraphIndices.lowerBound
+                if firstParaAtomIndex < atoms.count {
+                    let originalParaIndex = atoms[firstParaAtomIndex].originalParagraphIndex
+                    let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: originalParaIndex)
+                    currentAnchor = anchor
+                    saveProgress(anchor)
+                }
+            } else {
+                let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: 0)
+                currentAnchor = anchor
+                saveProgress(anchor)
+            }
         }
     }
 
@@ -715,9 +738,13 @@ struct ReaderView: View {
         guard let chapter = listeningChapter else { return }
         
         let pagesList = self.paginatedPages
-        if let page = pagesList.first(where: { $0.chapterIndex == chapter && $0.paragraphIndices.contains(p) }) {
-            if selectedPageId != page.id {
-                updatePageSelection(page.id)
+        if let atoms = parsedAtoms[chapter] {
+            if let atomIndex = atoms.firstIndex(where: { $0.originalParagraphIndex == p }) {
+                if let page = pagesList.first(where: { $0.chapterIndex == chapter && $0.paragraphIndices.contains(atomIndex) }) {
+                    if selectedPageId != page.id {
+                        updatePageSelection(page.id)
+                    }
+                }
             }
         }
     }
@@ -759,19 +786,31 @@ struct ReaderView: View {
             let targetChapter: Int = anchor.chapter
             let targetParagraph: Int = anchor.paragraph
             if let matchingPage = pagesList.first(where: { (page: ChapterPage) -> Bool in
-                page.chapterIndex == targetChapter &&
-                (page.paragraphIndices.contains(targetParagraph) || 
-                 (page.paragraphIndices.isEmpty && targetParagraph == 0))
+                guard page.chapterIndex == targetChapter else { return false }
+                guard let atoms = parsedAtoms[targetChapter] else { return false }
+                
+                for idx in page.paragraphIndices {
+                    if idx < atoms.count && atoms[idx].originalParagraphIndex == targetParagraph {
+                        return true
+                    }
+                }
+                return page.paragraphIndices.isEmpty && targetParagraph == 0
             }) {
                 selectedPageId = matchingPage.id
+                isRestoring = false
                 return
             }
             
             let chapterPages = pagesList.filter { $0.chapterIndex == targetChapter }
             if !chapterPages.isEmpty {
-                let closest = chapterPages.first { $0.paragraphIndices.lowerBound >= targetParagraph }
-                    ?? chapterPages.last!
+                guard let atoms = parsedAtoms[targetChapter] else { return }
+                let closest = chapterPages.first { page in
+                    guard !page.paragraphIndices.isEmpty else { return false }
+                    let firstIdx = page.paragraphIndices.lowerBound
+                    return firstIdx < atoms.count && atoms[firstIdx].originalParagraphIndex >= targetParagraph
+                } ?? chapterPages.last!
                 selectedPageId = closest.id
+                isRestoring = false
                 return
             }
         }
@@ -787,6 +826,7 @@ struct ReaderView: View {
                 selectedPageId = firstPage.id
             }
         }
+        isRestoring = false
     }
 
     @ViewBuilder
@@ -831,7 +871,7 @@ struct ReaderView: View {
         let h = trigger.size.height - 40 // margins
         
         guard w > 50 && h > 100 else {
-            return PaginationResult(pages: [], paragraphs: [:])
+            return PaginationResult(pages: [], atoms: [:])
         }
         
         var targetChapters: [Int] = [trigger.chapter]
@@ -843,16 +883,28 @@ struct ReaderView: View {
         }
         
         var allPages: [ChapterPage] = []
-        var allParagraphs: [Int: [AttributedString]] = [:]
+        var allAtoms: [Int: [ParagraphAtom]] = [:]
         
         for chIndex in targetChapters.sorted() {
             guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
             
             let paragraphs = HTMLToAttributed.convertParagraphs(chapter.bodyHTML)
-            allParagraphs[chIndex] = paragraphs
+            
+            var atoms: [ParagraphAtom] = []
+            for (pIndex, para) in paragraphs.enumerated() {
+                let sentences = HTMLToAttributed.splitIntoSentences(para)
+                for (sIndex, sentence) in sentences.enumerated() {
+                    atoms.append(ParagraphAtom(
+                        originalParagraphIndex: pIndex,
+                        text: sentence,
+                        isContinuation: sIndex > 0
+                    ))
+                }
+            }
+            allAtoms[chIndex] = atoms
             
             let heights = calculateParagraphHeights(
-                paragraphs: paragraphs,
+                paragraphs: atoms.map(\.text),
                 width: w,
                 fontSize: CGFloat(trigger.fontSize),
                 fontFamily: fontFamily,
@@ -881,7 +933,7 @@ struct ReaderView: View {
             
             let chPages = paginateChapter(
                 chapterIndex: chIndex,
-                paragraphs: paragraphs,
+                atoms: atoms,
                 heights: heights,
                 viewportHeight: h,
                 titleHeaderHeight: titleHeaderHeight,
@@ -894,7 +946,7 @@ struct ReaderView: View {
             allPages.append(contentsOf: chPages)
         }
         
-        return PaginationResult(pages: allPages, paragraphs: allParagraphs)
+        return PaginationResult(pages: allPages, atoms: allAtoms)
     }
 
     private func calculateParagraphHeights(
@@ -995,7 +1047,7 @@ struct ReaderView: View {
 
     private func paginateChapter(
         chapterIndex: Int,
-        paragraphs: [AttributedString],
+        atoms: [ParagraphAtom],
         heights: [CGFloat],
         viewportHeight: CGFloat,
         titleHeaderHeight: CGFloat,
@@ -1008,7 +1060,7 @@ struct ReaderView: View {
         
         var startIndex = 0
         var pageIndex = 0
-        while startIndex < paragraphs.count {
+        while startIndex < atoms.count {
             var endIndex = startIndex
             
             var pageMaxHeight = viewportHeight
@@ -1030,9 +1082,12 @@ struct ReaderView: View {
                 currentHeight = heights[startIndex]
                 includedAny = true
                 
-                while endIndex + 1 < paragraphs.count {
+                while endIndex + 1 < atoms.count {
+                    let nextAtom = atoms[endIndex + 1]
                     let nextHeight = heights[endIndex + 1]
-                    let potentialHeight = currentHeight + paragraphSpacing + nextHeight
+                    
+                    let spacing = nextAtom.isContinuation ? 0 : paragraphSpacing
+                    let potentialHeight = currentHeight + spacing + nextHeight
                     if potentialHeight <= pageMaxHeight {
                         endIndex += 1
                         currentHeight = potentialHeight
@@ -1226,6 +1281,21 @@ struct ChapterPage: Identifiable, Hashable {
     let paragraphIndices: Range<Int>
 }
 
+struct ParagraphAtom: Identifiable, Hashable {
+    let id = UUID()
+    let originalParagraphIndex: Int
+    let text: AttributedString
+    let isContinuation: Bool
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+    
+    static func == (lhs: ParagraphAtom, rhs: ParagraphAtom) -> Bool {
+        lhs.id == rhs.id
+    }
+}
+
 struct PaginationTrigger: Equatable {
     let chapter: Int
     let fontSize: Double
@@ -1238,13 +1308,13 @@ struct PaginationTrigger: Equatable {
 
 struct PaginationResult {
     let pages: [ChapterPage]
-    let paragraphs: [Int: [AttributedString]]
+    let atoms: [Int: [ParagraphAtom]]
 }
 
 struct ReaderPageCell: View {
     let page: ChapterPage
     let chapter: AO3ChapterPayload
-    let paragraphs: [AttributedString]
+    let atoms: [ParagraphAtom]
     let showTitleHeader: Bool
     let showChapterHeader: Bool
     let titleHeaderView: AnyView?
@@ -1255,6 +1325,67 @@ struct ReaderPageCell: View {
     let paragraphSpacing: CGFloat
     let foreground: Color
     let highlightParagraph: Int?
+    
+    private var renderedBlocks: [RenderedBlock] {
+        var blocks: [RenderedBlock] = []
+        let indices = Array(page.paragraphIndices)
+        guard !indices.isEmpty else { return [] }
+        
+        var currentOriginalIndex = atoms[indices[0]].originalParagraphIndex
+        var currentAtoms: [ParagraphAtom] = [atoms[indices[0]]]
+        
+        for index in indices.dropFirst() {
+            if index < atoms.count {
+                let atom = atoms[index]
+                if atom.originalParagraphIndex == currentOriginalIndex {
+                    currentAtoms.append(atom)
+                } else {
+                    blocks.append(RenderedBlock(
+                        originalParagraphIndex: currentOriginalIndex,
+                        text: ReaderPageCell.concatenateAtoms(currentAtoms)
+                    ))
+                    currentOriginalIndex = atom.originalParagraphIndex
+                    currentAtoms = [atom]
+                }
+            }
+        }
+        
+        if !currentAtoms.isEmpty {
+            blocks.append(RenderedBlock(
+                originalParagraphIndex: currentOriginalIndex,
+                text: ReaderPageCell.concatenateAtoms(currentAtoms)
+            ))
+        }
+        
+        return blocks
+    }
+    
+    struct RenderedBlock: Identifiable {
+        let id = UUID()
+        let originalParagraphIndex: Int
+        let text: AttributedString
+    }
+    
+    static func concatenateAtoms(_ atoms: [ParagraphAtom]) -> AttributedString {
+        var result = AttributedString()
+        for (i, atom) in atoms.enumerated() {
+            if i > 0 {
+                let prevString = String(result.characters)
+                let nextString = String(atom.text.characters)
+                let needsSpace = !prevString.isEmpty && 
+                                 !nextString.isEmpty && 
+                                 !prevString.hasSuffix(" ") && 
+                                 !prevString.hasSuffix("\n") && 
+                                 !nextString.hasPrefix(" ") && 
+                                 !nextString.hasPrefix("\n")
+                if needsSpace {
+                    result.append(AttributedString(" "))
+                }
+            }
+            result.append(atom.text)
+        }
+        return result
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1268,19 +1399,17 @@ struct ReaderPageCell: View {
             }
             
             VStack(alignment: .leading, spacing: paragraphSpacing) {
-                ForEach(Array(page.paragraphIndices), id: \.self) { index in
-                    if index < paragraphs.count {
-                        Text(paragraphs[index])
-                            .font(font)
-                            .lineSpacing(lineSpacing)
-                            .foregroundStyle(foreground)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                highlightParagraph == index ? Color.accentColor.opacity(0.15) : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 5)
-                            )
-                    }
+                ForEach(renderedBlocks) { block in
+                    Text(block.text)
+                        .font(font)
+                        .lineSpacing(lineSpacing)
+                        .foregroundStyle(foreground)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 5)
+                        )
                 }
             }
             Spacer(minLength: 0)

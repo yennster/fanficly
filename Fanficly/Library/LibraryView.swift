@@ -8,16 +8,26 @@ struct LibraryView: View {
 
     enum LibraryFilter: String, CaseIterable, Identifiable {
         case all = "All"
+        case starred = "Starred"
         case following = "Following"
         case downloaded = "Downloaded"
         var id: String { rawValue }
     }
 
     private var filtered: [Work] {
+        let base: [Work]
         switch filter {
-        case .all:        works
-        case .following:  works.filter(\.isFollowed)
-        case .downloaded: works.filter { WorkPersistence.epubURL(workId: $0.ao3Id) != nil }
+        case .all:        base = works
+        case .starred:    base = works.filter(\.isStarred)
+        case .following:  base = works.filter(\.isFollowed)
+        case .downloaded: base = works.filter { WorkPersistence.epubURL(workId: $0.ao3Id) != nil }
+        }
+        
+        return base.sorted { a, b in
+            if a.isPinned != b.isPinned {
+                return a.isPinned && !b.isPinned
+            }
+            return a.savedAt > b.savedAt
         }
     }
 
@@ -60,6 +70,23 @@ struct LibraryView: View {
                                 .tint(.orange)
                             }
                         }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                work.isStarred.toggle()
+                                try? context.save()
+                            } label: {
+                                Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
+                            }
+                            .tint(.yellow)
+                            
+                            Button {
+                                work.isPinned.toggle()
+                                try? context.save()
+                            } label: {
+                                Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
+                            }
+                            .tint(.blue)
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -98,6 +125,12 @@ struct LibraryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
+                if work.isPinned {
+                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.blue)
+                }
+                if work.isStarred {
+                    Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow)
+                }
                 if work.isFollowed {
                     Image(systemName: "bookmark.fill").font(.caption2).foregroundStyle(Color.accentColor)
                 }

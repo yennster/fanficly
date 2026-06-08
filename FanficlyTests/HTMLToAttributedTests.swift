@@ -135,4 +135,16 @@ final class HTMLToAttributedTests: XCTestCase {
         }
         XCTAssertNotNil(r)
     }
+
+    func test_splitIntoSentencesPreservesFormatting() {
+        let text = HTMLToAttributed.convert("<p>First sentence. <em>Second sentence is italicized.</em> Third sentence.</p>")
+        let sentences = HTMLToAttributed.splitIntoSentences(text)
+        XCTAssertEqual(sentences.count, 3)
+        XCTAssertEqual(String(sentences[0].characters), "First sentence. ")
+        XCTAssertEqual(String(sentences[1].characters), "Second sentence is italicized. ")
+        XCTAssertEqual(String(sentences[2].characters), "Third sentence.")
+        
+        let italicRun = sentences[1].runs.first { $0.inlinePresentationIntent?.contains(.emphasized) == true }
+        XCTAssertNotNil(italicRun)
+    }
 }

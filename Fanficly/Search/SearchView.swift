@@ -516,6 +516,8 @@ struct WorkDetailView: View {
     @State private var followed: Bool = false
     @State private var epubURL: URL?
     @State private var showingReport: Bool = false
+    @State private var starred: Bool = false
+    @State private var pinned: Bool = false
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -575,6 +577,19 @@ struct WorkDetailView: View {
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
             Button {
+                toggleStarred(payload: payload)
+            } label: {
+                Label(starred ? "Unstar work" : "Star work", systemImage: starred ? "star.slash" : "star")
+            }
+            Button {
+                togglePinned(payload: payload)
+            } label: {
+                Label(pinned ? "Unpin work" : "Pin work", systemImage: pinned ? "pin.slash" : "pin")
+            }
+            
+            Divider()
+
+            Button {
                 showingReport = true
             } label: {
                 Label("Report this work", systemImage: "flag")
@@ -611,6 +626,12 @@ struct WorkDetailView: View {
     private func load() async {
         epubURL = WorkPersistence.epubURL(workId: workId)
         followed = WorkPersistence.isFollowed(workId: workId, in: context)
+        
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        let savedWork = (try? context.fetch(descriptor))?.first
+        starred = savedWork?.isStarred ?? false
+        pinned = savedWork?.isPinned ?? false
+
         do {
             let fetched = try await client.fetchWork(id: workId)
             payload = fetched
@@ -618,6 +639,20 @@ struct WorkDetailView: View {
         } catch {
             errorMessage = "\(error)"
         }
+    }
+
+    private func toggleStarred(payload: AO3WorkPayload) {
+        let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
+        work.isStarred.toggle()
+        starred = work.isStarred
+        try? context.save()
+    }
+    
+    private func togglePinned(payload: AO3WorkPayload) {
+        let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
+        work.isPinned.toggle()
+        pinned = work.isPinned
+        try? context.save()
     }
 
     private func saveOffline(_ payload: AO3WorkPayload) async {
