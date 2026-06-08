@@ -131,6 +131,12 @@ targets:
         CFBundleDisplayName: Fanficly
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionPointIdentifier: com.apple.share-services
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly
