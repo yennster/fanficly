@@ -298,6 +298,17 @@ struct SearchView: View {
     /// a chip passes `resolve: false` (tags are already canonical) so the
     /// re-search is instant instead of re-hitting autocomplete per tag.
     private func executeSearch(resolve: Bool) async {
+        errorMessage = nil
+        withAnimation {
+            isSearching = true
+        }
+        currentPage = 1
+        defer {
+            withAnimation {
+                isSearching = false
+            }
+        }
+        
         var filters = lastParsed
         if resolve {
             if !filters.query.isEmpty {
@@ -309,10 +320,7 @@ struct SearchView: View {
         filters.sortColumn = sortColumn
         filters.sortDirection = sortDirection
         lastParsed = filters  // reflect canonical names in the chips
-        errorMessage = nil
-        isSearching = true
-        currentPage = 1
-        defer { isSearching = false }
+        
         do {
             let result = try await client.search(filters: filters, page: 1)
             results = result.works

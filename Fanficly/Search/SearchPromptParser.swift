@@ -5,9 +5,16 @@ public struct SearchPromptParser: Sendable {
 
     public func parse(_ prompt: String) -> AO3SearchFilters {
         var filters = AO3SearchFilters()
-        let working = NSMutableString(string: prompt.lowercased())
+        
+        let normalizedPrompt = prompt
+            .replacingOccurrences(of: "“", with: "\"")
+            .replacingOccurrences(of: "”", with: "\"")
+            .replacingOccurrences(of: "‘", with: "'")
+            .replacingOccurrences(of: "’", with: "'")
+            
+        let working = NSMutableString(string: normalizedPrompt.lowercased())
 
-        extractTitle(from: working, originalPrompt: prompt, into: &filters)
+        extractTitle(from: working, originalPrompt: normalizedPrompt, into: &filters)
         extractExclusions(from: working, into: &filters)
         extractQuoted(from: working, into: &filters)
         extractShips(from: working, into: &filters)

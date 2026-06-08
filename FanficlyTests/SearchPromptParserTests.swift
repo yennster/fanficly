@@ -230,4 +230,18 @@ final class SearchPromptParserTests: XCTestCase {
         XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
         XCTAssertEqual(filters.query, "")
     }
+
+    func test_smartQuotesTitleExtraction() {
+        let filters = parser.parse("title:\u{201C}The Great Gatsby\u{201D} edward/bella")
+        XCTAssertEqual(filters.title, "The Great Gatsby")
+        XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
+        XCTAssertEqual(filters.query, "")
+    }
+
+    func test_smartQuotesQuotedPhraseWithoutSlashIsFreeform() {
+        let filters = parser.parse("\u{201C}Coffee Shop AU\u{201D}")
+        XCTAssertTrue(filters.freeformNames.contains("Coffee Shop Au"))
+        XCTAssertTrue(filters.relationshipNames.isEmpty)
+        XCTAssertEqual(filters.query, "")
+    }
 }
