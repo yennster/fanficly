@@ -404,6 +404,11 @@ struct SearchView: View {
         } else if lastParsed.crossover == .no {
             chips.append(FilterChip(label: "no crossover", kind: .include) { lastParsed.crossover = .any; chipChanged() })
         }
+        if !lastParsed.title.isEmpty {
+            chips.append(FilterChip(label: "title \u{201C}\(lastParsed.title)\u{201D}", kind: .include) {
+                lastParsed.title = ""; chipChanged()
+            })
+        }
         if !lastParsed.query.isEmpty {
             chips.append(FilterChip(label: "\u{201C}\(lastParsed.query)\u{201D}", kind: .include) {
                 lastParsed.query = ""; chipChanged()

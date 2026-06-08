@@ -176,6 +176,10 @@ extension AO3SearchFilters {
         }
         if !wordCount.isEmpty { parts.append(Self.wordCountPhrase(wordCount)) }
         if !languageId.isEmpty { parts.append("in \(languageId)") }
+        if !title.isEmpty {
+            let quoted = title.contains(" ") ? "\"\(title)\"" : title
+            parts.append("title:\(quoted)")
+        }
         if !query.isEmpty { parts.append(query) }
         parts += excludedFreeforms.map { "-\($0)" }
         return parts.joined(separator: " ")
