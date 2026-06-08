@@ -7,6 +7,7 @@ public struct SearchPromptParser: Sendable {
         var filters = AO3SearchFilters()
         let working = NSMutableString(string: prompt.lowercased())
 
+        extractTitle(from: working, originalPrompt: prompt, into: &filters)
         extractExclusions(from: working, into: &filters)
         extractQuoted(from: working, into: &filters)
         extractShips(from: working, into: &filters)
@@ -26,6 +27,27 @@ public struct SearchPromptParser: Sendable {
             filters.query = remainder
         }
         return filters
+    }
+
+    private func extractTitle(from working: NSMutableString, originalPrompt prompt: String, into filters: inout AO3SearchFilters) {
+        let patterns = [
+            #"title:\s*"([^"]+)""#,
+            #"title:\s*([^\s]+)"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { continue }
+            let matches = regex.matches(in: working as String, range: NSRange(location: 0, length: working.length))
+            for match in matches.reversed() where match.numberOfRanges > 1 {
+                let nsRange = match.range(at: 1)
+                if let range = Range(nsRange, in: prompt) {
+                    let extractedTitle = String(prompt[range]).trimmingCharacters(in: .whitespaces)
+                    if !extractedTitle.isEmpty {
+                        filters.title = extractedTitle
+                    }
+                }
+                working.deleteCharacters(in: match.range)
+            }
+        }
     }
 
     private func extractExclusions(from working: NSMutableString, into filters: inout AO3SearchFilters) {

@@ -216,4 +216,18 @@ final class SearchPromptParserTests: XCTestCase {
         let filters = parser.parse("space pirates with feelings")
         XCTAssertEqual(filters.query, "space pirates with feelings")
     }
+
+    func test_titleExtraction() {
+        let filters = parser.parse("title:\"The Great Gatsby\" edward/bella")
+        XCTAssertEqual(filters.title, "The Great Gatsby")
+        XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
+        XCTAssertEqual(filters.query, "")
+    }
+
+    func test_unquotedTitleExtraction() {
+        let filters = parser.parse("title:Gatsby edward/bella")
+        XCTAssertEqual(filters.title, "Gatsby")
+        XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
+        XCTAssertEqual(filters.query, "")
+    }
 }
