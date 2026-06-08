@@ -139,7 +139,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.share-services
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.share
         PRODUCT_NAME: FanficlyShare
         GENERATE_INFOPLIST_FILE: NO
 
