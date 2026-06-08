@@ -161,6 +161,7 @@ struct LibraryRow: View {
             }
         }
         .padding(.vertical, 4)
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
     }
 }
 

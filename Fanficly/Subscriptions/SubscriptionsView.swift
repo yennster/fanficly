@@ -182,6 +182,7 @@ struct SubscriptionRow: View {
             }
         }
         .padding(.vertical, 4)
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
     }
 
     private var icon: String {
