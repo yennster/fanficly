@@ -1440,6 +1440,18 @@ struct ReaderPageCell: View {
     }
     
     var body: some View {
+        Group {
+            if showTitleHeader {
+                ScrollView(.vertical, showsIndicators: false) {
+                    content
+                }
+            } else {
+                content
+            }
+        }
+    }
+    
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showTitleHeader, let titleHeaderView {
                 titleHeaderView
