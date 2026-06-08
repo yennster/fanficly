@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct SettingsView: View {
     @Environment(AuthState.self) private var auth
@@ -6,6 +7,9 @@ struct SettingsView: View {
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("settings.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = false
     @State private var lastSync: Date? = nil
+    @State private var showingRestoreSuccess = false
+    @State private var showingRestoreFailure = false
+    @State private var isRestoring = false
     private let syncManager = iCloudSyncManager.shared
 
     /// Pre-filled feedback email (subject percent-encoded so it survives the mailto).
@@ -33,6 +37,24 @@ struct SettingsView: View {
             }
             Section("iCloud Sync") {
                 Toggle("Sync Library to iCloud", isOn: $iCloudSyncEnabled)
+                    .onChange(of: iCloudSyncEnabled) { _, newValue in
+                        if newValue {
+                            let worksCount = (try? context.fetchCount(FetchDescriptor<Work>())) ?? 0
+                            if worksCount == 0 && syncManager.isBackupAvailable {
+                                isRestoring = true
+                                Task {
+                                    let success = await syncManager.restoreFromiCloud(context: context)
+                                    isRestoring = false
+                                    if success {
+                                        lastSync = syncManager.lastBackupDate
+                                        showingRestoreSuccess = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .disabled(isRestoring)
+                
                 if iCloudSyncEnabled {
                     if let date = lastSync {
                         LabeledContent("Last synced", value: date.formatted())
@@ -44,11 +66,66 @@ struct SettingsView: View {
                         syncManager.backupToiCloud(context: context)
                         lastSync = syncManager.lastBackupDate
                     }
+                    .disabled(isRestoring)
+                    
+                    if syncManager.isBackupAvailable || isRestoring {
+                        Button {
+                            isRestoring = true
+                            Task {
+                                let success = await syncManager.restoreFromiCloud(context: context)
+                                isRestoring = false
+                                if success {
+                                    lastSync = syncManager.lastBackupDate
+                                    showingRestoreSuccess = true
+                                } else {
+                                    showingRestoreFailure = true
+                                }
+                            }
+                        } label: {
+                            if isRestoring {
+                                HStack {
+                                    Text("Restoring...")
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            } else {
+                                Text("Restore from iCloud")
+                            }
+                        }
+                        .disabled(isRestoring)
+                    }
                     
                     Button("Clear iCloud Data", role: .destructive) {
                         syncManager.clearFromiCloud()
                         lastSync = nil
                     }
+                    .disabled(isRestoring)
+                } else {
+                    Button {
+                        isRestoring = true
+                        Task {
+                            let success = await syncManager.restoreFromiCloud(context: context)
+                            isRestoring = false
+                            if success {
+                                iCloudSyncEnabled = true
+                                lastSync = syncManager.lastBackupDate
+                                showingRestoreSuccess = true
+                            } else {
+                                showingRestoreFailure = true
+                            }
+                        }
+                    } label: {
+                        if isRestoring {
+                            HStack {
+                                Text("Restoring...")
+                                Spacer()
+                                ProgressView()
+                            }
+                        } else {
+                            Text("Restore Library from iCloud")
+                        }
+                    }
+                    .disabled(isRestoring)
                 }
             }
             Section {
@@ -82,6 +159,16 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .onAppear {
             lastSync = syncManager.lastBackupDate
+        }
+        .alert("Library Restored", isPresented: $showingRestoreSuccess) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your library and settings have been successfully restored from iCloud.")
+        }
+        .alert("Restore Failed", isPresented: $showingRestoreFailure) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Could not restore backup from iCloud. Please make sure you are logged into iCloud and try again.")
         }
     }
 }

@@ -40,7 +40,7 @@ struct FanficlyApp: App {
                         let context = Self.sharedModelContainer.mainContext
                         let worksCount = (try? context.fetchCount(FetchDescriptor<Work>())) ?? 0
                         if worksCount == 0 && iCloudSyncManager.shared.isBackupAvailable {
-                            iCloudSyncManager.shared.restoreFromiCloud(context: context)
+                            await iCloudSyncManager.shared.restoreFromiCloud(context: context)
                         }
                     }
                 }

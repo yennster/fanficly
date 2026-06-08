@@ -15,10 +15,16 @@ final class iCloudSyncManager {
         return docsURL.appendingPathComponent("library_backup.json")
     }
     
-    /// Checks if a backup is available in iCloud.
+    /// Checks if a backup is available in iCloud (either downloaded or as a placeholder).
     var isBackupAvailable: Bool {
         guard let url = Self.backupURL else { return false }
-        return FileManager.default.fileExists(atPath: url.path)
+        if FileManager.default.fileExists(atPath: url.path) {
+            return true
+        }
+        let dir = url.deletingLastPathComponent()
+        let filename = url.lastPathComponent
+        let placeholderURL = dir.appendingPathComponent(".\(filename).icloud")
+        return FileManager.default.fileExists(atPath: placeholderURL.path)
     }
     
     /// Gets the modification date of the iCloud backup file.
@@ -137,8 +143,43 @@ final class iCloudSyncManager {
     
     /// Restores all records from iCloud backup. Returns true if successful.
     @discardableResult
-    func restoreFromiCloud(context: ModelContext) -> Bool {
-        guard let url = Self.backupURL, FileManager.default.fileExists(atPath: url.path) else {
+    func restoreFromiCloud(context: ModelContext) async -> Bool {
+        guard let url = Self.backupURL else {
+            return false
+        }
+        
+        let fileManager = FileManager.default
+        let dir = url.deletingLastPathComponent()
+        let filename = url.lastPathComponent
+        let placeholderURL = dir.appendingPathComponent(".\(filename).icloud")
+        
+        if !fileManager.fileExists(atPath: url.path) && fileManager.fileExists(atPath: placeholderURL.path) {
+            do {
+                try fileManager.startDownloadingUbiquitousItem(at: url)
+                // Poll for up to 5 seconds
+                var downloaded = false
+                for _ in 0..<25 {
+                    if fileManager.fileExists(atPath: url.path) {
+                        let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+                        if let status = values?.ubiquitousItemDownloadingStatus,
+                           status == .current || status == .downloaded {
+                            downloaded = true
+                            break
+                        }
+                    }
+                    try? await Task.sleep(for: .milliseconds(200))
+                }
+                if !downloaded {
+                    print("iCloud backup download timed out")
+                    return false
+                }
+            } catch {
+                print("Failed to download ubiquitous item: \(error)")
+                return false
+            }
+        }
+        
+        guard fileManager.fileExists(atPath: url.path) else {
             return false
         }
         
