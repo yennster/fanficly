@@ -59,6 +59,7 @@ Fanficly/
     LibraryView.swift          # All/Following/Downloaded filter
     SavedWorkReader.swift      # offline if downloaded, else fetch on demand
     WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow
+    iCloudSyncManager.swift    # backup/restore SwiftData library to iCloud
   Auth/                        # AuthState (Keychain) + LoginView
   Subscriptions/               # poller (AO3 subs + local follows), BG task
   Settings/                    # SettingsView + ReaderSettingsView + privacy
@@ -67,6 +68,9 @@ Fanficly/
 FanficlyTests/                 # ~120 XCTest cases — parsers, filters, endpoints,
                                #   HTML render, tracking, in-memory persistence
 FanficlyUITests/               # smoke test + ScreenshotTests (README shots)
+FanficlyShare/                 # Safari share extension target
+  ShareViewController.swift    # intercepts browser URLs & redirects to main app
+  Info.plist                   # share service configurations
 ```
 
 ## Build & run
@@ -164,6 +168,12 @@ Two distinct concepts — don't conflate them:
 - **Follow** (bookmark icon) is local-only, no login. `WorkPersistence.toggleFollow` saves the work's metadata to SwiftData with `isFollowed = true`. The background poller checks followed works for new chapters and fires a local notification — works fully logged out.
 - **Subscribe** (bell, in the … menu) POSTs to AO3 and requires login. It mirrors into AO3's own subscription list.
 Both feed `SubscriptionPoller`; `username` is optional so the poller runs for follows even with no account.
+
+## Custom URL Scheme & Share Extension
+
+- **Deep Link Handling**: The main app registers the custom scheme `fanficly` in `project.yml`. Any URL matching `fanficly://import?url=<url>` is caught by `RootView.swift`'s `.onOpenURL` handler, which triggers the `ImportOverlay` view to fetch the work metadata and chapters, download the EPUB for offline storage, and launch the reader sheet (`SavedWorkReader`).
+- **Share Extension**: The `FanficlyShare` target is a Safari Share Extension. When activated on a Safari URL, it loads the URL attachment, encodes it, opens `fanficly://import?url=<encodedURL>`, and completes the extension request.
+
 
 ## Screenshots
 
