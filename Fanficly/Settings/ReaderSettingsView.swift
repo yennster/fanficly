@@ -17,6 +17,80 @@ struct ReaderSettingsView: View {
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
 
+    // Profile Management
+    @AppStorage("reader.activeProfile") private var activeProfileName: String = "Default"
+    @AppStorage("reader.profiles") private var profilesJSON: String = ""
+    @State private var showingNewProfileAlert = false
+    @State private var newProfileName = ""
+
+    private var profiles: [ReaderProfile] {
+        ReaderProfile.loadProfiles(from: profilesJSON)
+    }
+
+    private func saveCurrentToActiveProfile() {
+        var list = profiles
+        if let idx = list.firstIndex(where: { $0.name == activeProfileName }) {
+            list[idx].themeRaw = themeRaw
+            list[idx].fontFamilyRaw = fontFamilyRaw
+            list[idx].widthRaw = widthRaw
+            list[idx].modeRaw = modeRaw
+            list[idx].fontSizePt = fontSizePt
+            list[idx].lineSpacingPt = lineSpacingPt
+            list[idx].paragraphSpacingPt = paragraphSpacingPt
+            list[idx].pageTurnHaptics = pageTurnHaptics
+            list[idx].pageTurnAnimations = pageTurnAnimations
+        } else {
+            let newProfile = ReaderProfile(
+                name: activeProfileName,
+                themeRaw: themeRaw,
+                fontFamilyRaw: fontFamilyRaw,
+                widthRaw: widthRaw,
+                modeRaw: modeRaw,
+                fontSizePt: fontSizePt,
+                lineSpacingPt: lineSpacingPt,
+                paragraphSpacingPt: paragraphSpacingPt,
+                pageTurnHaptics: pageTurnHaptics,
+                pageTurnAnimations: pageTurnAnimations
+            )
+            list.append(newProfile)
+        }
+        profilesJSON = ReaderProfile.saveProfiles(list)
+    }
+
+    private func selectProfile(_ profile: ReaderProfile) {
+        activeProfileName = profile.name
+        themeRaw = profile.themeRaw
+        fontFamilyRaw = profile.fontFamilyRaw
+        widthRaw = profile.widthRaw
+        modeRaw = profile.modeRaw
+        fontSizePt = profile.fontSizePt
+        lineSpacingPt = profile.lineSpacingPt
+        paragraphSpacingPt = profile.paragraphSpacingPt
+        pageTurnHaptics = profile.pageTurnHaptics
+        pageTurnAnimations = profile.pageTurnAnimations
+    }
+
+    private func deleteProfile(_ name: String) {
+        var list = profiles
+        list.removeAll { $0.name == name }
+        if activeProfileName == name {
+            activeProfileName = "Default"
+            if let defaultProf = list.first(where: { $0.name == "Default" }) {
+                selectProfile(defaultProf)
+            } else {
+                selectProfile(ReaderProfile.defaultProfiles[0])
+            }
+        }
+        profilesJSON = ReaderProfile.saveProfiles(list)
+    }
+
+    private func saveNewProfile(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        activeProfileName = trimmed
+        saveCurrentToActiveProfile()
+    }
+
     /// On-device voices for the current language (fall back to all installed
     /// voices if the language has none), sorted by name.
     private var voices: [AVSpeechSynthesisVoice] {
@@ -32,6 +106,30 @@ struct ReaderSettingsView: View {
         let scheme = theme.preferredColorScheme ?? systemColorScheme
 
         Form {
+            Section("Reader Profile") {
+                Picker("Active Profile", selection: $activeProfileName) {
+                    ForEach(profiles) { profile in
+                        Text(profile.name).tag(profile.name)
+                    }
+                }
+                .onChange(of: activeProfileName) { _, newName in
+                    if let profile = profiles.first(where: { $0.name == newName }) {
+                        selectProfile(profile)
+                    }
+                }
+                
+                Button("Save Current Settings as New Profile...") {
+                    newProfileName = ""
+                    showingNewProfileAlert = true
+                }
+                
+                if activeProfileName != "Default" {
+                    Button("Delete Profile \"\(activeProfileName)\"", role: .destructive) {
+                        deleteProfile(activeProfileName)
+                    }
+                }
+            }
+
             Section("Preview") {
                 VStack(alignment: .leading, spacing: paragraphSpacingPt) {
                     Text("A Coffee Shop Tale")
@@ -134,17 +232,26 @@ struct ReaderSettingsView: View {
         }
         .navigationTitle("Reader")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: themeRaw) { _, _ in queueBackup() }
-        .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
-        .onChange(of: widthRaw) { _, _ in queueBackup() }
-        .onChange(of: modeRaw) { _, _ in queueBackup() }
-        .onChange(of: fontSizePt) { _, _ in queueBackup() }
-        .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
-        .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
-        .onChange(of: pageTurnHaptics) { _, _ in queueBackup() }
-        .onChange(of: pageTurnAnimations) { _, _ in queueBackup() }
+        .onChange(of: themeRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: fontFamilyRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: widthRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: modeRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: fontSizePt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: lineSpacingPt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: paragraphSpacingPt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: pageTurnHaptics) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: pageTurnAnimations) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
         .onChange(of: ttsRate) { _, _ in queueBackup() }
         .onChange(of: ttsVoiceId) { _, _ in queueBackup() }
+        .alert("New Profile", isPresented: $showingNewProfileAlert) {
+            TextField("Profile Name", text: $newProfileName)
+            Button("Cancel", role: .cancel) { }
+            Button("Save") {
+                saveNewProfile(name: newProfileName)
+            }
+        } message: {
+            Text("Enter a name for this reader settings configuration profile.")
+        }
     }
 
     private func queueBackup() {

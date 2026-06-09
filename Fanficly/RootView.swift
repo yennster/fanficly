@@ -12,7 +12,32 @@ struct RootView: View {
     @State private var importingWorkId: Int? = nil
     @State private var importedWork: Work? = nil
 
+    @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
+
     var body: some View {
+        GeometryReader { geo in
+            innerBody
+                .frame(width: geo.size.width / CGFloat(zoomScale), height: geo.size.height / CGFloat(zoomScale))
+                .scaleEffect(CGFloat(zoomScale), anchor: .topLeading)
+        }
+        .background {
+            Group {
+                Button(action: { zoom(in: true) }) { EmptyView() }
+                    .keyboardShortcut("+", modifiers: [.command])
+                Button(action: { zoom(in: true) }) { EmptyView() }
+                    .keyboardShortcut("=", modifiers: [.command])
+                Button(action: { zoom(in: false) }) { EmptyView() }
+                    .keyboardShortcut("-", modifiers: [.command])
+                Button(action: { resetZoom() }) { EmptyView() }
+                    .keyboardShortcut("0", modifiers: [.command])
+            }
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var innerBody: some View {
         NavigationSplitView {
             List(selection: $selectedTab) {
                 ForEach(SidebarItem.allCases) { item in
@@ -76,6 +101,21 @@ struct RootView: View {
                     }
             }
         }
+    }
+
+    private func zoom(in forward: Bool) {
+        let step = 0.1
+        let minScale = 0.5
+        let maxScale = 2.0
+        if forward {
+            zoomScale = min(maxScale, zoomScale + step)
+        } else {
+            zoomScale = max(minScale, zoomScale - step)
+        }
+    }
+
+    private func resetZoom() {
+        zoomScale = 1.0
     }
     
     private func parseWorkId(from url: URL) -> Int? {
