@@ -71,8 +71,9 @@ SLIDES = [
 # Per-device geometry. `out_w/out_h` are the exact App Store dimensions we emit.
 # iPhone/iPad go through frameit, so they carry `frame_w/frame_h` (a size frameit
 # has a frame for — iPad 13" has none, so we frame at 12.9" and composite onto the
-# 13" canvas). Mac doesn't use frameit; `fit=True` makes compose() scale the
-# floating window to fit inside the landscape canvas so it's never clipped.
+# 13" canvas). Mac doesn't use frameit; the floating window is sized large and
+# allowed to bleed off the bottom edge (like the iPhone device), so omit `fit`.
+# (`fit=True` would instead clamp it fully inside the canvas — smaller.)
 DEVICES = {
     "iphone": dict(out_w=1320, out_h=2868, frame_w=1320, frame_h=2868,
                    text_top=0.045, verb_max=232, verb_min=120, desc=116,
@@ -81,8 +82,8 @@ DEVICES = {
                    text_top=0.052, verb_max=300, verb_min=150, desc=150,
                    dev_w=0.70, dev_top=0.300),
     "mac":    dict(out_w=2560, out_h=1600,
-                   text_top=0.060, verb_max=200, verb_min=110, desc=100,
-                   dev_w=0.62, dev_top=0.300, fit=True),
+                   text_top=0.050, verb_max=175, verb_min=100, desc=82,
+                   dev_w=0.88, dev_top=0.230),
 }
 
 
