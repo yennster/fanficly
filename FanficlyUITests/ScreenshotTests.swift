@@ -27,19 +27,27 @@ final class ScreenshotTests: XCTestCase {
         shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
             .appendingPathComponent(device)
         try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
-        
-        // Rotate the device BEFORE launching the app so that the app starts up directly in the target orientation
-        XCUIDevice.shared.orientation = orientation
-        
-        // Wait a bit for the device/simulator rotation to complete
-        let rotExp = XCTestExpectation(description: "Wait for simulator rotation")
-        _ = XCTWaiter.wait(for: [rotExp], timeout: 2.0)
-        
+
         app.launch()
-        
-        // Wait non-blockingly for the app to finish launching and render layouts correctly
+
+        // Let the app finish launching before we rotate.
+        let launchExp = XCTestExpectation(description: "Wait for launch")
+        _ = XCTWaiter.wait(for: [launchExp], timeout: 3.0)
+
+        // Rotate AFTER launch. Setting the orientation pre-launch is unreliable —
+        // the scene frequently comes up portrait and ignores the request, which is
+        // what produced the broken (portrait, sidebar-less) "mac" captures. Rotating
+        // the live app reliably relayouts the split view so the sidebar shows in
+        // landscape.
+        if orientation != .portrait {
+            XCUIDevice.shared.orientation = orientation
+            let rotExp = XCTestExpectation(description: "Wait for rotation")
+            _ = XCTWaiter.wait(for: [rotExp], timeout: 3.0)
+        }
+
+        // Wait non-blockingly for the app to settle into the final layout.
         let exp = XCTestExpectation(description: "Wait for layout")
-        _ = XCTWaiter.wait(for: [exp], timeout: 4.0)
+        _ = XCTWaiter.wait(for: [exp], timeout: 3.0)
     }
 
     private func snap(_ name: String) {
@@ -69,7 +77,17 @@ final class ScreenshotTests: XCTestCase {
         let cell = app.collectionViews.staticTexts[title].firstMatch
         let fallback = app.staticTexts[title].firstMatch
         let target = cell.waitForExistence(timeout: 2) ? cell : fallback
-        if target.waitForExistence(timeout: 2) { target.tap(); usleep(800_000) }
+        if target.waitForExistence(timeout: 2) {
+            if target.isHittable {
+                target.tap()
+            } else {
+                // In a persistent split view (landscape iPad / Mac Catalyst) a
+                // sidebar row can report as present but "not hittable"; force a
+                // hit at its center instead of failing the run.
+                target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            }
+            usleep(800_000)
+        }
     }
     private func findSettingsButton() -> XCUIElement {
         let identifier = app.descendants(matching: .any).element(matching: .any, identifier: "reader_settings_button")
