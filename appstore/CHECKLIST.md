@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Version bumped to **1.4.0 (build 10)** in `project.yml`
+- Version bumped to **1.4.0 (build 12)** in `project.yml`
 
 ---
 
@@ -119,3 +119,11 @@ In App Store Connect → your **1.4.0** version:
 Bump `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` in `project.yml`, run
 `xcodegen generate`, update `release_notes.txt`, re-shoot if UI changed
 (`bundle exec fastlane screenshots`), then `bundle exec fastlane release`.
+
+## Mac App Store (Mac Catalyst)
+
+One-time: add the **macOS** platform to the app record in App Store Connect
+(app page → Add Platform). Then `fastlane release_mac` archives the Catalyst
+build as a `.pkg` and uploads it plus metadata and the `2560×1600` Mac
+screenshots (`fastlane/screenshots-mac/en-US/`) to the macOS listing. Same
+bundle ID → universal purchase. Does not auto-submit.

@@ -232,7 +232,7 @@
 		FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTextTests.swift; sourceTree = "<group>"; };
 		FE4F76A060504CC63D18FB5E /* FanficlyShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FanficlyShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF3F1CDC54EF7C6837A84AE8 /* DemoAO3Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoAO3Client.swift; sourceTree = "<group>"; };
-		"TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -489,10 +489,10 @@
 			path = HTMLParsers;
 			sourceTree = "<group>";
 		};
-		"TEMP_42FF4DB2-DAE2-4232-AF96-FBDBAEADC9A0" /* ao3-app */ = {
+		"TEMP_0DADCDF9-16C1-4352-9650-400940BFBD92" /* ao3-app */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */,
+				"TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */,
 			);
 			path = "ao3-app";
 			sourceTree = "<group>";
@@ -808,7 +808,7 @@
 /* Begin XCBuildConfiguration section */
 		101DDA49A6903ACE8E8B0566 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -862,7 +862,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -901,7 +901,7 @@
 		};
 		6FAF1406E881D8C0AC736895 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -926,7 +926,7 @@
 		};
 		9925155C6903BF8310099F16 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
@@ -946,7 +946,7 @@
 		};
 		C1C42BD5CB7E6D67B69726DD /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -971,7 +971,7 @@
 		};
 		C33115565CF63EBC63BAECAD /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FanficlyWidget/FanficlyWidget.entitlements;
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -992,7 +992,7 @@
 		};
 		C613CC5642BD299A9EFC48E5 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1012,7 +1012,7 @@
 		};
 		CD522EF40C68CFE62723F737 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FanficlyWidget/FanficlyWidget.entitlements;
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1033,7 +1033,7 @@
 		};
 		D5315B3D0C14233907B25D13 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
@@ -1053,7 +1053,7 @@
 		};
 		E0E47751AC9B94FBBD68AF0C /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1073,7 +1073,7 @@
 		};
 		EDF7B1B0FCFFA1368D41D69E /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1514303F-BE95-405B-B8DF-247DE1685F0A" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_A7623894-1011-483A-B00E-E1BFDE02944A" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1127,7 +1127,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 12;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

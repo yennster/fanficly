@@ -9,7 +9,8 @@ high-converting App Store screenshot: a real Apple device frame (via
 `fastlane frameit`, for iPhone/iPad) on a solid brand-maroon canvas with a bold
 two-line headline (action verb + benefit). Each image is written to BOTH:
   - screenshots/final/{iphone,ipad,mac}/ — the tracked marketing set (README)
-  - fastlane/screenshots/en-US/          — what `fastlane deliver` uploads
+  - fastlane/screenshots/en-US/          — what `fastlane deliver` uploads (iOS)
+  - fastlane/screenshots-mac/en-US/      — what `fastlane release_mac` uploads (macOS)
 …at exact App Store pixel sizes (deliver picks the slot by resolution).
 It also (re)builds screenshots/showcase.png — the README hero strip — from the
 first three iPhone shots, so re-running keeps the README assets in sync.
@@ -49,7 +50,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(REPO, "docs", "screenshots")
-OUT = os.path.join(REPO, "fastlane", "screenshots", "en-US")   # what `deliver` uploads
+OUT = os.path.join(REPO, "fastlane", "screenshots", "en-US")   # what `deliver` uploads (iOS)
+# Mac shots live in their own tree: deliver matches screenshots to App Store
+# slots by pixel size, and 2560×1600 is a Mac App Store size the iOS listing
+# rejects. `fastlane release_mac` uploads this tree with platform "osx".
+OUT_MAC = os.path.join(REPO, "fastlane", "screenshots-mac", "en-US")
 FINAL = os.path.join(REPO, "screenshots", "final")             # tracked marketing set (README)
 SHOWCASE = os.path.join(REPO, "screenshots", "showcase.png")   # README hero strip
 GITHUB_URL = "github.com/yennster/fanficly"
@@ -331,6 +336,7 @@ def parse_args():
 def main():
     args = parse_args()
     os.makedirs(OUT, exist_ok=True)
+    os.makedirs(OUT_MAC, exist_ok=True)
     made = 0
     iphone_finals = []
     devices = args.devices or DEVICES.keys()
@@ -375,7 +381,8 @@ def main():
             framed = os.path.join(work, f"{slug}_framed.png")
             final_out = os.path.join(final_dir, f"{slug}.png")
             compose(g, verb, desc, framed, final_out)              # tracked marketing image
-            shutil.copy(final_out, os.path.join(OUT, f"{device}-{slug}.png"))  # deliver upload
+            deliver_dir = OUT_MAC if device == "mac" else OUT
+            shutil.copy(final_out, os.path.join(deliver_dir, f"{device}-{slug}.png"))  # deliver upload
             print(f"  ✓ {device}-{slug}.png")
             made += 1
             if device == "iphone":
@@ -383,7 +390,7 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
     if iphone_finals:
         make_showcase(iphone_finals[:3], SHOWCASE)
-    print(f"Done — {made} framed images → screenshots/final/ and fastlane/screenshots/en-US/")
+    print(f"Done — {made} framed images → screenshots/final/, fastlane/screenshots/en-US/ (iOS) and fastlane/screenshots-mac/en-US/ (Mac)")
 
 
 if __name__ == "__main__":
