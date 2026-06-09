@@ -88,7 +88,7 @@ bundle exec fastlane release
 bundle exec fastlane metadata_only
 ```
 `deliver` uploads `fastlane/metadata` and `fastlane/screenshots/en-US`, sets the
-categories (Books / Reference), and attaches the build. It does **not** submit.
+categories (Books / Entertainment), and attaches the build. It does **not** submit.
 
 ## 8. Final review & submit  [portal]
 

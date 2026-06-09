@@ -4,7 +4,7 @@ Short notes for Claude Code sessions and other agents.
 
 ## What this is
 
-A SwiftUI app (iPhone + iPad, iOS 17+, Swift 6) that reads AO3 fanfiction. There is no AO3 JSON API, so the app talks to AO3 by scraping HTML with SwiftSoup, using one shared `URLSession` with a custom `User-Agent` and a 1 req/sec throttle. Everything runs on-device — no servers, no analytics.
+A SwiftUI app (iPhone + iPad, plus Mac via Catalyst; iOS 17+, Swift 6) that reads AO3 fanfiction. There is no AO3 JSON API, so the app talks to AO3 by scraping HTML with SwiftSoup, using one shared `URLSession` with a custom `User-Agent` and a 1 req/sec throttle. Everything runs on-device — no servers, no analytics.
 
 ## Layout
 
@@ -13,9 +13,15 @@ project.yml                    # xcodegen is the source of truth
 bin/                           # developer scripts (icon gen, screenshots)
 Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
-  RootView.swift               # NavigationSplitView sidebar
+  RootView.swift               # NavigationSplitView sidebar; global ⌘ zoom
+                               #   (app.zoomScale); fanficly:// deep links
+                               #   (import overlay + widget resume route)
   AO3ClientEnvironment.swift   # @Environment(\.ao3Client) key
-  Models/Work.swift            # all SwiftData @Model types
+  WidgetProgressStore.swift    # last-read progress for the widget: app-group
+                               #   defaults + iCloud KVS mirror (debounced);
+                               #   compiled into both app and widget targets
+  Models/Work.swift            # all SwiftData @Model types (Work,
+                               #   ReadingProgress, CustomFolder, …)
   Networking/
     AO3Client.swift            # protocol + live actor + MockAO3Client
     AO3Endpoints.swift         # URL builders
@@ -41,7 +47,8 @@ Fanficly/
                                #   floating chapter indicator, typography menu,
                                #   reading-position save/restore; plain system
                                #   nav bar (no auto-hide — see below); paginated
-                               #   mode has tap-to-turn zones + "Listen" TTS bar
+                               #   mode has tap-to-turn zones + "Listen" TTS bar;
+                               #   hardware arrow keys turn pages
     ChapterContentView.swift   # renders a chapter as paragraphs w/ scroll anchors
     HTMLText.swift             # async cached HTML → AttributedString (summary)
     HTMLToAttributed.swift     # SwiftSoup → AttributedString / paragraphs;
@@ -52,11 +59,17 @@ Fanficly/
                                #   auto-advance, lock-screen Now Playing controls
     WorkHeaderMetadata.swift   # rating/warnings/tags/stats; collapsible drawer
     ChapterTracking.swift      # PreferenceKeys: current chapter + paragraph anchor
-    ReadingProgressStore.swift # load/save ReadingProgress by ao3Id
+    ReadingProgressStore.swift # load/save ReadingProgress by ao3Id; stamps
+                               #   Work.lastRead* and feeds WidgetProgressStore
+    ReaderProfile.swift        # named typography profiles (JSON under
+                               #   "reader.profiles"); per-device setting keys
+                               #   via deviceKey() (.phone/.pad/.mac) + migration
+    ReaderProfileSyncStore.swift  # mirrors reader.profiles through iCloud KVS
     WorkExportButton.swift     # multi-format export → share sheet
     ReaderTheme.swift          # theme/font/size/spacing/width/mode, @AppStorage
   Library/
-    LibraryView.swift          # All/Following/Downloaded filter
+    LibraryView.swift          # All/Following/Downloaded/Folders filters;
+                               #   custom folders (CustomFolder) w/ move sheet
     SavedWorkReader.swift      # offline if downloaded, else fetch on demand
     WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow
     iCloudSyncManager.swift    # backup/restore SwiftData library to iCloud
@@ -71,6 +84,11 @@ FanficlyUITests/               # smoke test + ScreenshotTests (README shots)
 FanficlyShare/                 # Safari share extension target
   ShareViewController.swift    # intercepts browser URLs & redirects to main app
   Info.plist                   # share service configurations
+FanficlyWidget/                # WidgetKit extension target (embedded in app)
+  FanficlyWidget.swift         # last-read story widget (systemSmall/Medium):
+                               #   title, author, progress bar; tap deep-links
+                               #   fanficly://resume/<id>?chapter=&paragraph=
+  FanficlyWidget.entitlements  # app group + iCloud KVS
 ```
 
 ## Build & run
@@ -115,8 +133,8 @@ CI runs the same on both an iPhone and an iPad simulator. CI picks the newest in
 - **Parsers** — `SearchResultsParserTests`, `WorkPageParserTests` (+ `LoginParserTests`), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
 - **Search** — `SearchPromptParserTests` (ships, characters, ratings, warnings, categories, freeforms incl. romance, fandoms, word count, status, engagement, language, exclusions), `AO3SearchFiltersTests` (every `work_search[*]` field mapping, NOT-exclusion composition, Codable round-trip for saved filters), `TagResolverTests` (canonical resolution, ship slash variants, character-fallback ship resolution via `StubAO3Client`), `PromptTextTests` (chip-removal → search-box text), `FandomCatalogTests` (fandom → category icon).
 - **Endpoints** — `AO3EndpointsTests` (URLs, pagination, AO3 media path-encoding).
-- **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter).
-- **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow) and `ReadingProgressStore` (save/load round-trips).
+- **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr, transparent conversion caching), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter).
+- **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow) and `ReadingProgressStore` (save/load round-trips), plus `ReaderProfile` merging and per-device key migration.
 - **Misc** — `ThrottleActorTests` (1 req/sec throttle timing). `StubAO3Client` is a scriptable `AO3ClientProtocol` test double for resolution logic.
 
 When you add a feature, add its tests here. Make a private helper `internal` if it needs direct testing (see `TagResolver.candidates/bestMatch`).
@@ -129,7 +147,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - **Throttle.** Always go through `AO3Client` — never bypass the throttle. AO3 is generous to good citizens, hostile to bad ones.
 - **Parsers are pure.** `SearchResultsParser`, `WorkPageParser`, `LoginParser`, `SubscriptionsParser`, `WorkMetadataParser` take HTML strings and return typed values. Test them with inline HTML fixtures.
 - **SwiftData models** live in `Models/Work.swift`. The model container is constructed once in `FanficlyApp` and shared with `BackgroundRefresh`.
-- **Settings come from `@AppStorage`**, not custom UserDefaults wrappers.
+- **Settings come from `@AppStorage`**, not custom UserDefaults wrappers. Reader typography keys are per-device — always go through `ReaderProfile.deviceKey(_:)` (suffixes `.phone`/`.pad`/`.mac`).
 - **No third-party dependencies beyond SwiftSoup and KeychainAccess.** Don't add analytics, crash reporters, or any SDK with a network side-channel — privacy posture is the headline feature.
 
 ## Common tasks
@@ -160,7 +178,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - The search field is a vertical-axis `TextField`, so Return inserts a newline rather than firing `.onSubmit`. SearchView watches `onChange` for a `\n` and triggers the search itself.
 - Top-level tab views (Search, Library) use an **inline** nav title — a large title pops in awkwardly because those screens have a custom header VStack, not a scroll view for the title to anchor against.
 - AO3 may return 429 if we hit it too fast. The throttle should prevent this but handle the case anyway.
-- **The reader uses the plain system nav bar — no auto-hide.** We tried scroll-to-hide chrome twice (parent-driven `.toolbar(.hidden)`, then a fully custom floating toolbar) and both were unreliable/ugly, so the reader just keeps the standard `.toolbar` items: `ReaderView` provides the chapters + typography (Aa) menus; the parent (`WorkDetailView` / `SavedWorkReader`) adds follow/export/save via its own `.toolbar`. The bar is painted with the reader's `background` (`.toolbarBackground(bg, .visible)`) and themed with `.toolbarColorScheme` — never `.preferredColorScheme`, which propagates to the whole window and flips the app light↔dark when you leave a light reader. The chapter indicator bar (continuous mode) uses `bg`, not `.ultraThinMaterial`, so nothing reads as system gray. If you reattempt auto-hide, do NOT reintroduce a custom chrome — the consensus was to leave it.
+- **The reader uses the plain system nav bar — no auto-hide.** We tried scroll-to-hide chrome twice (parent-driven `.toolbar(.hidden)`, then a fully custom floating toolbar) and both were unreliable/ugly, so the reader just keeps the standard `.toolbar` items: `ReaderView` provides the chapters + typography (Aa) + minimize items; the parent adds export plus either a save button (`SavedWorkReader`) or a single options menu (`WorkDetailView`: save-to-library / download / report / hide). Keep the parent to ≤2 items — the iPhone portrait nav bar fits ~5 trailing icons before the system spills the rest into its own "…" overflow, which reads as a confusing second ellipsis next to the `ellipsis.circle` menu. The bar is painted with the reader's `background` (`.toolbarBackground(bg, .visible)`) and themed with `.toolbarColorScheme` — never `.preferredColorScheme`, which propagates to the whole window and flips the app light↔dark when you leave a light reader. The chapter indicator bar (continuous mode) uses `bg`, not `.ultraThinMaterial`, so nothing reads as system gray. If you reattempt auto-hide, do NOT reintroduce a custom chrome — the consensus was to leave it.
 
 ## Local follow vs. AO3 subscribe
 
@@ -173,14 +191,27 @@ Both feed `SubscriptionPoller`; `username` is optional so the poller runs for fo
 
 - **Deep Link Handling**: The main app registers the custom scheme `fanficly` in `project.yml`. Any URL matching `fanficly://import?url=<url>` is caught by `RootView.swift`'s `.onOpenURL` handler, which triggers the `ImportOverlay` view to fetch the work metadata and chapters, download the EPUB for offline storage, and launch the reader sheet (`SavedWorkReader`).
 - **Share Extension**: The `FanficlyShare` target is a Safari Share Extension. When activated on a Safari URL, it loads the URL attachment, encodes it, opens `fanficly://import?url=<encodedURL>`, and completes the extension request.
+- **Widget resume route**: `fanficly://resume/<workId>?chapter=<n>&paragraph=<m>` — opened when the user taps the widget. `RootView.parseResumeRoute` parses it; the handler seeds `ReadingProgress` from `WidgetProgressStore` when the widget copy is fresher than the local record, switches the sidebar to Library, and pushes `SavedWorkReader` (or `WorkDetailView` if the work isn't saved) via a `ResumeWorkRoute` navigation destination.
+
+## Reader settings profiles
+
+Typography settings are per-device: every reader key goes through `ReaderProfile.deviceKey(_:)` and each platform stores its own active profile (`reader.activeProfile.{phone,pad,mac}`). Profiles are Codable structs serialized as JSON under the `reader.profiles` key, managed from the reader's Aa menu and `ReaderSettingsView` (create/rename/delete/switch). `ReaderProfileSyncStore` mirrors that key through iCloud key-value storage, merging by case-insensitive profile name (`ReaderProfile.mergedProfiles`); `iCloudSyncManager` also includes profiles in full library backups. Legacy un-suffixed keys migrate once via `ReaderProfile.migrateLegacySettingsIfNeeded()`.
+
+## Last-read widget
+
+`FanficlyWidget` shows the last-read story with a progress bar. `ReadingProgressStore.save` writes every progress update into `WidgetProgressStore`, which persists to the `group.io.github.yennster.fanficly` app-group defaults and mirrors to iCloud KVS (debounced ~1.2 s; immediate when the reader closes) so the widget and other devices stay fresh. `FanficlyApp` installs the KVS observers at launch (`WidgetProgressStore` / `ReaderProfileSyncStore` `.installCloudSyncObserver()`), skipped in demo and unit-test runs. Tapping the widget opens the resume route above.
+
+## Mac Catalyst
+
+The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale`, bound to ⌘+/⌘=/⌘−/⌘0 — by counter-scaling the root view. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).
 
 
 ## Screenshots
 
-`bin/take-screenshots.sh` is the interactive capture (manual navigation). `FanficlyUITests/ScreenshotTests` is the automated version — it drives the app **in `-demoMode`** and writes PNGs to `docs/screenshots/{iphone,ipad}/` (idiom subfolder; path derived from `#filePath`; the simulator runs as the host user so it can write there). Run it with `-only-testing:FanficlyUITests/ScreenshotTests/testCaptureMainScreens`. Demo mode is fully offline so the shots are deterministic. One iPad gotcha: re-selecting a sidebar item in `NavigationSplitView` doesn't pop the detail stack, so the Privacy capture pops back one level via the nav-bar back button instead. CI never runs UI tests (`-only-testing:FanficlyTests`).
+`bin/take-screenshots.sh` is the interactive capture (manual navigation). `FanficlyUITests/ScreenshotTests` is the automated version — it drives the app **in `-demoMode`** and writes PNGs to `docs/screenshots/{iphone,ipad,mac}/` (idiom subfolder; path derived from `#filePath`; the simulator runs as the host user so it can write there). Run it with `-only-testing:FanficlyUITests/ScreenshotTests/testCaptureMainScreens`; the Mac set comes from `bin/take-mac-screenshots.sh`, which runs `testCaptureMacScreens` on a landscape iPad Pro 13-inch simulator (stand-in for the Mac app — there's no Catalyst sim). Demo mode is fully offline so the shots are deterministic. One iPad gotcha: re-selecting a sidebar item in `NavigationSplitView` doesn't pop the detail stack, so the Privacy capture pops back one level via the nav-bar back button instead. CI never runs UI tests (`-only-testing:FanficlyTests`).
 
-**App Store marketing screenshots** are framed by `bin/frame-screenshots.py` (run by the `fastlane screenshots` lane after capture). It frames each raw shot in a genuine Apple device bezel via `fastlane frameit`, then composites it onto the solid violet brand canvas (`#6D28D9`) with a bold two-line ASO headline, writing exact-size PNGs to `fastlane/screenshots/en-US/` (iPhone 6.9" `1320×2868`, iPad 13" `2064×2752` — iPad is framed at frameit's supported 12.9" `2048×2732` then composited onto the 13" canvas). Headlines/order live in the `SLIDES` list at the top of the script. Requires `brew install fastlane imagemagick`. `fastlane/screenshots/` is git-ignored (regenerate via the lane).
+**App Store marketing screenshots** are framed by `bin/frame-screenshots.py` (run by the `fastlane screenshots` lane after capture). It frames each raw shot in a genuine Apple device bezel via `fastlane frameit`, then composites it onto the solid AO3-maroon brand canvas (`#990000`) with a bold two-line ASO headline, writing exact-size PNGs to `fastlane/screenshots/en-US/` (iPhone 6.9" `1320×2868`, iPad 13" `2064×2752` — iPad is framed at frameit's supported 12.9" `2048×2732` then composited onto the 13" canvas). Mac shots get a window-style frame (border + soft shadow, no frameit bezel) on a `2560×1600` canvas. Headlines/order live in the `SLIDES` list at the top of the script. Requires `brew install fastlane imagemagick`. `fastlane/screenshots/` is git-ignored (regenerate via the lane).
 
 ## Privacy posture (do not regress)
 
-The app stores **nothing** off-device. Don't add analytics, crash reporting, or remote logging. The only persisted secret is AO3's own session cookie (in iOS Keychain). See `PRIVACY.md` and `PrivacyInfo.xcprivacy`.
+The app stores **nothing** off-device, with one shape of exception: sync data in the user's **own private iCloud** (opt-in library backups via `iCloudSyncManager`, plus iCloud key-value storage for reader profiles and last-read progress) — Apple infrastructure under the user's Apple ID, unreadable by us. Don't add analytics, crash reporting, or remote logging. The only persisted secret is AO3's own session cookie (in iOS Keychain). See `PRIVACY.md` and `PrivacyInfo.xcprivacy`.
