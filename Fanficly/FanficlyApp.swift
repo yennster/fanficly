@@ -15,9 +15,11 @@ struct FanficlyApp: App {
     init() {
         if Self.isDemoMode {
             let defaults = UserDefaults.standard
+            let demoReaderWidthKey = ReaderProfile.deviceKey("reader.widthPercent")
             defaults.removeObject(forKey: "reader.theme")
             defaults.removeObject(forKey: "reader.fontFamily")
             defaults.removeObject(forKey: "reader.width")
+            defaults.removeObject(forKey: "reader.widthPercent")
             defaults.removeObject(forKey: "reader.mode")
             defaults.removeObject(forKey: "reader.fontSizePt")
             defaults.removeObject(forKey: "reader.lineSpacingPt")
@@ -30,7 +32,7 @@ struct FanficlyApp: App {
             let deviceKeys = [
                 ReaderProfile.deviceKey("reader.theme"),
                 ReaderProfile.deviceKey("reader.fontFamily"),
-                ReaderProfile.deviceKey("reader.widthPercent"),
+                demoReaderWidthKey,
                 ReaderProfile.deviceKey("reader.mode"),
                 ReaderProfile.deviceKey("reader.fontSizePt"),
                 ReaderProfile.deviceKey("reader.lineSpacingPt"),
@@ -41,6 +43,12 @@ struct FanficlyApp: App {
             for key in deviceKeys {
                 defaults.removeObject(forKey: key)
             }
+            
+            #if !targetEnvironment(macCatalyst)
+            if UIDevice.current.userInterfaceIdiom == .phone {
+                defaults.set(90.0, forKey: demoReaderWidthKey)
+            }
+            #endif
         }
     }
 
