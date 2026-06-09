@@ -32,12 +32,14 @@ Pipeline per screenshot:
 
 Run:
     bin/.venv/bin/python bin/frame-screenshots.py     # (or: python3 bin/frame-screenshots.py)
+    bin/.venv/bin/python bin/frame-screenshots.py --device iphone
 
 Requires: Pillow, a working `fastlane` (frameit) on PATH, and ImageMagick
 (frameit's image engine). On macOS: `brew install fastlane imagemagick`.
 """
 
 from __future__ import annotations
+import argparse
 import json
 import os
 import shutil
@@ -312,11 +314,28 @@ def make_showcase(paths, out_path):
     print(f"  ✓ {os.path.relpath(out_path, REPO)}")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Frame raw simulator screenshots into App Store marketing images."
+    )
+    parser.add_argument(
+        "--device",
+        action="append",
+        choices=sorted(DEVICES.keys()),
+        dest="devices",
+        help="Limit framing to one device family. Can be passed more than once.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     os.makedirs(OUT, exist_ok=True)
     made = 0
     iphone_finals = []
-    for device, g in DEVICES.items():
+    devices = args.devices or DEVICES.keys()
+    for device in devices:
+        g = DEVICES[device]
         src = os.path.join(RAW, device)
         if not os.path.isdir(src):
             print(f"skip {device}: {src} not found")
