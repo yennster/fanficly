@@ -71,6 +71,10 @@ struct FanficlyApp: App {
             RootView()
                 .environment(\.ao3Client, client)
                 .environment(auth)
+                // Screenshots use the standard system blue accent (cleaner for
+                // the App Store) rather than the app's maroon brand tint. Demo
+                // mode only — the shipped app keeps its maroon AccentColor.
+                .tint(Self.isDemoMode ? Color.blue : nil)
                 .task {
                     let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                     if iCloudEnabled && !Self.isDemoMode {
