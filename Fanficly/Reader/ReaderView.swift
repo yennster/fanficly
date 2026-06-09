@@ -146,6 +146,23 @@ struct ReaderView: View {
         .onChange(of: fontSizePt) { _, _ in queueBackup() }
         .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
         .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
+        .background {
+            Group {
+                if mode == .pageByPage {
+                    Button(action: { turnPageByPage(forward: false) }) { EmptyView() }
+                        .keyboardShortcut(.leftArrow, modifiers: [])
+                    Button(action: { turnPageByPage(forward: true) }) { EmptyView() }
+                        .keyboardShortcut(.rightArrow, modifiers: [])
+                } else if mode == .paginated {
+                    Button(action: { turnPage(forward: false) }) { EmptyView() }
+                        .keyboardShortcut(.leftArrow, modifiers: [])
+                    Button(action: { turnPage(forward: true) }) { EmptyView() }
+                        .keyboardShortcut(.rightArrow, modifiers: [])
+                }
+            }
+            .opacity(0)
+            .accessibilityHidden(true)
+        }
     }
 
     private func queueBackup() {
