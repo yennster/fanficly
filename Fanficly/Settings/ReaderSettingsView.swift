@@ -14,6 +14,8 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
+    @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
+    @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
@@ -47,6 +49,8 @@ struct ReaderSettingsView: View {
             list[idx].paragraphSpacingPt = paragraphSpacingPt
             list[idx].pageTurnHaptics = pageTurnHaptics
             list[idx].pageTurnAnimations = pageTurnAnimations
+            list[idx].kerningPt = kerningPt
+            list[idx].boldText = boldText
         } else {
             let newProfile = ReaderProfile(
                 name: activeProfileName,
@@ -59,7 +63,9 @@ struct ReaderSettingsView: View {
                 lineSpacingPt: lineSpacingPt,
                 paragraphSpacingPt: paragraphSpacingPt,
                 pageTurnHaptics: pageTurnHaptics,
-                pageTurnAnimations: pageTurnAnimations
+                pageTurnAnimations: pageTurnAnimations,
+                kerningPt: kerningPt,
+                boldText: boldText
             )
             list.append(newProfile)
         }
@@ -77,6 +83,8 @@ struct ReaderSettingsView: View {
         paragraphSpacingPt = profile.paragraphSpacingPt
         pageTurnHaptics = profile.pageTurnHaptics
         pageTurnAnimations = profile.pageTurnAnimations
+        kerningPt = profile.kerningPt ?? ReaderMetrics.defaultKerning
+        boldText = profile.boldText ?? false
     }
 
     private func deleteProfile(_ name: String) {
@@ -151,6 +159,11 @@ struct ReaderSettingsView: View {
                 .help("Save these settings as a reusable configuration profile.")
                 
                 if activeProfileName != "Default" {
+                    Button("Save Current Settings to \"\(activeProfileName)\"") {
+                        saveCurrentToActiveProfile()
+                    }
+                    .help("Overwrite the selected profile with your current settings.")
+
                     Button("Delete Profile \"\(activeProfileName)\"", role: .destructive) {
                         deleteProfile(activeProfileName)
                     }
@@ -162,12 +175,17 @@ struct ReaderSettingsView: View {
                 VStack(alignment: .leading, spacing: paragraphSpacingPt / zoomScale) {
                     Text("A Coffee Shop Tale")
                         .font(family.font(size: CGFloat(fontSizePt + 6) / CGFloat(zoomScale), weight: .bold))
+                        .tracking(kerningPt / zoomScale)
                     Text("Bella poured the latte. It was hot.")
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
+                        .tracking(kerningPt / zoomScale)
+                        .bold(boldText)
                     Text("Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
+                        .tracking(kerningPt / zoomScale)
+                        .bold(boldText)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,6 +203,8 @@ struct ReaderSettingsView: View {
                              step: 1, unit: "pt", icon: "arrow.up.and.down.text.horizontal")
                 metricSlider("Paragraph spacing", value: $paragraphSpacingPt, range: ReaderMetrics.paragraphSpacingRange,
                              step: 2, unit: "pt", icon: "text.justify.left")
+                metricSlider("Character spacing", value: $kerningPt, range: ReaderMetrics.kerningRange,
+                             step: 0.1, unit: "pt", icon: "character.textbox")
             } header: {
                 Text("Text size & spacing")
             } footer: {
@@ -260,6 +280,11 @@ struct ReaderSettingsView: View {
                 }
                 .pickerStyle(.inline).labelsHidden()
                 .help("Choose the typography for the reader.")
+                
+                Toggle(isOn: $boldText) {
+                    Label("Bold text", systemImage: "bold")
+                }
+                .help("Make all reader text bold for easier reading.")
             }
 
             Section {
@@ -282,6 +307,8 @@ struct ReaderSettingsView: View {
         .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
         .onChange(of: pageTurnHaptics) { _, _ in queueBackup() }
         .onChange(of: pageTurnAnimations) { _, _ in queueBackup() }
+        .onChange(of: kerningPt) { _, _ in queueBackup() }
+        .onChange(of: boldText) { _, _ in queueBackup() }
         .onChange(of: ttsRate) { _, _ in queueBackup() }
         .onChange(of: ttsVoiceId) { _, _ in queueBackup() }
         .alert("New Profile", isPresented: $showingNewProfileAlert) {
@@ -309,7 +336,8 @@ struct ReaderSettingsView: View {
             HStack {
                 Label(title, systemImage: icon).font(.subheadline)
                 Spacer()
-                Text("\(Int(value.wrappedValue.rounded())) \(unit)")
+                let formattedValue = step < 1.0 ? String(format: "%.1f", value.wrappedValue) : "\(Int(value.wrappedValue.rounded()))"
+                Text("\(formattedValue) \(unit)")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -323,7 +351,7 @@ struct ReaderSettingsView: View {
 
                 Slider(value: value, in: range, step: step)
                     .accessibilityLabel(title)
-                    .accessibilityValue("\(Int(value.wrappedValue.rounded())) \(unit)")
+                    .accessibilityValue("\(step < 1.0 ? String(format: "%.1f", value.wrappedValue) : "\(Int(value.wrappedValue.rounded()))") \(unit)")
                     .accessibilityHint("Adjusts the \(title.lowercased()) of the reader text.")
 
                 Button {

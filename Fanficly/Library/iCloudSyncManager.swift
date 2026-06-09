@@ -157,6 +157,8 @@ final class iCloudSyncManager {
                 paragraphSpacingPt: defaults.object(forKey: "reader.paragraphSpacingPt") as? Double,
                 pageTurnHaptics: defaults.object(forKey: "reader.pageTurnHaptics") as? Bool,
                 pageTurnAnimations: defaults.object(forKey: "reader.pageTurnAnimations") as? Bool,
+                kerningPt: defaults.object(forKey: "reader.kerningPt") as? Double,
+                boldText: defaults.object(forKey: "reader.boldText") as? Bool,
                 ttsRate: defaults.object(forKey: "reader.ttsRate") as? Double,
                 ttsVoiceId: defaults.string(forKey: "reader.ttsVoiceId"),
                 filterMatureExplicit: defaults.object(forKey: "content.filterMatureExplicit") as? Bool,
@@ -193,7 +195,14 @@ final class iCloudSyncManager {
                 pageTurnHapticsPad: defaults.object(forKey: "reader.pageTurnHaptics.pad") as? Bool,
                 pageTurnAnimationsPhone: defaults.object(forKey: "reader.pageTurnAnimations.phone") as? Bool,
                 pageTurnAnimationsMac: defaults.object(forKey: "reader.pageTurnAnimations.mac") as? Bool,
-                pageTurnAnimationsPad: defaults.object(forKey: "reader.pageTurnAnimations.pad") as? Bool
+                pageTurnAnimationsPad: defaults.object(forKey: "reader.pageTurnAnimations.pad") as? Bool,
+                
+                kerningPtPhone: defaults.object(forKey: "reader.kerningPt.phone") as? Double,
+                kerningPtMac: defaults.object(forKey: "reader.kerningPt.mac") as? Double,
+                kerningPtPad: defaults.object(forKey: "reader.kerningPt.pad") as? Double,
+                boldTextPhone: defaults.object(forKey: "reader.boldText.phone") as? Bool,
+                boldTextMac: defaults.object(forKey: "reader.boldText.mac") as? Bool,
+                boldTextPad: defaults.object(forKey: "reader.boldText.pad") as? Bool
             )
             
             let folderBackups = folders.map {
@@ -284,6 +293,8 @@ final class iCloudSyncManager {
                 if let paragraphSpacingPt = s.paragraphSpacingPt { defaults.set(paragraphSpacingPt, forKey: "reader.paragraphSpacingPt") }
                 if let pageTurnHaptics = s.pageTurnHaptics { defaults.set(pageTurnHaptics, forKey: "reader.pageTurnHaptics") }
                 if let pageTurnAnimations = s.pageTurnAnimations { defaults.set(pageTurnAnimations, forKey: "reader.pageTurnAnimations") }
+                if let kerningPt = s.kerningPt { defaults.set(kerningPt, forKey: "reader.kerningPt") }
+                if let boldText = s.boldText { defaults.set(boldText, forKey: "reader.boldText") }
                 if let ttsRate = s.ttsRate { defaults.set(ttsRate, forKey: "reader.ttsRate") }
                 if let ttsVoiceId = s.ttsVoiceId { defaults.set(ttsVoiceId, forKey: "reader.ttsVoiceId") }
                 if let filterMatureExplicit = s.filterMatureExplicit { defaults.set(filterMatureExplicit, forKey: "content.filterMatureExplicit") }
@@ -322,6 +333,13 @@ final class iCloudSyncManager {
                 if let pageTurnAnimationsPhone = s.pageTurnAnimationsPhone { defaults.set(pageTurnAnimationsPhone, forKey: "reader.pageTurnAnimations.phone") }
                 if let pageTurnAnimationsMac = s.pageTurnAnimationsMac { defaults.set(pageTurnAnimationsMac, forKey: "reader.pageTurnAnimations.mac") }
                 if let pageTurnAnimationsPad = s.pageTurnAnimationsPad { defaults.set(pageTurnAnimationsPad, forKey: "reader.pageTurnAnimations.pad") }
+                
+                if let kerningPtPhone = s.kerningPtPhone { defaults.set(kerningPtPhone, forKey: "reader.kerningPt.phone") }
+                if let kerningPtMac = s.kerningPtMac { defaults.set(kerningPtMac, forKey: "reader.kerningPt.mac") }
+                if let kerningPtPad = s.kerningPtPad { defaults.set(kerningPtPad, forKey: "reader.kerningPt.pad") }
+                if let boldTextPhone = s.boldTextPhone { defaults.set(boldTextPhone, forKey: "reader.boldText.phone") }
+                if let boldTextMac = s.boldTextMac { defaults.set(boldTextMac, forKey: "reader.boldText.mac") }
+                if let boldTextPad = s.boldTextPad { defaults.set(boldTextPad, forKey: "reader.boldText.pad") }
             }
             
             // 0.5. Restore CustomFolders
@@ -539,6 +557,8 @@ struct SettingsBackup: Codable {
     let paragraphSpacingPt: Double?
     let pageTurnHaptics: Bool?
     let pageTurnAnimations: Bool?
+    let kerningPt: Double?
+    let boldText: Bool?
     let ttsRate: Double?
     let ttsVoiceId: String?
     let filterMatureExplicit: Bool?
@@ -577,6 +597,13 @@ struct SettingsBackup: Codable {
     let pageTurnAnimationsPhone: Bool?
     let pageTurnAnimationsMac: Bool?
     let pageTurnAnimationsPad: Bool?
+    
+    let kerningPtPhone: Double?
+    let kerningPtMac: Double?
+    let kerningPtPad: Double?
+    let boldTextPhone: Bool?
+    let boldTextMac: Bool?
+    let boldTextPad: Bool?
 }
 
 struct WorkBackup: Codable {

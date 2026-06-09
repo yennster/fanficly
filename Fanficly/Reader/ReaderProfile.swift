@@ -13,6 +13,8 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
     var paragraphSpacingPt: Double
     var pageTurnHaptics: Bool
     var pageTurnAnimations: Bool
+    var kerningPt: Double?
+    var boldText: Bool?
 
     @MainActor
     static var deviceActiveProfileKey: String {
@@ -72,7 +74,9 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
             "reader.lineSpacingPt",
             "reader.paragraphSpacingPt",
             "reader.pageTurnHaptics",
-            "reader.pageTurnAnimations"
+            "reader.pageTurnAnimations",
+            "reader.kerningPt",
+            "reader.boldText"
         ]
 
         for key in keys {
@@ -97,7 +101,9 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
             lineSpacingPt: ReaderMetrics.defaultLineSpacing,
             paragraphSpacingPt: ReaderMetrics.defaultParagraphSpacing,
             pageTurnHaptics: false,
-            pageTurnAnimations: true
+            pageTurnAnimations: true,
+            kerningPt: ReaderMetrics.defaultKerning,
+            boldText: false
         )
     ]
 

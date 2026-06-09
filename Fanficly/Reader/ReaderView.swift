@@ -16,6 +16,8 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
+    @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
+    @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -66,6 +68,8 @@ struct ReaderView: View {
             list[idx].paragraphSpacingPt = paragraphSpacingPt
             list[idx].pageTurnHaptics = pageTurnHaptics
             list[idx].pageTurnAnimations = pageTurnAnimations
+            list[idx].kerningPt = kerningPt
+            list[idx].boldText = boldText
         } else {
             let newProfile = ReaderProfile(
                 name: activeProfileName,
@@ -78,7 +82,9 @@ struct ReaderView: View {
                 lineSpacingPt: lineSpacingPt,
                 paragraphSpacingPt: paragraphSpacingPt,
                 pageTurnHaptics: pageTurnHaptics,
-                pageTurnAnimations: pageTurnAnimations
+                pageTurnAnimations: pageTurnAnimations,
+                kerningPt: kerningPt,
+                boldText: boldText
             )
             list.append(newProfile)
         }
@@ -96,6 +102,8 @@ struct ReaderView: View {
         paragraphSpacingPt = profile.paragraphSpacingPt
         pageTurnHaptics = profile.pageTurnHaptics
         pageTurnAnimations = profile.pageTurnAnimations
+        kerningPt = profile.kerningPt ?? ReaderMetrics.defaultKerning
+        boldText = profile.boldText ?? false
     }
 
     private func deleteProfile(_ name: String) {
@@ -124,12 +132,31 @@ struct ReaderView: View {
         saveCurrentToActiveProfile()
     }
 
+    private func overwriteProfile(_ name: String) {
+        var list = profiles
+        if let idx = list.firstIndex(where: { $0.name == name }) {
+            list[idx].themeRaw = themeRaw
+            list[idx].fontFamilyRaw = fontFamilyRaw
+            list[idx].widthPercent = widthPercent
+            list[idx].modeRaw = modeRaw
+            list[idx].fontSizePt = fontSizePt
+            list[idx].lineSpacingPt = lineSpacingPt
+            list[idx].paragraphSpacingPt = paragraphSpacingPt
+            list[idx].pageTurnHaptics = pageTurnHaptics
+            list[idx].pageTurnAnimations = pageTurnAnimations
+            list[idx].kerningPt = kerningPt
+            list[idx].boldText = boldText
+            profilesJSON = ReaderProfile.saveProfiles(list)
+        }
+    }
+
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
     private var fontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork }
     private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
     private var fontSize: CGFloat { CGFloat(fontSizePt) / CGFloat(zoomScale) }
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) / CGFloat(zoomScale) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) / CGFloat(zoomScale) }
+    private var kerning: CGFloat { CGFloat(kerningPt) / CGFloat(zoomScale) }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -558,6 +585,12 @@ struct ReaderView: View {
                     selectedChapterIndex = anchor.chapter
                     if anchor.paragraph > 0 { pendingParagraphRestore = anchor }
                 }
+                let currentChapters = chapters
+                Task.detached(priority: .background) {
+                    for chapter in currentChapters {
+                        _ = HTMLToAttributed.convertParagraphs(chapter.bodyHTML)
+                    }
+                }
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 isRestoring = false
             }
@@ -665,6 +698,8 @@ struct ReaderView: View {
                 widthPercent: widthPercent,
                 lineSpacing: lineSpacingPt / zoomScale,
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
+                kerning: kerningPt / zoomScale,
+                boldText: boldText,
                 size: CGSize(
                     width: geo.size.width,
                     height: stableHeight > 0 ? stableHeight : geo.size.height
@@ -758,6 +793,8 @@ struct ReaderView: View {
                 font: fontFamily.font(size: fontSize),
                 lineSpacing: lineSpacing,
                 paragraphSpacing: paragraphSpacing,
+                kerning: kerning,
+                boldText: boldText,
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex),
                 isScrollable: !isUIMinimized
@@ -1058,9 +1095,11 @@ struct ReaderView: View {
                 fontSize: CGFloat(trigger.fontSize),
                 fontFamily: fontFamily,
                 lineSpacing: CGFloat(trigger.lineSpacing),
-                paragraphSpacing: CGFloat(trigger.paragraphSpacing)
+                paragraphSpacing: CGFloat(trigger.paragraphSpacing),
+                kerning: CGFloat(trigger.kerning),
+                boldText: trigger.boldText
             )
-            
+
             allPages.append(contentsOf: chPages)
         }
         
@@ -1072,14 +1111,18 @@ struct ReaderView: View {
         width: CGFloat,
         fontSize: CGFloat,
         fontFamily: ReaderFontFamily,
-        lineSpacing: CGFloat
+        lineSpacing: CGFloat,
+        kerning: CGFloat,
+        boldText: Bool
     ) -> CGFloat {
         let ns = NSAttributedString(attributedString)
         let mutableNs = NSMutableAttributedString(attributedString: ns)
-        
+
         mutableNs.enumerateAttribute(.font, in: NSRange(location: 0, length: mutableNs.length), options: []) { value, range, _ in
             let originalFont = value as? UIFont ?? UIFont.systemFont(ofSize: fontSize)
-            let isBold = originalFont.fontDescriptor.symbolicTraits.contains(.traitBold)
+            // `boldText` forces every run bold; bold glyphs are wider, so the
+            // measurement must match the rendered `.bold()` or pages overflow.
+            let isBold = boldText || originalFont.fontDescriptor.symbolicTraits.contains(.traitBold)
             let isItalic = originalFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
             
             var targetFont = fontFamily.uiFont(size: fontSize)
@@ -1097,7 +1140,13 @@ struct ReaderView: View {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         mutableNs.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: mutableNs.length))
-        
+
+        // Mirror the rendered `.tracking(kerning)`: wider tracking wraps sooner,
+        // so the height estimate has to include it too.
+        if kerning != 0 {
+            mutableNs.addAttribute(.kern, value: kerning, range: NSRange(location: 0, length: mutableNs.length))
+        }
+
         let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
         let rect = mutableNs.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
         return ceil(rect.height)
@@ -1171,7 +1220,9 @@ struct ReaderView: View {
         fontSize: CGFloat,
         fontFamily: ReaderFontFamily,
         lineSpacing: CGFloat,
-        paragraphSpacing: CGFloat
+        paragraphSpacing: CGFloat,
+        kerning: CGFloat,
+        boldText: Bool
     ) -> [ChapterPage] {
         var pages: [ChapterPage] = []
         
@@ -1214,7 +1265,9 @@ struct ReaderView: View {
                     width: width,
                     fontSize: fontSize,
                     fontFamily: fontFamily,
-                    lineSpacing: lineSpacing
+                    lineSpacing: lineSpacing,
+                    kerning: kerning,
+                    boldText: boldText
                 )
                 
                 currentHeight = currentBlockHeight
@@ -1232,7 +1285,9 @@ struct ReaderView: View {
                             width: width,
                             fontSize: fontSize,
                             fontFamily: fontFamily,
-                            lineSpacing: lineSpacing
+                            lineSpacing: lineSpacing,
+                            kerning: kerning,
+                            boldText: boldText
                         )
                         
                         let potentialHeight = completedBlocksHeight + proposedBlockHeight
@@ -1251,7 +1306,9 @@ struct ReaderView: View {
                             width: width,
                             fontSize: fontSize,
                             fontFamily: fontFamily,
-                            lineSpacing: lineSpacing
+                            lineSpacing: lineSpacing,
+                            kerning: kerning,
+                            boldText: boldText
                         )
                         
                         let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
@@ -1344,6 +1401,8 @@ struct ReaderView: View {
             paragraphSpacing: paragraphSpacing,
             foreground: fg,
             scrollSpace: scrollSpace,
+            kerning: kerning,
+            boldText: boldText,
             highlightParagraph: highlightedParagraph(for: chapter.index)
         )
         .padding(.vertical, Spacing.sm)
@@ -1383,6 +1442,9 @@ struct ReaderView: View {
                             selectProfile(profile)
                         }
                         if profile.name != "Default" {
+                            Button("Save Current Settings Here") {
+                                overwriteProfile(profile.name)
+                            }
                             Button("Delete", role: .destructive) {
                                 deleteProfile(profile.name)
                             }
@@ -1435,12 +1497,18 @@ struct ReaderView: View {
                 Label("Font · \(fontFamily.displayName)", systemImage: "character")
             }
 
+            Toggle(isOn: $boldText) {
+                Label("Bold text", systemImage: "bold")
+            }
+
             presetMenu("Text size", value: $fontSizePt, presets: ReaderMetrics.fontSizePresets,
                        icon: "textformat.size")
             presetMenu("Line spacing", value: $lineSpacingPt, presets: ReaderMetrics.lineSpacingPresets,
                        icon: "arrow.up.and.down.text.horizontal")
             presetMenu("Paragraph spacing", value: $paragraphSpacingPt, presets: ReaderMetrics.paragraphSpacingPresets,
                        icon: "text.justify.left")
+            presetMenu("Character spacing", value: $kerningPt, presets: ReaderMetrics.kerningPresets,
+                       icon: "character.textbox")
 
             presetMenu("Margins", value: $widthPercent, presets: [
                 (name: "Narrow (50%)", value: 50.0),
@@ -1471,13 +1539,18 @@ struct ReaderView: View {
     /// (The continuous slider for the same value lives in Settings → Reader.)
     private func presetMenu(_ title: String, value: Binding<Double>,
                             presets: [(name: String, value: Double)], icon: String) -> some View {
-        let current = presets.first { abs($0.value - value.wrappedValue) < 0.5 }?.name
+        // Mark only the single nearest preset, and only when the value sits
+        // essentially on it — so closely-spaced presets (e.g. character
+        // spacing, which steps by 0.2) never light up two checkmarks, and
+        // slider-tuned values correctly read as "Custom".
+        let nearest = presets.min { abs($0.value - value.wrappedValue) < abs($1.value - value.wrappedValue) }
+        let current = nearest.flatMap { abs($0.value - value.wrappedValue) < 0.05 ? $0.name : nil }
         return Menu {
             ForEach(presets, id: \.name) { preset in
                 Button {
                     value.wrappedValue = preset.value
                 } label: {
-                    if abs(preset.value - value.wrappedValue) < 0.5 {
+                    if preset.name == current {
                         Label(preset.name, systemImage: "checkmark")
                     } else {
                         Text(preset.name)
@@ -1519,6 +1592,8 @@ struct PaginationTrigger: Equatable {
     let widthPercent: Double
     let lineSpacing: Double
     let paragraphSpacing: Double
+    let kerning: Double
+    let boldText: Bool
     let size: CGSize
 }
 
@@ -1539,6 +1614,8 @@ struct ReaderPageCell: View {
     let font: Font
     let lineSpacing: CGFloat
     let paragraphSpacing: CGFloat
+    let kerning: CGFloat
+    let boldText: Bool
     let foreground: Color
     let highlightParagraph: Int?
     let isScrollable: Bool
@@ -1631,6 +1708,8 @@ struct ReaderPageCell: View {
                 ForEach(renderedBlocks) { block in
                     Text(block.text)
                         .font(font)
+                        .tracking(kerning)
+                        .bold(boldText)
                         .lineSpacing(lineSpacing)
                         .foregroundStyle(foreground)
                         .textSelection(.enabled)

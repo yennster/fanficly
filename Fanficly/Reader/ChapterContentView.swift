@@ -10,6 +10,10 @@ struct ChapterContentView: View {
     let paragraphSpacing: CGFloat
     let foreground: Color
     let scrollSpace: String
+    /// Letter spacing (kerning) in points, already divided by the UI zoom.
+    let kerning: CGFloat
+    /// Render all body text bold.
+    let boldText: Bool
     /// Paragraph index to emphasise while it's being read aloud (TTS karaoke),
     /// or nil when this chapter isn't the one narrating.
     var highlightParagraph: Int? = nil
@@ -27,6 +31,8 @@ struct ChapterContentView: View {
                 ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, para in
                     Text(para)
                         .font(font)
+                        .tracking(kerning)
+                        .bold(boldText)
                         .lineSpacing(lineSpacing)
                         .foregroundStyle(foreground)
                         .textSelection(.enabled)
@@ -48,6 +54,8 @@ struct ChapterContentView: View {
             } else {
                 Text(plainFallback)
                     .font(font)
+                    .tracking(kerning)
+                    .bold(boldText)
                     .lineSpacing(lineSpacing)
                     .foregroundStyle(foreground)
             }

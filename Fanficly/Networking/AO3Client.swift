@@ -391,7 +391,9 @@ public actor AO3Client: AO3ClientProtocol {
 
     private nonisolated func saveCookiesToKeychain() {
         let cookies = HTTPCookieStorage.shared.cookies(for: baseURL) ?? []
-        CredentialStore.shared.saveCookies(cookies)
+        Task.detached(priority: .utility) {
+            CredentialStore.shared.saveCookies(cookies)
+        }
     }
 
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
