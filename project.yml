@@ -93,6 +93,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly
         PRODUCT_NAME: Fanficly
         CODE_SIGN_ENTITLEMENTS: Fanficly/Fanficly.entitlements
+        # Mac Catalyst builds against the macOS SDK, so this conditional swaps
+        # in the sandbox-enabled entitlements the Mac App Store requires
+        # without touching iOS signing.
+        CODE_SIGN_ENTITLEMENTS[sdk=macosx*]: Fanficly/FanficlyMac.entitlements
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -159,6 +163,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.share
         PRODUCT_NAME: FanficlyShare
+        CODE_SIGN_ENTITLEMENTS[sdk=macosx*]: FanficlyShare/FanficlyShareMac.entitlements
         GENERATE_INFOPLIST_FILE: NO
         DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 
@@ -185,6 +190,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.widget
         PRODUCT_NAME: FanficlyWidget
         CODE_SIGN_ENTITLEMENTS: FanficlyWidget/FanficlyWidget.entitlements
+        CODE_SIGN_ENTITLEMENTS[sdk=macosx*]: FanficlyWidget/FanficlyWidgetMac.entitlements
         GENERATE_INFOPLIST_FILE: NO
         DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 

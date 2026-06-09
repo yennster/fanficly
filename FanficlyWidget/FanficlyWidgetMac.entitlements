@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Mac Catalyst (Mac App Store) build only — the Mac App Store
+	     requires the App Sandbox on every executable, extensions included. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
+	<string>$(TeamIdentifierPrefix)io.github.yennster.fanficly</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.github.yennster.fanficly</string>
+	</array>
+</dict>
+</plist>
