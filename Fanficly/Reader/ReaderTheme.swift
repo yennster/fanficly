@@ -57,7 +57,7 @@ enum ReaderMetrics {
     static let lineSpacingRange: ClosedRange<Double> = 0...20
 
     static let defaultParagraphSpacing: Double = 16
-    static let paragraphSpacingRange: ClosedRange<Double> = 2...44
+    static let paragraphSpacingRange: ClosedRange<Double> = 2...80
 
     static let defaultKerning: Double = 0.0
     static let kerningRange: ClosedRange<Double> = -0.5...3.0
@@ -72,7 +72,8 @@ enum ReaderMetrics {
         ("Tight", 2), ("Normal", 6), ("Relaxed", 11), ("Loose", 16),
     ]
     static let paragraphSpacingPresets: [(name: String, value: Double)] = [
-        ("Compact", 8), ("Normal", 16), ("Roomy", 26), ("Airy", 38),
+        ("Compact", 8), ("Normal", 16), ("Roomy", 26),
+        ("Airy", 38), ("Spacious", 56), ("Expansive", 72),
     ]
     static let kerningPresets: [(name: String, value: Double)] = [
         ("Tight", -0.2), ("Standard", 0.0), ("Medium", 0.5), ("Wide", 1.2), ("Extra Wide", 2.2)

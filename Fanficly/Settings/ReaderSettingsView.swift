@@ -70,6 +70,7 @@ struct ReaderSettingsView: View {
             list.append(newProfile)
         }
         profilesJSON = ReaderProfile.saveProfiles(list)
+        queueBackup()
     }
 
     private func selectProfile(_ profile: ReaderProfile) {
@@ -85,6 +86,7 @@ struct ReaderSettingsView: View {
         pageTurnAnimations = profile.pageTurnAnimations
         kerningPt = profile.kerningPt ?? ReaderMetrics.defaultKerning
         boldText = profile.boldText ?? false
+        queueBackup()
     }
 
     private func deleteProfile(_ name: String) {
@@ -99,6 +101,7 @@ struct ReaderSettingsView: View {
             }
         }
         profilesJSON = ReaderProfile.saveProfiles(list)
+        queueBackup()
     }
 
     private func saveNewProfile(name: String) {

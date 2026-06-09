@@ -2,6 +2,14 @@ import SwiftUI
 import SwiftData
 
 struct SettingsView: View {
+    private enum SettingsRoute: Hashable {
+        case login
+        case reader
+        case hiddenWorks
+        case contentPolicy
+        case privacy
+    }
+
     @Environment(AuthState.self) private var auth
     @Environment(\.modelContext) private var context
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
@@ -20,9 +28,7 @@ struct SettingsView: View {
     var body: some View {
         List {
             Section("Account") {
-                NavigationLink {
-                    LoginView()
-                } label: {
+                NavigationLink(value: SettingsRoute.login) {
                     if let username = auth.username {
                         LabeledContent("AO3 Login", value: username)
                     } else {
@@ -31,9 +37,7 @@ struct SettingsView: View {
                 }
             }
             Section("Reader") {
-                NavigationLink("Theme & typography") {
-                    ReaderSettingsView()
-                }
+                NavigationLink("Theme & typography", value: SettingsRoute.reader)
             }
             Section("iCloud Sync") {
                 Toggle("Sync Library to iCloud", isOn: $iCloudSyncEnabled)
@@ -130,21 +134,15 @@ struct SettingsView: View {
             }
             Section {
                 Toggle("Filter mature & explicit works", isOn: $filterMature)
-                NavigationLink("Hidden works") {
-                    HiddenWorksView()
-                }
-                NavigationLink("Content policy") {
-                    ContentPolicyView()
-                }
+                NavigationLink("Hidden works", value: SettingsRoute.hiddenWorks)
+                NavigationLink("Content policy", value: SettingsRoute.contentPolicy)
             } header: {
                 Text("Content & Safety")
             } footer: {
                 Text("Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results.")
             }
             Section("Privacy") {
-                NavigationLink("What this app sees and stores") {
-                    PrivacyTransparencyView()
-                }
+                NavigationLink("What this app sees and stores", value: SettingsRoute.privacy)
             }
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.shortVersionString)
@@ -157,6 +155,20 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .navigationDestination(for: SettingsRoute.self) { route in
+            switch route {
+            case .login:
+                LoginView()
+            case .reader:
+                ReaderSettingsView()
+            case .hiddenWorks:
+                HiddenWorksView()
+            case .contentPolicy:
+                ContentPolicyView()
+            case .privacy:
+                PrivacyTransparencyView()
+            }
+        }
         .onAppear {
             lastSync = syncManager.lastBackupDate
         }

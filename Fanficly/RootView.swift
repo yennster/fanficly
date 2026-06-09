@@ -8,10 +8,12 @@ struct RootView: View {
     @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
     @Environment(\.modelContext) private var context
     @Environment(\.ao3Client) private var client
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
     
     @State private var importingWorkId: Int? = nil
     @State private var importedWork: Work? = nil
+    @State private var compactSelection: SidebarItem?
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
@@ -40,10 +42,7 @@ struct RootView: View {
     @ViewBuilder
     private var innerBody: some View {
         NavigationSplitView {
-            List(selection: Binding(
-                get: { SidebarItem(rawValue: selectedTabRaw) },
-                set: { if let val = $0 { selectedTabRaw = val.rawValue } }
-            )) {
+            List(selection: sidebarSelection) {
                 Section {
                     ForEach(SidebarItem.allCases) { item in
                         NavigationLink(value: item) {
@@ -52,18 +51,13 @@ struct RootView: View {
                         .help("Go to \(item.title)")
                         .hoverEffect(.highlight)
                     }
-                } header: {
-                    Text("Fanficly")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundStyle(.primary)
-                        .textCase(nil)
                 }
             }
-            .navigationTitle("")
+            .navigationTitle("Fanficly")
+            .navigationBarTitleDisplayMode(.large)
         } detail: {
             NavigationStack {
-                switch SidebarItem(rawValue: selectedTabRaw) ?? .search {
+                switch selectedDetailItem {
                 case .search: SearchView()
                 case .browse: BrowseView()
                 case .library: LibraryView()
@@ -75,6 +69,17 @@ struct RootView: View {
         }
         .task {
             if FanficlyApp.isDemoMode { DemoSeed.seed(into: context) }
+        }
+        .onChange(of: horizontalSizeClass) { _, newSizeClass in
+            if newSizeClass == .compact {
+                compactSelection = nil
+            }
+        }
+        .onChange(of: selectedTabRaw) { _, raw in
+            guard horizontalSizeClass == .compact,
+                  let item = SidebarItem(rawValue: raw),
+                  compactSelection != item else { return }
+            compactSelection = item
         }
         // 17+ confirmation on first launch (UGC safeguard). Skipped in demo
         // mode so screenshot automation isn't blocked.
@@ -94,7 +99,7 @@ struct RootView: View {
                 
                 ImportOverlay(workId: workId) { work in
                     self.importingWorkId = nil
-                    selectedTabRaw = SidebarItem.library.rawValue
+                    select(.library)
                 } onCancel: {
                     self.importingWorkId = nil
                 }
@@ -142,6 +147,42 @@ struct RootView: View {
                 return true
             }
             return false
+        }
+    }
+
+    private var isCompactNavigation: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var selectedDetailItem: SidebarItem {
+        if isCompactNavigation, let compactSelection {
+            return compactSelection
+        }
+        return SidebarItem(rawValue: selectedTabRaw) ?? .search
+    }
+
+    private var sidebarSelection: Binding<SidebarItem?> {
+        Binding {
+            if isCompactNavigation {
+                compactSelection
+            } else {
+                SidebarItem(rawValue: selectedTabRaw)
+            }
+        } set: { item in
+            guard let item else {
+                if isCompactNavigation {
+                    compactSelection = nil
+                }
+                return
+            }
+            select(item)
+        }
+    }
+
+    private func select(_ item: SidebarItem) {
+        selectedTabRaw = item.rawValue
+        if isCompactNavigation {
+            compactSelection = item
         }
     }
 

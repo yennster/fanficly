@@ -29,6 +29,25 @@ final class PersistenceTests: XCTestCase {
         return AO3WorkPayload(summary: summary, chapters: chs)
     }
 
+    private func readerProfile(name: String, theme: String, fontSize: Double) -> ReaderProfile {
+        let base = ReaderProfile.defaultProfiles[0]
+        return ReaderProfile(
+            name: name,
+            themeRaw: theme,
+            fontFamilyRaw: base.fontFamilyRaw,
+            widthRaw: base.widthRaw,
+            widthPercent: base.widthPercent,
+            modeRaw: base.modeRaw,
+            fontSizePt: fontSize,
+            lineSpacingPt: base.lineSpacingPt,
+            paragraphSpacingPt: base.paragraphSpacingPt,
+            pageTurnHaptics: base.pageTurnHaptics,
+            pageTurnAnimations: base.pageTurnAnimations,
+            kerningPt: base.kerningPt,
+            boldText: base.boldText
+        )
+    }
+
     func test_upsertInsertsThenUpdates() throws {
         let ctx = try makeContext()
         let w1 = WorkPersistence.upsert(payload: payload(id: 1, chapters: 3), into: ctx)
@@ -117,6 +136,19 @@ final class PersistenceTests: XCTestCase {
         
         // 1. Set some settings in UserDefaults
         let defaults = UserDefaults.standard
+        defer {
+            [
+                "reader.theme",
+                "reader.fontFamily",
+                "reader.width",
+                "reader.fontSizePt",
+                "reader.profiles",
+                "reader.theme.pad",
+                "reader.activeProfile.pad",
+                "reader.fontSizePt.pad",
+                "content.filterMatureExplicit"
+            ].forEach { defaults.removeObject(forKey: $0) }
+        }
         defaults.set("sepia", forKey: "reader.theme")
         defaults.set("rounded", forKey: "reader.fontFamily")
         defaults.set("wide", forKey: "reader.width")
@@ -127,6 +159,10 @@ final class PersistenceTests: XCTestCase {
         defaults.set("dracula", forKey: "reader.theme.pad")
         defaults.set("compact", forKey: "reader.activeProfile.pad")
         defaults.set(18.0, forKey: "reader.fontSizePt.pad")
+
+        let macProfile = readerProfile(name: "Mac", theme: "dracula", fontSize: 24.0)
+        defaults.set(ReaderProfile.saveProfiles([ReaderProfile.defaultProfiles[0], macProfile]),
+                     forKey: "reader.profiles")
         
         // 2. Perform backup
         let syncManager = iCloudSyncManager.shared
@@ -142,6 +178,10 @@ final class PersistenceTests: XCTestCase {
         defaults.removeObject(forKey: "reader.theme.pad")
         defaults.removeObject(forKey: "reader.activeProfile.pad")
         defaults.removeObject(forKey: "reader.fontSizePt.pad")
+
+        let phoneProfile = readerProfile(name: "iPhone", theme: "system", fontSize: 20.0)
+        defaults.set(ReaderProfile.saveProfiles([ReaderProfile.defaultProfiles[0], phoneProfile]),
+                     forKey: "reader.profiles")
         
         XCTAssertNil(defaults.string(forKey: "reader.theme"))
         XCTAssertNil(defaults.string(forKey: "reader.theme.pad"))
@@ -160,5 +200,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "reader.theme.pad"), "dracula")
         XCTAssertEqual(defaults.string(forKey: "reader.activeProfile.pad"), "compact")
         XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt.pad"), 18.0)
+
+        let restoredProfiles = ReaderProfile.loadProfiles(from: defaults.string(forKey: "reader.profiles") ?? "")
+        XCTAssertEqual(restoredProfiles.first(where: { $0.name == "Mac" })?.fontSizePt, 24.0)
+        XCTAssertEqual(restoredProfiles.first(where: { $0.name == "iPhone" })?.fontSizePt, 20.0)
     }
 }

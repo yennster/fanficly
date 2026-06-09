@@ -89,6 +89,7 @@ struct ReaderView: View {
             list.append(newProfile)
         }
         profilesJSON = ReaderProfile.saveProfiles(list)
+        queueBackup()
     }
 
     private func selectProfile(_ profile: ReaderProfile) {
@@ -104,6 +105,7 @@ struct ReaderView: View {
         pageTurnAnimations = profile.pageTurnAnimations
         kerningPt = profile.kerningPt ?? ReaderMetrics.defaultKerning
         boldText = profile.boldText ?? false
+        queueBackup()
     }
 
     private func deleteProfile(_ name: String) {
@@ -118,6 +120,7 @@ struct ReaderView: View {
             }
         }
         profilesJSON = ReaderProfile.saveProfiles(list)
+        queueBackup()
     }
 
     private func saveNewProfile(name: String) {
@@ -147,6 +150,7 @@ struct ReaderView: View {
             list[idx].kerningPt = kerningPt
             list[idx].boldText = boldText
             profilesJSON = ReaderProfile.saveProfiles(list)
+            queueBackup()
         }
     }
 
@@ -260,6 +264,10 @@ struct ReaderView: View {
         .onChange(of: fontSizePt) { _, _ in queueBackup() }
         .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
         .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
+        .onChange(of: pageTurnHaptics) { _, _ in queueBackup() }
+        .onChange(of: pageTurnAnimations) { _, _ in queueBackup() }
+        .onChange(of: kerningPt) { _, _ in queueBackup() }
+        .onChange(of: boldText) { _, _ in queueBackup() }
         .modifier(ReaderKeyPressModifier(
             mode: mode,
             isReaderFocused: $isReaderFocused,

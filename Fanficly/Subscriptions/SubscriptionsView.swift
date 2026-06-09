@@ -103,6 +103,7 @@ struct SubscriptionsView: View {
             }
         }
         .navigationTitle("Subscriptions")
+        .navigationBarTitleDisplayMode(.large)
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
