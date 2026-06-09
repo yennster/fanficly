@@ -88,7 +88,7 @@ struct ReaderView: View {
             )
             list.append(newProfile)
         }
-        profilesJSON = ReaderProfile.saveProfiles(list)
+        saveProfiles(list)
         queueBackup()
     }
 
@@ -119,7 +119,7 @@ struct ReaderView: View {
                 selectProfile(ReaderProfile.defaultProfiles[0])
             }
         }
-        profilesJSON = ReaderProfile.saveProfiles(list)
+        saveProfiles(list)
         queueBackup()
     }
 
@@ -149,9 +149,15 @@ struct ReaderView: View {
             list[idx].pageTurnAnimations = pageTurnAnimations
             list[idx].kerningPt = kerningPt
             list[idx].boldText = boldText
-            profilesJSON = ReaderProfile.saveProfiles(list)
+            saveProfiles(list)
             queueBackup()
         }
+    }
+
+    private func saveProfiles(_ list: [ReaderProfile]) {
+        let json = ReaderProfile.saveProfiles(list)
+        profilesJSON = json
+        ReaderProfileSyncStore.publishLocalProfiles(json)
     }
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
@@ -505,15 +511,61 @@ struct ReaderView: View {
     }
 
     private func persistNow() {
-        if let currentAnchor { saveProgress(currentAnchor, force: true) }
+        if let currentAnchor { saveProgress(currentAnchor, force: true, syncWidgetImmediately: true) }
     }
 
-    private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false) {
+    private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false, syncWidgetImmediately: Bool = false) {
         guard let id = summary?.id else { return }
         let now = Date()
         if !force && now.timeIntervalSince(lastSaveAt) < 1.5 { return }
         lastSaveAt = now
-        ReadingProgressStore.save(ao3Id: id, anchor: anchor, title: title, author: author, in: modelContext)
+        ReadingProgressStore.save(
+            ao3Id: id,
+            anchor: anchor,
+            title: title,
+            author: author,
+            progress: readingProgressFraction(for: anchor),
+            syncWidgetImmediately: syncWidgetImmediately,
+            in: modelContext
+        )
+    }
+
+    private func readingProgressFraction(for anchor: ReadingAnchor) -> Double {
+        let orderedChapters = chapters.sorted { $0.index < $1.index }
+        guard !orderedChapters.isEmpty,
+              let chapterOffset = orderedChapters.firstIndex(where: { $0.index == anchor.chapter }) else {
+            return 0
+        }
+
+        let chapter = orderedChapters[chapterOffset]
+        let paragraphCount = max(HTMLToAttributed.convertParagraphs(chapter.bodyHTML).count, 1)
+        let paragraphDenominator = max(paragraphCount - 1, 1)
+        let paragraphProgress = min(max(Double(anchor.paragraph) / Double(paragraphDenominator), 0), 1)
+        let rawProgress = (Double(chapterOffset) + paragraphProgress) / Double(orderedChapters.count)
+        return min(max(rawProgress, 0), 1)
+    }
+
+    private func nearbyChapterIndexes(current: Int) -> Set<Int> {
+        let order = chapters.map(\.index)
+        var indexes: Set<Int> = [current]
+        if let previous = ChapterTracking.adjacentChapter(in: order, current: current, forward: false) {
+            indexes.insert(previous)
+        }
+        if let next = ChapterTracking.adjacentChapter(in: order, current: current, forward: true) {
+            indexes.insert(next)
+        }
+        return indexes
+    }
+
+    private func nearbyPageIds(radius: Int) -> Set<String> {
+        guard !paginatedPages.isEmpty else { return [] }
+        guard let currentIndex = paginatedPages.firstIndex(where: { $0.id == selectedPageId }) else {
+            return Set(paginatedPages.prefix(max(radius * 2 + 1, 1)).map(\.id))
+        }
+
+        let lower = max(0, currentIndex - radius)
+        let upper = min(paginatedPages.count - 1, currentIndex + radius)
+        return Set(paginatedPages[lower...upper].map(\.id))
     }
 
     private func chapterIndicatorBar(fg: Color, bg: Color) -> some View {
@@ -564,10 +616,17 @@ struct ReaderView: View {
 
     private func paginatedBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
+            let activeChapterIndexes = nearbyChapterIndexes(current: selectedChapterIndex)
             TabView(selection: $selectedChapterIndex) {
                 ForEach(chapters, id: \.index) { chapter in
-                    paginatedPage(chapter, fg: fg)
-                        .tag(chapter.index)
+                    if activeChapterIndexes.contains(chapter.index) {
+                        paginatedPage(chapter, fg: fg)
+                            .tag(chapter.index)
+                    } else {
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .tag(chapter.index)
+                    }
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: (chapters.count > 1 && !isUIMinimized) ? .automatic : .never))
@@ -627,9 +686,7 @@ struct ReaderView: View {
         let order = chapters.map(\.index)
         guard let target = ChapterTracking.adjacentChapter(in: order, current: selectedChapterIndex, forward: forward)
         else { return }
-        withAnimation(.easeInOut(duration: 0.25)) {
-            selectedChapterIndex = target
-        }
+        selectedChapterIndex = target
     }
 
     private func paginatedPage(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
@@ -724,9 +781,16 @@ struct ReaderView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
+                    let activePageIds = nearbyPageIds(radius: 2)
                     TabView(selection: $selectedPageId) {
                         ForEach(paginatedPages, id: \.id) { page in
-                            makePageCell(page: page, fg: fg, containerWidth: geo.size.width)
+                            if activePageIds.contains(page.id) {
+                                makePageCell(page: page, fg: fg, containerWidth: geo.size.width)
+                            } else {
+                                Color.clear
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .tag(page.id)
+                            }
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
@@ -892,11 +956,13 @@ struct ReaderView: View {
 
     private func updatePageSelection(_ pageId: String) {
         if pageTurnAnimations && !reduceMotion {
-            withAnimation {
+            selectedPageId = pageId
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
                 selectedPageId = pageId
             }
-        } else {
-            selectedPageId = pageId
         }
     }
 
@@ -1643,6 +1709,7 @@ struct ReaderPageCell: View {
                     currentAtoms.append(atom)
                 } else {
                     blocks.append(RenderedBlock(
+                        id: currentOriginalIndex,
                         originalParagraphIndex: currentOriginalIndex,
                         text: ReaderPageCell.concatenateAtoms(currentAtoms)
                     ))
@@ -1654,6 +1721,7 @@ struct ReaderPageCell: View {
         
         if !currentAtoms.isEmpty {
             blocks.append(RenderedBlock(
+                id: currentOriginalIndex,
                 originalParagraphIndex: currentOriginalIndex,
                 text: ReaderPageCell.concatenateAtoms(currentAtoms)
             ))
@@ -1663,7 +1731,7 @@ struct ReaderPageCell: View {
     }
     
     struct RenderedBlock: Identifiable {
-        let id = UUID()
+        let id: Int
         let originalParagraphIndex: Int
         let text: AttributedString
     }

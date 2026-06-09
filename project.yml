@@ -57,6 +57,7 @@ targets:
       - package: SwiftSoup
       - package: KeychainAccess
       - target: FanficlyShare
+      - target: FanficlyWidget
     info:
       path: Fanficly/Info.plist
       properties:
@@ -171,6 +172,7 @@ targets:
       Release: Signing.xcconfig
     sources:
       - path: FanficlyWidget
+      - path: Fanficly/WidgetProgressStore.swift
     info:
       path: FanficlyWidget/Info.plist
       properties:
@@ -183,6 +185,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.widget
         PRODUCT_NAME: FanficlyWidget
+        CODE_SIGN_ENTITLEMENTS: FanficlyWidget/FanficlyWidget.entitlements
         GENERATE_INFOPLIST_FILE: NO
         DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 

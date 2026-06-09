@@ -137,4 +137,18 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
         }
         return str
     }
+
+    static func mergedProfiles(localJSON: String?, incomingJSON: String) -> String {
+        var merged = loadProfiles(from: localJSON ?? "")
+
+        for profile in loadProfiles(from: incomingJSON) {
+            if let index = merged.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }) {
+                merged[index] = profile
+            } else {
+                merged.append(profile)
+            }
+        }
+
+        return saveProfiles(merged)
+    }
 }

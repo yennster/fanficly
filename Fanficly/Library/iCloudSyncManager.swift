@@ -304,11 +304,12 @@ final class iCloudSyncManager {
                 if let activeProfileMac = s.activeProfileMac { defaults.set(activeProfileMac, forKey: "reader.activeProfile.mac") }
                 if let activeProfilePad = s.activeProfilePad { defaults.set(activeProfilePad, forKey: "reader.activeProfile.pad") }
                 if let profiles = s.profiles {
-                    let mergedProfiles = Self.mergedReaderProfiles(
+                    let mergedProfiles = ReaderProfile.mergedProfiles(
                         localJSON: defaults.string(forKey: "reader.profiles"),
                         incomingJSON: profiles
                     )
                     defaults.set(mergedProfiles, forKey: "reader.profiles")
+                    ReaderProfileSyncStore.publishLocalProfiles(mergedProfiles)
                 }
 
                 // Device-specific settings
@@ -531,19 +532,6 @@ final class iCloudSyncManager {
         }
     }
 
-    private static func mergedReaderProfiles(localJSON: String?, incomingJSON: String) -> String {
-        var merged = ReaderProfile.loadProfiles(from: localJSON ?? "")
-
-        for profile in ReaderProfile.loadProfiles(from: incomingJSON) {
-            if let index = merged.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }) {
-                merged[index] = profile
-            } else {
-                merged.append(profile)
-            }
-        }
-
-        return ReaderProfile.saveProfiles(merged)
-    }
 }
 
 // MARK: - Backup Codable Structs

@@ -12,8 +12,8 @@ struct RootView: View {
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
     
     @State private var importingWorkId: Int? = nil
-    @State private var importedWork: Work? = nil
     @State private var compactSelection: SidebarItem?
+    @State private var detailPath = NavigationPath()
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
@@ -56,14 +56,23 @@ struct RootView: View {
             .navigationTitle("Fanficly")
             .navigationBarTitleDisplayMode(.large)
         } detail: {
-            NavigationStack {
-                switch selectedDetailItem {
-                case .search: SearchView()
-                case .browse: BrowseView()
-                case .library: LibraryView()
-                case .recentlyViewed: RecentlyViewedView()
-                case .subscriptions: SubscriptionsView()
-                case .settings: SettingsView()
+            NavigationStack(path: $detailPath) {
+                Group {
+                    switch selectedDetailItem {
+                    case .search: SearchView()
+                    case .browse: BrowseView()
+                    case .library: LibraryView()
+                    case .recentlyViewed: RecentlyViewedView()
+                    case .subscriptions: SubscriptionsView()
+                    case .settings: SettingsView()
+                    }
+                }
+                .navigationDestination(for: ResumeWorkRoute.self) { route in
+                    if let savedWork = savedWork(with: route.workId) {
+                        SavedWorkReader(work: savedWork)
+                    } else {
+                        WorkDetailView(workId: route.workId)
+                    }
                 }
             }
         }
@@ -87,9 +96,7 @@ struct RootView: View {
             AgeGateView()
         }
         .onOpenURL { url in
-            if let workId = parseWorkId(from: url) {
-                importingWorkId = workId
-            }
+            handleIncomingURL(url)
         }
         .overlay {
             if let workId = importingWorkId {
@@ -104,20 +111,6 @@ struct RootView: View {
                     self.importingWorkId = nil
                 }
                 .transition(.scale)
-            }
-        }
-        .sheet(item: $importedWork) { work in
-            NavigationStack {
-                SavedWorkReader(work: work)
-                    .navigationTitle(work.title)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Close") {
-                                importedWork = nil
-                            }
-                        }
-                    }
             }
         }
         .onDrop(of: [.url, .text], isTargeted: nil) { providers in
@@ -181,6 +174,7 @@ struct RootView: View {
 
     private func select(_ item: SidebarItem) {
         selectedTabRaw = item.rawValue
+        detailPath = NavigationPath()
         if isCompactNavigation {
             compactSelection = item
         }
@@ -199,6 +193,81 @@ struct RootView: View {
 
     private func resetZoom() {
         zoomScale = 1.0
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        if let route = parseResumeRoute(from: url) {
+            openResumeRoute(route)
+            return
+        }
+
+        if let workId = parseWorkId(from: url) {
+            importingWorkId = workId
+        }
+    }
+
+    private func openResumeRoute(_ route: ResumeWorkRoute) {
+        installResumeProgressIfAvailable(for: route)
+        select(.library)
+
+        Task { @MainActor in
+            await Task.yield()
+            detailPath.append(route)
+        }
+    }
+
+    private func installResumeProgressIfAvailable(for route: ResumeWorkRoute) {
+        let widgetProgress = WidgetProgressStore.load()
+        let matchingWidgetProgress = widgetProgress?.id == route.workId ? widgetProgress : nil
+
+        if let existing = readingProgress(for: route.workId),
+           let matchingWidgetProgress,
+           existing.updatedAt > matchingWidgetProgress.freshnessDate {
+            return
+        }
+
+        let widgetAnchor = matchingWidgetProgress.flatMap { progress -> ReadingAnchor? in
+            guard let chapter = progress.chapter else { return nil }
+            return ReadingAnchor(chapter: max(chapter, 1), paragraph: max(progress.paragraph ?? 0, 0))
+        }
+
+        guard let anchor = route.anchor ?? widgetAnchor else { return }
+
+        let existing = readingProgress(for: route.workId)
+        ReadingProgressStore.save(
+            ao3Id: route.workId,
+            anchor: anchor,
+            title: matchingWidgetProgress?.title ?? existing?.title ?? "",
+            author: matchingWidgetProgress?.author ?? existing?.author ?? "",
+            progress: matchingWidgetProgress?.clampedProgress,
+            syncWidgetImmediately: false,
+            in: context
+        )
+    }
+
+    private func savedWork(with id: Int) -> Work? {
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == id })
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    private func readingProgress(for id: Int) -> ReadingProgress? {
+        let descriptor = FetchDescriptor<ReadingProgress>(predicate: #Predicate { $0.ao3Id == id })
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    private func parseResumeRoute(from url: URL) -> ResumeWorkRoute? {
+        guard url.scheme == "fanficly",
+              url.host?.lowercased() == "resume",
+              let idString = url.pathComponents.dropFirst().first,
+              let id = Int(idString) else {
+            return nil
+        }
+
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let chapter = components?.queryItems?.first(where: { $0.name == "chapter" })?.value.flatMap(Int.init)
+        let paragraph = components?.queryItems?.first(where: { $0.name == "paragraph" })?.value.flatMap(Int.init)
+        let anchor = chapter.map { ReadingAnchor(chapter: max($0, 1), paragraph: max(paragraph ?? 0, 0)) }
+        return ResumeWorkRoute(workId: id, anchor: anchor)
     }
     
     private func parseWorkId(from url: URL) -> Int? {
@@ -232,6 +301,11 @@ struct RootView: View {
         }
         return nil
     }
+}
+
+private struct ResumeWorkRoute: Hashable {
+    let workId: Int
+    let anchor: ReadingAnchor?
 }
 
 struct ImportOverlay: View {

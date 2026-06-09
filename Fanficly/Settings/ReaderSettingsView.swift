@@ -69,7 +69,7 @@ struct ReaderSettingsView: View {
             )
             list.append(newProfile)
         }
-        profilesJSON = ReaderProfile.saveProfiles(list)
+        saveProfiles(list)
         queueBackup()
     }
 
@@ -100,7 +100,7 @@ struct ReaderSettingsView: View {
                 selectProfile(ReaderProfile.defaultProfiles[0])
             }
         }
-        profilesJSON = ReaderProfile.saveProfiles(list)
+        saveProfiles(list)
         queueBackup()
     }
 
@@ -330,6 +330,12 @@ struct ReaderSettingsView: View {
 
     private func queueBackup() {
         iCloudSyncManager.shared.queueBackup(context: context)
+    }
+
+    private func saveProfiles(_ list: [ReaderProfile]) {
+        let json = ReaderProfile.saveProfiles(list)
+        profilesJSON = json
+        ReaderProfileSyncStore.publishLocalProfiles(json)
     }
 
     @ViewBuilder

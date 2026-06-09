@@ -32,7 +32,7 @@ struct ScrollAnchorKey: PreferenceKey {
     }
 }
 
-struct ReadingAnchor: Equatable {
+struct ReadingAnchor: Equatable, Hashable {
     let chapter: Int
     let paragraph: Int
 }

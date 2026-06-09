@@ -7,6 +7,7 @@ struct FanficlyApp: App {
     /// fully offline, curated, all-ages client and an in-memory store so nothing
     /// touches the network or real storage. See `DemoAO3Client` / `DemoSeed`.
     static var isDemoMode: Bool { ProcessInfo.processInfo.arguments.contains("-demoMode") }
+    static var isTestMode: Bool { ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil }
 
     private let client: any AO3ClientProtocol = FanficlyApp.isDemoMode ? DemoAO3Client() : AO3Client()
     @State private var auth = AuthState()
@@ -49,6 +50,9 @@ struct FanficlyApp: App {
                 defaults.set(90.0, forKey: demoReaderWidthKey)
             }
             #endif
+        } else if !Self.isTestMode {
+            WidgetProgressStore.installCloudSyncObserver()
+            ReaderProfileSyncStore.installCloudSyncObserver()
         }
     }
 
