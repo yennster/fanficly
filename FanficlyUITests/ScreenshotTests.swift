@@ -13,10 +13,11 @@ import UIKit
 final class ScreenshotTests: XCTestCase {
     var app: XCUIApplication!
     var shotDir: String!
-    /// Landscape split view (the "mac" capture) navigates by ⌘1–6 keyboard
-    /// shortcuts instead of tapping sidebar rows, which doesn't reliably switch
-    /// the detail column there. Portrait (iPhone/iPad) keeps tapping.
+    /// iPad split view navigates by ⌘1–6 keyboard shortcuts instead of tapping
+    /// sidebar rows, which doesn't reliably switch the detail column. iPhone
+    /// keeps tapping because it uses the collapsed phone navigation shape.
     private var useKeyboardNav = false
+    private var currentOrientation: UIDeviceOrientation = .portrait
 
     override func setUpWithError() throws {
         // Best-effort capture: a single flaky navigation step on Mac Catalyst
@@ -27,6 +28,7 @@ final class ScreenshotTests: XCTestCase {
     }
 
     private func setupAndLaunch(device: String, orientation: UIDeviceOrientation) throws {
+        currentOrientation = orientation
         let repoRoot = (((#filePath as NSString)
             .deletingLastPathComponent as NSString)
             .deletingLastPathComponent)
@@ -41,20 +43,18 @@ final class ScreenshotTests: XCTestCase {
         _ = XCTWaiter.wait(for: [launchExp], timeout: 3.0)
 
         // Rotate AFTER launch. Setting the orientation pre-launch is unreliable —
-        // the scene frequently comes up portrait and ignores the request, which is
-        // what produced the broken (portrait, sidebar-less) "mac" captures. Rotating
-        // the live app reliably relayouts the split view so the sidebar shows in
-        // landscape.
+        // the scene can ignore the request, which is what produced the broken
+        // (portrait, sidebar-less) "mac" captures. Always setting the requested
+        // orientation also resets the simulator after the landscape mac capture
+        // so the later iPad portrait capture is actually portrait.
         //
         // Mac Catalyst has no device orientation — setting XCUIDevice.orientation
         // there throws NSInternalInconsistencyException ("Unsupported code path").
         // The Catalyst window is already landscape, so skip rotation entirely.
         #if !targetEnvironment(macCatalyst)
-        if orientation != .portrait {
-            XCUIDevice.shared.orientation = orientation
-            let rotExp = XCTestExpectation(description: "Wait for rotation")
-            _ = XCTWaiter.wait(for: [rotExp], timeout: 3.0)
-        }
+        XCUIDevice.shared.orientation = orientation
+        let rotExp = XCTestExpectation(description: "Wait for rotation")
+        _ = XCTWaiter.wait(for: [rotExp], timeout: 3.0)
         #endif
 
         // Wait non-blockingly for the app to settle into the final layout.
@@ -176,7 +176,9 @@ final class ScreenshotTests: XCTestCase {
     func testCaptureMainScreens() throws {
         let device: String
         switch UIDevice.current.userInterfaceIdiom {
-        case .pad:  device = "ipad"
+        case .pad:
+            device = "ipad"
+            useKeyboardNav = true
         default:    device = "iphone"
         }
         try setupAndLaunch(device: device, orientation: .portrait)
@@ -240,13 +242,13 @@ final class ScreenshotTests: XCTestCase {
             snap("08-privacy")
         }
 
-        // The sidebar walk leaves a pushed detail the landscape split view won't
-        // clear, which blocks the search field. Relaunch for a clean root.
-        // (useKeyboardNav == the landscape "mac" capture; portrait is unaffected.)
+        // The sidebar walk can leave a pushed detail that blocks the search
+        // field. Relaunch for a clean root while preserving this capture's
+        // requested orientation.
         if useKeyboardNav {
             app.launch()
             #if !targetEnvironment(macCatalyst)
-            XCUIDevice.shared.orientation = .landscapeRight
+            XCUIDevice.shared.orientation = currentOrientation
             #endif
             let relaunchSettle = XCTestExpectation(description: "relaunch settle")
             _ = XCTWaiter.wait(for: [relaunchSettle], timeout: 3.0)

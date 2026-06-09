@@ -23,9 +23,9 @@ Pipeline per screenshot:
       transparent PNG. (iPad's 13" 2064x2752 isn't in frameit's frame set, so we
       frame at the supported iPad Pro 12.9" size 2048x2732, then composite onto
       the 13" canvas.)
-  2b. Mac: the raws are portrait, carry a uniform black band at the bottom, and
-      have no Apple bezel in frameit. We trim the black band and wrap the shot in
-      a rounded-corner "floating window" with a soft drop shadow instead.
+  2b. Mac: the raws come from a landscape iPad split-view capture. We apply EXIF
+      orientation, trim any uniform black band, crop away the rounded iPad display
+      fringe, and place the app into Fastlane's downloaded MacBook Pro frame.
   3. Composite the framed device onto the maroon canvas and draw the headline,
      scaling the device to fit inside the canvas (never clipped) for landscape
      Mac sizes.
@@ -38,11 +38,12 @@ Requires: Pillow, a working `fastlane` (frameit) on PATH, and ImageMagick
 """
 
 from __future__ import annotations
+import json
 import os
 import shutil
 import subprocess
 import tempfile
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(REPO, "docs", "screenshots")
@@ -71,9 +72,8 @@ SLIDES = [
 # Per-device geometry. `out_w/out_h` are the exact App Store dimensions we emit.
 # iPhone/iPad go through frameit, so they carry `frame_w/frame_h` (a size frameit
 # has a frame for — iPad 13" has none, so we frame at 12.9" and composite onto the
-# 13" canvas). Mac doesn't use frameit; the floating window is sized large and
-# allowed to bleed off the bottom edge (like the iPhone device), so omit `fit`.
-# (`fit=True` would instead clamp it fully inside the canvas — smaller.)
+# 13" canvas). Mac uses Fastlane's downloaded MacBook frame asset directly because
+# frameit's Mac editor treats desktop shots as background-only composites.
 DEVICES = {
     "iphone": dict(out_w=1320, out_h=2868, frame_w=1320, frame_h=2868,
                    text_top=0.045, verb_max=232, verb_min=120, desc=116,
@@ -83,8 +83,17 @@ DEVICES = {
                    dev_w=0.70, dev_top=0.300),
     "mac":    dict(out_w=2560, out_h=1600,
                    text_top=0.050, verb_max=175, verb_min=100, desc=82,
-                   dev_w=0.88, dev_top=0.230),
+                   dev_w=0.84, dev_top=0.230),
 }
+
+MAC_FRAME_CANDIDATES = [
+    ("Apple MacBook Pro 16 Silver.png", "MacBook Pro 16"),
+    ("Apple MacBook Pro 16 Space Gray.png", "MacBook Pro 16"),
+    ("Apple MacBook Pro 13 Silver.png", "MacBook Pro 13"),
+    ("Apple MacBook Pro 13 Space Gray.png", "MacBook Pro 13"),
+]
+MAC_SCREEN_ASPECT = 16 / 10
+MAC_RAW_EDGE_CROP = 18
 
 
 def load_raw(path):
@@ -128,30 +137,85 @@ def trim_black_band(img, thresh=60):
     return img
 
 
-def float_frame(content, radius=34, pad=72, shadow_blur=44, shadow_alpha=95, shadow_dy=14):
-    """Wrap an upright screenshot in a rounded-corner card with a soft drop shadow.
+def crop_to_aspect(img, aspect=MAC_SCREEN_ASPECT, anchor_y=0.0):
+    """Crop an image to `aspect`, preserving width and anchoring vertical crops.
 
-    Used for the Mac set in place of an Apple device bezel: the result reads as a
-    clean floating app window on the brand canvas. Returns RGBA with transparent
-    padding around the card so the shadow has room to bleed.
+    The "Mac" raws are landscape iPad captures, so they are 4:3 with rounded iPad
+    display corners. A MacBook screen is 16:10. Top-anchoring the crop preserves
+    navigation bars and headers while dropping less-important lower content.
     """
-    img = content.convert("RGBA")
     w, h = img.size
+    current = w / h
+    if abs(current - aspect) < 0.001:
+        return img
+    if current < aspect:
+        new_h = round(w / aspect)
+        y = round((h - new_h) * anchor_y)
+        return img.crop((0, y, w, y + new_h))
+    new_w = round(h * aspect)
+    x = round((w - new_w) / 2)
+    return img.crop((x, 0, x + new_w, h))
 
-    mask = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
-    rounded = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    rounded.paste(img, (0, 0), mask)
 
-    canvas = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (0, 0, 0, 0))
-    shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle(
-        [pad, pad + shadow_dy, pad + w, pad + h + shadow_dy], radius=radius,
-        fill=(0, 0, 0, shadow_alpha))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(shadow_blur))
+def parse_offset(value):
+    """Parse Fastlane frameit offset strings such as '+419+98'."""
+    parts = value.replace("-", "+-").split("+")
+    nums = [int(part) for part in parts if part]
+    if len(nums) != 2:
+        raise ValueError(f"Unsupported frameit offset: {value}")
+    return nums[0], nums[1]
 
-    out = Image.alpha_composite(canvas, shadow)
-    out.alpha_composite(rounded, (pad, pad))
+
+def frameit_templates_dir():
+    return os.path.join(os.path.expanduser("~"), ".fastlane", "frameit", "latest")
+
+
+def load_macbook_frame():
+    """Load Fastlane's downloaded MacBook frame and its screen rectangle."""
+    frame_dir = frameit_templates_dir()
+    offsets_path = os.path.join(frame_dir, "offsets.json")
+    if not os.path.exists(offsets_path):
+        raise RuntimeError(
+            f"Missing Fastlane frame offsets at {offsets_path}. "
+            "Run `fastlane frameit download_frames` or regenerate iPhone/iPad screenshots first."
+        )
+    with open(offsets_path, "r", encoding="utf-8") as fh:
+        offsets = json.load(fh).get("portrait", {})
+
+    for filename, offset_key in MAC_FRAME_CANDIDATES:
+        path = os.path.join(frame_dir, filename)
+        spec = offsets.get(offset_key)
+        if os.path.exists(path) and spec:
+            x, y = parse_offset(spec["offset"])
+            screen_w = int(spec["width"])
+            screen_h = round(screen_w / MAC_SCREEN_ASPECT)
+            return Image.open(path).convert("RGBA"), (x, y, screen_w, screen_h)
+
+    tried = ", ".join(filename for filename, _ in MAC_FRAME_CANDIDATES)
+    raise RuntimeError(f"Missing a Fastlane MacBook frame in {frame_dir}. Tried: {tried}")
+
+
+def macbook_frame(content):
+    """Place an app screenshot into Fastlane's MacBook Pro frame.
+
+    We crop the raw's outer pixels first because the source is an iPad landscape
+    simulator capture whose rounded display corners show blue at the edges.
+    """
+    frame, (x, y, screen_w, screen_h) = load_macbook_frame()
+    shot = content.convert("RGB")
+    if MAC_RAW_EDGE_CROP * 2 < min(shot.size):
+        shot = shot.crop((
+            MAC_RAW_EDGE_CROP,
+            MAC_RAW_EDGE_CROP,
+            shot.width - MAC_RAW_EDGE_CROP,
+            shot.height - MAC_RAW_EDGE_CROP,
+        ))
+    shot = crop_to_aspect(shot, screen_w / screen_h, anchor_y=0.0)
+    shot = shot.resize((screen_w, screen_h), Image.LANCZOS).convert("RGBA")
+
+    out = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    out.alpha_composite(shot, (x, y))
+    out.alpha_composite(frame)
     return out
 
 
@@ -261,7 +325,8 @@ def main():
         os.makedirs(final_dir, exist_ok=True)
         work = tempfile.mkdtemp(prefix=f"frameit-{device}-")
         # Stage slug-named screenshots, upright and (for frameit devices) at the
-        # exact frame size. Mac stays at native aspect — no distortion.
+        # exact frame size. Mac stays native until it is placed into the MacBook
+        # frame's 16:10 screen rectangle.
         staged = []
         for i, (base, out_slug, verb, desc) in enumerate(SLIDES, start=1):
             raw = os.path.join(src, f"{base}.png")
@@ -282,11 +347,11 @@ def main():
         if device != "mac":
             run_frameit(work)
         else:
-            # No Apple bezel for Mac — wrap each upright shot in a floating
-            # rounded-window card with a drop shadow.
+            # Use Fastlane's downloaded MacBook frame asset. Its own Mac editor
+            # does background-only composites, so we do the frame overlay here.
             for slug, verb, desc in staged:
                 shot = Image.open(os.path.join(work, f"{slug}.png"))
-                float_frame(shot).save(os.path.join(work, f"{slug}_framed.png"))
+                macbook_frame(shot).save(os.path.join(work, f"{slug}_framed.png"))
         for slug, verb, desc in staged:
             framed = os.path.join(work, f"{slug}_framed.png")
             final_out = os.path.join(final_dir, f"{slug}.png")

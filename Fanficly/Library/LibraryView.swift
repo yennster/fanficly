@@ -5,6 +5,7 @@ struct LibraryView: View {
     @Query(sort: \Work.savedAt, order: .reverse) private var works: [Work]
     @Query(sort: \CustomFolder.name) private var folders: [CustomFolder]
     @Environment(\.modelContext) private var context
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var filter: LibraryFilter = .all
     @State private var showingCreateFolderAlert = false
     @State private var newFolderName = ""
@@ -17,6 +18,29 @@ struct LibraryView: View {
         case downloaded = "Downloaded"
         case folders = "Folders"
         var id: String { rawValue }
+
+        var title: String { rawValue }
+
+        var compactTitle: String {
+            switch self {
+            case .downloaded: "Offline"
+            default: rawValue
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .all:        "books.vertical"
+            case .starred:    "star"
+            case .following:  "bookmark"
+            case .downloaded: "arrow.down.circle"
+            case .folders:    "folder"
+            }
+        }
+    }
+
+    private var usesCompactFilterBar: Bool {
+        horizontalSizeClass == .compact
     }
 
     private var filtered: [Work] {
@@ -48,12 +72,18 @@ struct LibraryView: View {
             } else {
                 List {
                     Section {
-                        Picker("Filter", selection: $filter) {
-                            ForEach(LibraryFilter.allCases) { Text($0.rawValue).tag($0) }
+                        Group {
+                            if usesCompactFilterBar {
+                                LibraryFilterBar(selection: $filter)
+                            } else {
+                                Picker("Filter", selection: $filter) {
+                                    ForEach(LibraryFilter.allCases) { Text($0.title).tag($0) }
+                                }
+                                .pickerStyle(.segmented)
+                            }
                         }
-                        .pickerStyle(.segmented)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 8, trailing: 12))
                     }
                     if filter == .folders {
                         Section {
@@ -232,6 +262,39 @@ struct LibraryView: View {
     }
 }
 
+private struct LibraryFilterBar: View {
+    @Binding var selection: LibraryView.LibraryFilter
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(LibraryView.LibraryFilter.allCases) { filter in
+                    Button {
+                        selection = filter
+                    } label: {
+                        Label(filter.compactTitle, systemImage: filter.symbol)
+                            .font(.subheadline.weight(selection == filter ? .semibold : .medium))
+                            .labelStyle(.titleAndIcon)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .foregroundStyle(selection == filter ? Color.accentColor : .primary)
+                            .background {
+                                Capsule()
+                                    .fill(selection == filter ? Color.accentColor.opacity(0.14) : Color(.secondarySystemFill))
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(filter.title)
+                    .accessibilityValue(selection == filter ? "Selected" : "")
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .scrollClipDisabled()
+    }
+}
+
 struct LibraryRow: View {
     let work: Work
     let downloaded: Bool
@@ -246,21 +309,38 @@ struct LibraryRow: View {
         return extra > 0 ? "\(short)  +\(extra)" : short
     }
 
+    private var metadataItems: [String] {
+        var items = [work.rating]
+        if work.wordCount > 0 {
+            items.append("\(work.wordCount.formatted()) words")
+        }
+        if let total = work.totalChapters {
+            items.append(work.chapterCount == total ? "\(total) ch complete" : "\(work.chapterCount)/\(total) WIP")
+        }
+        if let folder = work.folder {
+            items.append(folder.name)
+        }
+        return items
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                if work.isPinned {
-                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.blue)
-                }
-                if work.isStarred {
-                    Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow)
-                }
-                if downloaded {
-                    Image(systemName: "arrow.down.circle.fill").font(.caption2).foregroundStyle(.green)
-                }
-                Text(work.title).font(.headline)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(work.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                LibraryStatusBadges(
+                    pinned: work.isPinned,
+                    starred: work.isStarred,
+                    downloaded: downloaded
+                )
             }
-            Text("by \(work.authorName)").font(.subheadline).foregroundStyle(.secondary)
+            Text("by \(work.authorName)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             if let firstFandom = work.fandoms.first {
                 HStack(spacing: 4) {
                     Image(systemName: FandomCatalog.symbol(for: firstFandom)).font(.caption2)
@@ -269,22 +349,67 @@ struct LibraryRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             }
-            HStack(spacing: 8) {
-                Text(work.rating).font(.caption).foregroundStyle(.secondary)
-                if work.wordCount > 0 {
-                    Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
-                }
-                if let total = work.totalChapters {
-                    Text(work.chapterCount == total ? "\(total) ch · complete" : "\(work.chapterCount)/\(total) · WIP")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if let folder = work.folder {
-                    Text("📁 \(folder.name)").font(.caption).foregroundStyle(.blue)
+
+            FlowLayout(spacing: 6, lineSpacing: 5) {
+                ForEach(metadataItems, id: \.self) { item in
+                    LibraryMetadataPill(text: item, isFolder: work.folder?.name == item)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+    }
+}
+
+private struct LibraryStatusBadges: View {
+    let pinned: Bool
+    let starred: Bool
+    let downloaded: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if pinned {
+                Image(systemName: "pin.fill")
+                    .foregroundStyle(.blue)
+                    .accessibilityLabel("Pinned")
+            }
+            if starred {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(.yellow)
+                    .accessibilityLabel("Starred")
+            }
+            if downloaded {
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Downloaded")
+            }
+        }
+        .font(.caption2)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct LibraryMetadataPill: View {
+    let text: String
+    var isFolder = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if isFolder {
+                Image(systemName: "folder")
+                    .font(.caption2)
+            }
+            Text(text)
+                .lineLimit(1)
+        }
+        .font(.caption2)
+        .foregroundStyle(isFolder ? Color.accentColor : .secondary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background {
+            Capsule()
+                .fill(isFolder ? Color.accentColor.opacity(0.12) : Color(.tertiarySystemFill))
+        }
     }
 }
 
