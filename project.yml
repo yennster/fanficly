@@ -70,7 +70,6 @@ targets:
               - fanficly
         UILaunchScreen:
           UIColorName: ""
-        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

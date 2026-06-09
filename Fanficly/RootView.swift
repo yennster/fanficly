@@ -14,6 +14,7 @@ struct RootView: View {
     @State private var importingWorkId: Int? = nil
     @State private var compactSelection: SidebarItem?
     @State private var detailPath = NavigationPath()
+    @State private var pendingResumeRoute: ResumeWorkRoute?
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
@@ -73,6 +74,18 @@ struct RootView: View {
                     } else {
                         WorkDetailView(workId: route.workId)
                     }
+                }
+                // Performs the widget-resume push. Driven by state instead of
+                // an imperative append so it runs once this stack's content is
+                // actually mounted: in compact width the detail column doesn't
+                // exist until the split view navigates to it, and pushing in
+                // the same frame as the tab switch trips SwiftUI's
+                // "NavigationRequestObserver tried to update multiple times
+                // per frame" warning (and can silently drop the push).
+                .task(id: pendingResumeRoute) {
+                    guard let route = pendingResumeRoute else { return }
+                    pendingResumeRoute = nil
+                    detailPath = NavigationPath([route])
                 }
             }
         }
@@ -209,11 +222,7 @@ struct RootView: View {
     private func openResumeRoute(_ route: ResumeWorkRoute) {
         installResumeProgressIfAvailable(for: route)
         select(.library)
-
-        Task { @MainActor in
-            await Task.yield()
-            detailPath.append(route)
-        }
+        pendingResumeRoute = route   // pushed by the .task(id:) on the stack
     }
 
     private func installResumeProgressIfAvailable(for route: ResumeWorkRoute) {
