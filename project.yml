@@ -15,11 +15,18 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    MARKETING_VERSION: "1.3.0"
-    CURRENT_PROJECT_VERSION: "10"
+    MARKETING_VERSION: "1.4.0"
+    CURRENT_PROJECT_VERSION: "13"
     CODE_SIGN_STYLE: Automatic
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
-    TARGETED_DEVICE_FAMILY: "1,2"
+    TARGETED_DEVICE_FAMILY: "1,2,6"
+    SUPPORTS_MACCATALYST: "YES"
+    CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: YES
+    CLANG_WARN_DOCUMENTATION_COMMENTS: YES
+    CLANG_WARN_UNGUARDED_AVAILABILITY: YES_AGGRESSIVE
+    GCC_WARN_ABOUT_RETURN_TYPE: YES_ERROR
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
 
 packages:
   SwiftSoup:
@@ -50,6 +57,7 @@ targets:
       - package: SwiftSoup
       - package: KeychainAccess
       - target: FanficlyShare
+      - target: FanficlyWidget
     info:
       path: Fanficly/Info.plist
       properties:
@@ -85,16 +93,24 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly
         PRODUCT_NAME: Fanficly
         CODE_SIGN_ENTITLEMENTS: Fanficly/Fanficly.entitlements
+        # Mac Catalyst builds against the macOS SDK, so this conditional swaps
+        # in the sandbox-enabled entitlements the Mac App Store requires
+        # without touching iOS signing.
+        CODE_SIGN_ENTITLEMENTS[sdk=macosx*]: Fanficly/FanficlyMac.entitlements
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO
+        DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 
   FanficlyTests:
     type: bundle.unit-test
     platform: iOS
     deploymentTarget: "17.0"
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     sources:
       - path: FanficlyTests
     dependencies:
@@ -103,11 +119,15 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.tests
         GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 
   FanficlyUITests:
     type: bundle.ui-testing
     platform: iOS
     deploymentTarget: "17.0"
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     sources:
       - path: FanficlyUITests
     dependencies:
@@ -116,6 +136,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.uitests
         GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 
   FanficlyShare:
     type: app-extension
@@ -142,7 +163,36 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.share
         PRODUCT_NAME: FanficlyShare
+        CODE_SIGN_ENTITLEMENTS[sdk=macosx*]: FanficlyShare/FanficlyShareMac.entitlements
         GENERATE_INFOPLIST_FILE: NO
+        DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
+
+  FanficlyWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    sources:
+      - path: FanficlyWidget
+      - path: Fanficly/WidgetProgressStore.swift
+    info:
+      path: FanficlyWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Fanficly Widget
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.widget
+        PRODUCT_NAME: FanficlyWidget
+        CODE_SIGN_ENTITLEMENTS: FanficlyWidget/FanficlyWidget.entitlements
+        CODE_SIGN_ENTITLEMENTS[sdk=macosx*]: FanficlyWidget/FanficlyWidgetMac.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 
 schemes:
   Fanficly:
@@ -150,6 +200,7 @@ schemes:
       targets:
         Fanficly: all
         FanficlyShare: all
+        FanficlyWidget: all
         FanficlyTests: [test]
         FanficlyUITests: [test]
     test:

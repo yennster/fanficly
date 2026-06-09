@@ -5,7 +5,7 @@ struct SubscriptionsView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
     @Environment(AuthState.self) private var auth
-    @Query(sort: \SubscriptionRecord.displayName) private var subs: [SubscriptionRecord]
+    @Query(sort: [SortDescriptor<SubscriptionRecord>(\.displayName, order: .forward)]) private var subs: [SubscriptionRecord]
     @State private var isRefreshing: Bool = false
     @State private var lastError: String?
     @State private var lastNotifyCount: Int?
@@ -103,6 +103,7 @@ struct SubscriptionsView: View {
             }
         }
         .navigationTitle("Subscriptions")
+        .navigationBarTitleDisplayMode(.large)
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
@@ -182,6 +183,7 @@ struct SubscriptionRow: View {
             }
         }
         .padding(.vertical, 4)
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
     }
 
     private var icon: String {

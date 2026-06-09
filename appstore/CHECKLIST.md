@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Version bumped to **1.3.0 (build 10)** in `project.yml`
+- Version bumped to **1.4.0 (build 12)** in `project.yml`
 
 ---
 
@@ -88,11 +88,11 @@ bundle exec fastlane release
 bundle exec fastlane metadata_only
 ```
 `deliver` uploads `fastlane/metadata` and `fastlane/screenshots/en-US`, sets the
-categories (Books / Reference), and attaches the build. It does **not** submit.
+categories (Books / Entertainment), and attaches the build. It does **not** submit.
 
 ## 8. Final review & submit  [portal]
 
-In App Store Connect → your **1.3.0** version:
+In App Store Connect → your **1.4.0** version:
 - Confirm name/subtitle/description/keywords/promotional text look right.
 - Confirm the 6.9" and 13" screenshots are in the slots you want (reorder if needed).
 - Select the processed **Build**.
@@ -119,3 +119,11 @@ In App Store Connect → your **1.3.0** version:
 Bump `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` in `project.yml`, run
 `xcodegen generate`, update `release_notes.txt`, re-shoot if UI changed
 (`bundle exec fastlane screenshots`), then `bundle exec fastlane release`.
+
+## Mac App Store (Mac Catalyst)
+
+One-time: add the **macOS** platform to the app record in App Store Connect
+(app page → Add Platform). Then `fastlane release_mac` archives the Catalyst
+build as a `.pkg` and uploads it plus metadata and the `2560×1600` Mac
+screenshots (`fastlane/screenshots-mac/en-US/`) to the macOS listing. Same
+bundle ID → universal purchase. Does not auto-submit.

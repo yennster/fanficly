@@ -3,30 +3,65 @@ import SwiftSoup
 import SwiftUI
 
 enum HTMLToAttributed {
+    nonisolated(unsafe) private static let cache = NSCache<NSString, AnyObject>()
+    
+    private final class AttributedStringWrapper: NSObject {
+        let value: AttributedString
+        init(_ value: AttributedString) {
+            self.value = value
+        }
+    }
+
+    private final class ParagraphsWrapper: NSObject, @unchecked Sendable {
+        let value: [AttributedString]
+        init(_ value: [AttributedString]) {
+            self.value = value
+        }
+    }
+
+    nonisolated(unsafe) private static let paragraphsCache = NSCache<NSString, ParagraphsWrapper>()
+
     /// The whole body as one AttributedString (paragraphs joined by blank lines).
     static func convert(_ html: String) -> AttributedString {
+        let nsHtml = html as NSString
+        if let cached = cache.object(forKey: nsHtml) as? AttributedStringWrapper {
+            return cached.value
+        }
+        
         let paragraphs = convertParagraphs(html)
         var out = AttributedString()
         for (i, para) in paragraphs.enumerated() {
             if i > 0 { out.append(AttributedString("\n\n")) }
             out.append(para)
         }
+        
+        cache.setObject(AttributedStringWrapper(out), forKey: nsHtml)
         return out
     }
 
     /// The body split into individual paragraphs, so the reader can render
     /// and track each one (for precise reading-position restore).
-    static func convertParagraphs(_ html: String) -> [AttributedString] {        guard let doc = try? SwiftSoup.parseBodyFragment(html),
+    static func convertParagraphs(_ html: String) -> [AttributedString] {
+        let nsHtml = html as NSString
+        if let cached = paragraphsCache.object(forKey: nsHtml) {
+            return cached.value
+        }
+
+        guard let doc = try? SwiftSoup.parseBodyFragment(html),
               let body = doc.body() else {
             let stripped = html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            return stripped.isEmpty ? [] : [AttributedString(stripped)]
+            let result = stripped.isEmpty ? [] : [AttributedString(stripped)]
+            paragraphsCache.setObject(ParagraphsWrapper(result), forKey: nsHtml)
+            return result
         }
         var ctx = RenderContext()
         let children = body.getChildNodes()
         for child in children {
             renderNode(child, into: &ctx, style: InlineStyle())
         }
-        return ctx.finish()
+        let result = ctx.finish()
+        paragraphsCache.setObject(ParagraphsWrapper(result), forKey: nsHtml)
+        return result
     }
 
     /// One speech string per *rendered* paragraph — same count and order as

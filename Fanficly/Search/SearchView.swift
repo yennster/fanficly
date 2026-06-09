@@ -169,13 +169,38 @@ struct SearchView: View {
         } else {
             List {
                 ForEach(visibleResults) { work in
-                    NavigationLink(value: work) { WorkRow(work: work) }
-                        // Infinite scroll: pull the next page as the last row appears.
-                        .onAppear {
-                            if work.id == visibleResults.last?.id {
-                                Task { await loadMore() }
+                    NavigationLink(value: work) {
+                        WorkRow(work: work)
+                            .hoverEffect(.highlight)
+                            .help("Read \(work.title)")
+                            .contextMenu {
+                                NavigationLink(value: work) {
+                                    Label("Read Now", systemImage: "book")
+                                }
+                                
+                                Button {
+                                    _ = WorkPersistence.toggleFollow(summary: work, into: context)
+                                } label: {
+                                    if WorkPersistence.isFollowed(workId: work.id, in: context) {
+                                        Label("Remove from Library", systemImage: "bookmark.slash")
+                                    } else {
+                                        Label("Save to Library", systemImage: "bookmark")
+                                    }
+                                }
+                                
+                                if let url = URL(string: "https://archiveofourown.org/works/\(work.id)") {
+                                    ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
+                                        Label("Share Story...", systemImage: "square.and.arrow.up")
+                                    }
+                                }
                             }
+                    }
+                    // Infinite scroll: pull the next page as the last row appears.
+                    .onAppear {
+                        if work.id == visibleResults.last?.id {
+                            Task { await loadMore() }
                         }
+                    }
                 }
                 if isLoadingMore {
                     HStack {
@@ -506,6 +531,7 @@ struct WorkRow: View {
             }
         }
         .padding(.vertical, 4)
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
     }
 }
 
@@ -550,7 +576,7 @@ struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var systemColorScheme
-    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @Environment(\.dismiss) private var dismiss
     let workId: Int
     @State private var payload: AO3WorkPayload?
@@ -559,8 +585,6 @@ struct WorkDetailView: View {
     @State private var followed: Bool = false
     @State private var epubURL: URL?
     @State private var showingReport: Bool = false
-    @State private var starred: Bool = false
-    @State private var pinned: Bool = false
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -576,9 +600,7 @@ struct WorkDetailView: View {
                 ReaderView(payload: payload)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
-                            followButton(payload: payload)
                             WorkExportButton(workId: workId, title: payload.summary.title)
-                            saveOfflineButton(payload: payload)
                             moreMenu(payload: payload)
                         }
                     }
@@ -603,33 +625,33 @@ struct WorkDetailView: View {
 
     // MARK: - Toolbar buttons
 
-    private func followButton(payload: AO3WorkPayload) -> some View {
-        Button {
-            followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
-        } label: {
-            Image(systemName: followed ? "bookmark.fill" : "bookmark")
-                .foregroundStyle(followed ? Color.accentColor : Color.primary)
-        }
-        .accessibilityLabel(followed ? "Following" : "Follow")
-    }
-
-
-    /// Overflow menu with the UGC safeguards (App Store guideline 1.2):
-    /// report objectionable content to AO3 (the host/moderator), and hide the
-    /// work locally so it never appears in results again.
+    /// Overflow menu: save-to-library (follow), offline download, plus the
+    /// UGC safeguards (App Store guideline 1.2) — report objectionable content
+    /// to AO3 (the host/moderator), and hide the work locally so it never
+    /// appears in results again. Kept to a single menu so the toolbar matches
+    /// the Library reader and the reader's own items (chapters, Aa, minimize)
+    /// fit without the system spilling them into a second "…" overflow.
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
             Button {
-                toggleStarred(payload: payload)
+                followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
             } label: {
-                Label(starred ? "Unstar work" : "Star work", systemImage: starred ? "star.slash" : "star")
+                Label(followed ? "Remove from Library" : "Save to Library",
+                      systemImage: followed ? "bookmark.slash" : "bookmark")
             }
             Button {
-                togglePinned(payload: payload)
+                Task { await saveOffline(payload) }
             } label: {
-                Label(pinned ? "Unpin work" : "Pin work", systemImage: pinned ? "pin.slash" : "pin")
+                if isSavingOffline {
+                    Label("Downloading…", systemImage: "arrow.down.circle")
+                } else if epubURL != nil {
+                    Label("Downloaded", systemImage: "checkmark.circle.fill")
+                } else {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
             }
-            
+            .disabled(isSavingOffline || epubURL != nil)
+
             Divider()
 
             Button {
@@ -649,31 +671,11 @@ struct WorkDetailView: View {
         .accessibilityLabel("Work options")
     }
 
-    private func saveOfflineButton(payload: AO3WorkPayload) -> some View {
-        Button {
-            Task { await saveOffline(payload) }
-        } label: {
-            if isSavingOffline {
-                ProgressView()
-            } else {
-                Image(systemName: epubURL == nil ? "arrow.down.circle" : "checkmark.circle.fill")
-                    .foregroundStyle(epubURL == nil ? Color.primary : .green)
-            }
-        }
-        .disabled(isSavingOffline || epubURL != nil)
-        .accessibilityLabel(epubURL == nil ? "Save offline" : "Saved offline")
-    }
-
     // MARK: - Actions
 
     private func load() async {
         epubURL = WorkPersistence.epubURL(workId: workId)
         followed = WorkPersistence.isFollowed(workId: workId, in: context)
-        
-        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
-        let savedWork = (try? context.fetch(descriptor))?.first
-        starred = savedWork?.isStarred ?? false
-        pinned = savedWork?.isPinned ?? false
 
         do {
             let fetched = try await client.fetchWork(id: workId)
@@ -682,22 +684,6 @@ struct WorkDetailView: View {
         } catch {
             errorMessage = "\(error)"
         }
-    }
-
-    private func toggleStarred(payload: AO3WorkPayload) {
-        let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
-        work.isStarred.toggle()
-        starred = work.isStarred
-        try? context.save()
-        iCloudSyncManager.shared.queueBackup(context: context)
-    }
-    
-    private func togglePinned(payload: AO3WorkPayload) {
-        let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
-        work.isPinned.toggle()
-        pinned = work.isPinned
-        try? context.save()
-        iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     private func saveOffline(_ payload: AO3WorkPayload) async {

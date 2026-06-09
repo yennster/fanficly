@@ -4,18 +4,117 @@ import SwiftData
 
 struct ReaderSettingsView: View {
     @Environment(\.modelContext) private var context
-    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
-    @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
-    @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
-    @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
-    @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
-    @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
-    @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
-    @AppStorage("reader.pageTurnAnimations") private var pageTurnAnimations: Bool = true
+    @Environment(\.colorSchemeContrast) private var contrast
+    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
+    @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
+    @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
+    @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
+    @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
+    @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
+    @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
+
+    // Profile Management
+    @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
+    @AppStorage(ReaderProfile.deviceActiveProfileKey) private var activeProfileName: String = "Default"
+    @AppStorage("reader.profiles") private var profilesJSON: String = ""
+    @State private var showingNewProfileAlert = false
+    @State private var newProfileName = ""
+    @State private var showingErrorAlert = false
+    @State private var errorMessage = ""
+
+    init() {
+        ReaderProfile.migrateLegacySettingsIfNeeded()
+    }
+
+    private var profiles: [ReaderProfile] {
+        ReaderProfile.loadProfiles(from: profilesJSON)
+    }
+
+    private func saveCurrentToActiveProfile() {
+        var list = profiles
+        if let idx = list.firstIndex(where: { $0.name == activeProfileName }) {
+            list[idx].themeRaw = themeRaw
+            list[idx].fontFamilyRaw = fontFamilyRaw
+            list[idx].widthPercent = widthPercent
+            list[idx].modeRaw = modeRaw
+            list[idx].fontSizePt = fontSizePt
+            list[idx].lineSpacingPt = lineSpacingPt
+            list[idx].paragraphSpacingPt = paragraphSpacingPt
+            list[idx].pageTurnHaptics = pageTurnHaptics
+            list[idx].pageTurnAnimations = pageTurnAnimations
+            list[idx].kerningPt = kerningPt
+            list[idx].boldText = boldText
+        } else {
+            let newProfile = ReaderProfile(
+                name: activeProfileName,
+                themeRaw: themeRaw,
+                fontFamilyRaw: fontFamilyRaw,
+                widthRaw: nil,
+                widthPercent: widthPercent,
+                modeRaw: modeRaw,
+                fontSizePt: fontSizePt,
+                lineSpacingPt: lineSpacingPt,
+                paragraphSpacingPt: paragraphSpacingPt,
+                pageTurnHaptics: pageTurnHaptics,
+                pageTurnAnimations: pageTurnAnimations,
+                kerningPt: kerningPt,
+                boldText: boldText
+            )
+            list.append(newProfile)
+        }
+        saveProfiles(list)
+        queueBackup()
+    }
+
+    private func selectProfile(_ profile: ReaderProfile) {
+        activeProfileName = profile.name
+        themeRaw = profile.themeRaw
+        fontFamilyRaw = profile.fontFamilyRaw
+        widthPercent = profile.widthPercent ?? 70.0
+        modeRaw = profile.modeRaw
+        fontSizePt = profile.fontSizePt
+        lineSpacingPt = profile.lineSpacingPt
+        paragraphSpacingPt = profile.paragraphSpacingPt
+        pageTurnHaptics = profile.pageTurnHaptics
+        pageTurnAnimations = profile.pageTurnAnimations
+        kerningPt = profile.kerningPt ?? ReaderMetrics.defaultKerning
+        boldText = profile.boldText ?? false
+        queueBackup()
+    }
+
+    private func deleteProfile(_ name: String) {
+        var list = profiles
+        list.removeAll { $0.name == name }
+        if activeProfileName == name {
+            activeProfileName = "Default"
+            if let defaultProf = list.first(where: { $0.name == "Default" }) {
+                selectProfile(defaultProf)
+            } else {
+                selectProfile(ReaderProfile.defaultProfiles[0])
+            }
+        }
+        saveProfiles(list)
+        queueBackup()
+    }
+
+    private func saveNewProfile(name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if profiles.contains(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            errorMessage = "A profile named \"\(trimmed)\" already exists."
+            showingErrorAlert = true
+            return
+        }
+        activeProfileName = trimmed
+        saveCurrentToActiveProfile()
+    }
 
     /// On-device voices for the current language (fall back to all installed
     /// voices if the language has none), sorted by name.
@@ -32,16 +131,64 @@ struct ReaderSettingsView: View {
         let scheme = theme.preferredColorScheme ?? systemColorScheme
 
         Form {
+            if contrast == .increased {
+                Section {
+                    Label {
+                        Text("High Contrast is active in system settings. We recommend using 'Match System' or 'Dracula Navy' theme to ensure readable text contrast.")
+                    } icon: {
+                        Image(systemName: "circle.lefthalf.striped.horizontal")
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+
+            Section("Reader Profile") {
+                Picker("Active Profile", selection: $activeProfileName) {
+                    ForEach(profiles) { profile in
+                        Text(profile.name).tag(profile.name)
+                    }
+                }
+                .onChange(of: activeProfileName) { _, newName in
+                    if let profile = profiles.first(where: { $0.name == newName }) {
+                        selectProfile(profile)
+                    }
+                }
+                .help("Select a reader settings profile to apply or edit.")
+                
+                Button("Save Current Settings as New Profile...") {
+                    newProfileName = ""
+                    showingNewProfileAlert = true
+                }
+                .help("Save these settings as a reusable configuration profile.")
+                
+                if activeProfileName != "Default" {
+                    Button("Save Current Settings to \"\(activeProfileName)\"") {
+                        saveCurrentToActiveProfile()
+                    }
+                    .help("Overwrite the selected profile with your current settings.")
+
+                    Button("Delete Profile \"\(activeProfileName)\"", role: .destructive) {
+                        deleteProfile(activeProfileName)
+                    }
+                    .help("Delete the selected profile.")
+                }
+            }
+
             Section("Preview") {
-                VStack(alignment: .leading, spacing: paragraphSpacingPt) {
+                VStack(alignment: .leading, spacing: paragraphSpacingPt / zoomScale) {
                     Text("A Coffee Shop Tale")
-                        .font(family.font(size: fontSizePt + 6, weight: .bold))
+                        .font(family.font(size: CGFloat(fontSizePt + 6) / CGFloat(zoomScale), weight: .bold))
+                        .tracking(kerningPt / zoomScale)
                     Text("Bella poured the latte. It was hot.")
-                        .font(family.font(size: fontSizePt))
-                        .lineSpacing(lineSpacingPt)
+                        .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
+                        .lineSpacing(lineSpacingPt / zoomScale)
+                        .tracking(kerningPt / zoomScale)
+                        .bold(boldText)
                     Text("Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
-                        .font(family.font(size: fontSizePt))
-                        .lineSpacing(lineSpacingPt)
+                        .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
+                        .lineSpacing(lineSpacingPt / zoomScale)
+                        .tracking(kerningPt / zoomScale)
+                        .bold(boldText)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,6 +196,7 @@ struct ReaderSettingsView: View {
                 .foregroundStyle(theme.foreground(for: scheme))
                 .cornerRadius(8)
                 .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                .help("Visual preview of current font size, spacing, font, and theme.")
             }
 
             Section {
@@ -58,6 +206,8 @@ struct ReaderSettingsView: View {
                              step: 1, unit: "pt", icon: "arrow.up.and.down.text.horizontal")
                 metricSlider("Paragraph spacing", value: $paragraphSpacingPt, range: ReaderMetrics.paragraphSpacingRange,
                              step: 2, unit: "pt", icon: "text.justify.left")
+                metricSlider("Character spacing", value: $kerningPt, range: ReaderMetrics.kerningRange,
+                             step: 0.1, unit: "pt", icon: "character.textbox")
             } header: {
                 Text("Text size & spacing")
             } footer: {
@@ -71,14 +221,17 @@ struct ReaderSettingsView: View {
                     }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .help("Choose how stories are paginated and scrolled.")
 
                 Toggle(isOn: $pageTurnHaptics) {
                     Label("Page-turn haptics", systemImage: "hand.tap")
                 }
+                .help("Enable small vibrations on page flips.")
 
                 Toggle(isOn: $pageTurnAnimations) {
                     Label("Page-turn animation", systemImage: "square.2.layers.3d")
                 }
+                .help("Enable visual curl or slide animation on page flips.")
             } header: {
                 Text("Reading mode")
             } footer: {
@@ -94,6 +247,7 @@ struct ReaderSettingsView: View {
                 } label: {
                     Label("Voice", systemImage: "person.wave.2")
                 }
+                .help("Select a voice for reading aloud.")
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -105,8 +259,12 @@ struct ReaderSettingsView: View {
                     }
                     Slider(value: $ttsRate,
                            in: Double(AVSpeechUtteranceMinimumSpeechRate)...Double(AVSpeechUtteranceMaximumSpeechRate))
+                    .accessibilityLabel("Speaking rate")
+                    .accessibilityValue(String(format: "%.1f times standard speed", ttsRate / Double(SpeechController.defaultRate)))
+                    .accessibilityHint("Adjusts the voice reading speed.")
                 }
                 .padding(.vertical, 2)
+                .help("Drag to adjust the speech speed.")
             } footer: {
                 Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
@@ -116,6 +274,7 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .help("Choose the color scheme for the reader.")
             }
 
             Section("Font") {
@@ -123,32 +282,60 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .help("Choose the typography for the reader.")
+                
+                Toggle(isOn: $boldText) {
+                    Label("Bold text", systemImage: "bold")
+                }
+                .help("Make all reader text bold for easier reading.")
             }
 
-            Section("Margins") {
-                Picker("Margins", selection: $widthRaw) {
-                    ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
-                }
-                .pickerStyle(.inline).labelsHidden()
+            Section {
+                metricSlider("Margins", value: $widthPercent, range: 30.0...100.0,
+                             step: 5.0, unit: "%", icon: "arrow.left.and.right.square")
+            } header: {
+                Text("Margins")
+            } footer: {
+                Text("Adjust the width of the text column as a percentage of the window.")
             }
         }
         .navigationTitle("Reader")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
-        .onChange(of: widthRaw) { _, _ in queueBackup() }
+        .onChange(of: widthPercent) { _, _ in queueBackup() }
         .onChange(of: modeRaw) { _, _ in queueBackup() }
         .onChange(of: fontSizePt) { _, _ in queueBackup() }
         .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
         .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
         .onChange(of: pageTurnHaptics) { _, _ in queueBackup() }
         .onChange(of: pageTurnAnimations) { _, _ in queueBackup() }
+        .onChange(of: kerningPt) { _, _ in queueBackup() }
+        .onChange(of: boldText) { _, _ in queueBackup() }
         .onChange(of: ttsRate) { _, _ in queueBackup() }
         .onChange(of: ttsVoiceId) { _, _ in queueBackup() }
+        .alert("New Profile", isPresented: $showingNewProfileAlert) {
+            TextField("Profile Name", text: $newProfileName)
+            Button("Cancel", role: .cancel) { }
+            Button("Save") {
+                saveNewProfile(name: newProfileName)
+            }
+        } message: {
+            Text("Enter a name for this reader settings configuration profile.")
+        }
+        .alert(errorMessage, isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { }
+        }
     }
 
     private func queueBackup() {
         iCloudSyncManager.shared.queueBackup(context: context)
+    }
+
+    private func saveProfiles(_ list: [ReaderProfile]) {
+        let json = ReaderProfile.saveProfiles(list)
+        profilesJSON = json
+        ReaderProfileSyncStore.publishLocalProfiles(json)
     }
 
     @ViewBuilder
@@ -158,7 +345,8 @@ struct ReaderSettingsView: View {
             HStack {
                 Label(title, systemImage: icon).font(.subheadline)
                 Spacer()
-                Text("\(Int(value.wrappedValue.rounded())) \(unit)")
+                let formattedValue = step < 1.0 ? String(format: "%.1f", value.wrappedValue) : "\(Int(value.wrappedValue.rounded()))"
+                Text("\(formattedValue) \(unit)")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -167,16 +355,24 @@ struct ReaderSettingsView: View {
                     value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
                 } label: { Image(systemName: "minus.circle") }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Decrease \(title)")
+                .accessibilityHint("Decreases \(title.lowercased()) by \(Int(step)) \(unit)")
 
                 Slider(value: value, in: range, step: step)
+                    .accessibilityLabel(title)
+                    .accessibilityValue("\(step < 1.0 ? String(format: "%.1f", value.wrappedValue) : "\(Int(value.wrappedValue.rounded()))") \(unit)")
+                    .accessibilityHint("Adjusts the \(title.lowercased()) of the reader text.")
 
                 Button {
                     value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
                 } label: { Image(systemName: "plus.circle") }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Increase \(title)")
+                .accessibilityHint("Increases \(title.lowercased()) by \(Int(step)) \(unit)")
             }
         }
         .padding(.vertical, 2)
+        .help("Adjust the \(title.lowercased())")
     }
 }
 

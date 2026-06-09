@@ -8,7 +8,7 @@ final class ContentSafetyTests: XCTestCase {
         let schema = Schema([
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
-            RecentlyViewed.self, SavedFilter.self, HiddenWork.self,
+            RecentlyViewed.self, SavedFilter.self, HiddenWork.self, CustomFolder.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])

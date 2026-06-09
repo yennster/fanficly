@@ -24,7 +24,7 @@ enum BackgroundRefresh {
         container: ModelContainer
     ) async {
         let context = ModelContext(container)
-        let username = await CredentialStore.shared.storedUsername()
+        let username = CredentialStore.shared.storedUsername()
         // Run even when logged out: locally-followed works are still polled.
         let poller = SubscriptionPoller(client: client, context: context, username: username)
         let notified = await poller.runFullPoll()

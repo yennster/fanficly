@@ -4,6 +4,7 @@
 
 # Xcode
 build/
+build-mac/
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
@@ -53,6 +54,7 @@ Podfile.lock
 
 # Python venv for screenshot framing
 bin/.venv/
+__pycache__/
 
 # Local tool scratch dirs
 .antigravitycli/

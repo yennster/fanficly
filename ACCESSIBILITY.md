@@ -8,13 +8,15 @@ to readers who need **larger text** or a **darker interface**.
 - The reader offers a range of text sizes, plus independent **line-spacing**,
   **paragraph-spacing**, and **column-width** controls, so you can scale story
   text well past the default and space it for comfortable reading.
+- **Bold text** and **character-spacing (kerning)** controls give heavier
+  strokes and looser letterforms for readers who need them.
 - Several font families are available, including highly legible choices.
 
 ## Dark Interface
 
-- Five reading themes — **Light**, **Sepia**, **Dark**, and **OLED Black** —
-  let you choose a low-glare or true-black background for low-light reading and
-  reduced eye strain.
+- Six reading themes — **Light**, **Sepia**, **Dark**, **OLED Black**,
+  **Dracula Navy**, and **Match System** — let you choose a low-glare or
+  true-black background for low-light reading and reduced eye strain.
 - The reader's navigation bar and chapter indicator are themed to match, so
   there are no bright flashes when opening or leaving a story.
 
@@ -23,6 +25,11 @@ to readers who need **larger text** or a **darker interface**.
 - Continuous-scroll or swipe-by-chapter reading modes.
 - Your exact reading position is saved and restored, down to the paragraph, so
   you never lose your place.
+- **Reader profiles** save complete typography setups under a name, and
+  iPhone, iPad, and Mac each keep their own settings — useful when different
+  readers (or different lighting conditions) need very different text.
+- **Keyboard support**: arrow keys turn pages in the reader with a hardware
+  keyboard, and the Mac app has a global interface zoom (⌘+ / ⌘− / ⌘0).
 - All reading preferences persist across the app and between sessions.
 
 ## Native by design

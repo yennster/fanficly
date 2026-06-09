@@ -33,15 +33,21 @@ func makeContext() -> CGContext {
     return ctx
 }
 
-func colors(for variant: Variant) -> (bg: CGColor?, ink: CGColor) {
+func colors(for variant: Variant) -> (bgColors: [CGColor]?, ink: CGColor, line: CGColor?) {
     switch variant {
     case .light:
-        return (CGColor(gray: 1.0, alpha: 1.0), CGColor(gray: 0.06, alpha: 1.0))
+        // Dark maroon to AO3 red gradient, white book ink
+        let c1 = CGColor(red: 0.45, green: 0.00, blue: 0.00, alpha: 1.0)
+        let c2 = CGColor(red: 0.60, green: 0.00, blue: 0.00, alpha: 1.0)
+        return ([c1, c2], CGColor(gray: 0.98, alpha: 1.0), CGColor(red: 0.45, green: 0.00, blue: 0.00, alpha: 1.0))
     case .dark:
-        return (CGColor(gray: 0.0, alpha: 1.0), CGColor(gray: 0.96, alpha: 1.0))
+        // Very dark midnight maroon gradient, white book ink
+        let c1 = CGColor(red: 0.20, green: 0.00, blue: 0.00, alpha: 1.0)
+        let c2 = CGColor(red: 0.35, green: 0.00, blue: 0.00, alpha: 1.0)
+        return ([c1, c2], CGColor(gray: 0.95, alpha: 1.0), CGColor(red: 0.20, green: 0.00, blue: 0.00, alpha: 1.0))
     case .tinted:
-        // Transparent background; light ink so iOS tints by luminance.
-        return (nil, CGColor(gray: 0.92, alpha: 1.0))
+        // Transparent background, light ink
+        return (nil, CGColor(gray: 0.92, alpha: 1.0), nil)
     }
 }
 
@@ -72,17 +78,17 @@ func normalize(_ p: CGPoint) -> CGPoint {
 /// A clean open book: two solid pages meeting at a spine, with thin
 /// background-coloured text lines cut into each page. Pages are flat
 /// quadrilaterals (straight edges) with only a slight fan at the spine.
-func drawBook(_ ctx: CGContext, ink: CGColor, bg: CGColor?) {
-    let bookW = width * 0.66
-    let bookH = height * 0.52
+func drawBook(_ ctx: CGContext, ink: CGColor, bgColors: [CGColor]?, line: CGColor?) {
+    let bookW = width * 0.60
+    let bookH = height * 0.46
     let cx = width / 2
     let cy = height / 2
     let halfW = bookW / 2
     let halfH = bookH / 2
     let fan: CGFloat = bookH * 0.06    // pages a touch taller at the outer edge
     let spineDrop: CGFloat = bookH * 0.05  // slight dip at the spine
-    let spineGap: CGFloat = width * 0.02
-    let corner: CGFloat = width * 0.02 // tiny corner rounding only
+    let spineGap: CGFloat = width * 0.018
+    let corner: CGFloat = width * 0.015 // tiny corner rounding only
 
     // Left page — straight edges (top-left, top-spine, spine-bottom, bottom-left).
     let left = roundedQuad(
@@ -99,26 +105,41 @@ func drawBook(_ ctx: CGContext, ink: CGColor, bg: CGColor?) {
         p3: CGPoint(x: cx + spineGap, y: cy + halfH - spineDrop),
         radius: corner)
 
+    // Add a beautiful soft drop shadow under the book to give it a modern 3D appearance
+    ctx.setShadow(offset: CGSize(width: 0, height: -height * 0.018), blur: height * 0.025, color: CGColor(gray: 0.0, alpha: 0.35))
+
     ctx.setFillColor(ink)
     ctx.addPath(left)
     ctx.fillPath()
     ctx.addPath(right)
     ctx.fillPath()
 
-    // Text lines, cut out in the background colour (or cleared for tinted).
-    let lineColor = bg ?? CGColor(gray: 0, alpha: 1)
+    // Clear shadow for text lines cut out of the book
+    ctx.setShadow(offset: .zero, blur: 0, color: nil)
+
+    // Text lines, cut out in the background color (or cleared for tinted).
+    let lineColor = line ?? CGColor(gray: 0, alpha: 1)
     let lineCount = 5
     let lineH: CGFloat = bookH * 0.045
     let gap = (bookH * 0.62) / CGFloat(lineCount)
-    let inset: CGFloat = bookW * 0.10
+    
+    // Centered horizontal alignment for text lines within each page
+    let pageWidth = halfW - spineGap
+    let pagePadding = pageWidth * 0.16
+    let fullLineWidth = pageWidth - (pagePadding * 2)
+    
     for i in 0..<lineCount {
         let y = cy - bookH * 0.27 + CGFloat(i) * gap
-        let pageW = halfW - spineGap - inset - bookW * 0.06
-        let leftW = pageW * (i == lineCount - 1 ? 0.6 : 0.95)
-        let rightW = pageW * (i == lineCount - 1 ? 0.55 : 0.9)
-        let leftRect = CGRect(x: cx - halfW + inset, y: y, width: leftW, height: lineH)
-        let rightRect = CGRect(x: cx + spineGap + bookW * 0.06, y: y, width: rightW, height: lineH)
-        if bg == nil {
+        let leftW = fullLineWidth * (i == lineCount - 1 ? 0.6 : 1.0)
+        let rightW = fullLineWidth * (i == lineCount - 1 ? 0.55 : 1.0)
+        
+        let leftX = cx - halfW + pagePadding
+        let rightX = cx + spineGap + pagePadding
+        
+        let leftRect = CGRect(x: leftX, y: y, width: leftW, height: lineH)
+        let rightRect = CGRect(x: rightX, y: y, width: rightW, height: lineH)
+        
+        if bgColors == nil {
             // tinted: clear the lines so they read as gaps
             ctx.setBlendMode(.clear)
             ctx.fill(leftRect); ctx.fill(rightRect)
@@ -129,27 +150,23 @@ func drawBook(_ ctx: CGContext, ink: CGColor, bg: CGColor?) {
         }
     }
 
-    // Spine gap.
-    if bg == nil {
-        ctx.setBlendMode(.clear)
-        ctx.fill(CGRect(x: cx - spineGap, y: cy - halfH + 8, width: spineGap * 2, height: bookH - 16))
-        ctx.setBlendMode(.normal)
-    } else {
-        ctx.setFillColor(lineColor)
-        ctx.fill(CGRect(x: cx - spineGap, y: cy - halfH + 8, width: spineGap * 2, height: bookH - 16))
-    }
+    // Spine gap is naturally created by the spacing between the left and right pages.
+    // No extra vertical bar is drawn to keep the book design clean and unified.
 }
 
 func render(_ variant: Variant, to path: String) {
     let ctx = makeContext()
     let palette = colors(for: variant)
-    if let bg = palette.bg {
-        ctx.setFillColor(bg)
-        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    if let bgColors = palette.bgColors {
+        // Draw linear vertical gradient
+        let colorsArray = bgColors as CFArray
+        if let gradient = CGGradient(colorsSpace: colorSpace, colors: colorsArray, locations: nil) {
+            ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 0, y: height), options: [])
+        }
     } else {
         ctx.clear(CGRect(x: 0, y: 0, width: width, height: height))
     }
-    drawBook(ctx, ink: palette.ink, bg: palette.bg)
+    drawBook(ctx, ink: palette.ink, bgColors: palette.bgColors, line: palette.line)
 
     guard let image = ctx.makeImage() else {
         FileHandle.standardError.write("makeImage failed\n".data(using: .utf8)!)

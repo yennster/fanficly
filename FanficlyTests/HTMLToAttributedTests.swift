@@ -147,5 +147,12 @@ final class HTMLToAttributedTests: XCTestCase {
         let italicRun = sentences[1].runs.first { $0.inlinePresentationIntent?.contains(.emphasized) == true }
         XCTAssertNotNil(italicRun)
     }
+
+    func test_convertCachingIsTransparent() {
+        let html = "<p>Test caching <strong>formatting</strong>.</p>"
+        let firstResult = HTMLToAttributed.convert(html)
+        let secondResult = HTMLToAttributed.convert(html)
+        XCTAssertEqual(firstResult, secondResult)
+    }
 }
 

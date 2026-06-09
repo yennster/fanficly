@@ -1,29 +1,32 @@
 # Fanficly
 
-An open-source, ad-free iPhone & iPad reader for [Archive of Our Own](https://archiveofourown.org).
+An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https://archiveofourown.org).
 
 <img src="screenshots/showcase.png" alt="Fanficly showcase">
 
-_These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots` (or `python3 bin/frame-screenshots.py` once the raw demo-mode shots exist): the `ScreenshotTests` UI test captures the raw screens to `docs/screenshots/{iphone,ipad}/`, then `bin/frame-screenshots.py` frames them in real Apple bezels via `fastlane frameit` and writes the finals to `screenshots/final/` and `fastlane/screenshots/en-US/`._
+_These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots` (or `python3 bin/frame-screenshots.py` once the raw demo-mode shots exist): the `ScreenshotTests` UI test captures the raw screens to `docs/screenshots/{iphone,ipad,mac}/` (Mac shots via `bin/take-mac-screenshots.sh`), then `bin/frame-screenshots.py` frames them in real Apple bezels via `fastlane frameit` and writes the finals to `screenshots/final/` and `fastlane/screenshots/en-US/`._
 
 ## Features
 
 - **Smart prompt-style search** — type `draco/hermione enemies to lovers complete -angst` and it parses into proper AO3 filters (ships, characters, fandoms, ratings, warnings, categories, tags, word count, language, and `-`/`not` exclusions). Quote a phrase — `"Hermione Granger/Draco Malfoy"` — to pin an exact tag, pick several ratings at once, and use AO3's full sort options and pagination.
 - **Browse by fandom, with AO3's full filter set** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search. A fandom's works can be filtered exactly like on AO3 (rating, warnings, category, completion, crossovers, word count, relationships/characters/tags include & exclude) — and typed tags resolve to AO3's canonical names via autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`. Save a filter preset once and reapply it to any fandom — or straight from the Browse home.
-- **Reader** — continuous scroll, swipe-by-chapter, or horizontal page-by-page (Kindle-like) mode. Light / sepia / dark / OLED themes, five font families, six text sizes, line-spacing and margin controls — all persisted. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
+- **Reader** — continuous scroll, swipe-by-chapter, or horizontal page-by-page (Kindle-like) mode. Six themes (light, sepia, dark, OLED black, Dracula navy, match-system), five font families, and continuously adjustable text size, line-spacing, paragraph-spacing, character-spacing (kerning), bold-text, and margin controls (with quick presets in the Aa menu) — all persisted and synced via iCloud. Arrow keys turn pages on a hardware keyboard. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
+- **Reader profiles** — save complete typography setups as named profiles and switch between them; iPhone, iPad, and Mac each remember their own settings and active profile.
 - **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story.
+- **Home-screen widget** — small and medium widgets show your last-read story with its progress; tapping jumps straight back to your paragraph, with progress synced across devices via iCloud.
 - **Follow, Star & Pin** — bookmark any story with one tap. Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop.
+- **Folders** — group library stories into custom folders, included in iCloud library backups.
 - **Safari Share Sheet Integration** — add works to your library directly from mobile Safari or other browsers. Selecting the Fanficly action in the share sheet imports the work metadata and chapters instantly.
 - **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage, with options to manually backup/restore or purge backups.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3 (Kindle), PDF, or HTML through the iOS share sheet (AirDrop, Send to Kindle, Books, Files, …).
 - **AO3 account (optional)** — log in to subscribe on AO3, and sync your subscriptions. Credentials never stored; only the session cookie, in the Keychain.
-- **iPad-native** — adaptive `NavigationSplitView` from day one.
+- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0).
 - **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
 
 ## Tech
 
 - Swift 6, SwiftUI, SwiftData
-- iOS 17+. The optional on-device smart-search enrichment uses Apple's Foundation Models framework, which requires iOS 26+ and an Apple-Intelligence-capable device; on everything else the rules-based parser handles search and the enricher is a no-op.
+- iOS 17+, plus macOS via Mac Catalyst. The optional on-device smart-search enrichment uses Apple's Foundation Models framework, which requires iOS 26+ and an Apple-Intelligence-capable device; on everything else the rules-based parser handles search and the enricher is a no-op.
 - [SwiftSoup](https://github.com/scinfu/SwiftSoup) for AO3 HTML parsing
 - [KeychainAccess](https://github.com/kishikawakatsumi/KeychainAccess) for credential storage
 - Project generated by [xcodegen](https://github.com/yonaskolb/XcodeGen) — `project.yml` is the source of truth
@@ -124,4 +127,4 @@ PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patie
 
 ## License
 
-[MIT](LICENSE).
+[PolyForm Noncommercial License 1.0.0](LICENSE).

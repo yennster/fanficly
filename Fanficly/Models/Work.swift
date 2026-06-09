@@ -46,6 +46,8 @@ final class Work {
     @Relationship(deleteRule: .cascade, inverse: \Chapter.work)
     var chapters: [Chapter] = []
 
+    var folder: CustomFolder?
+
     init(
         ao3Id: Int,
         title: String,
@@ -238,5 +240,19 @@ final class SubscriptionRecord {
         self.kind = kind
         self.displayName = displayName
         self.authorName = authorName
+    }
+}
+
+@Model
+final class CustomFolder {
+    @Attribute(.unique) var name: String
+    var createdAt: Date
+    
+    @Relationship(deleteRule: .nullify, inverse: \Work.folder)
+    var works: [Work] = []
+    
+    init(name: String, createdAt: Date = .now) {
+        self.name = name
+        self.createdAt = createdAt
     }
 }

@@ -1,5 +1,7 @@
 import Foundation
 import SwiftData
+import CoreSpotlight
+import UniformTypeIdentifiers
 
 enum WorkPersistence {
     @MainActor
@@ -55,7 +57,32 @@ enum WorkPersistence {
         work.updatedAt = summary.updatedAt
 
         if save { try? context.save() }
+        if work.isFollowed {
+            indexWork(work)
+        } else {
+            deindexWork(ao3Id: work.ao3Id)
+        }
         return work
+    }
+
+    @MainActor
+    static func indexWork(_ work: Work) {
+        let attributeSet = CSSearchableItemAttributeSet(contentType: .text)
+        attributeSet.title = work.title
+        attributeSet.contentDescription = work.summary
+        attributeSet.artist = work.authorName
+        
+        let item = CSSearchableItem(
+            uniqueIdentifier: "work-\(work.ao3Id)",
+            domainIdentifier: "io.github.yennster.fanficly.works",
+            attributeSet: attributeSet
+        )
+        CSSearchableIndex.default().indexSearchableItems([item], completionHandler: nil)
+    }
+
+    @MainActor
+    static func deindexWork(ao3Id: Int) {
+        CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: ["work-\(ao3Id)"], completionHandler: nil)
     }
 
     @MainActor
@@ -74,8 +101,10 @@ enum WorkPersistence {
         if work.isFollowed {
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
+            indexWork(work)
         } else {
             work.followedAt = nil
+            deindexWork(ao3Id: work.ao3Id)
         }
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
