@@ -150,6 +150,7 @@ final class iCloudSyncManager {
                 theme: defaults.string(forKey: "reader.theme"),
                 fontFamily: defaults.string(forKey: "reader.fontFamily"),
                 width: defaults.string(forKey: "reader.width"),
+                widthPercent: defaults.object(forKey: "reader.widthPercent") as? Double,
                 mode: defaults.string(forKey: "reader.mode"),
                 fontSizePt: defaults.object(forKey: "reader.fontSizePt") as? Double,
                 lineSpacingPt: defaults.object(forKey: "reader.lineSpacingPt") as? Double,
@@ -159,7 +160,40 @@ final class iCloudSyncManager {
                 ttsRate: defaults.object(forKey: "reader.ttsRate") as? Double,
                 ttsVoiceId: defaults.string(forKey: "reader.ttsVoiceId"),
                 filterMatureExplicit: defaults.object(forKey: "content.filterMatureExplicit") as? Bool,
-                ageConfirmed: defaults.object(forKey: "content.ageConfirmed") as? Bool
+                ageConfirmed: defaults.object(forKey: "content.ageConfirmed") as? Bool,
+                activeProfile: defaults.string(forKey: "reader.activeProfile"),
+                activeProfilePhone: defaults.string(forKey: "reader.activeProfile.phone"),
+                activeProfileMac: defaults.string(forKey: "reader.activeProfile.mac"),
+                activeProfilePad: defaults.string(forKey: "reader.activeProfile.pad"),
+                profiles: defaults.string(forKey: "reader.profiles"),
+                
+                themePhone: defaults.string(forKey: "reader.theme.phone"),
+                themeMac: defaults.string(forKey: "reader.theme.mac"),
+                themePad: defaults.string(forKey: "reader.theme.pad"),
+                fontFamilyPhone: defaults.string(forKey: "reader.fontFamily.phone"),
+                fontFamilyMac: defaults.string(forKey: "reader.fontFamily.mac"),
+                fontFamilyPad: defaults.string(forKey: "reader.fontFamily.pad"),
+                widthPercentPhone: defaults.object(forKey: "reader.widthPercent.phone") as? Double,
+                widthPercentMac: defaults.object(forKey: "reader.widthPercent.mac") as? Double,
+                widthPercentPad: defaults.object(forKey: "reader.widthPercent.pad") as? Double,
+                modePhone: defaults.string(forKey: "reader.mode.phone"),
+                modeMac: defaults.string(forKey: "reader.mode.mac"),
+                modePad: defaults.string(forKey: "reader.mode.pad"),
+                fontSizePtPhone: defaults.object(forKey: "reader.fontSizePt.phone") as? Double,
+                fontSizePtMac: defaults.object(forKey: "reader.fontSizePt.mac") as? Double,
+                fontSizePtPad: defaults.object(forKey: "reader.fontSizePt.pad") as? Double,
+                lineSpacingPtPhone: defaults.object(forKey: "reader.lineSpacingPt.phone") as? Double,
+                lineSpacingPtMac: defaults.object(forKey: "reader.lineSpacingPt.mac") as? Double,
+                lineSpacingPtPad: defaults.object(forKey: "reader.lineSpacingPt.pad") as? Double,
+                paragraphSpacingPtPhone: defaults.object(forKey: "reader.paragraphSpacingPt.phone") as? Double,
+                paragraphSpacingPtMac: defaults.object(forKey: "reader.paragraphSpacingPt.mac") as? Double,
+                paragraphSpacingPtPad: defaults.object(forKey: "reader.paragraphSpacingPt.pad") as? Double,
+                pageTurnHapticsPhone: defaults.object(forKey: "reader.pageTurnHaptics.phone") as? Bool,
+                pageTurnHapticsMac: defaults.object(forKey: "reader.pageTurnHaptics.mac") as? Bool,
+                pageTurnHapticsPad: defaults.object(forKey: "reader.pageTurnHaptics.pad") as? Bool,
+                pageTurnAnimationsPhone: defaults.object(forKey: "reader.pageTurnAnimations.phone") as? Bool,
+                pageTurnAnimationsMac: defaults.object(forKey: "reader.pageTurnAnimations.mac") as? Bool,
+                pageTurnAnimationsPad: defaults.object(forKey: "reader.pageTurnAnimations.pad") as? Bool
             )
             
             let folderBackups = folders.map {
@@ -243,6 +277,7 @@ final class iCloudSyncManager {
                 if let theme = s.theme { defaults.set(theme, forKey: "reader.theme") }
                 if let fontFamily = s.fontFamily { defaults.set(fontFamily, forKey: "reader.fontFamily") }
                 if let width = s.width { defaults.set(width, forKey: "reader.width") }
+                if let widthPercent = s.widthPercent { defaults.set(widthPercent, forKey: "reader.widthPercent") }
                 if let mode = s.mode { defaults.set(mode, forKey: "reader.mode") }
                 if let fontSizePt = s.fontSizePt { defaults.set(fontSizePt, forKey: "reader.fontSizePt") }
                 if let lineSpacingPt = s.lineSpacingPt { defaults.set(lineSpacingPt, forKey: "reader.lineSpacingPt") }
@@ -253,6 +288,40 @@ final class iCloudSyncManager {
                 if let ttsVoiceId = s.ttsVoiceId { defaults.set(ttsVoiceId, forKey: "reader.ttsVoiceId") }
                 if let filterMatureExplicit = s.filterMatureExplicit { defaults.set(filterMatureExplicit, forKey: "content.filterMatureExplicit") }
                 if let ageConfirmed = s.ageConfirmed { defaults.set(ageConfirmed, forKey: "content.ageConfirmed") }
+                if let activeProfile = s.activeProfile { defaults.set(activeProfile, forKey: "reader.activeProfile") }
+                if let activeProfilePhone = s.activeProfilePhone { defaults.set(activeProfilePhone, forKey: "reader.activeProfile.phone") }
+                if let activeProfileMac = s.activeProfileMac { defaults.set(activeProfileMac, forKey: "reader.activeProfile.mac") }
+                if let activeProfilePad = s.activeProfilePad { defaults.set(activeProfilePad, forKey: "reader.activeProfile.pad") }
+                if let profiles = s.profiles { defaults.set(profiles, forKey: "reader.profiles") }
+
+                // Device-specific settings
+                if let themePhone = s.themePhone { defaults.set(themePhone, forKey: "reader.theme.phone") }
+                if let themeMac = s.themeMac { defaults.set(themeMac, forKey: "reader.theme.mac") }
+                if let themePad = s.themePad { defaults.set(themePad, forKey: "reader.theme.pad") }
+                if let fontFamilyPhone = s.fontFamilyPhone { defaults.set(fontFamilyPhone, forKey: "reader.fontFamily.phone") }
+                if let fontFamilyMac = s.fontFamilyMac { defaults.set(fontFamilyMac, forKey: "reader.fontFamily.mac") }
+                if let fontFamilyPad = s.fontFamilyPad { defaults.set(fontFamilyPad, forKey: "reader.fontFamily.pad") }
+                if let widthPercentPhone = s.widthPercentPhone { defaults.set(widthPercentPhone, forKey: "reader.widthPercent.phone") }
+                if let widthPercentMac = s.widthPercentMac { defaults.set(widthPercentMac, forKey: "reader.widthPercent.mac") }
+                if let widthPercentPad = s.widthPercentPad { defaults.set(widthPercentPad, forKey: "reader.widthPercent.pad") }
+                if let modePhone = s.modePhone { defaults.set(modePhone, forKey: "reader.mode.phone") }
+                if let modeMac = s.modeMac { defaults.set(modeMac, forKey: "reader.mode.mac") }
+                if let modePad = s.modePad { defaults.set(modePad, forKey: "reader.mode.pad") }
+                if let fontSizePtPhone = s.fontSizePtPhone { defaults.set(fontSizePtPhone, forKey: "reader.fontSizePt.phone") }
+                if let fontSizePtMac = s.fontSizePtMac { defaults.set(fontSizePtMac, forKey: "reader.fontSizePt.mac") }
+                if let fontSizePtPad = s.fontSizePtPad { defaults.set(fontSizePtPad, forKey: "reader.fontSizePt.pad") }
+                if let lineSpacingPtPhone = s.lineSpacingPtPhone { defaults.set(lineSpacingPtPhone, forKey: "reader.lineSpacingPt.phone") }
+                if let lineSpacingPtMac = s.lineSpacingPtMac { defaults.set(lineSpacingPtMac, forKey: "reader.lineSpacingPt.mac") }
+                if let lineSpacingPtPad = s.lineSpacingPtPad { defaults.set(lineSpacingPtPad, forKey: "reader.lineSpacingPt.pad") }
+                if let paragraphSpacingPtPhone = s.paragraphSpacingPtPhone { defaults.set(paragraphSpacingPtPhone, forKey: "reader.paragraphSpacingPt.phone") }
+                if let paragraphSpacingPtMac = s.paragraphSpacingPtMac { defaults.set(paragraphSpacingPtMac, forKey: "reader.paragraphSpacingPt.mac") }
+                if let paragraphSpacingPtPad = s.paragraphSpacingPtPad { defaults.set(paragraphSpacingPtPad, forKey: "reader.paragraphSpacingPt.pad") }
+                if let pageTurnHapticsPhone = s.pageTurnHapticsPhone { defaults.set(pageTurnHapticsPhone, forKey: "reader.pageTurnHaptics.phone") }
+                if let pageTurnHapticsMac = s.pageTurnHapticsMac { defaults.set(pageTurnHapticsMac, forKey: "reader.pageTurnHaptics.mac") }
+                if let pageTurnHapticsPad = s.pageTurnHapticsPad { defaults.set(pageTurnHapticsPad, forKey: "reader.pageTurnHaptics.pad") }
+                if let pageTurnAnimationsPhone = s.pageTurnAnimationsPhone { defaults.set(pageTurnAnimationsPhone, forKey: "reader.pageTurnAnimations.phone") }
+                if let pageTurnAnimationsMac = s.pageTurnAnimationsMac { defaults.set(pageTurnAnimationsMac, forKey: "reader.pageTurnAnimations.mac") }
+                if let pageTurnAnimationsPad = s.pageTurnAnimationsPad { defaults.set(pageTurnAnimationsPad, forKey: "reader.pageTurnAnimations.pad") }
             }
             
             // 0.5. Restore CustomFolders
@@ -463,6 +532,7 @@ struct SettingsBackup: Codable {
     let theme: String?
     let fontFamily: String?
     let width: String?
+    let widthPercent: Double?
     let mode: String?
     let fontSizePt: Double?
     let lineSpacingPt: Double?
@@ -473,6 +543,40 @@ struct SettingsBackup: Codable {
     let ttsVoiceId: String?
     let filterMatureExplicit: Bool?
     let ageConfirmed: Bool?
+    let activeProfile: String?
+    let activeProfilePhone: String?
+    let activeProfileMac: String?
+    let activeProfilePad: String?
+    let profiles: String?
+
+    // Device-specific settings
+    let themePhone: String?
+    let themeMac: String?
+    let themePad: String?
+    let fontFamilyPhone: String?
+    let fontFamilyMac: String?
+    let fontFamilyPad: String?
+    let widthPercentPhone: Double?
+    let widthPercentMac: Double?
+    let widthPercentPad: Double?
+    let modePhone: String?
+    let modeMac: String?
+    let modePad: String?
+    let fontSizePtPhone: Double?
+    let fontSizePtMac: Double?
+    let fontSizePtPad: Double?
+    let lineSpacingPtPhone: Double?
+    let lineSpacingPtMac: Double?
+    let lineSpacingPtPad: Double?
+    let paragraphSpacingPtPhone: Double?
+    let paragraphSpacingPtMac: Double?
+    let paragraphSpacingPtPad: Double?
+    let pageTurnHapticsPhone: Bool?
+    let pageTurnHapticsMac: Bool?
+    let pageTurnHapticsPad: Bool?
+    let pageTurnAnimationsPhone: Bool?
+    let pageTurnAnimationsMac: Bool?
+    let pageTurnAnimationsPad: Bool?
 }
 
 struct WorkBackup: Codable {

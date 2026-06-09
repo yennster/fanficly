@@ -35,12 +35,14 @@ struct SerializableCookie: Codable, Sendable {
     }
 }
 
-actor CredentialStore {
+final class CredentialStore: @unchecked Sendable {
     static let shared = CredentialStore()
 
     private let keychain = Keychain(service: "io.github.yennster.fanficly")
     private let usernameKey = "ao3.username"
     private let cookiesKey = "ao3.cookies"
+
+    private init() {}
 
     func storedUsername() -> String? {
         try? keychain.get(usernameKey)
@@ -81,9 +83,7 @@ final class AuthState {
     var lastError: String?
 
     init() {
-        Task { @MainActor in
-            self.username = await CredentialStore.shared.storedUsername()
-        }
+        self.username = CredentialStore.shared.storedUsername()
     }
 
     func login(using client: any AO3ClientProtocol, username: String, password: String) async {
@@ -93,7 +93,7 @@ final class AuthState {
         do {
             try await client.login(username: username, password: password)
             self.username = username
-            await CredentialStore.shared.setUsername(username)
+            CredentialStore.shared.setUsername(username)
         } catch let AO3Error.loginFailed(reason) {
             lastError = reason
         } catch let AO3Error.network(underlying) {
@@ -105,7 +105,7 @@ final class AuthState {
 
     func logout(using client: any AO3ClientProtocol) async {
         await client.logout()
-        await CredentialStore.shared.setUsername(nil)
+        CredentialStore.shared.setUsername(nil)
         username = nil
     }
 

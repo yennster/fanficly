@@ -25,6 +25,22 @@ struct FanficlyApp: App {
             defaults.removeObject(forKey: "reader.pageTurnHaptics")
             defaults.removeObject(forKey: "reader.pageTurnAnimations")
             defaults.removeObject(forKey: "settings.iCloudSyncEnabled")
+            
+            // Clean up device-specific keys too
+            let deviceKeys = [
+                ReaderProfile.deviceKey("reader.theme"),
+                ReaderProfile.deviceKey("reader.fontFamily"),
+                ReaderProfile.deviceKey("reader.widthPercent"),
+                ReaderProfile.deviceKey("reader.mode"),
+                ReaderProfile.deviceKey("reader.fontSizePt"),
+                ReaderProfile.deviceKey("reader.lineSpacingPt"),
+                ReaderProfile.deviceKey("reader.paragraphSpacingPt"),
+                ReaderProfile.deviceKey("reader.pageTurnHaptics"),
+                ReaderProfile.deviceKey("reader.pageTurnAnimations")
+            ]
+            for key in deviceKeys {
+                defaults.removeObject(forKey: key)
+            }
         }
     }
 
@@ -47,8 +63,8 @@ struct FanficlyApp: App {
     }()
 
     @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
-    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
-    @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
 
     var body: some Scene {
         WindowGroup {

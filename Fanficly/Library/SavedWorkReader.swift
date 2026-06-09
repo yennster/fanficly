@@ -8,7 +8,7 @@ struct SavedWorkReader: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var systemColorScheme
-    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     let work: Work
 
     @State private var payload: AO3WorkPayload?

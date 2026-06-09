@@ -123,6 +123,11 @@ final class PersistenceTests: XCTestCase {
         defaults.set(22.0, forKey: "reader.fontSizePt")
         defaults.set(true, forKey: "content.filterMatureExplicit")
         
+        // Device-specific settings
+        defaults.set("dracula", forKey: "reader.theme.pad")
+        defaults.set("compact", forKey: "reader.activeProfile.pad")
+        defaults.set(18.0, forKey: "reader.fontSizePt.pad")
+        
         // 2. Perform backup
         let syncManager = iCloudSyncManager.shared
         syncManager.backupToiCloud(context: ctx)
@@ -134,7 +139,12 @@ final class PersistenceTests: XCTestCase {
         defaults.removeObject(forKey: "reader.fontSizePt")
         defaults.removeObject(forKey: "content.filterMatureExplicit")
         
+        defaults.removeObject(forKey: "reader.theme.pad")
+        defaults.removeObject(forKey: "reader.activeProfile.pad")
+        defaults.removeObject(forKey: "reader.fontSizePt.pad")
+        
         XCTAssertNil(defaults.string(forKey: "reader.theme"))
+        XCTAssertNil(defaults.string(forKey: "reader.theme.pad"))
         
         // 4. Restore from backup
         let success = await syncManager.restoreFromiCloud(context: ctx)
@@ -146,5 +156,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "reader.width"), "wide")
         XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt"), 22.0)
         XCTAssertTrue(defaults.bool(forKey: "content.filterMatureExplicit"))
+        
+        XCTAssertEqual(defaults.string(forKey: "reader.theme.pad"), "dracula")
+        XCTAssertEqual(defaults.string(forKey: "reader.activeProfile.pad"), "compact")
+        XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt.pad"), 18.0)
     }
 }

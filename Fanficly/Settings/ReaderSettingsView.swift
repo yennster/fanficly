@@ -5,27 +5,31 @@ import SwiftData
 struct ReaderSettingsView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorSchemeContrast) private var contrast
-    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
-    @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
-    @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
-    @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
-    @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
-    @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
-    @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
-    @AppStorage("reader.pageTurnAnimations") private var pageTurnAnimations: Bool = true
+    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
+    @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
+    @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
+    @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
+    @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
     @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
 
     // Profile Management
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
-    @AppStorage("reader.activeProfile") private var activeProfileName: String = "Default"
+    @AppStorage(ReaderProfile.deviceActiveProfileKey) private var activeProfileName: String = "Default"
     @AppStorage("reader.profiles") private var profilesJSON: String = ""
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
+
+    init() {
+        ReaderProfile.migrateLegacySettingsIfNeeded()
+    }
 
     private var profiles: [ReaderProfile] {
         ReaderProfile.loadProfiles(from: profilesJSON)
@@ -36,7 +40,7 @@ struct ReaderSettingsView: View {
         if let idx = list.firstIndex(where: { $0.name == activeProfileName }) {
             list[idx].themeRaw = themeRaw
             list[idx].fontFamilyRaw = fontFamilyRaw
-            list[idx].widthRaw = widthRaw
+            list[idx].widthPercent = widthPercent
             list[idx].modeRaw = modeRaw
             list[idx].fontSizePt = fontSizePt
             list[idx].lineSpacingPt = lineSpacingPt
@@ -48,7 +52,8 @@ struct ReaderSettingsView: View {
                 name: activeProfileName,
                 themeRaw: themeRaw,
                 fontFamilyRaw: fontFamilyRaw,
-                widthRaw: widthRaw,
+                widthRaw: nil,
+                widthPercent: widthPercent,
                 modeRaw: modeRaw,
                 fontSizePt: fontSizePt,
                 lineSpacingPt: lineSpacingPt,
@@ -65,7 +70,7 @@ struct ReaderSettingsView: View {
         activeProfileName = profile.name
         themeRaw = profile.themeRaw
         fontFamilyRaw = profile.fontFamilyRaw
-        widthRaw = profile.widthRaw
+        widthPercent = profile.widthPercent ?? 70.0
         modeRaw = profile.modeRaw
         fontSizePt = profile.fontSizePt
         lineSpacingPt = profile.lineSpacingPt
@@ -257,19 +262,20 @@ struct ReaderSettingsView: View {
                 .help("Choose the typography for the reader.")
             }
 
-            Section("Margins") {
-                Picker("Margins", selection: $widthRaw) {
-                    ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
-                }
-                .pickerStyle(.inline).labelsHidden()
-                .help("Choose the text column width.")
+            Section {
+                metricSlider("Margins", value: $widthPercent, range: 30.0...100.0,
+                             step: 5.0, unit: "%", icon: "arrow.left.and.right.square")
+            } header: {
+                Text("Margins")
+            } footer: {
+                Text("Adjust the width of the text column as a percentage of the window.")
             }
         }
         .navigationTitle("Reader")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
-        .onChange(of: widthRaw) { _, _ in queueBackup() }
+        .onChange(of: widthPercent) { _, _ in queueBackup() }
         .onChange(of: modeRaw) { _, _ in queueBackup() }
         .onChange(of: fontSizePt) { _, _ in queueBackup() }
         .onChange(of: lineSpacingPt) { _, _ in queueBackup() }

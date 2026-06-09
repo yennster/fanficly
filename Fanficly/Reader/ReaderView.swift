@@ -7,15 +7,15 @@ struct ReaderView: View {
     let chapters: [AO3ChapterPayload]
     let summary: AO3WorkSummary?
 
-    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
-    @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
-    @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
-    @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage("reader.fontSizePt") private var fontSizePt: Double = ReaderMetrics.defaultFontSize
-    @AppStorage("reader.lineSpacingPt") private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
-    @AppStorage("reader.paragraphSpacingPt") private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
-    @AppStorage("reader.pageTurnHaptics") private var pageTurnHaptics: Bool = false
-    @AppStorage("reader.pageTurnAnimations") private var pageTurnAnimations: Bool = true
+    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
+    @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
+    @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
+    @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
+    @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -42,10 +42,11 @@ struct ReaderView: View {
 
     // Profile Management
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
-    @AppStorage("reader.activeProfile") private var activeProfileName: String = "Default"
+    @AppStorage(ReaderProfile.deviceActiveProfileKey) private var activeProfileName: String = "Default"
     @AppStorage("reader.profiles") private var profilesJSON: String = ""
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
+    @FocusState private var isReaderFocused: Bool
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
 
@@ -58,7 +59,7 @@ struct ReaderView: View {
         if let idx = list.firstIndex(where: { $0.name == activeProfileName }) {
             list[idx].themeRaw = themeRaw
             list[idx].fontFamilyRaw = fontFamilyRaw
-            list[idx].widthRaw = widthRaw
+            list[idx].widthPercent = widthPercent
             list[idx].modeRaw = modeRaw
             list[idx].fontSizePt = fontSizePt
             list[idx].lineSpacingPt = lineSpacingPt
@@ -70,7 +71,8 @@ struct ReaderView: View {
                 name: activeProfileName,
                 themeRaw: themeRaw,
                 fontFamilyRaw: fontFamilyRaw,
-                widthRaw: widthRaw,
+                widthRaw: nil,
+                widthPercent: widthPercent,
                 modeRaw: modeRaw,
                 fontSizePt: fontSizePt,
                 lineSpacingPt: lineSpacingPt,
@@ -87,7 +89,7 @@ struct ReaderView: View {
         activeProfileName = profile.name
         themeRaw = profile.themeRaw
         fontFamilyRaw = profile.fontFamilyRaw
-        widthRaw = profile.widthRaw
+        widthPercent = profile.widthPercent ?? 70.0
         modeRaw = profile.modeRaw
         fontSizePt = profile.fontSizePt
         lineSpacingPt = profile.lineSpacingPt
@@ -124,13 +126,13 @@ struct ReaderView: View {
 
     private var theme: ReaderTheme { ReaderTheme(rawValue: themeRaw) ?? .system }
     private var fontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork }
-    private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
     private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
     private var fontSize: CGFloat { CGFloat(fontSizePt) / CGFloat(zoomScale) }
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) / CGFloat(zoomScale) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) / CGFloat(zoomScale) }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
+        ReaderProfile.migrateLegacySettingsIfNeeded()
         self.title = title
         self.author = author
         self.authorUsername = summary?.authorUsername ?? ""
@@ -139,6 +141,7 @@ struct ReaderView: View {
     }
 
     init(work: Work) {
+        ReaderProfile.migrateLegacySettingsIfNeeded()
         self.title = work.title
         self.author = work.authorName
         self.authorUsername = work.authorUsername
@@ -170,6 +173,7 @@ struct ReaderView: View {
     }
 
     init(payload: AO3WorkPayload) {
+        ReaderProfile.migrateLegacySettingsIfNeeded()
         self.title = payload.summary.title
         self.author = payload.summary.author
         self.authorUsername = payload.summary.authorUsername
@@ -224,28 +228,17 @@ struct ReaderView: View {
         .onDisappear { speech.stop() }
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
-        .onChange(of: widthRaw) { _, _ in queueBackup() }
+        .onChange(of: widthPercent) { _, _ in queueBackup() }
         .onChange(of: modeRaw) { _, _ in queueBackup() }
         .onChange(of: fontSizePt) { _, _ in queueBackup() }
         .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
         .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
-        .background {
-            Group {
-                if mode == .pageByPage {
-                    Button(action: { turnPageByPage(forward: false) }) { EmptyView() }
-                        .keyboardShortcut(.leftArrow, modifiers: [])
-                    Button(action: { turnPageByPage(forward: true) }) { EmptyView() }
-                        .keyboardShortcut(.rightArrow, modifiers: [])
-                } else if mode == .paginated {
-                    Button(action: { turnPage(forward: false) }) { EmptyView() }
-                        .keyboardShortcut(.leftArrow, modifiers: [])
-                    Button(action: { turnPage(forward: true) }) { EmptyView() }
-                        .keyboardShortcut(.rightArrow, modifiers: [])
-                }
-            }
-            .opacity(0)
-            .accessibilityHidden(true)
-        }
+        .modifier(ReaderKeyPressModifier(
+            mode: mode,
+            isReaderFocused: $isReaderFocused,
+            turnPageByPage: { turnPageByPage(forward: $0) },
+            turnPage: { turnPage(forward: $0) }
+        ))
     }
 
     private func queueBackup() {
@@ -364,74 +357,76 @@ struct ReaderView: View {
     // MARK: - Continuous
 
     private func continuousBody(fg: Color, bg: Color) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: Spacing.lg) {
-                    titleHeader(fg: fg)
-                        .id("__top")
-                        .trackChapterOffset(index: 0, in: scrollSpace)
+        GeometryReader { geo in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: Spacing.lg) {
+                        titleHeader(fg: fg)
+                            .id("__top")
+                            .trackChapterOffset(index: 0, in: scrollSpace)
 
-                    ForEach(chapters, id: \.index) { chapter in
-                        VStack(alignment: .leading, spacing: Spacing.sm) {
-                            if chapters.count > 1 {
-                                chapterHeader(chapter, fg: fg)
+                        ForEach(chapters, id: \.index) { chapter in
+                            VStack(alignment: .leading, spacing: Spacing.sm) {
+                                if chapters.count > 1 {
+                                    chapterHeader(chapter, fg: fg)
+                                }
+                                chapterBlock(chapter, fg: fg)
                             }
-                            chapterBlock(chapter, fg: fg)
+                            .id(chapter.index)
+                            .trackChapterOffset(index: chapter.index, in: scrollSpace)
                         }
-                        .id(chapter.index)
-                        .trackChapterOffset(index: chapter.index, in: scrollSpace)
+                    }
+                    .frame(maxWidth: geo.size.width * CGFloat(widthPercent / 100.0), alignment: .leading)
+                    .padding(.horizontal, geo.size.width * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
+                    .padding(.vertical, Spacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .coordinateSpace(name: scrollSpace)
+                .onPreferenceChange(ChapterOffsetKey.self) { offsets in
+                    if let current = ChapterTracking.currentChapter(offsets: offsets) {
+                        visibleChapterIndex = current
                     }
                 }
-                .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
-                .padding(.horizontal, width.horizontalPadding)
-                .padding(.vertical, Spacing.lg)
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-            .coordinateSpace(name: scrollSpace)
-            .onPreferenceChange(ChapterOffsetKey.self) { offsets in
-                if let current = ChapterTracking.currentChapter(offsets: offsets) {
-                    visibleChapterIndex = current
-                }
-            }
-            .onPreferenceChange(ScrollAnchorKey.self) { offsets in
-                // Sample at most ~3x/sec so progress tracking never competes
-                // with the scroll for main-thread time.
-                let now = Date()
-                guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
-                lastAnchorSampleAt = now
-                if !isRestoring, let anchor = ChapterTracking.topmostAnchor(offsets) {
-                    currentAnchor = anchor
-                }
-            }
-            .background(bg)
-            .foregroundStyle(fg)
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isUIMinimized.toggle()
+                .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                    // Sample at most ~3x/sec so progress tracking never competes
+                    // with the scroll for main-thread time.
+                    let now = Date()
+                    guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
+                    lastAnchorSampleAt = now
+                    if !isRestoring, let anchor = ChapterTracking.topmostAnchor(offsets) {
+                        currentAnchor = anchor
                     }
                 }
-            )
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if chapters.count > 1 && !isUIMinimized {
-                    chapterIndicatorBar(fg: fg, bg: bg)
+                .background(bg)
+                .foregroundStyle(fg)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isUIMinimized.toggle()
+                        }
+                    }
+                )
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if chapters.count > 1 && !isUIMinimized {
+                        chapterIndicatorBar(fg: fg, bg: bg)
+                    }
                 }
-            }
-            .onChange(of: selectedChapterIndex) { _, newIndex in
-                proxy.scrollTo(newIndex, anchor: .top)
-                Task {
-                    try? await Task.sleep(nanoseconds: 60_000_000)
+                .onChange(of: selectedChapterIndex) { _, newIndex in
                     proxy.scrollTo(newIndex, anchor: .top)
+                    Task {
+                        try? await Task.sleep(nanoseconds: 60_000_000)
+                        proxy.scrollTo(newIndex, anchor: .top)
+                    }
                 }
+                .onChange(of: currentAnchor) { _, anchor in
+                    if let anchor { saveProgress(anchor) }
+                }
+                // Karaoke: keep the paragraph being read aloud in view.
+                .onChange(of: speech.currentParagraph) { _, _ in scrollToSpokenParagraph(proxy) }
+                .onChange(of: listeningChapter) { _, _ in scrollToSpokenParagraph(proxy) }
+                .task { await restoreContinuous(proxy: proxy) }
+                .onDisappear { persistNow() }
             }
-            .onChange(of: currentAnchor) { _, anchor in
-                if let anchor { saveProgress(anchor) }
-            }
-            // Karaoke: keep the paragraph being read aloud in view.
-            .onChange(of: speech.currentParagraph) { _, _ in scrollToSpokenParagraph(proxy) }
-            .onChange(of: listeningChapter) { _, _ in scrollToSpokenParagraph(proxy) }
-            .task { await restoreContinuous(proxy: proxy) }
-            .onDisappear { persistNow() }
         }
     }
 
@@ -597,46 +592,48 @@ struct ReaderView: View {
     }
 
     private func paginatedPage(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
-        ScrollViewReader { pageProxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: Spacing.lg) {
-                    if chapter.index == chapters.first?.index {
-                        titleHeader(fg: fg)
+        GeometryReader { geo in
+            ScrollViewReader { pageProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Spacing.lg) {
+                        if chapter.index == chapters.first?.index {
+                            titleHeader(fg: fg)
+                        }
+                        if chapters.count > 1 {
+                            chapterHeader(chapter, fg: fg)
+                        }
+                        chapterBlock(chapter, fg: fg)
                     }
-                    if chapters.count > 1 {
-                        chapterHeader(chapter, fg: fg)
+                    .frame(maxWidth: geo.size.width * CGFloat(widthPercent / 100.0), alignment: .leading)
+                    .padding(.horizontal, geo.size.width * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
+                    .padding(.top, Spacing.lg)
+                    .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                // Each page has its own scroll space; the handler below only sees
+                // this page's paragraph anchors.
+                .coordinateSpace(name: scrollSpace)
+                .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                    guard chapter.index == selectedChapterIndex, !isRestoring else { return }
+                    let now = Date()
+                    guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
+                    lastAnchorSampleAt = now
+                    if let anchor = ChapterTracking.topmostAnchor(offsets) {
+                        let updated = ReadingAnchor(chapter: chapter.index, paragraph: anchor.paragraph)
+                        currentAnchor = updated
+                        saveProgress(updated)
                     }
-                    chapterBlock(chapter, fg: fg)
                 }
-                .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
-                .padding(.horizontal, width.horizontalPadding)
-                .padding(.top, Spacing.lg)
-                .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-            // Each page has its own scroll space; the handler below only sees
-            // this page's paragraph anchors.
-            .coordinateSpace(name: scrollSpace)
-            .onPreferenceChange(ScrollAnchorKey.self) { offsets in
-                guard chapter.index == selectedChapterIndex, !isRestoring else { return }
-                let now = Date()
-                guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
-                lastAnchorSampleAt = now
-                if let anchor = ChapterTracking.topmostAnchor(offsets) {
-                    let updated = ReadingAnchor(chapter: chapter.index, paragraph: anchor.paragraph)
-                    currentAnchor = updated
-                    saveProgress(updated)
+                .task(id: selectedChapterIndex) {
+                    await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
                 }
-            }
-            .task(id: selectedChapterIndex) {
-                await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
-            }
-            // Karaoke: follow the narrated paragraph on this page.
-            .onChange(of: speech.currentParagraph) { _, p in
-                guard speech.isActive, chapter.index == listeningChapter else { return }
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    pageProxy.scrollTo(ChapterTracking.key(chapter: chapter.index, paragraph: p),
-                                       anchor: UnitPoint(x: 0.5, y: 0.32))
+                // Karaoke: follow the narrated paragraph on this page.
+                .onChange(of: speech.currentParagraph) { _, p in
+                    guard speech.isActive, chapter.index == listeningChapter else { return }
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        pageProxy.scrollTo(ChapterTracking.key(chapter: chapter.index, paragraph: p),
+                                           anchor: UnitPoint(x: 0.5, y: 0.32))
+                    }
                 }
             }
         }
@@ -665,7 +662,7 @@ struct ReaderView: View {
                 chapter: selectedChapterIndex,
                 fontSize: fontSizePt / zoomScale,
                 fontFamily: fontFamilyRaw,
-                width: widthRaw,
+                widthPercent: widthPercent,
                 lineSpacing: lineSpacingPt / zoomScale,
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 size: CGSize(
@@ -686,7 +683,7 @@ struct ReaderView: View {
                 } else {
                     TabView(selection: $selectedPageId) {
                         ForEach(paginatedPages, id: \.id) { page in
-                            makePageCell(page: page, fg: fg)
+                            makePageCell(page: page, fg: fg, containerWidth: geo.size.width)
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
@@ -745,7 +742,7 @@ struct ReaderView: View {
     }
 
     @ViewBuilder
-    private func makePageCell(page: ChapterPage, fg: Color) -> some View {
+    private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
         if let chapter = chapters.first(where: { $0.index == page.chapterIndex }),
            let atoms = parsedAtoms[page.chapterIndex] {
             
@@ -765,8 +762,8 @@ struct ReaderView: View {
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex),
                 isScrollable: !isUIMinimized
             )
-            .frame(maxWidth: width.maxColumnWidth, alignment: .leading)
-            .padding(.horizontal, width.horizontalPadding)
+            .frame(maxWidth: containerWidth * CGFloat(widthPercent / 100.0), alignment: .leading)
+            .padding(.horizontal, containerWidth * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
             .padding(.top, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -993,10 +990,7 @@ struct ReaderView: View {
     // MARK: - Pagination algorithm helpers
 
     private func performPagination(trigger: PaginationTrigger) async -> PaginationResult {
-        var w = trigger.size.width - width.horizontalPadding * 2
-        if let maxW = width.maxColumnWidth {
-            w = min(w, maxW)
-        }
+        let w = trigger.size.width * CGFloat(trigger.widthPercent / 100.0)
         let h = trigger.size.height - 40 // margins
         
         guard w > 50 && h > 100 else {
@@ -1448,13 +1442,12 @@ struct ReaderView: View {
             presetMenu("Paragraph spacing", value: $paragraphSpacingPt, presets: ReaderMetrics.paragraphSpacingPresets,
                        icon: "text.justify.left")
 
-            Menu {
-                Picker("Margins", selection: $widthRaw) {
-                    ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
-                }
-            } label: {
-                Label("Margins · \(width.displayName)", systemImage: "rectangle.compress.vertical")
-            }
+            presetMenu("Margins", value: $widthPercent, presets: [
+                (name: "Narrow (50%)", value: 50.0),
+                (name: "Medium (70%)", value: 70.0),
+                (name: "Wide (85%)", value: 85.0),
+                (name: "Full (100%)", value: 100.0)
+            ], icon: "arrow.left.and.right.square")
         } label: {
             Image(systemName: "textformat")
         }
@@ -1523,7 +1516,7 @@ struct PaginationTrigger: Equatable {
     let chapter: Int
     let fontSize: Double
     let fontFamily: String
-    let width: String
+    let widthPercent: Double
     let lineSpacing: Double
     let paragraphSpacing: Double
     let size: CGSize
@@ -1650,5 +1643,46 @@ struct ReaderPageCell: View {
             }
             Spacer(minLength: 0)
         }
+    }
+}
+
+struct ReaderKeyPressModifier: ViewModifier {
+    let mode: ReadingMode
+    @FocusState.Binding var isReaderFocused: Bool
+    let turnPageByPage: (Bool) -> Void
+    let turnPage: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .focusable()
+            .focused($isReaderFocused)
+            .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
+                if mode == .pageByPage {
+                    if press.key == .leftArrow {
+                        turnPageByPage(false)
+                        return .handled
+                    } else if press.key == .rightArrow {
+                        turnPageByPage(true)
+                        return .handled
+                    }
+                } else if mode == .paginated {
+                    if press.key == .leftArrow {
+                        turnPage(false)
+                        return .handled
+                    } else if press.key == .rightArrow {
+                        turnPage(true)
+                        return .handled
+                    }
+                }
+                return .ignored
+            }
+            .onAppear {
+                isReaderFocused = true
+            }
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    isReaderFocused = true
+                }
+            )
     }
 }

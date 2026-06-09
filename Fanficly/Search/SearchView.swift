@@ -576,7 +576,7 @@ struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var systemColorScheme
-    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @Environment(\.dismiss) private var dismiss
     let workId: Int
     @State private var payload: AO3WorkPayload?

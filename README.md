@@ -124,4 +124,4 @@ PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patie
 
 ## License
 
-[MIT](LICENSE).
+[PolyForm Noncommercial License 1.0.0](LICENSE).
