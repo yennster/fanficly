@@ -20,8 +20,13 @@ final class ScreenshotTests: XCTestCase {
         let repoRoot = (((#filePath as NSString)
             .deletingLastPathComponent as NSString)
             .deletingLastPathComponent)
-        // Group raw shots by device so the 6.9" and 13" sets don't clobber.
-        let device = UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
+        // Group raw shots by device so the 6.9", 13", and mac sets don't clobber.
+        let device: String
+        switch UIDevice.current.userInterfaceIdiom {
+        case .pad:  device = "ipad"
+        case .mac:  device = "mac"
+        default:    device = "iphone"
+        }
         shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
             .appendingPathComponent(device)
         try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)

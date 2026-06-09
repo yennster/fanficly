@@ -67,6 +67,9 @@ DEVICES = {
     "ipad":   dict(out_w=2064, out_h=2752, frame_w=2048, frame_h=2732,
                    text_top=0.052, verb_max=300, verb_min=150, desc=150,
                    dev_w=0.70, dev_top=0.300),
+    "mac":    dict(out_w=2560, out_h=1600, frame_w=1920, frame_h=1200,
+                   text_top=0.060, verb_max=180, verb_min=100, desc=90,
+                   dev_w=0.75, dev_top=0.280),
 }
 
 
@@ -184,7 +187,26 @@ def main():
         if not staged:
             shutil.rmtree(work, ignore_errors=True)
             continue
-        run_frameit(work)
+        if device != "mac":
+            run_frameit(work)
+        else:
+            # For mac, we manually build a framed appearance by adding a window border and a drop shadow
+            for slug, verb, desc in staged:
+                raw_shot_path = os.path.join(work, f"{slug}.png")
+                shot = Image.open(raw_shot_path).convert("RGBA")
+                border = 3
+                # Create a transparent padding for shadow
+                padded = Image.new("RGBA", (shot.width + 80, shot.height + 80), (0, 0, 0, 0))
+                # Soft drop shadow: draw a dark gray rectangle shifted down-right
+                shadow = Image.new("RGBA", (shot.width, shot.height), (0, 0, 0, 60))
+                padded.alpha_composite(shadow, (48, 48))
+                
+                # Draw simple window frame/border (simulating a macOS light/dark titlebar border)
+                bordered_shot = Image.new("RGBA", (shot.width + border * 2, shot.height + border * 2), (210, 210, 210, 255))
+                bordered_shot.paste(shot, (border, border))
+                padded.alpha_composite(bordered_shot, (40, 40))
+                
+                padded.save(os.path.join(work, f"{slug}_framed.png"))
         for slug, verb, desc in staged:
             framed = os.path.join(work, f"{slug}_framed.png")
             final_out = os.path.join(final_dir, f"{slug}.png")
