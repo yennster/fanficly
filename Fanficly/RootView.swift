@@ -44,15 +44,23 @@ struct RootView: View {
                 get: { SidebarItem(rawValue: selectedTabRaw) },
                 set: { if let val = $0 { selectedTabRaw = val.rawValue } }
             )) {
-                ForEach(SidebarItem.allCases) { item in
-                    NavigationLink(value: item) {
-                        Label(item.title, systemImage: item.systemImage)
+                Section {
+                    ForEach(SidebarItem.allCases) { item in
+                        NavigationLink(value: item) {
+                            Label(item.title, systemImage: item.systemImage)
+                        }
+                        .help("Go to \(item.title)")
+                        .hoverEffect(.highlight)
                     }
-                    .help("Go to \(item.title)")
-                    .hoverEffect(.highlight)
+                } header: {
+                    Text("Fanficly")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.primary)
+                        .textCase(nil)
                 }
             }
-            .navigationTitle("Fanficly")
+            .navigationTitle("")
         } detail: {
             NavigationStack {
                 switch SidebarItem(rawValue: selectedTabRaw) ?? .search {

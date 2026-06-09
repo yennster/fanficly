@@ -1656,6 +1656,7 @@ struct ReaderKeyPressModifier: ViewModifier {
         content
             .focusable()
             .focused($isReaderFocused)
+            .focusEffectDisabled()
             .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
                 if mode == .pageByPage {
                     if press.key == .leftArrow {
