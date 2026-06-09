@@ -63,6 +63,7 @@ targets:
               - fanficly
         UILaunchScreen:
           UIColorName: ""
+        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -145,12 +146,36 @@ targets:
         PRODUCT_NAME: FanficlyShare
         GENERATE_INFOPLIST_FILE: NO
 
+  FanficlyWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    sources:
+      - path: FanficlyWidget
+    info:
+      path: FanficlyWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Fanficly Widget
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.widget
+        PRODUCT_NAME: FanficlyWidget
+        GENERATE_INFOPLIST_FILE: NO
+
 schemes:
   Fanficly:
     build:
       targets:
         Fanficly: all
         FanficlyShare: all
+        FanficlyWidget: all
         FanficlyTests: [test]
         FanficlyUITests: [test]
     test:

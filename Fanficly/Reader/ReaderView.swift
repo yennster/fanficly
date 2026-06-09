@@ -18,6 +18,7 @@ struct ReaderView: View {
     @AppStorage("reader.pageTurnAnimations") private var pageTurnAnimations: Bool = true
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
     @State private var currentAnchor: ReadingAnchor?
@@ -40,10 +41,13 @@ struct ReaderView: View {
     private let scrollSpace = "readerScroll"
 
     // Profile Management
+    @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
     @AppStorage("reader.activeProfile") private var activeProfileName: String = "Default"
     @AppStorage("reader.profiles") private var profilesJSON: String = ""
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
+    @State private var showingErrorAlert = false
+    @State private var errorMessage = ""
 
     private var profiles: [ReaderProfile] {
         ReaderProfile.loadProfiles(from: profilesJSON)
@@ -109,6 +113,11 @@ struct ReaderView: View {
     private func saveNewProfile(name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        if profiles.contains(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            errorMessage = "A profile named \"\(trimmed)\" already exists."
+            showingErrorAlert = true
+            return
+        }
         activeProfileName = trimmed
         saveCurrentToActiveProfile()
     }
@@ -117,9 +126,9 @@ struct ReaderView: View {
     private var fontFamily: ReaderFontFamily { ReaderFontFamily(rawValue: fontFamilyRaw) ?? .newYork }
     private var width: ReaderWidth { ReaderWidth(rawValue: widthRaw) ?? .medium }
     private var mode: ReadingMode { ReadingMode(rawValue: modeRaw) ?? .continuous }
-    private var fontSize: CGFloat { CGFloat(fontSizePt) }
-    private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) }
-    private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) }
+    private var fontSize: CGFloat { CGFloat(fontSizePt) / CGFloat(zoomScale) }
+    private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) / CGFloat(zoomScale) }
+    private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) / CGFloat(zoomScale) }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         self.title = title
@@ -213,13 +222,13 @@ struct ReaderView: View {
         .onChange(of: speech.finishedTick) { _, _ in advanceNarration() }
         // Don't leave audio playing after the reader is dismissed.
         .onDisappear { speech.stop() }
-        .onChange(of: themeRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: fontFamilyRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: widthRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: modeRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: fontSizePt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: lineSpacingPt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: paragraphSpacingPt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: themeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
+        .onChange(of: widthRaw) { _, _ in queueBackup() }
+        .onChange(of: modeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontSizePt) { _, _ in queueBackup() }
+        .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
+        .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
         .background {
             Group {
                 if mode == .pageByPage {
@@ -654,11 +663,11 @@ struct ReaderView: View {
         GeometryReader { geo in
             let trigger = PaginationTrigger(
                 chapter: selectedChapterIndex,
-                fontSize: fontSizePt,
+                fontSize: fontSizePt / zoomScale,
                 fontFamily: fontFamilyRaw,
                 width: widthRaw,
-                lineSpacing: lineSpacingPt,
-                paragraphSpacing: paragraphSpacingPt,
+                lineSpacing: lineSpacingPt / zoomScale,
+                paragraphSpacing: paragraphSpacingPt / zoomScale,
                 size: CGSize(
                     width: geo.size.width,
                     height: stableHeight > 0 ? stableHeight : geo.size.height
@@ -840,7 +849,7 @@ struct ReaderView: View {
     }
 
     private func updatePageSelection(_ pageId: String) {
-        if pageTurnAnimations {
+        if pageTurnAnimations && !reduceMotion {
             withAnimation {
                 selectedPageId = pageId
             }
@@ -1459,6 +1468,9 @@ struct ReaderView: View {
             }
         } message: {
             Text("Enter a name for this reader settings configuration profile.")
+        }
+        .alert(errorMessage, isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { }
         }
     }
 

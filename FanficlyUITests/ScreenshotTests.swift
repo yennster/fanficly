@@ -16,23 +16,30 @@ final class ScreenshotTests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        // #filePath = <repo>/FanficlyUITests/ScreenshotTests.swift
+        app = XCUIApplication()
+        app.launchArguments = ["-demoMode"]
+    }
+
+    private func setupAndLaunch(device: String, orientation: UIDeviceOrientation) throws {
         let repoRoot = (((#filePath as NSString)
             .deletingLastPathComponent as NSString)
             .deletingLastPathComponent)
-        // Group raw shots by device so the 6.9", 13", and mac sets don't clobber.
-        let device: String
-        switch UIDevice.current.userInterfaceIdiom {
-        case .pad:  device = "ipad"
-        case .mac:  device = "mac"
-        default:    device = "iphone"
-        }
         shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
             .appendingPathComponent(device)
         try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
-        app = XCUIApplication()
-        app.launchArguments = ["-demoMode"]
+        
+        // Rotate the device BEFORE launching the app so that the app starts up directly in the target orientation
+        XCUIDevice.shared.orientation = orientation
+        
+        // Wait a bit for the device/simulator rotation to complete
+        let rotExp = XCTestExpectation(description: "Wait for simulator rotation")
+        _ = XCTWaiter.wait(for: [rotExp], timeout: 2.0)
+        
         app.launch()
+        
+        // Wait non-blockingly for the app to finish launching and render layouts correctly
+        let exp = XCTestExpectation(description: "Wait for layout")
+        _ = XCTWaiter.wait(for: [exp], timeout: 4.0)
     }
 
     private func snap(_ name: String) {
@@ -90,6 +97,23 @@ final class ScreenshotTests: XCTestCase {
         return identifier // return the non-existent identifier instead of the back button fallback
     }
     func testCaptureMainScreens() throws {
+        let device: String
+        switch UIDevice.current.userInterfaceIdiom {
+        case .pad:  device = "ipad"
+        default:    device = "iphone"
+        }
+        try setupAndLaunch(device: device, orientation: .portrait)
+        try runCaptureFlow()
+    }
+
+    func testCaptureMacScreens() throws {
+        // We capture landscape screenshots on iPad (or Mac Catalyst) for "mac"
+        guard UIDevice.current.userInterfaceIdiom == .pad || UIDevice.current.userInterfaceIdiom == .mac else { return }
+        try setupAndLaunch(device: "mac", orientation: .landscapeRight)
+        try runCaptureFlow()
+    }
+
+    private func runCaptureFlow() throws {
         usleep(900_000)
         snap("01-home")
 

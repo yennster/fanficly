@@ -169,13 +169,38 @@ struct SearchView: View {
         } else {
             List {
                 ForEach(visibleResults) { work in
-                    NavigationLink(value: work) { WorkRow(work: work) }
-                        // Infinite scroll: pull the next page as the last row appears.
-                        .onAppear {
-                            if work.id == visibleResults.last?.id {
-                                Task { await loadMore() }
+                    NavigationLink(value: work) {
+                        WorkRow(work: work)
+                            .hoverEffect(.highlight)
+                            .help("Read \(work.title)")
+                            .contextMenu {
+                                NavigationLink(value: work) {
+                                    Label("Read Now", systemImage: "book")
+                                }
+                                
+                                Button {
+                                    _ = WorkPersistence.toggleFollow(summary: work, into: context)
+                                } label: {
+                                    if WorkPersistence.isFollowed(workId: work.id, in: context) {
+                                        Label("Remove from Library", systemImage: "bookmark.slash")
+                                    } else {
+                                        Label("Save to Library", systemImage: "bookmark")
+                                    }
+                                }
+                                
+                                if let url = URL(string: "https://archiveofourown.org/works/\(work.id)") {
+                                    ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
+                                        Label("Share Story...", systemImage: "square.and.arrow.up")
+                                    }
+                                }
                             }
+                    }
+                    // Infinite scroll: pull the next page as the last row appears.
+                    .onAppear {
+                        if work.id == visibleResults.last?.id {
+                            Task { await loadMore() }
                         }
+                    }
                 }
                 if isLoadingMore {
                     HStack {

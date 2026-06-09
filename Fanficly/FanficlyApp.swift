@@ -46,6 +46,10 @@ struct FanficlyApp: App {
         return try! ModelContainer(for: schema, configurations: config)
     }()
 
+    @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
+    @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
+    @AppStorage("reader.mode") private var modeRaw: String = ReadingMode.continuous.rawValue
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -63,6 +67,73 @@ struct FanficlyApp: App {
                 }
         }
         .modelContainer(Self.sharedModelContainer)
+        .commands {
+            SidebarCommands()
+            
+            CommandMenu("Go") {
+                Button("Search") {
+                    selectedTabRaw = SidebarItem.search.rawValue
+                }
+                .keyboardShortcut("1", modifiers: [.command])
+                
+                Button("Browse") {
+                    selectedTabRaw = SidebarItem.browse.rawValue
+                }
+                .keyboardShortcut("2", modifiers: [.command])
+                
+                Button("Library") {
+                    selectedTabRaw = SidebarItem.library.rawValue
+                }
+                .keyboardShortcut("3", modifiers: [.command])
+                
+                Button("Recently Viewed") {
+                    selectedTabRaw = SidebarItem.recentlyViewed.rawValue
+                }
+                .keyboardShortcut("4", modifiers: [.command])
+                
+                Button("Subscriptions") {
+                    selectedTabRaw = SidebarItem.subscriptions.rawValue
+                }
+                .keyboardShortcut("5", modifiers: [.command])
+                
+                Button("Settings") {
+                    selectedTabRaw = SidebarItem.settings.rawValue
+                }
+                .keyboardShortcut("6", modifiers: [.command])
+            }
+            
+            CommandMenu("Reader") {
+                Menu("Reading Mode") {
+                    ForEach(ReadingMode.allCases) { mode in
+                        Button(action: {
+                            modeRaw = mode.rawValue
+                        }) {
+                            HStack {
+                                Text(mode.displayName)
+                                if modeRaw == mode.rawValue {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                Menu("Theme") {
+                    ForEach(ReaderTheme.allCases) { theme in
+                        Button(action: {
+                            themeRaw = theme.rawValue
+                        }) {
+                            HStack {
+                                Text(theme.displayName)
+                                if themeRaw == theme.rawValue {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
             BackgroundRefresh.scheduleNext()
             await BackgroundRefresh.runPoll(client: client, container: Self.sharedModelContainer)

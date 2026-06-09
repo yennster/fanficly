@@ -4,6 +4,7 @@ import SwiftData
 
 struct ReaderSettingsView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.colorSchemeContrast) private var contrast
     @AppStorage("reader.theme") private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage("reader.fontFamily") private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage("reader.width") private var widthRaw: String = ReaderWidth.medium.rawValue
@@ -18,10 +19,13 @@ struct ReaderSettingsView: View {
     @Environment(\.colorScheme) private var systemColorScheme
 
     // Profile Management
+    @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
     @AppStorage("reader.activeProfile") private var activeProfileName: String = "Default"
     @AppStorage("reader.profiles") private var profilesJSON: String = ""
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
+    @State private var showingErrorAlert = false
+    @State private var errorMessage = ""
 
     private var profiles: [ReaderProfile] {
         ReaderProfile.loadProfiles(from: profilesJSON)
@@ -87,6 +91,11 @@ struct ReaderSettingsView: View {
     private func saveNewProfile(name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        if profiles.contains(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            errorMessage = "A profile named \"\(trimmed)\" already exists."
+            showingErrorAlert = true
+            return
+        }
         activeProfileName = trimmed
         saveCurrentToActiveProfile()
     }
@@ -106,6 +115,17 @@ struct ReaderSettingsView: View {
         let scheme = theme.preferredColorScheme ?? systemColorScheme
 
         Form {
+            if contrast == .increased {
+                Section {
+                    Label {
+                        Text("High Contrast is active in system settings. We recommend using 'Match System' or 'Dracula Navy' theme to ensure readable text contrast.")
+                    } icon: {
+                        Image(systemName: "circle.lefthalf.striped.horizontal")
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+
             Section("Reader Profile") {
                 Picker("Active Profile", selection: $activeProfileName) {
                     ForEach(profiles) { profile in
@@ -117,29 +137,32 @@ struct ReaderSettingsView: View {
                         selectProfile(profile)
                     }
                 }
+                .help("Select a reader settings profile to apply or edit.")
                 
                 Button("Save Current Settings as New Profile...") {
                     newProfileName = ""
                     showingNewProfileAlert = true
                 }
+                .help("Save these settings as a reusable configuration profile.")
                 
                 if activeProfileName != "Default" {
                     Button("Delete Profile \"\(activeProfileName)\"", role: .destructive) {
                         deleteProfile(activeProfileName)
                     }
+                    .help("Delete the selected profile.")
                 }
             }
 
             Section("Preview") {
-                VStack(alignment: .leading, spacing: paragraphSpacingPt) {
+                VStack(alignment: .leading, spacing: paragraphSpacingPt / zoomScale) {
                     Text("A Coffee Shop Tale")
-                        .font(family.font(size: fontSizePt + 6, weight: .bold))
+                        .font(family.font(size: CGFloat(fontSizePt + 6) / CGFloat(zoomScale), weight: .bold))
                     Text("Bella poured the latte. It was hot.")
-                        .font(family.font(size: fontSizePt))
-                        .lineSpacing(lineSpacingPt)
+                        .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
+                        .lineSpacing(lineSpacingPt / zoomScale)
                     Text("Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
-                        .font(family.font(size: fontSizePt))
-                        .lineSpacing(lineSpacingPt)
+                        .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
+                        .lineSpacing(lineSpacingPt / zoomScale)
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -147,6 +170,7 @@ struct ReaderSettingsView: View {
                 .foregroundStyle(theme.foreground(for: scheme))
                 .cornerRadius(8)
                 .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                .help("Visual preview of current font size, spacing, font, and theme.")
             }
 
             Section {
@@ -169,14 +193,17 @@ struct ReaderSettingsView: View {
                     }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .help("Choose how stories are paginated and scrolled.")
 
                 Toggle(isOn: $pageTurnHaptics) {
                     Label("Page-turn haptics", systemImage: "hand.tap")
                 }
+                .help("Enable small vibrations on page flips.")
 
                 Toggle(isOn: $pageTurnAnimations) {
                     Label("Page-turn animation", systemImage: "square.2.layers.3d")
                 }
+                .help("Enable visual curl or slide animation on page flips.")
             } header: {
                 Text("Reading mode")
             } footer: {
@@ -192,6 +219,7 @@ struct ReaderSettingsView: View {
                 } label: {
                     Label("Voice", systemImage: "person.wave.2")
                 }
+                .help("Select a voice for reading aloud.")
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -203,8 +231,12 @@ struct ReaderSettingsView: View {
                     }
                     Slider(value: $ttsRate,
                            in: Double(AVSpeechUtteranceMinimumSpeechRate)...Double(AVSpeechUtteranceMaximumSpeechRate))
+                    .accessibilityLabel("Speaking rate")
+                    .accessibilityValue(String(format: "%.1f times standard speed", ttsRate / Double(SpeechController.defaultRate)))
+                    .accessibilityHint("Adjusts the voice reading speed.")
                 }
                 .padding(.vertical, 2)
+                .help("Drag to adjust the speech speed.")
             } footer: {
                 Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
@@ -214,6 +246,7 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .help("Choose the color scheme for the reader.")
             }
 
             Section("Font") {
@@ -221,6 +254,7 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .help("Choose the typography for the reader.")
             }
 
             Section("Margins") {
@@ -228,19 +262,20 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderWidth.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .help("Choose the text column width.")
             }
         }
         .navigationTitle("Reader")
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: themeRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: fontFamilyRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: widthRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: modeRaw) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: fontSizePt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: lineSpacingPt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: paragraphSpacingPt) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: pageTurnHaptics) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
-        .onChange(of: pageTurnAnimations) { _, _ in saveCurrentToActiveProfile(); queueBackup() }
+        .onChange(of: themeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
+        .onChange(of: widthRaw) { _, _ in queueBackup() }
+        .onChange(of: modeRaw) { _, _ in queueBackup() }
+        .onChange(of: fontSizePt) { _, _ in queueBackup() }
+        .onChange(of: lineSpacingPt) { _, _ in queueBackup() }
+        .onChange(of: paragraphSpacingPt) { _, _ in queueBackup() }
+        .onChange(of: pageTurnHaptics) { _, _ in queueBackup() }
+        .onChange(of: pageTurnAnimations) { _, _ in queueBackup() }
         .onChange(of: ttsRate) { _, _ in queueBackup() }
         .onChange(of: ttsVoiceId) { _, _ in queueBackup() }
         .alert("New Profile", isPresented: $showingNewProfileAlert) {
@@ -251,6 +286,9 @@ struct ReaderSettingsView: View {
             }
         } message: {
             Text("Enter a name for this reader settings configuration profile.")
+        }
+        .alert(errorMessage, isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { }
         }
     }
 
@@ -274,16 +312,24 @@ struct ReaderSettingsView: View {
                     value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
                 } label: { Image(systemName: "minus.circle") }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Decrease \(title)")
+                .accessibilityHint("Decreases \(title.lowercased()) by \(Int(step)) \(unit)")
 
                 Slider(value: value, in: range, step: step)
+                    .accessibilityLabel(title)
+                    .accessibilityValue("\(Int(value.wrappedValue.rounded())) \(unit)")
+                    .accessibilityHint("Adjusts the \(title.lowercased()) of the reader text.")
 
                 Button {
                     value.wrappedValue = min(range.upperBound, value.wrappedValue + step)
                 } label: { Image(systemName: "plus.circle") }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Increase \(title)")
+                .accessibilityHint("Increases \(title.lowercased()) by \(Int(step)) \(unit)")
             }
         }
         .padding(.vertical, 2)
+        .help("Adjust the \(title.lowercased())")
     }
 }
 

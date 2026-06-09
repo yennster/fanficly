@@ -40,7 +40,7 @@ FINAL = os.path.join(REPO, "screenshots", "final")             # tracked marketi
 SHOWCASE = os.path.join(REPO, "screenshots", "showcase.png")   # README hero strip
 GITHUB_URL = "github.com/yennster/fanficly"
 
-BG = (0x6D, 0x28, 0xD9)  # Electric Violet — the ASO brand background
+BG = (0x99, 0x00, 0x00)  # AO3 Maroon Red — the ASO brand background
 FONT = "/Library/Fonts/SF-Pro-Display-Black.otf"
 # Caption font for the showcase strip (falls back to the headline font, then default).
 SHOWCASE_FONTS = ["/Library/Fonts/SF-Pro-Display-Regular.otf", FONT]

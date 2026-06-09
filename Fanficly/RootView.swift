@@ -1,10 +1,11 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct RootView: View {
     // Start with no selection so the app opens on the sidebar menu
     // (on iPhone) rather than pushing straight into Search.
-    @State private var selectedTab: SidebarItem? = nil
+    @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
     @Environment(\.modelContext) private var context
     @Environment(\.ao3Client) private var client
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
@@ -39,17 +40,22 @@ struct RootView: View {
     @ViewBuilder
     private var innerBody: some View {
         NavigationSplitView {
-            List(selection: $selectedTab) {
+            List(selection: Binding(
+                get: { SidebarItem(rawValue: selectedTabRaw) },
+                set: { if let val = $0 { selectedTabRaw = val.rawValue } }
+            )) {
                 ForEach(SidebarItem.allCases) { item in
                     NavigationLink(value: item) {
                         Label(item.title, systemImage: item.systemImage)
                     }
+                    .help("Go to \(item.title)")
+                    .hoverEffect(.highlight)
                 }
             }
             .navigationTitle("Fanficly")
         } detail: {
             NavigationStack {
-                switch selectedTab ?? .search {
+                switch SidebarItem(rawValue: selectedTabRaw) ?? .search {
                 case .search: SearchView()
                 case .browse: BrowseView()
                 case .library: LibraryView()
@@ -80,7 +86,7 @@ struct RootView: View {
                 
                 ImportOverlay(workId: workId) { work in
                     self.importingWorkId = nil
-                    selectedTab = .library
+                    selectedTabRaw = SidebarItem.library.rawValue
                 } onCancel: {
                     self.importingWorkId = nil
                 }
@@ -100,6 +106,34 @@ struct RootView: View {
                         }
                     }
             }
+        }
+        .onDrop(of: [.url, .text], isTargeted: nil) { providers in
+            guard let provider = providers.first else { return false }
+            if provider.canLoadObject(ofClass: URL.self) {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    if let url = url {
+                        Task { @MainActor in
+                            if let workId = self.parseWorkId(from: url) {
+                                self.importingWorkId = workId
+                            }
+                        }
+                    }
+                }
+                return true
+            } else if provider.canLoadObject(ofClass: String.self) {
+                _ = provider.loadObject(ofClass: String.self) { text, _ in
+                    if let text = text,
+                       let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                        Task { @MainActor in
+                            if let workId = self.parseWorkId(from: url) {
+                                self.importingWorkId = workId
+                            }
+                        }
+                    }
+                }
+                return true
+            }
+            return false
         }
     }
 

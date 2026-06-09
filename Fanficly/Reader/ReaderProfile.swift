@@ -25,30 +25,6 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
             paragraphSpacingPt: ReaderMetrics.defaultParagraphSpacing,
             pageTurnHaptics: false,
             pageTurnAnimations: true
-        ),
-        ReaderProfile(
-            name: "iPhone",
-            themeRaw: ReaderTheme.system.rawValue,
-            fontFamilyRaw: ReaderFontFamily.serif.rawValue,
-            widthRaw: ReaderWidth.medium.rawValue,
-            modeRaw: ReadingMode.continuous.rawValue,
-            fontSizePt: 16,
-            lineSpacingPt: 6,
-            paragraphSpacingPt: 16,
-            pageTurnHaptics: false,
-            pageTurnAnimations: true
-        ),
-        ReaderProfile(
-            name: "Mac",
-            themeRaw: ReaderTheme.system.rawValue,
-            fontFamilyRaw: ReaderFontFamily.sans.rawValue,
-            widthRaw: ReaderWidth.wide.rawValue,
-            modeRaw: ReadingMode.continuous.rawValue,
-            fontSizePt: 18,
-            lineSpacingPt: 8,
-            paragraphSpacingPt: 20,
-            pageTurnHaptics: false,
-            pageTurnAnimations: true
         )
     ]
 

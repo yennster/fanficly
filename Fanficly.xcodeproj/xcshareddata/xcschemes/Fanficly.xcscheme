@@ -63,6 +63,20 @@
                ReferencedContainer = "container:Fanficly.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "236516A0D36C8AA0A698C9E0"
+               BuildableName = "FanficlyWidget.appex"
+               BlueprintName = "FanficlyWidget"
+               ReferencedContainer = "container:Fanficly.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

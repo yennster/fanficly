@@ -91,6 +91,8 @@ struct LibraryView: View {
                             NavigationLink(value: work) {
                                 LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
                             }
+                            .hoverEffect(.highlight)
+                            .help("Read \(work.title)")
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
                                     delete(work)
@@ -129,10 +131,44 @@ struct LibraryView: View {
                                 .tint(.blue)
                             }
                             .contextMenu {
+                                NavigationLink(value: work) {
+                                    Label("Read Now", systemImage: "book")
+                                }
+                                
+                                Button {
+                                    work.isStarred.toggle()
+                                    try? context.save()
+                                    iCloudSyncManager.shared.queueBackup(context: context)
+                                } label: {
+                                    Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
+                                }
+                                
+                                Button {
+                                    work.isPinned.toggle()
+                                    try? context.save()
+                                    iCloudSyncManager.shared.queueBackup(context: context)
+                                } label: {
+                                    Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
+                                }
+                                
                                 Button {
                                     workMovingToFolder = work
                                 } label: {
                                     Label("Move to Folder...", systemImage: "folder")
+                                }
+                                
+                                if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
+                                    ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
+                                        Label("Share Story...", systemImage: "square.and.arrow.up")
+                                    }
+                                }
+                                
+                                Divider()
+                                
+                                Button(role: .destructive) {
+                                    delete(work)
+                                } label: {
+                                    Label("Delete from Library", systemImage: "trash")
                                 }
                             }
                         }
@@ -266,7 +302,37 @@ struct FolderDetailView: View {
                 NavigationLink(value: work) {
                     LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
                 }
+                .hoverEffect(.highlight)
+                .help("Read \(work.title)")
                 .contextMenu {
+                    NavigationLink(value: work) {
+                        Label("Read Now", systemImage: "book")
+                    }
+                    
+                    Button {
+                        work.isStarred.toggle()
+                        try? context.save()
+                        iCloudSyncManager.shared.queueBackup(context: context)
+                    } label: {
+                        Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
+                    }
+                    
+                    Button {
+                        work.isPinned.toggle()
+                        try? context.save()
+                        iCloudSyncManager.shared.queueBackup(context: context)
+                    } label: {
+                        Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
+                    }
+                    
+                    if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
+                        ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
+                            Label("Share Story...", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                    
+                    Divider()
+                    
                     Button(role: .destructive) {
                         work.folder = nil
                         try? context.save()
