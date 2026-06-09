@@ -3,14 +3,30 @@ import SwiftSoup
 import SwiftUI
 
 enum HTMLToAttributed {
+    nonisolated(unsafe) private static let cache = NSCache<NSString, AnyObject>()
+
+    private final class AttributedStringWrapper: NSObject {
+        let value: AttributedString
+        init(_ value: AttributedString) {
+            self.value = value
+        }
+    }
+
     /// The whole body as one AttributedString (paragraphs joined by blank lines).
     static func convert(_ html: String) -> AttributedString {
+        let nsHtml = html as NSString
+        if let cached = cache.object(forKey: nsHtml) as? AttributedStringWrapper {
+            return cached.value
+        }
+        
         let paragraphs = convertParagraphs(html)
         var out = AttributedString()
         for (i, para) in paragraphs.enumerated() {
             if i > 0 { out.append(AttributedString("\n\n")) }
             out.append(para)
         }
+        
+        cache.setObject(AttributedStringWrapper(out), forKey: nsHtml)
         return out
     }
 
