@@ -226,7 +226,7 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
-        .searchable(text: $searchText, prompt: "Search titles, authors, or tags")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search titles, authors, or tags")
         .navigationDestination(for: Work.self) { work in
             SavedWorkReader(work: work)
         }
