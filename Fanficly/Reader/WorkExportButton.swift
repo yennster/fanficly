@@ -6,6 +6,7 @@ struct WorkExportButton: View {
     @Environment(\.ao3Client) private var client
     let workId: Int
     let title: String
+    var useTextLabel: Bool = false
     @State private var isExporting = false
     @State private var shareItem: ShareItem?
     @State private var errorMessage: String?
@@ -25,7 +26,11 @@ struct WorkExportButton: View {
             if isExporting {
                 ProgressView()
             } else {
-                Image(systemName: "square.and.arrow.up")
+                if useTextLabel {
+                    Label("Share & export...", systemImage: "square.and.arrow.up")
+                } else {
+                    Image(systemName: "square.and.arrow.up")
+                }
             }
         }
         .disabled(isExporting)

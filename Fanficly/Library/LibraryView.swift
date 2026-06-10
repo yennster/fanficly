@@ -15,7 +15,6 @@ struct LibraryView: View {
     enum LibraryFilter: String, CaseIterable, Identifiable {
         case all = "All"
         case starred = "Starred"
-        case following = "Following"
         case downloaded = "Downloaded"
         case folders = "Folders"
         var id: String { rawValue }
@@ -33,7 +32,6 @@ struct LibraryView: View {
             switch self {
             case .all:        "books.vertical"
             case .starred:    "star"
-            case .following:  "bookmark"
             case .downloaded: "arrow.down.circle"
             case .folders:    "folder"
             }
@@ -49,7 +47,6 @@ struct LibraryView: View {
         switch filter {
         case .all:        base = works
         case .starred:    base = works.filter(\.isStarred)
-        case .following:  base = works.filter(\.isFollowed)
         case .downloaded: base = works.filter { WorkPersistence.epubURL(workId: $0.ao3Id) != nil }
         case .folders:    base = []
         }

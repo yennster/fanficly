@@ -600,7 +600,13 @@ struct WorkDetailView: View {
                 ReaderView(payload: payload)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
-                            WorkExportButton(workId: workId, title: payload.summary.title)
+                            Button {
+                                followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
+                            } label: {
+                                Image(systemName: followed ? "bookmark.fill" : "bookmark")
+                            }
+                            .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
+                            
                             moreMenu(payload: payload)
                         }
                     }
@@ -633,12 +639,7 @@ struct WorkDetailView: View {
     /// fit without the system spilling them into a second "…" overflow.
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
-            Button {
-                followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
-            } label: {
-                Label(followed ? "Remove from Library" : "Save to Library",
-                      systemImage: followed ? "bookmark.slash" : "bookmark")
-            }
+            WorkExportButton(workId: workId, title: payload.summary.title, useTextLabel: true)
             Button {
                 Task { await saveOffline(payload) }
             } label: {

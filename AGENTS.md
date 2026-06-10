@@ -68,7 +68,7 @@ Fanficly/
     WorkExportButton.swift     # multi-format export → share sheet
     ReaderTheme.swift          # theme/font/size/spacing/width/mode, @AppStorage
   Library/
-    LibraryView.swift          # All/Following/Downloaded/Folders filters, custom
+    LibraryView.swift          # All/Starred/Downloaded/Folders filters, custom
                                #   folders (CustomFolder) w/ move sheet, and metadata search bar
     SavedWorkReader.swift      # offline if downloaded, else fetch on demand
     WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow
