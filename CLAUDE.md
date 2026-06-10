@@ -1,6 +1,6 @@
-# CLAUDE.md — working in the Fanficly repo
+# AGENTS.md — working in the Fanficly repo
 
-Short notes for Claude Code sessions and other agents.
+Short notes for Codex sessions and other agents.
 
 ## What this is
 
@@ -68,8 +68,8 @@ Fanficly/
     WorkExportButton.swift     # multi-format export → share sheet
     ReaderTheme.swift          # theme/font/size/spacing/width/mode, @AppStorage
   Library/
-    LibraryView.swift          # All/Following/Downloaded/Folders filters;
-                               #   custom folders (CustomFolder) w/ move sheet
+    LibraryView.swift          # All/Following/Downloaded/Folders filters, custom
+                               #   folders (CustomFolder) w/ move sheet, and metadata search bar
     SavedWorkReader.swift      # offline if downloaded, else fetch on demand
     WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow
     iCloudSyncManager.swift    # backup/restore SwiftData library to iCloud

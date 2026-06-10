@@ -16,6 +16,7 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 - **Home-screen widget** — small and medium widgets show your last-read story with its progress; tapping jumps straight back to your paragraph, with progress synced across devices via iCloud.
 - **Follow, Star & Pin** — bookmark any story with one tap. Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop.
 - **Folders** — group library stories into custom folders, included in iCloud library backups.
+- **Library Search** — search works in your library in real-time by title, author, or tags (fandoms, characters, relationships, freeforms, ratings, warnings, and categories). When on the Folders tab, search filters custom folders by name.
 - **Safari Share Sheet Integration** — add works to your library directly from mobile Safari or other browsers. Selecting the Fanficly action in the share sheet imports the work metadata and chapters instantly.
 - **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage, with options to manually backup/restore or purge backups.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3 (Kindle), PDF, or HTML through the iOS share sheet (AirDrop, Send to Kindle, Books, Files, …).

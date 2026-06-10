@@ -10,6 +10,7 @@ struct LibraryView: View {
     @State private var showingCreateFolderAlert = false
     @State private var newFolderName = ""
     @State private var workMovingToFolder: Work?
+    @State private var searchText = ""
 
     enum LibraryFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -44,13 +45,18 @@ struct LibraryView: View {
     }
 
     private var filtered: [Work] {
-        let base: [Work]
+        var base: [Work]
         switch filter {
         case .all:        base = works
         case .starred:    base = works.filter(\.isStarred)
         case .following:  base = works.filter(\.isFollowed)
         case .downloaded: base = works.filter { WorkPersistence.epubURL(workId: $0.ao3Id) != nil }
         case .folders:    base = []
+        }
+        
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            base = base.filter { $0.matches(query: query) }
         }
         
         return base.sorted { a, b in
@@ -94,7 +100,9 @@ struct LibraryView: View {
                                     .foregroundStyle(Color.accentColor)
                             }
                             
-                            ForEach(folders) { folder in
+                            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                            let filteredFolders = query.isEmpty ? folders : folders.filter { $0.name.lowercased().contains(query) }
+                            ForEach(filteredFolders) { folder in
                                 NavigationLink(value: folder) {
                                     HStack {
                                         Image(systemName: "folder").foregroundStyle(.blue)
@@ -205,9 +213,20 @@ struct LibraryView: View {
                     }
                 }
                 .listStyle(.plain)
+                .overlay {
+                    if filter != .folders && filtered.isEmpty && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                    } else if filter == .folders && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                        if !folders.contains(where: { $0.name.lowercased().contains(query) }) {
+                            ContentUnavailableView.search(text: searchText)
+                        }
+                    }
+                }
             }
         }
         .navigationTitle("Library")
+        .searchable(text: $searchText, prompt: "Search titles, authors, or tags")
         .navigationDestination(for: Work.self) { work in
             SavedWorkReader(work: work)
         }
@@ -568,5 +587,21 @@ struct FolderSelectionSheet: View {
             dismiss()
         }
         newFolderName = ""
+    }
+}
+
+extension Work {
+    func matches(query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return true }
+        return title.lowercased().contains(trimmed) ||
+            authorName.lowercased().contains(trimmed) ||
+            fandoms.contains { $0.lowercased().contains(trimmed) } ||
+            characters.contains { $0.lowercased().contains(trimmed) } ||
+            relationships.contains { $0.lowercased().contains(trimmed) } ||
+            freeforms.contains { $0.lowercased().contains(trimmed) } ||
+            rating.lowercased().contains(trimmed) ||
+            warnings.contains { $0.lowercased().contains(trimmed) } ||
+            categories.contains { $0.lowercased().contains(trimmed) }
     }
 }

@@ -51,23 +51,8 @@ struct FanficlyWidgetEntryView : View {
         ZStack(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
                 HStack(spacing: 8) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: isSmall ? 8 : 9, style: .continuous)
-                            .fill(.white.opacity(0.12))
-                        Image(systemName: "book.closed.fill")
-                            .font(.system(size: isSmall ? 14 : 15, weight: .semibold))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 1.0, green: 0.58, blue: 0.55),
-                                        Color(red: 1.0, green: 0.76, blue: 0.48)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                    }
-                    .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+                    AppBookIcon()
+                        .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
 
                     if !isSmall {
                         Text("Fanficly")
@@ -121,7 +106,7 @@ struct FanficlyWidgetEntryView : View {
                 }
             }
         }
-        .padding(isSmall ? 14 : 16)
+        .padding(isSmall ? 12 : 14)
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
@@ -179,53 +164,125 @@ private struct WidgetProgressBar: View {
     }
 }
 
+private struct AppBookIcon: View {
+    var body: some View {
+        Canvas { context, size in
+            let width = size.width
+            let height = size.height
+            
+            let bookW = width * 0.60
+            let bookH = height * 0.46
+            let cx = width / 2
+            let cy = height / 2
+            let halfW = bookW / 2
+            let halfH = bookH / 2
+            let fan: CGFloat = bookH * 0.06
+            let spineDrop: CGFloat = bookH * 0.05
+            let spineGap: CGFloat = width * 0.018
+            let corner: CGFloat = width * 0.015
+
+            func normalize(_ p: CGPoint) -> CGPoint {
+                let len = max(1.0, (p.x * p.x + p.y * p.y).squareRoot())
+                return CGPoint(x: p.x / len, y: p.y / len)
+            }
+
+            func roundedQuadPath(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint, radius: CGFloat) -> Path {
+                let pts = [p0, p1, p2, p3]
+                var path = Path()
+                for i in 0..<4 {
+                    let curr = pts[i]
+                    let prev = pts[(i + 3) % 4]
+                    let next = pts[(i + 1) % 4]
+                    let toPrev = normalize(CGPoint(x: prev.x - curr.x, y: prev.y - curr.y))
+                    let toNext = normalize(CGPoint(x: next.x - curr.x, y: next.y - curr.y))
+                    let start = CGPoint(x: curr.x + toPrev.x * radius, y: curr.y + toPrev.y * radius)
+                    let end = CGPoint(x: curr.x + toNext.x * radius, y: curr.y + toNext.y * radius)
+                    if i == 0 { path.move(to: start) } else { path.addLine(to: start) }
+                    path.addQuadCurve(to: end, control: curr)
+                }
+                path.closeSubpath()
+                return path
+            }
+
+            let leftPath = roundedQuadPath(
+                p0: CGPoint(x: cx - halfW,    y: cy - halfH + fan),
+                p1: CGPoint(x: cx - spineGap, y: cy - halfH + spineDrop),
+                p2: CGPoint(x: cx - spineGap, y: cy + halfH - spineDrop),
+                p3: CGPoint(x: cx - halfW,    y: cy + halfH - fan),
+                radius: corner
+            )
+
+            let rightPath = roundedQuadPath(
+                p0: CGPoint(x: cx + spineGap, y: cy - halfH + spineDrop),
+                p1: CGPoint(x: cx + halfW,    y: cy - halfH + fan),
+                p2: CGPoint(x: cx + halfW,    y: cy + halfH - fan),
+                p3: CGPoint(x: cx + spineGap, y: cy + halfH - spineDrop),
+                radius: corner
+            )
+
+            // Fill book pages with white
+            context.fill(leftPath, with: .color(.white))
+            context.fill(rightPath, with: .color(.white))
+
+            // Cut out text lines by using blendMode .clear
+            context.blendMode = .clear
+
+            let lineCount = 5
+            let lineH: CGFloat = bookH * 0.045
+            let gap = (bookH * 0.62) / CGFloat(lineCount)
+            
+            let pageWidth = halfW - spineGap
+            let pagePadding = pageWidth * 0.16
+            let fullLineWidth = pageWidth - (pagePadding * 2)
+            
+            for i in 0..<lineCount {
+                let y = cy - bookH * 0.27 + CGFloat(i) * gap
+                let leftW = fullLineWidth * (i == lineCount - 1 ? 0.6 : 1.0)
+                let rightW = fullLineWidth * (i == lineCount - 1 ? 0.55 : 1.0)
+                
+                let leftX = cx - halfW + pagePadding
+                let rightX = cx + spineGap + pagePadding
+                
+                let leftRect = CGRect(x: leftX, y: y, width: leftW, height: lineH)
+                let rightRect = CGRect(x: rightX, y: y, width: rightW, height: lineH)
+                
+                context.fill(Path(leftRect), with: .color(.black))
+                context.fill(Path(rightRect), with: .color(.black))
+            }
+        }
+    }
+}
+
 private struct WidgetGlassBackground: View {
     var body: some View {
         ZStack {
+            // Dark maroon to AO3 red base gradient (matching the app icon)
             LinearGradient(
                 colors: [
-                    Color(red: 0.16, green: 0.12, blue: 0.13),
-                    Color(red: 0.08, green: 0.07, blue: 0.08)
+                    Color(red: 0.45, green: 0.00, blue: 0.00),
+                    Color(red: 0.60, green: 0.00, blue: 0.00)
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .top,
+                endPoint: .bottom
             )
 
+            // Subtle bright red glow in the top-leading corner
             RadialGradient(
                 colors: [
-                    Color(red: 0.95, green: 0.30, blue: 0.38).opacity(0.34),
+                    Color(red: 1.0, green: 0.35, blue: 0.42).opacity(0.25),
                     .clear
                 ],
                 center: .topLeading,
                 startRadius: 0,
-                endRadius: 170
+                endRadius: 120
             )
 
-            RadialGradient(
-                colors: [
-                    Color(red: 1.0, green: 0.61, blue: 0.35).opacity(0.20),
-                    .clear
-                ],
-                center: .bottomTrailing,
-                startRadius: 0,
-                endRadius: 150
-            )
-
-            RadialGradient(
-                colors: [
-                    Color(red: 0.74, green: 0.16, blue: 0.28).opacity(0.24),
-                    .clear
-                ],
-                center: .bottomLeading,
-                startRadius: 12,
-                endRadius: 180
-            )
-
+            // Subtle vertical highlight to give it depth
             LinearGradient(
                 colors: [
-                    .white.opacity(0.14),
+                    .white.opacity(0.12),
                     .clear,
-                    .black.opacity(0.18)
+                    .black.opacity(0.15)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -245,5 +302,6 @@ struct FanficlyWidget: Widget {
         .configurationDisplayName("Recently Read")
         .description("Track your reading progress on Fanficly.")
         .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
     }
 }

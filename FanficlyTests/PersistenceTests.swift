@@ -205,4 +205,47 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(restoredProfiles.first(where: { $0.name == "Mac" })?.fontSizePt, 24.0)
         XCTAssertEqual(restoredProfiles.first(where: { $0.name == "iPhone" })?.fontSizePt, 20.0)
     }
+
+    func test_workMatchesSearchQuery() {
+        let work = Work(
+            ao3Id: 101,
+            title: "The Golden Snitch",
+            authorName: "GryffindorWriter",
+            summary: "A story about quidditch",
+            rating: "Teen",
+            warnings: ["Graphic Depictions Of Violence"],
+            categories: ["F/M"],
+            fandoms: ["Harry Potter - J. K. Rowling"],
+            characters: ["Harry Potter", "Hermione Granger"],
+            relationships: ["Harry Potter/Hermione Granger"],
+            freeforms: ["Quidditch", "Enemies to Lovers"]
+        )
+
+        // Matching titles
+        XCTAssertTrue(work.matches(query: "Golden"))
+        XCTAssertTrue(work.matches(query: "snitch")) // Case-insensitive
+        XCTAssertTrue(work.matches(query: "  Snitch  ")) // Trimmed whitespaces
+        
+        // Matching authors
+        XCTAssertTrue(work.matches(query: "Gryffindor"))
+        
+        // Matching fandoms
+        XCTAssertTrue(work.matches(query: "Rowling"))
+        
+        // Matching characters
+        XCTAssertTrue(work.matches(query: "Hermione"))
+        
+        // Matching relationships
+        XCTAssertTrue(work.matches(query: "Harry Potter/Hermione Granger"))
+        
+        // Matching tags/freeforms
+        XCTAssertTrue(work.matches(query: "Enemies"))
+        
+        // Matching warnings & rating
+        XCTAssertTrue(work.matches(query: "Teen"))
+        XCTAssertTrue(work.matches(query: "Violence"))
+        
+        // No match
+        XCTAssertFalse(work.matches(query: "Snape"))
+    }
 }
