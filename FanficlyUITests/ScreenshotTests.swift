@@ -36,6 +36,12 @@ final class ScreenshotTests: XCTestCase {
             .appendingPathComponent(device)
         try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
 
+        if device == "mac" {
+            app.launchArguments = ["-demoMode", "-app.zoomScale", "0.7"]
+        } else {
+            app.launchArguments = ["-demoMode", "-app.zoomScale", "1.0"]
+        }
+
         app.launch()
 
         // Let the app finish launching before we rotate.
