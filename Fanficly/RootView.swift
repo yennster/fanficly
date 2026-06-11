@@ -41,7 +41,7 @@ struct RootView: View {
     }
 
     @ViewBuilder
-    private var innerBody: some View {
+    private var mainSplitView: some View {
         NavigationSplitView {
             List(selection: sidebarSelection) {
                 Section {
@@ -89,71 +89,54 @@ struct RootView: View {
                 }
             }
         }
-        .task {
-            if FanficlyApp.isDemoMode { DemoSeed.seed(into: context) }
-        }
-        .onChange(of: horizontalSizeClass) { _, newSizeClass in
-            if newSizeClass == .compact {
-                compactSelection = nil
+    }
+
+    @ViewBuilder
+    private var innerBody: some View {
+        mainSplitView
+            .task {
+                if FanficlyApp.isDemoMode { DemoSeed.seed(into: context) }
             }
-        }
-        .onChange(of: selectedTabRaw) { _, raw in
-            guard horizontalSizeClass == .compact,
-                  let item = SidebarItem(rawValue: raw),
-                  compactSelection != item else { return }
-            compactSelection = item
-        }
-        // 17+ confirmation on first launch (UGC safeguard). Skipped in demo
-        // mode so screenshot automation isn't blocked.
-        .fullScreenCover(isPresented: .constant(!ageConfirmed && !FanficlyApp.isDemoMode)) {
-            AgeGateView()
-        }
-        .onOpenURL { url in
-            handleIncomingURL(url)
-        }
-        .overlay {
-            if let workId = importingWorkId {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                
-                ImportOverlay(workId: workId) { work in
-                    self.importingWorkId = nil
-                    select(.library)
-                } onCancel: {
-                    self.importingWorkId = nil
+            .onChange(of: horizontalSizeClass) { _, newSizeClass in
+                if newSizeClass == .compact {
+                    compactSelection = nil
                 }
-                .transition(.scale)
             }
-        }
-        .onDrop(of: [.url, .text], isTargeted: nil) { providers in
-            guard let provider = providers.first else { return false }
-            if provider.canLoadObject(ofClass: URL.self) {
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let url = url {
-                        Task { @MainActor in
-                            if let workId = self.parseWorkId(from: url) {
-                                self.importingWorkId = workId
-                            }
-                        }
+            .onChange(of: selectedTabRaw) { _, raw in
+                guard horizontalSizeClass == .compact,
+                      let item = SidebarItem(rawValue: raw),
+                      compactSelection != item else { return }
+                compactSelection = item
+            }
+            // 17+ confirmation on first launch (UGC safeguard). Skipped in demo
+            // mode so screenshot automation isn't blocked.
+            .fullScreenCover(isPresented: .constant(!ageConfirmed && !FanficlyApp.isDemoMode)) {
+                AgeGateView()
+            }
+            .onOpenURL { url in
+                handleIncomingURL(url)
+            }
+            .overlay {
+                if let workId = importingWorkId {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                    
+                    ImportOverlay(workId: workId) { work in
+                        self.importingWorkId = nil
+                        select(.library)
+                    } onCancel: {
+                        self.importingWorkId = nil
                     }
+                    .transition(.scale)
                 }
-                return true
-            } else if provider.canLoadObject(ofClass: String.self) {
-                _ = provider.loadObject(ofClass: String.self) { text, _ in
-                    if let text = text,
-                       let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                        Task { @MainActor in
-                            if let workId = self.parseWorkId(from: url) {
-                                self.importingWorkId = workId
-                            }
-                        }
-                    }
-                }
-                return true
             }
-            return false
-        }
+            .onDrop(of: [.url, .text], isTargeted: nil) { providers in
+                self.handleImportProviders(providers)
+            }
+            .onPasteCommandIfAvailable { providers in
+                _ = self.handleImportProviders(providers)
+            }
     }
 
     private var isCompactNavigation: Bool {
@@ -310,6 +293,36 @@ struct RootView: View {
         }
         return nil
     }
+
+    @discardableResult
+    private func handleImportProviders(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.canLoadObject(ofClass: URL.self) {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                if let url = url {
+                    Task { @MainActor in
+                        if let workId = self.parseWorkId(from: url) {
+                            self.importingWorkId = workId
+                        }
+                    }
+                }
+            }
+            return true
+        } else if provider.canLoadObject(ofClass: String.self) {
+            _ = provider.loadObject(ofClass: String.self) { text, _ in
+                if let text = text,
+                   let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    Task { @MainActor in
+                        if let workId = self.parseWorkId(from: url) {
+                            self.importingWorkId = workId
+                        }
+                    }
+                }
+            }
+            return true
+        }
+        return false
+    }
 }
 
 private struct ResumeWorkRoute: Hashable {
@@ -408,4 +421,17 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
 
 #Preview {
     RootView()
+}
+
+extension View {
+    @ViewBuilder
+    func onPasteCommandIfAvailable(perform action: @escaping ([NSItemProvider]) -> Void) -> some View {
+        #if targetEnvironment(macCatalyst)
+        self.onPasteCommand(of: [.url, .text]) { providers in
+            action(providers)
+        }
+        #else
+        self
+        #endif
+    }
 }

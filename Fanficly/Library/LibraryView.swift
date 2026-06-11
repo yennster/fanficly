@@ -98,16 +98,26 @@ struct LibraryView: View {
                             }
                             
                             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                            let filteredFolders = query.isEmpty ? folders : folders.filter { $0.name.lowercased().contains(query) }
+                            let filteredFolders = query.isEmpty ? folders : folders.filter {
+                                $0.name.lowercased().contains(query) || $0.works.contains(where: { $0.matches(query: query) })
+                            }
                             ForEach(filteredFolders) { folder in
                                 NavigationLink(value: folder) {
                                     HStack {
                                         Image(systemName: "folder").foregroundStyle(.blue)
                                         Text(folder.name).font(.headline)
                                         Spacer()
-                                        Text("\(folder.works.count) stories")
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
+                                        let totalCount = folder.works.count
+                                        let matchingCount = query.isEmpty ? totalCount : folder.works.filter { $0.matches(query: query) }.count
+                                        if query.isEmpty {
+                                            Text("\(totalCount) stories")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        } else {
+                                            Text("\(matchingCount) of \(totalCount) stories")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                     .padding(.vertical, 4)
                                     .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
@@ -189,7 +199,7 @@ struct LibraryView: View {
                                 Button {
                                     workMovingToFolder = work
                                 } label: {
-                                    Label("Move to Folder...", systemImage: "folder")
+                                    Label("Folders...", systemImage: "folder")
                                 }
                                 
                                 if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
@@ -228,7 +238,7 @@ struct LibraryView: View {
             SavedWorkReader(work: work)
         }
         .navigationDestination(for: CustomFolder.self) { folder in
-            FolderDetailView(folder: folder)
+            FolderDetailView(folder: folder, initialSearchText: searchText)
         }
         .workAndAuthorDestinations()
         .sheet(item: $workMovingToFolder) { work in
@@ -333,7 +343,7 @@ struct LibraryRow: View {
         if let total = work.totalChapters {
             items.append(work.chapterCount == total ? "\(total) ch complete" : "\(work.chapterCount)/\(total) WIP")
         }
-        if let folder = work.folder {
+        for folder in work.folders.sorted(by: { $0.name < $1.name }) {
             items.append(folder.name)
         }
         return items
@@ -368,7 +378,8 @@ struct LibraryRow: View {
 
             FlowLayout(spacing: 6, lineSpacing: 5) {
                 ForEach(metadataItems, id: \.self) { item in
-                    LibraryMetadataPill(text: item, isFolder: work.folder?.name == item)
+                    let isFolder = work.folders.contains(where: { $0.name == item })
+                    LibraryMetadataPill(text: item, isFolder: isFolder)
                 }
             }
         }
@@ -435,11 +446,20 @@ private struct LibraryMetadataPill: View {
 
 struct FolderDetailView: View {
     let folder: CustomFolder
+    @State private var searchText: String
     @Environment(\.modelContext) private var context
 
+    init(folder: CustomFolder, initialSearchText: String = "") {
+        self.folder = folder
+        self._searchText = State(initialValue: initialSearchText)
+    }
+
     var body: some View {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filteredWorks = query.isEmpty ? folder.works : folder.works.filter { $0.matches(query: query) }
+
         List {
-            ForEach(folder.works.sorted { $0.savedAt > $1.savedAt }) { work in
+            ForEach(filteredWorks.sorted { $0.savedAt > $1.savedAt }) { work in
                 NavigationLink(value: work) {
                     LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
                 }
@@ -475,7 +495,7 @@ struct FolderDetailView: View {
                     Divider()
                     
                     Button(role: .destructive) {
-                        work.folder = nil
+                        work.folders.removeAll { $0.id == folder.id }
                         try? context.save()
                         iCloudSyncManager.shared.queueBackup(context: context)
                     } label: {
@@ -487,6 +507,12 @@ struct FolderDetailView: View {
         .listStyle(.plain)
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search stories in folder")
+        .overlay {
+            if !query.isEmpty && filteredWorks.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            }
+        }
     }
 }
 
@@ -503,36 +529,36 @@ struct FolderSelectionSheet: View {
         NavigationStack {
             List {
                 Section {
-                    Button {
-                        work.folder = nil
+                    Button(role: .destructive) {
+                        work.folders = []
                         try? context.save()
                         iCloudSyncManager.shared.queueBackup(context: context)
-                        dismiss()
                     } label: {
                         HStack {
-                            Label("None (Remove from Folder)", systemImage: "folder.badge.minus")
-                                .foregroundStyle(.red)
+                            Label("Remove from All Folders", systemImage: "folder.badge.minus")
                             Spacer()
-                            if work.folder == nil {
-                                Image(systemName: "checkmark")
-                            }
                         }
                     }
+                    .disabled(work.folders.isEmpty)
                 }
                 
                 Section("All Folders") {
                     ForEach(folders) { folder in
                         Button {
-                            work.folder = folder
+                            if work.folders.contains(where: { $0.id == folder.id }) {
+                                work.folders.removeAll { $0.id == folder.id }
+                            } else {
+                                work.folders.append(folder)
+                            }
                             try? context.save()
                             iCloudSyncManager.shared.queueBackup(context: context)
-                            dismiss()
                         } label: {
                             HStack {
                                 Label(folder.name, systemImage: "folder")
                                 Spacer()
-                                if work.folder?.id == folder.id {
+                                if work.folders.contains(where: { $0.id == folder.id }) {
                                     Image(systemName: "checkmark")
+                                        .foregroundStyle(Color.accentColor)
                                 }
                             }
                         }
@@ -541,11 +567,12 @@ struct FolderSelectionSheet: View {
                 }
             }
             .listStyle(.grouped)
-            .navigationTitle("Move to Folder")
+            .navigationTitle("Select Folders")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
+                    Button("Done") { dismiss() }
+                        .bold()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -578,10 +605,9 @@ struct FolderSelectionSheet: View {
         if existing == nil {
             let newFolder = CustomFolder(name: name)
             context.insert(newFolder)
-            work.folder = newFolder
+            work.folders.append(newFolder)
             try? context.save()
             iCloudSyncManager.shared.queueBackup(context: context)
-            dismiss()
         }
         newFolderName = ""
     }

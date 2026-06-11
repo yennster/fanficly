@@ -48,6 +48,8 @@ final class Work {
 
     var folder: CustomFolder?
 
+    var folders: [CustomFolder] = []
+
     init(
         ao3Id: Int,
         title: String,
@@ -248,7 +250,7 @@ final class CustomFolder {
     @Attribute(.unique) var name: String
     var createdAt: Date
     
-    @Relationship(deleteRule: .nullify, inverse: \Work.folder)
+    @Relationship(deleteRule: .nullify, inverse: \Work.folders)
     var works: [Work] = []
     
     init(name: String, createdAt: Date = .now) {

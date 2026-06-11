@@ -248,4 +248,33 @@ final class PersistenceTests: XCTestCase {
         // No match
         XCTAssertFalse(work.matches(query: "Snape"))
     }
+
+    func test_workMultiFolderPersistence() throws {
+        let ctx = try makeContext()
+        let work = Work(ao3Id: 999, title: "Multi Folder Story", authorName: "author")
+        ctx.insert(work)
+
+        let folder1 = CustomFolder(name: "Folder A")
+        let folder2 = CustomFolder(name: "Folder B")
+        ctx.insert(folder1)
+        ctx.insert(folder2)
+
+        work.folders.append(folder1)
+        work.folders.append(folder2)
+
+        try ctx.save()
+
+        // Fetch back and assert
+        let fetched = try ctx.fetch(FetchDescriptor<Work>()).first
+        XCTAssertNotNil(fetched)
+        XCTAssertEqual(fetched?.folders.count, 2)
+        XCTAssertTrue(fetched?.folders.contains(where: { $0.name == "Folder A" }) ?? false)
+        XCTAssertTrue(fetched?.folders.contains(where: { $0.name == "Folder B" }) ?? false)
+
+        // Test inverse relationship
+        let fetchedFolder = try ctx.fetch(FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == "Folder A" })).first
+        XCTAssertNotNil(fetchedFolder)
+        XCTAssertEqual(fetchedFolder?.works.count, 1)
+        XCTAssertEqual(fetchedFolder?.works.first?.ao3Id, 999)
+    }
 }

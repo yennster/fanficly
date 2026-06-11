@@ -180,6 +180,10 @@ extension AO3SearchFilters {
             let quoted = title.contains(" ") ? "\"\(title)\"" : title
             parts.append("title:\(quoted)")
         }
+        if !creators.isEmpty {
+            let quoted = creators.contains(" ") ? "\"\(creators)\"" : creators
+            parts.append("author:\(quoted)")
+        }
         if !query.isEmpty { parts.append(query) }
         parts += excludedFreeforms.map { "-\($0)" }
         return parts.joined(separator: " ")

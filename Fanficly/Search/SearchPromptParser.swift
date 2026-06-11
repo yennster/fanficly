@@ -13,8 +13,10 @@ public struct SearchPromptParser: Sendable {
             .replacingOccurrences(of: "’", with: "'")
             
         let working = NSMutableString(string: normalizedPrompt.lowercased())
+        let casedWorking = NSMutableString(string: normalizedPrompt)
 
-        extractTitle(from: working, originalPrompt: normalizedPrompt, into: &filters)
+        extractTitle(from: working, casedWorking: casedWorking, into: &filters)
+        extractCreators(from: working, casedWorking: casedWorking, into: &filters)
         extractExclusions(from: working, into: &filters)
         extractQuoted(from: working, into: &filters)
         extractShips(from: working, into: &filters)
@@ -36,7 +38,7 @@ public struct SearchPromptParser: Sendable {
         return filters
     }
 
-    private func extractTitle(from working: NSMutableString, originalPrompt prompt: String, into filters: inout AO3SearchFilters) {
+    private func extractTitle(from working: NSMutableString, casedWorking: NSMutableString, into filters: inout AO3SearchFilters) {
         let patterns = [
             #"title:\s*"([^"]+)""#,
             #"title:\s*([^\s]+)"#
@@ -46,13 +48,32 @@ public struct SearchPromptParser: Sendable {
             let matches = regex.matches(in: working as String, range: NSRange(location: 0, length: working.length))
             for match in matches.reversed() where match.numberOfRanges > 1 {
                 let nsRange = match.range(at: 1)
-                if let range = Range(nsRange, in: prompt) {
-                    let extractedTitle = String(prompt[range]).trimmingCharacters(in: .whitespaces)
-                    if !extractedTitle.isEmpty {
-                        filters.title = extractedTitle
-                    }
+                let extractedTitle = casedWorking.substring(with: nsRange).trimmingCharacters(in: .whitespaces)
+                if !extractedTitle.isEmpty {
+                    filters.title = extractedTitle
                 }
                 working.deleteCharacters(in: match.range)
+                casedWorking.deleteCharacters(in: match.range)
+            }
+        }
+    }
+
+    private func extractCreators(from working: NSMutableString, casedWorking: NSMutableString, into filters: inout AO3SearchFilters) {
+        let patterns = [
+            #"\b(?:author|creator|creators|by):\s*"([^"]+)""#,
+            #"\b(?:author|creator|creators|by):\s*([^\s]+)"#
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { continue }
+            let matches = regex.matches(in: working as String, range: NSRange(location: 0, length: working.length))
+            for match in matches.reversed() where match.numberOfRanges > 1 {
+                let nsRange = match.range(at: 1)
+                let extractedCreators = casedWorking.substring(with: nsRange).trimmingCharacters(in: .whitespaces)
+                if !extractedCreators.isEmpty {
+                    filters.creators = extractedCreators
+                }
+                working.deleteCharacters(in: match.range)
+                casedWorking.deleteCharacters(in: match.range)
             }
         }
     }

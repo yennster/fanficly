@@ -110,7 +110,8 @@ final class iCloudSyncManager {
                     chapters: work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
                         ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML)
                     },
-                    folderName: work.folder?.name
+                    folderName: work.folders.first?.name,
+                    folderNames: work.folders.map(\.name)
                 )
             }
             
@@ -405,11 +406,20 @@ final class iCloudSyncManager {
                 work.isStarred = w.isStarred ?? false
                 work.isPinned = w.isPinned ?? false
                 
-                if let folderName = w.folderName {
+                work.folder = nil // clear legacy single folder reference
+                work.folders.removeAll()
+                if let folderNames = w.folderNames {
+                    for fName in folderNames {
+                        let folderDescriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == fName })
+                        if let folder = (try? context.fetch(folderDescriptor))?.first {
+                            work.folders.append(folder)
+                        }
+                    }
+                } else if let folderName = w.folderName {
                     let folderDescriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == folderName })
-                    work.folder = (try? context.fetch(folderDescriptor))?.first
-                } else {
-                    work.folder = nil
+                    if let folder = (try? context.fetch(folderDescriptor))?.first {
+                        work.folders.append(folder)
+                    }
                 }
                 
                 // Clear existing chapters first to prevent duplicates
@@ -649,6 +659,7 @@ struct WorkBackup: Codable {
     let isPinned: Bool?
     let chapters: [ChapterBackup]
     let folderName: String?
+    let folderNames: [String]?
 }
 
 struct ChapterBackup: Codable {

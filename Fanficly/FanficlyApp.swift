@@ -91,9 +91,27 @@ struct FanficlyApp: App {
                 .tint(Self.isDemoMode ? Color.blue : nil)
                 .preferredColorScheme(Self.isDemoMode ? .light : nil)
                 .task {
+                    let context = Self.sharedModelContainer.mainContext
+                    
+                    // Migrate legacy single folder to folders array if needed
+                    if let works = try? context.fetch(FetchDescriptor<Work>()) {
+                        var migratedAny = false
+                        for work in works {
+                            if let legacyFolder = work.folder {
+                                if !work.folders.contains(where: { $0.name == legacyFolder.name }) {
+                                    work.folders.append(legacyFolder)
+                                }
+                                work.folder = nil
+                                migratedAny = true
+                            }
+                        }
+                        if migratedAny {
+                            try? context.save()
+                        }
+                    }
+
                     let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                     if iCloudEnabled && !Self.isDemoMode {
-                        let context = Self.sharedModelContainer.mainContext
                         let worksCount = (try? context.fetchCount(FetchDescriptor<Work>())) ?? 0
                         if worksCount == 0 && iCloudSyncManager.shared.isBackupAvailable {
                             await iCloudSyncManager.shared.restoreFromiCloud(context: context)

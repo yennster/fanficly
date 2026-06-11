@@ -244,4 +244,39 @@ final class SearchPromptParserTests: XCTestCase {
         XCTAssertTrue(filters.relationshipNames.isEmpty)
         XCTAssertEqual(filters.query, "")
     }
+
+    func test_authorExtraction() {
+        let filters = parser.parse("author:\"Astolat\" edward/bella")
+        XCTAssertEqual(filters.creators, "Astolat")
+        XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
+        XCTAssertEqual(filters.query, "")
+    }
+
+    func test_unquotedAuthorExtraction() {
+        let filters = parser.parse("author:astolat edward/bella")
+        XCTAssertEqual(filters.creators, "astolat")
+        XCTAssertEqual(filters.relationshipNames, ["Edward/Bella"])
+        XCTAssertEqual(filters.query, "")
+    }
+
+    func test_authorAndTitleExtraction() {
+        let filters = parser.parse("author:astolat title:Tempest")
+        XCTAssertEqual(filters.creators, "astolat")
+        XCTAssertEqual(filters.title, "Tempest")
+        XCTAssertEqual(filters.query, "")
+    }
+
+    func test_byAndCreatorExtraction() {
+        let filters1 = parser.parse("by:astolat")
+        XCTAssertEqual(filters1.creators, "astolat")
+        XCTAssertEqual(filters1.query, "")
+
+        let filters2 = parser.parse("creator:\"astolat\"")
+        XCTAssertEqual(filters2.creators, "astolat")
+        XCTAssertEqual(filters2.query, "")
+
+        let filters3 = parser.parse("creators:astolat")
+        XCTAssertEqual(filters3.creators, "astolat")
+        XCTAssertEqual(filters3.query, "")
+    }
 }
