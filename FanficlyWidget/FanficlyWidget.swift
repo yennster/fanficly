@@ -480,10 +480,647 @@ struct FanficlyWidget: Widget {
     }
 }
 
+// MARK: - Subscriptions Tracker & Update Alert Widget
+
+struct SubscriptionsEntry: TimelineEntry {
+    let date: Date
+    let updates: [WidgetSubscriptionUpdate]
+}
+
+struct SubscriptionsProvider: TimelineProvider {
+    func placeholder(in context: Context) -> SubscriptionsEntry {
+        SubscriptionsEntry(date: Date(), updates: [
+            WidgetSubscriptionUpdate(workId: 101, title: "A Coffee Shop Story", author: "AuthorA", chapterCount: 15, isFollowed: true, updatedAt: Date()),
+            WidgetSubscriptionUpdate(workId: 102, title: "Space Adventures", author: "AuthorB", chapterCount: 8, isFollowed: false, updatedAt: Date().addingTimeInterval(-3600))
+        ])
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (SubscriptionsEntry) -> ()) {
+        let list = WidgetDataStore.loadLocalSubscriptions()
+        completion(SubscriptionsEntry(date: Date(), updates: list))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<SubscriptionsEntry>) -> ()) {
+        let list = WidgetDataStore.loadLocalSubscriptions()
+        let entry = SubscriptionsEntry(date: Date(), updates: list)
+        let timeline = Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60)))
+        completion(timeline)
+    }
+}
+
+struct SubscriptionsWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
+    var entry: SubscriptionsProvider.Entry
+
+    var body: some View {
+        let isSmall = family == .systemSmall
+        let updates = entry.updates
+        
+        VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
+            // Header Row
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.11))
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 1.0, green: 0.8, blue: 0.3),
+                                    Color(red: 1.0, green: 0.45, blue: 0.2)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
+                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+
+                if !isSmall {
+                    Text("Fanficly")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+
+                Spacer()
+
+                Text("Updates")
+                    .font(.system(size: isSmall ? 9 : 11, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .padding(.horizontal, isSmall ? 6 : 8)
+                    .padding(.vertical, isSmall ? 5 : 4)
+                    .background(.white.opacity(0.11), in: Capsule())
+            }
+
+            // Middle Section
+            if updates.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No Updates")
+                        .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("Everything is read")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer()
+            } else {
+                let first = updates[0]
+                if isSmall {
+                    Link(destination: URL(string: "fanficly://resume/\(first.workId)")!) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(first.title)
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            
+                            Text("By \(first.author)")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.55))
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(updates.count) Updates")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white.opacity(0.72))
+                            Text("Last: Ch \(first.chapterCount)")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
+                } else {
+                    // Medium Family lists top 3 updates
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(updates.prefix(3), id: \.workId) { sub in
+                            Link(destination: URL(string: "fanficly://resume/\(sub.workId)")!) {
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(sub.title)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                        Text(sub.author)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.white.opacity(0.55))
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Text("Ch \(sub.chapterCount)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white.opacity(0.72))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+        .padding(isSmall ? 12 : 14)
+        .containerBackground(for: .widget) {
+            WidgetGlassBackground()
+        }
+    }
+}
+
+struct SubscriptionsWidget: Widget {
+    let kind: String = "FanficlySubscriptionsWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: SubscriptionsProvider()) { entry in
+            SubscriptionsWidgetEntryView(entry: entry)
+        }
+        .configurationDisplayName("Subscriptions")
+        .description("Track updates on your followed fanfics.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
+    }
+}
+
+// MARK: - Custom Folder Quick-Link Widget
+
+struct FolderShortcutEntry: TimelineEntry {
+    let date: Date
+    let folders: [WidgetFolderShortcut]
+}
+
+struct FolderShortcutProvider: TimelineProvider {
+    func placeholder(in context: Context) -> FolderShortcutEntry {
+        FolderShortcutEntry(date: Date(), folders: [
+            WidgetFolderShortcut(name: "To Read", workCount: 15),
+            WidgetFolderShortcut(name: "Favorites", workCount: 8),
+            WidgetFolderShortcut(name: "Completed", workCount: 42)
+        ])
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (FolderShortcutEntry) -> ()) {
+        let list = WidgetDataStore.loadLocalFolders()
+        completion(FolderShortcutEntry(date: Date(), folders: list))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<FolderShortcutEntry>) -> ()) {
+        let list = WidgetDataStore.loadLocalFolders()
+        let entry = FolderShortcutEntry(date: Date(), folders: list)
+        let timeline = Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60)))
+        completion(timeline)
+    }
+}
+
+struct FolderShortcutWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
+    var entry: FolderShortcutProvider.Entry
+
+    var body: some View {
+        let isSmall = family == .systemSmall
+        let folders = entry.folders
+        
+        VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
+            // Header Row
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.11))
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.45, green: 0.7, blue: 1.0),
+                                    Color(red: 0.2, green: 0.4, blue: 0.9)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
+                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+
+                if !isSmall {
+                    Text("Fanficly")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+
+                Spacer()
+
+                Text("Folders")
+                    .font(.system(size: isSmall ? 9 : 11, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .padding(.horizontal, isSmall ? 6 : 8)
+                    .padding(.vertical, isSmall ? 5 : 4)
+                    .background(.white.opacity(0.11), in: Capsule())
+            }
+
+            // Middle Section
+            if folders.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No Folders")
+                        .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("Organize works in app")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer()
+            } else {
+                let first = folders[0]
+                if isSmall {
+                    Link(destination: URL(string: "fanficly://library?folder=\(first.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(first.name)
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            
+                            Text("Library Folder")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.55))
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(first.workCount)")
+                                .font(.headline.weight(.heavy))
+                                .foregroundStyle(.white)
+                            Text("stories inside")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
+                } else {
+                    // Medium Family lists top 3 folders
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(folders.prefix(3), id: \.name) { folder in
+                            Link(destination: URL(string: "fanficly://library?folder=\(folder.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!) {
+                                HStack {
+                                    Image(systemName: "folder")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                    
+                                    Text(folder.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text("\(folder.workCount) \(folder.workCount == 1 ? "story" : "stories")")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+        .padding(isSmall ? 12 : 14)
+        .containerBackground(for: .widget) {
+            WidgetGlassBackground()
+        }
+    }
+}
+
+struct FolderShortcutWidget: Widget {
+    let kind: String = "FanficlyFolderShortcutWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: FolderShortcutProvider()) { entry in
+            FolderShortcutWidgetEntryView(entry: entry)
+        }
+        .configurationDisplayName("Folder Shortcuts")
+        .description("View and access your custom library folders.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
+    }
+}
+
+// MARK: - Saved Searches / Fandom Shortcut Widget
+
+struct SavedSearchesEntry: TimelineEntry {
+    let date: Date
+    let searches: [WidgetSavedSearch]
+}
+
+struct SavedSearchesProvider: TimelineProvider {
+    func placeholder(in context: Context) -> SavedSearchesEntry {
+        SavedSearchesEntry(date: Date(), searches: [
+            WidgetSavedSearch(name: "Hermione/Draco", query: "Hermione/Draco", isFilter: false),
+            WidgetSavedSearch(name: "MCU Stars", query: "{\"fandoms\":[\"Marvel\"]}", isFilter: true)
+        ])
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (SavedSearchesEntry) -> ()) {
+        let list = WidgetDataStore.loadLocalSavedSearches()
+        completion(SavedSearchesEntry(date: Date(), searches: list))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<SavedSearchesEntry>) -> ()) {
+        let list = WidgetDataStore.loadLocalSavedSearches()
+        let entry = SavedSearchesEntry(date: Date(), searches: list)
+        let timeline = Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60)))
+        completion(timeline)
+    }
+}
+
+struct SavedSearchesWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
+    var entry: SavedSearchesProvider.Entry
+
+    var body: some View {
+        let isSmall = family == .systemSmall
+        let searches = entry.searches
+        
+        VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
+            // Header Row
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.11))
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.9, green: 0.5, blue: 0.9),
+                                    Color(red: 0.6, green: 0.2, blue: 0.8)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
+                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+
+                if !isSmall {
+                    Text("Fanficly")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+
+                Spacer()
+
+                Text("Searches")
+                    .font(.system(size: isSmall ? 9 : 11, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .padding(.horizontal, isSmall ? 6 : 8)
+                    .padding(.vertical, isSmall ? 5 : 4)
+                    .background(.white.opacity(0.11), in: Capsule())
+            }
+
+            // Middle Section
+            if searches.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No Searches")
+                        .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("Save search queries in app")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer()
+            } else {
+                let first = searches[0]
+                let destURL = "fanficly://search?query=\(first.query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+                if isSmall {
+                    Link(destination: URL(string: destURL)!) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(first.name)
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            
+                            Text(first.isFilter ? "Saved Filter" : "Saved Search")
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.55))
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Tap Search")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white.opacity(0.72))
+                            Text("Run query in app")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
+                } else {
+                    // Medium Family lists top 3 searches
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(searches.prefix(3), id: \.name) { item in
+                            let itemURL = "fanficly://search?query=\(item.query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+                            Link(destination: URL(string: itemURL)!) {
+                                HStack {
+                                    Image(systemName: item.isFilter ? "slider.horizontal.3" : "tag")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                    
+                                    Text(item.name)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+        .padding(isSmall ? 12 : 14)
+        .containerBackground(for: .widget) {
+            WidgetGlassBackground()
+        }
+    }
+}
+
+struct SavedSearchesWidget: Widget {
+    let kind: String = "FanficlySavedSearchesWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: SavedSearchesProvider()) { entry in
+            SavedSearchesWidgetEntryView(entry: entry)
+        }
+        .configurationDisplayName("Saved Searches")
+        .description("Quickly run your saved search and filter terms.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
+    }
+}
+
+// MARK: - Random recommendation / "To Read" Pile Widget
+
+struct RecommendationEntry: TimelineEntry {
+    let date: Date
+    let rec: WidgetRecommendation?
+}
+
+struct RecommendationProvider: TimelineProvider {
+    func placeholder(in context: Context) -> RecommendationEntry {
+        RecommendationEntry(date: Date(), rec: WidgetRecommendation(
+            workId: 201,
+            title: "A Magnificent Tale of Stars",
+            author: "Acura",
+            summary: "An epic adventure in a galaxy far away, exploring relationships and new worlds. Highly rated by the community.",
+            tags: ["Action", "Sci-Fi", "FandomA"]
+        ))
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (RecommendationEntry) -> ()) {
+        let list = WidgetDataStore.loadLocalRecommendations()
+        completion(RecommendationEntry(date: Date(), rec: list.first))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<RecommendationEntry>) -> ()) {
+        let list = WidgetDataStore.loadLocalRecommendations()
+        let recommendation = list.randomElement()
+        let entry = RecommendationEntry(date: Date(), rec: recommendation)
+        let timeline = Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(30 * 60)))
+        completion(timeline)
+    }
+}
+
+struct RecommendationWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
+    var entry: RecommendationProvider.Entry
+
+    var body: some View {
+        let isSmall = family == .systemSmall
+        
+        VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
+            // Header Row
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.11))
+                    Image(systemName: "sparkles")
+                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 1.0, green: 0.6, blue: 0.8),
+                                    Color(red: 1.0, green: 0.45, blue: 0.5)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
+                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+
+                if !isSmall {
+                    Text("Fanficly")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                }
+
+                Spacer()
+
+                Text("For You")
+                    .font(.system(size: isSmall ? 9 : 11, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .padding(.horizontal, isSmall ? 6 : 8)
+                    .padding(.vertical, isSmall ? 5 : 4)
+                    .background(.white.opacity(0.11), in: Capsule())
+            }
+
+            // Middle Section
+            if let rec = entry.rec {
+                Link(destination: URL(string: "fanficly://resume/\(rec.workId)")!) {
+                    VStack(alignment: .leading, spacing: isSmall ? 3 : 4) {
+                        Text(rec.title)
+                            .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(isSmall ? 2 : 1)
+                            .minimumScaleFactor(0.82)
+                        
+                        Text(rec.author)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.55))
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer(minLength: 2)
+                    
+                    if isSmall {
+                        HStack(spacing: 4) {
+                            Image(systemName: "book.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.white.opacity(0.6))
+                            Text("Random Rec")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white.opacity(0.72))
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(rec.summary)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.72))
+                                .lineLimit(2)
+                            
+                            if let tag = rec.tags.first {
+                                Text(tag)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.86))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(.white.opacity(0.11), in: Capsule())
+                            }
+                        }
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No Starred Works")
+                        .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text("Star works to get recs")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer()
+            }
+        }
+        .padding(isSmall ? 12 : 14)
+        .containerBackground(for: .widget) {
+            WidgetGlassBackground()
+        }
+    }
+}
+
+struct RecommendationWidget: Widget {
+    let kind: String = "FanficlyRecommendationWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: RecommendationProvider()) { entry in
+            RecommendationWidgetEntryView(entry: entry)
+        }
+        .configurationDisplayName("Recommendation")
+        .description("Spotlights a starred or unread story from your library.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
+    }
+}
+
 @main
 struct FanficlyWidgetsBundle: WidgetBundle {
     var body: some Widget {
         FanficlyWidget()
         StreakWidget()
+        SubscriptionsWidget()
+        FolderShortcutWidget()
+        SavedSearchesWidget()
+        RecommendationWidget()
     }
 }

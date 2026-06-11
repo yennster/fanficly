@@ -178,6 +178,7 @@ targets:
       - path: FanficlyWidget
       - path: Fanficly/WidgetProgressStore.swift
       - path: Fanficly/StreakStore.swift
+      - path: Fanficly/WidgetDataStore.swift
     info:
       path: FanficlyWidget/Info.plist
       properties:

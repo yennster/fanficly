@@ -31,6 +31,7 @@
 		44FEC24859273A53016F43CB /* iCloudSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862C0CD3C81FE0DC315D48DE /* iCloudSyncManager.swift */; };
 		48BF03C9780A56EBC787A14A /* LiveResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0969C4D9BD5F96573BF43A15 /* LiveResolutionTests.swift */; };
 		499D0181021C8A27C18619F6 /* ContentSafetyViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64FD076B306A66D55EC9DAD2 /* ContentSafetyViews.swift */; };
+		4A5A01AE97465E64487C6C7E /* WidgetDataStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98EF9886D03CF86890DD62E5 /* WidgetDataStoreTests.swift */; };
 		4A99F49139A429A15B017F4E /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 22763D2E3B0EAC69D3167A0F /* KeychainAccess */; };
 		4F9C89B3C475AE381171EEC4 /* WidgetProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9EF004C875B5BB68DD3A22 /* WidgetProgressStore.swift */; };
 		56A163B595C20D47EF3D5B09 /* RecentlyViewedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C473C55086269C2EB16927 /* RecentlyViewedView.swift */; };
@@ -69,6 +70,7 @@
 		A6F1DF3628D4AD7345991B68 /* ReaderProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA35360B96DE5B2B27E1CC16 /* ReaderProfile.swift */; };
 		ABA9BC278DE0C4B0B69FBAD0 /* SubscriptionsParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C33994FE037E47981A5F9 /* SubscriptionsParserTests.swift */; };
 		AEDF3AD7C78F563F454DE499 /* MediaCategoryParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */; };
+		AF0F6AE46A6A43A6EC86FEA3 /* WidgetDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B0DFF664E9EF6F693EB7B2 /* WidgetDataStore.swift */; };
 		B0D8442B64B5A18AC1E17F06 /* PersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F667B1136698256D6B0A641 /* PersistenceTests.swift */; };
 		B1BF546C967418F60B6FFA2F /* FandomCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97B027978587DDDCA8B4C41 /* FandomCatalogTests.swift */; };
 		B458B870F9D79FA5DCE03749 /* FanficlyWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CA6525F6BADFFEE33426FD3 /* FanficlyWidget.swift */; };
@@ -86,6 +88,7 @@
 		DF3E2176E6D631CEA095174C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A272FB51659AD4DBA99A7EB9 /* PrivacyInfo.xcprivacy */; };
 		E34C4F3EE4725E19198EDFB5 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D982066D8837E7AFC8C8164C /* ShareViewController.swift */; };
 		E59B398BB43AFC5A3175407D /* DemoAO3Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3F1CDC54EF7C6837A84AE8 /* DemoAO3Client.swift */; };
+		E627631BB4AEC7C9B718779E /* WidgetDataUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 015A2ED4E89FA168D5FA5685 /* WidgetDataUpdater.swift */; };
 		E994541F6ECDCB44D99593B4 /* TagResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5A8E8054D0CC319F382113 /* TagResolverTests.swift */; };
 		EC670074E6FC17855CA2E7EA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DBE134CABB0F90B6C9B9DAD7 /* Assets.xcassets */; };
 		F1438930E09995274636AD9B /* AuthorWorksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E970EC8D49395624D894D95A /* AuthorWorksView.swift */; };
@@ -95,6 +98,7 @@
 		F74BE84F8DE28D9F18359BFC /* AO3ClientEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE807CFF2DB0F1B916323F5A /* AO3ClientEnvironment.swift */; };
 		F75BBAEC0A2F5A81EF2AED13 /* AO3SearchFiltersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6E16021EBDB3AE9E77EB6F /* AO3SearchFiltersTests.swift */; };
 		FA4F4FBE2CA8EC66929A72F8 /* Credentials.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDD6DC08376FF6AAB0BCE651 /* Credentials.swift */; };
+		FC2E6F94FBD86DEB7499958B /* WidgetDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B0DFF664E9EF6F693EB7B2 /* WidgetDataStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -144,6 +148,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		015A2ED4E89FA168D5FA5685 /* WidgetDataUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDataUpdater.swift; sourceTree = "<group>"; };
 		0482479EDEACF907E0D0072F /* HTMLText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLText.swift; sourceTree = "<group>"; };
 		05006B5DADFCE234E159A554 /* ContentFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentFilter.swift; sourceTree = "<group>"; };
 		0969C4D9BD5F96573BF43A15 /* LiveResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveResolutionTests.swift; sourceTree = "<group>"; };
@@ -196,6 +201,7 @@
 		8E5D506137E5E8CD47C34FEF /* WorkFilterSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkFilterSheet.swift; sourceTree = "<group>"; };
 		946E7A305EC096F8075E6C03 /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
 		958A36B95570920660E8048F /* AO3EndpointsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3EndpointsTests.swift; sourceTree = "<group>"; };
+		98EF9886D03CF86890DD62E5 /* WidgetDataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDataStoreTests.swift; sourceTree = "<group>"; };
 		9A6E16021EBDB3AE9E77EB6F /* AO3SearchFiltersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3SearchFiltersTests.swift; sourceTree = "<group>"; };
 		9F667B1136698256D6B0A641 /* PersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceTests.swift; sourceTree = "<group>"; };
 		A0036CD79E030A93B1E8CEB0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -214,6 +220,7 @@
 		B77BEF3BBA97BBC74AEFF6B1 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		BB40164C465D9753C5B808C2 /* WorkPageParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkPageParserTests.swift; sourceTree = "<group>"; };
 		BCFA7D46F5AF3C37A7DEDD69 /* FanficlyWidgetMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FanficlyWidgetMac.entitlements; sourceTree = "<group>"; };
+		C1B0DFF664E9EF6F693EB7B2 /* WidgetDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDataStore.swift; sourceTree = "<group>"; };
 		C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCategoryParserTests.swift; sourceTree = "<group>"; };
 		C800E1CBCB775F93A3B718FB /* FanficlyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanficlyApp.swift; sourceTree = "<group>"; };
 		C9514E85985142BCB7F62DCB /* ReadingProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingProgressStore.swift; sourceTree = "<group>"; };
@@ -240,7 +247,7 @@
 		FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTextTests.swift; sourceTree = "<group>"; };
 		FE4F76A060504CC63D18FB5E /* FanficlyShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FanficlyShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF3F1CDC54EF7C6837A84AE8 /* DemoAO3Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoAO3Client.swift; sourceTree = "<group>"; };
-		"TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -279,6 +286,8 @@
 				A272FB51659AD4DBA99A7EB9 /* PrivacyInfo.xcprivacy */,
 				31ABEF72A383E0C4AD8DDACC /* RootView.swift */,
 				CE782127AFD722CB912AB10C /* StreakStore.swift */,
+				C1B0DFF664E9EF6F693EB7B2 /* WidgetDataStore.swift */,
+				015A2ED4E89FA168D5FA5685 /* WidgetDataUpdater.swift */,
 				AB9EF004C875B5BB68DD3A22 /* WidgetProgressStore.swift */,
 			);
 			path = Fanficly;
@@ -483,6 +492,7 @@
 				5A0C33994FE037E47981A5F9 /* SubscriptionsParserTests.swift */,
 				CC5A8E8054D0CC319F382113 /* TagResolverTests.swift */,
 				D9CEA2F373D507F3282D733F /* ThrottleActorTests.swift */,
+				98EF9886D03CF86890DD62E5 /* WidgetDataStoreTests.swift */,
 				DE70E6F403D1F1C214C9555C /* WorkMetadataParserTests.swift */,
 				BB40164C465D9753C5B808C2 /* WorkPageParserTests.swift */,
 			);
@@ -502,10 +512,10 @@
 			path = HTMLParsers;
 			sourceTree = "<group>";
 		};
-		"TEMP_F3CD7485-2C6D-46F3-9616-9B4553FBEDCB" /* ao3-app */ = {
+		"TEMP_707F7B81-9585-462F-9E50-12809CFD29C3" /* ao3-app */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */,
+				"TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */,
 			);
 			path = "ao3-app";
 			sourceTree = "<group>";
@@ -739,6 +749,8 @@
 				F1AB327990E846942F810703 /* TagResolver.swift in Sources */,
 				B8DCFE701781255AA7EB7D98 /* ThrottleActor.swift in Sources */,
 				69B57CD1457945B978BA756A /* Typography.swift in Sources */,
+				FC2E6F94FBD86DEB7499958B /* WidgetDataStore.swift in Sources */,
+				E627631BB4AEC7C9B718779E /* WidgetDataUpdater.swift in Sources */,
 				4F9C89B3C475AE381171EEC4 /* WidgetProgressStore.swift in Sources */,
 				F498D7773BE1BEB8529BCB5D /* Work.swift in Sources */,
 				7DD2A35F67B87BE39724C5B8 /* WorkExportButton.swift in Sources */,
@@ -772,6 +784,7 @@
 				ABA9BC278DE0C4B0B69FBAD0 /* SubscriptionsParserTests.swift in Sources */,
 				E994541F6ECDCB44D99593B4 /* TagResolverTests.swift in Sources */,
 				44F2C4F0FD91247C70E510BD /* ThrottleActorTests.swift in Sources */,
+				4A5A01AE97465E64487C6C7E /* WidgetDataStoreTests.swift in Sources */,
 				976DBFDCDF8637D808A7AAD1 /* WorkMetadataParserTests.swift in Sources */,
 				7C6D7B9749A3BD62511C9590 /* WorkPageParserTests.swift in Sources */,
 			);
@@ -783,6 +796,7 @@
 			files = (
 				B458B870F9D79FA5DCE03749 /* FanficlyWidget.swift in Sources */,
 				0C93417318501312E62FD5EE /* StreakStore.swift in Sources */,
+				AF0F6AE46A6A43A6EC86FEA3 /* WidgetDataStore.swift in Sources */,
 				1D374C42759FFCB060BCFA5B /* WidgetProgressStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -824,7 +838,7 @@
 /* Begin XCBuildConfiguration section */
 		101DDA49A6903ACE8E8B0566 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -917,7 +931,7 @@
 		};
 		6FAF1406E881D8C0AC736895 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -943,7 +957,7 @@
 		};
 		9925155C6903BF8310099F16 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyShare/FanficlyShareMac.entitlements;
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -964,7 +978,7 @@
 		};
 		C1C42BD5CB7E6D67B69726DD /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -990,7 +1004,7 @@
 		};
 		C33115565CF63EBC63BAECAD /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FanficlyWidget/FanficlyWidget.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyWidget/FanficlyWidgetMac.entitlements;
@@ -1012,7 +1026,7 @@
 		};
 		C613CC5642BD299A9EFC48E5 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1032,7 +1046,7 @@
 		};
 		CD522EF40C68CFE62723F737 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FanficlyWidget/FanficlyWidget.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyWidget/FanficlyWidgetMac.entitlements;
@@ -1054,7 +1068,7 @@
 		};
 		D5315B3D0C14233907B25D13 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyShare/FanficlyShareMac.entitlements;
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1075,7 +1089,7 @@
 		};
 		E0E47751AC9B94FBBD68AF0C /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1095,7 +1109,7 @@
 		};
 		EDF7B1B0FCFFA1368D41D69E /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_1BDBE1AD-55FE-41B3-90E1-2D5A003477A5" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_34B985B3-4DD5-4A8A-BF96-6D818489C7E2" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";

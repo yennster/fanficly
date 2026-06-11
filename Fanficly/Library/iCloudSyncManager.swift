@@ -42,6 +42,8 @@ final class iCloudSyncManager {
     
     /// Triggers a debounced backup to iCloud.
     func queueBackup(context: ModelContext) {
+        WidgetDataStore.updateAll(context: context)
+        
         let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
         guard iCloudEnabled else { return }
         

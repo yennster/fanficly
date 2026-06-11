@@ -7,6 +7,7 @@ struct SearchView: View {
     @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
     @Query private var hiddenWorks: [HiddenWork]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
+    @AppStorage("search.pendingQuery") private var pendingQuery: String = ""
     @State private var prompt: String = ""
     @State private var lastParsed: AO3SearchFilters = AO3SearchFilters()
     @State private var results: [AO3WorkSummary] = []
@@ -73,6 +74,20 @@ struct SearchView: View {
         }
         .sheet(isPresented: $showingHelpSheet) {
             SearchHelpView()
+        }
+        .onAppear {
+            if !pendingQuery.isEmpty {
+                prompt = pendingQuery
+                pendingQuery = ""
+                Task { await runSearch() }
+            }
+        }
+        .onChange(of: pendingQuery) { _, newValue in
+            if !newValue.isEmpty {
+                prompt = newValue
+                pendingQuery = ""
+                Task { await runSearch() }
+            }
         }
     }
 

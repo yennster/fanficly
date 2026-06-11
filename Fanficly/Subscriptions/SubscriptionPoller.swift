@@ -110,6 +110,7 @@ struct SubscriptionPoller {
             total += await checkForNewChapters()
         }
         total += await checkFollowedWorks()
+        WidgetDataStore.updateAll(context: context)
         return total
     }
 

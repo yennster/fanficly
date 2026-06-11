@@ -55,5 +55,6 @@ enum ReadingProgressStore {
         }
 
         StreakStore.recordReadingEvent()
+        WidgetDataStore.updateAll(context: context)
     }
 }

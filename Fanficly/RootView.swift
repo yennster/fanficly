@@ -2,6 +2,29 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
+struct PinnedFolderRoute: Hashable, Sendable {
+    let folderName: String
+}
+
+struct FolderRouteDetailLoader: View {
+    let folderName: String
+    @Query private var folders: [CustomFolder]
+    
+    init(folderName: String) {
+        self.folderName = folderName
+        let pred = #Predicate<CustomFolder> { $0.name == folderName }
+        _folders = Query(filter: pred)
+    }
+    
+    var body: some View {
+        if let folder = folders.first {
+            FolderDetailView(folder: folder, initialSearchText: "")
+        } else {
+            ContentUnavailableView("Folder Not Found", systemImage: "folder.badge.questionmark", description: Text("The folder '\(folderName)' could not be found."))
+        }
+    }
+}
+
 struct RootView: View {
     // Start with no selection so the app opens on the sidebar menu
     // (on iPhone) rather than pushing straight into Search.
@@ -15,6 +38,7 @@ struct RootView: View {
     @State private var compactSelection: SidebarItem?
     @State private var detailPath = NavigationPath()
     @State private var pendingResumeRoute: ResumeWorkRoute?
+    @State private var pendingFolderRoute: PinnedFolderRoute?
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
@@ -75,6 +99,9 @@ struct RootView: View {
                         WorkDetailView(workId: route.workId)
                     }
                 }
+                .navigationDestination(for: PinnedFolderRoute.self) { route in
+                    FolderRouteDetailLoader(folderName: route.folderName)
+                }
                 // Performs the widget-resume push. Driven by state instead of
                 // an imperative append so it runs once this stack's content is
                 // actually mounted: in compact width the detail column doesn't
@@ -85,6 +112,11 @@ struct RootView: View {
                 .task(id: pendingResumeRoute) {
                     guard let route = pendingResumeRoute else { return }
                     pendingResumeRoute = nil
+                    detailPath = NavigationPath([route])
+                }
+                .task(id: pendingFolderRoute) {
+                    guard let route = pendingFolderRoute else { return }
+                    pendingFolderRoute = nil
                     detailPath = NavigationPath([route])
                 }
             }
@@ -199,6 +231,27 @@ struct RootView: View {
 
         if let workId = parseWorkId(from: url) {
             importingWorkId = workId
+            return
+        }
+        
+        // Custom Folder Shortcut routing (fanficly://library?folder=name)
+        if url.host == "library",
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+           let folderItem = components.queryItems?.first(where: { $0.name == "folder" }),
+           let folderName = folderItem.value {
+            select(.library)
+            pendingFolderRoute = PinnedFolderRoute(folderName: folderName)
+            return
+        }
+        
+        // Saved Searches Shortcut routing (fanficly://search?query=queryText)
+        if url.host == "search",
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+           let queryItem = components.queryItems?.first(where: { $0.name == "query" }),
+           let queryValue = queryItem.value {
+            select(.search)
+            UserDefaults.standard.set(queryValue, forKey: "search.pendingQuery")
+            return
         }
     }
 
