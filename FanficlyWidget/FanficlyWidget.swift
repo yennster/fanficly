@@ -964,7 +964,7 @@ struct RecommendationWidgetEntryView: View {
     var body: some View {
         let isSmall = family == .systemSmall
         
-        VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
+        VStack(alignment: .leading, spacing: isSmall ? 8 : 4) {
             // Header Row
             HStack(spacing: 8) {
                 AppBookIcon()
@@ -989,26 +989,35 @@ struct RecommendationWidgetEntryView: View {
             // Middle Section
             if let rec = entry.rec {
                 Link(destination: URL(string: "fanficly://resume/\(rec.workId)")!) {
-                    VStack(alignment: .leading, spacing: isSmall ? 4 : 6) {
-                        VStack(alignment: .leading, spacing: isSmall ? 2 : 4) {
+                    VStack(alignment: .leading, spacing: isSmall ? 4 : 4) {
+                        VStack(alignment: .leading, spacing: isSmall ? 2 : 2) {
                             Text(rec.title)
-                                .font(isSmall ? .system(size: 14, weight: .semibold) : Font.title3.weight(.semibold))
+                                .font(isSmall ? .system(size: 14, weight: .semibold) : .system(size: 16, weight: .semibold))
                                 .foregroundStyle(.white)
-                                .lineLimit(isSmall ? 3 : 1)
+                                .lineLimit(isSmall ? 2 : 1)
                                 .minimumScaleFactor(0.82)
                             
                             Text(rec.author)
-                                .font(isSmall ? .caption : .subheadline)
+                                .font(isSmall ? .caption : .system(size: 13))
                                 .foregroundStyle(.white.opacity(0.55))
                                 .lineLimit(1)
                         }
                         
                         if isSmall {
                             Spacer(minLength: 0)
-                        } else {
-                            Spacer(minLength: 2)
                             
-                            VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "book.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                Text("Random Rec")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.white.opacity(0.72))
+                            }
+                        } else {
+                            Spacer(minLength: 0)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text(rec.summary)
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.72))
@@ -1020,7 +1029,7 @@ struct RecommendationWidgetEntryView: View {
                                         .font(.system(size: 9, weight: .bold))
                                         .foregroundStyle(.white.opacity(0.86))
                                         .padding(.horizontal, 6)
-                                        .padding(.vertical, 3)
+                                        .padding(.vertical, 2)
                                         .background(.white.opacity(0.11), in: Capsule())
                                 }
                             }
