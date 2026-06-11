@@ -53,5 +53,7 @@ enum ReadingProgressStore {
                 syncImmediately: syncWidgetImmediately
             )
         }
+
+        StreakStore.recordReadingEvent()
     }
 }

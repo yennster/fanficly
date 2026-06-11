@@ -53,6 +53,7 @@ struct FanficlyApp: App {
         } else if !Self.isTestMode {
             WidgetProgressStore.installCloudSyncObserver()
             ReaderProfileSyncStore.installCloudSyncObserver()
+            StreakStore.installCloudSyncObserver()
         }
     }
 
