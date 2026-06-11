@@ -237,8 +237,8 @@ private struct AppBookIcon: View {
             
             for i in 0..<lineCount {
                 let y = cy - bookH * 0.27 + CGFloat(i) * gap
-                let leftW = fullLineWidth * (i == lineCount - 1 ? 0.6 : 1.0)
-                let rightW = fullLineWidth * (i == lineCount - 1 ? 0.55 : 1.0)
+                let leftW = fullLineWidth * (i == 0 ? 0.6 : 1.0)
+                let rightW = fullLineWidth * (i == 0 ? 0.55 : 1.0)
                 
                 let leftX = cx - halfW + pagePadding
                 let rightX = cx + spineGap + pagePadding
@@ -320,9 +320,7 @@ struct StreakWidgetEntryView: View {
     var entry: StreakProvider.Entry
 
     var body: some View {
-        let isSmall = family == .systemSmall
-        
-        VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
+        VStack(alignment: .leading, spacing: isSmall ? 8 : 2) {
             // Header Row (Matches Recently Read widget structure)
             HStack(spacing: 8) {
                 AppBookIcon()
@@ -351,7 +349,7 @@ struct StreakWidgetEntryView: View {
             }
 
             // Middle Section: Streak Count & Title (Matches Title & Author structure)
-            VStack(alignment: .leading, spacing: isSmall ? 3 : 4) {
+            VStack(alignment: .leading, spacing: isSmall ? 3 : 0) {
                 Text("\(entry.streak) \(entry.streak == 1 ? "Day" : "Days")")
                     .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
                     .foregroundStyle(.white)
@@ -363,10 +361,10 @@ struct StreakWidgetEntryView: View {
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 4)
+            Spacer(minLength: isSmall ? 4 : 2)
 
             // Bottom Section: Weekly Progress Dots (Matches Continue Reading & Progress Bar structure)
-            VStack(alignment: .leading, spacing: isSmall ? 5 : 8) {
+            VStack(alignment: .leading, spacing: isSmall ? 5 : 2) {
                 let days = StreakStore.getLast7DaysActivity(from: entry.activityDates, relativeTo: entry.date)
                 let readCount = days.filter(\.isRead).count
                 
@@ -383,11 +381,11 @@ struct StreakWidgetEntryView: View {
                     }
                 }
                 
-                HStack(spacing: isSmall ? 4 : 8) {
+                HStack(spacing: isSmall ? 4 : 6) {
                     ForEach(days) { day in
-                        VStack(spacing: isSmall ? 4 : 6) {
+                        VStack(spacing: isSmall ? 4 : 2) {
                             Text(day.name)
-                                .font(.system(size: isSmall ? 8 : 11, weight: .bold))
+                                .font(.system(size: isSmall ? 8 : 10, weight: .bold))
                                 .foregroundStyle(day.isToday ? .white : .white.opacity(0.5))
                             
                             ZStack {
@@ -403,37 +401,42 @@ struct StreakWidgetEntryView: View {
                                                 endPoint: .bottom
                                             )
                                         )
-                                        .frame(width: isSmall ? 11 : 18, height: isSmall ? 11 : 18)
+                                        .frame(width: isSmall ? 11 : 14, height: isSmall ? 11 : 14)
                                     
                                     Image(systemName: "checkmark")
-                                        .font(.system(size: isSmall ? 5 : 9, weight: .black))
+                                        .font(.system(size: isSmall ? 5 : 7, weight: .black))
                                         .foregroundStyle(.white)
                                 } else {
                                     Circle()
                                         .stroke(.white.opacity(0.25), lineWidth: 1.2)
-                                        .frame(width: isSmall ? 11 : 18, height: isSmall ? 11 : 18)
+                                        .frame(width: isSmall ? 11 : 14, height: isSmall ? 11 : 14)
                                 }
                                 
                                 if day.isToday {
                                     Circle()
                                         .stroke(.white, lineWidth: 1.5)
-                                        .frame(width: isSmall ? 15 : 22, height: isSmall ? 15 : 22)
+                                        .frame(width: isSmall ? 15 : 18, height: isSmall ? 15 : 18)
                                 }
                             }
-                            .frame(width: isSmall ? 15 : 22, height: isSmall ? 15 : 22)
+                            .frame(width: isSmall ? 15 : 18, height: isSmall ? 15 : 18)
                         }
                         .frame(maxWidth: .infinity)
                     }
                 }
-                .padding(.vertical, isSmall ? 4 : 8)
-                .padding(.horizontal, isSmall ? 4 : 10)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: isSmall ? 8 : 12))
+                .padding(.vertical, isSmall ? 4 : 3)
+                .padding(.horizontal, isSmall ? 4 : 8)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: isSmall ? 8 : 10))
             }
         }
-        .padding(isSmall ? 12 : 14)
+        .padding(.horizontal, isSmall ? 12 : 14)
+        .padding(.vertical, isSmall ? 12 : 14)
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
+    }
+
+    private var isSmall: Bool {
+        family == .systemSmall
     }
 }
 
@@ -987,36 +990,30 @@ struct RecommendationWidgetEntryView: View {
             if let rec = entry.rec {
                 Link(destination: URL(string: "fanficly://resume/\(rec.workId)")!) {
                     VStack(alignment: .leading, spacing: isSmall ? 4 : 6) {
-                        VStack(alignment: .leading, spacing: isSmall ? 3 : 4) {
+                        VStack(alignment: .leading, spacing: isSmall ? 2 : 4) {
                             Text(rec.title)
-                                .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                                .font(isSmall ? .system(size: 14, weight: .semibold) : Font.title3.weight(.semibold))
                                 .foregroundStyle(.white)
-                                .lineLimit(isSmall ? 2 : 1)
+                                .lineLimit(isSmall ? 3 : 1)
                                 .minimumScaleFactor(0.82)
                             
                             Text(rec.author)
-                                .font(.subheadline)
+                                .font(isSmall ? .caption : .subheadline)
                                 .foregroundStyle(.white.opacity(0.55))
                                 .lineLimit(1)
                         }
                         
-                        Spacer(minLength: 2)
-                        
                         if isSmall {
-                            HStack(spacing: 4) {
-                                Image(systemName: "book.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.white.opacity(0.6))
-                                Text("Random Rec")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(.white.opacity(0.72))
-                            }
+                            Spacer(minLength: 0)
                         } else {
+                            Spacer(minLength: 2)
+                            
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(rec.summary)
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.72))
                                     .lineLimit(2)
+                                    .layoutPriority(1)
                                 
                                 if let tag = rec.tags.first {
                                     Text(tag)
