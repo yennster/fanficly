@@ -325,23 +325,8 @@ struct StreakWidgetEntryView: View {
         VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
             // Header Row (Matches Recently Read widget structure)
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(.white.opacity(0.11))
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: isSmall ? 14 : 16, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 1.0, green: 0.62, blue: 0.45),
-                                    Color(red: 1.0, green: 0.38, blue: 0.42)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
-                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+                AppBookIcon()
+                    .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
 
                 if !isSmall {
                     Text("Fanficly")
@@ -381,7 +366,7 @@ struct StreakWidgetEntryView: View {
             Spacer(minLength: 4)
 
             // Bottom Section: Weekly Progress Dots (Matches Continue Reading & Progress Bar structure)
-            VStack(alignment: .leading, spacing: isSmall ? 5 : 6) {
+            VStack(alignment: .leading, spacing: isSmall ? 5 : 8) {
                 let days = StreakStore.getLast7DaysActivity(from: entry.activityDates, relativeTo: entry.date)
                 let readCount = days.filter(\.isRead).count
                 
@@ -398,11 +383,11 @@ struct StreakWidgetEntryView: View {
                     }
                 }
                 
-                HStack(spacing: isSmall ? 4 : 6) {
+                HStack(spacing: isSmall ? 4 : 8) {
                     ForEach(days) { day in
-                        VStack(spacing: isSmall ? 4 : 5) {
+                        VStack(spacing: isSmall ? 4 : 6) {
                             Text(day.name)
-                                .font(.system(size: isSmall ? 8 : 9, weight: .bold))
+                                .font(.system(size: isSmall ? 8 : 11, weight: .bold))
                                 .foregroundStyle(day.isToday ? .white : .white.opacity(0.5))
                             
                             ZStack {
@@ -418,31 +403,31 @@ struct StreakWidgetEntryView: View {
                                                 endPoint: .bottom
                                             )
                                         )
-                                        .frame(width: isSmall ? 11 : 14, height: isSmall ? 11 : 14)
+                                        .frame(width: isSmall ? 11 : 18, height: isSmall ? 11 : 18)
                                     
                                     Image(systemName: "checkmark")
-                                        .font(.system(size: isSmall ? 5 : 7, weight: .black))
+                                        .font(.system(size: isSmall ? 5 : 9, weight: .black))
                                         .foregroundStyle(.white)
                                 } else {
                                     Circle()
                                         .stroke(.white.opacity(0.25), lineWidth: 1.2)
-                                        .frame(width: isSmall ? 11 : 14, height: isSmall ? 11 : 14)
+                                        .frame(width: isSmall ? 11 : 18, height: isSmall ? 11 : 18)
                                 }
                                 
                                 if day.isToday {
                                     Circle()
-                                        .stroke(.white, lineWidth: 1)
-                                        .frame(width: isSmall ? 15 : 18, height: isSmall ? 15 : 18)
+                                        .stroke(.white, lineWidth: 1.5)
+                                        .frame(width: isSmall ? 15 : 22, height: isSmall ? 15 : 22)
                                 }
                             }
-                            .frame(width: isSmall ? 15 : 18, height: isSmall ? 15 : 18)
+                            .frame(width: isSmall ? 15 : 22, height: isSmall ? 15 : 22)
                         }
                         .frame(maxWidth: .infinity)
                     }
                 }
-                .padding(.vertical, isSmall ? 4 : 6)
-                .padding(.horizontal, isSmall ? 4 : 8)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: isSmall ? 8 : 10))
+                .padding(.vertical, isSmall ? 4 : 8)
+                .padding(.horizontal, isSmall ? 4 : 10)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: isSmall ? 8 : 12))
             }
         }
         .padding(isSmall ? 12 : 14)
@@ -519,23 +504,8 @@ struct SubscriptionsWidgetEntryView: View {
         VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
             // Header Row
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(.white.opacity(0.11))
-                    Image(systemName: "bell.fill")
-                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 1.0, green: 0.8, blue: 0.3),
-                                    Color(red: 1.0, green: 0.45, blue: 0.2)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
-                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+                AppBookIcon()
+                    .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
 
                 if !isSmall {
                     Text("Fanficly")
@@ -568,26 +538,29 @@ struct SubscriptionsWidgetEntryView: View {
                 let first = updates[0]
                 if isSmall {
                     Link(destination: URL(string: "fanficly://resume/\(first.workId)")!) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(first.title)
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            
-                            Text("By \(first.author)")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.55))
-                                .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(first.title)
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                
+                                Text("By \(first.author)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.55))
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 4)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(updates.count) \(updates.count == 1 ? "Update" : "Updates")")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.white.opacity(0.72))
+                                Text("Last: Ch \(first.chapterCount)")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.white.opacity(0.55))
+                            }
                         }
-                        Spacer()
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(updates.count) Updates")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white.opacity(0.72))
-                            Text("Last: Ch \(first.chapterCount)")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.55))
-                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else {
                     // Medium Family lists top 3 updates
@@ -683,23 +656,8 @@ struct FolderShortcutWidgetEntryView: View {
         VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
             // Header Row
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(.white.opacity(0.11))
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.45, green: 0.7, blue: 1.0),
-                                    Color(red: 0.2, green: 0.4, blue: 0.9)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
-                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+                AppBookIcon()
+                    .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
 
                 if !isSmall {
                     Text("Fanficly")
@@ -732,26 +690,31 @@ struct FolderShortcutWidgetEntryView: View {
                 let first = folders[0]
                 if isSmall {
                     Link(destination: URL(string: "fanficly://library?folder=\(first.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(first.name)
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(first.name)
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                
+                                Text("Library Folder")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.55))
+                                    .lineLimit(1)
+                            }
                             
-                            Text("Library Folder")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.55))
-                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text("\(first.workCount)")
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundStyle(.white)
+                                Text(first.workCount == 1 ? "story" : "stories")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.55))
+                            }
                         }
-                        Spacer()
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(first.workCount)")
-                                .font(.headline.weight(.heavy))
-                                .foregroundStyle(.white)
-                            Text("stories inside")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.55))
-                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else {
                     // Medium Family lists top 3 folders
@@ -841,23 +804,8 @@ struct SavedSearchesWidgetEntryView: View {
         VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
             // Header Row
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(.white.opacity(0.11))
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.9, green: 0.5, blue: 0.9),
-                                    Color(red: 0.6, green: 0.2, blue: 0.8)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
-                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+                AppBookIcon()
+                    .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
 
                 if !isSmall {
                     Text("Fanficly")
@@ -891,26 +839,34 @@ struct SavedSearchesWidgetEntryView: View {
                 let destURL = "fanficly://search?query=\(first.query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
                 if isSmall {
                     Link(destination: URL(string: destURL)!) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(first.name)
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(first.name)
+                                    .font(.headline.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                
+                                Text(first.isFilter ? "Saved Filter" : "Saved Search")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.55))
+                                    .lineLimit(1)
+                            }
                             
-                            Text(first.isFilter ? "Saved Filter" : "Saved Search")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.55))
-                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            
+                            HStack(spacing: 5) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.72))
+                                Text("Run Search")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.white.opacity(0.86))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.white.opacity(0.12), in: Capsule())
                         }
-                        Spacer()
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Tap Search")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white.opacity(0.72))
-                            Text("Run query in app")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.white.opacity(0.55))
-                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 } else {
                     // Medium Family lists top 3 searches
@@ -919,15 +875,22 @@ struct SavedSearchesWidgetEntryView: View {
                             let itemURL = "fanficly://search?query=\(item.query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
                             Link(destination: URL(string: itemURL)!) {
                                 HStack {
-                                    Image(systemName: item.isFilter ? "slider.horizontal.3" : "tag")
-                                        .font(.system(size: 11))
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.system(size: 10, weight: .bold))
                                         .foregroundStyle(.white.opacity(0.55))
                                     
                                     Text(item.name)
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(.white)
                                         .lineLimit(1)
                                     Spacer()
+                                    
+                                    Text(item.isFilter ? "Filter" : "Search")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.white.opacity(0.55))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.white.opacity(0.08), in: Capsule())
                                 }
                             }
                         }
@@ -1001,23 +964,8 @@ struct RecommendationWidgetEntryView: View {
         VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
             // Header Row
             HStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(.white.opacity(0.11))
-                    Image(systemName: "sparkles")
-                        .font(.system(size: isSmall ? 13 : 15, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 1.0, green: 0.6, blue: 0.8),
-                                    Color(red: 1.0, green: 0.45, blue: 0.5)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                }
-                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+                AppBookIcon()
+                    .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
 
                 if !isSmall {
                     Text("Fanficly")
@@ -1038,47 +986,50 @@ struct RecommendationWidgetEntryView: View {
             // Middle Section
             if let rec = entry.rec {
                 Link(destination: URL(string: "fanficly://resume/\(rec.workId)")!) {
-                    VStack(alignment: .leading, spacing: isSmall ? 3 : 4) {
-                        Text(rec.title)
-                            .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(isSmall ? 2 : 1)
-                            .minimumScaleFactor(0.82)
-                        
-                        Text(rec.author)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.55))
-                            .lineLimit(1)
-                    }
-                    
-                    Spacer(minLength: 2)
-                    
-                    if isSmall {
-                        HStack(spacing: 4) {
-                            Image(systemName: "book.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.white.opacity(0.6))
-                            Text("Random Rec")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white.opacity(0.72))
-                        }
-                    } else {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(rec.summary)
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.72))
-                                .lineLimit(2)
+                    VStack(alignment: .leading, spacing: isSmall ? 4 : 6) {
+                        VStack(alignment: .leading, spacing: isSmall ? 3 : 4) {
+                            Text(rec.title)
+                                .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(isSmall ? 2 : 1)
+                                .minimumScaleFactor(0.82)
                             
-                            if let tag = rec.tags.first {
-                                Text(tag)
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(.white.opacity(0.86))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 3)
-                                    .background(.white.opacity(0.11), in: Capsule())
+                            Text(rec.author)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.55))
+                                .lineLimit(1)
+                        }
+                        
+                        Spacer(minLength: 2)
+                        
+                        if isSmall {
+                            HStack(spacing: 4) {
+                                Image(systemName: "book.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.white.opacity(0.6))
+                                Text("Random Rec")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.white.opacity(0.72))
+                            }
+                        } else {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(rec.summary)
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.72))
+                                    .lineLimit(2)
+                                
+                                if let tag = rec.tags.first {
+                                    Text(tag)
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.white.opacity(0.86))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(.white.opacity(0.11), in: Capsule())
+                                }
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 2) {

@@ -125,8 +125,19 @@ public enum StreakStore {
         
         let todayStr = formatter.string(from: referenceDate)
         
-        for offset in -6...0 {
-            guard let date = calendar.date(byAdding: .day, value: offset, to: referenceDate) else { continue }
+        // Find the start of the week for the referenceDate respecting the calendar settings (firstWeekday)
+        var startOfWeek = referenceDate
+        var interval: TimeInterval = 0
+        if !calendar.dateInterval(of: .weekOfYear, start: &startOfWeek, interval: &interval, for: referenceDate) {
+            // Fallback: manually calculate start of week based on firstWeekday
+            let currentWeekday = calendar.component(.weekday, from: referenceDate)
+            let firstWeekday = calendar.firstWeekday
+            let offset = (currentWeekday - firstWeekday + 7) % 7
+            startOfWeek = calendar.date(byAdding: .day, value: -offset, to: referenceDate) ?? referenceDate
+        }
+        
+        for offset in 0..<7 {
+            guard let date = calendar.date(byAdding: .day, value: offset, to: startOfWeek) else { continue }
             let dateStr = formatter.string(from: date)
             let isRead = dates.contains(dateStr)
             let isToday = (dateStr == todayStr)

@@ -62,34 +62,50 @@ final class StreakStoreTests: XCTestCase {
         
         XCTAssertEqual(activities.count, 7)
         
-        // The last item (offset 0) must be today (Thursday, June 11)
-        let todayActivity = activities[6]
-        XCTAssertTrue(todayActivity.isToday)
-        XCTAssertTrue(todayActivity.isRead)
-        XCTAssertEqual(todayActivity.name, "T") // "T" for Thursday (single letter EEEEE)
+        let calendar = Calendar.current
+        let firstWeekday = calendar.firstWeekday
         
-        // Offset -1 is Wednesday, June 10
-        let wednesdayActivity = activities[5]
-        XCTAssertFalse(wednesdayActivity.isToday)
-        XCTAssertTrue(wednesdayActivity.isRead)
-        XCTAssertEqual(wednesdayActivity.name, "W")
-        
-        // Offset -2 is Tuesday, June 9
-        let tuesdayActivity = activities[4]
-        XCTAssertFalse(tuesdayActivity.isToday)
-        XCTAssertFalse(tuesdayActivity.isRead)
-        XCTAssertEqual(tuesdayActivity.name, "T")
-        
-        // Offset -3 is Monday, June 8
-        let mondayActivity = activities[3]
-        XCTAssertFalse(mondayActivity.isToday)
-        XCTAssertTrue(mondayActivity.isRead)
-        XCTAssertEqual(mondayActivity.name, "M")
-        
-        // Offset -4 is Sunday, June 7
-        let sundayActivity = activities[2]
-        XCTAssertFalse(sundayActivity.isToday)
-        XCTAssertFalse(sundayActivity.isRead)
-        XCTAssertEqual(sundayActivity.name, "S")
+        if firstWeekday == 1 { // Sunday start
+            // Days: Sun 7, Mon 8, Tue 9, Wed 10, Thu 11, Fri 12, Sat 13
+            // index 0: Sun (isToday: false, isRead: false)
+            XCTAssertFalse(activities[0].isToday)
+            XCTAssertFalse(activities[0].isRead)
+            XCTAssertEqual(activities[0].name, "S")
+            
+            // index 1: Mon (isToday: false, isRead: true)
+            XCTAssertFalse(activities[1].isToday)
+            XCTAssertTrue(activities[1].isRead)
+            XCTAssertEqual(activities[1].name, "M")
+            
+            // index 3: Wed (isToday: false, isRead: true)
+            XCTAssertFalse(activities[3].isToday)
+            XCTAssertTrue(activities[3].isRead)
+            XCTAssertEqual(activities[3].name, "W")
+            
+            // index 4: Thu (isToday: true, isRead: true)
+            XCTAssertTrue(activities[4].isToday)
+            XCTAssertTrue(activities[4].isRead)
+            XCTAssertEqual(activities[4].name, "T")
+        } else if firstWeekday == 2 { // Monday start
+            // Days: Mon 8, Tue 9, Wed 10, Thu 11, Fri 12, Sat 13, Sun 14
+            // index 0: Mon (isToday: false, isRead: true)
+            XCTAssertFalse(activities[0].isToday)
+            XCTAssertTrue(activities[0].isRead)
+            XCTAssertEqual(activities[0].name, "M")
+            
+            // index 2: Wed (isToday: false, isRead: true)
+            XCTAssertFalse(activities[2].isToday)
+            XCTAssertTrue(activities[2].isRead)
+            XCTAssertEqual(activities[2].name, "W")
+            
+            // index 3: Thu (isToday: true, isRead: true)
+            XCTAssertTrue(activities[3].isToday)
+            XCTAssertTrue(activities[3].isRead)
+            XCTAssertEqual(activities[3].name, "T")
+        } else {
+            // General assertion: there must be exactly one today
+            let todayCount = activities.filter(\.isToday).count
+            XCTAssertEqual(todayCount, 1)
+        }
     }
 }

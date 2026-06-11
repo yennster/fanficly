@@ -449,6 +449,9 @@ struct FolderDetailView: View {
     @State private var searchText: String
     @Environment(\.modelContext) private var context
 
+    @State private var editMode: EditMode = .inactive
+    @State private var selectedWorkIds = Set<PersistentIdentifier>()
+
     init(folder: CustomFolder, initialSearchText: String = "") {
         self.folder = folder
         self._searchText = State(initialValue: initialSearchText)
@@ -457,54 +460,86 @@ struct FolderDetailView: View {
     var body: some View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filteredWorks = query.isEmpty ? folder.works : folder.works.filter { $0.matches(query: query) }
+        let sortedWorks = filteredWorks.sorted { $0.savedAt > $1.savedAt }
 
-        List {
-            ForEach(filteredWorks.sorted { $0.savedAt > $1.savedAt }) { work in
-                NavigationLink(value: work) {
-                    LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
-                }
-                .hoverEffect(.highlight)
-                .help("Read \(work.title)")
-                .contextMenu {
-                    NavigationLink(value: work) {
-                        Label("Read Now", systemImage: "book")
-                    }
-                    
-                    Button {
-                        work.isStarred.toggle()
-                        try? context.save()
-                        iCloudSyncManager.shared.queueBackup(context: context)
-                    } label: {
-                        Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
-                    }
-                    
-                    Button {
-                        work.isPinned.toggle()
-                        try? context.save()
-                        iCloudSyncManager.shared.queueBackup(context: context)
-                    } label: {
-                        Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
-                    }
-                    
-                    if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
-                        ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
-                            Label("Share Story...", systemImage: "square.and.arrow.up")
+        VStack(spacing: 0) {
+            List(selection: $selectedWorkIds) {
+                ForEach(sortedWorks) { work in
+                    if editMode == .active {
+                        LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
+                            .tag(work.id)
+                    } else {
+                        NavigationLink(value: work) {
+                            LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
                         }
-                    }
-                    
-                    Divider()
-                    
-                    Button(role: .destructive) {
-                        work.folders.removeAll { $0.id == folder.id }
-                        try? context.save()
-                        iCloudSyncManager.shared.queueBackup(context: context)
-                    } label: {
-                        Label("Remove from Folder", systemImage: "folder.badge.minus")
+                        .hoverEffect(.highlight)
+                        .help("Read \(work.title)")
+                        .contextMenu {
+                            NavigationLink(value: work) {
+                                Label("Read Now", systemImage: "book")
+                            }
+                            
+                            Button {
+                                work.isStarred.toggle()
+                                try? context.save()
+                                iCloudSyncManager.shared.queueBackup(context: context)
+                            } label: {
+                                Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
+                            }
+                            
+                            Button {
+                                work.isPinned.toggle()
+                                try? context.save()
+                                iCloudSyncManager.shared.queueBackup(context: context)
+                            } label: {
+                                Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
+                            }
+                            
+                            if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
+                                ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
+                                    Label("Share Story...", systemImage: "square.and.arrow.up")
+                                }
+                            }
+                            
+                            Divider()
+                            
+                            Button(role: .destructive) {
+                                work.folders.removeAll { $0.id == folder.id }
+                                try? context.save()
+                                iCloudSyncManager.shared.queueBackup(context: context)
+                                WidgetDataStore.updateAll(context: context)
+                            } label: {
+                                Label("Remove from Folder", systemImage: "folder.badge.minus")
+                            }
+                        }
                     }
                 }
             }
+            .listStyle(.plain)
+            .environment(\.editMode, $editMode)
+
+            if editMode == .active {
+                Divider()
+                HStack {
+                    Button(role: .destructive) {
+                        removeSelectedWorks()
+                    } label: {
+                        HStack {
+                            Image(systemName: "folder.badge.minus")
+                            Text("Remove (\(selectedWorkIds.count))")
+                        }
+                        .font(.headline)
+                        .foregroundStyle(.red)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(selectedWorkIds.isEmpty)
+                    .padding()
+                }
+                .background(.background)
+            }
         }
-        .listStyle(.plain)
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search stories in folder")
@@ -512,6 +547,36 @@ struct FolderDetailView: View {
             if !query.isEmpty && filteredWorks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(editMode == .active ? "Done" : "Edit") {
+                    withAnimation {
+                        if editMode == .active {
+                            editMode = .inactive
+                            selectedWorkIds.removeAll()
+                        } else {
+                            editMode = .active
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func removeSelectedWorks() {
+        for workId in selectedWorkIds {
+            if let work = folder.works.first(where: { $0.id == workId }) {
+                work.folders.removeAll { $0.id == folder.id }
+            }
+        }
+        try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
+        WidgetDataStore.updateAll(context: context)
+        
+        withAnimation {
+            selectedWorkIds.removeAll()
+            editMode = .inactive
         }
     }
 }
