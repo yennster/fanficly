@@ -320,177 +320,132 @@ struct StreakWidgetEntryView: View {
     var entry: StreakProvider.Entry
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            if family == .systemSmall {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "flame.fill")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [
-                                        Color(red: 1.0, green: 0.62, blue: 0.45),
-                                        Color(red: 1.0, green: 0.38, blue: 0.42)
-                                    ],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
+        let isSmall = family == .systemSmall
+        
+        VStack(alignment: .leading, spacing: isSmall ? 8 : 9) {
+            // Header Row (Matches Recently Read widget structure)
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.11))
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: isSmall ? 14 : 16, weight: .bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 1.0, green: 0.62, blue: 0.45),
+                                    Color(red: 1.0, green: 0.38, blue: 0.42)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
                             )
-                        
-                        Text("\(entry.streak)")
-                            .font(.system(size: 32, weight: .black, design: .rounded))
-                            .foregroundStyle(.white)
-                    }
-                    
-                    Text(entry.streak == 1 ? "day streak" : "days in a row")
-                        .font(.caption2.weight(.bold))
+                        )
+                }
+                .frame(width: isSmall ? 28 : 30, height: isSmall ? 28 : 30)
+
+                if !isSmall {
+                    Text("Fanficly")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+
+                Spacer(minLength: 6)
+
+                // Capsule Badge (Matches Recently Read percentage badge style)
+                Text("Streak")
+                    .font(.system(size: isSmall ? 10 : 12, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(minWidth: isSmall ? 38 : 42)
+                    .padding(.horizontal, isSmall ? 6 : 8)
+                    .padding(.vertical, isSmall ? 5 : 4)
+                    .background(.white.opacity(0.11), in: Capsule())
+            }
+
+            // Middle Section: Streak Count & Title (Matches Title & Author structure)
+            VStack(alignment: .leading, spacing: isSmall ? 3 : 4) {
+                Text("\(entry.streak) \(entry.streak == 1 ? "Day" : "Days")")
+                    .font((isSmall ? Font.headline : Font.title3).weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+
+                Text("Reading Streak")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            // Bottom Section: Weekly Progress Dots (Matches Continue Reading & Progress Bar structure)
+            VStack(alignment: .leading, spacing: isSmall ? 5 : 6) {
+                let days = StreakStore.getLast7DaysActivity(from: entry.activityDates, relativeTo: entry.date)
+                let readCount = days.filter(\.isRead).count
+                
+                HStack {
+                    Text("Weekly progress")
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.72))
                     
-                    Spacer(minLength: 4)
-                    
-                    HStack(spacing: 4) {
-                        let days = StreakStore.getLast7DaysActivity(from: entry.activityDates, relativeTo: entry.date)
-                        ForEach(days) { day in
-                            VStack(spacing: 4) {
-                                Text(day.name)
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(day.isToday ? .white : .white.opacity(0.5))
-                                
-                                ZStack {
-                                    if day.isRead {
-                                        Circle()
-                                            .fill(
-                                                LinearGradient(
-                                                    colors: [
-                                                        Color(red: 1.0, green: 0.62, blue: 0.45),
-                                                        Color(red: 1.0, green: 0.38, blue: 0.42)
-                                                    ],
-                                                    startPoint: .top,
-                                                    endPoint: .bottom
-                                                )
-                                            )
-                                            .frame(width: 12, height: 12)
-                                        
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 6, weight: .black))
-                                            .foregroundStyle(.white)
-                                    } else {
-                                        Circle()
-                                            .stroke(.white.opacity(0.25), lineWidth: 1.2)
-                                            .frame(width: 12, height: 12)
-                                    }
-                                    
-                                    if day.isToday {
-                                        Circle()
-                                            .stroke(.white, lineWidth: 1)
-                                            .frame(width: 16, height: 16)
-                                    }
-                                }
-                                .frame(width: 16, height: 16)
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
-                    }
-                }
-                .padding(12)
-            } else {
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "flame.fill")
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [
-                                            Color(red: 1.0, green: 0.62, blue: 0.45),
-                                            Color(red: 1.0, green: 0.38, blue: 0.42)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                            
-                            Text("\(entry.streak)")
-                                .font(.system(size: 38, weight: .black, design: .rounded))
-                                .foregroundStyle(.white)
-                        }
-                        
-                        Text(entry.streak == 1 ? "day reading streak" : "days in a row")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.white)
-                        
-                        Spacer(minLength: 2)
-                        
-                        Text(entry.streak > 0 ? "Keep it up! Read a chapter today." : "Start reading today to begin a new streak.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.white.opacity(0.72))
-                            .lineLimit(2)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        let days = StreakStore.getLast7DaysActivity(from: entry.activityDates, relativeTo: entry.date)
-                        let readCount = days.filter(\.isRead).count
-                        
-                        Text("WEEKLY PROGRESS")
-                            .font(.system(size: 9, weight: .heavy))
-                            .foregroundStyle(.white.opacity(0.6))
-                        
-                        HStack(spacing: 6) {
-                            ForEach(days) { day in
-                                VStack(spacing: 5) {
-                                    Text(day.name)
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(day.isToday ? .white : .white.opacity(0.5))
-                                    
-                                    ZStack {
-                                        if day.isRead {
-                                            Circle()
-                                                .fill(
-                                                    LinearGradient(
-                                                        colors: [
-                                                            Color(red: 1.0, green: 0.62, blue: 0.45),
-                                                            Color(red: 1.0, green: 0.38, blue: 0.42)
-                                                        ],
-                                                        startPoint: .top,
-                                                        endPoint: .bottom
-                                                    )
-                                                )
-                                                .frame(width: 14, height: 14)
-                                            
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 7, weight: .black))
-                                                .foregroundStyle(.white)
-                                        } else {
-                                            Circle()
-                                                .stroke(.white.opacity(0.25), lineWidth: 1.2)
-                                                .frame(width: 14, height: 14)
-                                        }
-                                        
-                                        if day.isToday {
-                                            Circle()
-                                                .stroke(.white, lineWidth: 1)
-                                                .frame(width: 18, height: 18)
-                                        }
-                                    }
-                                    .frame(width: 18, height: 18)
-                                }
-                                .frame(maxWidth: .infinity)
-                            }
-                        }
-                        
+                    if !isSmall {
+                        Spacer()
                         Text("Read \(readCount) of last 7 days")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.white.opacity(0.8))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.55))
                     }
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 8)
-                    .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-                    .frame(maxWidth: .infinity)
                 }
-                .padding(14)
+                
+                HStack(spacing: isSmall ? 4 : 6) {
+                    ForEach(days) { day in
+                        VStack(spacing: isSmall ? 4 : 5) {
+                            Text(day.name)
+                                .font(.system(size: isSmall ? 8 : 9, weight: .bold))
+                                .foregroundStyle(day.isToday ? .white : .white.opacity(0.5))
+                            
+                            ZStack {
+                                if day.isRead {
+                                    Circle()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [
+                                                    Color(red: 1.0, green: 0.62, blue: 0.45),
+                                                    Color(red: 1.0, green: 0.38, blue: 0.42)
+                                                ],
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                        )
+                                        .frame(width: isSmall ? 11 : 14, height: isSmall ? 11 : 14)
+                                    
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: isSmall ? 5 : 7, weight: .black))
+                                        .foregroundStyle(.white)
+                                } else {
+                                    Circle()
+                                        .stroke(.white.opacity(0.25), lineWidth: 1.2)
+                                        .frame(width: isSmall ? 11 : 14, height: isSmall ? 11 : 14)
+                                }
+                                
+                                if day.isToday {
+                                    Circle()
+                                        .stroke(.white, lineWidth: 1)
+                                        .frame(width: isSmall ? 15 : 18, height: isSmall ? 15 : 18)
+                                }
+                            }
+                            .frame(width: isSmall ? 15 : 18, height: isSmall ? 15 : 18)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.vertical, isSmall ? 4 : 6)
+                .padding(.horizontal, isSmall ? 4 : 8)
+                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: isSmall ? 8 : 10))
             }
         }
+        .padding(isSmall ? 12 : 14)
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
