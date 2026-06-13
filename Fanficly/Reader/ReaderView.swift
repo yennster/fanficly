@@ -767,7 +767,7 @@ struct ReaderView: View {
                 boldText: boldText,
                 size: CGSize(
                     width: geo.size.width,
-                    height: stableHeight > 0 ? stableHeight : geo.size.height
+                    height: stableHeight > 0 ? stableHeight : immersiveReadingHeight(fallback: geo.size.height)
                 )
             )
             
@@ -819,13 +819,18 @@ struct ReaderView: View {
                     await handlePaginationTrigger(trigger)
                 }
                 .onChange(of: geo.size) { _, newSize in
+                    // Keep the page count stable when the reader chrome (nav bar
+                    // + page footer) toggles. Hiding/showing that chrome shrinks
+                    // and grows `geo.size.height`, but the *reading* viewport —
+                    // the area a page fills once chrome is gone — is fixed by the
+                    // device, so we pin pagination to that immersive height and
+                    // ignore chrome-driven height changes. Only a genuine layout
+                    // change (rotation / split-view resize, which also moves the
+                    // width) re-derives it.
                     let widthChanged = abs(stableWidth - newSize.width) > 1
-                    if widthChanged || stableWidth == 0 {
-                        stableWidth = newSize.width
-                        stableHeight = newSize.height
-                    } else {
-                        stableHeight = max(stableHeight, newSize.height)
-                    }
+                    guard widthChanged || stableWidth == 0 else { return }
+                    stableWidth = newSize.width
+                    stableHeight = immersiveReadingHeight(fallback: newSize.height)
                 }
                 .onAppear {
                     isRestoring = true
@@ -1099,6 +1104,26 @@ struct ReaderView: View {
     }
 
     // MARK: - Pagination algorithm helpers
+
+    /// The height a page fills once the reader chrome is hidden: the device
+    /// window minus only its hardware safe-area insets (status bar / home
+    /// indicator). It does not change when the nav bar or page footer toggle,
+    /// so pinning pagination to it keeps the page count stable as the user
+    /// shows/hides the chrome. Falls back to the supplied live height when no
+    /// window is reachable (SwiftUI previews / unit tests).
+    private func immersiveReadingHeight(fallback: CGFloat) -> CGFloat {
+        guard let window = ReaderView.activeKeyWindow() else { return fallback }
+        let insets = window.safeAreaInsets
+        let height = window.bounds.height - insets.top - insets.bottom
+        return height > 100 ? height : fallback
+    }
+
+    private static func activeKeyWindow() -> UIWindow? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }
+    }
 
     private func performPagination(trigger: PaginationTrigger) async -> PaginationResult {
         let w = trigger.size.width * CGFloat(trigger.widthPercent / 100.0)
