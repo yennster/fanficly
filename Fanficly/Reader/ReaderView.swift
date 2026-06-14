@@ -18,6 +18,9 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    // Keep the display awake while reading (like a video player), so the screen
+    // doesn't dim/lock mid-page when you go a while without touching it.
+    @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -261,8 +264,16 @@ struct ReaderView: View {
         }
         // When a chapter finishes narrating, roll on to the next (or stop).
         .onChange(of: speech.finishedTick) { _, _ in advanceNarration() }
-        // Don't leave audio playing after the reader is dismissed.
-        .onDisappear { speech.stop() }
+        // Keep the screen lit while the reader is open; restore normal idle
+        // behaviour the moment we leave so other screens aren't held awake.
+        .onAppear { applyKeepScreenAwake(keepScreenAwake) }
+        .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
+        // Don't leave audio playing — or the display pinned awake — after the
+        // reader is dismissed.
+        .onDisappear {
+            speech.stop()
+            applyKeepScreenAwake(false)
+        }
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
         .onChange(of: widthPercent) { _, _ in queueBackup() }
@@ -284,6 +295,12 @@ struct ReaderView: View {
 
     private func queueBackup() {
         iCloudSyncManager.shared.queueBackup(context: modelContext)
+    }
+
+    /// Disables the system idle timer so the display stays awake while reading.
+    /// Always passes `false` on exit to hand control back to the OS.
+    private func applyKeepScreenAwake(_ enabled: Bool) {
+        UIApplication.shared.isIdleTimerDisabled = enabled
     }
 
     // MARK: - Narration (text-to-speech)
