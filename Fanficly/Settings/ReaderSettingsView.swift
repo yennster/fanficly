@@ -16,6 +16,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
@@ -232,10 +233,15 @@ struct ReaderSettingsView: View {
                     Label("Page-turn animation", systemImage: "square.2.layers.3d")
                 }
                 .help("Enable visual curl or slide animation on page flips.")
+
+                Toggle(isOn: $keepScreenAwake) {
+                    Label("Keep screen awake while reading", systemImage: "sun.max")
+                }
+                .help("Stop the display from dimming or locking while a story is open, like a video player.")
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn. Page-turn options configure haptic feedback and animations.")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn. Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.")
             }
 
             Section {
