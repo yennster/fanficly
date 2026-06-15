@@ -480,8 +480,17 @@ extension View {
     @ViewBuilder
     func onPasteCommandIfAvailable(perform action: @escaping ([NSItemProvider]) -> Void) -> some View {
         #if targetEnvironment(macCatalyst)
-        self.onPasteCommand(of: [.url, .text]) { providers in
-            action(providers)
+        self.onKeyPress { press in
+            if press.key == KeyEquivalent("v"), press.modifiers.contains(.command) {
+                if UIPasteboard.general.hasStrings {
+                    let providers = UIPasteboard.general.strings?.map { NSItemProvider(object: $0 as NSString) } ?? []
+                    if !providers.isEmpty {
+                        action(providers)
+                        return .handled
+                    }
+                }
+            }
+            return .ignored
         }
         #else
         self
