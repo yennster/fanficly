@@ -70,6 +70,7 @@ struct FanficlyApp: App {
             RecentlyViewed.self,
             HiddenWork.self,
             CustomFolder.self,
+            FollowedAuthor.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
@@ -144,16 +145,21 @@ struct FanficlyApp: App {
                     selectedTabRaw = SidebarItem.recentlyViewed.rawValue
                 }
                 .keyboardShortcut("4", modifiers: [.command])
-                
+
+                Button("Authors") {
+                    selectedTabRaw = SidebarItem.authors.rawValue
+                }
+                .keyboardShortcut("5", modifiers: [.command])
+
                 Button("Subscriptions") {
                     selectedTabRaw = SidebarItem.subscriptions.rawValue
                 }
-                .keyboardShortcut("5", modifiers: [.command])
-                
+                .keyboardShortcut("6", modifiers: [.command])
+
                 Button("Settings") {
                     selectedTabRaw = SidebarItem.settings.rawValue
                 }
-                .keyboardShortcut("6", modifiers: [.command])
+                .keyboardShortcut("7", modifiers: [.command])
             }
             
             CommandMenu("Reader") {

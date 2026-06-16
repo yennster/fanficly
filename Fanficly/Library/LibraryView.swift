@@ -387,9 +387,48 @@ struct LibraryRow: View {
                     LibraryMetadataPill(text: item, isFolder: isFolder)
                 }
             }
+
+            readingProgress
         }
         .padding(.vertical, 6)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+    }
+
+    /// Reading-progress strip: a bar plus a "% read · Ch n · last read …" line,
+    /// shown for any work the user has started. Finished works read "Finished"
+    /// instead of a near-full bar.
+    @ViewBuilder
+    private var readingProgress: some View {
+        if let raw = work.lastReadProgress, raw > 0 {
+            let progress = min(max(raw, 0), 1)
+            let finished = progress >= 0.99 || (work.isComplete && progress >= 0.95)
+            VStack(alignment: .leading, spacing: 3) {
+                ProgressView(value: progress)
+                    .tint(finished ? .green : .accentColor)
+                    .scaleEffect(x: 1, y: 0.7, anchor: .center)
+                HStack(spacing: 6) {
+                    if finished {
+                        Label("Finished", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("\(Int(progress * 100))% read")
+                        if let chapter = work.lastReadChapter, (work.totalChapters ?? 0) > 1 {
+                            Text("· Ch \(chapter)")
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if let lastReadAt = work.lastReadAt {
+                        Text(lastReadAt, format: .relative(presentation: .named))
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            .padding(.top, 2)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(finished ? "Finished reading" : "\(Int(progress * 100)) percent read")
+        }
     }
 }
 
