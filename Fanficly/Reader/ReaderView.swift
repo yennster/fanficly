@@ -233,6 +233,15 @@ struct ReaderView: View {
             case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
+        // The reader has no text input, so it must never reserve room for the
+        // keyboard. Without this, returning from the background can restore
+        // focus to the page (it's `.focusable()` for hardware arrow-key turns,
+        // see ReaderKeyPressModifier) and leave iOS holding a phantom keyboard
+        // safe-area inset — collapsing the page and leaving a large blank band
+        // (~keyboard height) at the bottom. Ignoring the keyboard safe area
+        // keeps the page full-height; the home-indicator inset and the bottom
+        // narration/footer bars are unaffected.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
