@@ -120,6 +120,65 @@ final class WorkPageParserTests: XCTestCase {
     }
 }
 
+final class CommentsParserTests: XCTestCase {
+    private let html = """
+    <html><body>
+    <div id="comments_placeholder">
+      <ol class="thread">
+        <li id="comment_111" class="comment group" role="article">
+          <h4 class="byline heading"><a href="/users/alice/pseuds/alice">alice</a></h4>
+          <span class="posted datetime">10 Mar 2024</span>
+          <blockquote class="userstuff"><p>Loved this chapter!</p></blockquote>
+          <ol class="thread">
+            <li id="comment_222" class="comment group" role="article">
+              <h4 class="byline heading"><a href="/users/bob/pseuds/bob">bob</a></h4>
+              <span class="posted datetime">11 Mar 2024</span>
+              <blockquote class="userstuff"><p>Agreed, so good.</p></blockquote>
+            </li>
+          </ol>
+        </li>
+        <li id="comment_333" class="comment group" role="article">
+          <h4 class="byline heading">GuestReader (Guest)</h4>
+          <span class="posted datetime">12 Mar 2024</span>
+          <blockquote class="userstuff"><p>Found this as a guest.</p></blockquote>
+        </li>
+      </ol>
+    </div>
+    </body></html>
+    """
+
+    func test_parsesThreadWithDepth() throws {
+        let comments = try CommentsParser.parse(html: html)
+        XCTAssertEqual(comments.count, 3)
+
+        XCTAssertEqual(comments[0].id, "111")
+        XCTAssertEqual(comments[0].commenterName, "alice")
+        XCTAssertEqual(comments[0].commenterUsername, "alice")
+        XCTAssertEqual(comments[0].depth, 0)
+        XCTAssertTrue(comments[0].bodyHTML.contains("Loved this chapter"))
+
+        // Nested reply is one level deep.
+        XCTAssertEqual(comments[1].id, "222")
+        XCTAssertEqual(comments[1].depth, 1)
+
+        // Guest comment has no username.
+        XCTAssertEqual(comments[2].commenterName, "GuestReader (Guest)")
+        XCTAssertEqual(comments[2].commenterUsername, "")
+        XCTAssertEqual(comments[2].depth, 0)
+    }
+
+    func test_defaultPseudId() {
+        let formHTML = """
+        <form><select name="comment[pseud_id]">
+          <option value="10">main</option>
+          <option value="20" selected>writing_pseud</option>
+        </select></form>
+        """
+        XCTAssertEqual(CommentsParser.defaultPseudId(html: formHTML), "20")
+        XCTAssertNil(CommentsParser.defaultPseudId(html: "<html></html>"))
+    }
+}
+
 final class LoginParserTests: XCTestCase {
     func test_extractsTokenFromMeta() throws {
         let html = """

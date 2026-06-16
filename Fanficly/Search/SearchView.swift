@@ -630,6 +630,7 @@ struct WorkDetailView: View {
     @State private var followed: Bool = false
     @State private var epubURL: URL?
     @State private var showingReport: Bool = false
+    @State private var showingComments: Bool = false
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -659,6 +660,9 @@ struct WorkDetailView: View {
                         SafariView(url: URL(string: "https://archiveofourown.org/abuse_reports/new")!)
                             .ignoresSafeArea()
                     }
+                    .sheet(isPresented: $showingComments) {
+                        CommentsView(workId: workId, workTitle: payload.summary.title)
+                    }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
@@ -684,6 +688,14 @@ struct WorkDetailView: View {
     /// fit without the system spilling them into a second "…" overflow.
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
+            Button {
+                showingComments = true
+            } label: {
+                Label("Comments", systemImage: "bubble.left.and.bubble.right")
+            }
+
+            Divider()
+
             WorkExportButton(workId: workId, title: payload.summary.title, useTextLabel: true)
             Button {
                 Task { await saveOffline(payload) }
@@ -744,6 +756,172 @@ struct WorkDetailView: View {
         }
     }
 
+}
+
+/// Reads a work's comment thread and, when logged in, lets you post a comment.
+/// Live-fetched (no caching), presented as a sheet from the reader's options
+/// menu. Posting reuses the proven CSRF-token flow (scrape the work page's
+/// authenticity_token + pseud, then POST), like login and subscribe.
+struct CommentsView: View {
+    let workId: Int
+    let workTitle: String
+    @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var comments: [AO3Comment] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var draft = ""
+    @State private var isPosting = false
+    @State private var postError: String?
+    @FocusState private var composerFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading && comments.isEmpty {
+                    VStack { Spacer(); ProgressView("Loading comments…"); Spacer() }
+                } else if let errorMessage, comments.isEmpty {
+                    ContentUnavailableView {
+                        Label("Couldn't load comments", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("Retry") { Task { await load() } }
+                    }
+                } else if comments.isEmpty {
+                    ContentUnavailableView("No comments yet", systemImage: "bubble.left",
+                        description: Text(auth.username == nil
+                            ? "Be the first to comment — log in to AO3 to post."
+                            : "Be the first to comment."))
+                } else {
+                    List {
+                        ForEach(comments) { comment in
+                            CommentRow(comment: comment)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Comments")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                    }
+                    .disabled(isLoading)
+                }
+            }
+            .safeAreaInset(edge: .bottom) { composer }
+            .task { await load() }
+        }
+    }
+
+    private var composer: some View {
+        VStack(spacing: 0) {
+            Divider()
+            if auth.username == nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.crop.circle.badge.questionmark")
+                    Text("Log in to AO3 (Settings) to post a comment.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.bar)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let postError {
+                        Text(postError).font(.caption).foregroundStyle(.red)
+                    }
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("Add a comment as \(auth.username ?? "you")…", text: $draft, axis: .vertical)
+                            .lineLimit(1...5)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($composerFocused)
+                            .disabled(isPosting)
+                        Button {
+                            Task { await post() }
+                        } label: {
+                            if isPosting {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "arrow.up.circle.fill").font(.title2)
+                            }
+                        }
+                        .disabled(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Post comment")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            comments = try await client.fetchComments(workId: workId)
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    private func post() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        isPosting = true
+        postError = nil
+        defer { isPosting = false }
+        do {
+            try await client.postComment(workId: workId, text: text)
+            draft = ""
+            composerFocused = false
+            // Re-fetch so the new comment shows (AO3 may hold it for moderation).
+            await load()
+        } catch {
+            postError = "Couldn't post: \(error.localizedDescription). Your comment may be awaiting moderation, or try again."
+        }
+    }
+}
+
+private struct CommentRow: View {
+    let comment: AO3Comment
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: comment.commenterUsername.isEmpty ? "person.crop.circle.badge.questionmark" : "person.crop.circle")
+                    .foregroundStyle(.secondary)
+                Text(comment.commenterName)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if !comment.dateText.isEmpty {
+                    Text(comment.dateText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HTMLText(html: comment.bodyHTML)
+                .font(.callout)
+        }
+        .padding(.leading, CGFloat(min(comment.depth, 6)) * 16)
+        .padding(.vertical, 2)
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+    }
 }
 
 struct SearchHelpView: View {

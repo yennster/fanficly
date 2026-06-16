@@ -176,3 +176,72 @@ enum WorkPageParser {
         return formatter.date(from: trimmed)
     }
 }
+
+/// Parses the comment thread (and the comment-form pseud id) from a work page
+/// fetched with `?show_comments=true`. Comments nest via `ol.thread` inside
+/// each `li.comment`; depth drives the reply indentation in the UI.
+enum CommentsParser {
+    static func parse(html: String) throws -> [AO3Comment] {
+        let doc = try SwiftSoup.parse(html)
+        // Scope to the comments region so work-body blockquotes aren't mistaken
+        // for comments; fall back to the whole doc if the wrapper isn't found.
+        let scope = try doc.select("#comments_placeholder, div#comments, ul.comments").first() ?? doc
+        let comments = try scope.select("li.comment")
+        return try comments.array().compactMap(parseComment)
+    }
+
+    private static func parseComment(_ li: Element) throws -> AO3Comment? {
+        let idAttr = try li.attr("id")              // e.g. "comment_123456"
+        guard idAttr.hasPrefix("comment_") else { return nil }
+        let id = String(idAttr.dropFirst("comment_".count))
+        guard !id.isEmpty else { return nil }
+
+        let byline = try li.select("h4.byline, h4.heading.byline").first()
+        let bylineAnchor = try byline?.select("a").first()
+        let username = SearchResultsParser.authorLogin(fromHref: (try? bylineAnchor?.attr("href") ?? "") ?? "")
+        let name: String = {
+            if let t = (try? bylineAnchor?.text() ?? ""), !t.isEmpty { return t }
+            if let t = (try? byline?.text() ?? ""), !t.isEmpty { return t }
+            return "Anonymous"
+        }()
+
+        let dateText = (try? li.select("span.posted.datetime, p.datetime").first()?.text() ?? "") ?? ""
+        // `.first()` is this comment's own body — it precedes any nested replies'
+        // blockquotes in document order.
+        let bodyHTML = (try? li.select("blockquote.userstuff").first()?.html() ?? "") ?? ""
+
+        // Depth = number of ancestor li.comment (nested ol.thread → reply).
+        var depth = 0
+        var parent = li.parent()
+        while let p = parent {
+            if p.tagName() == "li", (try? p.hasClass("comment")) == true { depth += 1 }
+            parent = p.parent()
+        }
+
+        return AO3Comment(
+            id: id,
+            commenterName: name,
+            commenterUsername: username,
+            dateText: dateText,
+            bodyHTML: bodyHTML,
+            depth: depth
+        )
+    }
+
+    /// The user's default pseud id from the comment form's `<select>`, so a
+    /// posted comment is attributed to the right pseud. Returns nil when no
+    /// selector is present (logged out, or AO3 will use the default pseud).
+    static func defaultPseudId(html: String) -> String? {
+        guard let doc = try? SwiftSoup.parse(html) else { return nil }
+        guard let select = try? doc.select("select[name='comment[pseud_id]']").first() else { return nil }
+        if let selected = try? select.select("option[selected]").first(),
+           let value = try? selected.attr("value"), !value.isEmpty {
+            return value
+        }
+        if let first = try? select.select("option").first(),
+           let value = try? first.attr("value"), !value.isEmpty {
+            return value
+        }
+        return nil
+    }
+}

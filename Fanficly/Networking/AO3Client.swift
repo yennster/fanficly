@@ -11,6 +11,8 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
+    func fetchComments(workId: Int) async throws -> [AO3Comment]
+    func postComment(workId: Int, text: String) async throws
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String]
     func downloadEPUB(workId: Int) async throws -> URL
@@ -83,6 +85,27 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
 public struct AO3WorkPayload: Sendable {
     public let summary: AO3WorkSummary
     public let chapters: [AO3ChapterPayload]
+}
+
+public struct AO3Comment: Sendable, Identifiable, Hashable {
+    public let id: String
+    public let commenterName: String
+    /// AO3 login for registered commenters; "" for guests.
+    public let commenterUsername: String
+    public let dateText: String
+    public let bodyHTML: String
+    /// Thread nesting: 0 = top-level, 1 = reply, etc. (drives indentation).
+    public let depth: Int
+
+    public init(id: String, commenterName: String, commenterUsername: String,
+                dateText: String, bodyHTML: String, depth: Int) {
+        self.id = id
+        self.commenterName = commenterName
+        self.commenterUsername = commenterUsername
+        self.dateText = dateText
+        self.bodyHTML = bodyHTML
+        self.depth = depth
+    }
 }
 
 public struct AO3ChapterPayload: Sendable {
@@ -304,6 +327,53 @@ public actor AO3Client: AO3ClientProtocol {
         return try SubscriptionsParser.parse(html: html)
     }
 
+    public func fetchComments(workId: Int) async throws -> [AO3Comment] {
+        await throttle.wait()
+        let url = try AO3Endpoints.workComments(id: workId, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Comments response not UTF-8")
+        }
+        return try CommentsParser.parse(html: html)
+    }
+
+    public func postComment(workId: Int, text: String) async throws {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Load the work page first to grab a fresh CSRF token + the user's pseud
+        // from the live comment form (same proven flow as login / subscribe).
+        await throttle.wait()
+        let pageURL = try AO3Endpoints.workComments(id: workId, base: baseURL)
+        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let pageHTML = String(data: pageData, encoding: .utf8),
+              let token = try LoginParser.authenticityToken(html: pageHTML) else {
+            throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
+        }
+        let pseudId = CommentsParser.defaultPseudId(html: pageHTML)
+
+        await throttle.wait()
+        let postURL = try AO3Endpoints.workCommentsPost(id: workId, base: baseURL)
+        var request = URLRequest(url: postURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        var fields: [String: String] = [
+            "authenticity_token": token,
+            "comment[comment_content]": trimmed,
+            "commit": "Comment",
+        ]
+        if let pseudId { fields["comment[pseud_id]"] = pseudId }
+        request.httpBody = encodeForm(fields).data(using: .utf8)
+
+        let (_, response) = try await performRequest(request)
+        guard response.statusCode < 400 else {
+            throw AO3Error.http(status: response.statusCode)
+        }
+    }
+
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] {
         await throttle.wait()
         let url = try AO3Endpoints.mediaFandoms(categoryName: categoryName, base: baseURL)
@@ -472,6 +542,8 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
+    public func fetchComments(workId: Int) async throws -> [AO3Comment] { [] }
+    public func postComment(workId: Int, text: String) async throws {}
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] { [term] }
     public func downloadEPUB(workId: Int) async throws -> URL {

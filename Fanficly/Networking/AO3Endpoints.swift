@@ -67,6 +67,10 @@ enum AO3Endpoints {
         base.appending(path: "/works/\(id)/subscriptions")
     }
 
+    static func workCommentsPost(id: Int, base: URL) throws -> URL {
+        base.appending(path: "/works/\(id)/comments")
+    }
+
     static func autocomplete(field: String, term: String, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/autocomplete/\(field)"), resolvingAgainstBaseURL: false)
         // Percent-encode the term ourselves: URLComponents leaves "/" literal in
