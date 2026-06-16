@@ -342,6 +342,11 @@ struct LibraryRow: View {
         }
         if let total = work.totalChapters {
             items.append(work.chapterCount == total ? "\(total) ch complete" : "\(work.chapterCount)/\(total) WIP")
+        } else if work.chapterCount > 0 {
+            // WIP whose author hasn't declared a final chapter count (AO3 shows
+            // "12/?"). Still surface progress here, mirroring the search row and
+            // reader header — otherwise the chapter/WIP badge silently vanishes.
+            items.append("\(work.chapterCount)/? WIP")
         }
         for folder in work.folders.sorted(by: { $0.name < $1.name }) {
             items.append(folder.name)
