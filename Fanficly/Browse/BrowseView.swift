@@ -45,6 +45,87 @@ struct BrowseView: View {
     }
 }
 
+/// Navigation value for a popular tag tapped in the Popular tab.
+struct PopularTag: Hashable {
+    enum Kind: String, CaseIterable, Identifiable, Hashable {
+        case fandom, ship, character
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .fandom: "Fandoms"
+            case .ship: "Ships"
+            case .character: "Characters"
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .fandom: "books.vertical"
+            case .ship: "heart"
+            case .character: "person"
+            }
+        }
+    }
+    let kind: Kind
+    let name: String
+}
+
+/// The "Popular" tab: curated popular fandoms, ships, and characters. Pick a
+/// segment, tap a tag, and see its works sorted by kudos. (AO3 has no popular
+/// API, so the lists are curated — see `PopularTags`.)
+struct PopularView: View {
+    @State private var segment: PopularTag.Kind = .fandom
+
+    private var names: [String] {
+        switch segment {
+        case .fandom:    PopularTags.fandoms
+        case .ship:      PopularTags.ships
+        case .character: PopularTags.characters
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Category", selection: $segment) {
+                ForEach(PopularTag.Kind.allCases) { kind in
+                    Text(kind.title).tag(kind)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            List {
+                ForEach(names, id: \.self) { name in
+                    NavigationLink(value: PopularTag(kind: segment, name: name)) {
+                        Label {
+                            Text(displayName(name)).font(.body)
+                        } icon: {
+                            Image(systemName: segment == .fandom ? FandomCatalog.symbol(for: name) : segment.symbol)
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+        }
+        .navigationTitle("Popular")
+        .navigationDestination(for: PopularTag.self) { tag in
+            FandomWorksView(popular: tag)
+        }
+        .workAndAuthorDestinations()
+    }
+
+    /// Trim AO3's canonical disambiguation noise for display only — the search
+    /// still uses the full canonical `name`. "Harry Potter - J. K. Rowling" →
+    /// "Harry Potter"; "Castiel (Supernatural)" keeps its qualifier.
+    private func displayName(_ name: String) -> String {
+        if segment == .fandom {
+            return name.components(separatedBy: " - ").first ?? name
+        }
+        return name
+    }
+}
+
 struct CategoryFandomsView: View {
     @Environment(\.ao3Client) private var client
     let category: FandomCategory
@@ -157,6 +238,20 @@ struct FandomWorksView: View {
     init(savedFilter: SavedFilter) {
         let initial = AO3SearchFilters.from(savedJSON: savedFilter.filtersJSON) ?? AO3SearchFilters()
         self.init(filters: initial, title: savedFilter.name)
+    }
+
+    /// A popular tag (fandom / ship / character), sorted by kudos so the
+    /// most-loved works surface first.
+    init(popular tag: PopularTag) {
+        var initial = AO3SearchFilters()
+        switch tag.kind {
+        case .fandom:    initial.fandomNames = [tag.name]
+        case .ship:      initial.relationshipNames = [tag.name]
+        case .character: initial.characterNames = [tag.name]
+        }
+        initial.sortColumn = .kudosCount
+        initial.sortDirection = .desc
+        self.init(filters: initial, title: tag.name)
     }
 
     /// Works minus hidden ones and (optionally) Mature/Explicit-rated ones.
