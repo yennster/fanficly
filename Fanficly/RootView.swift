@@ -89,6 +89,7 @@ struct RootView: View {
                     case .library: LibraryView()
                     case .recentlyViewed: RecentlyViewedView()
                     case .authors: FollowedAuthorsView()
+                    case .bookmarks: BookmarksView()
                     case .subscriptions: SubscriptionsView()
                     case .settings: SettingsView()
                     }
@@ -446,7 +447,7 @@ struct ImportOverlay: View {
 
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case search, browse, library, recentlyViewed, authors, subscriptions, settings
+    case search, browse, library, recentlyViewed, authors, bookmarks, subscriptions, settings
 
     var id: String { rawValue }
 
@@ -457,6 +458,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .library: "Library"
         case .recentlyViewed: "Recently Viewed"
         case .authors: "Authors"
+        case .bookmarks: "Bookmarks"
         case .subscriptions: "Subscriptions"
         case .settings: "Settings"
         }
@@ -469,6 +471,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .library: "books.vertical"
         case .recentlyViewed: "clock.arrow.circlepath"
         case .authors: "person.2"
+        case .bookmarks: "bookmark"
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }

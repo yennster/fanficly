@@ -151,15 +151,20 @@ struct FanficlyApp: App {
                 }
                 .keyboardShortcut("5", modifiers: [.command])
 
+                Button("Bookmarks") {
+                    selectedTabRaw = SidebarItem.bookmarks.rawValue
+                }
+                .keyboardShortcut("6", modifiers: [.command])
+
                 Button("Subscriptions") {
                     selectedTabRaw = SidebarItem.subscriptions.rawValue
                 }
-                .keyboardShortcut("6", modifiers: [.command])
+                .keyboardShortcut("7", modifiers: [.command])
 
                 Button("Settings") {
                     selectedTabRaw = SidebarItem.settings.rawValue
                 }
-                .keyboardShortcut("7", modifiers: [.command])
+                .keyboardShortcut("8", modifiers: [.command])
             }
             
             CommandMenu("Reader") {

@@ -2,9 +2,13 @@ import Foundation
 import SwiftSoup
 
 enum SearchResultsParser {
-    static func parse(html: String) throws -> AO3SearchResults {
+    /// Parse a blurb listing. `blurbSelector` defaults to the works-listing
+    /// markup used by search and author pages; the bookmarks page uses
+    /// `li.bookmark.blurb` (same inner blurb, different container), so it passes
+    /// that instead and reuses everything else.
+    static func parse(html: String, blurbSelector: String = "li.work.blurb") throws -> AO3SearchResults {
         let doc = try SwiftSoup.parse(html)
-        let blurbs = try doc.select("li.work.blurb")
+        let blurbs = try doc.select(blurbSelector)
         let works = try blurbs.compactMap(parseBlurb)
 
         let pagination = try doc.select("ol.pagination li")
@@ -27,10 +31,22 @@ enum SearchResultsParser {
     }
 
     static func parseBlurb(_ li: Element) throws -> AO3WorkSummary? {
-        let idAttr = try li.attr("id")
-        guard let id = Int(idAttr.replacingOccurrences(of: "work_", with: "")) else { return nil }
-
         let titleAnchor = try li.select("h4.heading a").first()
+
+        // Work id: search/author pages tag the <li> as `work_<id>`; the
+        // bookmarks page tags it `bookmark_<id>`, so fall back to the
+        // `/works/<id>` title link. Bookmarks of series / external / deleted
+        // works have no such link and are skipped (nil).
+        let idAttr = try li.attr("id")
+        let id: Int
+        if let n = Int(idAttr.replacingOccurrences(of: "work_", with: "")) {
+            id = n
+        } else if let href = try titleAnchor?.attr("href"), let n = workId(fromHref: href) {
+            id = n
+        } else {
+            return nil
+        }
+
         let title = try titleAnchor?.text() ?? ""
 
         let authorAnchors = try li.select("h4.heading a[rel=author]").array()
@@ -90,6 +106,15 @@ enum SearchResultsParser {
             isComplete: isComplete,
             updatedAt: updatedAt
         )
+    }
+
+    /// The numeric work id from a title link href like `/works/12345` or
+    /// `/works/12345/chapters/678`. Returns nil for non-work links (series,
+    /// external URLs), so those bookmark blurbs are skipped.
+    static func workId(fromHref href: String) -> Int? {
+        guard let r = href.range(of: "/works/") else { return nil }
+        let seg = href[r.upperBound...].split(separator: "/").first.map(String.init) ?? ""
+        return Int(seg)
     }
 
     /// The AO3 login from an author byline href like

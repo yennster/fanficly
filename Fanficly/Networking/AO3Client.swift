@@ -7,6 +7,7 @@ public protocol AO3ClientProtocol: Sendable {
     func currentUsername() async -> String?
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults
+    func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
@@ -260,6 +261,19 @@ public actor AO3Client: AO3ClientProtocol {
         return try SearchResultsParser.parse(html: html)
     }
 
+    public func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
+        await throttle.wait()
+        let url = try AO3Endpoints.userBookmarks(name: username, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Bookmarks response not UTF-8")
+        }
+        // The bookmarks page wraps each work in `li.bookmark.blurb` (vs.
+        // `li.work.blurb` on search) but the inner blurb markup is identical.
+        return try SearchResultsParser.parse(html: html, blurbSelector: "li.bookmark.blurb")
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         await throttle.wait()
         let url = try AO3Endpoints.work(id: id, base: baseURL)
@@ -436,6 +450,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
+    public func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {

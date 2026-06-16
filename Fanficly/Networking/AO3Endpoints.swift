@@ -36,8 +36,12 @@ enum AO3Endpoints {
         return url
     }
 
-    static func userBookmarks(name: String, base: URL) throws -> URL {
-        base.appending(path: "/users/\(name)/bookmarks")
+    static func userBookmarks(name: String, page: Int = 1, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/users/\(name)/bookmarks"),
+                                       resolvingAgainstBaseURL: false)
+        if page > 1 { components?.queryItems = [URLQueryItem(name: "page", value: String(page))] }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad bookmarks URL") }
+        return url
     }
 
     static func userSubscriptions(name: String, base: URL) throws -> URL {
