@@ -520,33 +520,63 @@ struct SearchView: View {
 
 struct WorkRow: View {
     let work: AO3WorkSummary
+    @Environment(\.modelContext) private var context
+    // Reflects the local follow ("bookmark") state; seeded on appear and
+    // updated when the inline button is tapped.
+    @State private var isFollowed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(work.title).font(.headline)
-            Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                if !work.rating.isEmpty {
-                    Text(work.rating).font(.caption).foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(work.title).font(.headline)
+                Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if !work.rating.isEmpty {
+                        Text(work.rating).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if work.wordCount > 0 {
+                        Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if work.totalChapters != nil {
+                        Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
+                    } else if work.chapterCount > 0 {
+                        Text("\(work.chapterCount)/?").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if work.kudos > 0 {
+                        Label(work.kudos.formatted(), systemImage: "heart").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                if work.wordCount > 0 {
-                    Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
-                }
-                if work.totalChapters != nil {
-                    Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
-                } else if work.chapterCount > 0 {
-                    Text("\(work.chapterCount)/?").font(.caption).foregroundStyle(.secondary)
-                }
-                if work.kudos > 0 {
-                    Label(work.kudos.formatted(), systemImage: "heart").font(.caption).foregroundStyle(.secondary)
+                if !work.summary.isEmpty {
+                    Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
                 }
             }
-            if !work.summary.isEmpty {
-                Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
-            }
+            Spacer(minLength: 8)
+            bookmarkButton
         }
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+        .onAppear { isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context) }
+    }
+
+    /// Inline one-tap follow/unfollow, so a story can be saved to the Library
+    /// straight from a results list without opening it. `.borderless` keeps the
+    /// tap from also triggering the row's NavigationLink.
+    private var bookmarkButton: some View {
+        Button {
+            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
+            withAnimation(.easeInOut(duration: 0.2)) { isFollowed = newState }
+        } label: {
+            Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
+                .font(.body)
+                .foregroundStyle(isFollowed ? Color.accentColor : Color.secondary)
+                .contentTransition(.symbolEffect(.replace))
+                .padding(.vertical, 4)
+                .padding(.leading, 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(isFollowed ? "Remove \(work.title) from Library"
+                                       : "Save \(work.title) to Library")
     }
 }
 
