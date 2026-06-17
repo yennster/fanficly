@@ -14,6 +14,7 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchComments(workId: Int) async throws -> [AO3Comment]
     func postComment(workId: Int, text: String) async throws
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
+    func fetchPopularSnapshot() async throws -> PopularSnapshot
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String]
     func downloadEPUB(workId: Int) async throws -> URL
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL
@@ -85,6 +86,24 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
 public struct AO3WorkPayload: Sendable {
     public let summary: AO3WorkSummary
     public let chapters: [AO3ChapterPayload]
+}
+
+/// A live snapshot of popular fandoms, ships, and characters, derived from AO3
+/// HTML (media-page fandom counts + works-filter facet counts). Codable so it
+/// can be cached on-device and refreshed ~daily. Names are AO3-canonical so
+/// tapping one resolves to a search.
+public struct PopularSnapshot: Sendable, Codable, Hashable {
+    public let fandoms: [String]
+    public let ships: [String]
+    public let characters: [String]
+    public let fetchedAt: Date
+
+    public init(fandoms: [String], ships: [String], characters: [String], fetchedAt: Date = .now) {
+        self.fandoms = fandoms
+        self.ships = ships
+        self.characters = characters
+        self.fetchedAt = fetchedAt
+    }
 }
 
 public struct AO3Comment: Sendable, Identifiable, Hashable {
@@ -384,6 +403,51 @@ public actor AO3Client: AO3ClientProtocol {
         return try MediaCategoryParser.parse(html: html)
     }
 
+    /// The works-filter facet sidebar for a tag (`/tags/<tag>/works`) — its
+    /// top relationships/characters/freeforms with counts.
+    private func fetchWorkFilters(tagName: String) async throws -> AO3WorkFilters {
+        await throttle.wait()
+        let url = try AO3Endpoints.tagWorks(tagName: tagName, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Tag works response not UTF-8")
+        }
+        return try WorkFiltersParser.parse(html: html)
+    }
+
+    /// Builds a live popular snapshot: fandoms ranked by AO3's media-page work
+    /// counts, then ships/characters aggregated from the facet sidebars of the
+    /// top few fandoms. Each list falls back to the curated `PopularTags` seed
+    /// when AO3 yields nothing (offline / markup drift), so the tab is never
+    /// empty. ~10–13 throttled requests — meant to run in the background and be
+    /// cached for a day (see `PopularStore`).
+    public func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        var fandomCounts: [String: Int] = [:]
+        for category in FandomCatalog.all {
+            guard let fandoms = try? await fetchFandomsInCategory(categoryName: category.ao3CanonicalName) else { continue }
+            for fandom in fandoms where (fandom.workCount ?? 0) > 0 {
+                fandomCounts[fandom.canonicalName] = max(fandomCounts[fandom.canonicalName] ?? 0, fandom.workCount ?? 0)
+            }
+        }
+        let topFandoms = fandomCounts.sorted { $0.value > $1.value }.map(\.key)
+
+        var shipCounts: [String: Int] = [:]
+        var charCounts: [String: Int] = [:]
+        for fandom in topFandoms.prefix(3) {
+            guard let filters = try? await fetchWorkFilters(tagName: fandom) else { continue }
+            for r in filters.relationships { shipCounts[r.name, default: 0] += max(r.count, 1) }
+            for c in filters.characters { charCounts[c.name, default: 0] += max(c.count, 1) }
+        }
+        let topShips = shipCounts.sorted { $0.value > $1.value }.map(\.key)
+        let topChars = charCounts.sorted { $0.value > $1.value }.map(\.key)
+
+        return PopularSnapshot(
+            fandoms: topFandoms.isEmpty ? PopularTags.fandoms : Array(topFandoms.prefix(20)),
+            ships: topShips.isEmpty ? PopularTags.ships : Array(topShips.prefix(20)),
+            characters: topChars.isEmpty ? PopularTags.characters : Array(topChars.prefix(20))
+        )
+    }
+
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         let trimmed = term.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return [] }
@@ -545,6 +609,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func fetchComments(workId: Int) async throws -> [AO3Comment] { [] }
     public func postComment(workId: Int, text: String) async throws {}
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
+    public func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        PopularSnapshot(fandoms: PopularTags.fandoms, ships: PopularTags.ships, characters: PopularTags.characters)
+    }
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] { [term] }
     public func downloadEPUB(workId: Int) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")

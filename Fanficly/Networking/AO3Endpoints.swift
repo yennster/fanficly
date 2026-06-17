@@ -91,6 +91,16 @@ enum AO3Endpoints {
         return url
     }
 
+    /// A tag's works listing (`/tags/<tag>/works`) — its left filter sidebar
+    /// carries the most-used relationships/characters/freeforms with counts.
+    static func tagWorks(tagName: String, base: URL) throws -> URL {
+        let encoded = ao3PathEncode(tagName)
+        guard let url = URL(string: "\(base.absoluteString)/tags/\(encoded)/works") else {
+            throw AO3Error.parseFailed(reason: "Bad tag works URL")
+        }
+        return url
+    }
+
     private static func ao3PathEncode(_ s: String) -> String {
         var result = ""
         for ch in s {

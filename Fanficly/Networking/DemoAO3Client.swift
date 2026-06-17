@@ -93,6 +93,10 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         DemoCatalog.fandoms
     }
 
+    public func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        PopularSnapshot(fandoms: PopularTags.fandoms, ships: PopularTags.ships, characters: PopularTags.characters)
+    }
+
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         [term]
     }

@@ -69,18 +69,60 @@ struct PopularTag: Hashable {
     let name: String
 }
 
-/// The "Popular" tab: curated popular fandoms, ships, and characters. Pick a
-/// segment, tap a tag, and see its works sorted by kudos. (AO3 has no popular
-/// API, so the lists are curated — see `PopularTags`.)
+/// On-device cache for the live popular snapshot. Refreshed at most once a day
+/// (the data is AO3's cumulative work counts, which barely move day to day), so
+/// opening the Popular tab doesn't re-scrape AO3 every time. Falls back to the
+/// curated `PopularTags` seed whenever there's no fresh snapshot.
+enum PopularStore {
+    private static let key = "popular.snapshot.v1"
+    private static let maxAge: TimeInterval = 24 * 60 * 60
+
+    static func cached() -> PopularSnapshot? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(PopularSnapshot.self, from: data)
+    }
+
+    static func isStale(_ snapshot: PopularSnapshot?) -> Bool {
+        guard let snapshot else { return true }
+        return Date.now.timeIntervalSince(snapshot.fetchedAt) > maxAge
+    }
+
+    /// Returns a fresh snapshot, fetching + caching only when the cache is
+    /// missing or older than a day. Never throws — keeps the existing cache on
+    /// failure so the UI just keeps showing what it had (or the curated seed).
+    @discardableResult
+    static func refreshIfStale(client: any AO3ClientProtocol) async -> PopularSnapshot? {
+        let current = cached()
+        guard isStale(current) else { return current }
+        guard let fresh = try? await client.fetchPopularSnapshot() else { return current }
+        if let data = try? JSONEncoder().encode(fresh) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+        return fresh
+    }
+}
+
+/// The "Popular" tab: popular fandoms, ships, and characters. Pick a segment,
+/// tap a tag, and see its works sorted by kudos. The lists are live — ranked
+/// from AO3's work counts (`PopularStore`, cached ~daily) — and fall back to
+/// the curated `PopularTags` seed when no snapshot is available yet.
 struct PopularView: View {
+    @Environment(\.ao3Client) private var client
     @State private var segment: PopularTag.Kind = .fandom
+    @State private var snapshot: PopularSnapshot? = PopularStore.cached()
 
     private var names: [String] {
         switch segment {
-        case .fandom:    PopularTags.fandoms
-        case .ship:      PopularTags.ships
-        case .character: PopularTags.characters
+        case .fandom:    live(snapshot?.fandoms, fallback: PopularTags.fandoms)
+        case .ship:      live(snapshot?.ships, fallback: PopularTags.ships)
+        case .character: live(snapshot?.characters, fallback: PopularTags.characters)
         }
+    }
+
+    /// The live list when present and non-empty, otherwise the curated seed.
+    private func live(_ list: [String]?, fallback: [String]) -> [String] {
+        if let list, !list.isEmpty { return list }
+        return fallback
     }
 
     var body: some View {
@@ -113,6 +155,13 @@ struct PopularView: View {
             FandomWorksView(popular: tag)
         }
         .workAndAuthorDestinations()
+        // Refresh in the background (≤ once/day); the curated/cached lists show
+        // immediately and swap to live data when the fetch lands.
+        .task {
+            if let fresh = await PopularStore.refreshIfStale(client: client) {
+                snapshot = fresh
+            }
+        }
     }
 
     /// Trim AO3's canonical disambiguation noise for display only — the search

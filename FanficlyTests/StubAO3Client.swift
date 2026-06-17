@@ -36,6 +36,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchComments(workId: Int) async throws -> [AO3Comment] { [] }
     func postComment(workId: Int, text: String) async throws {}
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
+    func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        PopularSnapshot(fandoms: [], ships: [], characters: [])
+    }
     func downloadEPUB(workId: Int) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }

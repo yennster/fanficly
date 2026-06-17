@@ -12,11 +12,16 @@ public struct FandomCategory: Identifiable, Hashable, Sendable {
 public struct BrowseFandom: Identifiable, Hashable, Sendable {
     public let canonicalName: String
     public let displayName: String
+    /// AO3's listed work count for this fandom (from the `/media/.../fandoms`
+    /// page), when known. Drives the live "Popular fandoms" ranking; nil for
+    /// curated seed entries.
+    public let workCount: Int?
     public var id: String { canonicalName }
 
-    public init(_ display: String, canonical: String? = nil) {
+    public init(_ display: String, canonical: String? = nil, workCount: Int? = nil) {
         self.displayName = display
         self.canonicalName = canonical ?? display
+        self.workCount = workCount
     }
 }
 
