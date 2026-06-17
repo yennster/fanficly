@@ -301,6 +301,11 @@ struct BookmarksView: View {
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
+            // A cancelled request is benign: this view's task was torn down
+            // mid-flight (the split view settling its detail column, widened by
+            // the 1 req/sec throttle), not a load failure. Don't surface it —
+            // `.task` re-runs when the view re-appears. Only real errors show.
+            guard !Task.isCancelled else { return }
             errorMessage = "\(error)"
         }
     }
@@ -323,6 +328,7 @@ struct BookmarksView: View {
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
+            guard !Task.isCancelled else { return }   // benign cancellation — see loadFirst
             errorMessage = "\(error)"
         }
     }

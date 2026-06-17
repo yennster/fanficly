@@ -214,7 +214,7 @@ enum CommentsParser {
         var depth = 0
         var parent = li.parent()
         while let p = parent {
-            if p.tagName() == "li", (try? p.hasClass("comment")) == true { depth += 1 }
+            if p.tagName() == "li", p.hasClass("comment") { depth += 1 }
             parent = p.parent()
         }
 

@@ -179,7 +179,13 @@ struct LibraryView: View {
                                 NavigationLink(value: work) {
                                     Label("Read Now", systemImage: "book")
                                 }
-                                
+
+                                if !work.authorUsername.isEmpty {
+                                    NavigationLink(value: AuthorRef(username: work.authorUsername, displayName: work.authorName)) {
+                                        Label("More by this author", systemImage: "person.crop.circle")
+                                    }
+                                }
+
                                 Button {
                                     work.isStarred.toggle()
                                     try? context.save()
@@ -187,7 +193,7 @@ struct LibraryView: View {
                                 } label: {
                                     Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
                                 }
-                                
+
                                 Button {
                                     work.isPinned.toggle()
                                     try? context.save()
@@ -195,7 +201,7 @@ struct LibraryView: View {
                                 } label: {
                                     Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
                                 }
-                                
+
                                 Button {
                                     workMovingToFolder = work
                                 } label: {
@@ -522,7 +528,13 @@ struct FolderDetailView: View {
                             NavigationLink(value: work) {
                                 Label("Read Now", systemImage: "book")
                             }
-                            
+
+                            if !work.authorUsername.isEmpty {
+                                NavigationLink(value: AuthorRef(username: work.authorUsername, displayName: work.authorName)) {
+                                    Label("More by this author", systemImage: "person.crop.circle")
+                                }
+                            }
+
                             Button {
                                 work.isStarred.toggle()
                                 try? context.save()
