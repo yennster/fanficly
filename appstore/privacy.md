@@ -13,12 +13,14 @@ That single answer produces the **"Data Not Collected"** label. Rationale:
 - No account is required. If the user logs into AO3, the session cookie is
   stored only in the iOS Keychain on-device and is never sent anywhere except
   archiveofourown.org.
-- Saved works, reading position, hidden works, folders, and preferences live
-  in on-device storage. Optional iCloud sync (library backup, reader profiles,
-  last-read progress for the widget) goes only to the user's **own** iCloud
-  account — never to the developer or any third party — so it is not "data
-  collection" under App Privacy definitions (data must be sent off device to
-  you or your partners to count).
+- Saved works, reading position, hidden works, folders, followed authors, and
+  preferences live in on-device storage. Optional iCloud sync (library backup,
+  reader profiles, last-read progress for the widget) goes only to the user's
+  **own** iCloud account — never to the developer or any third party — so it is
+  not "data collection" under App Privacy definitions (data must be sent off
+  device to you or your partners to count).
+- AO3 account bookmarks and chapter comments are fetched live from AO3 for
+  display and never stored off-device; a posted comment is sent only to AO3.
 
 ## URLs
 

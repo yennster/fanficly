@@ -2,9 +2,9 @@ import Foundation
 import SwiftData
 
 /// Seeds the in-memory SwiftData store for `-demoMode` runs so the screens that
-/// read local data (Library, Recently Viewed, saved searches & filters) have
-/// realistic, all-ages content for App Store screenshots. Only ever called when
-/// `FanficlyApp.isDemoMode` is true.
+/// read local data (Library with reading progress, Recently Viewed, followed
+/// authors, saved searches & filters) have realistic, all-ages content for App
+/// Store screenshots. Only ever called when `FanficlyApp.isDemoMode` is true.
 enum DemoSeed {
     @MainActor
     static func seed(into context: ModelContext) {
@@ -14,6 +14,14 @@ enum DemoSeed {
         // Library: a mix of followed and downloaded works.
         let followed = [90001, 90006, 90002]   // show with the bookmark badge
         let downloaded = [90001, 90004]         // show with the download badge
+
+        // Reading progress for the Library progress-bar story: two works mid-read
+        // and one finished (>= 99% → green "Finished"). (fraction, chapter, hoursAgo)
+        let progress: [Int: (Double, Int, Int)] = [
+            90001: (0.66, 8, 5),     // The Long Way Home — mid-read
+            90002: (0.40, 4, 28),    // Letters Never Sent — earlier on
+            90006: (1.00, 7, 72),    // Gardens in Winter — finished
+        ]
 
         for summary in DemoCatalog.works {
             let work = WorkPersistence.upsertMetadata(summary: summary, into: context, save: false)
@@ -26,6 +34,18 @@ enum DemoSeed {
                 work.epubLocalPath = "library/\(summary.id).epub"
                 writePlaceholderEPUB(workId: summary.id)
             }
+            if let (fraction, chapter, hoursAgo) = progress[summary.id] {
+                work.lastReadProgress = fraction
+                work.lastReadChapter = chapter
+                work.lastReadAt = Calendar.current.date(byAdding: .hour, value: -hoursAgo, to: seedDate) ?? seedDate
+            }
+        }
+
+        // Followed authors (Authors tab + the "follow your favourite authors" story).
+        let demoAuthors = ["wanderlight", "paperboats", "tealeaf", "frostfern", "orbital"]
+        for (i, username) in demoAuthors.enumerated() {
+            let followedAt = Calendar.current.date(byAdding: .day, value: -i, to: seedDate) ?? seedDate
+            context.insert(FollowedAuthor(username: username, displayName: username, followedAt: followedAt))
         }
 
         // Recently Viewed: a handful, newest first.

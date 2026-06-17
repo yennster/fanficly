@@ -10,7 +10,9 @@ and is uploaded automatically. This file is the fuller reference.
 Key points: Fanficly is a privacy-first **reader** for fiction published on
 Archive of Our Own (AO3). **No login or demo account is needed** to review the
 full app. All works are hosted and moderated by AO3; Fanficly does not host
-content.
+content. A few optional features sign in to AO3 (subscribing on AO3, viewing
+your own AO3 bookmarks, and posting a chapter comment), but none are required
+to review the app.
 
 ## Why this passes Guideline 1.2 (user-generated content)
 

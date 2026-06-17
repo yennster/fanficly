@@ -100,12 +100,16 @@ final class ScreenshotTests: XCTestCase {
 
     private func openSidebarItem(_ title: String) {
         // Landscape split view: tapping a sidebar row often doesn't switch the
-        // detail column. The app registers ⌘1–6 (the "Go" menu) for the sidebar
+        // detail column. The app registers ⌘1–9 (the "Go" menu) for the sidebar
         // items, so drive navigation by keyboard, which switches the selected
-        // tab deterministically.
+        // tab deterministically. This map MUST stay in sync with the "Go" menu
+        // order in FanficlyApp.swift (= SidebarItem.allCases order) — inserting a
+        // tab there shifts every later shortcut, which silently scrambles the
+        // captures (e.g. ⌘3 lands on Popular, not Library).
         if useKeyboardNav,
-           let key = ["Search": "1", "Browse": "2", "Library": "3",
-                      "Recently Viewed": "4", "Subscriptions": "5", "Settings": "6"][title] {
+           let key = ["Search": "1", "Browse": "2", "Popular": "3", "Library": "4",
+                      "Recently Viewed": "5", "Authors": "6", "Bookmarks": "7",
+                      "Subscriptions": "8", "Settings": "9"][title] {
             // The ⌘ keypress dispatches asynchronously and the first one after
             // launch is often dropped, so RESEND until the target screen's content
             // nav bar actually appears (the sidebar nav bar is "Fanficly"; each
@@ -223,10 +227,21 @@ final class ScreenshotTests: XCTestCase {
             if browseBack.exists && browseBack.isHittable { browseBack.tap(); usleep(600_000) }
         }
 
+        // Popular — trending fandoms / ships / characters (the discovery story).
+        openSidebarItem("Popular")
+        usleep(900_000)
+        snap("10-popular")
+
         // Recently Viewed — seeded history.
         openSidebarItem("Recently Viewed")
         usleep(700_000)
         snap("06-recently-viewed")
+
+        // Bookmarks — the logged-in reader's AO3 bookmarks (demo is signed in).
+        openSidebarItem("Bookmarks")
+        _ = app.cells.firstMatch.waitForExistence(timeout: 6)
+        usleep(900_000)
+        snap("12-bookmarks")
 
         // Reader settings — themes & typography (the customization story).
         openSidebarItem("Settings")
@@ -286,6 +301,37 @@ final class ScreenshotTests: XCTestCase {
             _ = app.staticTexts.firstMatch.waitForExistence(timeout: 6)
             usleep(900_000)
             snap("03-reader")
+
+            // Comments — open the reader's "Work options" menu (collapsed into the
+            // system overflow on iPhone), then the Comments item. Demo mode is
+            // signed in, so the thread + composer render. Dismiss with Done after.
+            var optionsButton = app.buttons["Work options"]
+            if !optionsButton.waitForExistence(timeout: 2) || !optionsButton.isHittable {
+                let navButtons = app.navigationBars.buttons
+                let count = navButtons.count
+                if count > 0 {
+                    let overflowButton = app.buttons["More"].exists ? app.buttons["More"] : navButtons.element(boundBy: count - 1)
+                    if overflowButton.waitForExistence(timeout: 3) { overflowButton.tap(); usleep(600_000) }
+                }
+                optionsButton = app.buttons["Work options"]
+            }
+            if optionsButton.waitForExistence(timeout: 3) {
+                if optionsButton.isHittable { optionsButton.tap() }
+                else { optionsButton.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+                usleep(600_000)
+                let commentsItem = app.buttons["Comments"]
+                if commentsItem.waitForExistence(timeout: 3) {
+                    commentsItem.tap()
+                    _ = app.navigationBars["Comments"].waitForExistence(timeout: 6)
+                    _ = app.cells.firstMatch.waitForExistence(timeout: 6)
+                    usleep(900_000)
+                    snap("11-comments")
+                    let doneButton = app.buttons["Done"]
+                    if doneButton.waitForExistence(timeout: 3) && doneButton.isHittable {
+                        doneButton.tap(); usleep(600_000)
+                    }
+                }
+            }
 
             // Text to speech narration
             var ttsButton = findSettingsButton()

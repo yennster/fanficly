@@ -20,12 +20,23 @@ to readers who need **larger text** or a **darker interface**.
 - The reader's navigation bar and chapter indicator are themed to match, so
   there are no bright flashes when opening or leaving a story.
 
+## Listen aloud
+
+- **"Listen"** reads any chapter aloud with your device's high-quality
+  text-to-speech, for hands-free reading or readers who prefer audio. It
+  advances chapter to chapter on its own and keeps playing in the background and
+  from the lock screen, with standard Now Playing controls.
+- The spoken paragraph is **highlighted and scrolled into view** as it's read,
+  so it's easy to follow along.
+- Voice and speaking rate are adjustable in Reader settings, and on supported
+  devices you can narrate with your own **Personal Voice**. Narration is fully
+  on-device — no network, no data usage.
+
 ## More reading-comfort features
 
 - Continuous-scroll, swipe-by-chapter, or page-by-page reading modes.
-- **Listen (read-aloud)** — stories can be narrated aloud with on-device
-  text-to-speech, with adjustable voice and speed, a karaoke highlight that
-  follows along, automatic chapter advance, and lock-screen playback controls.
+- A **Keep screen awake** toggle stops the display from dimming or locking while
+  you read.
 - Your exact reading position is saved and restored, down to the paragraph, so
   you never lose your place.
 - **Reader profiles** save complete typography setups under a name, and

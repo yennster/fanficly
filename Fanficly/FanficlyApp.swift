@@ -93,8 +93,14 @@ struct FanficlyApp: App {
                 .tint(Self.isDemoMode ? Color.blue : nil)
                 .preferredColorScheme(Self.isDemoMode ? .light : nil)
                 .task {
+                    // Demo mode: present a signed-in state so the login-gated
+                    // screens (Bookmarks tab, the comment composer) render with
+                    // the curated offline data for App Store screenshots. The
+                    // DemoAO3Client serves all of this offline. Never ships.
+                    if Self.isDemoMode { auth.username = "demo_reader" }
+
                     let context = Self.sharedModelContainer.mainContext
-                    
+
                     // Migrate legacy single folder to folders array if needed
                     if let works = try? context.fetch(FetchDescriptor<Work>()) {
                         var migratedAny = false
