@@ -333,6 +333,7 @@ private struct LibraryFilterBar: View {
 struct LibraryRow: View {
     let work: Work
     let downloaded: Bool
+    @AppStorage("library.showReadingProgress") private var showReadingProgress = true
 
     /// Show the first fandom, shortened from AO3's canonical form
     /// ("Harry Potter - J. K. Rowling" → "Harry Potter"), plus a count
@@ -397,7 +398,9 @@ struct LibraryRow: View {
                 }
             }
 
-            readingProgress
+            if showReadingProgress {
+                readingProgress
+            }
         }
         .padding(.vertical, 6)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
@@ -487,7 +490,11 @@ private struct LibraryMetadataPill: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background {
-            Capsule()
+            // A rounded rectangle, not a Capsule: a capsule's semicircular left
+            // cap only touches the leading edge at its vertical center, so the
+            // pill reads as inset from the flush title/author text. A near-
+            // vertical left edge lines the pills up with the text.
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(isFolder ? Color.accentColor.opacity(0.12) : Color(.tertiarySystemFill))
         }
     }
