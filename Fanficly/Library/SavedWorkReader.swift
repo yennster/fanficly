@@ -18,6 +18,7 @@ struct SavedWorkReader: View {
     @State private var isDownloaded = false
     @State private var showingComments = false
     @State private var currentChapterIndex = 1
+    @State private var isResolvingComments = false
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
 
@@ -73,10 +74,20 @@ struct SavedWorkReader: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
-                    showingComments = true
+                    Task {
+                        isResolvingComments = true
+                        await ensureChapterIds()
+                        isResolvingComments = false
+                        showingComments = true
+                    }
                 } label: {
-                    Image(systemName: "bubble.left.and.bubble.right")
+                    if isResolvingComments {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                    }
                 }
+                .disabled(isResolvingComments)
                 .accessibilityLabel("Comments")
 
                 // Share + Save-offline live in one "…" menu so this plus the
@@ -113,6 +124,26 @@ struct SavedWorkReader: View {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
             WorkPersistence.recordView(work: work, into: context)
         }
+    }
+
+    /// Downloaded works saved before per-chapter comments have no chapter ids,
+    /// so the reader can't tell which chapter's thread to load (it falls back to
+    /// the work/first-chapter thread, often empty). Resolve them once from the
+    /// work page and persist — a one-time fetch per old download; new downloads
+    /// already carry ids. No-op (and silent on failure) when ids are present or
+    /// the work isn't downloaded.
+    private func ensureChapterIds() async {
+        guard hasOfflineText, currentChapterAoId == nil else { return }
+        guard let fetched = try? await client.fetchWork(id: work.ao3Id) else { return }
+        var changed = false
+        for ch in fetched.chapters {
+            guard let id = ch.aoId,
+                  let local = work.chapters.first(where: { $0.index == ch.index }),
+                  local.aoId == nil else { continue }
+            local.aoId = id
+            changed = true
+        }
+        if changed { try? context.save() }
     }
 
     private func load() async {
