@@ -35,7 +35,6 @@ struct ChapterContentView: View {
                         .bold(boldText)
                         .lineSpacing(lineSpacing)
                         .foregroundStyle(foreground)
-                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         // Karaoke highlight: a flush fill behind the paragraph's
                         // existing frame, so toggling it never reflows the text.

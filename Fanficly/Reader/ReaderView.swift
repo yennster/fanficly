@@ -1839,7 +1839,6 @@ struct ReaderPageCell: View {
                         .bold(boldText)
                         .lineSpacing(lineSpacing)
                         .foregroundStyle(foreground)
-                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,
