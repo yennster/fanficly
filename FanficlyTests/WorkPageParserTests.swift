@@ -219,6 +219,35 @@ final class CommentsParserTests: XCTestCase {
         XCTAssertEqual(comments[2].depth, 0)
     }
 
+    func test_replyDepth_ao3WrapperStructure() throws {
+        // AO3's real markup: the reply's <li.comment> is NOT inside its parent's.
+        // It sits in a further <ol class="thread"> within an *unclassed* wrapper
+        // <li> that is a sibling of the parent. Depth must come from ancestor
+        // threads, not ancestor comment <li>s (which would give the reply 0).
+        let html = """
+        <html><body><div id="comments_placeholder"><ol class="thread">
+          <li class="odd comment group" id="comment_1" role="article">
+            <h4 class="heading byline"><a href="/users/a/pseuds/a">a</a></h4>
+            <blockquote class="userstuff"><p>Top-level.</p></blockquote>
+          </li>
+          <li>
+            <ol class="thread">
+              <li class="even comment group" id="comment_2" role="article">
+                <h4 class="heading byline"><a href="/users/b/pseuds/b">b</a></h4>
+                <blockquote class="userstuff"><p>A reply.</p></blockquote>
+              </li>
+            </ol>
+          </li>
+        </ol></div></body></html>
+        """
+        let comments = try CommentsParser.parse(html: html)
+        XCTAssertEqual(comments.count, 2)
+        XCTAssertEqual(comments[0].id, "1")
+        XCTAssertEqual(comments[0].depth, 0)
+        XCTAssertEqual(comments[1].id, "2")
+        XCTAssertEqual(comments[1].depth, 1)
+    }
+
     func test_parsesCommentsDespitePrecedingEmptyWrapper() throws {
         // Mirrors real AO3: an empty <div id="comments"> precedes
         // #comments_placeholder, which holds pagination <li>s + the real

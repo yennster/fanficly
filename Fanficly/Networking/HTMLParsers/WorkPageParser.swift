@@ -255,13 +255,18 @@ enum CommentsParser {
         // blockquotes in document order.
         let bodyHTML = (try? li.select("blockquote.userstuff").first()?.html() ?? "") ?? ""
 
-        // Depth = number of ancestor li.comment (nested ol.thread → reply).
-        var depth = 0
-        var parent = li.parent()
-        while let p = parent {
-            if p.tagName() == "li", p.hasClass("comment") { depth += 1 }
-            parent = p.parent()
+        // Reply depth from ancestor comment threads. AO3 wraps the whole list in
+        // one <ol class="thread"> and nests each reply in a further
+        // <ol class="thread"> (inside an *unclassed* wrapper <li>) — so a reply's
+        // own <li.comment> is NOT a descendant of its parent's. Count ancestor
+        // threads and drop the outermost (top-level) one.
+        var threadCount = 0
+        var ancestor = li.parent()
+        while let p = ancestor {
+            if p.tagName() == "ol", p.hasClass("thread") { threadCount += 1 }
+            ancestor = p.parent()
         }
+        let depth = max(0, threadCount - 1)
 
         return AO3Comment(
             id: id,

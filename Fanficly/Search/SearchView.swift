@@ -925,21 +925,30 @@ private struct CommentRow: View {
     let comment: AO3Comment
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Image(systemName: comment.commenterUsername.isEmpty ? "person.crop.circle.badge.questionmark" : "person.crop.circle")
-                    .foregroundStyle(.secondary)
-                Text(comment.commenterName)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if !comment.dateText.isEmpty {
-                    Text(comment.dateText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+        HStack(alignment: .top, spacing: 8) {
+            // Thread guide line for nested replies, so the indentation reads as
+            // a reply rather than a stray offset.
+            if comment.depth > 0 {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(width: 2)
             }
-            HTMLText(html: comment.bodyHTML)
-                .font(.callout)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: comment.commenterUsername.isEmpty ? "person.crop.circle.badge.questionmark" : "person.crop.circle")
+                        .foregroundStyle(.secondary)
+                    Text(comment.commenterName)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    if !comment.dateText.isEmpty {
+                        Text(comment.dateText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                HTMLText(html: comment.bodyHTML)
+                    .font(.callout)
+            }
         }
         .padding(.leading, CGFloat(min(comment.depth, 6)) * 16)
         .padding(.vertical, 2)
