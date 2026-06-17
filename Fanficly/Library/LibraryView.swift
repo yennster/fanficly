@@ -144,7 +144,10 @@ struct LibraryView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
-                                if work.isFollowed {
+                                // Following tracks new chapters, so it's only
+                                // meaningful for in-progress works — hide Unfollow
+                                // on completed ones (nothing new will ever drop).
+                                if work.isFollowed && !work.isComplete {
                                     Button {
                                         work.isFollowed = false
                                         work.followedAt = nil
