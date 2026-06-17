@@ -659,7 +659,7 @@ struct ReaderView: View {
             .indexViewStyle(.page(backgroundDisplayMode: .always))
             .background(bg)
             .foregroundStyle(fg)
-            // Kindle-style tap-to-turn: tapping the left third goes to the
+            // Tap-to-turn: tapping the left third goes to the
             // previous chapter, the right third to the next; the middle third is
             // a dead zone so taps on mid-page links/text don't flip the page. A
             // *simultaneous* spatial tap leaves the TabView's swipe paging and
@@ -778,7 +778,7 @@ struct ReaderView: View {
         isRestoring = false
     }
 
-    // MARK: - Page-by-page (Kindle-like) mode
+    // MARK: - Page-by-page mode
 
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
