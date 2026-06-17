@@ -260,7 +260,16 @@ struct RootView: View {
 
     private func openResumeRoute(_ route: ResumeWorkRoute) {
         installResumeProgressIfAvailable(for: route)
-        select(.library)
+        // Switch to Library but DON'T clear the detail path here (as the general
+        // `select(_:)` does). Clearing it and then re-pushing in the deferred
+        // `.task` spans two update cycles and races with the tab switch; when the
+        // app is already open SwiftUI can drop the re-push ("tried to update
+        // multiple times per frame"), stranding you on an empty Library instead
+        // of the reader. Letting the `.task` set the path to `[route]` in one
+        // atomic mutation replaces whatever was there (empty, this same route, or
+        // another tab's stack) reliably and idempotently.
+        selectedTabRaw = SidebarItem.library.rawValue
+        if isCompactNavigation { compactSelection = .library }
         pendingResumeRoute = route   // pushed by the .task(id:) on the stack
     }
 
