@@ -11,8 +11,11 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
-    func fetchComments(workId: Int) async throws -> [AO3Comment]
-    func postComment(workId: Int, text: String) async throws
+    /// Comments for a specific chapter (AO3 threads comments per chapter). Pass
+    /// `chapterId` = the chapter's AO3 id; nil fetches the work-level page (the
+    /// first chapter's thread), used as a fallback when the id is unknown.
+    func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment]
+    func postComment(workId: Int, chapterId: Int?, text: String) async throws
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
     func fetchPopularSnapshot() async throws -> PopularSnapshot
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String]
@@ -131,6 +134,18 @@ public struct AO3ChapterPayload: Sendable {
     public let index: Int
     public let title: String
     public let bodyHTML: String
+    /// AO3's chapter database id, parsed from the chapter's
+    /// `/works/<id>/chapters/<chapterId>` link. Drives per-chapter comments;
+    /// nil when the markup doesn't expose it (e.g. some single-chapter works),
+    /// in which case callers fall back to work-level comments.
+    public let aoId: Int?
+
+    public init(index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
+        self.index = index
+        self.title = title
+        self.bodyHTML = bodyHTML
+        self.aoId = aoId
+    }
 }
 
 public enum AO3AutocompleteField: String, Sendable {
@@ -346,9 +361,9 @@ public actor AO3Client: AO3ClientProtocol {
         return try SubscriptionsParser.parse(html: html)
     }
 
-    public func fetchComments(workId: Int) async throws -> [AO3Comment] {
+    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {
         await throttle.wait()
-        let url = try AO3Endpoints.workComments(id: workId, base: baseURL)
+        let url = try commentsPageURL(workId: workId, chapterId: chapterId)
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Comments response not UTF-8")
@@ -356,35 +371,45 @@ public actor AO3Client: AO3ClientProtocol {
         return try CommentsParser.parse(html: html)
     }
 
-    public func postComment(workId: Int, text: String) async throws {
+    /// The page whose `?show_comments=true` thread we read/post against: a
+    /// specific chapter when its id is known, else the work page.
+    private func commentsPageURL(workId: Int, chapterId: Int?) throws -> URL {
+        if let chapterId {
+            return try AO3Endpoints.chapterComments(workId: workId, chapterId: chapterId, base: baseURL)
+        }
+        return try AO3Endpoints.workComments(id: workId, base: baseURL)
+    }
+
+    public func postComment(workId: Int, chapterId: Int?, text: String) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        // Load the work page first to grab a fresh CSRF token + the user's pseud
-        // from the live comment form (same proven flow as login / subscribe).
+        // Load the chapter's (or work's) comment page and replay its actual
+        // new-comment form: the form's hidden inputs carry the CSRF token and the
+        // `comment[commentable_id]`/`[commentable_type]` that bind the comment to
+        // exactly the chapter AO3 would — so we never hardcode the POST shape.
         await throttle.wait()
-        let pageURL = try AO3Endpoints.workComments(id: workId, base: baseURL)
+        let pageURL = try commentsPageURL(workId: workId, chapterId: chapterId)
         let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
-        guard let pageHTML = String(data: pageData, encoding: .utf8),
-              let token = try LoginParser.authenticityToken(html: pageHTML) else {
-            throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
+        guard let pageHTML = String(data: pageData, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Comment page not UTF-8")
         }
-        let pseudId = CommentsParser.defaultPseudId(html: pageHTML)
+        guard let form = CommentsParser.newCommentForm(html: pageHTML, base: baseURL) else {
+            throw AO3Error.parseFailed(reason: "comment form not found (login required?)")
+        }
 
         await throttle.wait()
-        let postURL = try AO3Endpoints.workCommentsPost(id: workId, base: baseURL)
-        var request = URLRequest(url: postURL)
+        var request = URLRequest(url: form.action)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
         request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
-        request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
-        var fields: [String: String] = [
-            "authenticity_token": token,
-            "comment[comment_content]": trimmed,
-            "commit": "Comment",
-        ]
-        if let pseudId { fields["comment[pseud_id]"] = pseudId }
+        if let token = form.fields["authenticity_token"] {
+            request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        }
+        var fields = form.fields
+        fields["comment[comment_content]"] = trimmed
+        fields["commit"] = "Comment"
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
         let (_, response) = try await performRequest(request)
@@ -606,8 +631,8 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
-    public func fetchComments(workId: Int) async throws -> [AO3Comment] { [] }
-    public func postComment(workId: Int, text: String) async throws {}
+    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
+    public func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     public func fetchPopularSnapshot() async throws -> PopularSnapshot {
         PopularSnapshot(fandoms: PopularTags.fandoms, ships: PopularTags.ships, characters: PopularTags.characters)

@@ -63,6 +63,21 @@ enum AO3Endpoints {
         return url
     }
 
+    /// A single chapter's page with its comment thread shown — AO3 threads
+    /// comments per chapter, so this is what we read/post against when the
+    /// reader knows which chapter id it's on.
+    static func chapterComments(workId: Int, chapterId: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(workId)/chapters/\(chapterId)"),
+                                       resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "view_adult", value: "true"),
+            URLQueryItem(name: "show_comments", value: "true"),
+        ]
+        components?.fragment = "comments"
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad chapter comments URL") }
+        return url
+    }
+
     static func workSubscriptions(id: Int, base: URL) throws -> URL {
         base.appending(path: "/works/\(id)/subscriptions")
     }

@@ -33,8 +33,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
-    func fetchComments(workId: Int) async throws -> [AO3Comment] { [] }
-    func postComment(workId: Int, text: String) async throws {}
+    func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
+    func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     func fetchPopularSnapshot() async throws -> PopularSnapshot {
         PopularSnapshot(fandoms: [], ships: [], characters: [])

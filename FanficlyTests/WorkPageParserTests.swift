@@ -118,6 +118,58 @@ final class WorkPageParserTests: XCTestCase {
         XCTAssertTrue(payload.chapters[0].bodyHTML.contains("<em>It was hot.</em>"))
         XCTAssertEqual(payload.chapters[1].title, "Espresso")
     }
+
+    func test_chapterId_fromHref() {
+        XCTAssertEqual(WorkPageParser.chapterId(fromHref: "/works/12345/chapters/678"), 678)
+        XCTAssertEqual(WorkPageParser.chapterId(fromHref: "https://archiveofourown.org/works/9/chapters/42?view_adult=true"), 42)
+        XCTAssertNil(WorkPageParser.chapterId(fromHref: "/works/12345"))
+        XCTAssertNil(WorkPageParser.chapterId(fromHref: "/users/alice"))
+    }
+
+    func test_extractsChapterIds_fromHeadingLinks() throws {
+        let html = """
+        <html><body><div id="chapters" class="userstuff">
+          <div class="chapter" id="chapter-1">
+            <div class="chapter preface group"><h3 class="title"><a href="/works/12345/chapters/678">Chapter 1</a>: Latte</h3></div>
+            <div class="userstuff module"><p>One.</p></div>
+          </div>
+          <div class="chapter" id="chapter-2">
+            <div class="chapter preface group"><h3 class="title"><a href="/works/12345/chapters/690">Chapter 2</a>: Espresso</h3></div>
+            <div class="userstuff module"><p>Two.</p></div>
+          </div>
+        </div></body></html>
+        """
+        let payload = try WorkPageParser.parse(html: html, workId: 12345)
+        XCTAssertEqual(payload.chapters.count, 2)
+        XCTAssertEqual(payload.chapters[0].aoId, 678)
+        XCTAssertEqual(payload.chapters[1].aoId, 690)
+    }
+
+    func test_extractsChapterIds_fromSelectFallback() throws {
+        // No per-chapter heading links → fall back to the chapter jump menu.
+        let html = """
+        <html><body>
+          <select id="selected_id" name="selected_id">
+            <option value="678">1. Latte</option>
+            <option value="690" selected>2. Espresso</option>
+          </select>
+          <div id="chapters" class="userstuff">
+            <div class="chapter" id="chapter-1"><div class="userstuff module"><p>One.</p></div></div>
+            <div class="chapter" id="chapter-2"><div class="userstuff module"><p>Two.</p></div></div>
+          </div>
+        </body></html>
+        """
+        let payload = try WorkPageParser.parse(html: html, workId: 12345)
+        XCTAssertEqual(payload.chapters[0].aoId, 678)
+        XCTAssertEqual(payload.chapters[1].aoId, 690)
+    }
+
+    func test_chapterId_nilWhenAbsent() throws {
+        // The base fixture's chapters have no links/selector → no ids (callers
+        // then fall back to work-level comments).
+        let payload = try WorkPageParser.parse(html: html, workId: 12345)
+        XCTAssertNil(payload.chapters[0].aoId)
+    }
 }
 
 final class CommentsParserTests: XCTestCase {
@@ -176,6 +228,41 @@ final class CommentsParserTests: XCTestCase {
         """
         XCTAssertEqual(CommentsParser.defaultPseudId(html: formHTML), "20")
         XCTAssertNil(CommentsParser.defaultPseudId(html: "<html></html>"))
+    }
+
+    func test_newCommentForm_capturesActionAndFields() throws {
+        // A nested reply form (inside an existing comment) plus the page-level
+        // composer; we must pick the composer and capture its action + fields.
+        let html = """
+        <html><body>
+        <ol class="thread">
+          <li id="comment_1" class="comment group">
+            <form action="/comments/1" class="reply"><textarea name="comment[comment_content]"></textarea></form>
+          </li>
+        </ol>
+        <div id="add_comment_placeholder">
+          <form action="/works/12345/chapters/678/comments" method="post">
+            <input type="hidden" name="authenticity_token" value="TOK123">
+            <input type="hidden" name="comment[commentable_id]" value="678">
+            <input type="hidden" name="comment[commentable_type]" value="Chapter">
+            <select name="comment[pseud_id]"><option value="20" selected>me</option></select>
+            <textarea name="comment[comment_content]"></textarea>
+          </form>
+        </div>
+        </body></html>
+        """
+        let base = URL(string: "https://archiveofourown.org")!
+        let form = try XCTUnwrap(CommentsParser.newCommentForm(html: html, base: base))
+        XCTAssertEqual(form.action.absoluteString, "https://archiveofourown.org/works/12345/chapters/678/comments")
+        XCTAssertEqual(form.fields["authenticity_token"], "TOK123")
+        XCTAssertEqual(form.fields["comment[commentable_id]"], "678")
+        XCTAssertEqual(form.fields["comment[commentable_type]"], "Chapter")
+        XCTAssertEqual(form.fields["comment[pseud_id]"], "20")
+    }
+
+    func test_newCommentForm_nilWhenNoComposer() {
+        XCTAssertNil(CommentsParser.newCommentForm(html: "<html><body><p>no form</p></body></html>",
+                                                   base: URL(string: "https://archiveofourown.org")!))
     }
 }
 

@@ -631,6 +631,7 @@ struct WorkDetailView: View {
     @State private var epubURL: URL?
     @State private var showingReport: Bool = false
     @State private var showingComments: Bool = false
+    @State private var currentChapterIndex = 1
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -643,7 +644,7 @@ struct WorkDetailView: View {
     var body: some View {
         Group {
             if let payload {
-                ReaderView(payload: payload)
+                ReaderView(payload: payload, currentChapter: $currentChapterIndex)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             Button {
@@ -661,7 +662,10 @@ struct WorkDetailView: View {
                             .ignoresSafeArea()
                     }
                     .sheet(isPresented: $showingComments) {
-                        CommentsView(workId: workId, workTitle: payload.summary.title)
+                        CommentsView(workId: workId, workTitle: payload.summary.title,
+                                     chapterId: payload.chapters.first(where: { $0.index == currentChapterIndex })?.aoId,
+                                     chapterNumber: currentChapterIndex,
+                                     totalChapters: payload.chapters.count)
                     }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
@@ -765,6 +769,11 @@ struct WorkDetailView: View {
 struct CommentsView: View {
     let workId: Int
     let workTitle: String
+    /// The chapter whose thread to show/post to (AO3 comments are per-chapter).
+    /// nil → work-level (first chapter), the fallback when the id is unknown.
+    var chapterId: Int? = nil
+    var chapterNumber: Int? = nil
+    var totalChapters: Int? = nil
     @Environment(\.ao3Client) private var client
     @Environment(AuthState.self) private var auth
     @Environment(\.dismiss) private var dismiss
@@ -776,6 +785,20 @@ struct CommentsView: View {
     @State private var isPosting = false
     @State private var postError: String?
     @FocusState private var composerFocused: Bool
+
+    /// Show the chapter only for multi-chapter works; single-chapter works read
+    /// plainly as "Comments".
+    private var navTitle: String {
+        if let chapterNumber, (totalChapters ?? 1) > 1 { return "Comments · Ch \(chapterNumber)" }
+        return "Comments"
+    }
+
+    /// Per-chapter empty state names the chapter, so an empty later chapter
+    /// reads as "this chapter has none" rather than "comments failed to load".
+    private var emptyTitle: String {
+        if let chapterNumber, (totalChapters ?? 1) > 1 { return "No comments on Chapter \(chapterNumber) yet" }
+        return "No comments yet"
+    }
 
     var body: some View {
         NavigationStack {
@@ -791,7 +814,7 @@ struct CommentsView: View {
                         Button("Retry") { Task { await load() } }
                     }
                 } else if comments.isEmpty {
-                    ContentUnavailableView("No comments yet", systemImage: "bubble.left",
+                    ContentUnavailableView(emptyTitle, systemImage: "bubble.left",
                         description: Text(auth.username == nil
                             ? "Be the first to comment — log in to AO3 to post."
                             : "Be the first to comment."))
@@ -804,7 +827,7 @@ struct CommentsView: View {
                     .listStyle(.plain)
                 }
             }
-            .navigationTitle("Comments")
+            .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -874,7 +897,7 @@ struct CommentsView: View {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            comments = try await client.fetchComments(workId: workId)
+            comments = try await client.fetchComments(workId: workId, chapterId: chapterId)
         } catch {
             errorMessage = "\(error)"
         }
@@ -887,7 +910,7 @@ struct CommentsView: View {
         postError = nil
         defer { isPosting = false }
         do {
-            try await client.postComment(workId: workId, text: text)
+            try await client.postComment(workId: workId, chapterId: chapterId, text: text)
             draft = ""
             composerFocused = false
             // Re-fetch so the new comment shows (AO3 may hold it for moderation).

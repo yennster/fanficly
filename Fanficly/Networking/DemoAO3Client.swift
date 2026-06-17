@@ -78,7 +78,7 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         DemoCatalog.subscriptions
     }
 
-    public func fetchComments(workId: Int) async throws -> [AO3Comment] {
+    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {
         [
             AO3Comment(id: "1", commenterName: "reader_one", commenterUsername: "reader_one",
                        dateText: "Today", bodyHTML: "<p>This was wonderful — thank you for sharing!</p>", depth: 0),
@@ -87,7 +87,7 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         ]
     }
 
-    public func postComment(workId: Int, text: String) async throws {}
+    public func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
 
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] {
         DemoCatalog.fandoms

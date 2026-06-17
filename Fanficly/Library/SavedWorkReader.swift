@@ -16,8 +16,24 @@ struct SavedWorkReader: View {
     @State private var errorMessage: String?
     @State private var isSavingOffline = false
     @State private var isDownloaded = false
+    @State private var showingComments = false
+    @State private var currentChapterIndex = 1
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
+
+    /// AO3 chapter id for the chapter currently on screen (per-chapter comments).
+    /// nil → CommentsView falls back to the work-level thread.
+    private var currentChapterAoId: Int? {
+        if hasOfflineText {
+            return work.chapters.first(where: { $0.index == currentChapterIndex })?.aoId
+        }
+        return payload?.chapters.first(where: { $0.index == currentChapterIndex })?.aoId
+    }
+
+    private var totalChapterCount: Int {
+        if hasOfflineText { return work.chapters.count }
+        return payload?.chapters.count ?? work.totalChapters ?? work.chapterCount
+    }
 
     /// The reader's themed page colour (same derivation as `ReaderView`), so the
     /// screen is opaque from the first frame instead of letting the Library list
@@ -31,9 +47,9 @@ struct SavedWorkReader: View {
     var body: some View {
         Group {
             if hasOfflineText {
-                ReaderView(work: work)
+                ReaderView(work: work, currentChapter: $currentChapterIndex)
             } else if let payload {
-                ReaderView(payload: payload)
+                ReaderView(payload: payload, currentChapter: $currentChapterIndex)
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -56,31 +72,47 @@ struct SavedWorkReader: View {
         .background(readerBackground.ignoresSafeArea())
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkExportButton(workId: work.ao3Id, title: work.title)
-                saveOfflineButton
+                Button {
+                    showingComments = true
+                } label: {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                }
+                .accessibilityLabel("Comments")
+
+                // Share + Save-offline live in one "…" menu so this plus the
+                // reader's own items (chapters, Aa, minimize) stay within the
+                // ~5 trailing icons the iPhone nav bar fits before it spills
+                // into its own overflow (a confusing second ellipsis).
+                Menu {
+                    WorkExportButton(workId: work.ao3Id, title: work.title, useTextLabel: true)
+                    Button {
+                        Task { await saveOffline() }
+                    } label: {
+                        Label(isDownloaded ? "Downloaded" : "Save Offline",
+                              systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                    }
+                    .disabled(isSavingOffline || isDownloaded)
+                } label: {
+                    if isSavingOffline {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+                .accessibilityLabel("More")
             }
+        }
+        .sheet(isPresented: $showingComments) {
+            CommentsView(workId: work.ao3Id, workTitle: work.title,
+                         chapterId: currentChapterAoId,
+                         chapterNumber: currentChapterIndex,
+                         totalChapters: totalChapterCount)
         }
         .task { await load() }
         .onAppear {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
             WorkPersistence.recordView(work: work, into: context)
         }
-    }
-
-    @ViewBuilder
-    private var saveOfflineButton: some View {
-        Button {
-            Task { await saveOffline() }
-        } label: {
-            if isSavingOffline {
-                ProgressView()
-            } else {
-                Image(systemName: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
-                    .foregroundStyle(isDownloaded ? .green : .primary)
-            }
-        }
-        .disabled(isSavingOffline || isDownloaded)
-        .accessibilityLabel(isDownloaded ? "Downloaded" : "Save offline")
     }
 
     private func load() async {

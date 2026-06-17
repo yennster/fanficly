@@ -107,12 +107,17 @@ final class Chapter {
     var index: Int
     var title: String
     var bodyHTML: String
+    /// AO3 chapter id, so a downloaded work can still load/post that chapter's
+    /// comments. Optional (older saved chapters predate this / single-chapter
+    /// works may lack it) → callers fall back to work-level comments.
+    var aoId: Int?
 
-    init(work: Work? = nil, index: Int, title: String, bodyHTML: String) {
+    init(work: Work? = nil, index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
         self.work = work
         self.index = index
         self.title = title
         self.bodyHTML = bodyHTML
+        self.aoId = aoId
     }
 }
 
