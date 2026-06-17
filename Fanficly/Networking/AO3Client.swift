@@ -458,7 +458,9 @@ public actor AO3Client: AO3ClientProtocol {
 
         var shipCounts: [String: Int] = [:]
         var charCounts: [String: Int] = [:]
-        for fandom in topFandoms.prefix(3) {
+        // Aggregate ship/character facets from the top few fandoms — enough
+        // fandoms to surface ~30 unique ships/characters for the Popular lists.
+        for fandom in topFandoms.prefix(5) {
             guard let filters = try? await fetchWorkFilters(tagName: fandom) else { continue }
             for r in filters.relationships { shipCounts[r.name, default: 0] += max(r.count, 1) }
             for c in filters.characters { charCounts[c.name, default: 0] += max(c.count, 1) }
@@ -467,9 +469,9 @@ public actor AO3Client: AO3ClientProtocol {
         let topChars = charCounts.sorted { $0.value > $1.value }.map(\.key)
 
         return PopularSnapshot(
-            fandoms: topFandoms.isEmpty ? PopularTags.fandoms : Array(topFandoms.prefix(20)),
-            ships: topShips.isEmpty ? PopularTags.ships : Array(topShips.prefix(20)),
-            characters: topChars.isEmpty ? PopularTags.characters : Array(topChars.prefix(20))
+            fandoms: topFandoms.isEmpty ? PopularTags.fandoms : Array(topFandoms.prefix(30)),
+            ships: topShips.isEmpty ? PopularTags.ships : Array(topShips.prefix(30)),
+            characters: topChars.isEmpty ? PopularTags.characters : Array(topChars.prefix(30))
         )
     }
 

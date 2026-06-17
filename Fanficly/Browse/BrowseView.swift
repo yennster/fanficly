@@ -112,11 +112,13 @@ struct PopularView: View {
     @State private var snapshot: PopularSnapshot? = PopularStore.cached()
 
     private var names: [String] {
+        let all: [String]
         switch segment {
-        case .fandom:    live(snapshot?.fandoms, fallback: PopularTags.fandoms)
-        case .ship:      live(snapshot?.ships, fallback: PopularTags.ships)
-        case .character: live(snapshot?.characters, fallback: PopularTags.characters)
+        case .fandom:    all = live(snapshot?.fandoms, fallback: PopularTags.fandoms)
+        case .ship:      all = live(snapshot?.ships, fallback: PopularTags.ships)
+        case .character: all = live(snapshot?.characters, fallback: PopularTags.characters)
         }
+        return Array(all.prefix(30))   // top 30 per segment
     }
 
     /// The live list when present and non-empty, otherwise the curated seed.
