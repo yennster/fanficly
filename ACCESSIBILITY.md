@@ -22,7 +22,11 @@ to readers who need **larger text** or a **darker interface**.
 
 ## More reading-comfort features
 
-- Continuous-scroll or swipe-by-chapter reading modes.
+- Continuous-scroll, swipe-by-chapter, or page-by-page (Kindle-like) reading
+  modes.
+- **Listen (read-aloud)** — stories can be narrated aloud with on-device
+  text-to-speech, with adjustable voice and speed, a karaoke highlight that
+  follows along, automatic chapter advance, and lock-screen playback controls.
 - Your exact reading position is saved and restored, down to the paragraph, so
   you never lose your place.
 - **Reader profiles** save complete typography setups under a name, and

@@ -13,33 +13,41 @@ project.yml                    # xcodegen is the source of truth
 bin/                           # developer scripts (icon gen, screenshots)
 Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
-  RootView.swift               # NavigationSplitView sidebar; global ⌘ zoom
-                               #   (app.zoomScale); fanficly:// deep links
+  RootView.swift               # NavigationSplitView sidebar (Search, Browse,
+                               #   Popular, Library, Recently Viewed, Authors,
+                               #   Bookmarks, Subscriptions, Settings); global ⌘
+                               #   zoom (app.zoomScale); fanficly:// deep links
                                #   (import overlay + widget resume route)
   AO3ClientEnvironment.swift   # @Environment(\.ao3Client) key
   WidgetProgressStore.swift    # last-read progress for the widget: app-group
                                #   defaults + iCloud KVS mirror (debounced);
                                #   compiled into both app and widget targets
   Models/Work.swift            # all SwiftData @Model types (Work,
-                               #   ReadingProgress, CustomFolder, …)
+                               #   ReadingProgress, CustomFolder, FollowedAuthor, …)
   Networking/
     AO3Client.swift            # protocol + live actor + MockAO3Client
     AO3Endpoints.swift         # URL builders
     ThrottleActor.swift
     HTMLParsers/               # one file per page kind
   Search/
-    SearchView.swift           # smart-search UI, results, saved searches,
-                               #   WorkDetailView (reader + toolbar actions)
+    SearchView.swift           # smart-search UI; results (WorkRow has an inline
+                               #   bookmark/save button); saved searches;
+                               #   WorkDetailView (reader + toolbar actions);
+                               #   CommentsView (view/post chapter comments)
+    AuthorWorksView.swift      # one author's works; Follow button +
+                               #   FollowedAuthorsView (the Authors tab)
     SearchPromptParser.swift   # rules-based prompt → AO3SearchFilters
     AO3SearchFilters.swift     # 1:1 mapping of AO3's /works/search fields
     KnownTags.swift            # curated freeform + fandom dictionaries
     FoundationModelsEnricher.swift   # iOS 26+ on-device LLM fallback (no-op elsewhere)
   Browse/
-    FandomCategories.swift     # 10 AO3 media categories + curated seed lists
+    FandomCategories.swift     # 10 AO3 media categories + curated seed lists;
+                               #   PopularTags (curated popular fandoms/ships/chars)
     BrowseView.swift           # category → live fandom list → filtered works;
                                #   landing page also lists saved filters.
                                #   FandomWorksView is drivable by filters+title
                                #   (fandom OR a saved filter), not just a fandom.
+                               #   PopularView (the Popular tab) lives here too.
   Search/
     WorkFilterSheet.swift      # AO3-style filter panel editing AO3SearchFilters
   Reader/
@@ -68,17 +76,22 @@ Fanficly/
     WorkExportButton.swift     # multi-format export → share sheet
     ReaderTheme.swift          # theme/font/size/spacing/width/mode, @AppStorage
   Library/
-    LibraryView.swift          # All/Following/Downloaded/Folders filters, custom
-                               #   folders (CustomFolder) w/ move sheet, and metadata search bar
+    LibraryView.swift          # All/Starred/Downloaded/Folders filters, custom
+                               #   folders (CustomFolder) w/ move sheet, metadata
+                               #   search bar; rows show a reading-progress bar
+                               #   (% read / Finished) for any started work
     SavedWorkReader.swift      # offline if downloaded, else fetch on demand
-    WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow
+    WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow;
+                               #   isAuthorFollowed / toggleFollowAuthor
     iCloudSyncManager.swift    # backup/restore SwiftData library to iCloud
   Auth/                        # AuthState (Keychain) + LoginView
-  Subscriptions/               # poller (AO3 subs + local follows), BG task
+  Subscriptions/               # poller (AO3 subs + local work/author follows),
+                               #   BG task; SubscriptionsView + BookmarksView
+                               #   (the Bookmarks tab — your AO3 bookmarks)
   Settings/                    # SettingsView + ReaderSettingsView + privacy
   DesignSystem/                # Typography, Spacing, FlowLayout, SafariView, ShareSheet
   PrivacyInfo.xcprivacy        # zero collection, zero tracking
-FanficlyTests/                 # ~120 XCTest cases — parsers, filters, endpoints,
+FanficlyTests/                 # ~130 XCTest cases — parsers, filters, endpoints,
                                #   HTML render, tracking, in-memory persistence
 FanficlyUITests/               # smoke test + ScreenshotTests (README shots)
 FanficlyShare/                 # Safari share extension target
@@ -129,12 +142,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
 
 CI runs the same on both an iPhone and an iPad simulator. CI picks the newest installed Xcode and the newest available sim UDIDs at runtime — don't hardcode device names anywhere.
 
-~120 unit tests (`FanficlyTests`), all pure/fixture-based (no network):
-- **Parsers** — `SearchResultsParserTests`, `WorkPageParserTests` (+ `LoginParserTests`), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
+~130 unit tests (`FanficlyTests`), all pure/fixture-based (no network):
+- **Parsers** — `SearchResultsParserTests` (incl. the bookmarks page: `li.bookmark.blurb`, work id from the `/works/<id>` link, skipping series/external bookmarks), `WorkPageParserTests` (+ `LoginParserTests`, `CommentsParserTests` — threaded comment depth, guest comments, comment-form pseud id), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
 - **Search** — `SearchPromptParserTests` (ships, characters, ratings, warnings, categories, freeforms incl. romance, fandoms, word count, status, engagement, language, exclusions), `AO3SearchFiltersTests` (every `work_search[*]` field mapping, NOT-exclusion composition, Codable round-trip for saved filters), `TagResolverTests` (canonical resolution, ship slash variants, character-fallback ship resolution via `StubAO3Client`), `PromptTextTests` (chip-removal → search-box text), `FandomCatalogTests` (fandom → category icon).
 - **Endpoints** — `AO3EndpointsTests` (URLs, pagination, AO3 media path-encoding).
 - **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr, transparent conversion caching), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter).
-- **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow) and `ReadingProgressStore` (save/load round-trips), plus `ReaderProfile` merging and per-device key migration.
+- **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow, plus author follow: `isAuthorFollowed`/`toggleFollowAuthor` with seeded work ids, empty-username guard) and `ReadingProgressStore` (save/load round-trips), plus `ReaderProfile` merging and per-device key migration.
 - **Misc** — `ThrottleActorTests` (1 req/sec throttle timing). `StubAO3Client` is a scriptable `AO3ClientProtocol` test double for resolution logic.
 
 When you add a feature, add its tests here. Make a private helper `internal` if it needs direct testing (see `TagResolver.candidates/bestMatch`).
@@ -145,7 +158,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 - **AO3Client is the only seam to the network.** UI views never touch `URLSession`. Anything that needs data uses `@Environment(\.ao3Client)`. There's a `MockAO3Client` for previews and tests.
 - **Throttle.** Always go through `AO3Client` — never bypass the throttle. AO3 is generous to good citizens, hostile to bad ones.
-- **Parsers are pure.** `SearchResultsParser`, `WorkPageParser`, `LoginParser`, `SubscriptionsParser`, `WorkMetadataParser` take HTML strings and return typed values. Test them with inline HTML fixtures.
+- **Parsers are pure.** `SearchResultsParser` (also drives the bookmarks page via a `blurbSelector` param), `WorkPageParser`, `CommentsParser` (in `WorkPageParser.swift`), `LoginParser`, `SubscriptionsParser`, `WorkMetadataParser` take HTML strings and return typed values. Test them with inline HTML fixtures.
 - **SwiftData models** live in `Models/Work.swift`. The model container is constructed once in `FanficlyApp` and shared with `BackgroundRefresh`.
 - **Settings come from `@AppStorage`**, not custom UserDefaults wrappers. Reader typography keys are per-device — always go through `ReaderProfile.deviceKey(_:)` (suffixes `.phone`/`.pad`/`.mac`).
 - **No third-party dependencies beyond SwiftSoup and KeychainAccess.** Don't add analytics, crash reporters, or any SDK with a network side-channel — privacy posture is the headline feature.
@@ -156,7 +169,9 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 **Add a new HTML parser.** Put it in `Networking/HTMLParsers/`. Take a `String` of HTML, parse with SwiftSoup, return a Sendable struct. Add fixture-based tests in `FanficlyTests/`.
 
-**Add a new SwiftData model.** Define the `@Model` in `Models/Work.swift`. Add it to `FanficlyApp.sharedModelContainer`'s `Schema`. SwiftData will migrate automatically across additive schema changes; destructive changes need a versioned migration plan.
+**Add a new SwiftData model.** Define the `@Model` in `Models/Work.swift`. Add it to `FanficlyApp.sharedModelContainer`'s `Schema` (and the in-memory `Schema` in `PersistenceTests`). SwiftData will migrate automatically across additive schema changes; destructive changes need a versioned migration plan. `FollowedAuthor` is a recent example.
+
+**Add a new sidebar tab.** Add a case to `SidebarItem` (in `RootView.swift`) — order in the enum drives the sidebar order — give it a `title` + `systemImage`, add it to the `switch selectedDetailItem` in `mainSplitView`, and add a `Button`/`keyboardShortcut` to the "Go" `CommandMenu` in `FanficlyApp.swift` (renumber ⌘N to match). Recent examples: `popular`, `authors`, `bookmarks`. `xcodegen` isn't always available; prefer adding the tab's view to an existing file (e.g. `PopularView` in `BrowseView.swift`, `BookmarksView` in `SubscriptionsView.swift`, `FollowedAuthorsView` in `AuthorWorksView.swift`) over a new file, so the committed `.xcodeproj` doesn't need regenerating.
 
 **Run the app on a different device.** Replace `iPhone 17` in the build/run commands with whatever is available. CI auto-picks — see `.github/workflows/ci.yml`.
 
@@ -168,6 +183,8 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - Login is form-based. GET `/users/login` → scrape the `authenticity_token` (either `<meta name="csrf-token">` or `<input name="authenticity_token">`), then POST with cookies. Session cookie is kept in `HTTPCookieStorage.shared` and automatically serialized & persisted to/from the secure iOS Keychain via `CredentialStore` to prevent logouts when the app is terminated or restarted.
 - The structured `dl.work.meta.group` on a work page contains the canonical tags. Chapters are wrapped in `div.chapter[id^=chapter-]` — use that exact selector to avoid matching the nested `.preface` divs.
 - Work subscription is a POST to `/works/<id>/subscriptions` with `subscription[subscribable_type]=Work` + token. Requires login.
+- **Bookmarks** — `/users/<name>/bookmarks` (paginated) lists works in `li.bookmark.blurb` (vs. `li.work.blurb` on search), so `AO3Client.fetchBookmarks` reuses `SearchResultsParser.parse(html:blurbSelector:)`. The `<li>` id is `bookmark_<id>`, not `work_<id>`, so `parseBlurb` falls back to the `/works/<id>` title link for the work id (`SearchResultsParser.workId(fromHref:)`); series/external/deleted bookmarks have no such link and are skipped. The `BookmarksView` tab is login-gated (private bookmarks need the session cookie) and live-fetched with infinite scroll.
+- **Comments** — fetched by loading the work page with `?show_comments=true` (`AO3Endpoints.workComments`) and parsing the thread with `CommentsParser` (commenter, date, `blockquote.userstuff` body, and reply depth from ancestor `li.comment` nesting). Posting is a POST to `/works/<id>/comments` (`workCommentsPost`) with `comment[comment_content]`, the scraped `authenticity_token`, and `comment[pseud_id]` (read from the live comment form via `CommentsParser.defaultPseudId`) — same CSRF flow as login/subscribe. Requires login. `CommentsView` (reader … menu) shows the thread and a composer; AO3 may hold new comments for moderation, so it re-fetches after posting. v1 is work-level (first page); per-chapter comment association on multi-chapter works is a known follow-up.
 - Browse-by-fandom hits `/media/<category>/fandoms`; category names are path-encoded with AO3's scheme (`&`→`*a*`, `/`→`*s*`, `.`→`*d*`, etc. — see `AO3Endpoints.ao3PathEncode`).
 - Tag autocomplete: `/autocomplete/{relationship,character,freeform,fandom}?term=…` returns JSON `[{id,name}]`. Used to resolve user-typed filter tags to canonical names before searching. **Two gotchas, both must hold or you get a 404 and tags silently don't resolve:** (1) the request must send `Accept: application/json` — the shared session defaults to `Accept: text/html`, and AO3's Rails content-negotiation 404s the JSON-only route on an HTML Accept; (2) the `term` must be percent-encoded including `/` (→`%2F`), because `URLComponents` leaves a raw slash in query values and AO3 404s on it. A ship like `Hermione/Draco` hits both.
 - Rating is **single-select** on `/works/search` (`work_search[rating_ids]`, a `<select>`). Sending the array form `rating_ids[]` AND-matches and returns nothing for 2+ ratings (a work has exactly one rating). So `AO3SearchFilters` emits the scalar field for one rating and OR-s multiple via the query field: `(rating_ids:12 OR rating_ids:13)`. Warnings/categories legitimately stay arrays (a work can have several).
@@ -175,23 +192,28 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - Reading position: stored per-work in `ReadingProgress` (ao3Id, chapterIndex, paragraphIndex). The reader renders each chapter as paragraphs (`ChapterContentView`) tagged `c<chapter>-p<index>`, tracks the topmost one via `ScrollAnchorKey`, and restores by scrolling to the chapter then the paragraph.
 - **Text-to-speech ("Listen") is 100% on-device** — `SpeechController` wraps `AVSpeechSynthesizer` (no model bundle, no network, so the privacy posture holds). It speaks `HTMLToAttributed.speechParagraphs(...)` one chapter at a time, enqueuing every paragraph up front for gapless playback and mapping each utterance back to its index via `ObjectIdentifier` to drive the mini-player and detect chapter end. `speechParagraphs` is **index-aligned with the rendered paragraphs** (scene breaks become empty, unspoken slots that are skipped) so the reader can **karaoke-highlight** the spoken paragraph (`ChapterContentView.highlightParagraph`) and auto-scroll it into view (`scrollToSpokenParagraph`, plus the paginated page's own `onChange`). On finish it bumps `finishedTick`; `ReaderView` observes that and auto-advances to the next chapter (a signal, not a stored closure, to avoid a retain cycle with the view). `currentParagraph` is the rendered index (for the highlight); `spokenPosition`/`spokenCount` drive the "¶ x / y" readout. Voice + speaking rate live in Reader settings (`reader.ttsVoiceId`/`reader.ttsRate`); voice id `""` means the platform default. Background/lock-screen playback needs the `audio` `UIBackgroundMode` (in `project.yml`) plus an `AVAudioSession` `.playback`/`.spokenAudio` session and `MPNowPlayingInfoCenter`/`MPRemoteCommandCenter` wiring — all in `SpeechController`. Synth-delegate and remote-command callbacks arrive off the main actor, so they capture only Sendable values (`ObjectIdentifier`) and hop via `Task { @MainActor in }`.
 - **"More by this author"** — `AO3WorkSummary.authorUsername` (parsed from the byline `/users/<login>` href by `SearchResultsParser.authorLogin`) makes the reader byline a `NavigationLink(value: AuthorRef)`. `AuthorWorksView` lists that author's works via `AO3Client.fetchAuthorWorks` (the works page reuses the search blurb parser). Every navigation stack applies the shared `.workAndAuthorDestinations()` modifier so both `AO3WorkSummary`→reader and `AuthorRef`→author works resolve everywhere.
+- **Following authors** (the Authors tab) is local-only, like work follows — see "Local follow vs. AO3 subscribe" below. `AuthorWorksView` has a Follow button; `FollowedAuthorsView` lists followed authors. The poller checks each for newly-published works.
+- **Popular tab** — AO3 has no popular/trending endpoint, so `PopularView` shows curated canonical tag lists (`PopularTags.fandoms`/`ships`/`characters`). Tapping one opens `FandomWorksView(popular:)`, which maps the tag to fandom/relationship/character `AO3SearchFilters` sorted by kudos. Curated names must stay in AO3's exact canonical form or the tag won't resolve.
 - The search field is a vertical-axis `TextField`, so Return inserts a newline rather than firing `.onSubmit`. SearchView watches `onChange` for a `\n` and triggers the search itself.
 - Top-level tab views (Search, Library) use an **inline** nav title — a large title pops in awkwardly because those screens have a custom header VStack, not a scroll view for the title to anchor against.
 - AO3 may return 429 if we hit it too fast. The throttle should prevent this but handle the case anyway.
-- **The reader uses the plain system nav bar — no auto-hide.** We tried scroll-to-hide chrome twice (parent-driven `.toolbar(.hidden)`, then a fully custom floating toolbar) and both were unreliable/ugly, so the reader just keeps the standard `.toolbar` items: `ReaderView` provides the chapters + typography (Aa) + minimize items; the parent adds export plus either a save button (`SavedWorkReader`) or a single options menu (`WorkDetailView`: save-to-library / download / report / hide). Keep the parent to ≤2 items — the iPhone portrait nav bar fits ~5 trailing icons before the system spills the rest into its own "…" overflow, which reads as a confusing second ellipsis next to the `ellipsis.circle` menu. The bar is painted with the reader's `background` (`.toolbarBackground(bg, .visible)`) and themed with `.toolbarColorScheme` — never `.preferredColorScheme`, which propagates to the whole window and flips the app light↔dark when you leave a light reader. The chapter indicator bar (continuous mode) uses `bg`, not `.ultraThinMaterial`, so nothing reads as system gray. If you reattempt auto-hide, do NOT reintroduce a custom chrome — the consensus was to leave it.
+- **The reader uses the plain system nav bar — no auto-hide.** We tried scroll-to-hide chrome twice (parent-driven `.toolbar(.hidden)`, then a fully custom floating toolbar) and both were unreliable/ugly, so the reader just keeps the standard `.toolbar` items: `ReaderView` provides the chapters + typography (Aa) + minimize items; the parent adds export plus either a save button (`SavedWorkReader`) or a single options menu (`WorkDetailView`: comments / save-to-library / download / report / hide). Keep the parent to ≤2 items — the iPhone portrait nav bar fits ~5 trailing icons before the system spills the rest into its own "…" overflow, which reads as a confusing second ellipsis next to the `ellipsis.circle` menu. The bar is painted with the reader's `background` (`.toolbarBackground(bg, .visible)`) and themed with `.toolbarColorScheme` — never `.preferredColorScheme`, which propagates to the whole window and flips the app light↔dark when you leave a light reader. The chapter indicator bar (continuous mode) uses `bg`, not `.ultraThinMaterial`, so nothing reads as system gray. If you reattempt auto-hide, do NOT reintroduce a custom chrome — the consensus was to leave it.
+- **The reader body ignores the keyboard safe area** (`.ignoresSafeArea(.keyboard, edges: .bottom)` on `ReaderView`'s root). The page text is `.focusable()`/`.focused()` for hardware arrow-key turns (`ReaderKeyPressModifier`); without this, returning from the background can restore focus and leave iOS holding a phantom keyboard inset, collapsing the page into a blank band (~keyboard height) at the bottom. The reader has no text input, so ignoring the keyboard inset is always safe.
+- **Reader story text is not selectable** — there's intentionally no `.textSelection(.enabled)` on the paragraph `Text`s (continuous/paginated `ChapterContentView` and page-by-page `ReaderPageCell`), so press-and-hold never shows a "Copy" callout. Don't re-add it.
 
 ## Local follow vs. AO3 subscribe
 
 Two distinct concepts — don't conflate them:
-- **Follow** (bookmark icon) is local-only, no login. `WorkPersistence.toggleFollow` saves the work's metadata to SwiftData with `isFollowed = true`. The background poller checks followed works for new chapters and fires a local notification — works fully logged out.
+- **Follow** (bookmark icon) is local-only, no login. `WorkPersistence.toggleFollow` saves the work's metadata to SwiftData with `isFollowed = true`. A bookmark button also rides on each search/browse `WorkRow` for one-tap save without opening the work. The background poller checks followed works for new chapters and fires a local notification — works fully logged out.
+- **Follow author** (the Authors tab) is also local-only. `WorkPersistence.toggleFollowAuthor` stores a `FollowedAuthor` (username, displayName, `knownWorkIds` seeded at follow time so the first poll doesn't alert for the back catalogue). `SubscriptionPoller.checkFollowedAuthors()` fetches each author's works page and notifies on newly-published works.
 - **Subscribe** (bell, in the … menu) POSTs to AO3 and requires login. It mirrors into AO3's own subscription list.
-Both feed `SubscriptionPoller`; `username` is optional so the poller runs for follows even with no account.
+All feed `SubscriptionPoller`; `username` is optional so the poller runs for follows even with no account. The full poll order is `checkForNewChapters` (subs, login only) → `checkFollowedWorks` → `checkFollowedAuthors`.
 
 ## Custom URL Scheme & Share Extension
 
 - **Deep Link Handling**: The main app registers the custom scheme `fanficly` in `project.yml`. Any URL matching `fanficly://import?url=<url>` is caught by `RootView.swift`'s `.onOpenURL` handler, which triggers the `ImportOverlay` view to fetch the work metadata and chapters, download the EPUB for offline storage, and launch the reader sheet (`SavedWorkReader`).
 - **Share Extension**: The `FanficlyShare` target is a Safari Share Extension. When activated on a Safari URL, it loads the URL attachment, encodes it, opens `fanficly://import?url=<encodedURL>`, and completes the extension request.
-- **Widget resume route**: `fanficly://resume/<workId>?chapter=<n>&paragraph=<m>` — opened when the user taps the widget. `RootView.parseResumeRoute` parses it; the handler seeds `ReadingProgress` from `WidgetProgressStore` when the widget copy is fresher than the local record, switches the sidebar to Library, and pushes `SavedWorkReader` (or `WorkDetailView` if the work isn't saved) via a `ResumeWorkRoute` navigation destination.
+- **Widget resume route**: `fanficly://resume/<workId>?chapter=<n>&paragraph=<m>` — opened when the user taps the widget. `RootView.parseResumeRoute` parses it; the handler seeds `ReadingProgress` from `WidgetProgressStore` when the widget copy is fresher than the local record, switches the sidebar to Library, and pushes `SavedWorkReader` (or `WorkDetailView` if the work isn't saved) via a `ResumeWorkRoute` navigation destination. **`openResumeRoute` must not clear `detailPath` itself** — it only switches the tab and sets `pendingResumeRoute`; the `.task(id:)` on the detail stack assigns `detailPath = [route]` in one atomic mutation. The old code called `select(.library)` (which clears the path) and then re-pushed in the deferred task; that clear-then-repush spans two update cycles and, when the app was already open, SwiftUI could drop the push and strand you on an empty Library. The single atomic assignment is also idempotent when the same work is already open.
 
 ## Reader settings profiles
 

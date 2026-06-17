@@ -33,6 +33,7 @@ The app makes HTTP requests directly to `archiveofourown.org` on your behalf, th
 - To search, the app submits queries to `/works/search`
 - To log in, the app POSTs your username and password to `/users/login` and stores the resulting session cookie
 - To sync your account state, the app fetches your bookmarks, history, and subscriptions pages while logged in
+- When you choose to subscribe to a work or post a comment, the app POSTs that action to AO3 on your behalf (these are user-initiated and only happen when you tap the button)
 
 We never store your AO3 username or password. The session cookie is sufficient for authenticated requests.
 

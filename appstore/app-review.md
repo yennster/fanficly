@@ -26,6 +26,14 @@ App Review expects five things for apps that surface UGC. We have all five:
 
 Plus a **17+ age confirmation** on first launch.
 
+**Comments.** The app can display a work's AO3 comment thread and, only when the
+user is logged into their own AO3 account, post a comment. Comments are hosted
+and moderated by AO3 — Fanficly stores none of them and adds no comment system
+of its own. Posting goes through AO3's standard endpoint (and its moderation),
+and the same in-app "Report this work" path opens AO3's abuse form, which also
+handles comments. So the five Guideline 1.2 safeguards above still cover this
+surface.
+
 ## Age rating questionnaire → 17+
 
 Answer the App Store Connect age-rating questions so the result is **17+**.
