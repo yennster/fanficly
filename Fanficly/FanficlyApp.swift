@@ -157,7 +157,7 @@ struct FanficlyApp: App {
                 }
                 .keyboardShortcut("5", modifiers: [.command])
 
-                Button("Authors") {
+                Button("Followed Authors") {
                     selectedTabRaw = SidebarItem.authors.rawValue
                 }
                 .keyboardShortcut("6", modifiers: [.command])

@@ -108,7 +108,7 @@ final class ScreenshotTests: XCTestCase {
         // captures (e.g. ⌘3 lands on Popular, not Library).
         if useKeyboardNav,
            let key = ["Search": "1", "Browse": "2", "Popular": "3", "Library": "4",
-                      "Recently Viewed": "5", "Authors": "6", "Bookmarks": "7",
+                      "Recently Viewed": "5", "Followed Authors": "6", "Bookmarks": "7",
                       "Subscriptions": "8", "Settings": "9"][title] {
             // The ⌘ keypress dispatches asynchronously and the first one after
             // launch is often dropped, so RESEND until the target screen's content

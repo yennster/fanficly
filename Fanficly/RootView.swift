@@ -468,7 +468,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .popular: "Popular"
         case .library: "Library"
         case .recentlyViewed: "Recently Viewed"
-        case .authors: "Authors"
+        case .authors: "Followed Authors"
         case .bookmarks: "Bookmarks"
         case .subscriptions: "Subscriptions"
         case .settings: "Settings"

@@ -154,7 +154,7 @@ struct FollowedAuthorsView: View {
                 .listStyle(.plain)
             }
         }
-        .navigationTitle("Authors")
+        .navigationTitle("Followed Authors")
         .navigationBarTitleDisplayMode(.large)
         .workAndAuthorDestinations()
     }
