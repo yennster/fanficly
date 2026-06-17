@@ -219,6 +219,34 @@ final class CommentsParserTests: XCTestCase {
         XCTAssertEqual(comments[2].depth, 0)
     }
 
+    func test_parsesCommentsDespitePrecedingEmptyWrapper() throws {
+        // Mirrors real AO3: an empty <div id="comments"> precedes
+        // #comments_placeholder, which holds pagination <li>s + the real
+        // comments. The old container-scoped parser locked onto the empty
+        // wrapper and returned nothing; pagination <li>s must also be ignored.
+        let html = """
+        <html><body>
+        <div id="comments" class="comments"></div>
+        <div id="comments_placeholder">
+          <ol class="pagination actions"><li class="previous"><span>Prev</span></li><li><span class="current">1</span></li></ol>
+          <ol class="thread">
+            <li class="odd comment group user-1" id="comment_999" role="article">
+              <h4 class="heading byline"><a href="/users/zed/pseuds/zed">zed</a> <span class="parent"> on <a href="/works/1/chapters/2">Chapter 1</a></span></h4>
+              <span class="posted datetime">10 Mar 2024</span>
+              <blockquote class="userstuff"><p>Great chapter!</p></blockquote>
+            </li>
+          </ol>
+        </div>
+        </body></html>
+        """
+        let comments = try CommentsParser.parse(html: html)
+        XCTAssertEqual(comments.count, 1)
+        XCTAssertEqual(comments[0].id, "999")
+        XCTAssertEqual(comments[0].commenterName, "zed")
+        XCTAssertEqual(comments[0].depth, 0)
+        XCTAssertTrue(comments[0].bodyHTML.contains("Great chapter"))
+    }
+
     func test_defaultPseudId() {
         let formHTML = """
         <form><select name="comment[pseud_id]">

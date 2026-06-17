@@ -225,10 +225,13 @@ enum WorkPageParser {
 enum CommentsParser {
     static func parse(html: String) throws -> [AO3Comment] {
         let doc = try SwiftSoup.parse(html)
-        // Scope to the comments region so work-body blockquotes aren't mistaken
-        // for comments; fall back to the whole doc if the wrapper isn't found.
-        let scope = try doc.select("#comments_placeholder, div#comments, ul.comments").first() ?? doc
-        let comments = try scope.select("li.comment")
+        // Select comment <li>s directly rather than scoping to a container first.
+        // AO3 renders an (empty) #comments wrapper *before* #comments_placeholder,
+        // so picking "the first comments container" landed on the wrong, empty
+        // one and found nothing. The `comment_<id>` on each <li> is the reliable
+        // marker (and means pagination / other list items are ignored), so match
+        // those directly across the document.
+        let comments = try doc.select("li.comment[id^=comment_]")
         return try comments.array().compactMap(parseComment)
     }
 
