@@ -543,7 +543,11 @@ struct WorkRow: View {
                         Text("\(work.chapterCount)/?").font(.caption).foregroundStyle(.secondary)
                     }
                     if work.kudos > 0 {
-                        Label(work.kudos.formatted(), systemImage: "heart").font(.caption).foregroundStyle(.secondary)
+                        Label(work.kudos.formatted(), systemImage: "heart")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
                 if !work.summary.isEmpty {
