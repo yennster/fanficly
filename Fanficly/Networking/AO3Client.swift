@@ -7,10 +7,17 @@ public protocol AO3ClientProtocol: Sendable {
     func currentUsername() async -> String?
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults
+    func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
+    /// Comments for a specific chapter (AO3 threads comments per chapter). Pass
+    /// `chapterId` = the chapter's AO3 id; nil fetches the work-level page (the
+    /// first chapter's thread), used as a fallback when the id is unknown.
+    func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment]
+    func postComment(workId: Int, chapterId: Int?, text: String) async throws
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
+    func fetchPopularSnapshot() async throws -> PopularSnapshot
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String]
     func downloadEPUB(workId: Int) async throws -> URL
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL
@@ -84,10 +91,61 @@ public struct AO3WorkPayload: Sendable {
     public let chapters: [AO3ChapterPayload]
 }
 
+/// A live snapshot of popular fandoms, ships, and characters, derived from AO3
+/// HTML (media-page fandom counts + works-filter facet counts). Codable so it
+/// can be cached on-device and refreshed ~daily. Names are AO3-canonical so
+/// tapping one resolves to a search.
+public struct PopularSnapshot: Sendable, Codable, Hashable {
+    public let fandoms: [String]
+    public let ships: [String]
+    public let characters: [String]
+    public let fetchedAt: Date
+
+    public init(fandoms: [String], ships: [String], characters: [String], fetchedAt: Date = .now) {
+        self.fandoms = fandoms
+        self.ships = ships
+        self.characters = characters
+        self.fetchedAt = fetchedAt
+    }
+}
+
+public struct AO3Comment: Sendable, Identifiable, Hashable {
+    public let id: String
+    public let commenterName: String
+    /// AO3 login for registered commenters; "" for guests.
+    public let commenterUsername: String
+    public let dateText: String
+    public let bodyHTML: String
+    /// Thread nesting: 0 = top-level, 1 = reply, etc. (drives indentation).
+    public let depth: Int
+
+    public init(id: String, commenterName: String, commenterUsername: String,
+                dateText: String, bodyHTML: String, depth: Int) {
+        self.id = id
+        self.commenterName = commenterName
+        self.commenterUsername = commenterUsername
+        self.dateText = dateText
+        self.bodyHTML = bodyHTML
+        self.depth = depth
+    }
+}
+
 public struct AO3ChapterPayload: Sendable {
     public let index: Int
     public let title: String
     public let bodyHTML: String
+    /// AO3's chapter database id, parsed from the chapter's
+    /// `/works/<id>/chapters/<chapterId>` link. Drives per-chapter comments;
+    /// nil when the markup doesn't expose it (e.g. some single-chapter works),
+    /// in which case callers fall back to work-level comments.
+    public let aoId: Int?
+
+    public init(index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
+        self.index = index
+        self.title = title
+        self.bodyHTML = bodyHTML
+        self.aoId = aoId
+    }
 }
 
 public enum AO3AutocompleteField: String, Sendable {
@@ -260,6 +318,19 @@ public actor AO3Client: AO3ClientProtocol {
         return try SearchResultsParser.parse(html: html)
     }
 
+    public func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
+        await throttle.wait()
+        let url = try AO3Endpoints.userBookmarks(name: username, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Bookmarks response not UTF-8")
+        }
+        // The bookmarks page wraps each work in `li.bookmark.blurb` (vs.
+        // `li.work.blurb` on search) but the inner blurb markup is identical.
+        return try SearchResultsParser.parse(html: html, blurbSelector: "li.bookmark.blurb")
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         await throttle.wait()
         let url = try AO3Endpoints.work(id: id, base: baseURL)
@@ -290,6 +361,63 @@ public actor AO3Client: AO3ClientProtocol {
         return try SubscriptionsParser.parse(html: html)
     }
 
+    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {
+        await throttle.wait()
+        let url = try commentsPageURL(workId: workId, chapterId: chapterId)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Comments response not UTF-8")
+        }
+        return try CommentsParser.parse(html: html)
+    }
+
+    /// The page whose `?show_comments=true` thread we read/post against: a
+    /// specific chapter when its id is known, else the work page.
+    private func commentsPageURL(workId: Int, chapterId: Int?) throws -> URL {
+        if let chapterId {
+            return try AO3Endpoints.chapterComments(workId: workId, chapterId: chapterId, base: baseURL)
+        }
+        return try AO3Endpoints.workComments(id: workId, base: baseURL)
+    }
+
+    public func postComment(workId: Int, chapterId: Int?, text: String) async throws {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // Load the chapter's (or work's) comment page and replay its actual
+        // new-comment form: the form's hidden inputs carry the CSRF token and the
+        // `comment[commentable_id]`/`[commentable_type]` that bind the comment to
+        // exactly the chapter AO3 would — so we never hardcode the POST shape.
+        await throttle.wait()
+        let pageURL = try commentsPageURL(workId: workId, chapterId: chapterId)
+        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let pageHTML = String(data: pageData, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Comment page not UTF-8")
+        }
+        guard let form = CommentsParser.newCommentForm(html: pageHTML, base: baseURL) else {
+            throw AO3Error.parseFailed(reason: "comment form not found (login required?)")
+        }
+
+        await throttle.wait()
+        var request = URLRequest(url: form.action)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        if let token = form.fields["authenticity_token"] {
+            request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        }
+        var fields = form.fields
+        fields["comment[comment_content]"] = trimmed
+        fields["commit"] = "Comment"
+        request.httpBody = encodeForm(fields).data(using: .utf8)
+
+        let (_, response) = try await performRequest(request)
+        guard response.statusCode < 400 else {
+            throw AO3Error.http(status: response.statusCode)
+        }
+    }
+
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] {
         await throttle.wait()
         let url = try AO3Endpoints.mediaFandoms(categoryName: categoryName, base: baseURL)
@@ -298,6 +426,53 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.parseFailed(reason: "Media category response not UTF-8")
         }
         return try MediaCategoryParser.parse(html: html)
+    }
+
+    /// The works-filter facet sidebar for a tag (`/tags/<tag>/works`) — its
+    /// top relationships/characters/freeforms with counts.
+    private func fetchWorkFilters(tagName: String) async throws -> AO3WorkFilters {
+        await throttle.wait()
+        let url = try AO3Endpoints.tagWorks(tagName: tagName, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Tag works response not UTF-8")
+        }
+        return try WorkFiltersParser.parse(html: html)
+    }
+
+    /// Builds a live popular snapshot: fandoms ranked by AO3's media-page work
+    /// counts, then ships/characters aggregated from the facet sidebars of the
+    /// top few fandoms. Each list falls back to the curated `PopularTags` seed
+    /// when AO3 yields nothing (offline / markup drift), so the tab is never
+    /// empty. ~10–13 throttled requests — meant to run in the background and be
+    /// cached for a day (see `PopularStore`).
+    public func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        var fandomCounts: [String: Int] = [:]
+        for category in FandomCatalog.all {
+            guard let fandoms = try? await fetchFandomsInCategory(categoryName: category.ao3CanonicalName) else { continue }
+            for fandom in fandoms where (fandom.workCount ?? 0) > 0 {
+                fandomCounts[fandom.canonicalName] = max(fandomCounts[fandom.canonicalName] ?? 0, fandom.workCount ?? 0)
+            }
+        }
+        let topFandoms = fandomCounts.sorted { $0.value > $1.value }.map(\.key)
+
+        var shipCounts: [String: Int] = [:]
+        var charCounts: [String: Int] = [:]
+        // Aggregate ship/character facets from the top few fandoms — enough
+        // fandoms to surface ~30 unique ships/characters for the Popular lists.
+        for fandom in topFandoms.prefix(5) {
+            guard let filters = try? await fetchWorkFilters(tagName: fandom) else { continue }
+            for r in filters.relationships { shipCounts[r.name, default: 0] += max(r.count, 1) }
+            for c in filters.characters { charCounts[c.name, default: 0] += max(c.count, 1) }
+        }
+        let topShips = shipCounts.sorted { $0.value > $1.value }.map(\.key)
+        let topChars = charCounts.sorted { $0.value > $1.value }.map(\.key)
+
+        return PopularSnapshot(
+            fandoms: topFandoms.isEmpty ? PopularTags.fandoms : Array(topFandoms.prefix(30)),
+            ships: topShips.isEmpty ? PopularTags.ships : Array(topShips.prefix(30)),
+            characters: topChars.isEmpty ? PopularTags.characters : Array(topChars.prefix(30))
+        )
     }
 
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
@@ -438,6 +613,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
+    public func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         AO3WorkPayload(
             summary: AO3WorkSummary(
@@ -455,7 +633,12 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
+    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
+    public func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
+    public func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        PopularSnapshot(fandoms: PopularTags.fandoms, ships: PopularTags.ships, characters: PopularTags.characters)
+    }
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] { [term] }
     public func downloadEPUB(workId: Int) async throws -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")

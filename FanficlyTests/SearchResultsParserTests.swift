@@ -148,4 +148,68 @@ final class SearchResultsParserTests: XCTestCase {
         let result = try SearchResultsParser.parse(html: empty)
         XCTAssertTrue(result.works.isEmpty)
     }
+
+    // MARK: - Bookmarks page
+
+    /// The bookmarks page wraps each work in `li.bookmark.blurb` and tags the
+    /// <li> with `bookmark_<id>`, not `work_<id>`, so the work id must come from
+    /// the `/works/<id>` title link. Series/external bookmarks (no /works/ link)
+    /// must be skipped.
+    private let bookmarksHTML = """
+    <html><body>
+    <ol class="bookmark index group">
+      <li id="bookmark_555" class="bookmark blurb group" role="article">
+        <div class="header module">
+          <h4 class="heading">
+            <a href="/works/98765">Bookmarked Fic</a>
+            by
+            <a rel="author" href="/users/carol/pseuds/carol">carol</a>
+          </h4>
+          <h5 class="fandoms heading">
+            <a class="tag" href="/tags/Harry%20Potter/works">Harry Potter</a>
+          </h5>
+          <ul class="required-tags">
+            <li><a><span class="text">Teen And Up Audiences</span></a></li>
+            <li><a><span class="text">No Archive Warnings Apply</span></a></li>
+          </ul>
+        </div>
+        <dl class="stats">
+          <dt class="words">Words:</dt><dd class="words">10,000</dd>
+          <dt class="chapters">Chapters:</dt><dd class="chapters">5/5</dd>
+          <dt class="kudos">Kudos:</dt><dd class="kudos">300</dd>
+        </dl>
+      </li>
+      <li id="bookmark_777" class="bookmark blurb group" role="article">
+        <div class="header module">
+          <h4 class="heading">
+            <a href="/series/4242">A Bookmarked Series</a>
+            by
+            <a rel="author" href="/users/dave/pseuds/dave">dave</a>
+          </h4>
+        </div>
+      </li>
+    </ol>
+    </body></html>
+    """
+
+    func test_bookmarksParseSkipsNonWorkAndReadsWorkIdFromLink() throws {
+        let result = try SearchResultsParser.parse(html: bookmarksHTML, blurbSelector: "li.bookmark.blurb")
+        // The series bookmark (no /works/ link) is skipped.
+        XCTAssertEqual(result.works.count, 1)
+        let work = result.works[0]
+        XCTAssertEqual(work.id, 98765, "id must come from the /works/<id> link, not the bookmark_<id> li")
+        XCTAssertEqual(work.title, "Bookmarked Fic")
+        XCTAssertEqual(work.author, "carol")
+        XCTAssertEqual(work.fandoms, ["Harry Potter"])
+        XCTAssertEqual(work.wordCount, 10000)
+        XCTAssertEqual(work.chapterCount, 5)
+        XCTAssertEqual(work.totalChapters, 5)
+    }
+
+    func test_workIdFromHref() {
+        XCTAssertEqual(SearchResultsParser.workId(fromHref: "/works/12345"), 12345)
+        XCTAssertEqual(SearchResultsParser.workId(fromHref: "/works/12345/chapters/678"), 12345)
+        XCTAssertNil(SearchResultsParser.workId(fromHref: "/series/4242"))
+        XCTAssertNil(SearchResultsParser.workId(fromHref: ""))
+    }
 }

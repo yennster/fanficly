@@ -8,7 +8,7 @@ final class PersistenceTests: XCTestCase {
         let schema = Schema([
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
-            RecentlyViewed.self, CustomFolder.self,
+            RecentlyViewed.self, CustomFolder.self, FollowedAuthor.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
@@ -59,6 +59,38 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(w2.chapters.count, 2)
         let all = try ctx.fetch(FetchDescriptor<Work>())
         XCTAssertEqual(all.count, 1)
+    }
+
+    func test_toggleFollowAuthor() throws {
+        let ctx = try makeContext()
+        XCTAssertFalse(WorkPersistence.isAuthorFollowed(username: "tester", in: ctx))
+
+        // Following seeds the already-published work ids so the poller won't
+        // alert for the back catalogue on its first check.
+        let nowFollowed = WorkPersistence.toggleFollowAuthor(
+            username: "tester", displayName: "Tester", seedWorkIds: [1, 2, 3], into: ctx)
+        XCTAssertTrue(nowFollowed)
+        XCTAssertTrue(WorkPersistence.isAuthorFollowed(username: "tester", in: ctx))
+
+        let followed = try ctx.fetch(FetchDescriptor<FollowedAuthor>())
+        XCTAssertEqual(followed.count, 1)
+        XCTAssertEqual(followed.first?.displayName, "Tester")
+        XCTAssertEqual(followed.first?.knownWorkIds.sorted(), [1, 2, 3])
+
+        let nowUnfollowed = WorkPersistence.toggleFollowAuthor(
+            username: "tester", displayName: "Tester", into: ctx)
+        XCTAssertFalse(nowUnfollowed)
+        XCTAssertFalse(WorkPersistence.isAuthorFollowed(username: "tester", in: ctx))
+        XCTAssertTrue(try ctx.fetch(FetchDescriptor<FollowedAuthor>()).isEmpty)
+    }
+
+    /// An empty username (anonymous byline) can't be followed.
+    func test_followAuthorIgnoresEmptyUsername() throws {
+        let ctx = try makeContext()
+        let followed = WorkPersistence.toggleFollowAuthor(
+            username: "", displayName: "Anonymous", into: ctx)
+        XCTAssertFalse(followed)
+        XCTAssertTrue(try ctx.fetch(FetchDescriptor<FollowedAuthor>()).isEmpty)
     }
 
     func test_upsertMetadataDoesNotTouchChapters() throws {

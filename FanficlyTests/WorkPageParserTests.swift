@@ -118,6 +118,209 @@ final class WorkPageParserTests: XCTestCase {
         XCTAssertTrue(payload.chapters[0].bodyHTML.contains("<em>It was hot.</em>"))
         XCTAssertEqual(payload.chapters[1].title, "Espresso")
     }
+
+    func test_chapterId_fromHref() {
+        XCTAssertEqual(WorkPageParser.chapterId(fromHref: "/works/12345/chapters/678"), 678)
+        XCTAssertEqual(WorkPageParser.chapterId(fromHref: "https://archiveofourown.org/works/9/chapters/42?view_adult=true"), 42)
+        XCTAssertNil(WorkPageParser.chapterId(fromHref: "/works/12345"))
+        XCTAssertNil(WorkPageParser.chapterId(fromHref: "/users/alice"))
+    }
+
+    func test_extractsChapterIds_fromHeadingLinks() throws {
+        let html = """
+        <html><body><div id="chapters" class="userstuff">
+          <div class="chapter" id="chapter-1">
+            <div class="chapter preface group"><h3 class="title"><a href="/works/12345/chapters/678">Chapter 1</a>: Latte</h3></div>
+            <div class="userstuff module"><p>One.</p></div>
+          </div>
+          <div class="chapter" id="chapter-2">
+            <div class="chapter preface group"><h3 class="title"><a href="/works/12345/chapters/690">Chapter 2</a>: Espresso</h3></div>
+            <div class="userstuff module"><p>Two.</p></div>
+          </div>
+        </div></body></html>
+        """
+        let payload = try WorkPageParser.parse(html: html, workId: 12345)
+        XCTAssertEqual(payload.chapters.count, 2)
+        XCTAssertEqual(payload.chapters[0].aoId, 678)
+        XCTAssertEqual(payload.chapters[1].aoId, 690)
+    }
+
+    func test_extractsChapterIds_fromSelectFallback() throws {
+        // No per-chapter heading links → fall back to the chapter jump menu.
+        let html = """
+        <html><body>
+          <select id="selected_id" name="selected_id">
+            <option value="678">1. Latte</option>
+            <option value="690" selected>2. Espresso</option>
+          </select>
+          <div id="chapters" class="userstuff">
+            <div class="chapter" id="chapter-1"><div class="userstuff module"><p>One.</p></div></div>
+            <div class="chapter" id="chapter-2"><div class="userstuff module"><p>Two.</p></div></div>
+          </div>
+        </body></html>
+        """
+        let payload = try WorkPageParser.parse(html: html, workId: 12345)
+        XCTAssertEqual(payload.chapters[0].aoId, 678)
+        XCTAssertEqual(payload.chapters[1].aoId, 690)
+    }
+
+    func test_chapterId_nilWhenAbsent() throws {
+        // The base fixture's chapters have no links/selector → no ids (callers
+        // then fall back to work-level comments).
+        let payload = try WorkPageParser.parse(html: html, workId: 12345)
+        XCTAssertNil(payload.chapters[0].aoId)
+    }
+}
+
+final class CommentsParserTests: XCTestCase {
+    private let html = """
+    <html><body>
+    <div id="comments_placeholder">
+      <ol class="thread">
+        <li id="comment_111" class="comment group" role="article">
+          <h4 class="byline heading"><a href="/users/alice/pseuds/alice">alice</a></h4>
+          <span class="posted datetime">10 Mar 2024</span>
+          <blockquote class="userstuff"><p>Loved this chapter!</p></blockquote>
+          <ol class="thread">
+            <li id="comment_222" class="comment group" role="article">
+              <h4 class="byline heading"><a href="/users/bob/pseuds/bob">bob</a></h4>
+              <span class="posted datetime">11 Mar 2024</span>
+              <blockquote class="userstuff"><p>Agreed, so good.</p></blockquote>
+            </li>
+          </ol>
+        </li>
+        <li id="comment_333" class="comment group" role="article">
+          <h4 class="byline heading">GuestReader (Guest)</h4>
+          <span class="posted datetime">12 Mar 2024</span>
+          <blockquote class="userstuff"><p>Found this as a guest.</p></blockquote>
+        </li>
+      </ol>
+    </div>
+    </body></html>
+    """
+
+    func test_parsesThreadWithDepth() throws {
+        let comments = try CommentsParser.parse(html: html)
+        XCTAssertEqual(comments.count, 3)
+
+        XCTAssertEqual(comments[0].id, "111")
+        XCTAssertEqual(comments[0].commenterName, "alice")
+        XCTAssertEqual(comments[0].commenterUsername, "alice")
+        XCTAssertEqual(comments[0].depth, 0)
+        XCTAssertTrue(comments[0].bodyHTML.contains("Loved this chapter"))
+
+        // Nested reply is one level deep.
+        XCTAssertEqual(comments[1].id, "222")
+        XCTAssertEqual(comments[1].depth, 1)
+
+        // Guest comment has no username.
+        XCTAssertEqual(comments[2].commenterName, "GuestReader (Guest)")
+        XCTAssertEqual(comments[2].commenterUsername, "")
+        XCTAssertEqual(comments[2].depth, 0)
+    }
+
+    func test_replyDepth_ao3WrapperStructure() throws {
+        // AO3's real markup: the reply's <li.comment> is NOT inside its parent's.
+        // It sits in a further <ol class="thread"> within an *unclassed* wrapper
+        // <li> that is a sibling of the parent. Depth must come from ancestor
+        // threads, not ancestor comment <li>s (which would give the reply 0).
+        let html = """
+        <html><body><div id="comments_placeholder"><ol class="thread">
+          <li class="odd comment group" id="comment_1" role="article">
+            <h4 class="heading byline"><a href="/users/a/pseuds/a">a</a></h4>
+            <blockquote class="userstuff"><p>Top-level.</p></blockquote>
+          </li>
+          <li>
+            <ol class="thread">
+              <li class="even comment group" id="comment_2" role="article">
+                <h4 class="heading byline"><a href="/users/b/pseuds/b">b</a></h4>
+                <blockquote class="userstuff"><p>A reply.</p></blockquote>
+              </li>
+            </ol>
+          </li>
+        </ol></div></body></html>
+        """
+        let comments = try CommentsParser.parse(html: html)
+        XCTAssertEqual(comments.count, 2)
+        XCTAssertEqual(comments[0].id, "1")
+        XCTAssertEqual(comments[0].depth, 0)
+        XCTAssertEqual(comments[1].id, "2")
+        XCTAssertEqual(comments[1].depth, 1)
+    }
+
+    func test_parsesCommentsDespitePrecedingEmptyWrapper() throws {
+        // Mirrors real AO3: an empty <div id="comments"> precedes
+        // #comments_placeholder, which holds pagination <li>s + the real
+        // comments. The old container-scoped parser locked onto the empty
+        // wrapper and returned nothing; pagination <li>s must also be ignored.
+        let html = """
+        <html><body>
+        <div id="comments" class="comments"></div>
+        <div id="comments_placeholder">
+          <ol class="pagination actions"><li class="previous"><span>Prev</span></li><li><span class="current">1</span></li></ol>
+          <ol class="thread">
+            <li class="odd comment group user-1" id="comment_999" role="article">
+              <h4 class="heading byline"><a href="/users/zed/pseuds/zed">zed</a> <span class="parent"> on <a href="/works/1/chapters/2">Chapter 1</a></span></h4>
+              <span class="posted datetime">10 Mar 2024</span>
+              <blockquote class="userstuff"><p>Great chapter!</p></blockquote>
+            </li>
+          </ol>
+        </div>
+        </body></html>
+        """
+        let comments = try CommentsParser.parse(html: html)
+        XCTAssertEqual(comments.count, 1)
+        XCTAssertEqual(comments[0].id, "999")
+        XCTAssertEqual(comments[0].commenterName, "zed")
+        XCTAssertEqual(comments[0].depth, 0)
+        XCTAssertTrue(comments[0].bodyHTML.contains("Great chapter"))
+    }
+
+    func test_defaultPseudId() {
+        let formHTML = """
+        <form><select name="comment[pseud_id]">
+          <option value="10">main</option>
+          <option value="20" selected>writing_pseud</option>
+        </select></form>
+        """
+        XCTAssertEqual(CommentsParser.defaultPseudId(html: formHTML), "20")
+        XCTAssertNil(CommentsParser.defaultPseudId(html: "<html></html>"))
+    }
+
+    func test_newCommentForm_capturesActionAndFields() throws {
+        // A nested reply form (inside an existing comment) plus the page-level
+        // composer; we must pick the composer and capture its action + fields.
+        let html = """
+        <html><body>
+        <ol class="thread">
+          <li id="comment_1" class="comment group">
+            <form action="/comments/1" class="reply"><textarea name="comment[comment_content]"></textarea></form>
+          </li>
+        </ol>
+        <div id="add_comment_placeholder">
+          <form action="/works/12345/chapters/678/comments" method="post">
+            <input type="hidden" name="authenticity_token" value="TOK123">
+            <input type="hidden" name="comment[commentable_id]" value="678">
+            <input type="hidden" name="comment[commentable_type]" value="Chapter">
+            <select name="comment[pseud_id]"><option value="20" selected>me</option></select>
+            <textarea name="comment[comment_content]"></textarea>
+          </form>
+        </div>
+        </body></html>
+        """
+        let base = URL(string: "https://archiveofourown.org")!
+        let form = try XCTUnwrap(CommentsParser.newCommentForm(html: html, base: base))
+        XCTAssertEqual(form.action.absoluteString, "https://archiveofourown.org/works/12345/chapters/678/comments")
+        XCTAssertEqual(form.fields["authenticity_token"], "TOK123")
+        XCTAssertEqual(form.fields["comment[commentable_id]"], "678")
+        XCTAssertEqual(form.fields["comment[commentable_type]"], "Chapter")
+        XCTAssertEqual(form.fields["comment[pseud_id]"], "20")
+    }
+
+    func test_newCommentForm_nilWhenNoComposer() {
+        XCTAssertNil(CommentsParser.newCommentForm(html: "<html><body><p>no form</p></body></html>",
+                                                   base: URL(string: "https://archiveofourown.org")!))
+    }
 }
 
 final class LoginParserTests: XCTestCase {

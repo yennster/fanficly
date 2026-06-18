@@ -14,6 +14,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("settings.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = false
+    @AppStorage("library.showReadingProgress") private var showReadingProgress = true
     @State private var lastSync: Date? = nil
     @State private var showingRestoreSuccess = false
     @State private var showingRestoreFailure = false
@@ -38,6 +39,13 @@ struct SettingsView: View {
             }
             Section("Reader") {
                 NavigationLink("Theme & typography", value: SettingsRoute.reader)
+            }
+            Section {
+                Toggle("Show reading progress", isOn: $showReadingProgress)
+            } header: {
+                Text("Library")
+            } footer: {
+                Text("Shows a progress bar and percentage on works you've started. Your reading position is always saved — this only hides the display.")
             }
             Section("iCloud Sync") {
                 Toggle("Sync Library to iCloud", isOn: $iCloudSyncEnabled)

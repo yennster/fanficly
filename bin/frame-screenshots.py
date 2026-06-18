@@ -74,6 +74,10 @@ SLIDES = [
     ("04-library",         "never-miss-chapter",   "NEVER MISS",    "A CHAPTER"),
     ("05-browse",          "browse-fandoms",       "BROWSE",        "BY FANDOM"),
     ("09-tts",             "listen-on-the-go",     "LISTEN",        "ON THE GO"),
+    # New-feature slides (App Store caps a device at 10 screenshots — keep ≤10).
+    ("10-popular",         "discover-popular",     "DISCOVER",      "WHAT'S POPULAR"),
+    ("11-comments",        "join-the-conversation","JOIN",          "THE CONVERSATION"),
+    ("12-bookmarks",       "your-bookmarks",       "ALL YOUR",      "AO3 BOOKMARKS"),
 ]
 
 # Per-device geometry. `out_w/out_h` are the exact App Store dimensions we emit.

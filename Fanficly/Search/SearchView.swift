@@ -520,33 +520,63 @@ struct SearchView: View {
 
 struct WorkRow: View {
     let work: AO3WorkSummary
+    @Environment(\.modelContext) private var context
+    // Reflects the local follow ("bookmark") state; seeded on appear and
+    // updated when the inline button is tapped.
+    @State private var isFollowed = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(work.title).font(.headline)
-            Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                if !work.rating.isEmpty {
-                    Text(work.rating).font(.caption).foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(work.title).font(.headline)
+                Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if !work.rating.isEmpty {
+                        Text(work.rating).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if work.wordCount > 0 {
+                        Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if work.totalChapters != nil {
+                        Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
+                    } else if work.chapterCount > 0 {
+                        Text("\(work.chapterCount)/?").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if work.kudos > 0 {
+                        Label(work.kudos.formatted(), systemImage: "heart").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                if work.wordCount > 0 {
-                    Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
-                }
-                if work.totalChapters != nil {
-                    Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
-                } else if work.chapterCount > 0 {
-                    Text("\(work.chapterCount)/?").font(.caption).foregroundStyle(.secondary)
-                }
-                if work.kudos > 0 {
-                    Label(work.kudos.formatted(), systemImage: "heart").font(.caption).foregroundStyle(.secondary)
+                if !work.summary.isEmpty {
+                    Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
                 }
             }
-            if !work.summary.isEmpty {
-                Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
-            }
+            Spacer(minLength: 8)
+            bookmarkButton
         }
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+        .onAppear { isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context) }
+    }
+
+    /// Inline one-tap follow/unfollow, so a story can be saved to the Library
+    /// straight from a results list without opening it. `.borderless` keeps the
+    /// tap from also triggering the row's NavigationLink.
+    private var bookmarkButton: some View {
+        Button {
+            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
+            withAnimation(.easeInOut(duration: 0.2)) { isFollowed = newState }
+        } label: {
+            Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
+                .font(.body)
+                .foregroundStyle(isFollowed ? Color.accentColor : Color.secondary)
+                .contentTransition(.symbolEffect(.replace))
+                .padding(.vertical, 4)
+                .padding(.leading, 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(isFollowed ? "Remove \(work.title) from Library"
+                                       : "Save \(work.title) to Library")
     }
 }
 
@@ -600,6 +630,8 @@ struct WorkDetailView: View {
     @State private var followed: Bool = false
     @State private var epubURL: URL?
     @State private var showingReport: Bool = false
+    @State private var showingComments: Bool = false
+    @State private var currentChapterIndex = 1
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -612,7 +644,7 @@ struct WorkDetailView: View {
     var body: some View {
         Group {
             if let payload {
-                ReaderView(payload: payload)
+                ReaderView(payload: payload, currentChapter: $currentChapterIndex)
                     .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             Button {
@@ -628,6 +660,12 @@ struct WorkDetailView: View {
                     .sheet(isPresented: $showingReport) {
                         SafariView(url: URL(string: "https://archiveofourown.org/abuse_reports/new")!)
                             .ignoresSafeArea()
+                    }
+                    .sheet(isPresented: $showingComments) {
+                        CommentsView(workId: workId, workTitle: payload.summary.title,
+                                     chapterId: payload.chapters.first(where: { $0.index == currentChapterIndex })?.aoId,
+                                     chapterNumber: currentChapterIndex,
+                                     totalChapters: payload.chapters.count)
                     }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
@@ -654,6 +692,14 @@ struct WorkDetailView: View {
     /// fit without the system spilling them into a second "…" overflow.
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
+            Button {
+                showingComments = true
+            } label: {
+                Label("Comments", systemImage: "bubble.left.and.bubble.right")
+            }
+
+            Divider()
+
             WorkExportButton(workId: workId, title: payload.summary.title, useTextLabel: true)
             Button {
                 Task { await saveOffline(payload) }
@@ -714,6 +760,200 @@ struct WorkDetailView: View {
         }
     }
 
+}
+
+/// Reads a work's comment thread and, when logged in, lets you post a comment.
+/// Live-fetched (no caching), presented as a sheet from the reader's options
+/// menu. Posting reuses the proven CSRF-token flow (scrape the work page's
+/// authenticity_token + pseud, then POST), like login and subscribe.
+struct CommentsView: View {
+    let workId: Int
+    let workTitle: String
+    /// The chapter whose thread to show/post to (AO3 comments are per-chapter).
+    /// nil → work-level (first chapter), the fallback when the id is unknown.
+    var chapterId: Int? = nil
+    var chapterNumber: Int? = nil
+    var totalChapters: Int? = nil
+    @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var comments: [AO3Comment] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var draft = ""
+    @State private var isPosting = false
+    @State private var postError: String?
+    @FocusState private var composerFocused: Bool
+
+    /// Show the chapter only for multi-chapter works; single-chapter works read
+    /// plainly as "Comments".
+    private var navTitle: String {
+        if let chapterNumber, (totalChapters ?? 1) > 1 { return "Comments · Ch \(chapterNumber)" }
+        return "Comments"
+    }
+
+    /// Per-chapter empty state names the chapter, so an empty later chapter
+    /// reads as "this chapter has none" rather than "comments failed to load".
+    private var emptyTitle: String {
+        if let chapterNumber, (totalChapters ?? 1) > 1 { return "No comments on Chapter \(chapterNumber) yet" }
+        return "No comments yet"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading && comments.isEmpty {
+                    VStack { Spacer(); ProgressView("Loading comments…"); Spacer() }
+                } else if let errorMessage, comments.isEmpty {
+                    ContentUnavailableView {
+                        Label("Couldn't load comments", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(errorMessage)
+                    } actions: {
+                        Button("Retry") { Task { await load() } }
+                    }
+                } else if comments.isEmpty {
+                    ContentUnavailableView(emptyTitle, systemImage: "bubble.left",
+                        description: Text(auth.username == nil
+                            ? "Be the first to comment — log in to AO3 to post."
+                            : "Be the first to comment."))
+                } else {
+                    List {
+                        ForEach(comments) { comment in
+                            CommentRow(comment: comment)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle(navTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                    }
+                    .disabled(isLoading)
+                }
+            }
+            .safeAreaInset(edge: .bottom) { composer }
+            .task { await load() }
+        }
+    }
+
+    private var composer: some View {
+        VStack(spacing: 0) {
+            Divider()
+            if auth.username == nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.crop.circle.badge.questionmark")
+                    Text("Log in to AO3 (Settings) to post a comment.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.bar)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let postError {
+                        Text(postError).font(.caption).foregroundStyle(.red)
+                    }
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("Add a comment as \(auth.username ?? "you")…", text: $draft, axis: .vertical)
+                            .lineLimit(1...5)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($composerFocused)
+                            .disabled(isPosting)
+                        Button {
+                            Task { await post() }
+                        } label: {
+                            if isPosting {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "arrow.up.circle.fill").font(.title2)
+                            }
+                        }
+                        .disabled(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel("Post comment")
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            comments = try await client.fetchComments(workId: workId, chapterId: chapterId)
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    private func post() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        isPosting = true
+        postError = nil
+        defer { isPosting = false }
+        do {
+            try await client.postComment(workId: workId, chapterId: chapterId, text: text)
+            draft = ""
+            composerFocused = false
+            // Re-fetch so the new comment shows (AO3 may hold it for moderation).
+            await load()
+        } catch {
+            postError = "Couldn't post: \(error.localizedDescription). Your comment may be awaiting moderation, or try again."
+        }
+    }
+}
+
+private struct CommentRow: View {
+    let comment: AO3Comment
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            // Thread guide line for nested replies, so the indentation reads as
+            // a reply rather than a stray offset.
+            if comment.depth > 0 {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(width: 2)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Image(systemName: comment.commenterUsername.isEmpty ? "person.crop.circle.badge.questionmark" : "person.crop.circle")
+                        .foregroundStyle(.secondary)
+                    Text(comment.commenterName)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    if !comment.dateText.isEmpty {
+                        Text(comment.dateText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                HTMLText(html: comment.bodyHTML)
+                    .font(.callout)
+            }
+        }
+        .padding(.leading, CGFloat(min(comment.depth, 6)) * 16)
+        .padding(.vertical, 2)
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+    }
 }
 
 struct SearchHelpView: View {

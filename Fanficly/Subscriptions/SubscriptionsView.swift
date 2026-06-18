@@ -206,6 +206,134 @@ struct SubscriptionRow: View {
     }
 }
 
+/// The "Bookmarks" tab: the logged-in user's AO3 bookmarks, fetched live with
+/// infinite scroll (mirrors the author-works list). Login-gated like
+/// Subscriptions, since private bookmarks need the session cookie. Each row
+/// reuses `WorkRow` (with its inline save-to-Library button).
+struct BookmarksView: View {
+    @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
+    @Query private var hiddenWorks: [HiddenWork]
+    @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
+
+    @State private var works: [AO3WorkSummary] = []
+    @State private var currentPage = 1
+    @State private var totalPages = 1
+    @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var errorMessage: String?
+
+    private var visibleWorks: [AO3WorkSummary] {
+        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+    }
+
+    var body: some View {
+        Group {
+            if auth.username == nil {
+                ContentUnavailableView {
+                    Label("Log in to AO3", systemImage: "bookmark.circle")
+                } description: {
+                    Text("Your AO3 bookmarks show here once you log in, including private ones.")
+                } actions: {
+                    NavigationLink { LoginView() } label: {
+                        Text("Open Settings → AO3 Login").font(.callout)
+                    }
+                }
+            } else if isLoading && works.isEmpty {
+                VStack { Spacer(); ProgressView("Loading bookmarks…"); Spacer() }
+            } else if let errorMessage, works.isEmpty {
+                ContentUnavailableView("Couldn't load bookmarks", systemImage: "exclamationmark.triangle",
+                    description: Text(errorMessage))
+            } else if works.isEmpty {
+                ContentUnavailableView("No bookmarks yet", systemImage: "bookmark",
+                    description: Text("Works you bookmark on AO3 will appear here."))
+            } else if visibleWorks.isEmpty {
+                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
+                    description: Text("Every bookmark is hidden or filtered out by your content settings."))
+            } else {
+                List {
+                    ForEach(visibleWorks) { work in
+                        NavigationLink(value: work) { WorkRow(work: work) }
+                            .onAppear {
+                                if work.id == visibleWorks.last?.id {
+                                    Task { await loadMore() }
+                                }
+                            }
+                    }
+                    if isLoadingMore {
+                        HStack { Spacer(); ProgressView(); Spacer() }
+                            .padding(.vertical, 8)
+                            .listRowSeparator(.hidden)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("Bookmarks")
+        .navigationBarTitleDisplayMode(.large)
+        .workAndAuthorDestinations()
+        .toolbar {
+            if auth.username != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await refresh() }
+                    } label: {
+                        if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                    }
+                    .disabled(isLoading)
+                }
+            }
+        }
+        .task { await loadFirst() }
+        .onChange(of: auth.username) { _, name in
+            if name != nil, works.isEmpty { Task { await loadFirst() } }
+        }
+    }
+
+    private func loadFirst() async {
+        guard let username = auth.username, works.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            let result = try await client.fetchBookmarks(username: username, page: 1)
+            works = result.works
+            currentPage = result.currentPage
+            totalPages = result.totalPages
+        } catch {
+            // A cancelled request is benign: this view's task was torn down
+            // mid-flight (the split view settling its detail column, widened by
+            // the 1 req/sec throttle), not a load failure. Don't surface it —
+            // `.task` re-runs when the view re-appears. Only real errors show.
+            guard !Task.isCancelled else { return }
+            errorMessage = "\(error)"
+        }
+    }
+
+    private func refresh() async {
+        works = []
+        currentPage = 1
+        totalPages = 1
+        await loadFirst()
+    }
+
+    private func loadMore() async {
+        guard let username = auth.username, !isLoadingMore, currentPage < totalPages else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let result = try await client.fetchBookmarks(username: username, page: currentPage + 1)
+            let existing = Set(works.map(\.id))
+            works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
+            currentPage = result.currentPage
+            totalPages = result.totalPages
+        } catch {
+            guard !Task.isCancelled else { return }   // benign cancellation — see loadFirst
+            errorMessage = "\(error)"
+        }
+    }
+}
+
 extension AO3WorkSummary {
     /// A minimal summary carrying just an id (used as a navigation value
     /// when the full work will be fetched by the destination).

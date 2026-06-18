@@ -70,6 +70,7 @@ struct FanficlyApp: App {
             RecentlyViewed.self,
             HiddenWork.self,
             CustomFolder.self,
+            FollowedAuthor.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
@@ -92,8 +93,14 @@ struct FanficlyApp: App {
                 .tint(Self.isDemoMode ? Color.blue : nil)
                 .preferredColorScheme(Self.isDemoMode ? .light : nil)
                 .task {
+                    // Demo mode: present a signed-in state so the login-gated
+                    // screens (Bookmarks tab, the comment composer) render with
+                    // the curated offline data for App Store screenshots. The
+                    // DemoAO3Client serves all of this offline. Never ships.
+                    if Self.isDemoMode { auth.username = "demo_reader" }
+
                     let context = Self.sharedModelContainer.mainContext
-                    
+
                     // Migrate legacy single folder to folders array if needed
                     if let works = try? context.fetch(FetchDescriptor<Work>()) {
                         var migratedAny = false
@@ -134,26 +141,41 @@ struct FanficlyApp: App {
                     selectedTabRaw = SidebarItem.browse.rawValue
                 }
                 .keyboardShortcut("2", modifiers: [.command])
-                
+
+                Button("Popular") {
+                    selectedTabRaw = SidebarItem.popular.rawValue
+                }
+                .keyboardShortcut("3", modifiers: [.command])
+
                 Button("Library") {
                     selectedTabRaw = SidebarItem.library.rawValue
                 }
-                .keyboardShortcut("3", modifiers: [.command])
-                
+                .keyboardShortcut("4", modifiers: [.command])
+
                 Button("Recently Viewed") {
                     selectedTabRaw = SidebarItem.recentlyViewed.rawValue
                 }
-                .keyboardShortcut("4", modifiers: [.command])
-                
+                .keyboardShortcut("5", modifiers: [.command])
+
+                Button("Followed Authors") {
+                    selectedTabRaw = SidebarItem.authors.rawValue
+                }
+                .keyboardShortcut("6", modifiers: [.command])
+
+                Button("Bookmarks") {
+                    selectedTabRaw = SidebarItem.bookmarks.rawValue
+                }
+                .keyboardShortcut("7", modifiers: [.command])
+
                 Button("Subscriptions") {
                     selectedTabRaw = SidebarItem.subscriptions.rawValue
                 }
-                .keyboardShortcut("5", modifiers: [.command])
-                
+                .keyboardShortcut("8", modifiers: [.command])
+
                 Button("Settings") {
                     selectedTabRaw = SidebarItem.settings.rawValue
                 }
-                .keyboardShortcut("6", modifiers: [.command])
+                .keyboardShortcut("9", modifiers: [.command])
             }
             
             CommandMenu("Reader") {

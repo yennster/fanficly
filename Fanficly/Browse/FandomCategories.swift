@@ -12,12 +12,71 @@ public struct FandomCategory: Identifiable, Hashable, Sendable {
 public struct BrowseFandom: Identifiable, Hashable, Sendable {
     public let canonicalName: String
     public let displayName: String
+    /// AO3's listed work count for this fandom (from the `/media/.../fandoms`
+    /// page), when known. Drives the live "Popular fandoms" ranking; nil for
+    /// curated seed entries.
+    public let workCount: Int?
     public var id: String { canonicalName }
 
-    public init(_ display: String, canonical: String? = nil) {
+    public init(_ display: String, canonical: String? = nil, workCount: Int? = nil) {
         self.displayName = display
         self.canonicalName = canonical ?? display
+        self.workCount = workCount
     }
+}
+
+/// Curated "popular" tags for the Popular tab. AO3 has no popular/trending
+/// API, so these are hand-picked canonical tag names (kept in AO3's exact
+/// canonical form so the tag search resolves). Each links to that tag's works
+/// sorted by kudos. Refreshed periodically by hand.
+enum PopularTags {
+    static let fandoms: [String] = [
+        "Harry Potter - J. K. Rowling",
+        "Marvel Cinematic Universe",
+        "Supernatural (TV 2005)",
+        "Boku no Hero Academia | My Hero Academia",
+        "Genshin Impact (Video Game)",
+        "Good Omens (TV)",
+        "Stranger Things (TV 2016)",
+        "방탄소년단 | Bangtan Boys | BTS",
+        "魔道祖师 - 墨香铜臭 | Módào Zǔshī - Mòxiāng Tóngxiù",
+        "Star Wars - All Media Types",
+        "Dragon Age - All Media Types",
+        "Critical Role (Web Series)",
+        "Our Flag Means Death (TV)",
+        "Batman - All Media Types",
+        "Naruto",
+    ]
+
+    static let ships: [String] = [
+        "Draco Malfoy/Harry Potter",
+        "Hermione Granger/Draco Malfoy",
+        "Castiel/Dean Winchester",
+        "Steve Rogers/Tony Stark",
+        "James \"Bucky\" Barnes/Steve Rogers",
+        "Sherlock Holmes/John Watson",
+        "Aziraphale/Crowley (Good Omens)",
+        "Lan Zhan | Lan Wangji/Wei Ying | Wei Wuxian",
+        "Katsuki Bakugou/Izuku Midoriya",
+        "Nico di Angelo/Will Solace",
+        "Anakin Skywalker/Obi-Wan Kenobi",
+        "Buck/Eddie",
+    ]
+
+    static let characters: [String] = [
+        "Harry Potter",
+        "Hermione Granger",
+        "Draco Malfoy",
+        "Dean Winchester",
+        "Castiel (Supernatural)",
+        "Tony Stark",
+        "Steve Rogers",
+        "Loki (Marvel)",
+        "Sherlock Holmes",
+        "Wei Ying | Wei Wuxian",
+        "Katsuki Bakugou",
+        "Percy Jackson",
+    ]
 }
 
 enum FandomCatalog {

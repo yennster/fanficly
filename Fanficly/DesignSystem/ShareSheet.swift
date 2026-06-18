@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// Presents a file (or any items) through the iOS share sheet —
-/// AirDrop, Send to Kindle, Books, Files, Mail, etc.
+/// AirDrop, Books, Files, Mail, etc.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
 

@@ -107,12 +107,17 @@ final class Chapter {
     var index: Int
     var title: String
     var bodyHTML: String
+    /// AO3 chapter id, so a downloaded work can still load/post that chapter's
+    /// comments. Optional (older saved chapters predate this / single-chapter
+    /// works may lack it) → callers fall back to work-level comments.
+    var aoId: Int?
 
-    init(work: Work? = nil, index: Int, title: String, bodyHTML: String) {
+    init(work: Work? = nil, index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
         self.work = work
         self.index = index
         self.title = title
         self.bodyHTML = bodyHTML
+        self.aoId = aoId
     }
 }
 
@@ -242,6 +247,30 @@ final class SubscriptionRecord {
         self.kind = kind
         self.displayName = displayName
         self.authorName = authorName
+    }
+}
+
+/// An AO3 author the user follows locally (no login required), mirroring the
+/// per-work `isFollowed` flow. The background poller checks each followed
+/// author's works page for newly-published works and fires a local
+/// notification. `knownWorkIds` is the set of work ids already seen, so a new
+/// work notifies exactly once; it's seeded when the user follows so previously
+/// published works don't all alert on the first poll.
+@Model
+final class FollowedAuthor {
+    @Attribute(.unique) var username: String
+    var displayName: String
+    var followedAt: Date
+    var lastCheckedAt: Date?
+    var knownWorkIds: [Int]
+
+    init(username: String, displayName: String, followedAt: Date = .now,
+         lastCheckedAt: Date? = nil, knownWorkIds: [Int] = []) {
+        self.username = username
+        self.displayName = displayName
+        self.followedAt = followedAt
+        self.lastCheckedAt = lastCheckedAt
+        self.knownWorkIds = knownWorkIds
     }
 }
 

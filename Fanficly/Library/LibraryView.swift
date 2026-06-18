@@ -144,7 +144,10 @@ struct LibraryView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
-                                if work.isFollowed {
+                                // Following tracks new chapters, so it's only
+                                // meaningful for in-progress works — hide Unfollow
+                                // on completed ones (nothing new will ever drop).
+                                if work.isFollowed && !work.isComplete {
                                     Button {
                                         work.isFollowed = false
                                         work.followedAt = nil
@@ -179,7 +182,13 @@ struct LibraryView: View {
                                 NavigationLink(value: work) {
                                     Label("Read Now", systemImage: "book")
                                 }
-                                
+
+                                if !work.authorUsername.isEmpty {
+                                    NavigationLink(value: AuthorRef(username: work.authorUsername, displayName: work.authorName)) {
+                                        Label("More by this author", systemImage: "person.crop.circle")
+                                    }
+                                }
+
                                 Button {
                                     work.isStarred.toggle()
                                     try? context.save()
@@ -187,7 +196,7 @@ struct LibraryView: View {
                                 } label: {
                                     Label(work.isStarred ? "Unstar" : "Star", systemImage: work.isStarred ? "star.slash" : "star")
                                 }
-                                
+
                                 Button {
                                     work.isPinned.toggle()
                                     try? context.save()
@@ -195,7 +204,7 @@ struct LibraryView: View {
                                 } label: {
                                     Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
                                 }
-                                
+
                                 Button {
                                     workMovingToFolder = work
                                 } label: {
@@ -324,6 +333,7 @@ private struct LibraryFilterBar: View {
 struct LibraryRow: View {
     let work: Work
     let downloaded: Bool
+    @AppStorage("library.showReadingProgress") private var showReadingProgress = true
 
     /// Show the first fandom, shortened from AO3's canonical form
     /// ("Harry Potter - J. K. Rowling" → "Harry Potter"), plus a count
@@ -342,6 +352,11 @@ struct LibraryRow: View {
         }
         if let total = work.totalChapters {
             items.append(work.chapterCount == total ? "\(total) ch complete" : "\(work.chapterCount)/\(total) WIP")
+        } else if work.chapterCount > 0 {
+            // WIP whose author hasn't declared a final chapter count (AO3 shows
+            // "12/?"). Still surface progress here, mirroring the search row and
+            // reader header — otherwise the chapter/WIP badge silently vanishes.
+            items.append("\(work.chapterCount)/? WIP")
         }
         for folder in work.folders.sorted(by: { $0.name < $1.name }) {
             items.append(folder.name)
@@ -382,9 +397,50 @@ struct LibraryRow: View {
                     LibraryMetadataPill(text: item, isFolder: isFolder)
                 }
             }
+
+            if showReadingProgress {
+                readingProgress
+            }
         }
         .padding(.vertical, 6)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+    }
+
+    /// Reading-progress strip: a bar plus a "% read · Ch n · last read …" line,
+    /// shown for any work the user has started. Finished works read "Finished"
+    /// instead of a near-full bar.
+    @ViewBuilder
+    private var readingProgress: some View {
+        if let raw = work.lastReadProgress, raw > 0 {
+            let progress = min(max(raw, 0), 1)
+            let finished = progress >= 0.99 || (work.isComplete && progress >= 0.95)
+            VStack(alignment: .leading, spacing: 3) {
+                ProgressView(value: progress)
+                    .tint(finished ? .green : .accentColor)
+                    .scaleEffect(x: 1, y: 0.7, anchor: .center)
+                HStack(spacing: 6) {
+                    if finished {
+                        Label("Finished", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("\(Int(progress * 100))% read")
+                        if let chapter = work.lastReadChapter, (work.totalChapters ?? 0) > 1 {
+                            Text("· Ch \(chapter)")
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    if let lastReadAt = work.lastReadAt {
+                        Text(lastReadAt, format: .relative(presentation: .named))
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            .padding(.top, 2)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(finished ? "Finished reading" : "\(Int(progress * 100)) percent read")
+        }
     }
 }
 
@@ -434,7 +490,11 @@ private struct LibraryMetadataPill: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background {
-            Capsule()
+            // A rounded rectangle, not a Capsule: a capsule's semicircular left
+            // cap only touches the leading edge at its vertical center, so the
+            // pill reads as inset from the flush title/author text. A near-
+            // vertical left edge lines the pills up with the text.
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(isFolder ? Color.accentColor.opacity(0.12) : Color(.tertiarySystemFill))
         }
     }
@@ -478,7 +538,13 @@ struct FolderDetailView: View {
                             NavigationLink(value: work) {
                                 Label("Read Now", systemImage: "book")
                             }
-                            
+
+                            if !work.authorUsername.isEmpty {
+                                NavigationLink(value: AuthorRef(username: work.authorUsername, displayName: work.authorName)) {
+                                    Label("More by this author", systemImage: "person.crop.circle")
+                                }
+                            }
+
                             Button {
                                 work.isStarred.toggle()
                                 try? context.save()

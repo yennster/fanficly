@@ -86,8 +86,11 @@ struct RootView: View {
                     switch selectedDetailItem {
                     case .search: SearchView()
                     case .browse: BrowseView()
+                    case .popular: PopularView()
                     case .library: LibraryView()
                     case .recentlyViewed: RecentlyViewedView()
+                    case .authors: FollowedAuthorsView()
+                    case .bookmarks: BookmarksView()
                     case .subscriptions: SubscriptionsView()
                     case .settings: SettingsView()
                     }
@@ -257,7 +260,16 @@ struct RootView: View {
 
     private func openResumeRoute(_ route: ResumeWorkRoute) {
         installResumeProgressIfAvailable(for: route)
-        select(.library)
+        // Switch to Library but DON'T clear the detail path here (as the general
+        // `select(_:)` does). Clearing it and then re-pushing in the deferred
+        // `.task` spans two update cycles and races with the tab switch; when the
+        // app is already open SwiftUI can drop the re-push ("tried to update
+        // multiple times per frame"), stranding you on an empty Library instead
+        // of the reader. Letting the `.task` set the path to `[route]` in one
+        // atomic mutation replaces whatever was there (empty, this same route, or
+        // another tab's stack) reliably and idempotently.
+        selectedTabRaw = SidebarItem.library.rawValue
+        if isCompactNavigation { compactSelection = .library }
         pendingResumeRoute = route   // pushed by the .task(id:) on the stack
     }
 
@@ -445,7 +457,7 @@ struct ImportOverlay: View {
 
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case search, browse, library, recentlyViewed, subscriptions, settings
+    case search, browse, popular, library, recentlyViewed, authors, bookmarks, subscriptions, settings
 
     var id: String { rawValue }
 
@@ -453,8 +465,11 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .search: "Search"
         case .browse: "Browse"
+        case .popular: "Popular"
         case .library: "Library"
         case .recentlyViewed: "Recently Viewed"
+        case .authors: "Followed Authors"
+        case .bookmarks: "Bookmarks"
         case .subscriptions: "Subscriptions"
         case .settings: "Settings"
         }
@@ -464,8 +479,11 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .search: "magnifyingglass"
         case .browse: "rectangle.stack"
+        case .popular: "flame"
         case .library: "books.vertical"
         case .recentlyViewed: "clock.arrow.circlepath"
+        case .authors: "person.2"
+        case .bookmarks: "bookmark"
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }

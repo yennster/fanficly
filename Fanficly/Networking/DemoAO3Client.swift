@@ -60,6 +60,10 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
                                 totalPages: 1, currentPage: page)
     }
 
+    public func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: DemoCatalog.works, totalPages: 1, currentPage: page)
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         DemoCatalog.payload(for: id)
     }
@@ -74,8 +78,23 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         DemoCatalog.subscriptions
     }
 
+    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {
+        [
+            AO3Comment(id: "1", commenterName: "reader_one", commenterUsername: "reader_one",
+                       dateText: "Today", bodyHTML: "<p>This was wonderful — thank you for sharing!</p>", depth: 0),
+            AO3Comment(id: "2", commenterName: "author", commenterUsername: "author",
+                       dateText: "Today", bodyHTML: "<p>Thank you so much! 💛</p>", depth: 1),
+        ]
+    }
+
+    public func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
+
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] {
         DemoCatalog.fandoms
+    }
+
+    public func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        PopularSnapshot(fandoms: PopularTags.fandoms, ships: PopularTags.ships, characters: PopularTags.characters)
     }
 
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {

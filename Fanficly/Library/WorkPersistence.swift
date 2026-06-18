@@ -11,7 +11,7 @@ enum WorkPersistence {
         for ch in work.chapters { context.delete(ch) }
         work.chapters.removeAll()
         for ch in payload.chapters {
-            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML)
+            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
             context.insert(chapter)
         }
 
@@ -145,6 +145,42 @@ enum WorkPersistence {
             for stale in all[limit...] { context.delete(stale) }
         }
         try? context.save()
+    }
+
+    // MARK: - Followed authors
+
+    @MainActor
+    static func isAuthorFollowed(username: String, in context: ModelContext) -> Bool {
+        guard !username.isEmpty else { return false }
+        let descriptor = FetchDescriptor<FollowedAuthor>(predicate: #Predicate { $0.username == username })
+        return ((try? context.fetch(descriptor))?.first) != nil
+    }
+
+    /// Toggle following an author. `seedWorkIds` are the work ids currently
+    /// visible for the author at follow time, recorded so the poller doesn't
+    /// alert for already-published works on its first check. Returns the new
+    /// follow state.
+    @MainActor
+    @discardableResult
+    static func toggleFollowAuthor(username: String, displayName: String,
+                                   seedWorkIds: [Int] = [], into context: ModelContext) -> Bool {
+        guard !username.isEmpty else { return false }
+        let descriptor = FetchDescriptor<FollowedAuthor>(predicate: #Predicate { $0.username == username })
+        if let existing = (try? context.fetch(descriptor))?.first {
+            context.delete(existing)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+            return false
+        } else {
+            context.insert(FollowedAuthor(
+                username: username,
+                displayName: displayName.isEmpty ? username : displayName,
+                knownWorkIds: seedWorkIds
+            ))
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+            return true
+        }
     }
 
     static func epubURL(workId: Int) -> URL? {

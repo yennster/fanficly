@@ -99,6 +99,40 @@ struct SubscriptionPoller {
         return notifyCount
     }
 
+    /// Poll locally-followed authors (no AO3 login required) for newly
+    /// published works, notifying once per new work.
+    func checkFollowedAuthors() async -> Int {
+        var notifyCount = 0
+        let descriptor = FetchDescriptor<FollowedAuthor>()
+        let authors = (try? context.fetch(descriptor)) ?? []
+        for author in authors where !author.username.isEmpty {
+            do {
+                let result = try await client.fetchAuthorWorks(username: author.username, page: 1)
+                let latestIds = result.works.map(\.id)
+                let known = Set(author.knownWorkIds)
+                // Only notify once we have a baseline — a freshly-followed
+                // author is seeded at follow time, but guard the empty case so
+                // a first poll never alerts for the whole back catalogue.
+                if !known.isEmpty {
+                    let newWorks = result.works.filter { !known.contains($0.id) }
+                    if !newWorks.isEmpty {
+                        await postNewWorkNotification(
+                            author: author.displayName,
+                            newWorks: newWorks
+                        )
+                        notifyCount += newWorks.count
+                    }
+                }
+                author.knownWorkIds = Array(known.union(latestIds))
+                author.lastCheckedAt = .now
+            } catch {
+                logger.warning("Skipping author \(author.username, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        try? context.save()
+        return notifyCount
+    }
+
     func runFullPoll() async -> Int {
         do {
             _ = try await syncSubscriptionList()
@@ -110,8 +144,28 @@ struct SubscriptionPoller {
             total += await checkForNewChapters()
         }
         total += await checkFollowedWorks()
+        total += await checkFollowedAuthors()
         WidgetDataStore.updateAll(context: context)
         return total
+    }
+
+    private func postNewWorkNotification(author: String, newWorks: [AO3WorkSummary]) async {
+        let content = UNMutableNotificationContent()
+        content.title = author
+        if newWorks.count == 1, let work = newWorks.first {
+            content.body = "New work: \(work.title)"
+            content.userInfo = ["workId": work.id]
+        } else {
+            content.body = "\(newWorks.count) new works posted"
+        }
+        content.sound = .default
+        let newestId = newWorks.first?.id ?? 0
+        let request = UNNotificationRequest(
+            identifier: "author-\(author)-newwork-\(newestId)",
+            content: content,
+            trigger: nil
+        )
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     private func postNewChapterNotification(title: String, oldCount: Int, newCount: Int, workId: Int) async {

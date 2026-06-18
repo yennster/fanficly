@@ -45,6 +45,138 @@ struct BrowseView: View {
     }
 }
 
+/// Navigation value for a popular tag tapped in the Popular tab.
+struct PopularTag: Hashable {
+    enum Kind: String, CaseIterable, Identifiable, Hashable {
+        case fandom, ship, character
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .fandom: "Fandoms"
+            case .ship: "Ships"
+            case .character: "Characters"
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .fandom: "books.vertical"
+            case .ship: "heart"
+            case .character: "person"
+            }
+        }
+    }
+    let kind: Kind
+    let name: String
+}
+
+/// On-device cache for the live popular snapshot. Refreshed at most once a day
+/// (the data is AO3's cumulative work counts, which barely move day to day), so
+/// opening the Popular tab doesn't re-scrape AO3 every time. Falls back to the
+/// curated `PopularTags` seed whenever there's no fresh snapshot.
+enum PopularStore {
+    private static let key = "popular.snapshot.v1"
+    private static let maxAge: TimeInterval = 24 * 60 * 60
+
+    static func cached() -> PopularSnapshot? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(PopularSnapshot.self, from: data)
+    }
+
+    static func isStale(_ snapshot: PopularSnapshot?) -> Bool {
+        guard let snapshot else { return true }
+        return Date.now.timeIntervalSince(snapshot.fetchedAt) > maxAge
+    }
+
+    /// Returns a fresh snapshot, fetching + caching only when the cache is
+    /// missing or older than a day. Never throws — keeps the existing cache on
+    /// failure so the UI just keeps showing what it had (or the curated seed).
+    @discardableResult
+    static func refreshIfStale(client: any AO3ClientProtocol) async -> PopularSnapshot? {
+        let current = cached()
+        guard isStale(current) else { return current }
+        guard let fresh = try? await client.fetchPopularSnapshot() else { return current }
+        if let data = try? JSONEncoder().encode(fresh) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+        return fresh
+    }
+}
+
+/// The "Popular" tab: popular fandoms, ships, and characters. Pick a segment,
+/// tap a tag, and see its works sorted by kudos. The lists are live — ranked
+/// from AO3's work counts (`PopularStore`, cached ~daily) — and fall back to
+/// the curated `PopularTags` seed when no snapshot is available yet.
+struct PopularView: View {
+    @Environment(\.ao3Client) private var client
+    @State private var segment: PopularTag.Kind = .fandom
+    @State private var snapshot: PopularSnapshot? = PopularStore.cached()
+
+    private var names: [String] {
+        let all: [String]
+        switch segment {
+        case .fandom:    all = live(snapshot?.fandoms, fallback: PopularTags.fandoms)
+        case .ship:      all = live(snapshot?.ships, fallback: PopularTags.ships)
+        case .character: all = live(snapshot?.characters, fallback: PopularTags.characters)
+        }
+        return Array(all.prefix(30))   // top 30 per segment
+    }
+
+    /// The live list when present and non-empty, otherwise the curated seed.
+    private func live(_ list: [String]?, fallback: [String]) -> [String] {
+        if let list, !list.isEmpty { return list }
+        return fallback
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Category", selection: $segment) {
+                ForEach(PopularTag.Kind.allCases) { kind in
+                    Text(kind.title).tag(kind)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+            List {
+                ForEach(names, id: \.self) { name in
+                    NavigationLink(value: PopularTag(kind: segment, name: name)) {
+                        Label {
+                            Text(displayName(name)).font(.body)
+                        } icon: {
+                            Image(systemName: segment == .fandom ? FandomCatalog.symbol(for: name) : segment.symbol)
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+        }
+        .navigationTitle("Popular")
+        .navigationDestination(for: PopularTag.self) { tag in
+            FandomWorksView(popular: tag)
+        }
+        .workAndAuthorDestinations()
+        // Refresh in the background (≤ once/day); the curated/cached lists show
+        // immediately and swap to live data when the fetch lands.
+        .task {
+            if let fresh = await PopularStore.refreshIfStale(client: client) {
+                snapshot = fresh
+            }
+        }
+    }
+
+    /// Trim AO3's canonical disambiguation noise for display only — the search
+    /// still uses the full canonical `name`. "Harry Potter - J. K. Rowling" →
+    /// "Harry Potter"; "Castiel (Supernatural)" keeps its qualifier.
+    private func displayName(_ name: String) -> String {
+        if segment == .fandom {
+            return name.components(separatedBy: " - ").first ?? name
+        }
+        return name
+    }
+}
+
 struct CategoryFandomsView: View {
     @Environment(\.ao3Client) private var client
     let category: FandomCategory
@@ -157,6 +289,20 @@ struct FandomWorksView: View {
     init(savedFilter: SavedFilter) {
         let initial = AO3SearchFilters.from(savedJSON: savedFilter.filtersJSON) ?? AO3SearchFilters()
         self.init(filters: initial, title: savedFilter.name)
+    }
+
+    /// A popular tag (fandom / ship / character), sorted by kudos so the
+    /// most-loved works surface first.
+    init(popular tag: PopularTag) {
+        var initial = AO3SearchFilters()
+        switch tag.kind {
+        case .fandom:    initial.fandomNames = [tag.name]
+        case .ship:      initial.relationshipNames = [tag.name]
+        case .character: initial.characterNames = [tag.name]
+        }
+        initial.sortColumn = .kudosCount
+        initial.sortDirection = .desc
+        self.init(filters: initial, title: tag.name)
     }
 
     /// Works minus hidden ones and (optionally) Mature/Explicit-rated ones.

@@ -6,6 +6,10 @@ struct ReaderView: View {
     let authorUsername: String
     let chapters: [AO3ChapterPayload]
     let summary: AO3WorkSummary?
+    /// Optional upward report of the chapter currently being read (1-based), so
+    /// a parent's "Comments" action can scope to the right chapter. Written
+    /// whenever the visible/selected chapter changes.
+    var currentChapter: Binding<Int>? = nil
 
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
@@ -180,14 +184,15 @@ struct ReaderView: View {
         self.summary = summary
     }
 
-    init(work: Work) {
+    init(work: Work, currentChapter: Binding<Int>? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
+        self.currentChapter = currentChapter
         self.title = work.title
         self.author = work.authorName
         self.authorUsername = work.authorUsername
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
-            .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML) }
+            .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
         self.summary = AO3WorkSummary(
             id: work.ao3Id,
             title: work.title,
@@ -212,13 +217,37 @@ struct ReaderView: View {
         )
     }
 
-    init(payload: AO3WorkPayload) {
+    init(payload: AO3WorkPayload, currentChapter: Binding<Int>? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
+        self.currentChapter = currentChapter
         self.title = payload.summary.title
         self.author = payload.summary.author
         self.authorUsername = payload.summary.authorUsername
         self.chapters = payload.chapters
         self.summary = payload.summary
+    }
+
+    /// The chapter the reader is actually on: the visible one in continuous
+    /// scroll, the selected page in paginated / page-by-page.
+    private var effectiveChapterIndex: Int {
+        mode == .continuous ? visibleChapterIndex : selectedChapterIndex
+    }
+
+    /// Push the current chapter up to a parent (for its Comments action).
+    private func reportCurrentChapter() {
+        currentChapter?.wrappedValue = effectiveChapterIndex
+    }
+
+    /// Reports the current chapter on change + first appearance, kept off the
+    /// main reader chain so the SwiftUI type-checker stays within budget.
+    private struct ChapterReportModifier: ViewModifier {
+        let chapter: Int
+        let report: () -> Void
+        func body(content: Content) -> some View {
+            content
+                .onChange(of: chapter) { _, _ in report() }
+                .onAppear { report() }
+        }
     }
 
     var body: some View {
@@ -233,6 +262,15 @@ struct ReaderView: View {
             case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
+        // The reader has no text input, so it must never reserve room for the
+        // keyboard. Without this, returning from the background can restore
+        // focus to the page (it's `.focusable()` for hardware arrow-key turns,
+        // see ReaderKeyPressModifier) and leave iOS holding a phantom keyboard
+        // safe-area inset — collapsing the page and leaving a large blank band
+        // (~keyboard height) at the bottom. Ignoring the keyboard safe area
+        // keeps the page full-height; the home-indicator inset and the bottom
+        // narration/footer bars are unaffected.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
@@ -264,6 +302,10 @@ struct ReaderView: View {
         }
         // When a chapter finishes narrating, roll on to the next (or stop).
         .onChange(of: speech.finishedTick) { _, _ in advanceNarration() }
+        // Keep a parent informed of the chapter being read (for its Comments
+        // action). A ViewModifier so its onChange/onAppear are type-checked
+        // outside this already-long chain (which otherwise times out).
+        .modifier(ChapterReportModifier(chapter: effectiveChapterIndex, report: reportCurrentChapter))
         // Keep the screen lit while the reader is open; restore normal idle
         // behaviour the moment we leave so other screens aren't held awake.
         .onAppear { applyKeepScreenAwake(keepScreenAwake) }
@@ -650,7 +692,7 @@ struct ReaderView: View {
             .indexViewStyle(.page(backgroundDisplayMode: .always))
             .background(bg)
             .foregroundStyle(fg)
-            // Kindle-style tap-to-turn: tapping the left third goes to the
+            // Tap-to-turn: tapping the left third goes to the
             // previous chapter, the right third to the next; the middle third is
             // a dead zone so taps on mid-page links/text don't flip the page. A
             // *simultaneous* spatial tap leaves the TabView's swipe paging and
@@ -769,7 +811,7 @@ struct ReaderView: View {
         isRestoring = false
     }
 
-    // MARK: - Page-by-page (Kindle-like) mode
+    // MARK: - Page-by-page mode
 
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
@@ -1830,7 +1872,6 @@ struct ReaderPageCell: View {
                         .bold(boldText)
                         .lineSpacing(lineSpacing)
                         .foregroundStyle(foreground)
-                        .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,

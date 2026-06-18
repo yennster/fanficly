@@ -13,6 +13,7 @@ struct AuthorRef: Hashable {
 /// blurb parser. Tapping a work opens the reader via the shared destination.
 struct AuthorWorksView: View {
     @Environment(\.ao3Client) private var client
+    @Environment(\.modelContext) private var context
     @Query private var hiddenWorks: [HiddenWork]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     let author: AuthorRef
@@ -23,6 +24,7 @@ struct AuthorWorksView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    @State private var isFollowingAuthor = false
 
     private var visibleWorks: [AO3WorkSummary] {
         ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
@@ -63,7 +65,34 @@ struct AuthorWorksView: View {
         }
         .navigationTitle(author.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !author.username.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) { followButton }
+            }
+        }
         .task { await loadFirst() }
+        .onAppear {
+            isFollowingAuthor = WorkPersistence.isAuthorFollowed(username: author.username, in: context)
+        }
+    }
+
+    private var followButton: some View {
+        Button {
+            let newState = WorkPersistence.toggleFollowAuthor(
+                username: author.username,
+                displayName: author.displayName,
+                seedWorkIds: works.map(\.id),
+                into: context
+            )
+            withAnimation(.easeInOut(duration: 0.2)) { isFollowingAuthor = newState }
+        } label: {
+            Label(isFollowingAuthor ? "Following" : "Follow",
+                  systemImage: isFollowingAuthor ? "person.fill.checkmark" : "person.badge.plus")
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .accessibilityLabel(isFollowingAuthor
+                            ? "Unfollow \(author.displayName)"
+                            : "Follow \(author.displayName)")
     }
 
     private func loadFirst() async {
@@ -94,6 +123,71 @@ struct AuthorWorksView: View {
         } catch {
             errorMessage = "\(error)"
         }
+    }
+}
+
+/// The "Authors" tab: the list of authors the user follows. Tapping one opens
+/// their works; the background poller notifies when a followed author posts a
+/// new work. Follows are added from an author's works page (the Follow button).
+struct FollowedAuthorsView: View {
+    @Environment(\.modelContext) private var context
+    @Query(sort: [SortDescriptor<FollowedAuthor>(\.displayName, order: .forward)])
+    private var authors: [FollowedAuthor]
+
+    var body: some View {
+        Group {
+            if authors.isEmpty {
+                ContentUnavailableView {
+                    Label("No followed authors", systemImage: "person.2")
+                } description: {
+                    Text("Open an author's page — from a work's byline or “More by this author” — and tap Follow. New works they post will notify you here.")
+                }
+            } else {
+                List {
+                    ForEach(authors) { author in
+                        NavigationLink(value: AuthorRef(username: author.username, displayName: author.displayName)) {
+                            FollowedAuthorRow(author: author)
+                        }
+                    }
+                    .onDelete(perform: unfollow)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("Followed Authors")
+        .navigationBarTitleDisplayMode(.large)
+        .workAndAuthorDestinations()
+    }
+
+    private func unfollow(at offsets: IndexSet) {
+        for index in offsets {
+            context.delete(authors[index])
+        }
+        try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
+    }
+}
+
+private struct FollowedAuthorRow: View {
+    let author: FollowedAuthor
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(author.displayName).font(.headline)
+            HStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    Image(systemName: "person").font(.caption2)
+                    Text("Author").font(.caption)
+                }
+                .foregroundStyle(.secondary)
+                if let checked = author.lastCheckedAt {
+                    Text("checked \(checked, style: .relative) ago")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
     }
 }
 

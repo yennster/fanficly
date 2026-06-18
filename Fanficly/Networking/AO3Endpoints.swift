@@ -36,8 +36,12 @@ enum AO3Endpoints {
         return url
     }
 
-    static func userBookmarks(name: String, base: URL) throws -> URL {
-        base.appending(path: "/users/\(name)/bookmarks")
+    static func userBookmarks(name: String, page: Int = 1, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/users/\(name)/bookmarks"),
+                                       resolvingAgainstBaseURL: false)
+        if page > 1 { components?.queryItems = [URLQueryItem(name: "page", value: String(page))] }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad bookmarks URL") }
+        return url
     }
 
     static func userSubscriptions(name: String, base: URL) throws -> URL {
@@ -59,8 +63,27 @@ enum AO3Endpoints {
         return url
     }
 
+    /// A single chapter's page with its comment thread shown — AO3 threads
+    /// comments per chapter, so this is what we read/post against when the
+    /// reader knows which chapter id it's on.
+    static func chapterComments(workId: Int, chapterId: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(workId)/chapters/\(chapterId)"),
+                                       resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "view_adult", value: "true"),
+            URLQueryItem(name: "show_comments", value: "true"),
+        ]
+        components?.fragment = "comments"
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad chapter comments URL") }
+        return url
+    }
+
     static func workSubscriptions(id: Int, base: URL) throws -> URL {
         base.appending(path: "/works/\(id)/subscriptions")
+    }
+
+    static func workCommentsPost(id: Int, base: URL) throws -> URL {
+        base.appending(path: "/works/\(id)/comments")
     }
 
     static func autocomplete(field: String, term: String, base: URL) throws -> URL {
@@ -79,6 +102,16 @@ enum AO3Endpoints {
         let encoded = ao3PathEncode(categoryName)
         guard let url = URL(string: "\(base.absoluteString)/media/\(encoded)/fandoms") else {
             throw AO3Error.parseFailed(reason: "Bad media URL")
+        }
+        return url
+    }
+
+    /// A tag's works listing (`/tags/<tag>/works`) — its left filter sidebar
+    /// carries the most-used relationships/characters/freeforms with counts.
+    static func tagWorks(tagName: String, base: URL) throws -> URL {
+        let encoded = ao3PathEncode(tagName)
+        guard let url = URL(string: "\(base.absoluteString)/tags/\(encoded)/works") else {
+            throw AO3Error.parseFailed(reason: "Bad tag works URL")
         }
         return url
     }
