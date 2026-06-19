@@ -420,8 +420,11 @@ struct LibraryRow: View {
                     .scaleEffect(x: 1, y: 0.7, anchor: .center)
                 HStack(spacing: 6) {
                     if finished {
-                        Label("Finished", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text("Finished")
+                        }
+                        .foregroundStyle(.green)
                     } else {
                         Text("\(Int(progress * 100))% read")
                         if let chapter = work.lastReadChapter, (work.totalChapters ?? 0) > 1 {
