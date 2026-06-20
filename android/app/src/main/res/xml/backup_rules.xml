@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The saved-work library and reader settings are safe to back up. The AO3
+     session cookie is intentionally excluded — it lives in EncryptedSharedPrefs
+     and should not leave the device via cloud backup. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="fanficly_secure_prefs.xml" />
+</full-backup-content>

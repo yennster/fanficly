@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An open-book glyph centered in the 108dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group android:translateX="0" android:translateY="0">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,38 C49,34 41,32 33,32 C29,32 26,32.5 23,33.5 L23,73 C26,72 29,71.5 33,71.5 C41,71.5 49,73.5 54,77 L54,38 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,38 C59,34 67,32 75,32 C79,32 82,32.5 85,33.5 L85,73 C82,72 79,71.5 75,71.5 C67,71.5 59,73.5 54,77 L54,38 Z"
+            android:fillAlpha="0.82" />
+        <path
+            android:strokeColor="#990000"
+            android:strokeWidth="2.2"
+            android:pathData="M54,38 L54,77" />
+    </group>
+</vector>
