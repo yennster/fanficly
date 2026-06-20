@@ -366,12 +366,25 @@ struct ReaderView: View {
     }
 
     private func startNarration() {
-        // Speech paragraphs are index-aligned with the rendered ones, so for the
-        // chapter you're already reading we can pick up from your position;
-        // otherwise start that chapter from the top.
-        let chapterIndex = (mode == .paginated ? selectedChapterIndex : visibleChapterIndex)
-        let from = (currentAnchor?.chapter == chapterIndex) ? (currentAnchor?.paragraph ?? 0) : 0
-        narrate(chapter: chapterIndex, from: from)
+        // Speech paragraphs are index-aligned with the rendered ones, so pick up
+        // from your live reading position. `currentAnchor` carries both the
+        // chapter and paragraph you're on (across all three reading modes), so
+        // prefer it; fall back to the effective chapter from the top when no
+        // anchor has been sampled yet.
+        if let anchor = currentAnchor {
+            narrate(chapter: anchor.chapter, from: anchor.paragraph)
+        } else {
+            narrate(chapter: effectiveChapterIndex, from: 0)
+        }
+    }
+
+    /// Jump narration to a specific chapter (from its top), keeping the visible
+    /// page in sync so the reader follows along.
+    private func narrate(toChapter index: Int) {
+        guard index != listeningChapter else { return }
+        selectedChapterIndex = index
+        visibleChapterIndex = index
+        narrate(chapter: index, from: 0)
     }
 
     private func narrate(chapter index: Int, from paragraph: Int) {
@@ -405,13 +418,21 @@ struct ReaderView: View {
             }
             Button { speech.skipForward() } label: { Image(systemName: "forward.fill") }
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(speech.chapterLabel)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                Text("¶ \(speech.spokenPosition) / \(speech.spokenCount)")
-                    .font(.caption2)
-                    .foregroundStyle(fg.opacity(0.6))
+            if chapters.count > 1 {
+                Menu {
+                    Picker("Chapter", selection: chapterNarrationBinding) {
+                        ForEach(chapters, id: \.index) { ch in
+                            Text(ch.title.isEmpty ? "Chapter \(ch.index)"
+                                                  : "Chapter \(ch.index): \(ch.title)")
+                                .tag(ch.index)
+                        }
+                    }
+                } label: {
+                    narrationStatus(fg: fg, showChevron: true)
+                }
+                .foregroundStyle(fg)
+            } else {
+                narrationStatus(fg: fg, showChevron: false)
             }
             Spacer()
             
@@ -452,6 +473,35 @@ struct ReaderView: View {
         .overlay(alignment: .top) {
             Rectangle().fill(fg.opacity(0.12)).frame(height: 0.5)
         }
+    }
+
+    /// The chapter label + "¶ x / y" readout shown in the narration bar.
+    /// `showChevron` hints that it's a tappable chapter picker.
+    private func narrationStatus(fg: Color, showChevron: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 3) {
+                Text(speech.chapterLabel)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                if showChevron {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(fg.opacity(0.6))
+                }
+            }
+            Text("¶ \(speech.spokenPosition) / \(speech.spokenCount)")
+                .font(.caption2)
+                .foregroundStyle(fg.opacity(0.6))
+        }
+    }
+
+    /// Drives the narration-bar chapter Picker: reads the chapter being read
+    /// aloud, and on selection jumps narration to the picked chapter.
+    private var chapterNarrationBinding: Binding<Int> {
+        Binding(
+            get: { listeningChapter ?? effectiveChapterIndex },
+            set: { narrate(toChapter: $0) }
+        )
     }
 
     // MARK: - Continuous
