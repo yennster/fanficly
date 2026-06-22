@@ -43,6 +43,16 @@ enum class ReaderTheme(val displayName: String) {
         }
 }
 
+/**
+ * Reader layout mode — a subset of the iOS `ReadingMode`. `PAGINATED` is iOS's
+ * "Swipe by chapter" (a horizontal chapter pager); iOS's measured page-by-page
+ * mode is a follow-up.
+ */
+enum class ReadingMode(val displayName: String) {
+    CONTINUOUS("Continuous scroll"),
+    PAGINATED("Swipe by chapter"),
+}
+
 enum class ReaderFontFamily(val displayName: String) {
     SERIF("Serif"),
     SANS("Sans"),

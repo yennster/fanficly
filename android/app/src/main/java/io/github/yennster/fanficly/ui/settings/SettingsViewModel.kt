@@ -7,6 +7,7 @@ import io.github.yennster.fanficly.FanficlyApplication
 import io.github.yennster.fanficly.data.ReaderSettings
 import io.github.yennster.fanficly.ui.reader.ReaderFontFamily
 import io.github.yennster.fanficly.ui.reader.ReaderTheme
+import io.github.yennster.fanficly.ui.reader.ReadingMode
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -23,4 +24,5 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun setFontSize(size: Float) = viewModelScope.launch { store.update { it.copy(fontSize = size) } }
     fun setLineSpacing(v: Float) = viewModelScope.launch { store.update { it.copy(lineSpacing = v) } }
     fun setParagraphSpacing(v: Float) = viewModelScope.launch { store.update { it.copy(paragraphSpacing = v) } }
+    fun setMode(mode: ReadingMode) = viewModelScope.launch { store.update { it.copy(mode = mode) } }
 }

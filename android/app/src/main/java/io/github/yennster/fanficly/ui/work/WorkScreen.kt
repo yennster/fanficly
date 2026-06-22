@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Comment
@@ -38,10 +41,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.yennster.fanficly.data.ReaderSettings
 import io.github.yennster.fanficly.model.ChapterPayload
 import io.github.yennster.fanficly.ui.reader.HtmlRender
 import io.github.yennster.fanficly.ui.reader.ReaderTheme
+import io.github.yennster.fanficly.ui.reader.ReadingMode
 import io.github.yennster.fanficly.ui.settings.SettingsViewModel
+import androidx.compose.ui.text.font.FontFamily
 
 /**
  * Work detail + continuous reader — the Android counterpart of the iOS
@@ -64,38 +70,6 @@ fun WorkScreen(
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
 
     LaunchedEffect(workId) { viewModel.load(workId) }
-
-    // Flatten chapters into (chapterIndex, paragraph) rows so a single LazyColumn
-    // scrolls the whole work and we can map a list index back to a position.
-    val rows = remember(state.chapters) { flattenChapters(state.chapters) }
-    val listState = rememberLazyListState()
-    // The LazyColumn renders the summary/metadata header as item 0 when present,
-    // so a LazyColumn index maps to rows[index - headerOffset] and vice versa.
-    val headerOffset = if (state.summary != null) 1 else 0
-
-    // Restore saved position once the rows are available.
-    LaunchedEffect(rows, state.startChapter) {
-        if (rows.isNotEmpty()) {
-            val target = rows.indexOfFirst {
-                it is Row.Paragraph && it.chapterIndex == state.startChapter && it.paragraphIndex == state.startParagraph
-            }
-            if (target >= 0) listState.scrollToItem(target + headerOffset)
-        }
-    }
-
-    // Persist the topmost visible paragraph as reading progress (snapshotFlow
-    // emits only on index change). The fraction (row / last row) drives the
-    // last-read widget's progress bar.
-    LaunchedEffect(rows) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .collect { idx ->
-                val rowIdx = idx - headerOffset
-                (rows.getOrNull(rowIdx) as? Row.Paragraph)?.let {
-                    val fraction = if (rows.size > 1) (rowIdx.toFloat() / (rows.size - 1)).coerceIn(0f, 1f) else 0f
-                    viewModel.saveProgress(it.chapterIndex, it.paragraphIndex, fraction)
-                }
-            }
-    }
 
     val theme = settings.theme
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -144,66 +118,148 @@ fun WorkScreen(
             state.error != null -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 Text(state.error!!, color = fg)
             }
-            else -> LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .background(bg),
-            ) {
-                state.summary?.let { summary ->
-                    item {
-                        Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                            Text(summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = fg)
-                            Text("by ${summary.author}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                            if (summary.fandoms.isNotEmpty()) {
-                                Text(summary.fandoms.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.7f), modifier = Modifier.padding(top = 6.dp))
-                            }
-                            if (summary.summary.isNotBlank()) {
-                                Text(
-                                    HtmlRender.paragraphs(summary.summary).joinToString("\n") { it.text },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = fg.copy(alpha = 0.85f),
-                                    modifier = Modifier.padding(top = 12.dp),
-                                )
-                            }
-                        }
-                    }
+            else -> {
+                val contentModifier = Modifier.fillMaxSize().padding(padding).background(bg)
+                when (settings.mode) {
+                    ReadingMode.CONTINUOUS -> ContinuousReader(state, settings, fg, fontFamily, contentModifier, viewModel)
+                    ReadingMode.PAGINATED -> PaginatedReader(state, settings, fg, fontFamily, contentModifier, viewModel)
                 }
+            }
+        }
+    }
+}
 
-                itemsIndexed(rows) { _, row ->
-                    when (row) {
-                        is Row.ChapterHeader -> Text(
-                            text = row.label,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = fg,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-                        )
-                        is Row.Paragraph -> {
-                            if (row.text == HtmlRender.SCENE_BREAK) {
-                                Text(
-                                    HtmlRender.SCENE_BREAK,
-                                    color = fg.copy(alpha = 0.6f),
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = settings.paragraphSpacing.dp),
-                                )
-                            } else {
-                                Text(
-                                    text = row.annotated,
-                                    color = fg,
-                                    fontFamily = fontFamily,
-                                    fontSize = settings.fontSize.sp,
-                                    lineHeight = (settings.fontSize + settings.lineSpacing).sp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 24.dp)
-                                        .padding(bottom = settings.paragraphSpacing.dp),
-                                )
-                            }
-                        }
-                    }
+/** Continuous scroll: the whole work flattened into one LazyColumn. */
+@Composable
+private fun ContinuousReader(
+    state: WorkUiState,
+    settings: ReaderSettings,
+    fg: Color,
+    fontFamily: FontFamily,
+    modifier: Modifier,
+    viewModel: WorkViewModel,
+) {
+    val rows = remember(state.chapters) { flattenChapters(state.chapters) }
+    val listState = rememberLazyListState()
+    // The summary/metadata header is item 0 when present, so a LazyColumn index
+    // maps to rows[index - headerOffset] and vice versa.
+    val headerOffset = if (state.summary != null) 1 else 0
+
+    LaunchedEffect(rows, state.startChapter) {
+        if (rows.isNotEmpty()) {
+            val target = rows.indexOfFirst {
+                it is Row.Paragraph && it.chapterIndex == state.startChapter && it.paragraphIndex == state.startParagraph
+            }
+            if (target >= 0) listState.scrollToItem(target + headerOffset)
+        }
+    }
+    LaunchedEffect(rows) {
+        snapshotFlow { listState.firstVisibleItemIndex }.collect { idx ->
+            val rowIdx = idx - headerOffset
+            (rows.getOrNull(rowIdx) as? Row.Paragraph)?.let {
+                val fraction = if (rows.size > 1) (rowIdx.toFloat() / (rows.size - 1)).coerceIn(0f, 1f) else 0f
+                viewModel.saveProgress(it.chapterIndex, it.paragraphIndex, fraction)
+            }
+        }
+    }
+
+    LazyColumn(state = listState, modifier = modifier) {
+        state.summary?.let { summary -> item { SummaryHeader(summary, fg) } }
+        itemsIndexed(rows) { _, row -> ReaderRow(row, settings, fg, fontFamily) }
+    }
+}
+
+/** Swipe-by-chapter pagination: one horizontally-paged chapter at a time, each
+ *  vertically scrollable. The Android port of the iOS "Swipe by chapter" mode. */
+@Composable
+private fun PaginatedReader(
+    state: WorkUiState,
+    settings: ReaderSettings,
+    fg: Color,
+    fontFamily: FontFamily,
+    modifier: Modifier,
+    viewModel: WorkViewModel,
+) {
+    val pages = remember(state.chapters) { chapterPages(state.chapters) }
+    if (pages.isEmpty()) return
+    val startPage = state.startChapter.coerceIn(0, pages.size - 1)
+    val pagerState = rememberPagerState(initialPage = startPage) { pages.size }
+
+    HorizontalPager(state = pagerState, modifier = modifier) { page ->
+        val pageRows = pages[page]
+        val headerOffset = if (pageRows.firstOrNull() is Row.ChapterHeader) 1 else 0
+        val initialIndex = if (page == startPage) {
+            (state.startParagraph + headerOffset).coerceIn(0, (pageRows.size - 1).coerceAtLeast(0))
+        } else 0
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+
+        // Save chapter + within-chapter paragraph + widget fraction for the
+        // currently-shown page only (re-fires on swipe as currentPage changes).
+        LaunchedEffect(page, pagerState.currentPage) {
+            if (page == pagerState.currentPage) {
+                snapshotFlow { listState.firstVisibleItemIndex }.collect { idx ->
+                    val fraction = if (pages.size > 1) page.toFloat() / (pages.size - 1) else 0f
+                    val paragraph = (pageRows.getOrNull(idx) as? Row.Paragraph)?.paragraphIndex ?: 0
+                    viewModel.saveProgress(page, paragraph, fraction)
                 }
+            }
+        }
+
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            items(pageRows) { row -> ReaderRow(row, settings, fg, fontFamily) }
+        }
+    }
+}
+
+@Composable
+private fun SummaryHeader(summary: io.github.yennster.fanficly.model.WorkSummary, fg: Color) {
+    Column(Modifier.fillMaxWidth().padding(20.dp)) {
+        Text(summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = fg)
+        Text("by ${summary.author}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        if (summary.fandoms.isNotEmpty()) {
+            Text(summary.fandoms.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.7f), modifier = Modifier.padding(top = 6.dp))
+        }
+        if (summary.summary.isNotBlank()) {
+            Text(
+                HtmlRender.paragraphs(summary.summary).joinToString("\n") { it.text },
+                style = MaterialTheme.typography.bodyMedium,
+                color = fg.copy(alpha = 0.85f),
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReaderRow(row: Row, settings: ReaderSettings, fg: Color, fontFamily: FontFamily) {
+    when (row) {
+        is Row.ChapterHeader -> Text(
+            text = row.label,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = fg,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+        )
+        is Row.Paragraph -> {
+            if (row.text == HtmlRender.SCENE_BREAK) {
+                Text(
+                    HtmlRender.SCENE_BREAK,
+                    color = fg.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = settings.paragraphSpacing.dp),
+                )
+            } else {
+                Text(
+                    text = row.annotated,
+                    color = fg,
+                    fontFamily = fontFamily,
+                    fontSize = settings.fontSize.sp,
+                    lineHeight = (settings.fontSize + settings.lineSpacing).sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = settings.paragraphSpacing.dp),
+                )
             }
         }
     }
@@ -232,4 +288,22 @@ private fun flattenChapters(chapters: List<ChapterPayload>): List<Row> {
         }
     }
     return rows
+}
+
+/** Per-chapter row lists for paginated mode (one inner list = one swipe page).
+ *  chapterIndex stays the 0-based loop index `ci`, matching [flattenChapters],
+ *  so saved positions map across both modes. */
+private fun chapterPages(chapters: List<ChapterPayload>): List<List<Row>> {
+    val multi = chapters.size > 1
+    return chapters.mapIndexed { ci, chapter ->
+        val rows = mutableListOf<Row>()
+        if (multi) {
+            val label = if (chapter.title.isBlank()) "Chapter ${chapter.index}" else "Chapter ${chapter.index}: ${chapter.title}"
+            rows += Row.ChapterHeader(label)
+        }
+        HtmlRender.paragraphs(chapter.bodyHtml).forEachIndexed { pi, para ->
+            rows += Row.Paragraph(ci, pi, para.text, para)
+        }
+        rows
+    }
 }

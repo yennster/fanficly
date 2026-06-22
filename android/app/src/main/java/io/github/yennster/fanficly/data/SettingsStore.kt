@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.yennster.fanficly.ui.reader.ReaderFontFamily
 import io.github.yennster.fanficly.ui.reader.ReaderTheme
+import io.github.yennster.fanficly.ui.reader.ReadingMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -25,6 +26,7 @@ data class ReaderSettings(
     val fontSize: Float = 18f,
     val lineSpacing: Float = 6f,
     val paragraphSpacing: Float = 16f,
+    val mode: ReadingMode = ReadingMode.CONTINUOUS,
 )
 
 class SettingsStore(private val context: Context) {
@@ -34,33 +36,29 @@ class SettingsStore(private val context: Context) {
         val FONT_SIZE = floatPreferencesKey("reader.fontSize")
         val LINE_SPACING = floatPreferencesKey("reader.lineSpacing")
         val PARA_SPACING = floatPreferencesKey("reader.paragraphSpacing")
+        val MODE = stringPreferencesKey("reader.mode")
     }
 
-    val settings: Flow<ReaderSettings> = context.dataStore.data.map { p ->
-        ReaderSettings(
-            theme = p[Keys.THEME]?.let { runCatching { ReaderTheme.valueOf(it) }.getOrNull() } ?: ReaderTheme.SYSTEM,
-            fontFamily = p[Keys.FONT]?.let { runCatching { ReaderFontFamily.valueOf(it) }.getOrNull() } ?: ReaderFontFamily.SERIF,
-            fontSize = p[Keys.FONT_SIZE] ?: 18f,
-            lineSpacing = p[Keys.LINE_SPACING] ?: 6f,
-            paragraphSpacing = p[Keys.PARA_SPACING] ?: 16f,
-        )
-    }
+    private fun read(p: Preferences) = ReaderSettings(
+        theme = p[Keys.THEME]?.let { runCatching { ReaderTheme.valueOf(it) }.getOrNull() } ?: ReaderTheme.SYSTEM,
+        fontFamily = p[Keys.FONT]?.let { runCatching { ReaderFontFamily.valueOf(it) }.getOrNull() } ?: ReaderFontFamily.SERIF,
+        fontSize = p[Keys.FONT_SIZE] ?: 18f,
+        lineSpacing = p[Keys.LINE_SPACING] ?: 6f,
+        paragraphSpacing = p[Keys.PARA_SPACING] ?: 16f,
+        mode = p[Keys.MODE]?.let { runCatching { ReadingMode.valueOf(it) }.getOrNull() } ?: ReadingMode.CONTINUOUS,
+    )
+
+    val settings: Flow<ReaderSettings> = context.dataStore.data.map { read(it) }
 
     suspend fun update(transform: (ReaderSettings) -> ReaderSettings) {
         context.dataStore.edit { p ->
-            val current = ReaderSettings(
-                theme = p[Keys.THEME]?.let { runCatching { ReaderTheme.valueOf(it) }.getOrNull() } ?: ReaderTheme.SYSTEM,
-                fontFamily = p[Keys.FONT]?.let { runCatching { ReaderFontFamily.valueOf(it) }.getOrNull() } ?: ReaderFontFamily.SERIF,
-                fontSize = p[Keys.FONT_SIZE] ?: 18f,
-                lineSpacing = p[Keys.LINE_SPACING] ?: 6f,
-                paragraphSpacing = p[Keys.PARA_SPACING] ?: 16f,
-            )
-            val next = transform(current)
+            val next = transform(read(p))
             p[Keys.THEME] = next.theme.name
             p[Keys.FONT] = next.fontFamily.name
             p[Keys.FONT_SIZE] = next.fontSize
             p[Keys.LINE_SPACING] = next.lineSpacing
             p[Keys.PARA_SPACING] = next.paragraphSpacing
+            p[Keys.MODE] = next.mode.name
         }
     }
 }

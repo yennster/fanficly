@@ -23,6 +23,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.yennster.fanficly.ui.reader.ReaderFontFamily
 import io.github.yennster.fanficly.ui.reader.ReaderMetrics
 import io.github.yennster.fanficly.ui.reader.ReaderTheme
+import io.github.yennster.fanficly.ui.reader.ReadingMode
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -43,6 +44,17 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
                     selected = settings.theme == t,
                     onClick = { viewModel.setTheme(t) },
                     label = { Text(t.displayName) },
+                )
+            }
+        }
+
+        SectionHeader("Reading Mode")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ReadingMode.entries.forEach { m ->
+                FilterChip(
+                    selected = settings.mode == m,
+                    onClick = { viewModel.setMode(m) },
+                    label = { Text(m.displayName) },
                 )
             }
         }

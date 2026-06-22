@@ -141,6 +141,11 @@ Implemented:
   gradient; tapping it resumes the work via the AO3-URL `VIEW` intent.
   `WidgetProgressStore` persists the snapshot (fed by every reading-position
   save); on-device only, so it drops the iOS app-group + iCloud KVS mirroring.
+- **Paginated reading mode** — a Reading Mode setting (Settings) toggles the
+  reader between continuous scroll and **swipe-by-chapter** (a `HorizontalPager`,
+  one vertically-scrollable chapter per page), the iOS "Swipe by chapter" mode.
+  Reading position + the widget fraction are preserved across both modes. iOS's
+  measured page-by-page mode is a follow-up.
 - Infinite-scroll results, work reading (continuous scroll with saved reading
   position), save-to-library (local follow, no login), the library with
   All/Starred/Downloaded filters, reader typography/theme settings, AO3 share-in
@@ -148,12 +153,13 @@ Implemented:
   cookie. The launcher icon is the adaptive-icon twin of the iOS app icon (maroon
   gradient + open-book glyph with ruled text lines).
 
-Known follow-ups (present on iOS, not yet on Android): paginated / page-by-page
-reading modes, on-device TTS ("Listen"), and polling AO3-account work
-subscriptions + followed authors for updates (the local-follow poller and the
-subscriptions/bookmarks/widget UI are done). These map cleanly onto the structure
-above — add a parser under `net/parse/` (or `search/` for prompt parsing), a
-method on `AO3Client`, and a screen under `ui/`.
+Known follow-ups (present on iOS, not yet on Android): measured page-by-page
+reading mode (the swipe-by-chapter paginated mode is done), on-device TTS
+("Listen"), and polling AO3-account work subscriptions + followed authors for
+updates (the local-follow poller and the subscriptions/bookmarks/widget UI are
+done). These map cleanly onto the structure above — add a parser under
+`net/parse/` (or `search/` for prompt parsing), a method on `AO3Client`, and a
+screen under `ui/`.
 
 ## Tests
 
