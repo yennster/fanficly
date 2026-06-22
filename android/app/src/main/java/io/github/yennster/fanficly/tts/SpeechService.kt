@@ -97,7 +97,9 @@ class SpeechService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(state.workTitle.ifEmpty { "Listening" })
             .setContentText(content)
-            .setOngoing(state.isPlaying)
+            // Keep the notification pinned for the whole session (playing OR
+            // paused) so its transport controls survive a pause.
+            .setOngoing(state.isActive)
             .setOnlyAlertOnce(true)
             .setContentIntent(tapPending)
             .addAction(0, if (state.isPlaying) "Pause" else "Play", toggle)
