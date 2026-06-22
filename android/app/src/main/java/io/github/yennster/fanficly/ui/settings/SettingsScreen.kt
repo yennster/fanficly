@@ -92,6 +92,15 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
             display = "${settings.paragraphSpacing.toInt()}",
         )
 
+        SectionHeader("Listen (Text-to-Speech)")
+        LabeledSlider(
+            label = "Speed",
+            value = settings.ttsRate,
+            range = 0.5f..2.0f,
+            onChange = viewModel::setTtsRate,
+            display = "${"%.1f".format(settings.ttsRate)}×",
+        )
+
         SectionHeader("Privacy")
         Text(
             "Fanficly stores nothing off-device. There are no analytics, ad IDs, or trackers. " +

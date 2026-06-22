@@ -1,8 +1,10 @@
 package io.github.yennster.fanficly.ui.work
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,9 +14,14 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Comment
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkAdd
@@ -43,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.yennster.fanficly.data.ReaderSettings
 import io.github.yennster.fanficly.model.ChapterPayload
+import io.github.yennster.fanficly.tts.SpeechState
 import io.github.yennster.fanficly.ui.reader.HtmlRender
 import io.github.yennster.fanficly.ui.reader.ReaderTheme
 import io.github.yennster.fanficly.ui.reader.ReadingMode
@@ -68,8 +76,11 @@ fun WorkScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
+    val speech by viewModel.speechState.collectAsStateWithLifecycle()
 
     LaunchedEffect(workId) { viewModel.load(workId) }
+    // Keep the live narrator in sync with the speed setting.
+    LaunchedEffect(settings.ttsRate) { viewModel.setListenRate(settings.ttsRate) }
 
     val theme = settings.theme
     val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -94,6 +105,15 @@ fun WorkScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        if (speech.isActive) viewModel.stopListen() else viewModel.startListening(settings.ttsRate)
+                    }) {
+                        Icon(
+                            Icons.Filled.Headphones,
+                            contentDescription = if (speech.isActive) "Stop listening" else "Listen",
+                            tint = if (speech.isActive) MaterialTheme.colorScheme.primary else fg,
+                        )
+                    }
                     IconButton(onClick = { onShowComments(workId) }) {
                         Icon(Icons.AutoMirrored.Outlined.Comment, contentDescription = "Comments")
                     }
@@ -110,6 +130,17 @@ fun WorkScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = bg, titleContentColor = fg),
             )
         },
+        bottomBar = {
+            if (speech.isActive) {
+                ListenBar(
+                    speech = speech,
+                    bg = bg,
+                    fg = fg,
+                    onToggle = { viewModel.toggleListen() },
+                    onStop = { viewModel.stopListen() },
+                )
+            }
+        },
     ) { padding ->
         when {
             state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -120,10 +151,59 @@ fun WorkScreen(
             }
             else -> {
                 val contentModifier = Modifier.fillMaxSize().padding(padding).background(bg)
+                // Highlight the spoken paragraph only in continuous mode.
+                val highlightChapter = if (speech.isActive) speech.chapterIndex else null
+                val highlightParagraph = if (speech.isActive) speech.currentParagraph else null
                 when (settings.mode) {
-                    ReadingMode.CONTINUOUS -> ContinuousReader(state, settings, fg, fontFamily, contentModifier, viewModel)
+                    ReadingMode.CONTINUOUS -> ContinuousReader(
+                        state, settings, fg, fontFamily, contentModifier, viewModel,
+                        highlightChapter, highlightParagraph,
+                    )
                     ReadingMode.PAGINATED -> PaginatedReader(state, settings, fg, fontFamily, contentModifier, viewModel)
                 }
+            }
+        }
+    }
+}
+
+/** Bottom "Listen" control bar: play/pause, stop, chapter + paragraph readout. */
+@Composable
+private fun ListenBar(
+    speech: SpeechState,
+    bg: Color,
+    fg: Color,
+    onToggle: () -> Unit,
+    onStop: () -> Unit,
+) {
+    androidx.compose.material3.Surface(color = bg, contentColor = fg, tonalElevation = 3.dp) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onToggle) {
+                Icon(
+                    if (speech.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (speech.isPlaying) "Pause" else "Play",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    speech.chapterLabel.ifEmpty { speech.workTitle.ifEmpty { "Listening" } },
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    color = fg,
+                )
+                if (speech.spokenCount > 0) {
+                    Text(
+                        "¶ ${speech.spokenPosition} / ${speech.spokenCount}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = fg.copy(alpha = 0.6f),
+                    )
+                }
+            }
+            IconButton(onClick = onStop) {
+                Icon(Icons.Filled.Stop, contentDescription = "Stop", tint = fg)
             }
         }
     }
@@ -138,6 +218,8 @@ private fun ContinuousReader(
     fontFamily: FontFamily,
     modifier: Modifier,
     viewModel: WorkViewModel,
+    highlightChapter: Int? = null,
+    highlightParagraph: Int? = null,
 ) {
     val rows = remember(state.chapters) { flattenChapters(state.chapters) }
     val listState = rememberLazyListState()
@@ -162,10 +244,23 @@ private fun ContinuousReader(
             }
         }
     }
+    // Karaoke: scroll the spoken paragraph into view as narration moves.
+    LaunchedEffect(highlightChapter, highlightParagraph) {
+        if (highlightChapter != null && highlightParagraph != null) {
+            val target = rows.indexOfFirst {
+                it is Row.Paragraph && it.chapterIndex == highlightChapter && it.paragraphIndex == highlightParagraph
+            }
+            if (target >= 0) listState.animateScrollToItem((target + headerOffset).coerceAtLeast(0))
+        }
+    }
 
     LazyColumn(state = listState, modifier = modifier) {
         state.summary?.let { summary -> item { SummaryHeader(summary, fg) } }
-        itemsIndexed(rows) { _, row -> ReaderRow(row, settings, fg, fontFamily) }
+        itemsIndexed(rows) { _, row ->
+            val highlighted = row is Row.Paragraph &&
+                row.chapterIndex == highlightChapter && row.paragraphIndex == highlightParagraph
+            ReaderRow(row, settings, fg, fontFamily, highlighted)
+        }
     }
 }
 
@@ -237,7 +332,13 @@ private fun SummaryHeader(summary: io.github.yennster.fanficly.model.WorkSummary
 }
 
 @Composable
-private fun ReaderRow(row: Row, settings: ReaderSettings, fg: Color, fontFamily: FontFamily) {
+private fun ReaderRow(
+    row: Row,
+    settings: ReaderSettings,
+    fg: Color,
+    fontFamily: FontFamily,
+    highlighted: Boolean = false,
+) {
     when (row) {
         is Row.ChapterHeader -> Text(
             text = row.label,
@@ -255,6 +356,12 @@ private fun ReaderRow(row: Row, settings: ReaderSettings, fg: Color, fontFamily:
                     modifier = Modifier.fillMaxWidth().padding(vertical = settings.paragraphSpacing.dp),
                 )
             } else {
+                val highlightModifier = if (highlighted) {
+                    Modifier.background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                        RoundedCornerShape(6.dp),
+                    )
+                } else Modifier
                 Text(
                     text = row.annotated,
                     color = fg,
@@ -263,7 +370,9 @@ private fun ReaderRow(row: Row, settings: ReaderSettings, fg: Color, fontFamily:
                     lineHeight = (settings.fontSize + settings.lineSpacing).sp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
+                        .padding(horizontal = 16.dp)
+                        .then(highlightModifier)
+                        .padding(horizontal = 8.dp)
                         .padding(bottom = settings.paragraphSpacing.dp),
                 )
             }

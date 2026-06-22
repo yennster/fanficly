@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- For the "new chapter" subscription poller's local notifications (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- For "Listen" (on-device TextToSpeech) playback in the background. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <application
         android:name=".FanficlyApplication"
@@ -63,5 +66,11 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_last_read_info" />
         </receiver>
+
+        <!-- "Listen" background TextToSpeech playback. -->
+        <service
+            android:name=".tts.SpeechService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>

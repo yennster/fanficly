@@ -25,4 +25,5 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun setLineSpacing(v: Float) = viewModelScope.launch { store.update { it.copy(lineSpacing = v) } }
     fun setParagraphSpacing(v: Float) = viewModelScope.launch { store.update { it.copy(paragraphSpacing = v) } }
     fun setMode(mode: ReadingMode) = viewModelScope.launch { store.update { it.copy(mode = mode) } }
+    fun setTtsRate(v: Float) = viewModelScope.launch { store.update { it.copy(ttsRate = v) } }
 }

@@ -27,6 +27,8 @@ data class ReaderSettings(
     val lineSpacing: Float = 6f,
     val paragraphSpacing: Float = 16f,
     val mode: ReadingMode = ReadingMode.CONTINUOUS,
+    /** TextToSpeech speed multiplier for "Listen" (1.0 = normal). */
+    val ttsRate: Float = 1.0f,
 )
 
 class SettingsStore(private val context: Context) {
@@ -37,6 +39,7 @@ class SettingsStore(private val context: Context) {
         val LINE_SPACING = floatPreferencesKey("reader.lineSpacing")
         val PARA_SPACING = floatPreferencesKey("reader.paragraphSpacing")
         val MODE = stringPreferencesKey("reader.mode")
+        val TTS_RATE = floatPreferencesKey("reader.ttsRate")
     }
 
     private fun read(p: Preferences) = ReaderSettings(
@@ -46,6 +49,7 @@ class SettingsStore(private val context: Context) {
         lineSpacing = p[Keys.LINE_SPACING] ?: 6f,
         paragraphSpacing = p[Keys.PARA_SPACING] ?: 16f,
         mode = p[Keys.MODE]?.let { runCatching { ReadingMode.valueOf(it) }.getOrNull() } ?: ReadingMode.CONTINUOUS,
+        ttsRate = p[Keys.TTS_RATE] ?: 1.0f,
     )
 
     val settings: Flow<ReaderSettings> = context.dataStore.data.map { read(it) }
@@ -59,6 +63,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.LINE_SPACING] = next.lineSpacing
             p[Keys.PARA_SPACING] = next.paragraphSpacing
             p[Keys.MODE] = next.mode.name
+            p[Keys.TTS_RATE] = next.ttsRate
         }
     }
 }

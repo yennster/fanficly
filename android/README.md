@@ -69,6 +69,9 @@ android/app/src/main/java/io/github/yennster/fanficly/
   widget/
     FanficlyWidgetProvider.kt # last-read App Widget (RemoteViews) + resume tap
     WidgetProgressStore.kt    # last-read snapshot in SharedPreferences
+  tts/
+    SpeechController.kt       # TextToSpeech narrator (whole-work, auto-advance)
+    SpeechService.kt          # foreground service + playback notification
   search/
     SearchPromptParser.kt     # rules-based prompt → AO3SearchFilters
     KnownTags.kt              # curated freeform/fandom/rating/… dictionaries
@@ -146,6 +149,14 @@ Implemented:
   one vertically-scrollable chapter per page), the iOS "Swipe by chapter" mode.
   Reading position + the widget fraction are preserved across both modes. iOS's
   measured page-by-page mode is a follow-up.
+- **On-device TTS ("Listen")** — `tts/SpeechController.kt` wraps the framework
+  `TextToSpeech` (the device's local engine — no network, so the privacy posture
+  holds), narrating the whole work and auto-advancing chapters; a foreground
+  `tts/SpeechService.kt` keeps playback alive in the background with a
+  play/pause/stop notification. The reader has a Listen toggle, a control bar
+  (¶ x / y), karaoke highlight + auto-scroll of the spoken paragraph (continuous
+  mode), and a speed setting. A full MediaSession/MediaStyle lock-screen
+  treatment (needs `androidx.media`) and karaoke in paginated mode are follow-ups.
 - Infinite-scroll results, work reading (continuous scroll with saved reading
   position), save-to-library (local follow, no login), the library with
   All/Starred/Downloaded filters, reader typography/theme settings, AO3 share-in
@@ -153,13 +164,13 @@ Implemented:
   cookie. The launcher icon is the adaptive-icon twin of the iOS app icon (maroon
   gradient + open-book glyph with ruled text lines).
 
-Known follow-ups (present on iOS, not yet on Android): measured page-by-page
-reading mode (the swipe-by-chapter paginated mode is done), on-device TTS
-("Listen"), and polling AO3-account work subscriptions + followed authors for
-updates (the local-follow poller and the subscriptions/bookmarks/widget UI are
-done). These map cleanly onto the structure above — add a parser under
-`net/parse/` (or `search/` for prompt parsing), a method on `AO3Client`, and a
-screen under `ui/`.
+Known follow-ups / refinements (present on iOS, not yet on Android): measured
+page-by-page reading mode (the swipe-by-chapter paginated mode is done); a full
+MediaSession lock-screen treatment for "Listen" (basic notification controls are
+done); and polling AO3-account work subscriptions + followed authors for updates
+(the local-follow poller and the subscriptions/bookmarks/widget UI are done).
+These map cleanly onto the structure above — add a parser under `net/parse/` (or
+`search/` for prompt parsing), a method on `AO3Client`, and a screen under `ui/`.
 
 ## Tests
 

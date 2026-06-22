@@ -7,6 +7,7 @@ import io.github.yennster.fanficly.data.SettingsStore
 import io.github.yennster.fanficly.data.db.AppDatabase
 import io.github.yennster.fanficly.net.AO3Client
 import io.github.yennster.fanficly.net.LiveAO3Client
+import io.github.yennster.fanficly.tts.SpeechController
 import io.github.yennster.fanficly.widget.WidgetProgressStore
 
 /**
@@ -24,4 +25,5 @@ class AppContainer(context: Context, versionName: String) {
     val settingsStore = SettingsStore(context)
     val popularStore = PopularStore(context)
     val widgetProgressStore = WidgetProgressStore(context)
+    val speechController = SpeechController(context)
 }

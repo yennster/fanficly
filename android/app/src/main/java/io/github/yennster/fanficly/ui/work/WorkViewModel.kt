@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import io.github.yennster.fanficly.FanficlyApplication
 import io.github.yennster.fanficly.model.ChapterPayload
 import io.github.yennster.fanficly.model.WorkSummary
+import io.github.yennster.fanficly.tts.SpeechState
+import io.github.yennster.fanficly.ui.reader.HtmlRender
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,7 +31,14 @@ class WorkViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(WorkUiState())
     val state: StateFlow<WorkUiState> = _state.asStateFlow()
 
+    private val speech = container.speechController
+    /** Observable "Listen" narrator state for the reader's highlight + bar. */
+    val speechState: StateFlow<SpeechState> = speech.state
+
     private var workId: Int = -1
+    // Live reading position, so "Listen" starts from where the reader is.
+    private var lastChapter = 0
+    private var lastParagraph = 0
 
     fun load(id: Int) {
         if (workId == id && _state.value.summary != null) return
@@ -67,6 +76,8 @@ class WorkViewModel(app: Application) : AndroidViewModel(app) {
      *  the last-read home-screen widget with the work's title/author/progress. */
     fun saveProgress(chapter: Int, paragraph: Int, progress: Float) {
         if (workId < 0) return
+        lastChapter = chapter
+        lastParagraph = paragraph
         val summary = _state.value.summary
         viewModelScope.launch {
             repo.saveProgress(workId, chapter, paragraph)
@@ -78,4 +89,25 @@ class WorkViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    // MARK: - Listen (text-to-speech)
+
+    /** Start narrating the whole work from the reader's current position. */
+    fun startListening(rate: Float) {
+        val chapters = _state.value.chapters
+        if (chapters.isEmpty()) return
+        val multi = chapters.size > 1
+        val paragraphLists = chapters.map { ch ->
+            HtmlRender.paragraphs(ch.bodyHtml).map { if (it.text == HtmlRender.SCENE_BREAK) "" else it.text }
+        }
+        val labels = chapters.map { ch ->
+            if (!multi) "" else if (ch.title.isBlank()) "Chapter ${ch.index}" else "Chapter ${ch.index}: ${ch.title}"
+        }
+        speech.setRate(rate)
+        speech.play(paragraphLists, labels, _state.value.summary?.title ?: "", lastChapter, lastParagraph)
+    }
+
+    fun toggleListen() = speech.togglePlayPause()
+    fun stopListen() = speech.stop()
+    fun setListenRate(rate: Float) = speech.setRate(rate)
 }
