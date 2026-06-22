@@ -48,7 +48,7 @@ class SubscriptionPoller(
             if (known.isNotEmpty()) {
                 val newWorks = result.works.filter { it.id !in known }
                 if (newWorks.isNotEmpty()) {
-                    Notifications.postNewWork(context, author.displayName, newWorks)
+                    Notifications.postNewWork(context, author.username, author.displayName, newWorks)
                     notified += newWorks.size
                 }
             }

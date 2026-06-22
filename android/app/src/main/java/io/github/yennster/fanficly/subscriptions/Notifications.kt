@@ -34,26 +34,34 @@ object Notifications {
         }
     }
 
-    fun postNewWork(context: Context, author: String, newWorks: List<io.github.yennster.fanficly.model.WorkSummary>) {
+    /** @param authorKey the stable username (DB primary key) for the notification
+     *   id, so two authors with the same [authorName] don't collide. */
+    fun postNewWork(
+        context: Context,
+        authorKey: String,
+        authorName: String,
+        newWorks: List<io.github.yennster.fanficly.model.WorkSummary>,
+    ) {
         if (!canPost(context) || newWorks.isEmpty()) return
         ensureChannel(context)
         val first = newWorks.first()
         val body = if (newWorks.size == 1) "New work: ${first.title}" else "${newWorks.size} new works posted"
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://archiveofourown.org/works/${first.id}"))
             .setPackage(context.packageName)
+        val id = "author-$authorKey".hashCode()
         val pending = PendingIntent.getActivity(
-            context, author.hashCode(), intent,
+            context, id, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
-            .setContentTitle(author)
+            .setContentTitle(authorName)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
-        NotificationManagerCompat.from(context).notify("author-$author".hashCode(), notification)
+        NotificationManagerCompat.from(context).notify(id, notification)
     }
 
     fun postNewChapter(context: Context, workId: Int, title: String, oldCount: Int, newCount: Int) {

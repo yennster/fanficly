@@ -161,7 +161,9 @@ fun WorkScreen(
                         state, settings, fg, fontFamily, contentModifier, viewModel,
                         highlightChapter, highlightParagraph, onOpenAuthor,
                     )
-                    ReadingMode.PAGINATED -> PaginatedReader(state, settings, fg, fontFamily, contentModifier, viewModel)
+                    ReadingMode.PAGINATED -> PaginatedReader(
+                        state, settings, fg, fontFamily, contentModifier, viewModel, onOpenAuthor,
+                    )
                 }
             }
         }
@@ -277,6 +279,7 @@ private fun PaginatedReader(
     fontFamily: FontFamily,
     modifier: Modifier,
     viewModel: WorkViewModel,
+    onOpenAuthor: (username: String, displayName: String) -> Unit = { _, _ -> },
 ) {
     val pages = remember(state.chapters) { chapterPages(state.chapters) }
     if (pages.isEmpty()) return
@@ -287,8 +290,11 @@ private fun PaginatedReader(
         val pageRows = pages[page]
         val headerOffset = if (pageRows.firstOrNull() is Row.ChapterHeader) 1 else 0
         val paragraphCount = remember(pageRows) { pageRows.count { it is Row.Paragraph } }
+        // The summary/byline is shown once, atop page 0, so on that page a
+        // LazyColumn index maps to pageRows[index - summaryOffset].
+        val summaryOffset = if (page == 0 && state.summary != null) 1 else 0
         val initialIndex = if (page == startPage) {
-            (state.startParagraph + headerOffset).coerceIn(0, (pageRows.size - 1).coerceAtLeast(0))
+            (state.startParagraph + headerOffset + summaryOffset).coerceIn(0, (pageRows.size - 1 + summaryOffset).coerceAtLeast(0))
         } else 0
         val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
 
@@ -297,7 +303,7 @@ private fun PaginatedReader(
         LaunchedEffect(page, pagerState.currentPage) {
             if (page == pagerState.currentPage) {
                 snapshotFlow { listState.firstVisibleItemIndex }.collect { idx ->
-                    val paragraph = (pageRows.getOrNull(idx) as? Row.Paragraph)?.paragraphIndex ?: 0
+                    val paragraph = (pageRows.getOrNull(idx - summaryOffset) as? Row.Paragraph)?.paragraphIndex ?: 0
                     // Blend within-chapter scroll into the fraction and divide by
                     // chapter count (matching iOS readingProgressFraction), so a
                     // one-shot still advances 0→1 and the last chapter isn't
@@ -310,6 +316,7 @@ private fun PaginatedReader(
         }
 
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            if (page == 0) state.summary?.let { summary -> item { SummaryHeader(summary, fg, onOpenAuthor) } }
             items(pageRows) { row -> ReaderRow(row, settings, fg, fontFamily) }
         }
     }
