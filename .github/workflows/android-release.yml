@@ -1,0 +1,101 @@
+name: Android Release APK
+
+# Builds the Android app and attaches a downloadable, sideloadable APK to the
+# GitHub Release — so people can grab Fanficly for Android straight from the
+# repo's Releases page (the iOS/Mac builds go to the App Store via fastlane).
+#
+# Triggers when you publish a GitHub Release; also runnable by hand against an
+# existing tag. If the four signing secrets below are configured it ships a
+# signed *release* APK; otherwise it falls back to the always-installable
+# *debug* APK so the workflow works out of the box.
+#
+# Optional secrets for a signed release build (see docs/ANDROID_PUBLISHING.md):
+#   ANDROID_KEYSTORE_BASE64  - `base64 -i fanficly-upload.keystore` of the upload keystore
+#   ANDROID_STORE_PASSWORD   - keystore password
+#   ANDROID_KEY_ALIAS        - key alias (e.g. "fanficly")
+#   ANDROID_KEY_PASSWORD     - key password
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build + attach the APK to (e.g. v1.5.0)"
+        required: true
+
+permissions:
+  contents: write          # upload assets to the release
+
+jobs:
+  apk:
+    name: Build & attach APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle (with caching)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve release tag
+        id: tag
+        run: echo "tag=${{ github.event.release.tag_name || github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Decode upload keystore (when configured)
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/fanficly.keystore"
+            echo "path=$RUNNER_TEMP/fanficly.keystore" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret — building the debug APK instead."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
+        id: build
+        env:
+          # Mapped to the names android/app/build.gradle.kts reads.
+          FANFICLY_STORE_FILE: ${{ steps.keystore.outputs.path }}
+          FANFICLY_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          FANFICLY_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          FANFICLY_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+            ./gradlew --no-daemon :app:assembleRelease
+            echo "apk=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
+            echo "suffix=" >> "$GITHUB_OUTPUT"
+          else
+            ./gradlew --no-daemon :app:assembleDebug
+            echo "apk=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
+            echo "suffix=-debug" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Name the artifact
+        id: artifact
+        run: |
+          set -euo pipefail
+          NAME="fanficly-${{ steps.tag.outputs.tag }}${{ steps.build.outputs.suffix }}.apk"
+          cp "${{ steps.build.outputs.apk }}" "$RUNNER_TEMP/$NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Attach APK to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" \
+            "$RUNNER_TEMP/${{ steps.artifact.outputs.name }}" \
+            --clobber --repo "$GITHUB_REPOSITORY"

@@ -34,6 +34,12 @@ cd android
 > Gradle Plugin) plus a local Android SDK. In an offline sandbox the plugin
 > resolution step will fail — that's expected.
 
+> **Downloadable builds:** publishing a GitHub Release runs
+> [`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml),
+> which builds the APK and attaches it to that release as `fanficly-<tag>.apk`
+> (signed if the keystore secrets are set, debug otherwise). See
+> [the publishing doc](../docs/ANDROID_PUBLISHING.md#github-releases-a-downloadable-apk).
+
 ## Architecture
 
 The module mirrors the iOS layering one-to-one. The **only seam to the network**

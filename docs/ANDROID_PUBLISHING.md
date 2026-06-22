@@ -12,6 +12,9 @@ content-rating and data-safety answers below.
 > 2. `cd android && ./gradlew bundleRelease` (with signing env vars set).
 > 3. Upload `android/app/build/outputs/bundle/release/app-release.aab` to the
 >    Play Console, fill in release notes, roll out.
+>
+> For a **direct download**, publishing a GitHub Release auto-attaches a
+> sideloadable APK — see [GitHub Releases](#github-releases-a-downloadable-apk).
 
 ---
 
@@ -244,6 +247,39 @@ client mirrors the iOS app's etiquette and **must keep doing so**:
 
 Respect AO3's Terms of Service. If AO3 ever asks the app to change behavior,
 that takes priority over any feature.
+
+---
+
+## GitHub Releases: a downloadable APK
+
+Besides the Play Store, the app is published as a **sideloadable APK attached to
+each GitHub Release**, so people can grab it straight from the repo's Releases
+page. This is automated by
+[`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml):
+
+- It runs when you **publish a GitHub Release** (and is also runnable by hand via
+  *Actions → Android Release APK → Run workflow* against an existing tag).
+- It builds the APK and uploads it to that release as
+  `fanficly-<tag>.apk`.
+
+**Signing.** If the four optional repo secrets below are set, it ships a **signed
+release APK** (`assembleRelease`); otherwise it falls back to the always-
+installable **debug APK** (`fanficly-<tag>-debug.apk`) so the workflow works with
+zero setup. To produce signed release downloads, add these under
+*Settings → Secrets and variables → Actions* — they map to the same
+`FANFICLY_*` build inputs used for the Play Store build (section 2):
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -i fanficly-upload.keystore` (the upload keystore, base64-encoded) |
+| `ANDROID_STORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | key alias (e.g. `fanficly`) |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+> A GitHub-Release APK signed with the **upload key** is a normal sideload build;
+> it is *not* the Play-signed artifact Google distributes (Play App Signing
+> re-signs uploads). That's fine for direct downloads — just keep the same upload
+> keystore so updates install over each other.
 
 ---
 
