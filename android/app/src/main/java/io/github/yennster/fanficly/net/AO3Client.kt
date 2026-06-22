@@ -114,12 +114,12 @@ class LiveAO3Client(
             .build()
         val respHtml = executeString(request)
 
-        LoginParser.currentUsername(respHtml)?.let { cachedUsername = it; return@withContext }
+        LoginParser.currentUsername(respHtml)?.let { cachedUsername = it; cookieJar.saveUsername(it); return@withContext }
         LoginParser.detectLoginFailure(respHtml)?.let { throw AO3Exception.LoginFailed(it) }
         if (LoginParser.hasLoginForm(respHtml)) {
             throw AO3Exception.LoginFailed("Incorrect username or password.")
         }
-        if (cookieJar.hasSession()) { cachedUsername = username; return@withContext }
+        if (cookieJar.hasSession()) { cachedUsername = username; cookieJar.saveUsername(username); return@withContext }
         throw AO3Exception.LoginFailed("Couldn't confirm login. Please try again.")
     }
 
@@ -128,7 +128,14 @@ class LiveAO3Client(
         cachedUsername = null
     }
 
-    override fun currentUsername(): String? = cachedUsername
+    override fun currentUsername(): String? {
+        cachedUsername?.let { return it }
+        // Rehydrate after a process restart: the session cookie persists, but the
+        // in-memory username doesn't — load the one saved at login time.
+        if (cookieJar.hasSession()) cachedUsername = cookieJar.savedUsername()
+        return cachedUsername
+    }
+
     override fun isLoggedIn(): Boolean = cachedUsername != null || cookieJar.hasSession()
 
     override suspend fun search(filters: AO3SearchFilters, page: Int): SearchResults =

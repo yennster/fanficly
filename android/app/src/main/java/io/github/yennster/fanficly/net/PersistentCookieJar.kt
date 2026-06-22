@@ -71,6 +71,14 @@ class PersistentCookieJar(context: Context) : CookieJar {
     fun hasSession(): Boolean =
         store.keys.any { it.contains("user_credentials") || it.contains("remember_user_token") }
 
+    /** The logged-in username, persisted alongside the session so it survives a
+     *  process restart (the cookie does, but the in-memory username doesn't). */
+    fun savedUsername(): String? = prefs.getString(KEY_USERNAME, null)
+
+    fun saveUsername(name: String) {
+        prefs.edit().putString(KEY_USERNAME, name).apply()
+    }
+
     private fun persist() {
         val serialized = store.values.map { it.toString() }.toSet()
         prefs.edit().putStringSet(KEY_COOKIES, serialized).apply()
@@ -85,5 +93,6 @@ class PersistentCookieJar(context: Context) : CookieJar {
 
     private companion object {
         const val KEY_COOKIES = "ao3_cookies"
+        const val KEY_USERNAME = "ao3_username"
     }
 }
