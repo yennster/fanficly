@@ -188,6 +188,7 @@ private fun PaginatedReader(
     HorizontalPager(state = pagerState, modifier = modifier) { page ->
         val pageRows = pages[page]
         val headerOffset = if (pageRows.firstOrNull() is Row.ChapterHeader) 1 else 0
+        val paragraphCount = remember(pageRows) { pageRows.count { it is Row.Paragraph } }
         val initialIndex = if (page == startPage) {
             (state.startParagraph + headerOffset).coerceIn(0, (pageRows.size - 1).coerceAtLeast(0))
         } else 0
@@ -198,8 +199,13 @@ private fun PaginatedReader(
         LaunchedEffect(page, pagerState.currentPage) {
             if (page == pagerState.currentPage) {
                 snapshotFlow { listState.firstVisibleItemIndex }.collect { idx ->
-                    val fraction = if (pages.size > 1) page.toFloat() / (pages.size - 1) else 0f
                     val paragraph = (pageRows.getOrNull(idx) as? Row.Paragraph)?.paragraphIndex ?: 0
+                    // Blend within-chapter scroll into the fraction and divide by
+                    // chapter count (matching iOS readingProgressFraction), so a
+                    // one-shot still advances 0→1 and the last chapter isn't
+                    // reported "finished" the instant it's reached.
+                    val paraProgress = if (paragraphCount > 1) (paragraph.toFloat() / (paragraphCount - 1)).coerceIn(0f, 1f) else 0f
+                    val fraction = ((page + paraProgress) / pages.size).coerceIn(0f, 1f)
                     viewModel.saveProgress(page, paragraph, fraction)
                 }
             }
