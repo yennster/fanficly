@@ -1,6 +1,7 @@
 package io.github.yennster.fanficly.ui.work
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +72,7 @@ fun WorkScreen(
     onBack: () -> Unit,
     onShowSettings: () -> Unit,
     onShowComments: (Int) -> Unit = {},
+    onOpenAuthor: (username: String, displayName: String) -> Unit = { _, _ -> },
     viewModel: WorkViewModel = viewModel(),
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
@@ -157,7 +159,7 @@ fun WorkScreen(
                 when (settings.mode) {
                     ReadingMode.CONTINUOUS -> ContinuousReader(
                         state, settings, fg, fontFamily, contentModifier, viewModel,
-                        highlightChapter, highlightParagraph,
+                        highlightChapter, highlightParagraph, onOpenAuthor,
                     )
                     ReadingMode.PAGINATED -> PaginatedReader(state, settings, fg, fontFamily, contentModifier, viewModel)
                 }
@@ -220,6 +222,7 @@ private fun ContinuousReader(
     viewModel: WorkViewModel,
     highlightChapter: Int? = null,
     highlightParagraph: Int? = null,
+    onOpenAuthor: (username: String, displayName: String) -> Unit = { _, _ -> },
 ) {
     val rows = remember(state.chapters) { flattenChapters(state.chapters) }
     val listState = rememberLazyListState()
@@ -255,7 +258,7 @@ private fun ContinuousReader(
     }
 
     LazyColumn(state = listState, modifier = modifier) {
-        state.summary?.let { summary -> item { SummaryHeader(summary, fg) } }
+        state.summary?.let { summary -> item { SummaryHeader(summary, fg, onOpenAuthor) } }
         itemsIndexed(rows) { _, row ->
             val highlighted = row is Row.Paragraph &&
                 row.chapterIndex == highlightChapter && row.paragraphIndex == highlightParagraph
@@ -313,10 +316,23 @@ private fun PaginatedReader(
 }
 
 @Composable
-private fun SummaryHeader(summary: io.github.yennster.fanficly.model.WorkSummary, fg: Color) {
+private fun SummaryHeader(
+    summary: io.github.yennster.fanficly.model.WorkSummary,
+    fg: Color,
+    onOpenAuthor: (username: String, displayName: String) -> Unit = { _, _ -> },
+) {
     Column(Modifier.fillMaxWidth().padding(20.dp)) {
         Text(summary.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = fg)
-        Text("by ${summary.author}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        // Tappable byline → "more by this author" (only when the AO3 login is known).
+        val bylineModifier = if (summary.authorUsername.isNotEmpty()) {
+            Modifier.clickable { onOpenAuthor(summary.authorUsername, summary.author) }
+        } else Modifier
+        Text(
+            "by ${summary.author}",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = bylineModifier,
+        )
         if (summary.fandoms.isNotEmpty()) {
             Text(summary.fandoms.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = fg.copy(alpha = 0.7f), modifier = Modifier.padding(top = 6.dp))
         }

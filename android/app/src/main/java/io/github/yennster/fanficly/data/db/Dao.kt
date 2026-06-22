@@ -49,6 +49,27 @@ interface SavedWorkDao {
 }
 
 @Dao
+interface FollowedAuthorDao {
+    @Query("SELECT * FROM followed_authors ORDER BY displayName COLLATE NOCASE ASC")
+    fun observeAll(): Flow<List<FollowedAuthorEntity>>
+
+    @Query("SELECT * FROM followed_authors")
+    suspend fun all(): List<FollowedAuthorEntity>
+
+    @Query("SELECT * FROM followed_authors WHERE username = :username LIMIT 1")
+    suspend fun find(username: String): FollowedAuthorEntity?
+
+    @Upsert
+    suspend fun upsert(author: FollowedAuthorEntity)
+
+    @Query("DELETE FROM followed_authors WHERE username = :username")
+    suspend fun delete(username: String)
+
+    @Query("UPDATE followed_authors SET knownWorkIds = :ids, lastCheckedAtMillis = :checkedAt WHERE username = :username")
+    suspend fun updateChecked(username: String, ids: String, checkedAt: Long)
+}
+
+@Dao
 interface ReadingProgressDao {
     @Query("SELECT * FROM reading_progress WHERE ao3Id = :id LIMIT 1")
     suspend fun find(id: Int): ReadingProgressEntity?

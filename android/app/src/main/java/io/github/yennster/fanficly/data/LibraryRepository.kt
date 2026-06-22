@@ -1,5 +1,7 @@
 package io.github.yennster.fanficly.data
 
+import io.github.yennster.fanficly.data.db.FollowedAuthorDao
+import io.github.yennster.fanficly.data.db.FollowedAuthorEntity
 import io.github.yennster.fanficly.data.db.ReadingProgressEntity
 import io.github.yennster.fanficly.data.db.ReadingProgressDao
 import io.github.yennster.fanficly.data.db.SavedWorkDao
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 class LibraryRepository(
     private val savedWorkDao: SavedWorkDao,
     private val progressDao: ReadingProgressDao,
+    private val followedAuthorDao: FollowedAuthorDao,
 ) {
     fun observeAll(): Flow<List<SavedWorkEntity>> = savedWorkDao.observeAll()
     fun observeStarred(): Flow<List<SavedWorkEntity>> = savedWorkDao.observeStarred()
@@ -56,6 +59,41 @@ class LibraryRepository(
     /** Locally-followed works + their last-seen chapter counts, for the poller. */
     suspend fun followedWorks() = savedWorkDao.followedWorks()
     suspend fun setLastSeenChapterCount(id: Int, count: Int) = savedWorkDao.setLastSeenChapterCount(id, count)
+
+    // MARK: - Followed authors (local-only, like work follows)
+
+    fun observeFollowedAuthors(): Flow<List<FollowedAuthorEntity>> = followedAuthorDao.observeAll()
+    suspend fun followedAuthors(): List<FollowedAuthorEntity> = followedAuthorDao.all()
+    suspend fun isAuthorFollowed(username: String): Boolean =
+        username.isNotEmpty() && followedAuthorDao.find(username) != null
+
+    /**
+     * Toggle following an author. [seedWorkIds] are the work ids visible at
+     * follow time, recorded so the poller's first check doesn't alert for the
+     * existing back catalogue. Returns the new follow state.
+     */
+    suspend fun toggleFollowAuthor(username: String, displayName: String, seedWorkIds: List<Int>): Boolean {
+        if (username.isEmpty()) return false
+        return if (followedAuthorDao.find(username) != null) {
+            followedAuthorDao.delete(username); false
+        } else {
+            followedAuthorDao.upsert(
+                FollowedAuthorEntity(
+                    username = username,
+                    displayName = displayName.ifEmpty { username },
+                    followedAtMillis = System.currentTimeMillis(),
+                    lastCheckedAtMillis = null,
+                    knownWorkIds = FollowedAuthorEntity.joinIds(seedWorkIds),
+                ),
+            )
+            true
+        }
+    }
+
+    suspend fun updateAuthorChecked(username: String, knownIds: Collection<Int>, checkedAt: Long) =
+        followedAuthorDao.updateChecked(username, FollowedAuthorEntity.joinIds(knownIds), checkedAt)
+
+    suspend fun unfollowAuthor(username: String) = followedAuthorDao.delete(username)
 
     suspend fun loadProgress(id: Int): ReadingProgressEntity? = progressDao.find(id)
 

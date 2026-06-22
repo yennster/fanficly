@@ -93,6 +93,7 @@ android/app/src/main/java/io/github/yennster/fanficly/
     comments/                 # CommentsScreen + ViewModel (view/post)
     bookmarks/                # BookmarksScreen + ViewModel (login-gated)
     subscriptions/            # SubscriptionsScreen + ViewModel (login-gated)
+    authors/                  # AuthorWorks + FollowedAuthors (the Authors tab)
     work/                     # WorkScreen (detail + continuous reader) + ViewModel
     library/                  # LibraryScreen + ViewModel
     settings/                 # SettingsScreen + ViewModel
@@ -139,6 +140,12 @@ Implemented:
   (`SubscriptionWorker`, ~6h) polls **locally-followed works** for new chapters
   and fires a local notification (works fully logged out). `lastSeenChapterCount`
   on `SavedWorkEntity` (Room v2 additive migration) is the per-work baseline.
+- **Followed authors (the Authors tab)** — open an author from a work's byline
+  ("more by this author", `ui/authors/AuthorWorksScreen.kt`) and Follow them
+  (local-only, no login); the Authors tab (Library top bar) lists followed
+  authors, and the poller's `checkFollowedAuthors` notifies on newly-published
+  works. `FollowedAuthorEntity` (Room **v3** migration) seeds `knownWorkIds` at
+  follow time so the first poll skips the back catalogue.
 - **Last-read home-screen widget** — an App Widget (`FanficlyWidgetProvider`,
   RemoteViews) showing the last-read story's title/author/progress on the maroon
   gradient; tapping it resumes the work via the AO3-URL `VIEW` intent.
@@ -167,10 +174,11 @@ Implemented:
 Known follow-ups / refinements (present on iOS, not yet on Android): measured
 page-by-page reading mode (the swipe-by-chapter paginated mode is done); a full
 MediaSession lock-screen treatment for "Listen" (basic notification controls are
-done); and polling AO3-account work subscriptions + followed authors for updates
-(the local-follow poller and the subscriptions/bookmarks/widget UI are done).
-These map cleanly onto the structure above — add a parser under `net/parse/` (or
-`search/` for prompt parsing), a method on `AO3Client`, and a screen under `ui/`.
+done); and polling AO3-account work subscriptions for new chapters (the
+local-follow + followed-author pollers, and the subscriptions/bookmarks/authors
+UI, are done). These map cleanly onto the structure above — add a parser under
+`net/parse/` (or `search/` for prompt parsing), a method on `AO3Client`, and a
+screen under `ui/`.
 
 ## Tests
 
@@ -181,6 +189,7 @@ parser and search tests ported from the iOS `FanficlyTests` suite:
 character-fallback, via the scriptable `StubAO3Client`), `MediaCategoryParserTest`
 / `WorkFiltersParserTest` / `FandomCatalogTest` (Browse/Popular), `CommentsParserTest`
 (thread depth, guest comments, pseud id, new-comment form), `SubscriptionsParserTest`
-(works/series/users + dedupe), and `PromptTextTest`
+(works/series/users + dedupe), `FollowedAuthorTest` (known-id storage + new-work
+diff), and `PromptTextTest`
 (`promptText()` chip-removal round-trip). Add tests here as you port more
 parsers, the same way the iOS app keeps its parsers pure and fixture-tested.

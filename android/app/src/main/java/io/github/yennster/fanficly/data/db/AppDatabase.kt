@@ -8,13 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [SavedWorkEntity::class, ReadingProgressEntity::class],
-    version = 2,
+    entities = [SavedWorkEntity::class, ReadingProgressEntity::class, FollowedAuthorEntity::class],
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun savedWorkDao(): SavedWorkDao
     abstract fun readingProgressDao(): ReadingProgressDao
+    abstract fun followedAuthorDao(): FollowedAuthorDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -27,12 +28,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v3 adds the followed_authors table (the Authors tab + poller).
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS followed_authors (" +
+                        "username TEXT NOT NULL PRIMARY KEY, " +
+                        "displayName TEXT NOT NULL, " +
+                        "followedAtMillis INTEGER NOT NULL, " +
+                        "lastCheckedAtMillis INTEGER, " +
+                        "knownWorkIds TEXT NOT NULL)",
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "fanficly.db",
-            ).addMigrations(MIGRATION_1_2).fallbackToDestructiveMigration().build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).fallbackToDestructiveMigration().build().also { instance = it }
         }
     }
 }

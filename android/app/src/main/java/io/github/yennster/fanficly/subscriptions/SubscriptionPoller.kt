@@ -33,5 +33,29 @@ class SubscriptionPoller(
         return notified
     }
 
-    suspend fun runFullPoll(): Int = checkFollowedWorks()
+    /**
+     * Poll locally-followed authors for newly-published works (login-free,
+     * port of the iOS `checkFollowedAuthors`). Only notifies once there's a
+     * baseline — a freshly-followed author is seeded with its current works at
+     * follow time, so the first poll never alerts for the back catalogue.
+     */
+    suspend fun checkFollowedAuthors(): Int {
+        var notified = 0
+        for (author in repo.followedAuthors()) {
+            if (author.username.isEmpty()) continue
+            val result = runCatching { client.fetchAuthorWorks(author.username, 1) }.getOrNull() ?: continue
+            val known = author.knownIds().toSet()
+            if (known.isNotEmpty()) {
+                val newWorks = result.works.filter { it.id !in known }
+                if (newWorks.isNotEmpty()) {
+                    Notifications.postNewWork(context, author.displayName, newWorks)
+                    notified += newWorks.size
+                }
+            }
+            repo.updateAuthorChecked(author.username, known + result.works.map { it.id }, System.currentTimeMillis())
+        }
+        return notified
+    }
+
+    suspend fun runFullPoll(): Int = checkFollowedWorks() + checkFollowedAuthors()
 }

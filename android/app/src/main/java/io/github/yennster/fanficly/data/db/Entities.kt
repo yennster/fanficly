@@ -67,6 +67,28 @@ data class SavedWorkEntity(
     }
 }
 
+/**
+ * A locally-followed author — the Room analogue of the iOS SwiftData
+ * `FollowedAuthor`. [knownWorkIds] is a comma-joined set of work ids already
+ * seen (seeded at follow time) so the poller's first check doesn't alert for the
+ * back catalogue. Follows are local-only, no login (like work follows).
+ */
+@Entity(tableName = "followed_authors")
+data class FollowedAuthorEntity(
+    @PrimaryKey val username: String,
+    val displayName: String,
+    val followedAtMillis: Long,
+    val lastCheckedAtMillis: Long?,
+    val knownWorkIds: String,
+) {
+    fun knownIds(): List<Int> =
+        if (knownWorkIds.isEmpty()) emptyList() else knownWorkIds.split(",").mapNotNull { it.toIntOrNull() }
+
+    companion object {
+        fun joinIds(ids: Collection<Int>): String = ids.joinToString(",")
+    }
+}
+
 /** Per-work reading position — the Room analogue of SwiftData `ReadingProgress`. */
 @Entity(tableName = "reading_progress")
 data class ReadingProgressEntity(

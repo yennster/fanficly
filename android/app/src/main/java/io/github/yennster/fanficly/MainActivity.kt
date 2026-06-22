@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
@@ -51,6 +52,8 @@ import io.github.yennster.fanficly.net.parse.SearchResultsParser
 import io.github.yennster.fanficly.ui.browse.BrowseScreen
 import io.github.yennster.fanficly.ui.browse.CategoryFandomsScreen
 import io.github.yennster.fanficly.ui.browse.FandomWorksScreen
+import io.github.yennster.fanficly.ui.authors.AuthorWorksScreen
+import io.github.yennster.fanficly.ui.authors.FollowedAuthorsScreen
 import io.github.yennster.fanficly.ui.bookmarks.BookmarksScreen
 import io.github.yennster.fanficly.ui.browse.PopularScreen
 import io.github.yennster.fanficly.ui.comments.CommentsScreen
@@ -187,6 +190,9 @@ private fun FanficlyApp(initialWorkId: Int?, pendingWorkId: MutableState<Int?>) 
             }
             composable(Tab.LIBRARY.route) {
                 TitledScreen("Library", actions = {
+                    IconButton(onClick = { navController.navigate("authors") }) {
+                        Icon(Icons.Filled.Group, contentDescription = "Followed authors")
+                    }
                     IconButton(onClick = { navController.navigate("bookmarks") }) {
                         Icon(Icons.Filled.BookmarkBorder, contentDescription = "Bookmarks")
                     }
@@ -251,6 +257,27 @@ private fun FanficlyApp(initialWorkId: Int?, pendingWorkId: MutableState<Int?>) 
                     onBack = { if (!navController.popBackStack()) navController.navigate(Tab.SEARCH.route) },
                     onShowSettings = { navController.navigate(Tab.SETTINGS.route) },
                     onShowComments = { navController.navigate("comments/$it") },
+                    onOpenAuthor = { username, name -> navController.navigate(authorRoute(username, name)) },
+                )
+            }
+            composable("authors") {
+                FollowedAuthorsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenAuthor = { username, name -> navController.navigate(authorRoute(username, name)) },
+                )
+            }
+            composable(
+                route = "author?username={username}&name={name}",
+                arguments = listOf(
+                    navArgument("username") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("name") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { entry ->
+                AuthorWorksScreen(
+                    username = entry.arguments?.getString("username") ?: "",
+                    displayName = entry.arguments?.getString("name") ?: "",
+                    onBack = { navController.popBackStack() },
+                    onOpenWork = { navController.navigate("work/$it") },
                 )
             }
             composable(
@@ -267,6 +294,10 @@ private fun FanficlyApp(initialWorkId: Int?, pendingWorkId: MutableState<Int?>) 
 /** Builds the `works?…` route, URL-encoding name/title so a ship's `/` survives. */
 private fun worksRoute(field: String, name: String, title: String, sort: String): String =
     "works?field=$field&name=${Uri.encode(name)}&title=${Uri.encode(title)}&sort=$sort"
+
+/** Builds the `author?…` route, URL-encoding the username + display name. */
+private fun authorRoute(username: String, name: String): String =
+    "author?username=${Uri.encode(username)}&name=${Uri.encode(name)}"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

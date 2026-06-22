@@ -21,7 +21,7 @@ class AppContainer(context: Context, versionName: String) {
     val ao3Client: AO3Client = LiveAO3Client(context, versionName)
 
     private val db = AppDatabase.get(context)
-    val libraryRepository = LibraryRepository(db.savedWorkDao(), db.readingProgressDao())
+    val libraryRepository = LibraryRepository(db.savedWorkDao(), db.readingProgressDao(), db.followedAuthorDao())
     val settingsStore = SettingsStore(context)
     val popularStore = PopularStore(context)
     val widgetProgressStore = WidgetProgressStore(context)
