@@ -65,6 +65,12 @@ class MockAO3Client : AO3Client {
         ),
     )
     override suspend fun postComment(workId: Int, chapterId: Int?, text: String) {}
+    override suspend fun fetchSubscriptions(username: String) = listOf(
+        io.github.yennster.fanficly.model.AO3Subscription(
+            kind = io.github.yennster.fanficly.model.AO3Subscription.Kind.WORK,
+            resourceId = "1", title = sample.title, author = sample.author,
+        ),
+    )
     override suspend fun autocomplete(field: AutocompleteField, term: String) = listOf(term)
     override suspend fun downloadEpub(workId: Int, cacheDir: File) = File(cacheDir, "$workId.epub")
     override suspend fun exportWork(workId: Int, format: ExportFormat, filename: String, cacheDir: File) =

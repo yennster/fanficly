@@ -38,6 +38,9 @@ data class SavedWorkEntity(
     val lastReadChapter: Int?,
     val lastReadParagraph: Int?,
     val lastReadAtMillis: Long?,
+    // Chapter count seen at the last subscription poll. null = no baseline yet,
+    // so the first poll won't alert for a freshly-followed work's back catalogue.
+    val lastSeenChapterCount: Int? = null,
 ) {
     fun toSummary() = WorkSummary(
         id = ao3Id, title = title, author = author, authorUsername = authorUsername,

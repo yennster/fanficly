@@ -63,6 +63,10 @@ object AO3Endpoints {
     fun workSubscriptions(id: Int): HttpUrl =
         BASE.newBuilder().addPathSegments("works/$id/subscriptions").build()
 
+    /** The logged-in user's AO3 subscriptions list (works/series/users). */
+    fun userSubscriptions(name: String): HttpUrl =
+        BASE.newBuilder().addPathSegments("users/$name/subscriptions").build()
+
     fun mediaFandoms(categoryName: String): HttpUrl =
         "${BASE}media/${ao3PathEncode(categoryName)}/fandoms".toHttpUrl()
 

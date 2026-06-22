@@ -35,6 +35,7 @@ class StubAO3Client : AO3Client {
     override suspend fun fetchPopularSnapshot(): io.github.yennster.fanficly.model.PopularSnapshot = throw NotImplementedError()
     override suspend fun fetchComments(workId: Int, chapterId: Int?): List<io.github.yennster.fanficly.model.AO3Comment> = throw NotImplementedError()
     override suspend fun postComment(workId: Int, chapterId: Int?, text: String) = throw NotImplementedError()
+    override suspend fun fetchSubscriptions(username: String): List<io.github.yennster.fanficly.model.AO3Subscription> = throw NotImplementedError()
     override suspend fun downloadEpub(workId: Int, cacheDir: File): File = throw NotImplementedError()
     override suspend fun exportWork(workId: Int, format: ExportFormat, filename: String, cacheDir: File): File = throw NotImplementedError()
     override suspend fun subscribeToWork(workId: Int) = throw NotImplementedError()

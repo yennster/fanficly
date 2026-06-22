@@ -61,6 +61,11 @@ android/app/src/main/java/io/github/yennster/fanficly/
       MediaCategoryParser.kt  # /media/<cat>/fandoms → fandoms + work counts
       WorkFiltersParser.kt    # /tags/<tag>/works facet sidebar → ships/chars
       CommentsParser.kt       # comment thread + new-comment form/pseud
+      SubscriptionsParser.kt  # /users/<name>/subscriptions → works/series/users
+  subscriptions/
+    SubscriptionPoller.kt     # followed-works new-chapter check
+    SubscriptionWorker.kt     # WorkManager periodic poll (~6h)
+    Notifications.kt          # "new chapter" notification channel + post
   search/
     SearchPromptParser.kt     # rules-based prompt → AO3SearchFilters
     KnownTags.kt              # curated freeform/fandom/rating/… dictionaries
@@ -80,6 +85,8 @@ android/app/src/main/java/io/github/yennster/fanficly/
     search/                   # SearchScreen + SearchViewModel
     browse/                   # Browse + Popular + CategoryFandoms + FandomWorks
     comments/                 # CommentsScreen + ViewModel (view/post)
+    bookmarks/                # BookmarksScreen + ViewModel (login-gated)
+    subscriptions/            # SubscriptionsScreen + ViewModel (login-gated)
     work/                     # WorkScreen (detail + continuous reader) + ViewModel
     library/                  # LibraryScreen + ViewModel
     settings/                 # SettingsScreen + ViewModel
@@ -120,6 +127,12 @@ Implemented:
   the client/`commentsPageUrl` already accept a `chapterId`, so per-chapter
   threading on multi-chapter works is a small UI follow-up (thread the current
   chapter's id through the route + chapter-aware title/empty-state copy).
+- **Subscriptions, Bookmarks & the background poller** — view your AO3
+  subscriptions (`SubscriptionsParser`, login-gated) and bookmarks (login-gated,
+  infinite scroll) from the Library top bar; a WorkManager periodic worker
+  (`SubscriptionWorker`, ~6h) polls **locally-followed works** for new chapters
+  and fires a local notification (works fully logged out). `lastSeenChapterCount`
+  on `SavedWorkEntity` (Room v2 additive migration) is the per-work baseline.
 - Infinite-scroll results, work reading (continuous scroll with saved reading
   position), save-to-library (local follow, no login), the library with
   All/Starred/Downloaded filters, reader typography/theme settings, AO3 share-in
@@ -127,11 +140,12 @@ Implemented:
   cookie. The launcher icon is the adaptive-icon twin of the iOS app icon (maroon
   gradient + open-book glyph with ruled text lines).
 
-Known follow-ups (present on iOS, not yet on Android): AO3 subscriptions + the
-background "new chapter" poller, the last-read home-screen widget, paginated /
-page-by-page reading modes, and on-device TTS ("Listen"). These map cleanly onto
-the structure above — add a parser under `net/parse/` (or `search/` for prompt
-parsing), a method on `AO3Client`, and a screen under `ui/`.
+Known follow-ups (present on iOS, not yet on Android): polling AO3-account work
+subscriptions + followed authors for updates (the local-follow poller is done),
+the last-read home-screen widget, paginated / page-by-page reading modes, and
+on-device TTS ("Listen"). These map cleanly onto the structure above — add a
+parser under `net/parse/` (or `search/` for prompt parsing), a method on
+`AO3Client`, and a screen under `ui/`.
 
 ## Tests
 
@@ -141,6 +155,7 @@ parser and search tests ported from the iOS `FanficlyTests` suite:
 (every smart-search prompt case), `TagResolverTest` (canonical resolution + ship
 character-fallback, via the scriptable `StubAO3Client`), `MediaCategoryParserTest`
 / `WorkFiltersParserTest` / `FandomCatalogTest` (Browse/Popular), `CommentsParserTest`
-(thread depth, guest comments, pseud id, new-comment form), and `PromptTextTest`
+(thread depth, guest comments, pseud id, new-comment form), `SubscriptionsParserTest`
+(works/series/users + dedupe), and `PromptTextTest`
 (`promptText()` chip-removal round-trip). Add tests here as you port more
 parsers, the same way the iOS app keeps its parsers pure and fixture-tested.

@@ -4,6 +4,7 @@ import android.content.Context
 import io.github.yennster.fanficly.browse.FandomCatalog
 import io.github.yennster.fanficly.browse.PopularTags
 import io.github.yennster.fanficly.model.AO3Comment
+import io.github.yennster.fanficly.model.AO3Subscription
 import io.github.yennster.fanficly.model.AO3Exception
 import io.github.yennster.fanficly.model.AO3SearchFilters
 import io.github.yennster.fanficly.model.AO3WorkFilters
@@ -16,6 +17,7 @@ import io.github.yennster.fanficly.model.WorkMetadata
 import io.github.yennster.fanficly.model.WorkPayload
 import io.github.yennster.fanficly.net.parse.CommentsParser
 import io.github.yennster.fanficly.net.parse.LoginParser
+import io.github.yennster.fanficly.net.parse.SubscriptionsParser
 import io.github.yennster.fanficly.net.parse.MediaCategoryParser
 import io.github.yennster.fanficly.net.parse.SearchResultsParser
 import io.github.yennster.fanficly.net.parse.WorkFiltersParser
@@ -52,6 +54,7 @@ interface AO3Client {
     suspend fun fetchPopularSnapshot(): PopularSnapshot
     suspend fun fetchComments(workId: Int, chapterId: Int?): List<AO3Comment>
     suspend fun postComment(workId: Int, chapterId: Int?, text: String)
+    suspend fun fetchSubscriptions(username: String): List<AO3Subscription>
     suspend fun autocomplete(field: AutocompleteField, term: String): List<String>
     suspend fun downloadEpub(workId: Int, cacheDir: File): File
     suspend fun exportWork(workId: Int, format: ExportFormat, filename: String, cacheDir: File): File
@@ -232,6 +235,11 @@ class LiveAO3Client(
             client.newCall(request).execute().use { resp ->
                 if (resp.code >= 400) throw AO3Exception.Http(resp.code)
             }
+        }
+
+    override suspend fun fetchSubscriptions(username: String): List<AO3Subscription> =
+        withContext(Dispatchers.IO) {
+            SubscriptionsParser.parse(getString(AO3Endpoints.userSubscriptions(username)))
         }
 
     /** The page whose `?show_comments=true` thread we read/post against. */

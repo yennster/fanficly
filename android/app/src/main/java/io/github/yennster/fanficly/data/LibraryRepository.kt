@@ -35,6 +35,7 @@ class LibraryRepository(
                 lastReadChapter = existing.lastReadChapter,
                 lastReadParagraph = existing.lastReadParagraph,
                 lastReadAtMillis = existing.lastReadAtMillis,
+                lastSeenChapterCount = existing.lastSeenChapterCount,
             ) else it
         }
         savedWorkDao.upsert(entity)
@@ -51,6 +52,10 @@ class LibraryRepository(
     suspend fun setStarred(id: Int, starred: Boolean) = savedWorkDao.setStarred(id, starred)
     suspend fun setFolder(id: Int, folder: String?) = savedWorkDao.setFolder(id, folder)
     suspend fun followedIds(): List<Int> = savedWorkDao.followedIds()
+
+    /** Locally-followed works + their last-seen chapter counts, for the poller. */
+    suspend fun followedWorks() = savedWorkDao.followedWorks()
+    suspend fun setLastSeenChapterCount(id: Int, count: Int) = savedWorkDao.setLastSeenChapterCount(id, count)
 
     suspend fun loadProgress(id: Int): ReadingProgressEntity? = progressDao.find(id)
 

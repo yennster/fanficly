@@ -1,20 +1,29 @@
 package io.github.yennster.fanficly
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -22,9 +31,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -37,9 +49,11 @@ import io.github.yennster.fanficly.net.parse.SearchResultsParser
 import io.github.yennster.fanficly.ui.browse.BrowseScreen
 import io.github.yennster.fanficly.ui.browse.CategoryFandomsScreen
 import io.github.yennster.fanficly.ui.browse.FandomWorksScreen
+import io.github.yennster.fanficly.ui.bookmarks.BookmarksScreen
 import io.github.yennster.fanficly.ui.browse.PopularScreen
 import io.github.yennster.fanficly.ui.comments.CommentsScreen
 import io.github.yennster.fanficly.ui.library.LibraryScreen
+import io.github.yennster.fanficly.ui.subscriptions.SubscriptionsScreen
 import io.github.yennster.fanficly.ui.search.SearchScreen
 import io.github.yennster.fanficly.ui.settings.SettingsScreen
 import io.github.yennster.fanficly.ui.theme.FanficlyTheme
@@ -80,6 +94,20 @@ private enum class Tab(val route: String, val label: String, val icon: ImageVect
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FanficlyApp(initialWorkId: Int?) {
+    // Ask for notification permission (Android 13+) so the subscription poller's
+    // "new chapter" alerts can show. Declined is fine — the poll still runs and
+    // just won't surface a notification.
+    val context = LocalContext.current
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
@@ -135,10 +163,29 @@ private fun FanficlyApp(initialWorkId: Int?) {
                 }
             }
             composable(Tab.LIBRARY.route) {
-                TitledScreen("Library") { LibraryScreen(onOpenWork = { navController.navigate("work/$it") }) }
+                TitledScreen("Library", actions = {
+                    IconButton(onClick = { navController.navigate("bookmarks") }) {
+                        Icon(Icons.Filled.BookmarkBorder, contentDescription = "Bookmarks")
+                    }
+                    IconButton(onClick = { navController.navigate("subscriptions") }) {
+                        Icon(Icons.Filled.Subscriptions, contentDescription = "Subscriptions")
+                    }
+                }) { LibraryScreen(onOpenWork = { navController.navigate("work/$it") }) }
             }
             composable(Tab.SETTINGS.route) {
                 TitledScreen("Settings") { SettingsScreen() }
+            }
+            composable("bookmarks") {
+                BookmarksScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenWork = { navController.navigate("work/$it") },
+                )
+            }
+            composable("subscriptions") {
+                SubscriptionsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenWork = { navController.navigate("work/$it") },
+                )
             }
             composable(
                 route = "browse/category/{categoryId}",
@@ -200,8 +247,12 @@ private fun worksRoute(field: String, name: String, title: String, sort: String)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TitledScreen(title: String, content: @Composable () -> Unit) {
-    Scaffold(topBar = { TopAppBar(title = { Text(title) }) }) { padding ->
+private fun TitledScreen(
+    title: String,
+    actions: @Composable RowScope.() -> Unit = {},
+    content: @Composable () -> Unit,
+) {
+    Scaffold(topBar = { TopAppBar(title = { Text(title) }, actions = actions) }) { padding ->
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(padding)) { content() }
     }
 }

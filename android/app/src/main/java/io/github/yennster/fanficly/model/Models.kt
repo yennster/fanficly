@@ -58,6 +58,19 @@ data class WorkMetadata(
     val updatedAtMillis: Long?,
 )
 
+/** One of the user's AO3 subscriptions — the Kotlin port of iOS `AO3Subscription`. */
+data class AO3Subscription(
+    val kind: Kind,
+    val resourceId: String,
+    val title: String,
+    val author: String?,
+) {
+    enum class Kind(val slug: String) { WORK("work"), SERIES("series"), USER("user") }
+
+    /** Stable identity, e.g. "work:12345". */
+    val key: String get() = "${kind.slug}:$resourceId"
+}
+
 /** One comment in a work/chapter thread — the Kotlin port of iOS `AO3Comment`. */
 data class AO3Comment(
     val id: String,

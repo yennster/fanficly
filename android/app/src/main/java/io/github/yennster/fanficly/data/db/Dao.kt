@@ -24,6 +24,12 @@ interface SavedWorkDao {
     @Query("SELECT ao3Id FROM saved_works WHERE isFollowed = 1")
     suspend fun followedIds(): List<Int>
 
+    @Query("SELECT * FROM saved_works WHERE isFollowed = 1")
+    suspend fun followedWorks(): List<SavedWorkEntity>
+
+    @Query("UPDATE saved_works SET lastSeenChapterCount = :count WHERE ao3Id = :id")
+    suspend fun setLastSeenChapterCount(id: Int, count: Int)
+
     @Upsert
     suspend fun upsert(work: SavedWorkEntity)
 
