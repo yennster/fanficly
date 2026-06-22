@@ -7,6 +7,7 @@ import io.github.yennster.fanficly.data.SettingsStore
 import io.github.yennster.fanficly.data.db.AppDatabase
 import io.github.yennster.fanficly.net.AO3Client
 import io.github.yennster.fanficly.net.LiveAO3Client
+import io.github.yennster.fanficly.widget.WidgetProgressStore
 
 /**
  * Tiny manual dependency container — the Android counterpart of the iOS app's
@@ -22,4 +23,5 @@ class AppContainer(context: Context, versionName: String) {
     val libraryRepository = LibraryRepository(db.savedWorkDao(), db.readingProgressDao())
     val settingsStore = SettingsStore(context)
     val popularStore = PopularStore(context)
+    val widgetProgressStore = WidgetProgressStore(context)
 }

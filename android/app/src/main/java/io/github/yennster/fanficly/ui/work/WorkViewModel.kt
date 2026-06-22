@@ -63,9 +63,19 @@ class WorkViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Persist the live reading position (chapter + topmost paragraph). */
-    fun saveProgress(chapter: Int, paragraph: Int) {
+    /** Persist the live reading position (chapter + topmost paragraph) and feed
+     *  the last-read home-screen widget with the work's title/author/progress. */
+    fun saveProgress(chapter: Int, paragraph: Int, progress: Float) {
         if (workId < 0) return
-        viewModelScope.launch { repo.saveProgress(workId, chapter, paragraph) }
+        val summary = _state.value.summary
+        viewModelScope.launch {
+            repo.saveProgress(workId, chapter, paragraph)
+            if (summary != null) {
+                container.widgetProgressStore.save(
+                    id = workId, title = summary.title, author = summary.author,
+                    progress = progress, chapter = chapter, paragraph = paragraph,
+                )
+            }
+        }
     }
 }

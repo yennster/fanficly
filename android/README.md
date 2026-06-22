@@ -66,6 +66,9 @@ android/app/src/main/java/io/github/yennster/fanficly/
     SubscriptionPoller.kt     # followed-works new-chapter check
     SubscriptionWorker.kt     # WorkManager periodic poll (~6h)
     Notifications.kt          # "new chapter" notification channel + post
+  widget/
+    FanficlyWidgetProvider.kt # last-read App Widget (RemoteViews) + resume tap
+    WidgetProgressStore.kt    # last-read snapshot in SharedPreferences
   search/
     SearchPromptParser.kt     # rules-based prompt → AO3SearchFilters
     KnownTags.kt              # curated freeform/fandom/rating/… dictionaries
@@ -133,6 +136,11 @@ Implemented:
   (`SubscriptionWorker`, ~6h) polls **locally-followed works** for new chapters
   and fires a local notification (works fully logged out). `lastSeenChapterCount`
   on `SavedWorkEntity` (Room v2 additive migration) is the per-work baseline.
+- **Last-read home-screen widget** — an App Widget (`FanficlyWidgetProvider`,
+  RemoteViews) showing the last-read story's title/author/progress on the maroon
+  gradient; tapping it resumes the work via the AO3-URL `VIEW` intent.
+  `WidgetProgressStore` persists the snapshot (fed by every reading-position
+  save); on-device only, so it drops the iOS app-group + iCloud KVS mirroring.
 - Infinite-scroll results, work reading (continuous scroll with saved reading
   position), save-to-library (local follow, no login), the library with
   All/Starred/Downloaded filters, reader typography/theme settings, AO3 share-in
@@ -140,12 +148,12 @@ Implemented:
   cookie. The launcher icon is the adaptive-icon twin of the iOS app icon (maroon
   gradient + open-book glyph with ruled text lines).
 
-Known follow-ups (present on iOS, not yet on Android): polling AO3-account work
-subscriptions + followed authors for updates (the local-follow poller is done),
-the last-read home-screen widget, paginated / page-by-page reading modes, and
-on-device TTS ("Listen"). These map cleanly onto the structure above — add a
-parser under `net/parse/` (or `search/` for prompt parsing), a method on
-`AO3Client`, and a screen under `ui/`.
+Known follow-ups (present on iOS, not yet on Android): paginated / page-by-page
+reading modes, on-device TTS ("Listen"), and polling AO3-account work
+subscriptions + followed authors for updates (the local-follow poller and the
+subscriptions/bookmarks/widget UI are done). These map cleanly onto the structure
+above — add a parser under `net/parse/` (or `search/` for prompt parsing), a
+method on `AO3Client`, and a screen under `ui/`.
 
 ## Tests
 

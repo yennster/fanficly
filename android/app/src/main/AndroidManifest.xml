@@ -49,5 +49,18 @@
                     android:pathPrefix="/works" />
             </intent-filter>
         </activity>
+
+        <!-- Last-read story home-screen widget (last read title/author/progress;
+             tap resumes the work via the AO3-URL VIEW filter above). -->
+        <receiver
+            android:name=".widget.FanficlyWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_last_read_info" />
+        </receiver>
     </application>
 </manifest>

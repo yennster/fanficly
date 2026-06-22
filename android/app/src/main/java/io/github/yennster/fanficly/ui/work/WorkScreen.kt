@@ -80,12 +80,15 @@ fun WorkScreen(
         }
     }
 
-    // Persist the topmost visible paragraph as reading progress (debounced via distinctUntilChanged).
+    // Persist the topmost visible paragraph as reading progress (snapshotFlow
+    // emits only on index change). The fraction (row / last row) drives the
+    // last-read widget's progress bar.
     LaunchedEffect(rows) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .collect { idx ->
                 (rows.getOrNull(idx) as? Row.Paragraph)?.let {
-                    viewModel.saveProgress(it.chapterIndex, it.paragraphIndex)
+                    val fraction = if (rows.size > 1) idx.toFloat() / (rows.size - 1) else 0f
+                    viewModel.saveProgress(it.chapterIndex, it.paragraphIndex, fraction)
                 }
             }
     }
