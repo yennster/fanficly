@@ -69,6 +69,9 @@ fun WorkScreen(
     // scrolls the whole work and we can map a list index back to a position.
     val rows = remember(state.chapters) { flattenChapters(state.chapters) }
     val listState = rememberLazyListState()
+    // The LazyColumn renders the summary/metadata header as item 0 when present,
+    // so a LazyColumn index maps to rows[index - headerOffset] and vice versa.
+    val headerOffset = if (state.summary != null) 1 else 0
 
     // Restore saved position once the rows are available.
     LaunchedEffect(rows, state.startChapter) {
@@ -76,7 +79,7 @@ fun WorkScreen(
             val target = rows.indexOfFirst {
                 it is Row.Paragraph && it.chapterIndex == state.startChapter && it.paragraphIndex == state.startParagraph
             }
-            if (target > 0) listState.scrollToItem(target)
+            if (target >= 0) listState.scrollToItem(target + headerOffset)
         }
     }
 
@@ -86,8 +89,9 @@ fun WorkScreen(
     LaunchedEffect(rows) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .collect { idx ->
-                (rows.getOrNull(idx) as? Row.Paragraph)?.let {
-                    val fraction = if (rows.size > 1) idx.toFloat() / (rows.size - 1) else 0f
+                val rowIdx = idx - headerOffset
+                (rows.getOrNull(rowIdx) as? Row.Paragraph)?.let {
+                    val fraction = if (rows.size > 1) (rowIdx.toFloat() / (rows.size - 1)).coerceIn(0f, 1f) else 0f
                     viewModel.saveProgress(it.chapterIndex, it.paragraphIndex, fraction)
                 }
             }

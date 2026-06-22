@@ -32,7 +32,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -60,15 +62,26 @@ import io.github.yennster.fanficly.ui.theme.FanficlyTheme
 import io.github.yennster.fanficly.ui.work.WorkScreen
 
 class MainActivity : ComponentActivity() {
+    // A deep-link / widget / notification tap that arrives while the app is
+    // already running (singleTop reuses this activity rather than stacking a
+    // second one). The composable observes it and routes to the work.
+    private val pendingWorkId = mutableStateOf<Int?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val deepLinkWorkId = workIdFromIntent(intent)
         setContent {
             FanficlyTheme {
-                FanficlyApp(initialWorkId = deepLinkWorkId)
+                FanficlyApp(initialWorkId = deepLinkWorkId, pendingWorkId = pendingWorkId)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        workIdFromIntent(intent)?.let { pendingWorkId.value = it }
     }
 
     /** Extract an AO3 work id from a VIEW (deep link) or SEND (share) intent. */
@@ -93,7 +106,7 @@ private enum class Tab(val route: String, val label: String, val icon: ImageVect
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FanficlyApp(initialWorkId: Int?) {
+private fun FanficlyApp(initialWorkId: Int?, pendingWorkId: MutableState<Int?>) {
     // Ask for notification permission (Android 13+) so the subscription poller's
     // "new chapter" alerts can show. Declined is fine — the poll still runs and
     // just won't surface a notification.
@@ -109,6 +122,16 @@ private fun FanficlyApp(initialWorkId: Int?) {
     }
 
     val navController = rememberNavController()
+
+    // Warm taps (widget / notification / share while the app is already running):
+    // route to the work and clear, so singleTop doesn't drop the new intent.
+    LaunchedEffect(pendingWorkId.value) {
+        pendingWorkId.value?.let { id ->
+            navController.navigate("work/$id")
+            pendingWorkId.value = null
+        }
+    }
+
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     // Bottom nav only on the top-level tab destinations; pushed detail screens
