@@ -2,5 +2,7 @@
     <!-- AO3 brand maroon — matches the iOS App Store marketing canvas (#990000). -->
     <color name="ao3_maroon">#990000</color>
     <color name="window_background">#FFFBFBF7</color>
+    <!-- Dark-mode launch background (used by values-night/themes.xml). -->
+    <color name="window_background_dark">#1A1A1A</color>
     <color name="ic_launcher_background">#990000</color>
 </resources>

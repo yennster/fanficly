@@ -1,8 +1,13 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. The Compose UI supplies the real Material 3
          color scheme at runtime (FanficlyTheme); this is just the launch /
-         system-chrome theme so there's no white flash before Compose mounts. -->
-    <style name="Theme.Fanficly" parent="android:Theme.Material.DayNight.NoActionBar">
+         system-chrome theme so there's no white flash before Compose mounts.
+
+         Uses android:Theme.Material.NoActionBar (API 21+) rather than the
+         DayNight variant (API 29+) so the app is compatible with the Pixel 3
+         (launch API 28). Dark-mode system chrome is handled by the values-night
+         override below. -->
+    <style name="Theme.Fanficly" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">@color/ao3_maroon</item>
         <item name="android:windowBackground">@color/window_background</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

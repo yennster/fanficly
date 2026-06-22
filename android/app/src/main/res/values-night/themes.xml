@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Dark-mode launch theme (mirrors what Theme.Material.DayNight would
+         have done on API 29+). The Compose UI takes over the real color scheme
+         once mounted; this just avoids a white flash in dark mode. -->
+    <style name="Theme.Fanficly" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/ao3_maroon</item>
+        <item name="android:windowBackground">@color/window_background_dark</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
