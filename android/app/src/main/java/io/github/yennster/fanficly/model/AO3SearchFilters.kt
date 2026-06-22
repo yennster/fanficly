@@ -154,4 +154,57 @@ data class AO3SearchFilters(
         }
         return parts.joinToString(" ")
     }
+
+    /**
+     * A normalized prompt-style string of the active filters — the Kotlin port
+     * of iOS `promptText()`. Used to keep the search box in sync when a chip is
+     * removed (so the matching text disappears too).
+     */
+    fun promptText(): String {
+        val parts = mutableListOf<String>()
+        parts += relationshipNames
+        parts += characterNames
+        parts += fandomNames
+        parts += freeformNames
+        parts += ratings.sortedBy { it.id }.map { it.displayName }
+        parts += warnings.sortedBy { it.id }.map { it.displayName }
+        parts += categories.sortedBy { it.id }.map { it.displayName }
+        if (singleChapter) parts += "oneshot"
+        when (complete) {
+            TriState.YES -> parts += "complete"
+            TriState.NO -> parts += "wip"
+            TriState.ANY -> {}
+        }
+        when (crossover) {
+            TriState.YES -> parts += "crossover"
+            TriState.NO -> parts += "no crossovers"
+            TriState.ANY -> {}
+        }
+        if (wordCount.isNotEmpty()) parts += wordCountPhrase(wordCount)
+        if (languageId.isNotEmpty()) parts += "in $languageId"
+        if (title.isNotEmpty()) {
+            val quoted = if (title.contains(" ")) "\"$title\"" else title
+            parts += "title:$quoted"
+        }
+        if (creators.isNotEmpty()) {
+            val quoted = if (creators.contains(" ")) "\"$creators\"" else creators
+            parts += "author:$quoted"
+        }
+        if (query.isNotEmpty()) parts += query
+        parts += excludedFreeforms.map { "-$it" }
+        return parts.joinToString(" ")
+    }
+
+    companion object {
+        /** Renders a `work_search[word_count]` value back to an English phrase. */
+        fun wordCountPhrase(wc: String): String {
+            if (wc.startsWith(">")) return "over ${wc.drop(1)}"
+            if (wc.startsWith("<")) return "under ${wc.drop(1)}"
+            if (wc.contains("-")) {
+                val p = wc.split("-")
+                if (p.size == 2) return "between ${p[0]} and ${p[1]}"
+            }
+            return "$wc words"
+        }
+    }
 }

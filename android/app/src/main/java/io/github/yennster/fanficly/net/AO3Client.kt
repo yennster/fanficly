@@ -1,20 +1,30 @@
 package io.github.yennster.fanficly.net
 
 import android.content.Context
+import io.github.yennster.fanficly.browse.FandomCatalog
+import io.github.yennster.fanficly.browse.PopularTags
+import io.github.yennster.fanficly.model.AO3Comment
 import io.github.yennster.fanficly.model.AO3Exception
 import io.github.yennster.fanficly.model.AO3SearchFilters
+import io.github.yennster.fanficly.model.AO3WorkFilters
 import io.github.yennster.fanficly.model.AutocompleteField
+import io.github.yennster.fanficly.model.BrowseFandom
 import io.github.yennster.fanficly.model.ExportFormat
+import io.github.yennster.fanficly.model.PopularSnapshot
 import io.github.yennster.fanficly.model.SearchResults
 import io.github.yennster.fanficly.model.WorkMetadata
 import io.github.yennster.fanficly.model.WorkPayload
+import io.github.yennster.fanficly.net.parse.CommentsParser
 import io.github.yennster.fanficly.net.parse.LoginParser
+import io.github.yennster.fanficly.net.parse.MediaCategoryParser
 import io.github.yennster.fanficly.net.parse.SearchResultsParser
+import io.github.yennster.fanficly.net.parse.WorkFiltersParser
 import io.github.yennster.fanficly.net.parse.WorkPageParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -38,6 +48,10 @@ interface AO3Client {
     suspend fun fetchBookmarks(username: String, page: Int): SearchResults
     suspend fun fetchWork(id: Int): WorkPayload
     suspend fun fetchWorkMetadata(id: Int): WorkMetadata
+    suspend fun fetchFandomsInCategory(categoryName: String): List<BrowseFandom>
+    suspend fun fetchPopularSnapshot(): PopularSnapshot
+    suspend fun fetchComments(workId: Int, chapterId: Int?): List<AO3Comment>
+    suspend fun postComment(workId: Int, chapterId: Int?, text: String)
     suspend fun autocomplete(field: AutocompleteField, term: String): List<String>
     suspend fun downloadEpub(workId: Int, cacheDir: File): File
     suspend fun exportWork(workId: Int, format: ExportFormat, filename: String, cacheDir: File): File
@@ -140,6 +154,90 @@ class LiveAO3Client(
     override suspend fun fetchWorkMetadata(id: Int): WorkMetadata = withContext(Dispatchers.IO) {
         WorkPageParser.parseMetadata(getString(AO3Endpoints.work(id)), id)
     }
+
+    override suspend fun fetchFandomsInCategory(categoryName: String): List<BrowseFandom> =
+        withContext(Dispatchers.IO) {
+            MediaCategoryParser.parse(getString(AO3Endpoints.mediaFandoms(categoryName)))
+        }
+
+    /** The works-filter facet sidebar for a tag (`/tags/<tag>/works`). */
+    private fun fetchWorkFilters(tagName: String): AO3WorkFilters =
+        WorkFiltersParser.parse(getString(AO3Endpoints.tagWorks(tagName)))
+
+    /**
+     * Builds a live popular snapshot: fandoms ranked by AO3's media-page work
+     * counts, then ships/characters aggregated from the facet sidebars of the
+     * top few fandoms. Each list falls back to the curated `PopularTags` seed
+     * when AO3 yields nothing. ~10–15 throttled requests — meant to run in the
+     * background and be cached for a day (see `PopularStore`). Port of iOS
+     * `fetchPopularSnapshot()`.
+     */
+    override suspend fun fetchPopularSnapshot(): PopularSnapshot = withContext(Dispatchers.IO) {
+        val fandomCounts = HashMap<String, Int>()
+        for (category in FandomCatalog.all) {
+            val fandoms = runCatching { fetchFandomsInCategory(category.ao3CanonicalName) }.getOrNull() ?: continue
+            for (f in fandoms) {
+                val c = f.workCount ?: 0
+                if (c > 0) fandomCounts[f.canonicalName] = maxOf(fandomCounts[f.canonicalName] ?: 0, c)
+            }
+        }
+        val topFandoms = fandomCounts.entries.sortedByDescending { it.value }.map { it.key }
+
+        val shipCounts = HashMap<String, Int>()
+        val charCounts = HashMap<String, Int>()
+        for (fandom in topFandoms.take(5)) {
+            val filters = runCatching { fetchWorkFilters(fandom) }.getOrNull() ?: continue
+            for (r in filters.relationships) shipCounts[r.name] = (shipCounts[r.name] ?: 0) + maxOf(r.count, 1)
+            for (c in filters.characters) charCounts[c.name] = (charCounts[c.name] ?: 0) + maxOf(c.count, 1)
+        }
+        val topShips = shipCounts.entries.sortedByDescending { it.value }.map { it.key }
+        val topChars = charCounts.entries.sortedByDescending { it.value }.map { it.key }
+
+        PopularSnapshot(
+            fandoms = if (topFandoms.isEmpty()) PopularTags.fandoms else topFandoms.take(30),
+            ships = if (topShips.isEmpty()) PopularTags.ships else topShips.take(30),
+            characters = if (topChars.isEmpty()) PopularTags.characters else topChars.take(30),
+            fetchedAt = System.currentTimeMillis(),
+        )
+    }
+
+    override suspend fun fetchComments(workId: Int, chapterId: Int?): List<AO3Comment> =
+        withContext(Dispatchers.IO) {
+            CommentsParser.parse(getString(commentsPageUrl(workId, chapterId)))
+        }
+
+    /** Loads the comment page's actual new-comment form and replays it, so the
+     *  CSRF token and `commentable_*` fields bind the comment to the right
+     *  chapter — never a hardcoded POST shape. Requires login. */
+    override suspend fun postComment(workId: Int, chapterId: Int?, text: String) =
+        withContext(Dispatchers.IO) {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) return@withContext
+            val pageUrl = commentsPageUrl(workId, chapterId)
+            val form = CommentsParser.newCommentForm(getString(pageUrl))
+                ?: throw AO3Exception.ParseFailed("comment form not found (login required?)")
+
+            val fields = LinkedHashMap(form.fields)
+            fields["comment[comment_content]"] = trimmed
+            fields["commit"] = "Comment"
+            val body = FormBody.Builder().apply { fields.forEach { (k, v) -> add(k, v) } }.build()
+
+            val request = Request.Builder()
+                .url(form.action.toHttpUrl())
+                .header("Referer", pageUrl.toString())
+                .header("Origin", AO3Endpoints.BASE.toString().trimEnd('/'))
+                .apply { form.fields["authenticity_token"]?.let { header("X-CSRF-Token", it) } }
+                .post(body)
+                .build()
+            client.newCall(request).execute().use { resp ->
+                if (resp.code >= 400) throw AO3Exception.Http(resp.code)
+            }
+        }
+
+    /** The page whose `?show_comments=true` thread we read/post against. */
+    private fun commentsPageUrl(workId: Int, chapterId: Int?): HttpUrl =
+        if (chapterId != null) AO3Endpoints.chapterComments(workId, chapterId)
+        else AO3Endpoints.workComments(workId)
 
     override suspend fun autocomplete(field: AutocompleteField, term: String): List<String> =
         withContext(Dispatchers.IO) {

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon (Android 13+) monochrome layer: the open-book silhouette only.
+     The launcher tints this single-colour shape, so it carries no text-line
+     detail — just the two fanned pages, matching the foreground geometry. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M26.61,35.52 L52.36,35.10 L52.36,72.90 L26.61,72.48 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55.64,35.10 L81.39,35.52 L81.39,72.48 L55.64,72.90 Z" />
+</vector>

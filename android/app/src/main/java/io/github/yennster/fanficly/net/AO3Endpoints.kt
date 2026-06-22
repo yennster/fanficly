@@ -46,6 +46,20 @@ object AO3Endpoints {
 
     fun login(): HttpUrl = BASE.newBuilder().addPathSegments("users/login").build()
 
+    /** The work page with its comment thread shown (`?show_comments=true`). */
+    fun workComments(id: Int): HttpUrl =
+        BASE.newBuilder().addPathSegments("works/$id")
+            .addQueryParameter("view_adult", "true")
+            .addQueryParameter("show_comments", "true")
+            .fragment("comments").build()
+
+    /** A specific chapter's page with its comment thread shown (AO3 threads per chapter). */
+    fun chapterComments(workId: Int, chapterId: Int): HttpUrl =
+        BASE.newBuilder().addPathSegments("works/$workId/chapters/$chapterId")
+            .addQueryParameter("view_adult", "true")
+            .addQueryParameter("show_comments", "true")
+            .fragment("comments").build()
+
     fun workSubscriptions(id: Int): HttpUrl =
         BASE.newBuilder().addPathSegments("works/$id/subscriptions").build()
 

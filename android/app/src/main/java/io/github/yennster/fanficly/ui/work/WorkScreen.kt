@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkAdd
@@ -55,6 +56,7 @@ fun WorkScreen(
     workId: Int,
     onBack: () -> Unit,
     onShowSettings: () -> Unit,
+    onShowComments: (Int) -> Unit = {},
     viewModel: WorkViewModel = viewModel(),
     settingsViewModel: SettingsViewModel = viewModel(),
 ) {
@@ -111,6 +113,9 @@ fun WorkScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { onShowComments(workId) }) {
+                        Icon(Icons.AutoMirrored.Outlined.Comment, contentDescription = "Comments")
+                    }
                     IconButton(onClick = onShowSettings) {
                         Icon(Icons.Filled.TextFields, contentDescription = "Reader settings")
                     }

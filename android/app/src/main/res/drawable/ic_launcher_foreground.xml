@@ -1,21 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- An open-book glyph centered in the 108dp adaptive-icon safe zone. -->
+<!-- Adaptive-icon foreground: a flat, open two-page book with five text lines
+     ruled into each page — the vector twin of the iOS icon's white book (see
+     bin/make-icon.swift drawBook). Pages are off-white (#FAFAFA), the lines are
+     cut in AO3 maroon (#730000) to match the iOS art. The book is sized to ~46%
+     of the 108dp canvas so it stays inside the adaptive safe zone (never clipped
+     by a circular/squircle launcher mask) while keeping the iOS proportions. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:translateX="0" android:translateY="0">
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M54,38 C49,34 41,32 33,32 C29,32 26,32.5 23,33.5 L23,73 C26,72 29,71.5 33,71.5 C41,71.5 49,73.5 54,77 L54,38 Z" />
-        <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M54,38 C59,34 67,32 75,32 C79,32 82,32.5 85,33.5 L85,73 C82,72 79,71.5 75,71.5 C67,71.5 59,73.5 54,77 L54,38 Z"
-            android:fillAlpha="0.82" />
-        <path
-            android:strokeColor="#990000"
-            android:strokeWidth="2.2"
-            android:pathData="M54,38 L54,77" />
-    </group>
+
+    <!-- Left page -->
+    <path
+        android:fillColor="#FAFAFA"
+        android:pathData="M26.61,35.52 L52.36,35.10 L52.36,72.90 L26.61,72.48 Z" />
+    <!-- Right page (slightly fanned at the outer edge) -->
+    <path
+        android:fillColor="#FAFAFA"
+        android:pathData="M55.64,35.10 L81.39,35.52 L81.39,72.48 L55.64,72.90 Z" />
+
+    <!-- Text lines ruled into both pages (top line short, like a heading). -->
+    <path
+        android:fillColor="#730000"
+        android:pathData="M30.73,42.66 h10.51 v1.89 h-10.51 z
+                          M30.73,47.87 h17.51 v1.89 h-17.51 z
+                          M30.73,53.08 h17.51 v1.89 h-17.51 z
+                          M30.73,58.29 h17.51 v1.89 h-17.51 z
+                          M30.73,63.50 h17.51 v1.89 h-17.51 z
+                          M59.76,42.66 h9.63 v1.89 h-9.63 z
+                          M59.76,47.87 h17.51 v1.89 h-17.51 z
+                          M59.76,53.08 h17.51 v1.89 h-17.51 z
+                          M59.76,58.29 h17.51 v1.89 h-17.51 z
+                          M59.76,63.50 h17.51 v1.89 h-17.51 z" />
 </vector>

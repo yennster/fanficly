@@ -58,6 +58,16 @@ android/app/src/main/java/io/github/yennster/fanficly/
       SearchResultsParser.kt  # li.work.blurb / li.bookmark.blurb listings
       WorkPageParser.kt       # full work page → chapters + metadata
       LoginParser.kt          # CSRF token + logged-in username
+      MediaCategoryParser.kt  # /media/<cat>/fandoms → fandoms + work counts
+      WorkFiltersParser.kt    # /tags/<tag>/works facet sidebar → ships/chars
+      CommentsParser.kt       # comment thread + new-comment form/pseud
+  search/
+    SearchPromptParser.kt     # rules-based prompt → AO3SearchFilters
+    KnownTags.kt              # curated freeform/fandom/rating/… dictionaries
+    TagResolver.kt            # canonical tag resolution via autocomplete
+  browse/
+    FandomCatalog.kt          # 10 media categories + curated seeds (PopularTags)
+    PopularStore.kt           # cached daily PopularSnapshot (SharedPreferences)
   data/
     db/                       # Room: SavedWork + ReadingProgress entities, DAOs
     LibraryRepository.kt      # follow/save + reading-position persistence
@@ -68,6 +78,8 @@ android/app/src/main/java/io/github/yennster/fanficly/
     reader/HtmlRender.kt      # chapter HTML → styled paragraphs (port of HTMLToAttributed)
     components/WorkRow.kt     # one work in a list (+ inline save toggle)
     search/                   # SearchScreen + SearchViewModel
+    browse/                   # Browse + Popular + CategoryFandoms + FandomWorks
+    comments/                 # CommentsScreen + ViewModel (view/post)
     work/                     # WorkScreen (detail + continuous reader) + ViewModel
     library/                  # LibraryScreen + ViewModel
     settings/                 # SettingsScreen + ViewModel
@@ -81,6 +93,8 @@ android/app/src/main/java/io/github/yennster/fanficly/
 | `ThrottleActor` (1 req/sec) | `ThrottleInterceptor` |
 | SwiftSoup parsers | Jsoup parsers (`net/parse/`) |
 | `AO3SearchFilters` | `AO3SearchFilters` (same `work_search[*]` mapping) |
+| `SearchPromptParser` / `KnownTags` | `SearchPromptParser` / `KnownTags` (`search/`) |
+| `TagResolver` (autocomplete canonicalize) | `TagResolver` (`search/`) |
 | SwiftData `@Model`s | Room entities + DAOs |
 | `@AppStorage` reader keys | `SettingsStore` (DataStore) |
 | Keychain `CredentialStore` | `PersistentCookieJar` (EncryptedSharedPreferences) |
@@ -88,24 +102,45 @@ android/app/src/main/java/io/github/yennster/fanficly/
 | `HTMLToAttributed` | `HtmlRender` |
 | `fanficly://import` + share ext | `ACTION_VIEW`/`ACTION_SEND` intent filters |
 
-## What's ported in this first cut
+## What's ported
 
-Implemented: smart-ish search (free-text query + sort), infinite-scroll results,
-work reading (continuous scroll with saved reading position), save-to-library
-(local follow, no login), the library with All/Starred/Downloaded filters,
-reader typography/theme settings, AO3 share-in / deep-link to open a work, and
-form-based login plumbing with a persisted session cookie.
+Implemented:
 
-Known follow-ups (present on iOS, not yet on Android): the rules-based
-`SearchPromptParser` smart search, browse-by-fandom / Popular tabs, comments
-(view/post), AO3 subscriptions + the background "new chapter" poller, the
-last-read home-screen widget, paginated / page-by-page reading modes, and
-on-device TTS ("Listen"). These map cleanly onto the structure above — add a
-parser under `net/parse/`, a method on `AO3Client`, and a screen under `ui/`.
+- **Smart search** — the rules-based `SearchPromptParser` (a prompt like
+  `edward/bella romance all human complete` → structured AO3 filters shown as
+  removable chips), with `TagResolver` canonicalizing tags via AO3's autocomplete
+  and a sort bar (column + direction).
+- **Browse & Popular tabs** — browse AO3's 10 media categories → live fandom
+  lists (with the curated `FandomCatalog` seed as fallback) → works; a Popular
+  tab (fandoms / ships / characters) ranked from AO3's work counts (`PopularStore`,
+  cached ~daily, curated `PopularTags` fallback). Tapping a tag opens its works.
+- **Comments** — view a work's comment thread (`CommentsParser`, threaded depth,
+  guest comments) and, when logged in, post one (scraped-form CSRF flow), from a
+  button in the reader's top bar. v1 is work-level (the work page's first thread);
+  the client/`commentsPageUrl` already accept a `chapterId`, so per-chapter
+  threading on multi-chapter works is a small UI follow-up (thread the current
+  chapter's id through the route + chapter-aware title/empty-state copy).
+- Infinite-scroll results, work reading (continuous scroll with saved reading
+  position), save-to-library (local follow, no login), the library with
+  All/Starred/Downloaded filters, reader typography/theme settings, AO3 share-in
+  / deep-link to open a work, and form-based login with a persisted session
+  cookie. The launcher icon is the adaptive-icon twin of the iOS app icon (maroon
+  gradient + open-book glyph with ruled text lines).
+
+Known follow-ups (present on iOS, not yet on Android): AO3 subscriptions + the
+background "new chapter" poller, the last-read home-screen widget, paginated /
+page-by-page reading modes, and on-device TTS ("Listen"). These map cleanly onto
+the structure above — add a parser under `net/parse/` (or `search/` for prompt
+parsing), a method on `AO3Client`, and a screen under `ui/`.
 
 ## Tests
 
 `./gradlew test` runs the JVM unit tests under `app/src/test/` — fixture-based
-parser and search-filter tests ported from the iOS `FanficlyTests` suite
-(`SearchResultsParserTest`, `AO3SearchFiltersTest`). Add tests here as you port
-more parsers, the same way the iOS app keeps its parsers pure and fixture-tested.
+parser and search tests ported from the iOS `FanficlyTests` suite:
+`SearchResultsParserTest`, `AO3SearchFiltersTest`, `SearchPromptParserTest`
+(every smart-search prompt case), `TagResolverTest` (canonical resolution + ship
+character-fallback, via the scriptable `StubAO3Client`), `MediaCategoryParserTest`
+/ `WorkFiltersParserTest` / `FandomCatalogTest` (Browse/Popular), `CommentsParserTest`
+(thread depth, guest comments, pseud id, new-comment form), and `PromptTextTest`
+(`promptText()` chip-removal round-trip). Add tests here as you port more
+parsers, the same way the iOS app keeps its parsers pure and fixture-tested.

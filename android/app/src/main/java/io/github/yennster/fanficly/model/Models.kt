@@ -58,6 +58,18 @@ data class WorkMetadata(
     val updatedAtMillis: Long?,
 )
 
+/** One comment in a work/chapter thread — the Kotlin port of iOS `AO3Comment`. */
+data class AO3Comment(
+    val id: String,
+    val commenterName: String,
+    /** AO3 login for registered commenters; "" for guests. */
+    val commenterUsername: String,
+    val dateText: String,
+    val bodyHtml: String,
+    /** Thread nesting: 0 = top-level, 1 = reply, … (drives indentation). */
+    val depth: Int,
+)
+
 enum class AutocompleteField(val path: String) {
     RELATIONSHIP("relationship"),
     CHARACTER("character"),

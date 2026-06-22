@@ -50,6 +50,21 @@ class MockAO3Client : AO3Client {
     )
 
     override suspend fun fetchWorkMetadata(id: Int) = WorkMetadata(id, 3, 3, null)
+    override suspend fun fetchFandomsInCategory(categoryName: String) =
+        io.github.yennster.fanficly.browse.FandomCatalog.all.firstOrNull { it.name == categoryName }?.fandoms ?: emptyList()
+    override suspend fun fetchPopularSnapshot() = io.github.yennster.fanficly.model.PopularSnapshot(
+        fandoms = io.github.yennster.fanficly.browse.PopularTags.fandoms,
+        ships = io.github.yennster.fanficly.browse.PopularTags.ships,
+        characters = io.github.yennster.fanficly.browse.PopularTags.characters,
+        fetchedAt = 0L,
+    )
+    override suspend fun fetchComments(workId: Int, chapterId: Int?) = listOf(
+        io.github.yennster.fanficly.model.AO3Comment(
+            id = "1", commenterName = "Demo Reader", commenterUsername = "demo",
+            dateText = "01 Jan 2026", bodyHtml = "<p>A sample comment used for previews.</p>", depth = 0,
+        ),
+    )
+    override suspend fun postComment(workId: Int, chapterId: Int?, text: String) {}
     override suspend fun autocomplete(field: AutocompleteField, term: String) = listOf(term)
     override suspend fun downloadEpub(workId: Int, cacheDir: File) = File(cacheDir, "$workId.epub")
     override suspend fun exportWork(workId: Int, format: ExportFormat, filename: String, cacheDir: File) =

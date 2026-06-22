@@ -1,6 +1,7 @@
 package io.github.yennster.fanficly
 
 import android.content.Context
+import io.github.yennster.fanficly.browse.PopularStore
 import io.github.yennster.fanficly.data.LibraryRepository
 import io.github.yennster.fanficly.data.SettingsStore
 import io.github.yennster.fanficly.data.db.AppDatabase
@@ -20,4 +21,5 @@ class AppContainer(context: Context, versionName: String) {
     private val db = AppDatabase.get(context)
     val libraryRepository = LibraryRepository(db.savedWorkDao(), db.readingProgressDao())
     val settingsStore = SettingsStore(context)
+    val popularStore = PopularStore(context)
 }
