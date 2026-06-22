@@ -4,10 +4,11 @@ name: Android Release APK
 # GitHub Release — so people can grab Fanficly for Android straight from the
 # repo's Releases page (the iOS/Mac builds go to the App Store via fastlane).
 #
-# Triggers when you publish a GitHub Release; also runnable by hand against an
-# existing tag. If the four signing secrets below are configured it ships a
-# signed *release* APK; otherwise it falls back to the always-installable
-# *debug* APK so the workflow works out of the box.
+# Runs when you either publish a GitHub Release OR push a `v*` tag (in which case
+# it creates the Release for you) — and is also runnable by hand against a tag.
+# If the four signing secrets below are configured it ships a signed *release*
+# APK; otherwise it falls back to the always-installable *debug* APK so the
+# workflow works out of the box.
 #
 # Optional secrets for a signed release build (see docs/ANDROID_PUBLISHING.md):
 #   ANDROID_KEYSTORE_BASE64  - `base64 -i fanficly-upload.keystore` of the upload keystore
@@ -18,14 +19,21 @@ name: Android Release APK
 on:
   release:
     types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing release tag to build + attach the APK to (e.g. v1.5.0)"
+        description: "Existing tag to build + attach the APK to (e.g. v1.5.0)"
         required: true
 
 permissions:
-  contents: write          # upload assets to the release
+  contents: write          # create the release / upload assets
+
+# One build per tag; queue (don't cancel) if a tag push and a manual publish race.
+concurrency:
+  group: android-release-${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   apk:
@@ -48,7 +56,8 @@ jobs:
 
       - name: Resolve release tag
         id: tag
-        run: echo "tag=${{ github.event.release.tag_name || github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+        # release event → the release's tag; manual → the input; tag push → the ref.
+        run: echo "tag=${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       - name: Decode upload keystore (when configured)
         id: keystore
@@ -96,6 +105,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${{ steps.tag.outputs.tag }}" \
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          # On a tag push there may be no Release yet — create one (from the tag's
+          # notes). On a release/publish or a re-run it already exists. Creating it
+          # here with GITHUB_TOKEN does NOT re-trigger this workflow (GitHub blocks
+          # GITHUB_TOKEN-driven events from starting new runs), so there's no loop.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+          gh release upload "$TAG" \
             "$RUNNER_TEMP/${{ steps.artifact.outputs.name }}" \
             --clobber --repo "$GITHUB_REPOSITORY"

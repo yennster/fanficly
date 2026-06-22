@@ -257,10 +257,12 @@ each GitHub Release**, so people can grab it straight from the repo's Releases
 page. This is automated by
 [`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml):
 
-- It runs when you **publish a GitHub Release** (and is also runnable by hand via
-  *Actions → Android Release APK → Run workflow* against an existing tag).
-- It builds the APK and uploads it to that release as
-  `fanficly-<tag>.apk`.
+- It runs when you **push a `v*` tag** (it creates the Release for you) **or
+  publish a GitHub Release** — and is also runnable by hand via *Actions →
+  Android Release APK → Run workflow* against a tag.
+- It builds the APK and uploads it to that release as `fanficly-<tag>.apk`. So
+  `git tag v1.5.0 && git push origin v1.5.0` is enough to ship a downloadable
+  build; you don't have to create the Release entry first.
 
 **Signing.** If the four optional repo secrets below are set, it ships a **signed
 release APK** (`assembleRelease`); otherwise it falls back to the always-
