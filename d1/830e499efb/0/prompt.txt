@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b26mo3jkc</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jenny-Work-ao3-app/30bd3495-b7e6-4ebf-9efa-4f38ca8279c4/tasks/b26mo3jkc.output</output-file>
+<status>failed</status>
+<summary>Background command "Mac build + push (fastlane release_mac, UTF-8)" failed with exit code 1</summary>
+</task-notification>
