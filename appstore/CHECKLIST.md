@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Version bumped to **1.5.0 (build 21)** in `project.yml`
+- Version bumped to **1.5.1 (build 22)** in `project.yml` (iOS 1.5.0/build 21 was uploaded first; bumped to 1.5.1 so the indigo build could also ship to Mac, whose 1.5.0 was already approved)
 
 ---
 
@@ -92,7 +92,7 @@ categories (Books / Entertainment), and attaches the build. It does **not** subm
 
 ## 8. Final review & submit  [portal]
 
-In App Store Connect → your **1.5.0** version:
+In App Store Connect → your **1.5.1** version:
 - Confirm name/subtitle/description/keywords/promotional text look right.
 - Confirm the 6.9" and 13" screenshots are in the slots you want (reorder if needed).
 - Select the processed **Build**.

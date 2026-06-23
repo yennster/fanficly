@@ -1,7 +1,8 @@
-# Reply to App Review — Fanficly 1.5.0 (build 21)
+# Reply to App Review — Fanficly 1.5.1 (build 22)
 
 Paste these into the Resolution Center reply for the corresponding guidelines.
-The Mac (macOS) build of 1.5.0 was already approved.
+The Mac (macOS) build of 1.5.0 was already approved; the indigo rebrand ships
+to Mac as 1.5.1 (build 22), and iOS resubmits as 1.5.1 (build 22) too.
 
 ---
 
