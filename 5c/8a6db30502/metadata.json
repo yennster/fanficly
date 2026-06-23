@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "5c8a6db30502",
+  "strategy": "manual-commit",
+  "branch": "claude/app-store-review-fixes-be4xdd",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "appstore/CHECKLIST.md",
+    "appstore/review-reply-1.5.0.md",
+    "project.yml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5c/8a6db30502/0/metadata.json",
+      "transcript": "/5c/8a6db30502/0/full.jsonl",
+      "content_hash": "/5c/8a6db30502/0/content_hash.txt",
+      "prompt": "/5c/8a6db30502/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 650,
+    "cache_creation_tokens": 28224,
+    "cache_read_tokens": 2139949,
+    "output_tokens": 19791,
+    "api_call_count": 9
+  }
+}
