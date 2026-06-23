@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "f805b0db2c9f",
+  "strategy": "manual-commit",
+  "branch": "claude/app-store-review-fixes-be4xdd",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "Fanficly/Assets.xcassets/AccentColor.colorset/Contents.json",
+    "Fanficly/FanficlyApp.swift",
+    "FanficlyWidget/FanficlyWidget.swift",
+    "appstore/CHECKLIST.md",
+    "appstore/review-reply-1.5.0.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f8/05b0db2c9f/0/metadata.json",
+      "transcript": "/f8/05b0db2c9f/0/full.jsonl",
+      "content_hash": "/f8/05b0db2c9f/0/content_hash.txt",
+      "prompt": "/f8/05b0db2c9f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 20794,
+    "cache_creation_tokens": 309517,
+    "cache_read_tokens": 4777832,
+    "output_tokens": 80336,
+    "api_call_count": 42
+  }
+}

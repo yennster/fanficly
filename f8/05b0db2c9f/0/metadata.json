@@ -1,0 +1,72 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "f805b0db2c9f",
+  "session_id": "30bd3495-b7e6-4ebf-9efa-4f38ca8279c4",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-23T09:25:54.38405Z",
+  "branch": "claude/app-store-review-fixes-be4xdd",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "appstore/CHECKLIST.md",
+    "appstore/review-reply-1.5.0.md",
+    "Fanficly/Assets.xcassets/AccentColor.colorset/Contents.json",
+    "Fanficly/FanficlyApp.swift",
+    "FanficlyWidget/FanficlyWidget.swift",
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "248e2daf73f4",
+  "token_usage": {
+    "input_tokens": 20794,
+    "cache_creation_tokens": 309517,
+    "cache_read_tokens": 4777832,
+    "output_tokens": 80336,
+    "api_call_count": 42
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-23T09:25:54.372499Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 31,
+    "total_committed": 0,
+    "total_lines_changed": 31,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 187,
+      "user_lines_removed": 31,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/agents/entire-search.md": 25,
+        ".claude/settings.json": 84,
+        ".claude/settings.local.json": 33,
+        "AGENTS.md": 1,
+        "CLAUDE.md": 1,
+        "Fanficly/Assets.xcassets/AccentColor.colorset/Contents.json": 5,
+        "Fanficly/FanficlyApp.swift": 2,
+        "FanficlyWidget/FanficlyWidget.swift": 10,
+        "android/.gradle/buildOutputCleanup/cache.properties": 2,
+        "android/local.properties": 1,
+        "appstore/CHECKLIST.md": 13,
+        "appstore/review-reply-1.5.0.md": 10
+      },
+      "user_removed_per_file": {
+        "AGENTS.md": 1,
+        "CLAUDE.md": 1,
+        "Fanficly/Assets.xcassets/AccentColor.colorset/Contents.json": 5,
+        "Fanficly/FanficlyApp.swift": 2,
+        "FanficlyWidget/FanficlyWidget.swift": 10,
+        "appstore/CHECKLIST.md": 8,
+        "appstore/review-reply-1.5.0.md": 4
+      }
+    }
+  ]
+}
