@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "36a4b94d3f5e",
+  "strategy": "manual-commit",
+  "branch": "claude/kudos-count-icon-only-fix",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/screenshots/ipad/01-home.png",
+    "docs/screenshots/ipad/04-library.png",
+    "docs/screenshots/ipad/05-browse-fandoms.png",
+    "docs/screenshots/ipad/05-browse.png",
+    "docs/screenshots/ipad/06-recently-viewed.png",
+    "docs/screenshots/ipad/10-popular.png",
+    "docs/screenshots/ipad/12-bookmarks.png",
+    "docs/screenshots/iphone/01-home.png",
+    "docs/screenshots/iphone/02-search-results.png",
+    "docs/screenshots/iphone/03-reader.png",
+    "docs/screenshots/iphone/04-library.png",
+    "docs/screenshots/iphone/05-browse-fandoms.png",
+    "docs/screenshots/iphone/05-browse.png",
+    "docs/screenshots/iphone/06-recently-viewed.png",
+    "docs/screenshots/iphone/07-reader-settings.png",
+    "docs/screenshots/iphone/09-tts.png",
+    "docs/screenshots/iphone/10-popular.png",
+    "docs/screenshots/iphone/11-comments.png",
+    "docs/screenshots/iphone/12-bookmarks.png",
+    "docs/screenshots/mac/02-search-results.png",
+    "docs/screenshots/mac/12-bookmarks.png"
+  ],
+  "sessions": [
+    {
+      "metadata": "/36/a4b94d3f5e/0/metadata.json",
+      "transcript": "/36/a4b94d3f5e/0/full.jsonl",
+      "content_hash": "/36/a4b94d3f5e/0/content_hash.txt",
+      "prompt": "/36/a4b94d3f5e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 24981,
+    "cache_creation_tokens": 792662,
+    "cache_read_tokens": 25150866,
+    "output_tokens": 209105,
+    "api_call_count": 120
+  }
+}

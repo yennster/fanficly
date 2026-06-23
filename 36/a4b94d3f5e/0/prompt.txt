@@ -1,0 +1,15 @@
+<task-notification>
+<task-id>bytyl0amt</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-jenny-Work-ao3-app/30bd3495-b7e6-4ebf-9efa-4f38ca8279c4/tasks/bytyl0amt.output</output-file>
+<status>killed</status>
+<summary>Background command "Re-capture + reframe screenshots with kudos fix (background)" was stopped</summary>
+</task-notification>
+
+---
+
+what's the status
+
+---
+
+yes
