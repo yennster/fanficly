@@ -149,15 +149,15 @@ private struct WidgetProgressBar: View {
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color(red: 1.0, green: 0.42, blue: 0.46),
-                                Color(red: 1.0, green: 0.67, blue: 0.45)
+                                Color(red: 0.49, green: 0.42, blue: 0.96),
+                                Color(red: 0.74, green: 0.60, blue: 1.0)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
                     )
                     .frame(width: geometry.size.width * clamped)
-                    .shadow(color: Color(red: 1.0, green: 0.38, blue: 0.42).opacity(0.30), radius: 6, y: 1)
+                    .shadow(color: Color(red: 0.49, green: 0.42, blue: 0.96).opacity(0.30), radius: 6, y: 1)
             }
         }
         .frame(height: 5)
@@ -256,20 +256,20 @@ private struct AppBookIcon: View {
 private struct WidgetGlassBackground: View {
     var body: some View {
         ZStack {
-            // Dark maroon to AO3 red base gradient (matching the app icon)
+            // Deep indigo base gradient (matching the app icon)
             LinearGradient(
                 colors: [
-                    Color(red: 0.45, green: 0.00, blue: 0.00),
-                    Color(red: 0.60, green: 0.00, blue: 0.00)
+                    Color(red: 0.16, green: 0.12, blue: 0.40),
+                    Color(red: 0.28, green: 0.22, blue: 0.60)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
 
-            // Subtle bright red glow in the top-leading corner
+            // Subtle bright violet glow in the top-leading corner
             RadialGradient(
                 colors: [
-                    Color(red: 1.0, green: 0.35, blue: 0.42).opacity(0.25),
+                    Color(red: 0.62, green: 0.50, blue: 1.0).opacity(0.25),
                     .clear
                 ],
                 center: .topLeading,
@@ -394,8 +394,8 @@ struct StreakWidgetEntryView: View {
                                         .fill(
                                             LinearGradient(
                                                 colors: [
-                                                    Color(red: 1.0, green: 0.62, blue: 0.45),
-                                                    Color(red: 1.0, green: 0.38, blue: 0.42)
+                                                    Color(red: 0.74, green: 0.60, blue: 1.0),
+                                                    Color(red: 0.49, green: 0.42, blue: 0.96)
                                                 ],
                                                 startPoint: .top,
                                                 endPoint: .bottom

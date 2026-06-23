@@ -36,15 +36,15 @@ func makeContext() -> CGContext {
 func colors(for variant: Variant) -> (bgColors: [CGColor]?, ink: CGColor, line: CGColor?) {
     switch variant {
     case .light:
-        // Dark maroon to AO3 red gradient, white book ink
-        let c1 = CGColor(red: 0.45, green: 0.00, blue: 0.00, alpha: 1.0)
-        let c2 = CGColor(red: 0.60, green: 0.00, blue: 0.00, alpha: 1.0)
-        return ([c1, c2], CGColor(gray: 0.98, alpha: 1.0), CGColor(red: 0.45, green: 0.00, blue: 0.00, alpha: 1.0))
+        // Deep indigo → violet gradient, white book ink
+        let c1 = CGColor(red: 0.224, green: 0.176, blue: 0.533, alpha: 1.0)
+        let c2 = CGColor(red: 0.280, green: 0.220, blue: 0.670, alpha: 1.0)
+        return ([c1, c2], CGColor(gray: 0.98, alpha: 1.0), CGColor(red: 0.224, green: 0.176, blue: 0.533, alpha: 1.0))
     case .dark:
-        // Very dark midnight maroon gradient, white book ink
-        let c1 = CGColor(red: 0.20, green: 0.00, blue: 0.00, alpha: 1.0)
-        let c2 = CGColor(red: 0.35, green: 0.00, blue: 0.00, alpha: 1.0)
-        return ([c1, c2], CGColor(gray: 0.95, alpha: 1.0), CGColor(red: 0.20, green: 0.00, blue: 0.00, alpha: 1.0))
+        // Very dark midnight indigo gradient, white book ink
+        let c1 = CGColor(red: 0.114, green: 0.086, blue: 0.267, alpha: 1.0)
+        let c2 = CGColor(red: 0.180, green: 0.140, blue: 0.427, alpha: 1.0)
+        return ([c1, c2], CGColor(gray: 0.95, alpha: 1.0), CGColor(red: 0.114, green: 0.086, blue: 0.267, alpha: 1.0))
     case .tinted:
         // Transparent background, light ink
         return (nil, CGColor(gray: 0.92, alpha: 1.0), nil)

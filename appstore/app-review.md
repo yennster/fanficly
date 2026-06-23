@@ -54,6 +54,42 @@ for the mature-themes axis since AO3 hosts adult fiction):
 
 This yields a 17+ rating, consistent with the in-app age gate.
 
+## Background audio (Guideline 2.5.4)
+
+The `audio` value in `UIBackgroundModes` is required by a real feature: the
+**"Listen" text-to-speech reader**. It narrates a work aloud and is designed to
+keep playing while the app is backgrounded and the screen is locked, with
+lock-screen / Control Center transport controls and chapter auto-advance — the
+same persistent-audio behavior as an audiobook or podcast app. It is 100%
+on-device (`AVSpeechSynthesizer`), so it holds the privacy posture.
+
+How to reach it (no login needed):
+
+1. Open any work and tap to start reading.
+2. Switch the reader to **paginated** mode (typography "Aa" menu) — the
+   **"Listen"** bar appears at the bottom. Tap **Listen** to start narration.
+3. Press the side button to **lock the device**: audio keeps playing, and the
+   Now Playing controls (play/pause, skip) appear on the Lock Screen.
+
+For the reviewer recording, capture steps 2–3 on a physical device, then press
+the Home gesture to show the app backgrounded while audio continues. Attach the
+recording in the **Notes** field of App Review Information.
+
+Implementation: `Fanficly/Reader/SpeechController.swift` (the `AVAudioSession`
+`.playback` / `.spokenAudio` session + `MPNowPlayingInfoCenter` /
+`MPRemoteCommandCenter` wiring), surfaced by the "Listen" bar in
+`Fanficly/Reader/ReaderView.swift`.
+
+## Branding (Guideline 4.1(a))
+
+Fanficly is an independent third-party **reader** for works on Archive of Our
+Own; it is not made by, affiliated with, or endorsed by AO3 / the Organization
+for Transformative Works, and the description carries that disclaimer. The app
+icon and marketing screenshots use the app's own **indigo** brand color — they
+do not reuse AO3's branding, logo, or signature maroon. Where the metadata names
+"AO3" it does so descriptively, to state what the app reads (as many third-party
+reader apps do), not to imply affiliation.
+
 ## Export compliance
 
 `ITSAppUsesNonExemptEncryption = false` is set in `Fanficly/Info.plist`, so the

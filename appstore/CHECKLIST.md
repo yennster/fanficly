@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Version bumped to **1.5.0 (build 20)** in `project.yml`
+- Version bumped to **1.5.1 (build 22)** in `project.yml` (iOS 1.5.0/build 21 was uploaded first; bumped to 1.5.1 so the indigo build could also ship to Mac, whose 1.5.0 was already approved)
 
 ---
 
@@ -92,7 +92,7 @@ categories (Books / Entertainment), and attaches the build. It does **not** subm
 
 ## 8. Final review & submit  [portal]
 
-In App Store Connect → your **1.5.0** version:
+In App Store Connect → your **1.5.1** version:
 - Confirm name/subtitle/description/keywords/promotional text look right.
 - Confirm the 6.9" and 13" screenshots are in the slots you want (reorder if needed).
 - Select the processed **Build**.
@@ -103,15 +103,31 @@ In App Store Connect → your **1.5.0** version:
 
 ## Likely rejection triggers (worth a glance first)
 
-1. **Keyword "ao3"** (`fastlane/metadata/en-US/keywords.txt`) — "AO3"/"Archive of
-   Our Own" is a trademark of the Organization for Transformative Works. Apple
-   *sometimes* flags third-party trademarks in keywords. It's high-value for ASO
-   but the single most likely flag. Safe replacement if you'd rather not risk it:
-   swap `ao3` for `webnovel` (keeps the field full). The app **name/subtitle**
-   are deliberately trademark-clean.
-2. **Guideline 1.2 (UGC)** — covered by the in-app safeguards; the reviewer notes
+1. **Guideline 4.1(a) copycats / branding** — the app icon and marketing
+   screenshots use the app's own **indigo** brand color (`#3B2E8C`), *not* AO3's
+   signature maroon, so the art no longer resembles AO3's branding. (1.5.0 build
+   20 was first rejected here while the art was maroon; rebranded to indigo in
+   build 21.) To further de-risk the resubmission, the store **name** was changed
+   from "Fanficly: AO3 Fanfiction" to **"Fanficly: Fanfiction Reader"** (no
+   trademark in the title). Keep remaining "AO3" mentions **descriptive** ("read
+   works from Archive of Our Own"), never implying affiliation — the description's
+   "not affiliated with AO3 / OTW" disclaimer must stay. The subtitle keeps
+   "Ad-free unofficial AO3 reader" because "unofficial" itself disclaims affiliation.
+2. **Keywords** (`fastlane/metadata/en-US/keywords.txt`) — "AO3"/"Archive of
+   Our Own" is a trademark of the Organization for Transformative Works, and Apple
+   *sometimes* flags third-party trademarks in keywords. As of build 21 the bare
+   `ao3` and `archiveofourown` keywords were **removed** and replaced with clean,
+   high-value terms (`fiction,stories,ship,slash,kudos`, …). The app **name** and
+   keywords are now trademark-clean; only the subtitle and the descriptive prose
+   in the description still name AO3.
+3. **Guideline 2.5.4 background audio** — the `audio` UIBackgroundMode is backed
+   by the "Listen" TTS reader (persistent lock-screen playback). 1.5.0 build 20
+   was flagged because the reviewer couldn't find it; the **Notes** field now
+   includes the repro steps + a screen recording (see `app-review.md` →
+   "Background audio"). Do **not** remove the `audio` mode — it's a real feature.
+4. **Guideline 1.2 (UGC)** — covered by the in-app safeguards; the reviewer notes
    point to each. No action unless asked.
-3. **Trademark / IP** — description carries the "not affiliated with AO3 / OTW"
+5. **Trademark / IP** — description carries the "not affiliated with AO3 / OTW"
    disclaimer; keep it.
 
 ## Re-running later (updates)

@@ -6,7 +6,7 @@ Reads the deterministic demo-mode shots captured by
 `FanficlyUITests/ScreenshotTests` from docs/screenshots/{iphone,ipad}/ (and the
 hand-captured Mac shots from docs/screenshots/mac/) and turns each into a
 high-converting App Store screenshot: a real Apple device frame (via
-`fastlane frameit`, for iPhone/iPad) on a solid brand-maroon canvas with a bold
+`fastlane frameit`, for iPhone/iPad) on a solid brand-indigo canvas with a bold
 two-line headline (action verb + benefit). Each image is written to BOTH:
   - screenshots/final/{iphone,ipad,mac}/ — the tracked marketing set (README)
   - fastlane/screenshots/en-US/          — what `fastlane deliver` uploads (iOS)
@@ -27,7 +27,7 @@ Pipeline per screenshot:
   2b. Mac: the raws come from a landscape iPad split-view capture. We apply EXIF
       orientation, trim any uniform black band, crop away the rounded iPad display
       fringe, and place the app into Fastlane's downloaded MacBook Pro frame.
-  3. Composite the framed device onto the maroon canvas and draw the headline,
+  3. Composite the framed device onto the indigo canvas and draw the headline,
      scaling the device to fit inside the canvas (never clipped) for landscape
      Mac sizes.
 
@@ -59,7 +59,7 @@ FINAL = os.path.join(REPO, "screenshots", "final")             # tracked marketi
 SHOWCASE = os.path.join(REPO, "screenshots", "showcase.png")   # README hero strip
 GITHUB_URL = "github.com/yennster/fanficly"
 
-BG = (0x99, 0x00, 0x00)  # AO3 Maroon Red — the ASO brand background
+BG = (0x3B, 0x2E, 0x8C)  # Deep indigo — the ASO brand background
 FONT = "/Library/Fonts/SF-Pro-Display-Black.otf"
 # Caption font for the showcase strip (falls back to the headline font, then default).
 SHOWCASE_FONTS = ["/Library/Fonts/SF-Pro-Display-Regular.otf", FONT]
