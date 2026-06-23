@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Version bumped to **1.5.0 (build 20)** in `project.yml`
+- Version bumped to **1.5.0 (build 21)** in `project.yml`
 
 ---
 
@@ -103,15 +103,26 @@ In App Store Connect → your **1.5.0** version:
 
 ## Likely rejection triggers (worth a glance first)
 
-1. **Keyword "ao3"** (`fastlane/metadata/en-US/keywords.txt`) — "AO3"/"Archive of
+1. **Guideline 4.1(a) copycats / branding** — the app icon and marketing
+   screenshots use the app's own **indigo** brand color (`#3B2E8C`), *not* AO3's
+   signature maroon, so the art no longer resembles AO3's branding. (1.5.0 build
+   20 was first rejected here while the art was maroon; rebranded to indigo in
+   build 21.) Keep "AO3" mentions in metadata **descriptive** ("read works from
+   Archive of Our Own"), never implying affiliation — the description's
+   "not affiliated with AO3 / OTW" disclaimer must stay.
+2. **Keyword "ao3"** (`fastlane/metadata/en-US/keywords.txt`) — "AO3"/"Archive of
    Our Own" is a trademark of the Organization for Transformative Works. Apple
-   *sometimes* flags third-party trademarks in keywords. It's high-value for ASO
-   but the single most likely flag. Safe replacement if you'd rather not risk it:
-   swap `ao3` for `webnovel` (keeps the field full). The app **name/subtitle**
-   are deliberately trademark-clean.
-2. **Guideline 1.2 (UGC)** — covered by the in-app safeguards; the reviewer notes
+   *sometimes* flags third-party trademarks in keywords. It's high-value for ASO.
+   Safe replacement if you'd rather not risk it: swap `ao3` for `webnovel` (keeps
+   the field full). The app **name/subtitle** are deliberately trademark-clean.
+3. **Guideline 2.5.4 background audio** — the `audio` UIBackgroundMode is backed
+   by the "Listen" TTS reader (persistent lock-screen playback). 1.5.0 build 20
+   was flagged because the reviewer couldn't find it; the **Notes** field now
+   includes the repro steps + a screen recording (see `app-review.md` →
+   "Background audio"). Do **not** remove the `audio` mode — it's a real feature.
+4. **Guideline 1.2 (UGC)** — covered by the in-app safeguards; the reviewer notes
    point to each. No action unless asked.
-3. **Trademark / IP** — description carries the "not affiliated with AO3 / OTW"
+5. **Trademark / IP** — description carries the "not affiliated with AO3 / OTW"
    disclaimer; keep it.
 
 ## Re-running later (updates)
