@@ -45,10 +45,16 @@ and all marketing screenshots to our own indigo color scheme** (previously they
 used a maroon palette). The app does not use AO3's logo, name styling, or brand
 colors.
 
-Where the metadata mentions "AO3" / "Archive of Our Own," it is purely
-descriptive — it tells users which site's publicly available works the app can
-read, the same way many third-party reader apps describe the content source.
-The app hosts no content of its own; all works are hosted and moderated by AO3.
+We have also revised the store listing to remove the trademark from the
+foreground: the app **name** is now "Fanficly: Fanfiction Reader" (it no longer
+leads with "AO3"), and we removed "AO3"/"Archive of Our Own" from the **keywords**.
+
+Where the metadata still mentions "AO3" / "Archive of Our Own" — in the subtitle
+("unofficial AO3 reader") and the description — it is purely descriptive: it tells
+users which site's publicly available works the app can read, the same way many
+third-party reader apps describe the content source, and the word "unofficial"
+makes the lack of affiliation explicit. The app hosts no content of its own; all
+works are hosted and moderated by AO3.
 
 Please let us know if any specific phrase in the metadata should be revised
 further and we'll be happy to adjust it.

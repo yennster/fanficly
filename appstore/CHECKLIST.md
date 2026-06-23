@@ -107,14 +107,19 @@ In App Store Connect → your **1.5.0** version:
    screenshots use the app's own **indigo** brand color (`#3B2E8C`), *not* AO3's
    signature maroon, so the art no longer resembles AO3's branding. (1.5.0 build
    20 was first rejected here while the art was maroon; rebranded to indigo in
-   build 21.) Keep "AO3" mentions in metadata **descriptive** ("read works from
-   Archive of Our Own"), never implying affiliation — the description's
-   "not affiliated with AO3 / OTW" disclaimer must stay.
-2. **Keyword "ao3"** (`fastlane/metadata/en-US/keywords.txt`) — "AO3"/"Archive of
-   Our Own" is a trademark of the Organization for Transformative Works. Apple
-   *sometimes* flags third-party trademarks in keywords. It's high-value for ASO.
-   Safe replacement if you'd rather not risk it: swap `ao3` for `webnovel` (keeps
-   the field full). The app **name/subtitle** are deliberately trademark-clean.
+   build 21.) To further de-risk the resubmission, the store **name** was changed
+   from "Fanficly: AO3 Fanfiction" to **"Fanficly: Fanfiction Reader"** (no
+   trademark in the title). Keep remaining "AO3" mentions **descriptive** ("read
+   works from Archive of Our Own"), never implying affiliation — the description's
+   "not affiliated with AO3 / OTW" disclaimer must stay. The subtitle keeps
+   "Ad-free unofficial AO3 reader" because "unofficial" itself disclaims affiliation.
+2. **Keywords** (`fastlane/metadata/en-US/keywords.txt`) — "AO3"/"Archive of
+   Our Own" is a trademark of the Organization for Transformative Works, and Apple
+   *sometimes* flags third-party trademarks in keywords. As of build 21 the bare
+   `ao3` and `archiveofourown` keywords were **removed** and replaced with clean,
+   high-value terms (`fiction,stories,ship,slash,kudos`, …). The app **name** and
+   keywords are now trademark-clean; only the subtitle and the descriptive prose
+   in the description still name AO3.
 3. **Guideline 2.5.4 background audio** — the `audio` UIBackgroundMode is backed
    by the "Listen" TTS reader (persistent lock-screen playback). 1.5.0 build 20
    was flagged because the reviewer couldn't find it; the **Notes** field now
