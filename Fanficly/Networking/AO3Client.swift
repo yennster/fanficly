@@ -571,8 +571,17 @@ public actor AO3Client: AO3ClientProtocol {
         }
     }
 
-    private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    /// How many times a transient failure (timeout / dropped connection / a 429
+    /// rate-limit) is retried before it surfaces to the caller.
+    private static let maxRetries = 2
+
+    private func performRequest(_ request: URLRequest, attempt: Int = 0) async throws -> (Data, HTTPURLResponse) {
         ensureCookiesLoaded()
+        // Only auto-retry idempotent reads. Replaying a POST (login, comment,
+        // subscribe) after a timeout could double-submit — e.g. a comment that
+        // actually landed but whose response was lost — so those surface the
+        // error to the caller instead.
+        let canRetry = (request.httpMethod ?? "GET").uppercased() == "GET" && attempt < Self.maxRetries
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
@@ -581,13 +590,48 @@ public actor AO3Client: AO3ClientProtocol {
             switch http.statusCode {
             case 200..<300, 302: return (data, http)
             case 401, 403:        throw AO3Error.unauthorized
-            case 429:             throw AO3Error.rateLimited
+            case 429:
+                // We've been rate-limited. Back off (longer each time) and try
+                // again through the throttle before giving up, so a brief AO3
+                // clamp-down doesn't surface as a hard failure.
+                if canRetry {
+                    try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
+                    await throttle.wait()
+                    return try await performRequest(request, attempt: attempt + 1)
+                }
+                throw AO3Error.rateLimited
             default:              throw AO3Error.http(status: http.statusCode)
             }
         } catch let error as AO3Error {
             throw error
+        } catch let urlError as URLError where canRetry && Self.isTransient(urlError) {
+            // Timeouts and dropped connections are often transient (a slow AO3
+            // response, a network blip) — retry with backoff instead of failing
+            // the whole load.
+            try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
+            await throttle.wait()
+            return try await performRequest(request, attempt: attempt + 1)
         } catch {
             throw AO3Error.network(underlying: error.localizedDescription)
+        }
+    }
+
+    /// Exponential backoff before a retry: ~0.5s, then ~1s.
+    private static func backoffNanos(_ attempt: Int) -> UInt64 {
+        let seconds = 0.5 * pow(2.0, Double(attempt))
+        return UInt64(seconds * 1_000_000_000)
+    }
+
+    /// URLSession errors worth retrying — network hiccups rather than
+    /// programmer/permanent errors (a bad URL or cancellation isn't retried).
+    private static func isTransient(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+             .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+             .resourceUnavailable, .secureConnectionFailed:
+            return true
+        default:
+            return false
         }
     }
 
