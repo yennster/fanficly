@@ -762,3 +762,189 @@ extension Work {
             categories.contains { $0.lowercased().contains(trimmed) }
     }
 }
+
+// MARK: - Reading statistics
+
+/// The Stats tab: lifetime reading totals and a per-year "wrap-up". Works for
+/// everyone, on-device; iCloud only syncs the underlying `ReadingStat` rows and
+/// the streak across the user's own devices. Reading time is the real active
+/// time the reader was open and foregrounded (see `ReaderView`).
+struct StatsView: View {
+    @Query private var stats: [ReadingStat]
+
+    /// nil == All Time; otherwise a specific calendar year.
+    @State private var selectedYear: Int?
+
+    private var snapshots: [ReadingStatSnapshot] {
+        stats.map {
+            ReadingStatSnapshot(
+                ao3Id: $0.ao3Id, title: $0.title, author: $0.author,
+                fandoms: $0.fandoms, categories: $0.categories, relationships: $0.relationships,
+                rating: $0.rating, wordCount: $0.wordCount,
+                firstReadAt: $0.firstReadAt, lastReadAt: $0.lastReadAt,
+                totalSeconds: $0.totalSeconds, yearSeconds: $0.yearSeconds
+            )
+        }
+    }
+
+    private var years: [Int] { ReadingStatsAggregator.availableYears(snapshots) }
+
+    private var summary: ReadingStatsSummary {
+        ReadingStatsAggregator.summarize(snapshots, year: selectedYear)
+    }
+
+    private var scopeTitle: String {
+        if let selectedYear { return "\(selectedYear) in Review" }
+        return "All Time"
+    }
+
+    var body: some View {
+        Group {
+            if stats.isEmpty {
+                ContentUnavailableView(
+                    "No Reading Stats Yet",
+                    systemImage: "chart.bar.xaxis",
+                    description: Text("Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.")
+                )
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Spacing.xl) {
+                        if !years.isEmpty {
+                            scopePicker
+                        }
+                        headerCards
+                        topList("Top Fandoms", systemImage: "books.vertical", items: summary.topFandoms)
+                        topList("Top Categories", systemImage: "person.2.square.stack", items: summary.topCategories)
+                        topList("Top Ships", systemImage: "heart", items: summary.topRelationships)
+                        topList("Top Authors", systemImage: "person", items: summary.topAuthors)
+                    }
+                    .padding()
+                }
+            }
+        }
+        .navigationTitle("Stats")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var scopePicker: some View {
+        Picker("Scope", selection: $selectedYear) {
+            Text("All Time").tag(Int?.none)
+            ForEach(years, id: \.self) { year in
+                Text(String(year)).tag(Int?.some(year))
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var headerCards: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text(scopeTitle)
+                .font(.title2.bold())
+            // Adaptive grid so the four stat tiles wrap nicely on phone & iPad.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Spacing.md)], spacing: Spacing.md) {
+                StatTile(value: "\(summary.storiesRead)",
+                         label: summary.storiesRead == 1 ? "Story Read" : "Stories Read",
+                         systemImage: "book.closed")
+                StatTile(value: Self.formatDuration(summary.totalSeconds),
+                         label: "Time Read",
+                         systemImage: "clock")
+                StatTile(value: Self.formatWords(summary.totalWords),
+                         label: "Words Read",
+                         systemImage: "text.alignleft")
+                StatTile(value: "\(StreakStore.loadStreakInfo().currentStreak)",
+                         label: "Day Streak",
+                         systemImage: "flame")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func topList(_ title: String, systemImage: String, items: [ReadingTagCount]) -> some View {
+        if !items.isEmpty {
+            let maxCount = items.map(\.count).max() ?? 1
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Label(title, systemImage: systemImage)
+                    .font(.headline)
+                ForEach(items) { item in
+                    StatBarRow(name: item.name, count: item.count, fraction: Double(item.count) / Double(maxCount))
+                }
+            }
+        }
+    }
+
+    /// "12h 34m" / "45m" / "<1m". Active reading time, never zero-padded.
+    static func formatDuration(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return total <= 0 ? "0m" : "<1m" }
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        if hours > 0 { return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h" }
+        return "\(minutes)m"
+    }
+
+    /// Compact word count: "1.2M", "340K", "8,500".
+    static func formatWords(_ words: Int) -> String {
+        if words >= 1_000_000 {
+            return String(format: "%.1fM", Double(words) / 1_000_000)
+        } else if words >= 10_000 {
+            return "\(words / 1000)K"
+        }
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: words)) ?? "\(words)"
+    }
+}
+
+private struct StatTile: View {
+    let value: String
+    let label: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(.tint)
+            Text(value)
+                .font(.title.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct StatBarRow: View {
+    let name: String
+    let count: Int
+    let fraction: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+            HStack {
+                Text(name)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                Spacer(minLength: Spacing.sm)
+                Text("\(count)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.15))
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: max(4, geo.size.width * fraction))
+                }
+            }
+            .frame(height: 6)
+        }
+    }
+}

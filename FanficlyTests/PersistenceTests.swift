@@ -9,6 +9,7 @@ final class PersistenceTests: XCTestCase {
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
             RecentlyViewed.self, CustomFolder.self, FollowedAuthor.self,
+            ReadingStat.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
@@ -151,6 +152,80 @@ final class PersistenceTests: XCTestCase {
                                   title: "T", author: "A", in: ctx)
         XCTAssertEqual(ReadingProgressStore.load(ao3Id: 42, in: ctx)?.chapter, 6)
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingProgress>()).count, 1)
+    }
+
+    // MARK: - Reading stats
+
+    private func date(year: Int) -> Date {
+        Calendar.current.date(from: DateComponents(year: year, month: 6, day: 15))!
+    }
+
+    func test_readingStatsStore_accumulatesAndBucketsByYear() throws {
+        let ctx = try makeContext()
+        let d2025 = date(year: 2025)
+        let d2026 = date(year: 2026)
+
+        ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
+                                 fandoms: ["Fandom X"], categories: ["M/M"], relationships: ["A/B"],
+                                 rating: "Teen", wordCount: 5000, seconds: 600, date: d2025, in: ctx)
+        // Second read, same work, same year → accrues onto the one row.
+        ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
+                                 fandoms: ["Fandom X"], categories: ["M/M"], relationships: ["A/B"],
+                                 rating: "Teen", wordCount: 5000, seconds: 300, date: d2025, in: ctx)
+        // Same work read again in a new year → new year bucket, same row.
+        ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
+                                 fandoms: [], categories: [], relationships: [],
+                                 rating: "", wordCount: 0, seconds: 120, date: d2026, in: ctx)
+
+        let rows = try ctx.fetch(FetchDescriptor<ReadingStat>())
+        XCTAssertEqual(rows.count, 1)
+        let row = rows[0]
+        XCTAssertEqual(row.totalSeconds, 1020, accuracy: 0.001)
+        XCTAssertEqual(row.yearSeconds["2025"] ?? 0, 900, accuracy: 0.001)
+        XCTAssertEqual(row.yearSeconds["2026"] ?? 0, 120, accuracy: 0.001)
+        // Empty metadata on the later read must not wipe the snapshot.
+        XCTAssertEqual(row.fandoms, ["Fandom X"])
+        XCTAssertEqual(row.wordCount, 5000)
+    }
+
+    func test_readingStatsAggregator_summarizeAllTimeAndYear() {
+        let snaps = [
+            ReadingStatSnapshot(ao3Id: 1, title: "", author: "Alice",
+                                fandoms: ["HP", "Naruto"], categories: ["M/M"], relationships: ["A/B"],
+                                rating: "Teen", wordCount: 1000,
+                                firstReadAt: date(year: 2025), lastReadAt: date(year: 2025),
+                                totalSeconds: 600, yearSeconds: ["2025": 600]),
+            ReadingStatSnapshot(ao3Id: 2, title: "", author: "Alice",
+                                fandoms: ["HP"], categories: ["F/M"], relationships: ["C/D"],
+                                rating: "Mature", wordCount: 2000,
+                                firstReadAt: date(year: 2026), lastReadAt: date(year: 2026),
+                                totalSeconds: 1200, yearSeconds: ["2026": 1200]),
+        ]
+
+        let all = ReadingStatsAggregator.summarize(snaps, year: nil)
+        XCTAssertEqual(all.storiesRead, 2)
+        XCTAssertEqual(all.totalSeconds, 1800, accuracy: 0.001)
+        XCTAssertEqual(all.totalWords, 3000)
+        XCTAssertEqual(all.topFandoms.first?.name, "HP")
+        XCTAssertEqual(all.topFandoms.first?.count, 2)
+        XCTAssertEqual(all.topAuthors.first?.name, "Alice")
+        XCTAssertEqual(all.topAuthors.first?.count, 2)
+
+        let y2025 = ReadingStatsAggregator.summarize(snaps, year: 2025)
+        XCTAssertEqual(y2025.storiesRead, 1)
+        XCTAssertEqual(y2025.totalSeconds, 600, accuracy: 0.001)
+        XCTAssertEqual(y2025.totalWords, 1000)
+
+        XCTAssertEqual(ReadingStatsAggregator.availableYears(snaps), [2026, 2025])
+        XCTAssertEqual(ReadingStatsAggregator.summarize([], year: nil), .empty)
+    }
+
+    func test_readingStatsAggregator_rankOrdersByCountThenName() {
+        let ranked = ReadingStatsAggregator.rank(["B", "A", "A", "B", "C", "B", " "], topCount: 2)
+        XCTAssertEqual(ranked.map(\.name), ["B", "A"])
+        XCTAssertEqual(ranked.first?.count, 3)
+        // Whitespace-only names are ignored.
+        XCTAssertFalse(ranked.contains { $0.name.trimmingCharacters(in: .whitespaces).isEmpty })
     }
 
     func test_iCloudSyncRestoresSettings() async throws {

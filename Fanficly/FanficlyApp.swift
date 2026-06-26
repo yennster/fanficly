@@ -71,6 +71,7 @@ struct FanficlyApp: App {
             HiddenWork.self,
             CustomFolder.self,
             FollowedAuthor.self,
+            ReadingStat.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
@@ -152,30 +153,35 @@ struct FanficlyApp: App {
                 }
                 .keyboardShortcut("4", modifiers: [.command])
 
+                Button("Stats") {
+                    selectedTabRaw = SidebarItem.stats.rawValue
+                }
+                .keyboardShortcut("5", modifiers: [.command])
+
                 Button("Recently Viewed") {
                     selectedTabRaw = SidebarItem.recentlyViewed.rawValue
                 }
-                .keyboardShortcut("5", modifiers: [.command])
+                .keyboardShortcut("6", modifiers: [.command])
 
                 Button("Followed Authors") {
                     selectedTabRaw = SidebarItem.authors.rawValue
                 }
-                .keyboardShortcut("6", modifiers: [.command])
+                .keyboardShortcut("7", modifiers: [.command])
 
                 Button("Bookmarks") {
                     selectedTabRaw = SidebarItem.bookmarks.rawValue
                 }
-                .keyboardShortcut("7", modifiers: [.command])
+                .keyboardShortcut("8", modifiers: [.command])
 
                 Button("Subscriptions") {
                     selectedTabRaw = SidebarItem.subscriptions.rawValue
                 }
-                .keyboardShortcut("8", modifiers: [.command])
+                .keyboardShortcut("9", modifiers: [.command])
 
                 Button("Settings") {
                     selectedTabRaw = SidebarItem.settings.rawValue
                 }
-                .keyboardShortcut("9", modifiers: [.command])
+                .keyboardShortcut(",", modifiers: [.command])
             }
             
             CommandMenu("Reader") {
