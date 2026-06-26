@@ -254,6 +254,36 @@ struct ReaderView: View {
         }
     }
 
+    /// Reader lifecycle, lifted out of the main body chain so it type-checks
+    /// independently. Keeps the screen awake while reading, tears down speech on
+    /// exit, and drives the Stats active-reading timer: start on appear and when
+    /// the app returns to `.active`, flush on disappear and when it leaves.
+    private struct ReaderLifecycleModifier: ViewModifier {
+        let keepScreenAwake: Bool
+        let scenePhase: ScenePhase
+        let applyKeepScreenAwake: (Bool) -> Void
+        let startTimer: () -> Void
+        let flushTimer: () -> Void
+        let stopSpeech: () -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .onAppear {
+                    applyKeepScreenAwake(keepScreenAwake)
+                    startTimer()
+                }
+                .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active { startTimer() } else { flushTimer() }
+                }
+                .onDisappear {
+                    stopSpeech()
+                    applyKeepScreenAwake(false)
+                    flushTimer()
+                }
+        }
+    }
+
     var body: some View {
         let scheme = theme.preferredColorScheme ?? systemColorScheme
         let fg = theme.foreground(for: scheme)
@@ -310,30 +340,17 @@ struct ReaderView: View {
         // action). A ViewModifier so its onChange/onAppear are type-checked
         // outside this already-long chain (which otherwise times out).
         .modifier(ChapterReportModifier(chapter: effectiveChapterIndex, report: reportCurrentChapter))
-        // Keep the screen lit while the reader is open; restore normal idle
-        // behaviour the moment we leave so other screens aren't held awake.
-        // Opening the reader also starts the active-reading timer for the Stats tab.
-        .onAppear {
-            applyKeepScreenAwake(keepScreenAwake)
-            startReadingTimer()
-        }
-        .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
-        // Pause the reading timer when the app is backgrounded/inactive and
-        // resume it on return, so time spent away from the page isn't counted.
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                startReadingTimer()
-            } else {
-                recordReadingSpan(restart: false)
-            }
-        }
-        // Don't leave audio playing — or the display pinned awake — after the
-        // reader is dismissed, and flush the final reading span to the Stats store.
-        .onDisappear {
-            speech.stop()
-            applyKeepScreenAwake(false)
-            recordReadingSpan(restart: false)
-        }
+        // Screen-awake + speech teardown + the Stats active-reading timer, all
+        // in one ViewModifier so this long body chain stays within the
+        // type-checker's budget (see ChapterReportModifier for the same reason).
+        .modifier(ReaderLifecycleModifier(
+            keepScreenAwake: keepScreenAwake,
+            scenePhase: scenePhase,
+            applyKeepScreenAwake: { applyKeepScreenAwake($0) },
+            startTimer: { startReadingTimer() },
+            flushTimer: { recordReadingSpan(restart: false) },
+            stopSpeech: { speech.stop() }
+        ))
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
         .onChange(of: widthPercent) { _, _ in queueBackup() }
