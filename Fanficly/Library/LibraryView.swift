@@ -83,7 +83,7 @@ struct LibraryView: View {
                                 selectedTabRaw = SidebarItem.stats.rawValue
                             } label: {
                                 LibraryStatsStrip(
-                                    summary: ReadingStatsAggregator.summarize(readingStats.map(\.snapshot), year: nil),
+                                    summary: ReadingStatsAggregator.summarize(readingStats.map(\.snapshot), interval: nil),
                                     streak: StreakStore.loadStreakInfo().currentStreak
                                 )
                             }
@@ -783,29 +783,99 @@ extension Work {
 
 // MARK: - Reading statistics
 
-/// The Stats tab: lifetime reading totals and a per-year "wrap-up". Works for
-/// everyone, on-device; iCloud only syncs the underlying `ReadingStat` rows and
-/// the streak across the user's own devices. Reading time is the real active
-/// time the reader was open and foregrounded (see `ReaderView`).
+/// The period the Stats screen aggregates over. `allTime` has no date interval.
+enum StatsPeriod: String, CaseIterable, Identifiable {
+    case week, month, year, allTime
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .week: "Week"
+        case .month: "Month"
+        case .year: "Year"
+        case .allTime: "All Time"
+        }
+    }
+
+    /// The calendar unit this period steps by; nil for all-time.
+    var component: Calendar.Component? {
+        switch self {
+        case .week: .weekOfYear
+        case .month: .month
+        case .year: .year
+        case .allTime: nil
+        }
+    }
+}
+
+/// The Stats tab: reading totals and top fandoms/ships/authors for a chosen
+/// period (week / month / year / all-time), with ‹ › to page through periods.
+/// Works for everyone, on-device; iCloud only syncs the underlying
+/// `ReadingStat` rows and the streak across the user's own devices. Reading
+/// time is the real active time the reader was open and foregrounded.
 struct StatsView: View {
     @Query private var stats: [ReadingStat]
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.calendar) private var calendar
 
-    /// nil == All Time; otherwise a specific calendar year.
-    @State private var selectedYear: Int?
+    @State private var period: StatsPeriod = .month
+    /// A date inside the period currently shown; ‹ › moves it by one unit.
+    @State private var anchor: Date = Date()
     @State private var shareItem: ShareImageItem?
 
     private var snapshots: [ReadingStatSnapshot] { stats.map(\.snapshot) }
 
-    private var years: [Int] { ReadingStatsAggregator.availableYears(snapshots) }
-
-    private var summary: ReadingStatsSummary {
-        ReadingStatsAggregator.summarize(snapshots, year: selectedYear)
+    /// The date interval for the selected period; nil for all-time.
+    private var interval: DateInterval? {
+        guard let component = period.component else { return nil }
+        return calendar.dateInterval(of: component, for: anchor)
     }
 
+    private var summary: ReadingStatsSummary {
+        ReadingStatsAggregator.summarize(snapshots, interval: interval, calendar: calendar)
+    }
+
+    /// Human label for the current period ("This Week", "June 2026", "2025", …).
     private var scopeTitle: String {
-        if let selectedYear { return "\(selectedYear) in Review" }
-        return "All Time"
+        guard let interval else { return "All Time" }
+        switch period {
+        case .allTime:
+            return "All Time"
+        case .week:
+            if interval.contains(Date()) { return "This Week" }
+            let f = DateFormatter()
+            f.calendar = calendar
+            f.dateFormat = "MMM d"
+            let end = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
+            return "\(f.string(from: interval.start)) – \(f.string(from: end))"
+        case .month:
+            let f = DateFormatter()
+            f.calendar = calendar
+            f.dateFormat = "LLLL yyyy"
+            return f.string(from: interval.start)
+        case .year:
+            return "\(calendar.component(.year, from: interval.start))"
+        }
+    }
+
+    /// Disable forward paging once the period reaches the one containing today.
+    private var canPageForward: Bool {
+        guard let interval else { return false }
+        return interval.end <= Date()
+    }
+
+    /// Disable backward paging when there's no reading data before this period.
+    private var canPageBackward: Bool {
+        guard let interval,
+              let range = ReadingStatsAggregator.dataDateRange(snapshots, calendar: calendar)
+        else { return false }
+        return range.lowerBound < interval.start
+    }
+
+    private func page(_ direction: Int) {
+        guard let component = period.component,
+              let moved = calendar.date(byAdding: component, value: direction, to: anchor) else { return }
+        anchor = moved
     }
 
     var body: some View {
@@ -817,12 +887,11 @@ struct StatsView: View {
                     description: Text("Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.")
                 )
             } else {
+                let summary = summary
                 ScrollView {
                     VStack(alignment: .leading, spacing: Spacing.xl) {
-                        if !years.isEmpty {
-                            scopePicker
-                        }
-                        headerCards
+                        periodControl
+                        headerCards(summary)
                         topList("Top Fandoms", systemImage: "books.vertical", items: summary.topFandoms)
                         topList("Top Categories", systemImage: "person.2.square.stack", items: summary.topCategories)
                         topList("Top Ships", systemImage: "heart", items: summary.topRelationships)
@@ -859,17 +928,40 @@ struct StatsView: View {
         }
     }
 
-    private var scopePicker: some View {
-        Picker("Scope", selection: $selectedYear) {
-            Text("All Time").tag(Int?.none)
-            ForEach(years, id: \.self) { year in
-                Text(String(year)).tag(Int?.some(year))
+    private var periodControl: some View {
+        VStack(spacing: Spacing.sm) {
+            Picker("Period", selection: $period) {
+                ForEach(StatsPeriod.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            // Reset to the current period when switching granularity.
+            .onChange(of: period) { _, _ in anchor = Date() }
+
+            if period != .allTime {
+                HStack {
+                    Button { page(-1) } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .disabled(!canPageBackward)
+
+                    Spacer()
+                    Text(scopeTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                    Spacer()
+
+                    Button { page(1) } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .disabled(!canPageForward)
+                }
+                .buttonStyle(.borderless)
+                .font(.body.weight(.semibold))
             }
         }
-        .pickerStyle(.segmented)
     }
 
-    private var headerCards: some View {
+    private func headerCards(_ summary: ReadingStatsSummary) -> some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             Text(scopeTitle)
                 .font(.title2.bold())

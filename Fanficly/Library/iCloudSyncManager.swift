@@ -219,7 +219,7 @@ final class iCloudSyncManager {
                     fandoms: $0.fandoms, categories: $0.categories, relationships: $0.relationships,
                     rating: $0.rating, wordCount: $0.wordCount,
                     firstReadAt: $0.firstReadAt, lastReadAt: $0.lastReadAt,
-                    totalSeconds: $0.totalSeconds, yearSeconds: $0.yearSeconds
+                    totalSeconds: $0.totalSeconds, daySeconds: $0.daySeconds
                 )
             }
 
@@ -533,7 +533,7 @@ final class iCloudSyncManager {
             }
             
             // 8. Restore ReadingStats. Merge conservatively — take the larger of
-            // the two totals and the per-year maxima, and the widest date span —
+            // the two totals and the per-day maxima, and the widest date span —
             // so syncing two devices never double-counts or loses reading time.
             for st in (backup.stats ?? []) {
                 let descriptor = FetchDescriptor<ReadingStat>(predicate: #Predicate { $0.ao3Id == st.ao3Id })
@@ -548,18 +548,18 @@ final class iCloudSyncManager {
                     existing.totalSeconds = max(existing.totalSeconds, st.totalSeconds)
                     existing.firstReadAt = min(existing.firstReadAt, st.firstReadAt)
                     existing.lastReadAt = max(existing.lastReadAt, st.lastReadAt)
-                    var merged = existing.yearSeconds
-                    for (year, seconds) in st.yearSeconds {
-                        merged[year] = max(merged[year] ?? 0, seconds)
+                    var merged = existing.daySeconds
+                    for (day, seconds) in st.daySeconds {
+                        merged[day] = max(merged[day] ?? 0, seconds)
                     }
-                    existing.yearSeconds = merged
+                    existing.daySeconds = merged
                 } else {
                     context.insert(ReadingStat(
                         ao3Id: st.ao3Id, title: st.title, author: st.author,
                         fandoms: st.fandoms, categories: st.categories, relationships: st.relationships,
                         rating: st.rating, wordCount: st.wordCount,
                         firstReadAt: st.firstReadAt, lastReadAt: st.lastReadAt,
-                        totalSeconds: st.totalSeconds, yearSeconds: st.yearSeconds
+                        totalSeconds: st.totalSeconds, daySeconds: st.daySeconds
                     ))
                 }
             }
@@ -624,7 +624,7 @@ struct StatBackup: Codable {
     let firstReadAt: Date
     let lastReadAt: Date
     let totalSeconds: Double
-    let yearSeconds: [String: Double]
+    let daySeconds: [String: Double]
 }
 
 struct SettingsBackup: Codable {

@@ -275,13 +275,13 @@ final class FollowedAuthor {
 }
 
 /// Aggregated reading statistics for a single work the user has read — the
-/// source of truth for the Stats tab and the yearly "wrap-up". One row per work
-/// (keyed by `ao3Id`, like `ReadingProgress`), updated whenever the reader
-/// records active reading time. It snapshots the work's metadata at read time
-/// (so stats work even for fics the user never saved to the Library) plus the
-/// accumulated active reading seconds, bucketed per calendar year for the
-/// year-in-review. Additive @Model — SwiftData migrates existing stores
-/// automatically.
+/// source of truth for the Stats tab and the "wrap-up". One row per work (keyed
+/// by `ao3Id`, like `ReadingProgress`), updated whenever the reader records
+/// active reading time. It snapshots the work's metadata at read time (so stats
+/// work even for fics the user never saved to the Library) plus the accumulated
+/// active reading seconds, bucketed per calendar **day** so the Stats screen can
+/// roll up any period — week, month, year, or all-time. Additive @Model —
+/// SwiftData migrates existing stores automatically.
 @Model
 final class ReadingStat {
     @Attribute(.unique) var ao3Id: Int
@@ -296,15 +296,15 @@ final class ReadingStat {
     var lastReadAt: Date
     /// Total active reading time across all sessions, in seconds.
     var totalSeconds: Double
-    /// Active reading seconds keyed by calendar year ("2026" → seconds), so the
-    /// yearly wrap can bucket time and story counts by year.
-    var yearSeconds: [String: Double]
+    /// Active reading seconds keyed by calendar day ("2026-06-26" → seconds), so
+    /// any period (week/month/year/all-time) can be aggregated from one row.
+    var daySeconds: [String: Double]
 
     init(ao3Id: Int, title: String = "", author: String = "",
          fandoms: [String] = [], categories: [String] = [], relationships: [String] = [],
          rating: String = "", wordCount: Int = 0,
          firstReadAt: Date = .now, lastReadAt: Date = .now,
-         totalSeconds: Double = 0, yearSeconds: [String: Double] = [:]) {
+         totalSeconds: Double = 0, daySeconds: [String: Double] = [:]) {
         self.ao3Id = ao3Id
         self.title = title
         self.author = author
@@ -316,7 +316,7 @@ final class ReadingStat {
         self.firstReadAt = firstReadAt
         self.lastReadAt = lastReadAt
         self.totalSeconds = totalSeconds
-        self.yearSeconds = yearSeconds
+        self.daySeconds = daySeconds
     }
 }
 

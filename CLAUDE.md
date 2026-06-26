@@ -239,21 +239,24 @@ The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`,
 
 ## Reading stats & yearly wrap
 
-The **Stats tab** (`StatsView`, in `LibraryView.swift`) shows lifetime totals
-(stories read, time read, words read, current day-streak) and a per-year "Year
-in Review" (top fandoms, categories, ships, authors). It works for everyone,
-on-device; iCloud only *syncs* the data across the user's own devices (it is
-**not** gated behind iCloud).
+The **Stats tab** (`StatsView`, in `LibraryView.swift`) shows reading totals
+(stories read, time read, words read, current day-streak) and top fandoms /
+categories / ships / authors for a chosen period — **Week / Month / Year / All
+Time** — with ‹ › to page through periods (`StatsPeriod`, an `anchor` date, and
+`Calendar.dateInterval(of:for:)`). It works for everyone, on-device; iCloud only
+*syncs* the data across the user's own devices (it is **not** gated behind
+iCloud).
 
 Source of truth is the `ReadingStat` @Model (one row per work, keyed by
 `ao3Id`, in `Models/Work.swift`): a snapshot of the work's metadata at read
 time (so stats cover fics the user never saved to the Library) plus accumulated
-active reading seconds, bucketed per calendar year (`yearSeconds: [String:
-Double]`) for the wrap-up. `ReadingStatsStore` (in `ReadingProgressStore.swift`)
-upserts rows; non-empty metadata overwrites the snapshot, empty fields are left
-intact so a later metadata-less read can't wipe it. Aggregation lives in the
-pure, testable `ReadingStatsAggregator` (no SwiftData/UI) — `summarize(_:year:)`
-(year `nil` = all-time) and `availableYears`.
+active reading seconds, bucketed per calendar **day** (`daySeconds: [String:
+Double]`, keyed `yyyy-MM-dd`) so any period rolls up from the one row.
+`ReadingStatsStore` (in `ReadingProgressStore.swift`) upserts rows; non-empty
+metadata overwrites the snapshot, empty fields are left intact so a later
+metadata-less read can't wipe it. Aggregation lives in the pure, testable
+`ReadingStatsAggregator` (no SwiftData/UI) — `summarize(_:interval:)` (interval
+`nil` = all-time), plus `dayKey`/`dataDateRange` for the period navigator.
 
 **Reading time is real active time**, not a word-count estimate: `ReaderView`
 times spans while the reader is open and foregrounded — starting on appear and
@@ -265,13 +268,13 @@ inflate totals. The streak number reuses the existing `StreakStore`.
 The Library list shows a compact `LibraryStatsStrip` (stories/time/streak) atop
 the list that taps through to the Stats tab (by setting `app.selectedTabRaw`).
 The Stats screen's toolbar Share button renders `WrapShareCard` (a portrait
-"Year in Review" image on the indigo brand canvas) via `ImageRenderer` and
-presents it through the shared `ShareSheet`.
+wrap-up image for the selected period on the indigo brand canvas) via
+`ImageRenderer` and presents it through the shared `ShareSheet`.
 
 `ReadingStat` is registered in `FanficlyApp.sharedModelContainer`'s `Schema`
 (and `PersistenceTests`' in-memory schema), included in `iCloudSyncManager`
 backup/restore (`StatBackup`; restore merges conservatively — max of totals and
-per-year maxima, widest date span — so two devices never double-count), and
+per-day maxima, widest date span — so two devices never double-count), and
 seeded in `DemoSeed` for screenshots. `ReadingStat.snapshot` is the shared
 value-type bridge from the @Model to the pure aggregator.
 

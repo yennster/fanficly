@@ -57,22 +57,28 @@ enum DemoSeed {
                                           fandom: s.fandoms.first ?? "", viewedAt: viewed))
         }
 
-        // Reading stats (Stats tab + yearly wrap). Spread active reading time
-        // across the current year and the prior one, reusing each work's real
-        // fandoms/categories/ships so the charts and "Year in Review" populate.
+        // Reading stats (Stats tab). Spread active reading time across several
+        // days per work — some this week, some this month, some earlier in the
+        // year — so the Week / Month / Year period views all populate, reusing
+        // each work's real fandoms/categories/ships for the charts.
         for (i, summary) in DemoCatalog.works.enumerated() {
-            let secs2026 = Double(1200 + (i % 4) * 1500)          // 20m … 95m
-            let secs2025 = (i % 3 == 0) ? Double(600 + i * 360) : 0
-            var yearSeconds: [String: Double] = ["2026": secs2026]
-            if secs2025 > 0 { yearSeconds["2025"] = secs2025 }
-            let lastRead = Calendar.current.date(byAdding: .day, value: -(i % 9), to: seedDate) ?? seedDate
-            let firstRead = Calendar.current.date(byAdding: .day, value: -220, to: seedDate) ?? seedDate
+            let dayOffsets = [i % 6, 3 + i % 9, 12 + (i % 5) * 4, 40 + i * 11, 150 + i * 7]
+            var daySeconds: [String: Double] = [:]
+            var total = 0.0
+            for (j, off) in dayOffsets.enumerated() {
+                let secs = Double(600 + ((i + j) % 5) * 480)     // 10 … 42 min
+                let day = Calendar.current.date(byAdding: .day, value: -off, to: seedDate) ?? seedDate
+                daySeconds[ReadingStatsAggregator.dayKey(for: day), default: 0] += secs
+                total += secs
+            }
+            let firstRead = Calendar.current.date(byAdding: .day, value: -(dayOffsets.max() ?? 0), to: seedDate) ?? seedDate
+            let lastRead = Calendar.current.date(byAdding: .day, value: -(dayOffsets.min() ?? 0), to: seedDate) ?? seedDate
             context.insert(ReadingStat(
                 ao3Id: summary.id, title: summary.title, author: summary.author,
                 fandoms: summary.fandoms, categories: summary.categories,
                 relationships: summary.relationships, rating: summary.rating,
                 wordCount: summary.wordCount, firstReadAt: firstRead, lastReadAt: lastRead,
-                totalSeconds: secs2026 + secs2025, yearSeconds: yearSeconds
+                totalSeconds: total, daySeconds: daySeconds
             ))
         }
 

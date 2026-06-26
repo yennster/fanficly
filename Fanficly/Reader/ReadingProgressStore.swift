@@ -75,7 +75,7 @@ struct ReadingStatSnapshot: Sendable, Equatable {
     var firstReadAt: Date
     var lastReadAt: Date
     var totalSeconds: Double
-    var yearSeconds: [String: Double]
+    var daySeconds: [String: Double]
 }
 
 extension ReadingStat {
@@ -86,7 +86,7 @@ extension ReadingStat {
             fandoms: fandoms, categories: categories, relationships: relationships,
             rating: rating, wordCount: wordCount,
             firstReadAt: firstReadAt, lastReadAt: lastReadAt,
-            totalSeconds: totalSeconds, yearSeconds: yearSeconds
+            totalSeconds: totalSeconds, daySeconds: daySeconds
         )
     }
 }
@@ -100,7 +100,7 @@ struct ReadingTagCount: Identifiable, Equatable, Sendable {
 }
 
 /// The aggregated numbers shown on the Stats screen for one scope — all-time or
-/// a single calendar year.
+/// a single week/month/year period.
 struct ReadingStatsSummary: Equatable, Sendable {
     var storiesRead: Int
     var totalSeconds: Double
@@ -117,52 +117,80 @@ struct ReadingStatsSummary: Equatable, Sendable {
 }
 
 /// Pure aggregation over `ReadingStatSnapshot`s. No SwiftData, no UI — fully
-/// unit-testable (see `ReadingStatsTests`).
+/// unit-testable (see `ReadingStatsTests`). Time is bucketed per calendar day,
+/// so any `DateInterval` (a week, month, year, or nil for all-time) rolls up
+/// from the same data.
 enum ReadingStatsAggregator {
-    static func yearKey(for date: Date, calendar: Calendar = .current) -> String {
-        String(calendar.component(.year, from: date))
+    /// "yyyy-MM-dd" in the given calendar's time zone — the `daySeconds` key.
+    static func dayKey(for date: Date, calendar: Calendar = .current) -> String {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: date)
     }
 
-    /// Every calendar year that has any recorded reading time, newest first.
-    static func availableYears(_ snapshots: [ReadingStatSnapshot]) -> [Int] {
-        var years = Set<Int>()
+    /// Parse a "yyyy-MM-dd" key back to the start of that day.
+    static func date(fromDayKey key: String, calendar: Calendar = .current) -> Date? {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: key)
+    }
+
+    /// The span from the earliest to the latest day with recorded reading time,
+    /// used to bound the period navigator. nil when there's no data.
+    static func dataDateRange(_ snapshots: [ReadingStatSnapshot], calendar: Calendar = .current) -> ClosedRange<Date>? {
+        var dates: [Date] = []
         for snapshot in snapshots {
-            for key in snapshot.yearSeconds.keys {
-                if let year = Int(key) { years.insert(year) }
+            for key in snapshot.daySeconds.keys {
+                if let d = date(fromDayKey: key, calendar: calendar) { dates.append(d) }
             }
         }
-        return years.sorted(by: >)
+        guard let lo = dates.min(), let hi = dates.max() else { return nil }
+        return lo...hi
     }
 
-    /// Aggregate snapshots for a scope. `year == nil` means all-time; otherwise
-    /// only works read during that calendar year are counted, and time is the
-    /// seconds recorded in that year.
-    static func summarize(_ snapshots: [ReadingStatSnapshot], year: Int?, topCount: Int = 8) -> ReadingStatsSummary {
-        let yearKey = year.map(String.init)
-        let scoped: [ReadingStatSnapshot]
-        if let yearKey {
-            scoped = snapshots.filter { $0.yearSeconds[yearKey] != nil }
-        } else {
-            scoped = snapshots
+    /// Aggregate snapshots for a scope. `interval == nil` means all-time;
+    /// otherwise only days within `[interval.start, interval.end)` are counted —
+    /// both for the time total and for which works/tags are included.
+    static func summarize(_ snapshots: [ReadingStatSnapshot], interval: DateInterval?,
+                          calendar: Calendar = .current, topCount: Int = 8) -> ReadingStatsSummary {
+        // Per snapshot: seconds read inside the interval (all-time = total).
+        func secondsInScope(_ s: ReadingStatSnapshot) -> Double {
+            guard let interval else { return s.totalSeconds }
+            var sum = 0.0
+            for (key, secs) in s.daySeconds {
+                guard let day = date(fromDayKey: key, calendar: calendar) else { continue }
+                // Interval is [start, end); a day key is the start of its day.
+                if day >= interval.start && day < interval.end { sum += secs }
+            }
+            return sum
+        }
+
+        let scoped = snapshots.compactMap { s -> (ReadingStatSnapshot, Double)? in
+            let secs = secondsInScope(s)
+            // All-time keeps every read work; a period keeps works read in it.
+            if interval == nil || secs > 0 { return (s, secs) }
+            return nil
         }
         guard !scoped.isEmpty else { return .empty }
 
-        let totalSeconds: Double
-        if let yearKey {
-            totalSeconds = scoped.reduce(0) { $0 + ($1.yearSeconds[yearKey] ?? 0) }
-        } else {
-            totalSeconds = scoped.reduce(0) { $0 + $1.totalSeconds }
-        }
-        let totalWords = scoped.reduce(0) { $0 + $1.wordCount }
+        let totalSeconds = scoped.reduce(0) { $0 + $1.1 }
+        let totalWords = scoped.reduce(0) { $0 + $1.0.wordCount }
+        let works = scoped.map { $0.0 }
 
         return ReadingStatsSummary(
-            storiesRead: scoped.count,
+            storiesRead: works.count,
             totalSeconds: totalSeconds,
             totalWords: totalWords,
-            topFandoms: rank(scoped.flatMap { $0.fandoms }, topCount: topCount),
-            topCategories: rank(scoped.flatMap { $0.categories }, topCount: topCount),
-            topRelationships: rank(scoped.flatMap { $0.relationships }, topCount: topCount),
-            topAuthors: rank(scoped.compactMap { $0.author.isEmpty ? nil : $0.author }, topCount: topCount)
+            topFandoms: rank(works.flatMap { $0.fandoms }, topCount: topCount),
+            topCategories: rank(works.flatMap { $0.categories }, topCount: topCount),
+            topRelationships: rank(works.flatMap { $0.relationships }, topCount: topCount),
+            topAuthors: rank(works.compactMap { $0.author.isEmpty ? nil : $0.author }, topCount: topCount)
         )
     }
 
@@ -187,15 +215,15 @@ enum ReadingStatsAggregator {
 enum ReadingStatsStore {
     /// Record `seconds` of active reading for a work, creating or updating its
     /// `ReadingStat` row and refreshing the metadata snapshot. Time is bucketed
-    /// into the calendar year of `date` for the yearly wrap. Non-empty metadata
-    /// overwrites the snapshot; empty fields are left untouched so a later read
-    /// that happens to lack metadata can't wipe it.
+    /// into the calendar day of `date` so any period can be aggregated later.
+    /// Non-empty metadata overwrites the snapshot; empty fields are left
+    /// untouched so a later read that happens to lack metadata can't wipe it.
     static func record(ao3Id: Int, title: String, author: String,
                        fandoms: [String], categories: [String], relationships: [String],
                        rating: String, wordCount: Int, seconds: Double,
                        date: Date = .now, in context: ModelContext) {
         guard seconds.isFinite, seconds >= 0 else { return }
-        let yearKey = ReadingStatsAggregator.yearKey(for: date)
+        let dayKey = ReadingStatsAggregator.dayKey(for: date)
         let descriptor = FetchDescriptor<ReadingStat>(predicate: #Predicate { $0.ao3Id == ao3Id })
         if let stat = (try? context.fetch(descriptor))?.first {
             if !title.isEmpty { stat.title = title }
@@ -207,14 +235,14 @@ enum ReadingStatsStore {
             if wordCount > 0 { stat.wordCount = wordCount }
             stat.lastReadAt = date
             stat.totalSeconds += seconds
-            stat.yearSeconds[yearKey, default: 0] += seconds
+            stat.daySeconds[dayKey, default: 0] += seconds
         } else {
             context.insert(ReadingStat(
                 ao3Id: ao3Id, title: title, author: author,
                 fandoms: fandoms, categories: categories, relationships: relationships,
                 rating: rating, wordCount: wordCount,
                 firstReadAt: date, lastReadAt: date,
-                totalSeconds: seconds, yearSeconds: [yearKey: seconds]
+                totalSeconds: seconds, daySeconds: [dayKey: seconds]
             ))
         }
         try? context.save()

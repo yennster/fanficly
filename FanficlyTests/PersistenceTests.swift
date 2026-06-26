@@ -156,68 +156,86 @@ final class PersistenceTests: XCTestCase {
 
     // MARK: - Reading stats
 
-    private func date(year: Int) -> Date {
-        Calendar.current.date(from: DateComponents(year: year, month: 6, day: 15))!
+    private func day(_ year: Int, _ month: Int, _ dayOfMonth: Int) -> Date {
+        Calendar.current.date(from: DateComponents(year: year, month: month, day: dayOfMonth))!
     }
 
-    func test_readingStatsStore_accumulatesAndBucketsByYear() throws {
+    func test_readingStatsStore_accumulatesAndBucketsByDay() throws {
         let ctx = try makeContext()
-        let d2025 = date(year: 2025)
-        let d2026 = date(year: 2026)
+        let d1 = day(2026, 6, 15)
+        let d2 = day(2026, 6, 16)
 
         ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
                                  fandoms: ["Fandom X"], categories: ["M/M"], relationships: ["A/B"],
-                                 rating: "Teen", wordCount: 5000, seconds: 600, date: d2025, in: ctx)
-        // Second read, same work, same year → accrues onto the one row.
+                                 rating: "Teen", wordCount: 5000, seconds: 600, date: d1, in: ctx)
+        // Second read, same work, same day → accrues onto the one bucket.
         ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
                                  fandoms: ["Fandom X"], categories: ["M/M"], relationships: ["A/B"],
-                                 rating: "Teen", wordCount: 5000, seconds: 300, date: d2025, in: ctx)
-        // Same work read again in a new year → new year bucket, same row.
+                                 rating: "Teen", wordCount: 5000, seconds: 300, date: d1, in: ctx)
+        // Same work read on a new day → new day bucket, same row.
         ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
                                  fandoms: [], categories: [], relationships: [],
-                                 rating: "", wordCount: 0, seconds: 120, date: d2026, in: ctx)
+                                 rating: "", wordCount: 0, seconds: 120, date: d2, in: ctx)
 
         let rows = try ctx.fetch(FetchDescriptor<ReadingStat>())
         XCTAssertEqual(rows.count, 1)
         let row = rows[0]
         XCTAssertEqual(row.totalSeconds, 1020, accuracy: 0.001)
-        XCTAssertEqual(row.yearSeconds["2025"] ?? 0, 900, accuracy: 0.001)
-        XCTAssertEqual(row.yearSeconds["2026"] ?? 0, 120, accuracy: 0.001)
+        XCTAssertEqual(row.daySeconds[ReadingStatsAggregator.dayKey(for: d1)] ?? 0, 900, accuracy: 0.001)
+        XCTAssertEqual(row.daySeconds[ReadingStatsAggregator.dayKey(for: d2)] ?? 0, 120, accuracy: 0.001)
         // Empty metadata on the later read must not wipe the snapshot.
         XCTAssertEqual(row.fandoms, ["Fandom X"])
         XCTAssertEqual(row.wordCount, 5000)
     }
 
-    func test_readingStatsAggregator_summarizeAllTimeAndYear() {
+    func test_readingStatsAggregator_summarizeByPeriod() {
+        let cal = Calendar.current
+        let key = { (d: Date) in ReadingStatsAggregator.dayKey(for: d) }
         let snaps = [
             ReadingStatSnapshot(ao3Id: 1, title: "", author: "Alice",
                                 fandoms: ["HP", "Naruto"], categories: ["M/M"], relationships: ["A/B"],
                                 rating: "Teen", wordCount: 1000,
-                                firstReadAt: date(year: 2025), lastReadAt: date(year: 2025),
-                                totalSeconds: 600, yearSeconds: ["2025": 600]),
+                                firstReadAt: day(2026, 6, 15), lastReadAt: day(2026, 6, 15),
+                                totalSeconds: 600, daySeconds: [key(day(2026, 6, 15)): 600]),
             ReadingStatSnapshot(ao3Id: 2, title: "", author: "Alice",
                                 fandoms: ["HP"], categories: ["F/M"], relationships: ["C/D"],
                                 rating: "Mature", wordCount: 2000,
-                                firstReadAt: date(year: 2026), lastReadAt: date(year: 2026),
-                                totalSeconds: 1200, yearSeconds: ["2026": 1200]),
+                                firstReadAt: day(2025, 3, 2), lastReadAt: day(2025, 3, 2),
+                                totalSeconds: 1200, daySeconds: [key(day(2025, 3, 2)): 1200]),
         ]
 
-        let all = ReadingStatsAggregator.summarize(snaps, year: nil)
+        // All-time.
+        let all = ReadingStatsAggregator.summarize(snaps, interval: nil)
         XCTAssertEqual(all.storiesRead, 2)
         XCTAssertEqual(all.totalSeconds, 1800, accuracy: 0.001)
         XCTAssertEqual(all.totalWords, 3000)
         XCTAssertEqual(all.topFandoms.first?.name, "HP")
         XCTAssertEqual(all.topFandoms.first?.count, 2)
         XCTAssertEqual(all.topAuthors.first?.name, "Alice")
-        XCTAssertEqual(all.topAuthors.first?.count, 2)
 
-        let y2025 = ReadingStatsAggregator.summarize(snaps, year: 2025)
-        XCTAssertEqual(y2025.storiesRead, 1)
-        XCTAssertEqual(y2025.totalSeconds, 600, accuracy: 0.001)
-        XCTAssertEqual(y2025.totalWords, 1000)
+        // June 2026 (month) → only the first work.
+        let june = cal.dateInterval(of: .month, for: day(2026, 6, 15))!
+        let month = ReadingStatsAggregator.summarize(snaps, interval: june)
+        XCTAssertEqual(month.storiesRead, 1)
+        XCTAssertEqual(month.totalSeconds, 600, accuracy: 0.001)
+        XCTAssertEqual(month.totalWords, 1000)
 
-        XCTAssertEqual(ReadingStatsAggregator.availableYears(snaps), [2026, 2025])
-        XCTAssertEqual(ReadingStatsAggregator.summarize([], year: nil), .empty)
+        // 2025 (year) → only the second work.
+        let year2025 = cal.dateInterval(of: .year, for: day(2025, 3, 2))!
+        let year = ReadingStatsAggregator.summarize(snaps, interval: year2025)
+        XCTAssertEqual(year.storiesRead, 1)
+        XCTAssertEqual(year.totalSeconds, 1200, accuracy: 0.001)
+
+        // A period with no reads is empty.
+        let june2024 = cal.dateInterval(of: .month, for: day(2024, 6, 15))!
+        XCTAssertEqual(ReadingStatsAggregator.summarize(snaps, interval: june2024), .empty)
+
+        // Data range spans the earliest to latest reading day.
+        let range = ReadingStatsAggregator.dataDateRange(snaps)
+        XCTAssertEqual(range?.lowerBound, day(2025, 3, 2))
+        XCTAssertEqual(range?.upperBound, day(2026, 6, 15))
+
+        XCTAssertEqual(ReadingStatsAggregator.summarize([], interval: nil), .empty)
     }
 
     func test_readingStatsAggregator_rankOrdersByCountThenName() {
