@@ -228,6 +228,18 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(ranked.contains { $0.name.trimmingCharacters(in: .whitespaces).isEmpty })
     }
 
+    func test_statsFormatting() {
+        XCTAssertEqual(StatsView.formatDuration(0), "0m")
+        XCTAssertEqual(StatsView.formatDuration(30), "<1m")
+        XCTAssertEqual(StatsView.formatDuration(45 * 60), "45m")
+        XCTAssertEqual(StatsView.formatDuration(3600), "1h")
+        XCTAssertEqual(StatsView.formatDuration(3600 + 34 * 60), "1h 34m")
+        // Compact branches are locale-independent (the <10K branch uses a
+        // grouping separator that varies by locale, so it isn't asserted here).
+        XCTAssertEqual(StatsView.formatWords(12_000), "12K")
+        XCTAssertEqual(StatsView.formatWords(2_500_000), "2.5M")
+    }
+
     func test_iCloudSyncRestoresSettings() async throws {
         let ctx = try makeContext()
         

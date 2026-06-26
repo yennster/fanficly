@@ -262,11 +262,18 @@ mid-session checkpoint from `saveProgress` so a force-quit doesn't lose a long
 session. A single span is capped at 4h so a reader left open overnight can't
 inflate totals. The streak number reuses the existing `StreakStore`.
 
+The Library list shows a compact `LibraryStatsStrip` (stories/time/streak) atop
+the list that taps through to the Stats tab (by setting `app.selectedTabRaw`).
+The Stats screen's toolbar Share button renders `WrapShareCard` (a portrait
+"Year in Review" image on the indigo brand canvas) via `ImageRenderer` and
+presents it through the shared `ShareSheet`.
+
 `ReadingStat` is registered in `FanficlyApp.sharedModelContainer`'s `Schema`
 (and `PersistenceTests`' in-memory schema), included in `iCloudSyncManager`
 backup/restore (`StatBackup`; restore merges conservatively — max of totals and
 per-year maxima, widest date span — so two devices never double-count), and
-seeded in `DemoSeed` for screenshots.
+seeded in `DemoSeed` for screenshots. `ReadingStat.snapshot` is the shared
+value-type bridge from the @Model to the pure aggregator.
 
 ## Privacy posture (do not regress)
 

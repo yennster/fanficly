@@ -78,6 +78,19 @@ struct ReadingStatSnapshot: Sendable, Equatable {
     var yearSeconds: [String: Double]
 }
 
+extension ReadingStat {
+    /// A value-type copy for the pure aggregator and SwiftUI `@Query` callers.
+    var snapshot: ReadingStatSnapshot {
+        ReadingStatSnapshot(
+            ao3Id: ao3Id, title: title, author: author,
+            fandoms: fandoms, categories: categories, relationships: relationships,
+            rating: rating, wordCount: wordCount,
+            firstReadAt: firstReadAt, lastReadAt: lastReadAt,
+            totalSeconds: totalSeconds, yearSeconds: yearSeconds
+        )
+    }
+}
+
 /// A name with an associated tally (work count) for the "top fandoms / ships /
 /// authors" lists. `id` is the name so SwiftUI `ForEach` stays stable.
 struct ReadingTagCount: Identifiable, Equatable, Sendable {
@@ -210,14 +223,6 @@ enum ReadingStatsStore {
     /// Fetch every `ReadingStat` as a value-type snapshot for aggregation.
     static func snapshots(in context: ModelContext) -> [ReadingStatSnapshot] {
         let stats = (try? context.fetch(FetchDescriptor<ReadingStat>())) ?? []
-        return stats.map {
-            ReadingStatSnapshot(
-                ao3Id: $0.ao3Id, title: $0.title, author: $0.author,
-                fandoms: $0.fandoms, categories: $0.categories, relationships: $0.relationships,
-                rating: $0.rating, wordCount: $0.wordCount,
-                firstReadAt: $0.firstReadAt, lastReadAt: $0.lastReadAt,
-                totalSeconds: $0.totalSeconds, yearSeconds: $0.yearSeconds
-            )
-        }
+        return stats.map(\.snapshot)
     }
 }

@@ -1,9 +1,12 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct LibraryView: View {
     @Query(sort: \Work.savedAt, order: .reverse) private var works: [Work]
     @Query(sort: \CustomFolder.name) private var folders: [CustomFolder]
+    @Query private var readingStats: [ReadingStat]
+    @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var filter: LibraryFilter = .all
@@ -74,6 +77,21 @@ struct LibraryView: View {
                 )
             } else {
                 List {
+                    if !readingStats.isEmpty {
+                        Section {
+                            Button {
+                                selectedTabRaw = SidebarItem.stats.rawValue
+                            } label: {
+                                LibraryStatsStrip(
+                                    summary: ReadingStatsAggregator.summarize(readingStats.map(\.snapshot), year: nil),
+                                    streak: StreakStore.loadStreakInfo().currentStreak
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 4, trailing: 12))
+                        }
+                    }
                     Section {
                         Group {
                             if usesCompactFilterBar {
@@ -771,21 +789,13 @@ extension Work {
 /// time the reader was open and foregrounded (see `ReaderView`).
 struct StatsView: View {
     @Query private var stats: [ReadingStat]
+    @Environment(\.displayScale) private var displayScale
 
     /// nil == All Time; otherwise a specific calendar year.
     @State private var selectedYear: Int?
+    @State private var shareItem: ShareImageItem?
 
-    private var snapshots: [ReadingStatSnapshot] {
-        stats.map {
-            ReadingStatSnapshot(
-                ao3Id: $0.ao3Id, title: $0.title, author: $0.author,
-                fandoms: $0.fandoms, categories: $0.categories, relationships: $0.relationships,
-                rating: $0.rating, wordCount: $0.wordCount,
-                firstReadAt: $0.firstReadAt, lastReadAt: $0.lastReadAt,
-                totalSeconds: $0.totalSeconds, yearSeconds: $0.yearSeconds
-            )
-        }
-    }
+    private var snapshots: [ReadingStatSnapshot] { stats.map(\.snapshot) }
 
     private var years: [Int] { ReadingStatsAggregator.availableYears(snapshots) }
 
@@ -824,6 +834,29 @@ struct StatsView: View {
         }
         .navigationTitle("Stats")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !stats.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: shareWrap) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Share your reading wrap-up")
+                }
+            }
+        }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: [item.image])
+        }
+    }
+
+    /// Render the wrap-up card to an image and present the share sheet.
+    @MainActor private func shareWrap() {
+        let card = WrapShareCard(scopeTitle: scopeTitle, summary: summary)
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = max(displayScale, 2)
+        if let image = renderer.uiImage {
+            shareItem = ShareImageItem(image: image)
+        }
     }
 
     private var scopePicker: some View {
@@ -945,6 +978,149 @@ private struct StatBarRow: View {
                 }
             }
             .frame(height: 6)
+        }
+    }
+}
+
+/// Compact reading-stats summary shown atop the Library list; taps through to
+/// the Stats tab.
+private struct LibraryStatsStrip: View {
+    let summary: ReadingStatsSummary
+    let streak: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            metric(value: "\(summary.storiesRead)", label: "Read", systemImage: "book.closed")
+            divider
+            metric(value: StatsView.formatDuration(summary.totalSeconds), label: "Time", systemImage: "clock")
+            divider
+            metric(value: "\(streak)", label: "Streak", systemImage: "flame")
+            Spacer(minLength: Spacing.sm)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, Spacing.md)
+        .padding(.horizontal, Spacing.lg)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Reading stats: \(summary.storiesRead) read, \(StatsView.formatDuration(summary.totalSeconds)) read, \(streak) day streak")
+        .accessibilityHint("Opens the Stats tab")
+    }
+
+    private func metric(value: String, label: String, systemImage: String) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.caption2)
+                    .foregroundStyle(.tint)
+                Text(value)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: 1, height: 26)
+    }
+}
+
+/// Carries a rendered share image into `.sheet(item:)`.
+struct ShareImageItem: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+/// A polished, portrait "Year in Review" card rendered to an image for sharing.
+/// Sized for a clean 3:4 export; `ImageRenderer` rasterises it off-screen.
+struct WrapShareCard: View {
+    let scopeTitle: String
+    let summary: ReadingStatsSummary
+
+    /// Fanficly brand indigo (#3B2E8C), matching the App Store marketing canvas.
+    private let brand = Color(red: 0x3B / 255, green: 0x2E / 255, blue: 0x8C / 255)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("My Reading")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text(scopeTitle)
+                    .font(.system(size: 34, weight: .heavy, design: .serif))
+                    .foregroundStyle(.white)
+            }
+
+            HStack(spacing: 14) {
+                bigStat("\(summary.storiesRead)", summary.storiesRead == 1 ? "story" : "stories")
+                bigStat(StatsView.formatDuration(summary.totalSeconds), "read")
+                bigStat(StatsView.formatWords(summary.totalWords), "words")
+            }
+
+            if !summary.topFandoms.isEmpty {
+                listBlock("Top Fandoms", items: summary.topFandoms.prefix(4))
+            }
+            if !summary.topRelationships.isEmpty {
+                listBlock("Top Ships", items: summary.topRelationships.prefix(3))
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 6) {
+                Image(systemName: "book.pages")
+                Text("Made with Fanficly")
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.85))
+        }
+        .padding(28)
+        .frame(width: 360, height: 480, alignment: .topLeading)
+        .background(
+            LinearGradient(colors: [brand, brand.opacity(0.78), .black.opacity(0.55)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+    }
+
+    private func bigStat(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value)
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func listBlock(_ title: String, items: ArraySlice<ReadingTagCount>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.white.opacity(0.6))
+            ForEach(Array(items)) { item in
+                HStack {
+                    Text(item.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(item.count)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
         }
     }
 }
