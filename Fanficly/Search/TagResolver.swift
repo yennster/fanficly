@@ -113,7 +113,29 @@ enum TagResolver {
         if field == .relationship, term.contains("/") {
             return bestRelationshipMatch(for: term, in: matches) ?? matches.first
         }
+        if field == .freeform {
+            return bestFreeformMatch(for: term, in: matches)
+        }
         return matches.first
+    }
+
+    /// Freeform (additional) tags are user-authored descriptors, and AO3's
+    /// autocomplete ranks suggestions by popularity — so a plain tag like
+    /// "Caveman" gets outranked by a more specific compound tag that merely
+    /// contains it ("Caveman Derek Hale"). Blindly taking the top suggestion
+    /// therefore silently rewrites the user's tag into a different, narrower one.
+    /// Only accept a suggestion that is the *same* tag up to case / spacing /
+    /// punctuation (so we still canonicalize e.g. "hurt comfort" → "Hurt/Comfort"
+    /// or fix casing); otherwise keep exactly what the user typed.
+    private static func bestFreeformMatch(for term: String, in matches: [String]) -> String {
+        let typed = normalizedTag(term)
+        return matches.first(where: { normalizedTag($0) == typed }) ?? term
+    }
+
+    /// Lowercased, alphanumerics only — collapses case, whitespace and
+    /// punctuation differences so superficial formatting variants compare equal.
+    private static func normalizedTag(_ s: String) -> String {
+        s.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
     /// Score each candidate ship against the typed term. Penalize candidates
