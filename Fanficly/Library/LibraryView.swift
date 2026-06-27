@@ -1,9 +1,12 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct LibraryView: View {
     @Query(sort: \Work.savedAt, order: .reverse) private var works: [Work]
     @Query(sort: \CustomFolder.name) private var folders: [CustomFolder]
+    @Query private var readingStats: [ReadingStat]
+    @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var filter: LibraryFilter = .all
@@ -74,6 +77,21 @@ struct LibraryView: View {
                 )
             } else {
                 List {
+                    if !readingStats.isEmpty {
+                        Section {
+                            Button {
+                                selectedTabRaw = SidebarItem.stats.rawValue
+                            } label: {
+                                LibraryStatsStrip(
+                                    summary: ReadingStatsAggregator.summarize(readingStats.map(\.snapshot), interval: nil),
+                                    streak: StreakStore.loadStreakInfo().currentStreak
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 4, trailing: 12))
+                        }
+                    }
                     Section {
                         Group {
                             if usesCompactFilterBar {
@@ -760,5 +778,448 @@ extension Work {
             rating.lowercased().contains(trimmed) ||
             warnings.contains { $0.lowercased().contains(trimmed) } ||
             categories.contains { $0.lowercased().contains(trimmed) }
+    }
+}
+
+// MARK: - Reading statistics
+
+/// The period the Stats screen aggregates over. `allTime` has no date interval.
+enum StatsPeriod: String, CaseIterable, Identifiable {
+    case week, month, year, allTime
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .week: "Week"
+        case .month: "Month"
+        case .year: "Year"
+        case .allTime: "All Time"
+        }
+    }
+
+    /// The calendar unit this period steps by; nil for all-time.
+    var component: Calendar.Component? {
+        switch self {
+        case .week: .weekOfYear
+        case .month: .month
+        case .year: .year
+        case .allTime: nil
+        }
+    }
+}
+
+/// The Stats tab: reading totals and top fandoms/ships/authors for a chosen
+/// period (week / month / year / all-time), with ‹ › to page through periods.
+/// Works for everyone, on-device; iCloud only syncs the underlying
+/// `ReadingStat` rows and the streak across the user's own devices. Reading
+/// time is the real active time the reader was open and foregrounded.
+struct StatsView: View {
+    @Query private var stats: [ReadingStat]
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.calendar) private var calendar
+
+    @State private var period: StatsPeriod = .allTime
+    /// A date inside the period currently shown; ‹ › moves it by one unit.
+    @State private var anchor: Date = Date()
+    @State private var shareItem: ShareImageItem?
+
+    private var snapshots: [ReadingStatSnapshot] { stats.map(\.snapshot) }
+
+    /// The date interval for the selected period; nil for all-time.
+    private var interval: DateInterval? {
+        guard let component = period.component else { return nil }
+        return calendar.dateInterval(of: component, for: anchor)
+    }
+
+    private var summary: ReadingStatsSummary {
+        ReadingStatsAggregator.summarize(snapshots, interval: interval, calendar: calendar)
+    }
+
+    /// Human label for the current period ("This Week", "June 2026", "2025", …).
+    private var scopeTitle: String {
+        guard let interval else { return "All Time" }
+        switch period {
+        case .allTime:
+            return "All Time"
+        case .week:
+            if interval.contains(Date()) { return "This Week" }
+            let f = DateFormatter()
+            f.calendar = calendar
+            f.dateFormat = "MMM d"
+            let end = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
+            return "\(f.string(from: interval.start)) – \(f.string(from: end))"
+        case .month:
+            let f = DateFormatter()
+            f.calendar = calendar
+            f.dateFormat = "LLLL yyyy"
+            return f.string(from: interval.start)
+        case .year:
+            return "\(calendar.component(.year, from: interval.start))"
+        }
+    }
+
+    /// Disable forward paging once the period reaches the one containing today.
+    private var canPageForward: Bool {
+        guard let interval else { return false }
+        return interval.end <= Date()
+    }
+
+    /// Disable backward paging when there's no reading data before this period.
+    private var canPageBackward: Bool {
+        guard let interval,
+              let range = ReadingStatsAggregator.dataDateRange(snapshots, calendar: calendar)
+        else { return false }
+        return range.lowerBound < interval.start
+    }
+
+    private func page(_ direction: Int) {
+        guard let component = period.component,
+              let moved = calendar.date(byAdding: component, value: direction, to: anchor) else { return }
+        anchor = moved
+    }
+
+    var body: some View {
+        Group {
+            if stats.isEmpty {
+                ContentUnavailableView(
+                    "No Reading Stats Yet",
+                    systemImage: "chart.bar.xaxis",
+                    description: Text("Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.")
+                )
+            } else {
+                let summary = summary
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Spacing.xl) {
+                        periodControl
+                        headerCards(summary)
+                        topList("Top Fandoms", systemImage: "books.vertical", items: summary.topFandoms)
+                        topList("Top Categories", systemImage: "person.2.square.stack", items: summary.topCategories)
+                        topList("Top Ships", systemImage: "heart", items: summary.topRelationships)
+                        topList("Top Authors", systemImage: "person", items: summary.topAuthors)
+                    }
+                    .padding()
+                }
+            }
+        }
+        .navigationTitle("Stats")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !stats.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: shareWrap) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Share your reading wrap-up")
+                }
+            }
+        }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: [item.image])
+        }
+    }
+
+    /// Render the wrap-up card to an image and present the share sheet.
+    @MainActor private func shareWrap() {
+        let card = WrapShareCard(scopeTitle: scopeTitle, summary: summary)
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = max(displayScale, 2)
+        if let image = renderer.uiImage {
+            shareItem = ShareImageItem(image: image)
+        }
+    }
+
+    private var periodControl: some View {
+        VStack(spacing: Spacing.md) {
+            Picker("Period", selection: $period) {
+                ForEach(StatsPeriod.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            // Reset to the current period when switching granularity.
+            .onChange(of: period) { _, _ in anchor = Date() }
+
+            if period != .allTime {
+                HStack(spacing: Spacing.sm) {
+                    Button { page(-1) } label: {
+                        Image(systemName: "chevron.left")
+                            .frame(width: 44, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(!canPageBackward)
+
+                    Spacer(minLength: 0)
+                    Text(scopeTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
+
+                    Button { page(1) } label: {
+                        Image(systemName: "chevron.right")
+                            .frame(width: 44, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(!canPageForward)
+                }
+                .buttonStyle(.borderless)
+                .font(.body.weight(.semibold))
+                .padding(.vertical, Spacing.xs)
+            }
+        }
+    }
+
+    private func headerCards(_ summary: ReadingStatsSummary) -> some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text(scopeTitle)
+                .font(.title2.bold())
+            // Adaptive grid so the four stat tiles wrap nicely on phone & iPad.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Spacing.md)], spacing: Spacing.md) {
+                StatTile(value: "\(summary.storiesRead)",
+                         label: summary.storiesRead == 1 ? "Story Finished" : "Stories Finished",
+                         systemImage: "checkmark.circle")
+                StatTile(value: Self.formatDuration(summary.totalSeconds),
+                         label: "Time Read",
+                         systemImage: "clock")
+                StatTile(value: Self.formatWords(summary.totalWords),
+                         label: "Words Read",
+                         systemImage: "text.alignleft")
+                StatTile(value: "\(StreakStore.loadStreakInfo().currentStreak)",
+                         label: "Day Streak",
+                         systemImage: "flame")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func topList(_ title: String, systemImage: String, items: [ReadingTagCount]) -> some View {
+        if !items.isEmpty {
+            let maxCount = items.map(\.count).max() ?? 1
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Label(title, systemImage: systemImage)
+                    .font(.headline)
+                ForEach(items) { item in
+                    StatBarRow(name: item.name, count: item.count, fraction: Double(item.count) / Double(maxCount))
+                }
+            }
+        }
+    }
+
+    /// "12h 34m" / "45m" / "<1m". Active reading time, never zero-padded.
+    static func formatDuration(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return total <= 0 ? "0m" : "<1m" }
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        if hours > 0 { return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h" }
+        return "\(minutes)m"
+    }
+
+    /// Compact word count: "1.2M", "340K", "8,500".
+    static func formatWords(_ words: Int) -> String {
+        if words >= 1_000_000 {
+            return String(format: "%.1fM", Double(words) / 1_000_000)
+        } else if words >= 10_000 {
+            return "\(words / 1000)K"
+        }
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f.string(from: NSNumber(value: words)) ?? "\(words)"
+    }
+}
+
+private struct StatTile: View {
+    let value: String
+    let label: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(.tint)
+            Text(value)
+                .font(.title.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct StatBarRow: View {
+    let name: String
+    let count: Int
+    let fraction: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+            HStack {
+                Text(name)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                Spacer(minLength: Spacing.sm)
+                Text("\(count)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.15))
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: max(4, geo.size.width * fraction))
+                }
+            }
+            .frame(height: 6)
+        }
+    }
+}
+
+/// Compact reading-stats summary shown atop the Library list; taps through to
+/// the Stats tab.
+private struct LibraryStatsStrip: View {
+    let summary: ReadingStatsSummary
+    let streak: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            metric(value: "\(summary.storiesRead)", label: "Finished", systemImage: "checkmark.circle")
+            divider
+            metric(value: StatsView.formatDuration(summary.totalSeconds), label: "Time", systemImage: "clock")
+            divider
+            metric(value: "\(streak)", label: "Streak", systemImage: "flame")
+            Spacer(minLength: Spacing.sm)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, Spacing.md)
+        .padding(.horizontal, Spacing.lg)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Reading stats: \(summary.storiesRead) finished, \(StatsView.formatDuration(summary.totalSeconds)) read, \(streak) day streak")
+        .accessibilityHint("Opens the Stats tab")
+    }
+
+    private func metric(value: String, label: String, systemImage: String) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.caption2)
+                    .foregroundStyle(.tint)
+                Text(value)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: 1, height: 26)
+    }
+}
+
+/// Carries a rendered share image into `.sheet(item:)`.
+struct ShareImageItem: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+/// A polished, portrait "Year in Review" card rendered to an image for sharing.
+/// Sized for a clean 3:4 export; `ImageRenderer` rasterises it off-screen.
+struct WrapShareCard: View {
+    let scopeTitle: String
+    let summary: ReadingStatsSummary
+
+    /// Fanficly brand indigo (#3B2E8C), matching the App Store marketing canvas.
+    private let brand = Color(red: 0x3B / 255, green: 0x2E / 255, blue: 0x8C / 255)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("My Reading")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text(scopeTitle)
+                    .font(.system(size: 34, weight: .heavy, design: .serif))
+                    .foregroundStyle(.white)
+            }
+
+            HStack(spacing: 14) {
+                bigStat("\(summary.storiesRead)", summary.storiesRead == 1 ? "story" : "stories")
+                bigStat(StatsView.formatDuration(summary.totalSeconds), "read")
+                bigStat(StatsView.formatWords(summary.totalWords), "words")
+            }
+
+            if !summary.topFandoms.isEmpty {
+                listBlock("Top Fandoms", items: summary.topFandoms.prefix(4))
+            }
+            if !summary.topRelationships.isEmpty {
+                listBlock("Top Ships", items: summary.topRelationships.prefix(3))
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 6) {
+                Image(systemName: "book.pages")
+                Text("Made with Fanficly")
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.85))
+        }
+        .padding(28)
+        .frame(width: 360, height: 480, alignment: .topLeading)
+        .background(
+            LinearGradient(colors: [brand, brand.opacity(0.78), .black.opacity(0.55)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        )
+    }
+
+    private func bigStat(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value)
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func listBlock(_ title: String, items: ArraySlice<ReadingTagCount>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.white.opacity(0.6))
+            ForEach(Array(items)) { item in
+                HStack {
+                    Text(item.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(item.count)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
+        }
     }
 }

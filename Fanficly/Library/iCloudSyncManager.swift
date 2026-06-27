@@ -73,6 +73,7 @@ final class iCloudSyncManager {
             let filters = (try? context.fetch(FetchDescriptor<SavedFilter>())) ?? []
             let hidden = (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
             let folders = (try? context.fetch(FetchDescriptor<CustomFolder>())) ?? []
+            let readingStats = (try? context.fetch(FetchDescriptor<ReadingStat>())) ?? []
             
             // 2. Map them to Codable structures
             let workBackups = works.map { work in
@@ -211,7 +212,18 @@ final class iCloudSyncManager {
             let folderBackups = folders.map {
                 FolderBackup(name: $0.name, createdAt: $0.createdAt)
             }
-            
+
+            let statBackups = readingStats.map {
+                StatBackup(
+                    ao3Id: $0.ao3Id, title: $0.title, author: $0.author,
+                    fandoms: $0.fandoms, categories: $0.categories, relationships: $0.relationships,
+                    rating: $0.rating, wordCount: $0.wordCount,
+                    firstReadAt: $0.firstReadAt, lastReadAt: $0.lastReadAt,
+                    totalSeconds: $0.totalSeconds, daySeconds: $0.daySeconds,
+                    maxProgress: $0.maxProgress, workIsComplete: $0.workIsComplete
+                )
+            }
+
             let backup = LibraryBackup(
                 works: workBackups,
                 bookmarks: bookmarkBackups,
@@ -222,6 +234,7 @@ final class iCloudSyncManager {
                 hidden: hiddenBackups,
                 settings: settingsBackup,
                 folders: folderBackups,
+                stats: statBackups,
                 timestamp: .now
             )
             
@@ -520,6 +533,41 @@ final class iCloudSyncManager {
                 }
             }
             
+            // 8. Restore ReadingStats. Merge conservatively — take the larger of
+            // the two totals and the per-day maxima, and the widest date span —
+            // so syncing two devices never double-counts or loses reading time.
+            for st in (backup.stats ?? []) {
+                let descriptor = FetchDescriptor<ReadingStat>(predicate: #Predicate { $0.ao3Id == st.ao3Id })
+                if let existing = (try? context.fetch(descriptor))?.first {
+                    if !st.fandoms.isEmpty { existing.fandoms = st.fandoms }
+                    if !st.categories.isEmpty { existing.categories = st.categories }
+                    if !st.relationships.isEmpty { existing.relationships = st.relationships }
+                    if !st.rating.isEmpty { existing.rating = st.rating }
+                    if st.wordCount > 0 { existing.wordCount = st.wordCount }
+                    if !st.title.isEmpty { existing.title = st.title }
+                    if !st.author.isEmpty { existing.author = st.author }
+                    existing.totalSeconds = max(existing.totalSeconds, st.totalSeconds)
+                    existing.firstReadAt = min(existing.firstReadAt, st.firstReadAt)
+                    existing.lastReadAt = max(existing.lastReadAt, st.lastReadAt)
+                    existing.maxProgress = max(existing.maxProgress, st.maxProgress ?? 0)
+                    if st.workIsComplete == true { existing.workIsComplete = true }
+                    var merged = existing.daySeconds
+                    for (day, seconds) in st.daySeconds {
+                        merged[day] = max(merged[day] ?? 0, seconds)
+                    }
+                    existing.daySeconds = merged
+                } else {
+                    context.insert(ReadingStat(
+                        ao3Id: st.ao3Id, title: st.title, author: st.author,
+                        fandoms: st.fandoms, categories: st.categories, relationships: st.relationships,
+                        rating: st.rating, wordCount: st.wordCount,
+                        firstReadAt: st.firstReadAt, lastReadAt: st.lastReadAt,
+                        totalSeconds: st.totalSeconds, daySeconds: st.daySeconds,
+                        maxProgress: st.maxProgress ?? 0, workIsComplete: st.workIsComplete ?? false
+                    ))
+                }
+            }
+
             try context.save()
             return true
         } catch {
@@ -558,12 +606,32 @@ struct LibraryBackup: Codable {
     let hidden: [HiddenBackup]
     let settings: SettingsBackup?
     let folders: [FolderBackup]?
+    /// Optional so older backups (written before the Stats feature) still decode.
+    let stats: [StatBackup]?
     let timestamp: Date
 }
 
 struct FolderBackup: Codable {
     let name: String
     let createdAt: Date
+}
+
+struct StatBackup: Codable {
+    let ao3Id: Int
+    let title: String
+    let author: String
+    let fandoms: [String]
+    let categories: [String]
+    let relationships: [String]
+    let rating: String
+    let wordCount: Int
+    let firstReadAt: Date
+    let lastReadAt: Date
+    let totalSeconds: Double
+    let daySeconds: [String: Double]
+    // Optional so backups written before these fields still decode.
+    let maxProgress: Double?
+    let workIsComplete: Bool?
 }
 
 struct SettingsBackup: Codable {

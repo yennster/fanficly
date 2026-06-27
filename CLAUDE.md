@@ -14,8 +14,9 @@ bin/                           # developer scripts (icon gen, screenshots)
 Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
   RootView.swift               # NavigationSplitView sidebar (Search, Browse,
-                               #   Popular, Library, Recently Viewed, Authors,
-                               #   Bookmarks, Subscriptions, Settings); global ⌘
+                               #   Popular, Library, Stats, Recently Viewed,
+                               #   Authors, Bookmarks, Subscriptions, Settings);
+                               #   global ⌘
                                #   zoom (app.zoomScale); fanficly:// deep links
                                #   (import overlay + widget resume route)
   AO3ClientEnvironment.swift   # @Environment(\.ao3Client) key
@@ -23,7 +24,8 @@ Fanficly/
                                #   defaults + iCloud KVS mirror (debounced);
                                #   compiled into both app and widget targets
   Models/Work.swift            # all SwiftData @Model types (Work,
-                               #   ReadingProgress, CustomFolder, FollowedAuthor, …)
+                               #   ReadingProgress, ReadingStat, CustomFolder,
+                               #   FollowedAuthor, …)
   Networking/
     AO3Client.swift            # protocol + live actor + MockAO3Client
     AO3Endpoints.swift         # URL builders
@@ -234,6 +236,65 @@ The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`,
 `bin/take-screenshots.sh` is the interactive capture (manual navigation). `FanficlyUITests/ScreenshotTests` is the automated version — it drives the app **in `-demoMode`** and writes PNGs to `docs/screenshots/{iphone,ipad,mac}/` (idiom subfolder; path derived from `#filePath`; the simulator runs as the host user so it can write there). Run it with `-only-testing:FanficlyUITests/ScreenshotTests/testCaptureMainScreens`; the Mac set comes from `bin/take-mac-screenshots.sh`, which runs `testCaptureMacScreens` on a landscape iPad Pro 13-inch simulator (stand-in for the Mac app — there's no Catalyst sim). Demo mode is fully offline so the shots are deterministic. One iPad gotcha: re-selecting a sidebar item in `NavigationSplitView` doesn't pop the detail stack, so the Privacy capture pops back one level via the nav-bar back button instead. CI never runs UI tests (`-only-testing:FanficlyTests`).
 
 **App Store marketing screenshots** are framed by `bin/frame-screenshots.py` (run by the `fastlane screenshots` lane after capture). It frames each raw shot in a genuine Apple device bezel via `fastlane frameit`, then composites it onto the solid indigo brand canvas (`#3B2E8C`) with a bold two-line ASO headline, writing exact-size PNGs to `fastlane/screenshots/en-US/` (iPhone 6.9" `1320×2868`, iPad 13" `2064×2752` — iPad is framed at frameit's supported 12.9" `2048×2732` then composited onto the 13" canvas). Mac shots get a window-style frame (border + soft shadow, no frameit bezel) on a `2560×1600` canvas and land in `fastlane/screenshots-mac/en-US/` — a separate tree because deliver matches shots to App Store slots by pixel size and the iOS listing rejects Mac sizes. `fastlane release` uploads the iOS set; `fastlane release_mac` archives the Catalyst build and uploads the Mac set with `platform: osx`. Headlines/order live in the `SLIDES` list at the top of the script. Requires `brew install fastlane imagemagick`. `fastlane/screenshots/` is git-ignored (regenerate via the lane).
+
+## Reading stats & yearly wrap
+
+The **Stats tab** (`StatsView`, in `LibraryView.swift`) shows reading totals
+(stories read, time read, words read, current day-streak) and top fandoms /
+categories / ships / authors for a chosen period — **Week / Month / Year / All
+Time** — with ‹ › to page through periods (`StatsPeriod`, an `anchor` date, and
+`Calendar.dateInterval(of:for:)`). It works for everyone, on-device; iCloud only
+*syncs* the data across the user's own devices (it is **not** gated behind
+iCloud).
+
+Source of truth is the `ReadingStat` @Model (one row per work, keyed by
+`ao3Id`, in `Models/Work.swift`): a snapshot of the work's metadata at read
+time (so stats cover fics the user never saved to the Library) plus accumulated
+active reading seconds, bucketed per calendar **day** (`daySeconds: [String:
+Double]`, keyed `yyyy-MM-dd`) so any period rolls up from the one row. Each row
+also stores `maxProgress` (furthest 0…1 position reached) and `workIsComplete`.
+`ReadingStatsStore` (in `ReadingProgressStore.swift`) upserts rows; non-empty
+metadata overwrites the snapshot, empty fields are left intact so a later
+metadata-less read can't wipe it, and `maxProgress` only ever advances (never
+regresses on a re-skim). Aggregation lives in the pure, testable
+`ReadingStatsAggregator` (no SwiftData/UI) — `summarize(_:interval:)` (interval
+`nil` = all-time), plus `dayKey`/`dataDateRange` for the period navigator.
+
+**Words read and stories read are progress-based, not per-open.** Opening a work
+must not credit its whole word count: "words read" is `Σ wordCount × maxProgress`
+(`ReadingStatSnapshot.wordsRead`), and "stories read" counts only **finished**
+works (`isFinished` — `maxProgress ≥ 0.99`, or `≥ 0.95` for a complete work,
+matching the Library row's "Finished" badge). A period includes a work if it was
+*read during* the interval (a `daySeconds` day in range), independent of time, so
+zero-time backfilled reads still show in their week/month/year. The Stats tab
+**defaults to All Time**. `ReadingStatsBackfill` (one-shot, gated by
+`reading.stats.backfilled.v2`, run from `FanficlyApp`'s launch `.task` after the
+iCloud restore) seeds rows for history that predates the feature **and** enriches
+pre-existing rows whose `maxProgress` defaulted to 0 — pulling progress from
+`Work.lastReadProgress` (or the chapter reached). It records zero time (none was
+ever captured) but dates each read so periods line up.
+
+**Reading time is real active time**, not a word-count estimate: `ReaderView`
+times spans while the reader is open and foregrounded — starting on appear and
+on scene-phase `.active`, flushing on disappear and when backgrounded, plus a
+mid-session checkpoint from `saveProgress` so a force-quit doesn't lose a long
+session. A single span is capped at 4h so a reader left open overnight can't
+inflate totals. The streak number reuses the existing `StreakStore`.
+
+The Library list shows a compact `LibraryStatsStrip` (stories/time/streak) atop
+the list that taps through to the Stats tab (by setting `app.selectedTabRaw`).
+The Stats screen's toolbar Share button renders `WrapShareCard` (a portrait
+wrap-up image for the selected period on the indigo brand canvas) via
+`ImageRenderer` and presents it through the shared `ShareSheet`.
+
+`ReadingStat` is registered in `FanficlyApp.sharedModelContainer`'s `Schema`
+(and `PersistenceTests`' in-memory schema), included in `iCloudSyncManager`
+backup/restore (`StatBackup`; restore merges conservatively — max of totals,
+per-day maxima, and `maxProgress`, OR of `workIsComplete`, widest date span — so
+two devices never double-count; the two progress fields are optional in
+`StatBackup` so older backups still decode), and seeded in `DemoSeed` for
+screenshots. `ReadingStat.snapshot` is the shared
+value-type bridge from the @Model to the pure aggregator.
 
 ## Privacy posture (do not regress)
 

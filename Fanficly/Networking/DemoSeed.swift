@@ -57,6 +57,35 @@ enum DemoSeed {
                                           fandom: s.fandoms.first ?? "", viewedAt: viewed))
         }
 
+        // Reading stats (Stats tab). Spread active reading time across several
+        // days per work — some this week, some this month, some earlier in the
+        // year — so the Week / Month / Year period views all populate, reusing
+        // each work's real fandoms/categories/ships for the charts.
+        for (i, summary) in DemoCatalog.works.enumerated() {
+            let dayOffsets = [i % 6, 3 + i % 9, 12 + (i % 5) * 4, 40 + i * 11, 150 + i * 7]
+            var daySeconds: [String: Double] = [:]
+            var total = 0.0
+            for (j, off) in dayOffsets.enumerated() {
+                let secs = Double(600 + ((i + j) % 5) * 480)     // 10 … 42 min
+                let day = Calendar.current.date(byAdding: .day, value: -off, to: seedDate) ?? seedDate
+                daySeconds[ReadingStatsAggregator.dayKey(for: day), default: 0] += secs
+                total += secs
+            }
+            let firstRead = Calendar.current.date(byAdding: .day, value: -(dayOffsets.max() ?? 0), to: seedDate) ?? seedDate
+            let lastRead = Calendar.current.date(byAdding: .day, value: -(dayOffsets.min() ?? 0), to: seedDate) ?? seedDate
+            // Most demo works are finished reads; every fourth is left partway so
+            // "words read" reflects partial progress, not full length.
+            let maxProgress = (i % 4 == 0) ? 0.45 : 1.0
+            context.insert(ReadingStat(
+                ao3Id: summary.id, title: summary.title, author: summary.author,
+                fandoms: summary.fandoms, categories: summary.categories,
+                relationships: summary.relationships, rating: summary.rating,
+                wordCount: summary.wordCount, firstReadAt: firstRead, lastReadAt: lastRead,
+                totalSeconds: total, daySeconds: daySeconds,
+                maxProgress: maxProgress, workIsComplete: summary.isComplete
+            ))
+        }
+
         // Saved searches (Search toolbar menu).
         context.insert(SavedSearch(name: "Slow burn, complete", prompt: "slow burn complete general"))
         context.insert(SavedSearch(name: "Found family", prompt: "found family hurt/comfort"))

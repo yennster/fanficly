@@ -71,6 +71,7 @@ struct FanficlyApp: App {
             HiddenWork.self,
             CustomFolder.self,
             FollowedAuthor.self,
+            ReadingStat.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
@@ -125,6 +126,14 @@ struct FanficlyApp: App {
                             await iCloudSyncManager.shared.restoreFromiCloud(context: context)
                         }
                     }
+
+                    // One-time: seed Stats from reading history that predates the
+                    // feature (and any history just restored from iCloud) so the
+                    // Stats tab isn't empty for existing readers. Runs after the
+                    // restore above; demo mode seeds its own stats.
+                    if !Self.isDemoMode {
+                        ReadingStatsBackfill.runIfNeeded(in: context)
+                    }
                 }
         }
         .modelContainer(Self.sharedModelContainer)
@@ -172,10 +181,15 @@ struct FanficlyApp: App {
                 }
                 .keyboardShortcut("8", modifiers: [.command])
 
+                Button("Stats") {
+                    selectedTabRaw = SidebarItem.stats.rawValue
+                }
+                .keyboardShortcut("9", modifiers: [.command])
+
                 Button("Settings") {
                     selectedTabRaw = SidebarItem.settings.rawValue
                 }
-                .keyboardShortcut("9", modifiers: [.command])
+                .keyboardShortcut(",", modifiers: [.command])
             }
             
             CommandMenu("Reader") {

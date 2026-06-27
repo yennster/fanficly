@@ -28,6 +28,10 @@ struct ReaderView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    // Start of the current active-reading span, for the Stats tab. Set while
+    // the reader is open and foregrounded; nil when paused (backgrounded/closed).
+    @State private var activeSpanStart: Date?
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
     @State private var currentAnchor: ReadingAnchor?
@@ -250,6 +254,36 @@ struct ReaderView: View {
         }
     }
 
+    /// Reader lifecycle, lifted out of the main body chain so it type-checks
+    /// independently. Keeps the screen awake while reading, tears down speech on
+    /// exit, and drives the Stats active-reading timer: start on appear and when
+    /// the app returns to `.active`, flush on disappear and when it leaves.
+    private struct ReaderLifecycleModifier: ViewModifier {
+        let keepScreenAwake: Bool
+        let scenePhase: ScenePhase
+        let applyKeepScreenAwake: (Bool) -> Void
+        let startTimer: () -> Void
+        let flushTimer: () -> Void
+        let stopSpeech: () -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .onAppear {
+                    applyKeepScreenAwake(keepScreenAwake)
+                    startTimer()
+                }
+                .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active { startTimer() } else { flushTimer() }
+                }
+                .onDisappear {
+                    stopSpeech()
+                    applyKeepScreenAwake(false)
+                    flushTimer()
+                }
+        }
+    }
+
     var body: some View {
         let scheme = theme.preferredColorScheme ?? systemColorScheme
         let fg = theme.foreground(for: scheme)
@@ -306,16 +340,17 @@ struct ReaderView: View {
         // action). A ViewModifier so its onChange/onAppear are type-checked
         // outside this already-long chain (which otherwise times out).
         .modifier(ChapterReportModifier(chapter: effectiveChapterIndex, report: reportCurrentChapter))
-        // Keep the screen lit while the reader is open; restore normal idle
-        // behaviour the moment we leave so other screens aren't held awake.
-        .onAppear { applyKeepScreenAwake(keepScreenAwake) }
-        .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
-        // Don't leave audio playing — or the display pinned awake — after the
-        // reader is dismissed.
-        .onDisappear {
-            speech.stop()
-            applyKeepScreenAwake(false)
-        }
+        // Screen-awake + speech teardown + the Stats active-reading timer, all
+        // in one ViewModifier so this long body chain stays within the
+        // type-checker's budget (see ChapterReportModifier for the same reason).
+        .modifier(ReaderLifecycleModifier(
+            keepScreenAwake: keepScreenAwake,
+            scenePhase: scenePhase,
+            applyKeepScreenAwake: { applyKeepScreenAwake($0) },
+            startTimer: { startReadingTimer() },
+            flushTimer: { recordReadingSpan(restart: false) },
+            stopSpeech: { speech.stop() }
+        ))
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
         .onChange(of: widthPercent) { _, _ in queueBackup() }
@@ -623,11 +658,58 @@ struct ReaderView: View {
         if let currentAnchor { saveProgress(currentAnchor, force: true, syncWidgetImmediately: true) }
     }
 
+    // MARK: - Reading-time stats
+
+    /// Begin (or resume) timing an active reading span.
+    private func startReadingTimer() {
+        activeSpanStart = Date()
+    }
+
+    /// Record the elapsed active-reading time since `activeSpanStart` into the
+    /// reading-stats store, then either clear or restart the span. A single span
+    /// is capped at 4 hours so a reader left foregrounded (e.g. overnight) can't
+    /// inflate the totals.
+    private func recordReadingSpan(restart: Bool) {
+        guard let start = activeSpanStart else {
+            if restart { activeSpanStart = Date() }
+            return
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        activeSpanStart = restart ? Date() : nil
+        guard elapsed >= 1, let summary else { return }
+        let capped = min(elapsed, 4 * 3600)
+        // Credit only as far as the reader has actually read, so words-read and
+        // "finished" status track real progress rather than the work's length.
+        let progress = currentAnchor.map(readingProgressFraction(for:)) ?? 0
+        ReadingStatsStore.record(
+            ao3Id: summary.id,
+            title: title,
+            author: author,
+            fandoms: summary.fandoms,
+            categories: summary.categories,
+            relationships: summary.relationships,
+            rating: summary.rating,
+            wordCount: summary.wordCount,
+            seconds: capped,
+            progress: progress,
+            isComplete: summary.isComplete,
+            in: modelContext
+        )
+    }
+
+    /// Periodically persist the in-progress span so a force-quit doesn't lose a
+    /// long uninterrupted session. Only flushes once the span exceeds two minutes.
+    private func checkpointReadingTime() {
+        guard let start = activeSpanStart, Date().timeIntervalSince(start) >= 120 else { return }
+        recordReadingSpan(restart: true)
+    }
+
     private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false, syncWidgetImmediately: Bool = false) {
         guard let id = summary?.id else { return }
         let now = Date()
         if !force && now.timeIntervalSince(lastSaveAt) < 1.5 { return }
         lastSaveAt = now
+        checkpointReadingTime()
         ReadingProgressStore.save(
             ao3Id: id,
             anchor: anchor,

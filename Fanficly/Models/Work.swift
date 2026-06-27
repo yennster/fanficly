@@ -274,6 +274,62 @@ final class FollowedAuthor {
     }
 }
 
+/// Aggregated reading statistics for a single work the user has read — the
+/// source of truth for the Stats tab and the "wrap-up". One row per work (keyed
+/// by `ao3Id`, like `ReadingProgress`), updated whenever the reader records
+/// active reading time. It snapshots the work's metadata at read time (so stats
+/// work even for fics the user never saved to the Library) plus the accumulated
+/// active reading seconds, bucketed per calendar **day** so the Stats screen can
+/// roll up any period — week, month, year, or all-time. Additive @Model —
+/// SwiftData migrates existing stores automatically.
+@Model
+final class ReadingStat {
+    @Attribute(.unique) var ao3Id: Int
+    var title: String
+    var author: String
+    var fandoms: [String]
+    var categories: [String]
+    var relationships: [String]
+    var rating: String
+    var wordCount: Int
+    var firstReadAt: Date
+    var lastReadAt: Date
+    /// Total active reading time across all sessions, in seconds.
+    var totalSeconds: Double
+    /// Active reading seconds keyed by calendar day ("2026-06-26" → seconds), so
+    /// any period (week/month/year/all-time) can be aggregated from one row.
+    var daySeconds: [String: Double]
+    /// Furthest reading position reached, 0…1. Drives "words read" (full length ×
+    /// this) and whether the work counts as a finished "story read" — so opening
+    /// a work no longer credits its whole word count. Additive/defaulted.
+    var maxProgress: Double = 0
+    /// Whether the work itself is a completed AO3 work, mirroring the Library
+    /// row's "Finished" rule (a complete work counts as read at ≥95%). Additive.
+    var workIsComplete: Bool = false
+
+    init(ao3Id: Int, title: String = "", author: String = "",
+         fandoms: [String] = [], categories: [String] = [], relationships: [String] = [],
+         rating: String = "", wordCount: Int = 0,
+         firstReadAt: Date = .now, lastReadAt: Date = .now,
+         totalSeconds: Double = 0, daySeconds: [String: Double] = [:],
+         maxProgress: Double = 0, workIsComplete: Bool = false) {
+        self.ao3Id = ao3Id
+        self.title = title
+        self.author = author
+        self.fandoms = fandoms
+        self.categories = categories
+        self.relationships = relationships
+        self.rating = rating
+        self.wordCount = wordCount
+        self.firstReadAt = firstReadAt
+        self.lastReadAt = lastReadAt
+        self.totalSeconds = totalSeconds
+        self.daySeconds = daySeconds
+        self.maxProgress = maxProgress
+        self.workIsComplete = workIsComplete
+    }
+}
+
 @Model
 final class CustomFolder {
     @Attribute(.unique) var name: String
