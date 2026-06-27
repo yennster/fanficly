@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "e25271553d36",
+  "strategy": "manual-commit",
+  "branch": "claude/reading-stats-yearly-wrap-31v9hb",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "CLAUDE.md",
+    "Fanficly/FanficlyApp.swift",
+    "Fanficly/Library/LibraryView.swift",
+    "Fanficly/Library/iCloudSyncManager.swift",
+    "Fanficly/Models/Work.swift",
+    "Fanficly/Networking/DemoSeed.swift",
+    "Fanficly/Reader/ReaderView.swift",
+    "Fanficly/Reader/ReadingProgressStore.swift",
+    "Fanficly/RootView.swift",
+    "FanficlyTests/PersistenceTests.swift"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e2/5271553d36/0/metadata.json",
+      "transcript": "/e2/5271553d36/0/full.jsonl",
+      "content_hash": "/e2/5271553d36/0/content_hash.txt",
+      "prompt": "/e2/5271553d36/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22010,
+    "cache_creation_tokens": 174464,
+    "cache_read_tokens": 10685828,
+    "output_tokens": 85482,
+    "api_call_count": 77
+  }
+}

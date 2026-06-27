@@ -1,0 +1,21 @@
+I open the stats in my app and it says there's no stats yet. Can't you collect existing reading progress from local app or iCloud and sort of add it, backfill it to the stats as like in first migration sort of thing?
+
+---
+
+Words read is also wrong, The stats app is currently recording whenever I open any book and it's not recording based on reading progress, it's reading just on a story that I've opened, and it's adding the full length everything everything into the stats, which is wrong
+You should plug into the reading progress that I have already in the app and add that into the stats, not the whole story. Only count the number of full complete works once you've hit 100% reading progress
+the default view to open for the stats tab is the "All time" view as well
+
+---
+
+SAZXD
+
+---
+
+What does the number next to the top fandoms/ships/etc. mean? total number of stories in the library? make "stories read" say something about completed 
+
+also the arrow week section at the top seems cramped
+
+---
+
+stats should be just above settings
