@@ -1,0 +1,5 @@
+bump version and build number
+update metadata in fastlane dir, delete old release_notes and replace with the work done on this branch/PR
+regenerate marketing screenshots
+run fastlane workflows for ios and mac and push to app store connect
+merge PR to main and cut a new release at the version number

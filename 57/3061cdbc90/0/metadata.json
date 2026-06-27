@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "573061cdbc90",
+  "session_id": "3cc21924-079a-4310-a594-32d816d05d79",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-27T11:38:45.492934Z",
+  "branch": "claude/reading-stats-yearly-wrap-31v9hb",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "Fanficly.xcodeproj/project.pbxproj",
+    "docs/screenshots/iphone/01-home.png",
+    "docs/screenshots/iphone/04-library.png",
+    "docs/screenshots/iphone/05-browse-fandoms.png",
+    "docs/screenshots/iphone/05-browse.png",
+    "project.yml"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "69bc75545c7c",
+  "checkpoint_transcript_start": 308,
+  "transcript_lines_at_start": 308,
+  "token_usage": {
+    "input_tokens": 566,
+    "cache_creation_tokens": 39958,
+    "cache_read_tokens": 5506710,
+    "output_tokens": 24493,
+    "api_call_count": 25
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-27T11:38:45.475148Z",
+    "agent_lines": 19,
+    "agent_removed": 19,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 19,
+    "total_lines_changed": 38,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 146,
+      "user_lines_removed": 1,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/agents/entire-search.md": 25,
+        ".claude/settings.json": 84,
+        ".claude/settings.local.json": 33,
+        "Fanficly/Networking/HTMLParsers/WorkPageParser.swift": 1,
+        "android/.gradle/buildOutputCleanup/cache.properties": 2,
+        "android/local.properties": 1
+      },
+      "user_removed_per_file": {
+        "Fanficly/Networking/HTMLParsers/WorkPageParser.swift": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 33,
+      "user_lines_removed": 0,
+      "agent_lines_added": 132,
+      "agent_lines_removed": 20,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 33
+      }
+    }
+  ]
+}
