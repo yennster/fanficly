@@ -818,7 +818,7 @@ struct StatsView: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.calendar) private var calendar
 
-    @State private var period: StatsPeriod = .month
+    @State private var period: StatsPeriod = .allTime
     /// A date inside the period currently shown; ‹ › moves it by one unit.
     @State private var anchor: Date = Date()
     @State private var shareItem: ShareImageItem?
@@ -929,7 +929,7 @@ struct StatsView: View {
     }
 
     private var periodControl: some View {
-        VStack(spacing: Spacing.sm) {
+        VStack(spacing: Spacing.md) {
             Picker("Period", selection: $period) {
                 ForEach(StatsPeriod.allCases) { Text($0.title).tag($0) }
             }
@@ -938,25 +938,32 @@ struct StatsView: View {
             .onChange(of: period) { _, _ in anchor = Date() }
 
             if period != .allTime {
-                HStack {
+                HStack(spacing: Spacing.sm) {
                     Button { page(-1) } label: {
                         Image(systemName: "chevron.left")
+                            .frame(width: 44, height: 36)
+                            .contentShape(Rectangle())
                     }
                     .disabled(!canPageBackward)
 
-                    Spacer()
+                    Spacer(minLength: 0)
                     Text(scopeTitle)
                         .font(.subheadline.weight(.semibold))
                         .monospacedDigit()
-                    Spacer()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 0)
 
                     Button { page(1) } label: {
                         Image(systemName: "chevron.right")
+                            .frame(width: 44, height: 36)
+                            .contentShape(Rectangle())
                     }
                     .disabled(!canPageForward)
                 }
                 .buttonStyle(.borderless)
                 .font(.body.weight(.semibold))
+                .padding(.vertical, Spacing.xs)
             }
         }
     }
@@ -968,8 +975,8 @@ struct StatsView: View {
             // Adaptive grid so the four stat tiles wrap nicely on phone & iPad.
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Spacing.md)], spacing: Spacing.md) {
                 StatTile(value: "\(summary.storiesRead)",
-                         label: summary.storiesRead == 1 ? "Story Read" : "Stories Read",
-                         systemImage: "book.closed")
+                         label: summary.storiesRead == 1 ? "Story Finished" : "Stories Finished",
+                         systemImage: "checkmark.circle")
                 StatTile(value: Self.formatDuration(summary.totalSeconds),
                          label: "Time Read",
                          systemImage: "clock")
@@ -1082,7 +1089,7 @@ private struct LibraryStatsStrip: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            metric(value: "\(summary.storiesRead)", label: "Read", systemImage: "book.closed")
+            metric(value: "\(summary.storiesRead)", label: "Finished", systemImage: "checkmark.circle")
             divider
             metric(value: StatsView.formatDuration(summary.totalSeconds), label: "Time", systemImage: "clock")
             divider
@@ -1097,7 +1104,7 @@ private struct LibraryStatsStrip: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Reading stats: \(summary.storiesRead) read, \(StatsView.formatDuration(summary.totalSeconds)) read, \(streak) day streak")
+        .accessibilityLabel("Reading stats: \(summary.storiesRead) finished, \(StatsView.formatDuration(summary.totalSeconds)) read, \(streak) day streak")
         .accessibilityHint("Opens the Stats tab")
     }
 

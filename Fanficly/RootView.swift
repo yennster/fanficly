@@ -458,7 +458,7 @@ struct ImportOverlay: View {
 
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case search, browse, popular, library, stats, recentlyViewed, authors, bookmarks, subscriptions, settings
+    case search, browse, popular, library, recentlyViewed, authors, bookmarks, subscriptions, stats, settings
 
     var id: String { rawValue }
 

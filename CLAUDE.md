@@ -251,12 +251,28 @@ Source of truth is the `ReadingStat` @Model (one row per work, keyed by
 `ao3Id`, in `Models/Work.swift`): a snapshot of the work's metadata at read
 time (so stats cover fics the user never saved to the Library) plus accumulated
 active reading seconds, bucketed per calendar **day** (`daySeconds: [String:
-Double]`, keyed `yyyy-MM-dd`) so any period rolls up from the one row.
+Double]`, keyed `yyyy-MM-dd`) so any period rolls up from the one row. Each row
+also stores `maxProgress` (furthest 0…1 position reached) and `workIsComplete`.
 `ReadingStatsStore` (in `ReadingProgressStore.swift`) upserts rows; non-empty
 metadata overwrites the snapshot, empty fields are left intact so a later
-metadata-less read can't wipe it. Aggregation lives in the pure, testable
+metadata-less read can't wipe it, and `maxProgress` only ever advances (never
+regresses on a re-skim). Aggregation lives in the pure, testable
 `ReadingStatsAggregator` (no SwiftData/UI) — `summarize(_:interval:)` (interval
 `nil` = all-time), plus `dayKey`/`dataDateRange` for the period navigator.
+
+**Words read and stories read are progress-based, not per-open.** Opening a work
+must not credit its whole word count: "words read" is `Σ wordCount × maxProgress`
+(`ReadingStatSnapshot.wordsRead`), and "stories read" counts only **finished**
+works (`isFinished` — `maxProgress ≥ 0.99`, or `≥ 0.95` for a complete work,
+matching the Library row's "Finished" badge). A period includes a work if it was
+*read during* the interval (a `daySeconds` day in range), independent of time, so
+zero-time backfilled reads still show in their week/month/year. The Stats tab
+**defaults to All Time**. `ReadingStatsBackfill` (one-shot, gated by
+`reading.stats.backfilled.v2`, run from `FanficlyApp`'s launch `.task` after the
+iCloud restore) seeds rows for history that predates the feature **and** enriches
+pre-existing rows whose `maxProgress` defaulted to 0 — pulling progress from
+`Work.lastReadProgress` (or the chapter reached). It records zero time (none was
+ever captured) but dates each read so periods line up.
 
 **Reading time is real active time**, not a word-count estimate: `ReaderView`
 times spans while the reader is open and foregrounded — starting on appear and
@@ -273,9 +289,11 @@ wrap-up image for the selected period on the indigo brand canvas) via
 
 `ReadingStat` is registered in `FanficlyApp.sharedModelContainer`'s `Schema`
 (and `PersistenceTests`' in-memory schema), included in `iCloudSyncManager`
-backup/restore (`StatBackup`; restore merges conservatively — max of totals and
-per-day maxima, widest date span — so two devices never double-count), and
-seeded in `DemoSeed` for screenshots. `ReadingStat.snapshot` is the shared
+backup/restore (`StatBackup`; restore merges conservatively — max of totals,
+per-day maxima, and `maxProgress`, OR of `workIsComplete`, widest date span — so
+two devices never double-count; the two progress fields are optional in
+`StatBackup` so older backups still decode), and seeded in `DemoSeed` for
+screenshots. `ReadingStat.snapshot` is the shared
 value-type bridge from the @Model to the pure aggregator.
 
 ## Privacy posture (do not regress)

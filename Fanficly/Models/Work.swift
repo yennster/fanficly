@@ -299,12 +299,20 @@ final class ReadingStat {
     /// Active reading seconds keyed by calendar day ("2026-06-26" → seconds), so
     /// any period (week/month/year/all-time) can be aggregated from one row.
     var daySeconds: [String: Double]
+    /// Furthest reading position reached, 0…1. Drives "words read" (full length ×
+    /// this) and whether the work counts as a finished "story read" — so opening
+    /// a work no longer credits its whole word count. Additive/defaulted.
+    var maxProgress: Double = 0
+    /// Whether the work itself is a completed AO3 work, mirroring the Library
+    /// row's "Finished" rule (a complete work counts as read at ≥95%). Additive.
+    var workIsComplete: Bool = false
 
     init(ao3Id: Int, title: String = "", author: String = "",
          fandoms: [String] = [], categories: [String] = [], relationships: [String] = [],
          rating: String = "", wordCount: Int = 0,
          firstReadAt: Date = .now, lastReadAt: Date = .now,
-         totalSeconds: Double = 0, daySeconds: [String: Double] = [:]) {
+         totalSeconds: Double = 0, daySeconds: [String: Double] = [:],
+         maxProgress: Double = 0, workIsComplete: Bool = false) {
         self.ao3Id = ao3Id
         self.title = title
         self.author = author
@@ -317,6 +325,8 @@ final class ReadingStat {
         self.lastReadAt = lastReadAt
         self.totalSeconds = totalSeconds
         self.daySeconds = daySeconds
+        self.maxProgress = maxProgress
+        self.workIsComplete = workIsComplete
     }
 }
 

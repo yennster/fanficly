@@ -126,6 +126,14 @@ struct FanficlyApp: App {
                             await iCloudSyncManager.shared.restoreFromiCloud(context: context)
                         }
                     }
+
+                    // One-time: seed Stats from reading history that predates the
+                    // feature (and any history just restored from iCloud) so the
+                    // Stats tab isn't empty for existing readers. Runs after the
+                    // restore above; demo mode seeds its own stats.
+                    if !Self.isDemoMode {
+                        ReadingStatsBackfill.runIfNeeded(in: context)
+                    }
                 }
         }
         .modelContainer(Self.sharedModelContainer)
@@ -153,28 +161,28 @@ struct FanficlyApp: App {
                 }
                 .keyboardShortcut("4", modifiers: [.command])
 
-                Button("Stats") {
-                    selectedTabRaw = SidebarItem.stats.rawValue
-                }
-                .keyboardShortcut("5", modifiers: [.command])
-
                 Button("Recently Viewed") {
                     selectedTabRaw = SidebarItem.recentlyViewed.rawValue
                 }
-                .keyboardShortcut("6", modifiers: [.command])
+                .keyboardShortcut("5", modifiers: [.command])
 
                 Button("Followed Authors") {
                     selectedTabRaw = SidebarItem.authors.rawValue
                 }
-                .keyboardShortcut("7", modifiers: [.command])
+                .keyboardShortcut("6", modifiers: [.command])
 
                 Button("Bookmarks") {
                     selectedTabRaw = SidebarItem.bookmarks.rawValue
                 }
-                .keyboardShortcut("8", modifiers: [.command])
+                .keyboardShortcut("7", modifiers: [.command])
 
                 Button("Subscriptions") {
                     selectedTabRaw = SidebarItem.subscriptions.rawValue
+                }
+                .keyboardShortcut("8", modifiers: [.command])
+
+                Button("Stats") {
+                    selectedTabRaw = SidebarItem.stats.rawValue
                 }
                 .keyboardShortcut("9", modifiers: [.command])
 

@@ -167,15 +167,16 @@ final class PersistenceTests: XCTestCase {
 
         ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
                                  fandoms: ["Fandom X"], categories: ["M/M"], relationships: ["A/B"],
-                                 rating: "Teen", wordCount: 5000, seconds: 600, date: d1, in: ctx)
+                                 rating: "Teen", wordCount: 5000, seconds: 600, progress: 0.3, date: d1, in: ctx)
         // Second read, same work, same day → accrues onto the one bucket.
         ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
                                  fandoms: ["Fandom X"], categories: ["M/M"], relationships: ["A/B"],
-                                 rating: "Teen", wordCount: 5000, seconds: 300, date: d1, in: ctx)
-        // Same work read on a new day → new day bucket, same row.
+                                 rating: "Teen", wordCount: 5000, seconds: 300, progress: 0.8, date: d1, in: ctx)
+        // Same work read on a new day → new day bucket, same row. Progress went
+        // backward this read (re-skim); the stored max must not regress.
         ReadingStatsStore.record(ao3Id: 7, title: "T", author: "A",
                                  fandoms: [], categories: [], relationships: [],
-                                 rating: "", wordCount: 0, seconds: 120, date: d2, in: ctx)
+                                 rating: "", wordCount: 0, seconds: 120, progress: 0.5, date: d2, in: ctx)
 
         let rows = try ctx.fetch(FetchDescriptor<ReadingStat>())
         XCTAssertEqual(rows.count, 1)
@@ -186,6 +187,137 @@ final class PersistenceTests: XCTestCase {
         // Empty metadata on the later read must not wipe the snapshot.
         XCTAssertEqual(row.fandoms, ["Fandom X"])
         XCTAssertEqual(row.wordCount, 5000)
+        // Progress is the furthest reached (0.8), never a later lower value.
+        XCTAssertEqual(row.maxProgress, 0.8, accuracy: 0.001)
+    }
+
+    func test_readingStatsAggregator_wordsFollowProgressAndStoriesCountFinished() {
+        let d = day(2026, 6, 10)
+        let key = ReadingStatsAggregator.dayKey(for: d)
+        func snap(_ id: Int, words: Int, progress: Double, complete: Bool = false) -> ReadingStatSnapshot {
+            ReadingStatSnapshot(ao3Id: id, title: "", author: "A",
+                                fandoms: [], categories: [], relationships: [],
+                                rating: "", wordCount: words,
+                                firstReadAt: d, lastReadAt: d,
+                                totalSeconds: 60, daySeconds: [key: 60],
+                                maxProgress: progress, workIsComplete: complete)
+        }
+        let snaps = [
+            snap(1, words: 10_000, progress: 1.0),   // finished → 10k words
+            snap(2, words: 10_000, progress: 0.25),  // a quarter read → 2.5k words, not finished
+            snap(3, words: 4_000, progress: 0.96, complete: true), // complete work at 96% → finished
+        ]
+        let all = ReadingStatsAggregator.summarize(snaps, interval: nil)
+        // Words read tracks progress, not full length: 10000 + 2500 + 3840.
+        XCTAssertEqual(all.totalWords, 16_340)
+        // Only the two finished works count as stories read.
+        XCTAssertEqual(all.storiesRead, 2)
+    }
+
+    func test_backfill_seedsZeroTimeStatsFromHistory() throws {
+        let ctx = try makeContext()
+        let read = day(2026, 5, 10)
+
+        // A saved work the user finished (metadata + saved progress available)…
+        let work = Work(ao3Id: 11, title: "Saved Read", authorName: "Alice",
+                        categories: ["M/M"], fandoms: ["Fandom X"],
+                        relationships: ["A/B"], wordCount: 4000)
+        work.lastReadAt = read
+        work.lastReadProgress = 1.0
+        ctx.insert(work)
+        ctx.insert(ReadingProgress(ao3Id: 11, chapterIndex: 3, title: "Saved Read",
+                                   author: "Alice", updatedAt: read))
+        // …and a work read but never saved (progress only, no metadata/progress).
+        ctx.insert(ReadingProgress(ao3Id: 22, chapterIndex: 1, title: "Unsaved Read",
+                                   author: "Bob", updatedAt: read))
+
+        XCTAssertEqual(ReadingStatsBackfill.backfill(in: ctx), 2)
+
+        let stats = try ctx.fetch(FetchDescriptor<ReadingStat>()).sorted { $0.ao3Id < $1.ao3Id }
+        XCTAssertEqual(stats.map(\.ao3Id), [11, 22])
+
+        let saved = stats[0]
+        XCTAssertEqual(saved.title, "Saved Read")
+        XCTAssertEqual(saved.fandoms, ["Fandom X"])
+        XCTAssertEqual(saved.wordCount, 4000)
+        // Progress carried over from the saved reading position.
+        XCTAssertEqual(saved.maxProgress, 1.0, accuracy: 0.001)
+        // Time stays honest at zero, but a zero day bucket dates the read.
+        XCTAssertEqual(saved.totalSeconds, 0, accuracy: 0.001)
+        XCTAssertEqual(saved.daySeconds[ReadingStatsAggregator.dayKey(for: read)], 0)
+
+        let snaps = stats.map(\.snapshot)
+        let all = ReadingStatsAggregator.summarize(snaps, interval: nil)
+        // Only the finished work counts as a story read; words follow progress.
+        XCTAssertEqual(all.storiesRead, 1)
+        XCTAssertEqual(all.totalWords, 4000)
+        XCTAssertEqual(all.totalSeconds, 0, accuracy: 0.001)
+
+        // Backfilled works still appear in the period containing their read day
+        // (the yearly-wrap path), even with zero recorded time.
+        let may = Calendar.current.dateInterval(of: .month, for: read)!
+        let month = ReadingStatsAggregator.summarize(snaps, interval: may)
+        XCTAssertEqual(month.storiesRead, 1)
+        XCTAssertEqual(month.topFandoms.first?.name, "Fandom X")
+    }
+
+    func test_backfill_skipsWorksThatAlreadyHaveStats() throws {
+        let ctx = try makeContext()
+        let d = day(2026, 4, 1)
+        // A real, timed stat already exists for this work…
+        ReadingStatsStore.record(ao3Id: 11, title: "T", author: "Alice",
+                                 fandoms: ["Fandom X"], categories: [], relationships: [],
+                                 rating: "Teen", wordCount: 4000, seconds: 600, date: d, in: ctx)
+        // …and there's also reading history for it.
+        ctx.insert(ReadingProgress(ao3Id: 11, chapterIndex: 2, title: "T", author: "Alice"))
+
+        XCTAssertEqual(ReadingStatsBackfill.backfill(in: ctx), 0)
+        let rows = try ctx.fetch(FetchDescriptor<ReadingStat>())
+        XCTAssertEqual(rows.count, 1)
+        // The real recorded time must be left untouched.
+        XCTAssertEqual(rows[0].totalSeconds, 600, accuracy: 0.001)
+    }
+
+    func test_backfill_enrichesExistingRowMissingProgress() throws {
+        let ctx = try makeContext()
+        let read = day(2026, 3, 20)
+        // A stat row created before progress was tracked: real time, but
+        // maxProgress defaulted to 0 — so it'd wrongly show 0 words / 0 stories.
+        ReadingStatsStore.record(ao3Id: 11, title: "T", author: "Alice",
+                                 fandoms: ["Fandom X"], categories: [], relationships: [],
+                                 rating: "Teen", wordCount: 8000, seconds: 1800, date: read, in: ctx)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingStat>()).first?.maxProgress, 0)
+
+        // The reading progress the user already has: finished this work.
+        let work = Work(ao3Id: 11, title: "T", authorName: "Alice", wordCount: 8000)
+        work.lastReadAt = read
+        work.lastReadProgress = 1.0
+        ctx.insert(work)
+        ctx.insert(ReadingProgress(ao3Id: 11, chapterIndex: 1, title: "T", author: "Alice", updatedAt: read))
+
+        // Enrichment inserts no new row but fills in the missing progress…
+        XCTAssertEqual(ReadingStatsBackfill.backfill(in: ctx), 0)
+        let row = try XCTUnwrap(try ctx.fetch(FetchDescriptor<ReadingStat>()).first)
+        XCTAssertEqual(row.maxProgress, 1.0, accuracy: 0.001)
+        XCTAssertEqual(row.totalSeconds, 1800, accuracy: 0.001)  // time untouched
+        // …so it now counts as a finished story with its full words read.
+        let all = ReadingStatsAggregator.summarize([row.snapshot], interval: nil)
+        XCTAssertEqual(all.storiesRead, 1)
+        XCTAssertEqual(all.totalWords, 8000)
+    }
+
+    func test_backfill_runIfNeededIsOneTime() throws {
+        let ctx = try makeContext()
+        let defaults = UserDefaults(suiteName: "test.backfill.\(UUID().uuidString)")!
+        ctx.insert(ReadingProgress(ao3Id: 11, chapterIndex: 1, title: "One", author: "A"))
+
+        ReadingStatsBackfill.runIfNeeded(in: ctx, defaults: defaults)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingStat>()).count, 1)
+
+        // New history arrives after the one-shot pass; runIfNeeded is now a no-op.
+        ctx.insert(ReadingProgress(ao3Id: 22, chapterIndex: 1, title: "Two", author: "B"))
+        ReadingStatsBackfill.runIfNeeded(in: ctx, defaults: defaults)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingStat>()).count, 1)
     }
 
     func test_readingStatsAggregator_summarizeByPeriod() {
@@ -196,12 +328,14 @@ final class PersistenceTests: XCTestCase {
                                 fandoms: ["HP", "Naruto"], categories: ["M/M"], relationships: ["A/B"],
                                 rating: "Teen", wordCount: 1000,
                                 firstReadAt: day(2026, 6, 15), lastReadAt: day(2026, 6, 15),
-                                totalSeconds: 600, daySeconds: [key(day(2026, 6, 15)): 600]),
+                                totalSeconds: 600, daySeconds: [key(day(2026, 6, 15)): 600],
+                                maxProgress: 1.0),
             ReadingStatSnapshot(ao3Id: 2, title: "", author: "Alice",
                                 fandoms: ["HP"], categories: ["F/M"], relationships: ["C/D"],
                                 rating: "Mature", wordCount: 2000,
                                 firstReadAt: day(2025, 3, 2), lastReadAt: day(2025, 3, 2),
-                                totalSeconds: 1200, daySeconds: [key(day(2025, 3, 2)): 1200]),
+                                totalSeconds: 1200, daySeconds: [key(day(2025, 3, 2)): 1200],
+                                maxProgress: 1.0),
         ]
 
         // All-time.

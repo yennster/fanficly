@@ -73,12 +73,16 @@ enum DemoSeed {
             }
             let firstRead = Calendar.current.date(byAdding: .day, value: -(dayOffsets.max() ?? 0), to: seedDate) ?? seedDate
             let lastRead = Calendar.current.date(byAdding: .day, value: -(dayOffsets.min() ?? 0), to: seedDate) ?? seedDate
+            // Most demo works are finished reads; every fourth is left partway so
+            // "words read" reflects partial progress, not full length.
+            let maxProgress = (i % 4 == 0) ? 0.45 : 1.0
             context.insert(ReadingStat(
                 ao3Id: summary.id, title: summary.title, author: summary.author,
                 fandoms: summary.fandoms, categories: summary.categories,
                 relationships: summary.relationships, rating: summary.rating,
                 wordCount: summary.wordCount, firstReadAt: firstRead, lastReadAt: lastRead,
-                totalSeconds: total, daySeconds: daySeconds
+                totalSeconds: total, daySeconds: daySeconds,
+                maxProgress: maxProgress, workIsComplete: summary.isComplete
             ))
         }
 

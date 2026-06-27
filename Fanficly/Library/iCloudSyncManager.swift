@@ -219,7 +219,8 @@ final class iCloudSyncManager {
                     fandoms: $0.fandoms, categories: $0.categories, relationships: $0.relationships,
                     rating: $0.rating, wordCount: $0.wordCount,
                     firstReadAt: $0.firstReadAt, lastReadAt: $0.lastReadAt,
-                    totalSeconds: $0.totalSeconds, daySeconds: $0.daySeconds
+                    totalSeconds: $0.totalSeconds, daySeconds: $0.daySeconds,
+                    maxProgress: $0.maxProgress, workIsComplete: $0.workIsComplete
                 )
             }
 
@@ -548,6 +549,8 @@ final class iCloudSyncManager {
                     existing.totalSeconds = max(existing.totalSeconds, st.totalSeconds)
                     existing.firstReadAt = min(existing.firstReadAt, st.firstReadAt)
                     existing.lastReadAt = max(existing.lastReadAt, st.lastReadAt)
+                    existing.maxProgress = max(existing.maxProgress, st.maxProgress ?? 0)
+                    if st.workIsComplete == true { existing.workIsComplete = true }
                     var merged = existing.daySeconds
                     for (day, seconds) in st.daySeconds {
                         merged[day] = max(merged[day] ?? 0, seconds)
@@ -559,7 +562,8 @@ final class iCloudSyncManager {
                         fandoms: st.fandoms, categories: st.categories, relationships: st.relationships,
                         rating: st.rating, wordCount: st.wordCount,
                         firstReadAt: st.firstReadAt, lastReadAt: st.lastReadAt,
-                        totalSeconds: st.totalSeconds, daySeconds: st.daySeconds
+                        totalSeconds: st.totalSeconds, daySeconds: st.daySeconds,
+                        maxProgress: st.maxProgress ?? 0, workIsComplete: st.workIsComplete ?? false
                     ))
                 }
             }
@@ -625,6 +629,9 @@ struct StatBackup: Codable {
     let lastReadAt: Date
     let totalSeconds: Double
     let daySeconds: [String: Double]
+    // Optional so backups written before these fields still decode.
+    let maxProgress: Double?
+    let workIsComplete: Bool?
 }
 
 struct SettingsBackup: Codable {

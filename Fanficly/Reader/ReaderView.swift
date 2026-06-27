@@ -678,6 +678,9 @@ struct ReaderView: View {
         activeSpanStart = restart ? Date() : nil
         guard elapsed >= 1, let summary else { return }
         let capped = min(elapsed, 4 * 3600)
+        // Credit only as far as the reader has actually read, so words-read and
+        // "finished" status track real progress rather than the work's length.
+        let progress = currentAnchor.map(readingProgressFraction(for:)) ?? 0
         ReadingStatsStore.record(
             ao3Id: summary.id,
             title: title,
@@ -688,6 +691,8 @@ struct ReaderView: View {
             rating: summary.rating,
             wordCount: summary.wordCount,
             seconds: capped,
+            progress: progress,
+            isComplete: summary.isComplete,
             in: modelContext
         )
     }
