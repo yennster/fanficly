@@ -352,13 +352,33 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] {
-        await throttle.wait()
-        let url = try AO3Endpoints.userSubscriptions(name: username, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
-        guard let html = String(data: data, encoding: .utf8) else {
-            throw AO3Error.parseFailed(reason: "Subscriptions response not UTF-8")
+        // AO3 paginates the subscriptions index at 20 per page — walk every
+        // page (each fetch goes through the 1 req/s throttle) or anything past
+        // the first 20 is invisible and its records get treated as stale. Any
+        // page failing throws the whole call, so a partial list can never
+        // reach the caller's delete pass. The page ceiling only guards against
+        // a pagination-parse glitch turning one sync into an unbounded crawl.
+        var all: [AO3Subscription] = []
+        var seen = Set<String>()
+        var page = 1
+        var totalPages = 1
+        let maxPages = 50
+        while page <= min(totalPages, maxPages) {
+            await throttle.wait()
+            let url = try AO3Endpoints.userSubscriptions(name: username, page: page, base: baseURL)
+            logger.debug("GET \(url.absoluteString, privacy: .public)")
+            let (data, _) = try await performRequest(URLRequest(url: url))
+            guard let html = String(data: data, encoding: .utf8) else {
+                throw AO3Error.parseFailed(reason: "Subscriptions response not UTF-8")
+            }
+            let parsed = try SubscriptionsParser.parsePage(html: html)
+            for sub in parsed.subscriptions where seen.insert(sub.key).inserted {
+                all.append(sub)
+            }
+            totalPages = parsed.totalPages
+            page += 1
         }
-        return try SubscriptionsParser.parse(html: html)
+        return all
     }
 
     public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {

@@ -837,4 +837,49 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(fetchedFolder?.works.count, 1)
         XCTAssertEqual(fetchedFolder?.works.first?.ao3Id, 999)
     }
+
+    // MARK: - Subscription list sync (fail closed)
+
+    private func seedSubscriptionRecords(into ctx: ModelContext) {
+        let rec1 = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic One")
+        rec1.lastSeenChapterCount = 5
+        ctx.insert(rec1)
+        ctx.insert(SubscriptionRecord(key: "series:9", kind: "series", displayName: "Saga"))
+        try? ctx.save()
+    }
+
+    // An empty fetch (stale session, markup drift) must never prune the
+    // stored records — a wrong delete also destroys the lastSeenChapterCount
+    // baselines that new-chapter notifications compare against.
+    func test_syncSubscriptionList_emptyFetchKeepsRecords() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let client = StubAO3Client()
+        client.subscriptionsResponse = []
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        _ = try await poller.syncSubscriptionList()
+
+        let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
+        XCTAssertEqual(remaining.count, 2)
+        XCTAssertEqual(remaining.first(where: { $0.key == "work:1" })?.lastSeenChapterCount, 5)
+    }
+
+    // A non-empty fetch is trusted: records missing from it are pruned and
+    // new ones inserted.
+    func test_syncSubscriptionList_nonEmptyFetchPrunesStaleRecords() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let client = StubAO3Client()
+        client.subscriptionsResponse = [
+            AO3Subscription(kind: .work, resourceId: "1", title: "Fic One", author: "alice"),
+            AO3Subscription(kind: .user, resourceId: "carol", title: "carol", author: nil),
+        ]
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        _ = try await poller.syncSubscriptionList()
+
+        let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
+        XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
+    }
 }
