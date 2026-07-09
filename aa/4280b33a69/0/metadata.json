@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "aa4280b33a69",
+  "session_id": "936f110b-7dd0-4618-ae44-7b95062ac703",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-09T19:28:20.557593Z",
+  "branch": "claude/image-toggle-and-audit-fixes",
+  "checkpoints_count": 3,
+  "save_step_count": 1,
+  "files_touched": [
+    "Fanficly/Reader/ChapterContentView.swift",
+    "Fanficly/Reader/HTMLToAttributed.swift",
+    "Fanficly/Reader/ReaderView.swift",
+    "Fanficly/Settings/ReaderSettingsView.swift",
+    "FanficlyTests/HTMLToAttributedTests.swift"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "8dd0217d385b",
+  "token_usage": {
+    "input_tokens": 30391,
+    "cache_creation_tokens": 429929,
+    "cache_read_tokens": 18886687,
+    "output_tokens": 106079,
+    "api_call_count": 101
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-09T19:28:20.535508Z",
+    "agent_lines": 290,
+    "agent_removed": 45,
+    "human_added": 112,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 402,
+    "total_lines_changed": 447,
+    "agent_percentage": 74.9440715883669,
+    "metric_version": 2
+  }
+}
