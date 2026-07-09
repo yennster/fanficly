@@ -17,8 +17,16 @@ final class TagResolverTests: XCTestCase {
     }
 
     func test_bestMatch_fallsBackToFirst() {
-        let matches = ["Hermione Granger/Draco Malfoy", "Other Ship"]
-        XCTAssertEqual(TagResolver.bestMatch(for: "dramione", in: matches), "Hermione Granger/Draco Malfoy")
+        // Non-freeform fields still take AO3's top (most popular) suggestion
+        // when nothing matches exactly — that's what lets a character lookup
+        // like "hermione" canonicalize to "Hermione Granger", and it powers
+        // ship-via-character resolution. Freeform tags are stricter — see the
+        // freeform tests below.
+        let matches = ["Hermione Granger", "Hermione Granger (Wizarding World)"]
+        XCTAssertEqual(
+            TagResolver.bestMatch(for: "hermione", in: matches, field: .character),
+            "Hermione Granger"
+        )
     }
 
     func test_bestMatch_emptyReturnsNil() {
@@ -77,6 +85,35 @@ final class TagResolverTests: XCTestCase {
             TagResolver.bestMatch(for: "Bella/Edward", in: matches, field: .relationship),
             "Bella Swan/Edward Cullen"
         )
+    }
+
+    func test_bestMatch_freeformDoesNotExpandToMoreSpecificTag() {
+        // Regression: typing the freeform "caveman" must not get rewritten to a
+        // popular compound tag that merely contains it. AO3 ranks autocomplete
+        // by popularity, so "Caveman Derek Hale" comes back first.
+        let matches = ["Caveman Derek Hale"]
+        XCTAssertEqual(
+            TagResolver.bestMatch(for: "caveman", in: matches, field: .freeform),
+            "caveman"
+        )
+    }
+
+    func test_bestMatch_freeformStillCanonicalizesFormatting() {
+        // Same tag up to case/spacing/punctuation should still resolve.
+        let matches = ["Caveman Derek Hale", "Hurt/Comfort"]
+        XCTAssertEqual(
+            TagResolver.bestMatch(for: "hurt comfort", in: matches, field: .freeform),
+            "Hurt/Comfort"
+        )
+    }
+
+    func test_resolve_freeformKeepsTypedTermWhenOnlyNarrowerSuggestions() async {
+        let stub = StubAO3Client()
+        stub.autocompleteResponses = ["caveman": ["Caveman Derek Hale"]]
+        var filters = AO3SearchFilters()
+        filters.freeformNames = ["caveman"]
+        let resolved = await TagResolver.resolve(filters, using: stub)
+        XCTAssertEqual(resolved.freeformNames, ["caveman"])
     }
 
     func test_resolve_directRelationshipMatch() async {
