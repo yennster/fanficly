@@ -278,20 +278,19 @@ struct RootView: View {
         let widgetProgress = WidgetProgressStore.load()
         let matchingWidgetProgress = widgetProgress?.id == route.workId ? widgetProgress : nil
 
-        if let existing = readingProgress(for: route.workId),
-           let matchingWidgetProgress,
-           existing.updatedAt > matchingWidgetProgress.freshnessDate {
-            return
-        }
-
         let widgetAnchor = matchingWidgetProgress.flatMap { progress -> ReadingAnchor? in
             guard let chapter = progress.chapter else { return nil }
             return ReadingAnchor(chapter: max(chapter, 1), paragraph: max(progress.paragraph ?? 0, 0))
         }
 
-        guard let anchor = route.anchor ?? widgetAnchor else { return }
-
         let existing = readingProgress(for: route.workId)
+        guard let anchor = ResumeProgressPolicy.anchorToInstall(
+            routeAnchor: route.anchor,
+            widgetAnchor: widgetAnchor,
+            widgetFreshness: matchingWidgetProgress?.freshnessDate,
+            existingUpdatedAt: existing?.updatedAt
+        ) else { return }
+
         ReadingProgressStore.save(
             ao3Id: route.workId,
             anchor: anchor,
@@ -394,6 +393,38 @@ struct RootView: View {
 private struct ResumeWorkRoute: Hashable {
     let workId: Int
     let anchor: ReadingAnchor?
+}
+
+/// Decides which anchor (if any) a widget-resume tap may install as reading
+/// progress. The rule: a resume tap must never move saved progress backwards.
+///
+/// The URL anchor is a snapshot baked into the widget timeline, and WidgetKit
+/// reloads are budget-throttled — the home-screen widget can lag hours behind
+/// the last save. The widget-store payload is rewritten on every progress save,
+/// so when both exist the store entry is at least as fresh as the URL. And
+/// because `ReadingProgressStore.save` stamps the local record and the widget
+/// payload with the same date, a store entry only reads *strictly* fresher when
+/// it came from somewhere else (progress synced from another device) — which is
+/// exactly the one case that may override local progress.
+enum ResumeProgressPolicy {
+    static func anchorToInstall(
+        routeAnchor: ReadingAnchor?,
+        widgetAnchor: ReadingAnchor?,
+        widgetFreshness: Date?,
+        existingUpdatedAt: Date?
+    ) -> ReadingAnchor? {
+        guard let existingUpdatedAt else {
+            // No local progress — seed from whatever we have, preferring the
+            // store payload over the possibly-stale URL snapshot.
+            return widgetAnchor ?? routeAnchor
+        }
+        // Local progress exists. Only a strictly fresher widget-store entry may
+        // move it; the URL anchor carries no timestamp, so it never can. When
+        // the fresher store payload has no chapter there is nothing safe to
+        // install — navigate and let the local progress win.
+        guard let widgetFreshness, widgetFreshness > existingUpdatedAt else { return nil }
+        return widgetAnchor
+    }
 }
 
 struct ImportOverlay: View {
