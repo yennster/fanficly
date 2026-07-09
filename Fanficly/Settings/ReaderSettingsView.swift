@@ -339,7 +339,9 @@ struct ReaderSettingsView: View {
     }
 
     private func saveProfiles(_ list: [ReaderProfile]) {
-        let json = ReaderProfile.saveProfiles(list)
+        // Diffing against the stored JSON stamps edits and tombstones removed
+        // names, so deletions survive the cloud merge in publishLocalProfiles.
+        let json = ReaderProfile.saveProfiles(list, previousJSON: profilesJSON)
         profilesJSON = json
         ReaderProfileSyncStore.publishLocalProfiles(json)
     }
