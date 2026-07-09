@@ -124,4 +124,37 @@ final class TagResolverTests: XCTestCase {
         let resolved = await TagResolver.resolve(filters, using: stub)
         XCTAssertEqual(resolved.relationshipNames, ["Edward Cullen/Bella Swan"])
     }
+
+    func test_resolve_networkFailureIsNotCached() async {
+        // Regression: a failed lookup (offline / 429) must not poison the
+        // process-lifetime cache — once connectivity returns, the same term
+        // must resolve canonically without an app relaunch.
+        let stub = StubAO3Client()
+        stub.autocompleteResponses = ["hermione": ["Hermione Granger"]]
+        stub.autocompleteFailingTerms = ["hermione"]
+
+        var filters = AO3SearchFilters()
+        filters.characterNames = ["hermione"]
+        let offline = await TagResolver.resolve(filters, using: stub)
+        XCTAssertEqual(offline.characterNames, ["hermione"],
+                       "falls back to the typed term while the lookup fails")
+
+        stub.autocompleteFailingTerms = []
+        let online = await TagResolver.resolve(filters, using: stub)
+        XCTAssertEqual(online.characterNames, ["Hermione Granger"],
+                       "recovers once the network is back")
+    }
+
+    func test_resolve_noMatchAnswerIsCached() async {
+        // An authoritative empty answer IS cacheable: the second resolve must
+        // not re-hit autocomplete for the same term.
+        let stub = StubAO3Client()
+        var filters = AO3SearchFilters()
+        filters.characterNames = ["totallyunknown"]
+        _ = await TagResolver.resolve(filters, using: stub)
+        let callsAfterFirst = stub.autocompleteCalls.count
+        _ = await TagResolver.resolve(filters, using: stub)
+        XCTAssertEqual(stub.autocompleteCalls.count, callsAfterFirst,
+                       "authoritative no-match answers are memoized")
+    }
 }

@@ -6,10 +6,15 @@ import Foundation
 final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// term (lowercased) → matches
     var autocompleteResponses: [String: [String]] = [:]
+    /// terms (lowercased) whose lookup throws, to script network failures.
+    var autocompleteFailingTerms: Set<String> = []
     private(set) var autocompleteCalls: [String] = []
 
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         autocompleteCalls.append(term)
+        if autocompleteFailingTerms.contains(term.lowercased()) {
+            throw URLError(.notConnectedToInternet)
+        }
         return autocompleteResponses[term.lowercased()] ?? []
     }
 

@@ -41,9 +41,15 @@ enum HTMLToAttributed {
 
     /// The body split into individual paragraphs, so the reader can render
     /// and track each one (for precise reading-position restore).
-    static func convertParagraphs(_ html: String) -> [AttributedString] {
-        let nsHtml = html as NSString
-        if let cached = paragraphsCache.object(forKey: nsHtml) {
+    /// With `includeImages`, each `<img>` becomes its own paragraph slot — a
+    /// one-character placeholder carrying the image URL (see
+    /// `imageAttachmentURL(in:)`) that the reader renders as an image view.
+    /// Off (the default) drops images entirely, the historical behavior.
+    static func convertParagraphs(_ html: String, includeImages: Bool = false) -> [AttributedString] {
+        // The two modes produce different paragraph arrays, so they must not
+        // share cache entries.
+        let cacheKey = (includeImages ? "img|" : "txt|") + html as NSString
+        if let cached = paragraphsCache.object(forKey: cacheKey) {
             return cached.value
         }
 
@@ -51,17 +57,56 @@ enum HTMLToAttributed {
               let body = doc.body() else {
             let stripped = html.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             let result = stripped.isEmpty ? [] : [AttributedString(stripped)]
-            paragraphsCache.setObject(ParagraphsWrapper(result), forKey: nsHtml)
+            paragraphsCache.setObject(ParagraphsWrapper(result), forKey: cacheKey)
             return result
         }
-        var ctx = RenderContext()
+        var ctx = RenderContext(includeImages: includeImages)
         let children = body.getChildNodes()
         for child in children {
             renderNode(child, into: &ctx, style: InlineStyle())
         }
         let result = ctx.finish()
-        paragraphsCache.setObject(ParagraphsWrapper(result), forKey: nsHtml)
+        paragraphsCache.setObject(ParagraphsWrapper(result), forKey: cacheKey)
         return result
+    }
+
+    /// The image URL when `paragraph` is an image slot emitted by
+    /// `convertParagraphs(_:includeImages:)`, else nil. An image slot is a
+    /// single object-replacement character whose run carries `imageURL`.
+    static func imageAttachmentURL(in paragraph: AttributedString) -> URL? {
+        // O(1) reject for prose: no real paragraph starts with U+FFFC. Only
+        // then pay for the (single-character) full comparison.
+        guard paragraph.characters.first == "\u{FFFC}",
+              String(paragraph.characters) == imagePlaceholder else { return nil }
+        return paragraph.runs.first?.imageURL
+    }
+
+    /// U+FFFC OBJECT REPLACEMENT CHARACTER — the placeholder text of an image
+    /// slot. Story text can't produce it: it never survives HTML parsing as
+    /// meaningful prose, and we only emit it ourselves.
+    private static let imagePlaceholder = "\u{FFFC}"
+
+    /// Resolves an `<img src>` to a fetchable URL: protocol-relative sources
+    /// get https, `http` upgrades to `https` (ATS blocks plain http anyway),
+    /// and anything else that isn't absolute http(s) is rejected — `data:`
+    /// URIs, and also root-relative paths: those would resolve to
+    /// archiveofourown.org, and image loads bypass the AO3 throttle and
+    /// identifying User-Agent while carrying the session cookie, so we never
+    /// point them at AO3 itself. (Authors host work images externally.)
+    static func resolvedImageURL(fromSrc src: String) -> URL? {
+        let trimmed = src.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var absolute = trimmed
+        if trimmed.hasPrefix("//") {
+            absolute = "https:" + trimmed
+        } else if trimmed.lowercased().hasPrefix("http://") {
+            absolute = "https://" + trimmed.dropFirst("http://".count)
+        }
+        guard let url = URL(string: absolute),
+              url.scheme?.lowercased() == "https",
+              let host = url.host, !host.isEmpty,
+              host.lowercased() != "archiveofourown.org" else { return nil }
+        return url
     }
 
     /// One speech string per *rendered* paragraph — same count and order as
@@ -70,8 +115,11 @@ enum HTMLToAttributed {
     /// separators become "" (they occupy an index but aren't read aloud); soft
     /// line breaks are flattened and list bullets dropped so the synthesizer
     /// reads clean prose. The controller skips the empty entries when speaking.
-    static func speechParagraphs(_ html: String) -> [String] {
-        convertParagraphs(html).map { para in
+    /// Pass the same `includeImages` the reader renders with, so indices stay
+    /// aligned; image slots become "" (unspoken) like scene breaks.
+    static func speechParagraphs(_ html: String, includeImages: Bool = false) -> [String] {
+        convertParagraphs(html, includeImages: includeImages).map { para in
+            if imageAttachmentURL(in: para) != nil { return "" }
             let s = String(para.characters)
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "•", with: "")
@@ -91,9 +139,24 @@ enum HTMLToAttributed {
     /// so AO3's empty `<p>` scene breaks and source indentation don't create
     /// empty paragraphs or big gaps.
     private struct RenderContext {
+        let includeImages: Bool
         private var paragraphs: [AttributedString] = []
         private var current = AttributedString()
         private var pendingParagraph = false
+
+        init(includeImages: Bool = false) {
+            self.includeImages = includeImages
+        }
+
+        /// Emit an image as its own paragraph slot (an inline `<img>` splits
+        /// the surrounding text into separate paragraphs around it).
+        mutating func appendImage(url: URL) {
+            paragraphBreak()
+            var placeholder = AttributedString(HTMLToAttributed.imagePlaceholder)
+            placeholder.imageURL = url
+            append(placeholder)
+            paragraphBreak()
+        }
 
         mutating func append(_ fragment: AttributedString) {
             guard !fragment.characters.isEmpty else { return }
@@ -167,6 +230,13 @@ enum HTMLToAttributed {
         switch tag {
         case "br":
             ctx.softBreak()
+            return
+        case "img":
+            if ctx.includeImages,
+               let src = try? el.attr("src"),
+               let url = resolvedImageURL(fromSrc: src) {
+                ctx.appendImage(url: url)
+            }
             return
         case "hr":
             ctx.paragraphBreak()

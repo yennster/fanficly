@@ -108,6 +108,80 @@ final class HTMLToAttributedTests: XCTestCase {
         XCTAssertTrue(HTMLToAttributed.convertParagraphs("<p></p><p>  </p>").isEmpty)
     }
 
+    // MARK: - Embedded images (the "Show images in stories" setting)
+
+    func test_imagesDroppedByDefault() {
+        // includeImages defaults to false — the historical behavior.
+        let html = "<p>Before.</p><img src=\"https://example.com/a.png\"><p>After.</p>"
+        let paras = HTMLToAttributed.convertParagraphs(html)
+        XCTAssertEqual(paras.count, 2)
+        XCTAssertTrue(paras.allSatisfy { HTMLToAttributed.imageAttachmentURL(in: $0) == nil })
+    }
+
+    func test_imageBecomesStandaloneSlotWhenEnabled() {
+        let html = "<p>Before.</p><img src=\"https://example.com/a.png\"><p>After.</p>"
+        let paras = HTMLToAttributed.convertParagraphs(html, includeImages: true)
+        XCTAssertEqual(paras.count, 3)
+        XCTAssertEqual(String(paras[0].characters), "Before.")
+        XCTAssertEqual(HTMLToAttributed.imageAttachmentURL(in: paras[1]),
+                       URL(string: "https://example.com/a.png"))
+        XCTAssertEqual(String(paras[2].characters), "After.")
+    }
+
+    func test_inlineImageSplitsItsParagraph() {
+        let html = "<p>Look: <img src=\"https://example.com/a.png\"> amazing.</p>"
+        let paras = HTMLToAttributed.convertParagraphs(html, includeImages: true)
+        XCTAssertEqual(paras.count, 3)
+        XCTAssertEqual(String(paras[0].characters), "Look:")
+        XCTAssertNotNil(HTMLToAttributed.imageAttachmentURL(in: paras[1]))
+        XCTAssertEqual(String(paras[2].characters), "amazing.")
+    }
+
+    func test_speechSkipsImageSlotsAndStaysAligned() {
+        let html = "<p>Before.</p><img src=\"https://example.com/a.png\"><p>After.</p>"
+        let rendered = HTMLToAttributed.convertParagraphs(html, includeImages: true)
+        let speech = HTMLToAttributed.speechParagraphs(html, includeImages: true)
+        XCTAssertEqual(speech.count, rendered.count, "speech must stay index-aligned")
+        XCTAssertEqual(speech, ["Before.", "", "After."], "image slots are unspoken")
+    }
+
+    func test_imageCacheKeysDoNotCollide() {
+        // The same HTML converted with and without images must not share a
+        // cache entry (regression: keying the cache on the HTML alone).
+        let html = "<p>Text.</p><img src=\"https://example.com/b.png\">"
+        XCTAssertEqual(HTMLToAttributed.convertParagraphs(html, includeImages: true).count, 2)
+        XCTAssertEqual(HTMLToAttributed.convertParagraphs(html, includeImages: false).count, 1)
+        XCTAssertEqual(HTMLToAttributed.convertParagraphs(html, includeImages: true).count, 2)
+    }
+
+    func test_imageURLResolution() {
+        XCTAssertEqual(HTMLToAttributed.resolvedImageURL(fromSrc: "https://example.com/a.png"),
+                       URL(string: "https://example.com/a.png"))
+        // Protocol-relative sources get https.
+        XCTAssertEqual(HTMLToAttributed.resolvedImageURL(fromSrc: "//example.com/a.png"),
+                       URL(string: "https://example.com/a.png"))
+        // Plain http upgrades to https (ATS would block it anyway).
+        XCTAssertEqual(HTMLToAttributed.resolvedImageURL(fromSrc: "http://example.com/a.png"),
+                       URL(string: "https://example.com/a.png"))
+        // Non-fetchable sources are rejected.
+        XCTAssertNil(HTMLToAttributed.resolvedImageURL(fromSrc: "data:image/png;base64,AAAA"))
+        XCTAssertNil(HTMLToAttributed.resolvedImageURL(fromSrc: "javascript:alert(1)"))
+        XCTAssertNil(HTMLToAttributed.resolvedImageURL(fromSrc: ""))
+        XCTAssertNil(HTMLToAttributed.resolvedImageURL(fromSrc: "   "))
+        XCTAssertNil(HTMLToAttributed.resolvedImageURL(fromSrc: "https://"))
+        // AO3 itself is never an image target: image loads bypass the AO3
+        // throttle and User-Agent while carrying the session cookie, so
+        // root-relative paths and archiveofourown.org hosts are rejected.
+        XCTAssertNil(HTMLToAttributed.resolvedImageURL(fromSrc: "/attachments/a.png"))
+        XCTAssertNil(HTMLToAttributed.resolvedImageURL(fromSrc: "https://archiveofourown.org/a.png"))
+    }
+
+    func test_imageWithUnusableSrcIsDroppedEvenWhenEnabled() {
+        let html = "<p>Before.</p><img src=\"data:image/png;base64,AAAA\"><p>After.</p>"
+        let paras = HTMLToAttributed.convertParagraphs(html, includeImages: true)
+        XCTAssertEqual(paras.count, 2)
+    }
+
     func test_stripsHtmlTagsWhenUnknown() {
         let out = HTMLToAttributed.convert("<span class='foo'>Visible</span>")
         XCTAssertTrue(String(out.characters).contains("Visible"))

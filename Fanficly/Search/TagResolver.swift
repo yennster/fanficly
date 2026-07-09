@@ -53,17 +53,33 @@ enum TagResolver {
         if let cached = await ResolutionCache.shared.value(for: cacheKey) {
             return cached
         }
-        let result = await resolveUncached(term, field: field, client: client)
-        await ResolutionCache.shared.set(result, for: cacheKey)
-        return result
+        let outcome = await resolveUncached(term, field: field, client: client)
+        // Only memoize answers AO3 actually gave. If a lookup failed (offline,
+        // 429), caching the raw typed term would pin the unresolved literal
+        // for the rest of the session — that tag's searches would silently
+        // match nothing even after connectivity recovers.
+        if outcome.authoritative {
+            await ResolutionCache.shared.set(outcome.value, for: cacheKey)
+        }
+        return outcome.value
     }
 
-    private static func resolveUncached(_ term: String, field: AO3AutocompleteField, client: any AO3ClientProtocol) async -> String {
+    private static func resolveUncached(
+        _ term: String, field: AO3AutocompleteField, client: any AO3ClientProtocol
+    ) async -> (value: String, authoritative: Bool) {
+        // `authoritative` = every lookup we needed got an answer (even an
+        // empty one). A thrown autocomplete anywhere makes the result a
+        // best-effort fallback that must not be cached.
+        var authoritative = true
         // Try the term as typed, then a few simple fallbacks.
         for candidate in candidates(for: term, field: field) {
-            if let matches = try? await client.autocomplete(field: field, term: candidate),
-               let best = bestMatch(for: term, in: matches, field: field) {
-                return best
+            do {
+                let matches = try await client.autocomplete(field: field, term: candidate)
+                if let best = bestMatch(for: term, in: matches, field: field) {
+                    return (best, true)
+                }
+            } catch {
+                authoritative = false
             }
         }
         // Relationship couldn't be matched directly (AO3's autocomplete needs
@@ -77,16 +93,20 @@ enum TagResolver {
                 let b = await resolveOne(parts[1], field: .character, client: client)
                 // Try the ship in both orders / separators.
                 for query in ["\(a)/\(b)", "\(a) \(b)", "\(b)/\(a)", "\(b) \(a)"] {
-                    if let matches = try? await client.autocomplete(field: .relationship, term: query),
-                       let best = bestMatch(for: "\(a)/\(b)", in: matches, field: .relationship) {
-                        return best
+                    do {
+                        let matches = try await client.autocomplete(field: .relationship, term: query)
+                        if let best = bestMatch(for: "\(a)/\(b)", in: matches, field: .relationship) {
+                            return (best, true)
+                        }
+                    } catch {
+                        authoritative = false
                     }
                 }
                 // Last resort: construct it from the resolved names.
-                if a != parts[0] || b != parts[1] { return "\(a)/\(b)" }
+                if a != parts[0] || b != parts[1] { return ("\(a)/\(b)", authoritative) }
             }
         }
-        return term
+        return (term, authoritative)
     }
 
     static func candidates(for term: String, field: AO3AutocompleteField) -> [String] {

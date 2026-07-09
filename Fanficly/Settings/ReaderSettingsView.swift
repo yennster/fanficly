@@ -17,6 +17,9 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
+    // Global (not per-device / not part of reader profiles): a content &
+    // privacy choice, not typography. Matches ReaderView's key.
+    @AppStorage("reader.showImages") private var showImages: Bool = false
     @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
@@ -242,6 +245,17 @@ struct ReaderSettingsView: View {
                 Text("Reading mode")
             } footer: {
                 Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn. Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.")
+            }
+
+            Section {
+                Toggle(isOn: $showImages) {
+                    Label("Show images in stories", systemImage: "photo")
+                }
+                .help("Render images that authors embed in chapters.")
+            } header: {
+                Text("Story images")
+            } footer: {
+                Text("Off by default: chapters render as text only. When on, images embedded in a story are fetched from the author's original image host as you read — like opening that site in a browser, it can see your IP address. Images aren't saved with downloaded works, so offline reading stays text-only, though iOS may keep a temporary cache of recently viewed images on this device.")
             }
 
             Section {
