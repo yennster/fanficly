@@ -12,7 +12,14 @@ public struct SearchPromptParser: Sendable {
             .replacingOccurrences(of: "‘", with: "'")
             .replacingOccurrences(of: "’", with: "'")
             
-        let working = NSMutableString(string: normalizedPrompt.lowercased())
+        // `working` (lowercased, for matching) and `casedWorking` (original,
+        // for extraction) are edited with the same NSRanges, so the lowercase
+        // fold must never change the UTF-16 length: a plain .lowercased()
+        // turns Turkish "İ" (1 unit) into "i̇" (2 units), desyncing the
+        // buffers — substring(with:) then crashes or extracts shifted text.
+        // Characters whose lowercase would change width stay as-is; they just
+        // don't match the lowercase-only patterns, like any other non-ASCII.
+        let working = NSMutableString(string: Self.lengthPreservingLowercase(normalizedPrompt))
         let casedWorking = NSMutableString(string: normalizedPrompt)
 
         extractTitle(from: working, casedWorking: casedWorking, into: &filters)
@@ -36,6 +43,17 @@ public struct SearchPromptParser: Sendable {
             filters.query = remainder
         }
         return filters
+    }
+
+    /// Lowercases character-by-character, keeping any character whose
+    /// lowercase form would change its UTF-16 width (or grapheme count).
+    static func lengthPreservingLowercase(_ s: String) -> String {
+        String(s.map { ch -> Character in
+            let lower = String(ch).lowercased()
+            guard lower.count == 1, let first = lower.first,
+                  String(first).utf16.count == String(ch).utf16.count else { return ch }
+            return first
+        })
     }
 
     private func extractTitle(from working: NSMutableString, casedWorking: NSMutableString, into filters: inout AO3SearchFilters) {
