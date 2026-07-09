@@ -667,6 +667,105 @@ final class PersistenceTests: XCTestCase {
                        "total must be Σ daySeconds (3000), not max of device totals (2000)")
     }
 
+    func test_profileDeletionTombstonesAndSurvivesMerge() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let t1 = Date(timeIntervalSince1970: 2_000)
+        let base = ReaderProfile.defaultProfiles[0]
+        let night = readerProfile(name: "Night", theme: "dracula", fontSize: 20)
+
+        let original = ReaderProfile.saveProfiles([base, night], previousJSON: "", now: t0)
+        // A stale copy that predates the sync stamps entirely.
+        let legacyCloud = ReaderProfile.saveProfiles([base, night])
+
+        // Deleting keeps the profile in the stored JSON as a hidden tombstone.
+        let afterDelete = ReaderProfile.saveProfiles([base], previousJSON: original, now: t1)
+        XCTAssertEqual(ReaderProfile.loadProfiles(from: afterDelete).map(\.name), [base.name])
+        let tombstone = ReaderProfile.decodeProfiles(from: afterDelete)?.first { $0.name == "Night" }
+        XCTAssertEqual(tombstone?.deletedAt, t1.timeIntervalSince1970)
+
+        // The deletion beats stale live copies in both merge directions
+        // (publishLocalProfiles merges local into cloud, syncCloudToLocal the
+        // reverse), including copies stamped before the delete.
+        for merged in [
+            ReaderProfile.mergedProfiles(localJSON: legacyCloud, incomingJSON: afterDelete, now: t1),
+            ReaderProfile.mergedProfiles(localJSON: afterDelete, incomingJSON: legacyCloud, now: t1),
+            ReaderProfile.mergedProfiles(localJSON: original, incomingJSON: afterDelete, now: t1),
+        ] {
+            XCTAssertFalse(ReaderProfile.loadProfiles(from: merged).contains { $0.name == "Night" })
+            XCTAssertTrue(ReaderProfile.decodeProfiles(from: merged)?.contains { $0.name == "Night" && $0.isDeleted } ?? false)
+        }
+    }
+
+    func test_profileRecreateAfterDeleteBeatsTombstone() {
+        let base = ReaderProfile.defaultProfiles[0]
+        let night = readerProfile(name: "Night", theme: "dracula", fontSize: 20)
+
+        let original = ReaderProfile.saveProfiles([base, night], previousJSON: "", now: Date(timeIntervalSince1970: 1_000))
+        let deleted = ReaderProfile.saveProfiles([base], previousJSON: original, now: Date(timeIntervalSince1970: 2_000))
+        let recreated = ReaderProfile.saveProfiles([base, night], previousJSON: deleted, now: Date(timeIntervalSince1970: 3_000))
+
+        for merged in [
+            ReaderProfile.mergedProfiles(localJSON: deleted, incomingJSON: recreated),
+            ReaderProfile.mergedProfiles(localJSON: recreated, incomingJSON: deleted),
+        ] {
+            XCTAssertTrue(ReaderProfile.loadProfiles(from: merged).contains { $0.name == "Night" })
+        }
+
+        // Re-saving an unchanged profile must not bump its stamp, or a routine
+        // save on one device would override edits and deletes made elsewhere.
+        let baseEntry = ReaderProfile.decodeProfiles(from: recreated)?.first { $0.name == base.name }
+        XCTAssertEqual(baseEntry?.updatedAt, 1_000)
+    }
+
+    func test_profileTombstoneExpires() {
+        let base = ReaderProfile.defaultProfiles[0]
+        let night = readerProfile(name: "Night", theme: "dracula", fontSize: 20)
+
+        let original = ReaderProfile.saveProfiles([base, night], previousJSON: "", now: Date(timeIntervalSince1970: 1_000))
+        let deleted = ReaderProfile.saveProfiles([base], previousJSON: original, now: Date(timeIntervalSince1970: 2_000))
+
+        let beyond = Date(timeIntervalSince1970: 2_000 + ReaderProfile.tombstoneLifetime + 1)
+        let merged = ReaderProfile.mergedProfiles(localJSON: deleted, incomingJSON: deleted, now: beyond)
+        XCTAssertFalse(ReaderProfile.decodeProfiles(from: merged)?.contains { $0.name == "Night" } ?? true)
+
+        // The save path prunes expired tombstones too.
+        let resaved = ReaderProfile.saveProfiles([base], previousJSON: deleted, now: beyond)
+        XCTAssertFalse(ReaderProfile.decodeProfiles(from: resaved)?.contains { $0.name == "Night" } ?? true)
+
+        // Just inside the window the tombstone is still carried.
+        let inside = Date(timeIntervalSince1970: 2_000 + ReaderProfile.tombstoneLifetime - 1)
+        let carried = ReaderProfile.mergedProfiles(localJSON: deleted, incomingJSON: deleted, now: inside)
+        XCTAssertTrue(ReaderProfile.decodeProfiles(from: carried)?.contains { $0.name == "Night" && $0.isDeleted } ?? false)
+    }
+
+    func test_profileMergeKeepsNewestEditAndLegacyUnion() {
+        let base = ReaderProfile.defaultProfiles[0]
+        let night = readerProfile(name: "Night", theme: "dracula", fontSize: 20)
+        let original = ReaderProfile.saveProfiles([base, night], previousJSON: "", now: Date(timeIntervalSince1970: 1_000))
+
+        var editedNight = night
+        editedNight.fontSizePt = 24
+        let edited = ReaderProfile.saveProfiles([base, editedNight], previousJSON: original, now: Date(timeIntervalSince1970: 2_000))
+
+        for merged in [
+            ReaderProfile.mergedProfiles(localJSON: original, incomingJSON: edited),
+            ReaderProfile.mergedProfiles(localJSON: edited, incomingJSON: original),
+        ] {
+            XCTAssertEqual(ReaderProfile.loadProfiles(from: merged).first { $0.name == "Night" }?.fontSizePt, 24)
+        }
+
+        // Two pre-tombstone copies with no stamps keep the original union
+        // behavior: names union and the incoming copy wins a name collision.
+        let legacyA = ReaderProfile.saveProfiles([base, night])
+        var legacyNight = night
+        legacyNight.fontSizePt = 30
+        let legacyB = ReaderProfile.saveProfiles([legacyNight, readerProfile(name: "Sepia", theme: "sepia", fontSize: 18)])
+        let merged = ReaderProfile.mergedProfiles(localJSON: legacyA, incomingJSON: legacyB)
+        let profiles = ReaderProfile.loadProfiles(from: merged)
+        XCTAssertEqual(profiles.first { $0.name == "Night" }?.fontSizePt, 30)
+        XCTAssertEqual(Set(profiles.map(\.name)), [base.name, "Night", "Sepia"])
+    }
+
     func test_workMatchesSearchQuery() {
         let work = Work(
             ao3Id: 101,
