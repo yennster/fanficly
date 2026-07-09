@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "a1cb2759244d",
+  "strategy": "manual-commit",
+  "branch": "claude/image-toggle-and-audit-fixes",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "Fanficly/Search/SearchPromptParser.swift",
+    "FanficlyTests/SearchPromptParserTests.swift"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a1/cb2759244d/0/metadata.json",
+      "transcript": "/a1/cb2759244d/0/full.jsonl",
+      "content_hash": "/a1/cb2759244d/0/content_hash.txt",
+      "prompt": "/a1/cb2759244d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30258,
+    "cache_creation_tokens": 428794,
+    "cache_read_tokens": 18327872,
+    "output_tokens": 104935,
+    "api_call_count": 99
+  }
+}
