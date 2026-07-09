@@ -1127,8 +1127,7 @@ struct ReaderView: View {
                 kerning: kerning,
                 boldText: boldText,
                 foreground: fg,
-                highlightParagraph: highlightedParagraph(for: page.chapterIndex),
-                isScrollable: !isUIMinimized
+                highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
             .frame(maxWidth: containerWidth * CGFloat(widthPercent / 100.0), alignment: .leading)
             .padding(.horizontal, containerWidth * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
@@ -1621,10 +1620,17 @@ struct ReaderView: View {
             if displaysChapterHeader {
                 pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
             }
-            
+
+            // boundingRect and SwiftUI's Text layout disagree by fractions of
+            // a point per line (more under Mac Catalyst's Mac-idiom metrics);
+            // over a page of lines that drift can overpack the page. Pack
+            // against a slightly smaller budget so the rendered page keeps
+            // headroom and never needs its overflow fallback.
+            let packingBudget = pageMaxHeight - min(24, max(8, pageMaxHeight * 0.02))
+
             var currentHeight: CGFloat = 0
             var includedAny = false
-            
+
             if pageMaxHeight > 40 {
                 var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
                 var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
@@ -1659,7 +1665,7 @@ struct ReaderView: View {
                         )
                         
                         let potentialHeight = completedBlocksHeight + proposedBlockHeight
-                        if potentialHeight <= pageMaxHeight {
+                        if potentialHeight <= packingBudget {
                             endIndex += 1
                             currentBlockAtoms = proposedBlockAtoms
                             currentBlockHeight = proposedBlockHeight
@@ -1680,7 +1686,7 @@ struct ReaderView: View {
                         )
                         
                         let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
-                        if potentialHeight <= pageMaxHeight {
+                        if potentialHeight <= packingBudget {
                             endIndex += 1
                             completedBlocksHeight += currentBlockHeight + paragraphSpacing
                             currentBlockParaIndex = nextAtom.originalParagraphIndex
@@ -1988,8 +1994,7 @@ struct ReaderPageCell: View {
     let boldText: Bool
     let foreground: Color
     let highlightParagraph: Int?
-    let isScrollable: Bool
-    
+
     private var renderedBlocks: [RenderedBlock] {
         var blocks: [RenderedBlock] = []
         let indices = Array(page.paragraphIndices)
@@ -2054,15 +2059,16 @@ struct ReaderPageCell: View {
     }
     
     var body: some View {
-        Group {
-            if showTitleHeader || isScrollable {
-                ScrollView(.vertical, showsIndicators: false) {
-                    content
-                }
-            } else {
-                content
-            }
+        // Always the ScrollView, even with the UI minimized: a bare VStack in
+        // the fixed-height TabView page lets SwiftUI compress the paragraph
+        // Texts whenever the paginator's boundingRect estimate under-measures
+        // the rendered layout (worst on Mac Catalyst), which truncated
+        // mid-page paragraphs to "…". basedOnSize keeps an exact-fit page
+        // inert — it only scrolls when the page genuinely overflows.
+        ScrollView(.vertical, showsIndicators: false) {
+            content
         }
+        .scrollBounceBehavior(.basedOnSize)
     }
     
     private var content: some View {
@@ -2090,6 +2096,9 @@ struct ReaderPageCell: View {
                             .lineSpacing(lineSpacing)
                             .foregroundStyle(foreground)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            // Story text must never ellipsize: take the full
+                            // ideal height even if a parent proposes less.
+                            .fixedSize(horizontal: false, vertical: true)
                             .background(
                                 highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 5)
