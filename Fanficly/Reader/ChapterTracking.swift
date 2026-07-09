@@ -47,6 +47,20 @@ extension ChapterTracking {
         return parse(key)
     }
 
+    /// The final paragraph's anchor when the very end of the content is on
+    /// screen — its top edge has entered the viewport — else nil. Topmost-anchor
+    /// sampling alone can never report the true end: fully scrolled down, the
+    /// last paragraphs sit *below* the viewport top, so progress tops out a
+    /// screenful short of 100% and a finished work never earns its badge.
+    static func endOfContentAnchor(_ offsets: [String: CGFloat],
+                                   lastChapter: Int, lastParagraph: Int,
+                                   viewportHeight: CGFloat) -> ReadingAnchor? {
+        guard lastParagraph >= 0,
+              let top = offsets[key(chapter: lastChapter, paragraph: lastParagraph)],
+              top <= viewportHeight else { return nil }
+        return ReadingAnchor(chapter: lastChapter, paragraph: lastParagraph)
+    }
+
     static func parse(_ key: String) -> ReadingAnchor? {
         // "c12-p3"
         let parts = key.dropFirst().split(separator: "-p")

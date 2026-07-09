@@ -263,7 +263,8 @@ struct ReaderView: View {
     /// Reader lifecycle, lifted out of the main body chain so it type-checks
     /// independently. Keeps the screen awake while reading, tears down speech on
     /// exit, and drives the Stats active-reading timer: start on appear and when
-    /// the app returns to `.active`, flush on disappear and when it leaves.
+    /// the app returns to `.active` while this reader is visible, flush on
+    /// disappear and when it leaves.
     private struct ReaderLifecycleModifier: ViewModifier {
         let keepScreenAwake: Bool
         let scenePhase: ScenePhase
@@ -272,17 +273,30 @@ struct ReaderView: View {
         let flushTimer: () -> Void
         let stopSpeech: () -> Void
 
+        /// Whether this reader is actually on screen. A reader left in the
+        /// NavigationStack under a pushed view (author page, another reader)
+        /// still receives scenePhase changes; without this check every return
+        /// to `.active` would restart its timer and record phantom reading
+        /// time — two stacked readers double-counting the same wall-clock span.
+        @State private var isVisible = false
+
         func body(content: Content) -> some View {
             content
                 .onAppear {
+                    isVisible = true
                     applyKeepScreenAwake(keepScreenAwake)
                     startTimer()
                 }
                 .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
                 .onChange(of: scenePhase) { _, newPhase in
-                    if newPhase == .active { startTimer() } else { flushTimer() }
+                    if newPhase == .active {
+                        if isVisible { startTimer() }
+                    } else {
+                        flushTimer()
+                    }
                 }
                 .onDisappear {
+                    isVisible = false
                     stopSpeech()
                     applyKeepScreenAwake(false)
                     flushTimer()
@@ -579,12 +593,21 @@ struct ReaderView: View {
                     }
                 }
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                    guard !isRestoring else { return }
+                    // Reaching the very end always registers — bypassing the
+                    // sample throttle — so a final flick to the bottom can't
+                    // be dropped and progress can actually hit 100%.
+                    if let end = endOfContentAnchor(offsets, viewportHeight: geo.size.height) {
+                        lastAnchorSampleAt = Date()
+                        currentAnchor = end
+                        return
+                    }
                     // Sample at most ~3x/sec so progress tracking never competes
                     // with the scroll for main-thread time.
                     let now = Date()
                     guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
                     lastAnchorSampleAt = now
-                    if !isRestoring, let anchor = ChapterTracking.topmostAnchor(offsets) {
+                    if let anchor = ChapterTracking.topmostAnchor(offsets) {
                         currentAnchor = anchor
                     }
                 }
@@ -724,6 +747,25 @@ struct ReaderView: View {
             progress: readingProgressFraction(for: anchor),
             syncWidgetImmediately: syncWidgetImmediately,
             in: modelContext
+        )
+    }
+
+    /// The final paragraph of the final chapter, when its top edge is on
+    /// screen — i.e. the reader has reached the very end of the work — else
+    /// nil. Reported as the anchor so `readingProgressFraction` reads 1.0;
+    /// stride-sampled topmost anchors alone top out a viewport short of the
+    /// end, leaving fully-read works stuck below the Finished threshold.
+    private func endOfContentAnchor(_ offsets: [String: CGFloat], viewportHeight: CGFloat) -> ReadingAnchor? {
+        guard let last = chapters.max(by: { $0.index < $1.index }),
+              // Only convert (cached, but not free) once the last chapter's
+              // anchors are actually being laid out near the viewport.
+              offsets.keys.contains(where: { $0.hasPrefix("c\(last.index)-p") }) else { return nil }
+        let lastParagraph = HTMLToAttributed.convertParagraphs(last.bodyHTML).count - 1
+        return ChapterTracking.endOfContentAnchor(
+            offsets,
+            lastChapter: last.index,
+            lastParagraph: lastParagraph,
+            viewportHeight: viewportHeight
         )
     }
 
@@ -911,6 +953,17 @@ struct ReaderView: View {
                 .coordinateSpace(name: scrollSpace)
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
                     guard chapter.index == selectedChapterIndex, !isRestoring else { return }
+                    // End of the work on screen registers immediately (no
+                    // sample throttle) so the final scroll can't be dropped —
+                    // same as continuous mode. This page's coordinate space
+                    // only carries its own chapter's anchors, so this hits
+                    // only on the last chapter's page.
+                    if let end = endOfContentAnchor(offsets, viewportHeight: geo.size.height) {
+                        lastAnchorSampleAt = Date()
+                        currentAnchor = end
+                        saveProgress(end)
+                        return
+                    }
                     let now = Date()
                     guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
                     lastAnchorSampleAt = now
@@ -1130,9 +1183,18 @@ struct ReaderView: View {
         
         if !isRestoring {
             if let atoms = parsedAtoms[page.chapterIndex], !page.paragraphIndices.isEmpty {
-                let firstParaAtomIndex = page.paragraphIndices.lowerBound
-                if firstParaAtomIndex < atoms.count {
-                    let originalParaIndex = atoms[firstParaAtomIndex].originalParagraphIndex
+                // Landing on the work's final page puts the end of the content
+                // on screen: anchor to its last paragraph, not its first, so
+                // progress reads 100% (a first-paragraph anchor tops out a
+                // page short of the Finished threshold). Restore still lands
+                // on the same page — it matches pages by contained paragraph.
+                let isFinalPage = page.chapterIndex == chapters.map(\.index).max()
+                    && page.paragraphIndices.upperBound >= atoms.count
+                let anchorAtomIndex = isFinalPage
+                    ? page.paragraphIndices.upperBound - 1
+                    : page.paragraphIndices.lowerBound
+                if anchorAtomIndex < atoms.count {
+                    let originalParaIndex = atoms[anchorAtomIndex].originalParagraphIndex
                     let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: originalParaIndex)
                     currentAnchor = anchor
                     saveProgress(anchor)
