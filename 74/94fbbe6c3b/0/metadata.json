@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.7.7",
+  "checkpoint_id": "7494fbbe6c3b",
+  "session_id": "936f110b-7dd0-4618-ae44-7b95062ac703",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-09T19:27:59.478644Z",
+  "branch": "claude/image-toggle-and-audit-fixes",
+  "checkpoints_count": 3,
+  "save_step_count": 1,
+  "files_touched": [
+    "Fanficly/Search/TagResolver.swift",
+    "FanficlyTests/StubAO3Client.swift",
+    "FanficlyTests/TagResolverTests.swift"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "8dd0217d385b",
+  "token_usage": {
+    "input_tokens": 30389,
+    "cache_creation_tokens": 429313,
+    "cache_read_tokens": 18607020,
+    "output_tokens": 105388,
+    "api_call_count": 100
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-09T19:27:59.456532Z",
+    "agent_lines": 70,
+    "agent_removed": 12,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 70,
+    "total_lines_changed": 82,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
