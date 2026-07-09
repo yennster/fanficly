@@ -102,6 +102,11 @@ enum WorkPersistence {
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
             indexWork(work)
+            // Following opts into the poller's new-chapter alerts — the one
+            // notification source that works fully logged out — so this is
+            // the moment to ask for permission, not the login-gated
+            // Subscriptions tab.
+            NotificationsAuthorization.requestAfterFollow()
         } else {
             work.followedAt = nil
             deindexWork(ao3Id: work.ao3Id)
@@ -179,6 +184,7 @@ enum WorkPersistence {
             ))
             try? context.save()
             iCloudSyncManager.shared.queueBackup(context: context)
+            NotificationsAuthorization.requestAfterFollow()  // see toggleFollow
             return true
         }
     }

@@ -39,6 +39,10 @@ final class Work {
     var isFollowed: Bool = false
     var followedAt: Date?
     var lastSeenChapterCount: Int?
+    /// When the poller last attempted a new-chapter check for this followed
+    /// work — drives the oldest-first rotation in `runFullPoll`. Additive
+    /// (optional) so SwiftData migrates existing stores automatically.
+    var lastCheckedAt: Date?
 
     var isStarred: Bool = false
     var isPinned: Bool = false
