@@ -591,11 +591,16 @@ public actor AO3Client: AO3ClientProtocol {
             case 200..<300, 302: return (data, http)
             case 401, 403:        throw AO3Error.unauthorized
             case 429:
-                // We've been rate-limited. Back off (longer each time) and try
-                // again through the throttle before giving up, so a brief AO3
-                // clamp-down doesn't surface as a hard failure.
-                if canRetry {
-                    try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
+                // Rate-limited. Only retry when AO3's own Retry-After header
+                // says the window is short enough to politely wait out;
+                // otherwise fail fast. Blind backoff here would send more
+                // requests into a window the server just declared closed —
+                // real 429s from a client already throttled to 1 req/s mean a
+                // clamp-down much longer than any in-request backoff.
+                if canRetry,
+                   let retryAfter = Self.retryAfterSeconds(http),
+                   retryAfter <= Self.maxPoliteRetryAfter {
+                    try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
                     await throttle.wait()
                     return try await performRequest(request, attempt: attempt + 1)
                 }
@@ -622,11 +627,26 @@ public actor AO3Client: AO3ClientProtocol {
         return UInt64(seconds * 1_000_000_000)
     }
 
+    /// The longest Retry-After we're willing to wait out inside a request
+    /// before surfacing `.rateLimited` to the caller.
+    private static let maxPoliteRetryAfter: TimeInterval = 10
+
+    /// Parses a 429's Retry-After header (delta-seconds form; the HTTP-date
+    /// form parses as nil, which callers treat as "don't retry").
+    private static func retryAfterSeconds(_ response: HTTPURLResponse) -> TimeInterval? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+                .trimmingCharacters(in: .whitespaces),
+              let seconds = TimeInterval(raw), seconds >= 0 else { return nil }
+        return seconds
+    }
+
     /// URLSession errors worth retrying — network hiccups rather than
-    /// programmer/permanent errors (a bad URL or cancellation isn't retried).
+    /// programmer/permanent errors. A bad URL or cancellation isn't retried,
+    /// and neither is being offline (`.notConnectedToInternet`): retrying
+    /// with no connectivity just burns backoff time and throttle slots.
     private static func isTransient(_ error: URLError) -> Bool {
         switch error.code {
-        case .timedOut, .networkConnectionLost, .notConnectedToInternet,
+        case .timedOut, .networkConnectionLost,
              .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
              .resourceUnavailable, .secureConnectionFailed:
             return true
