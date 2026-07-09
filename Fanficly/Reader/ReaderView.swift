@@ -25,6 +25,12 @@ struct ReaderView: View {
     // Keep the display awake while reading (like a video player), so the screen
     // doesn't dim/lock mid-page when you go a while without touching it.
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
+    // Render images embedded in chapters (off = historical text-only reader).
+    // Global, not per-device: it's a content/privacy choice, not typography.
+    // Every convertParagraphs/speechParagraphs call in the reader must pass
+    // this same flag or paragraph indices (anchors, TTS karaoke, progress)
+    // drift between modes.
+    @AppStorage("reader.showImages") private var showImages: Bool = false
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -426,7 +432,7 @@ struct ReaderView: View {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
         listeningChapter = index
-        speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML),
+        speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
                     workTitle: title, author: author, chapterLabel: label, from: paragraph)
     }
 
@@ -729,7 +735,7 @@ struct ReaderView: View {
         }
 
         let chapter = orderedChapters[chapterOffset]
-        let paragraphCount = max(HTMLToAttributed.convertParagraphs(chapter.bodyHTML).count, 1)
+        let paragraphCount = max(HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: showImages).count, 1)
         let paragraphDenominator = max(paragraphCount - 1, 1)
         let paragraphProgress = min(max(Double(anchor.paragraph) / Double(paragraphDenominator), 0), 1)
         let rawProgress = (Double(chapterOffset) + paragraphProgress) / Double(orderedChapters.count)
@@ -844,9 +850,10 @@ struct ReaderView: View {
                     if anchor.paragraph > 0 { pendingParagraphRestore = anchor }
                 }
                 let currentChapters = chapters
+                let include = showImages
                 Task.detached(priority: .background) {
                     for chapter in currentChapters {
-                        _ = HTMLToAttributed.convertParagraphs(chapter.bodyHTML)
+                        _ = HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: include)
                     }
                 }
                 try? await Task.sleep(nanoseconds: 200_000_000)
@@ -956,6 +963,7 @@ struct ReaderView: View {
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 kerning: kerningPt / zoomScale,
                 boldText: boldText,
+                showImages: showImages,
                 size: CGSize(
                     width: geo.size.width,
                     height: stableHeight > 0 ? stableHeight : immersiveReadingHeight(fallback: geo.size.height)
@@ -1338,7 +1346,7 @@ struct ReaderView: View {
         for chIndex in targetChapters.sorted() {
             guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
             
-            let paragraphs = HTMLToAttributed.convertParagraphs(chapter.bodyHTML)
+            let paragraphs = HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: trigger.showImages)
             
             var atoms: [ParagraphAtom] = []
             for (pIndex, para) in paragraphs.enumerated() {
@@ -1405,6 +1413,12 @@ struct ReaderView: View {
         kerning: CGFloat,
         boldText: Bool
     ) -> CGFloat {
+        // An image slot renders as a fixed-height image cell, not text, so its
+        // measured height is that fixed height — text measurement of the
+        // placeholder character would badly under-count it.
+        if HTMLToAttributed.imageAttachmentURL(in: attributedString) != nil {
+            return ReaderInlineImage.slotHeight
+        }
         let ns = NSAttributedString(attributedString)
         let mutableNs = NSMutableAttributedString(attributedString: ns)
 
@@ -1693,7 +1707,8 @@ struct ReaderView: View {
             scrollSpace: scrollSpace,
             kerning: kerning,
             boldText: boldText,
-            highlightParagraph: highlightedParagraph(for: chapter.index)
+            highlightParagraph: highlightedParagraph(for: chapter.index),
+            showImages: showImages
         )
         .padding(.vertical, Spacing.sm)
     }
@@ -1884,6 +1899,7 @@ struct PaginationTrigger: Equatable {
     let paragraphSpacing: Double
     let kerning: Double
     let boldText: Bool
+    let showImages: Bool
     let size: CGSize
 }
 
@@ -1998,17 +2014,23 @@ struct ReaderPageCell: View {
             
             VStack(alignment: .leading, spacing: paragraphSpacing) {
                 ForEach(renderedBlocks) { block in
-                    Text(block.text)
-                        .font(font)
-                        .tracking(kerning)
-                        .bold(boldText)
-                        .lineSpacing(lineSpacing)
-                        .foregroundStyle(foreground)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 5)
-                        )
+                    if let imageURL = HTMLToAttributed.imageAttachmentURL(in: block.text) {
+                        // Renders at ReaderInlineImage.slotHeight — the same
+                        // height the paginator budgeted for this block.
+                        ReaderInlineImage(url: imageURL)
+                    } else {
+                        Text(block.text)
+                            .font(font)
+                            .tracking(kerning)
+                            .bold(boldText)
+                            .lineSpacing(lineSpacing)
+                            .foregroundStyle(foreground)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                    }
                 }
             }
             Spacer(minLength: 0)
