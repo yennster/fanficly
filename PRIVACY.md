@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective: 2026-06-17
+Effective: 2026-07-09
 
 ## What we collect
 
@@ -36,6 +36,10 @@ The app makes HTTP requests directly to `archiveofourown.org` on your behalf, th
 - To subscribe to a work or post a chapter comment — only when you're logged in and choose to (these are user-initiated and happen only when you tap the button) — the app POSTs that action to AO3 on your behalf; any comment text goes only to AO3, which hosts and moderates it
 
 We never store your AO3 username or password. The session cookie is sufficient for authenticated requests.
+
+## Embedded story images (optional)
+
+Some authors embed images in their works, hosted on third-party sites of their choosing (not AO3). If you turn on **Show images in stories** (Settings → Reader — it is **off** by default), the app fetches those images directly from the author's image host, exactly as a web browser would — which exposes your IP address to that host. The app only ever loads `https` image URLs, never sends your AO3 session cookie to image hosts, and adds no identifying headers. iOS may keep a temporary cache of loaded images on your device. Works you download for offline reading stay text-only regardless of this setting. Leave the toggle off and no third-party image request is ever made.
 
 ## Cookies
 
