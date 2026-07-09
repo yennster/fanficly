@@ -17,6 +17,9 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
+    // Global (not per-device / not part of reader profiles): a content &
+    // privacy choice, not typography. Matches ReaderView's key.
+    @AppStorage("reader.showImages") private var showImages: Bool = false
     @AppStorage(SpeechController.rateKey) private var ttsRate: Double = Double(SpeechController.defaultRate)
     @AppStorage(SpeechController.voiceKey) private var ttsVoiceId: String = ""
     @Environment(\.colorScheme) private var systemColorScheme
@@ -245,6 +248,17 @@ struct ReaderSettingsView: View {
             }
 
             Section {
+                Toggle(isOn: $showImages) {
+                    Label("Show images in stories", systemImage: "photo")
+                }
+                .help("Render images that authors embed in chapters.")
+            } header: {
+                Text("Story images")
+            } footer: {
+                Text("Off by default: chapters render as text only. When on, images embedded in a story are fetched from the author's original image host as you read — like opening that site in a browser, it can see your IP address. Images aren't saved with downloaded works, so offline reading stays text-only, though iOS may keep a temporary cache of recently viewed images on this device.")
+            }
+
+            Section {
                 Picker(selection: $ttsVoiceId) {
                     Text("System default").tag("")
                     ForEach(voices, id: \.identifier) { voice in
@@ -339,7 +353,9 @@ struct ReaderSettingsView: View {
     }
 
     private func saveProfiles(_ list: [ReaderProfile]) {
-        let json = ReaderProfile.saveProfiles(list)
+        // Diffing against the stored JSON stamps edits and tombstones removed
+        // names, so deletions survive the cloud merge in publishLocalProfiles.
+        let json = ReaderProfile.saveProfiles(list, previousJSON: profilesJSON)
         profilesJSON = json
         ReaderProfileSyncStore.publishLocalProfiles(json)
     }

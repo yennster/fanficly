@@ -6,10 +6,17 @@ import Foundation
 final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// term (lowercased) → matches
     var autocompleteResponses: [String: [String]] = [:]
+    /// terms (lowercased) whose lookup throws, to script network failures.
+    var autocompleteFailingTerms: Set<String> = []
     private(set) var autocompleteCalls: [String] = []
+    /// Scripted subscriptions-list response (SubscriptionPoller tests).
+    var subscriptionsResponse: [AO3Subscription] = []
 
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         autocompleteCalls.append(term)
+        if autocompleteFailingTerms.contains(term.lowercased()) {
+            throw URLError(.notConnectedToInternet)
+        }
         return autocompleteResponses[term.lowercased()] ?? []
     }
 
@@ -32,7 +39,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
-    func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
+    func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
     func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
     func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }

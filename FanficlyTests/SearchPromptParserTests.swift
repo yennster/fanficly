@@ -10,6 +10,20 @@ final class SearchPromptParserTests: XCTestCase {
         XCTAssertEqual(filters.query, "")
     }
 
+    func test_lengthChangingLowercaseDoesNotCrashOrShiftExtraction() {
+        // Regression: Turkish "İ" (U+0130) lowercases to "i̇" — one extra
+        // UTF-16 unit — which desynced the lowercased matching buffer from
+        // the original-case extraction buffer: NSRangeException crash, or
+        // silently shifted title/creator text when the range stayed in
+        // bounds. The fold must be length-preserving.
+        let filters = parser.parse("İstanbul by:melis")
+        XCTAssertEqual(filters.creators, "melis")
+        XCTAssertTrue(filters.query.contains("İstanbul"))
+
+        let titled = parser.parse("İİİ title:\"My Fic\" fluff")
+        XCTAssertEqual(titled.title, "My Fic")
+    }
+
     func test_quotedRelationshipStaysWholeNotResplitOnSlash() {
         // Without quotes the ship regex would grab "Granger/Draco"; quoting
         // keeps the full canonical pairing as one relationship.

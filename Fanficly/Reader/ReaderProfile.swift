@@ -15,6 +15,38 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
     var pageTurnAnimations: Bool
     var kerningPt: Double?
     var boldText: Bool?
+    // Sync bookkeeping. Optional (like widthRaw) so pre-existing JSON still
+    // decodes and older app versions ignore the unknown keys — the stored
+    // top-level shape must stay a plain [ReaderProfile] array. An entry with
+    // deletedAt set is a tombstone: it keeps its full payload (older decoders
+    // would fail on missing required fields) and stays in the stored array so
+    // the deletion propagates through mergedProfiles, but loadProfiles hides it.
+    var updatedAt: Double? = nil
+    var deletedAt: Double? = nil
+
+    var isDeleted: Bool { deletedAt != nil }
+
+    /// Tombstones older than this are pruned on save/merge. A device that
+    /// hasn't synced within the window can resurrect the profile — the
+    /// trade-off for not growing the stored JSON forever.
+    static let tombstoneLifetime: TimeInterval = 90 * 24 * 60 * 60
+
+    func isExpiredTombstone(at now: Date) -> Bool {
+        guard let deletedAt else { return false }
+        return now.timeIntervalSince1970 - deletedAt > Self.tombstoneLifetime
+    }
+
+    /// Equality ignoring the sync bookkeeping, used to decide whether a save
+    /// actually changed a profile and should stamp a fresh updatedAt.
+    func contentEquals(_ other: ReaderProfile) -> Bool {
+        var lhs = self
+        var rhs = other
+        lhs.updatedAt = nil
+        lhs.deletedAt = nil
+        rhs.updatedAt = nil
+        rhs.deletedAt = nil
+        return lhs == rhs
+    }
 
     @MainActor
     static var deviceActiveProfileKey: String {
@@ -107,10 +139,12 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
         )
     ]
 
-    static func loadProfiles(from jsonString: String) -> [ReaderProfile] {
+    /// Decodes every stored entry, including deletion tombstones. Display
+    /// paths should use loadProfiles(from:), which filters tombstones out.
+    static func decodeProfiles(from jsonString: String) -> [ReaderProfile]? {
         guard let data = jsonString.data(using: .utf8),
               var list = try? JSONDecoder().decode([ReaderProfile].self, from: data) else {
-            return defaultProfiles
+            return nil
         }
         for i in 0..<list.count {
             if list[i].widthPercent == nil {
@@ -130,6 +164,13 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
         return list
     }
 
+    static func loadProfiles(from jsonString: String) -> [ReaderProfile] {
+        guard let list = decodeProfiles(from: jsonString) else {
+            return defaultProfiles
+        }
+        return list.filter { !$0.isDeleted }
+    }
+
     static func saveProfiles(_ list: [ReaderProfile]) -> String {
         guard let data = try? JSONEncoder().encode(list),
               let str = String(data: data, encoding: .utf8) else {
@@ -138,17 +179,71 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
         return str
     }
 
-    static func mergedProfiles(localJSON: String?, incomingJSON: String) -> String {
-        var merged = loadProfiles(from: localJSON ?? "")
+    /// Encodes an edited profile list, carrying the sync bookkeeping forward
+    /// from the previously stored JSON: entries whose content changed are
+    /// stamped updatedAt, and names that disappeared from `list` are kept as
+    /// tombstones so mergedProfiles can tell a deletion apart from a stale
+    /// copy that should be resurrected.
+    static func saveProfiles(_ list: [ReaderProfile], previousJSON: String, now: Date = Date()) -> String {
+        let previous = decodeProfiles(from: previousJSON) ?? []
+        let timestamp = now.timeIntervalSince1970
 
-        for profile in loadProfiles(from: incomingJSON) {
+        var result: [ReaderProfile] = list.map { profile in
+            var entry = profile
+            entry.deletedAt = nil
+            let prior = previous.first { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }
+            if let prior, !prior.isDeleted, prior.contentEquals(entry) {
+                entry.updatedAt = prior.updatedAt
+            } else {
+                entry.updatedAt = timestamp
+            }
+            return entry
+        }
+
+        for prior in previous where !list.contains(where: { $0.name.localizedCaseInsensitiveCompare(prior.name) == .orderedSame }) {
+            var tombstone = prior
+            if tombstone.deletedAt == nil { tombstone.deletedAt = timestamp }
+            if !tombstone.isExpiredTombstone(at: now) {
+                result.append(tombstone)
+            }
+        }
+
+        return saveProfiles(result)
+    }
+
+    /// Merges two stored-profile JSON strings, resolving per-name conflicts
+    /// via `resolve(current:incoming:)` so deletions and edits beat stale
+    /// copies instead of being unioned back in. Expired tombstones are pruned.
+    static func mergedProfiles(localJSON: String?, incomingJSON: String, now: Date = Date()) -> String {
+        var merged = decodeProfiles(from: localJSON ?? "") ?? []
+
+        for profile in decodeProfiles(from: incomingJSON) ?? [] {
             if let index = merged.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }) {
-                merged[index] = profile
+                merged[index] = resolve(current: merged[index], incoming: profile)
             } else {
                 merged.append(profile)
             }
         }
 
+        merged.removeAll { $0.isExpiredTombstone(at: now) }
         return saveProfiles(merged)
+    }
+
+    /// Conflict resolution for two copies of the same profile: the newest
+    /// updatedAt/deletedAt stamp wins, so an edit or deletion beats any stale
+    /// copy (a stamp-less pre-tombstone entry counts as oldest). On an exact
+    /// tie a tombstone beats a live copy so a same-instant echo can't undo a
+    /// delete; between equal-aged live copies the incoming side wins,
+    /// preserving the original union behavior for legacy entries.
+    private static func resolve(current: ReaderProfile, incoming: ReaderProfile) -> ReaderProfile {
+        let currentStamp = max(current.updatedAt ?? 0, current.deletedAt ?? 0)
+        let incomingStamp = max(incoming.updatedAt ?? 0, incoming.deletedAt ?? 0)
+        if incomingStamp != currentStamp {
+            return incomingStamp > currentStamp ? incoming : current
+        }
+        if current.isDeleted != incoming.isDeleted {
+            return current.isDeleted ? current : incoming
+        }
+        return incoming
     }
 }

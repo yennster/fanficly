@@ -44,8 +44,12 @@ enum AO3Endpoints {
         return url
     }
 
-    static func userSubscriptions(name: String, base: URL) throws -> URL {
-        base.appending(path: "/users/\(name)/subscriptions")
+    static func userSubscriptions(name: String, page: Int = 1, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/users/\(name)/subscriptions"),
+                                       resolvingAgainstBaseURL: false)
+        if page > 1 { components?.queryItems = [URLQueryItem(name: "page", value: String(page))] }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad subscriptions URL") }
+        return url
     }
 
     static func login(base: URL) throws -> URL {

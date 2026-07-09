@@ -25,6 +25,12 @@ struct ReaderView: View {
     // Keep the display awake while reading (like a video player), so the screen
     // doesn't dim/lock mid-page when you go a while without touching it.
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
+    // Render images embedded in chapters (off = historical text-only reader).
+    // Global, not per-device: it's a content/privacy choice, not typography.
+    // Every convertParagraphs/speechParagraphs call in the reader must pass
+    // this same flag or paragraph indices (anchors, TTS karaoke, progress)
+    // drift between modes.
+    @AppStorage("reader.showImages") private var showImages: Bool = false
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -166,7 +172,9 @@ struct ReaderView: View {
     }
 
     private func saveProfiles(_ list: [ReaderProfile]) {
-        let json = ReaderProfile.saveProfiles(list)
+        // Diffing against the stored JSON stamps edits and tombstones removed
+        // names, so deletions survive the cloud merge in publishLocalProfiles.
+        let json = ReaderProfile.saveProfiles(list, previousJSON: profilesJSON)
         profilesJSON = json
         ReaderProfileSyncStore.publishLocalProfiles(json)
     }
@@ -257,7 +265,8 @@ struct ReaderView: View {
     /// Reader lifecycle, lifted out of the main body chain so it type-checks
     /// independently. Keeps the screen awake while reading, tears down speech on
     /// exit, and drives the Stats active-reading timer: start on appear and when
-    /// the app returns to `.active`, flush on disappear and when it leaves.
+    /// the app returns to `.active` while this reader is visible, flush on
+    /// disappear and when it leaves.
     private struct ReaderLifecycleModifier: ViewModifier {
         let keepScreenAwake: Bool
         let scenePhase: ScenePhase
@@ -266,17 +275,30 @@ struct ReaderView: View {
         let flushTimer: () -> Void
         let stopSpeech: () -> Void
 
+        /// Whether this reader is actually on screen. A reader left in the
+        /// NavigationStack under a pushed view (author page, another reader)
+        /// still receives scenePhase changes; without this check every return
+        /// to `.active` would restart its timer and record phantom reading
+        /// time — two stacked readers double-counting the same wall-clock span.
+        @State private var isVisible = false
+
         func body(content: Content) -> some View {
             content
                 .onAppear {
+                    isVisible = true
                     applyKeepScreenAwake(keepScreenAwake)
                     startTimer()
                 }
                 .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
                 .onChange(of: scenePhase) { _, newPhase in
-                    if newPhase == .active { startTimer() } else { flushTimer() }
+                    if newPhase == .active {
+                        if isVisible { startTimer() }
+                    } else {
+                        flushTimer()
+                    }
                 }
                 .onDisappear {
+                    isVisible = false
                     stopSpeech()
                     applyKeepScreenAwake(false)
                     flushTimer()
@@ -426,7 +448,7 @@ struct ReaderView: View {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
         listeningChapter = index
-        speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML),
+        speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
                     workTitle: title, author: author, chapterLabel: label, from: paragraph)
     }
 
@@ -573,12 +595,21 @@ struct ReaderView: View {
                     }
                 }
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                    guard !isRestoring else { return }
+                    // Reaching the very end always registers — bypassing the
+                    // sample throttle — so a final flick to the bottom can't
+                    // be dropped and progress can actually hit 100%.
+                    if let end = endOfContentAnchor(offsets, viewportHeight: geo.size.height) {
+                        lastAnchorSampleAt = Date()
+                        currentAnchor = end
+                        return
+                    }
                     // Sample at most ~3x/sec so progress tracking never competes
                     // with the scroll for main-thread time.
                     let now = Date()
                     guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
                     lastAnchorSampleAt = now
-                    if !isRestoring, let anchor = ChapterTracking.topmostAnchor(offsets) {
+                    if let anchor = ChapterTracking.topmostAnchor(offsets) {
                         currentAnchor = anchor
                     }
                 }
@@ -721,6 +752,25 @@ struct ReaderView: View {
         )
     }
 
+    /// The final paragraph of the final chapter, when its top edge is on
+    /// screen — i.e. the reader has reached the very end of the work — else
+    /// nil. Reported as the anchor so `readingProgressFraction` reads 1.0;
+    /// stride-sampled topmost anchors alone top out a viewport short of the
+    /// end, leaving fully-read works stuck below the Finished threshold.
+    private func endOfContentAnchor(_ offsets: [String: CGFloat], viewportHeight: CGFloat) -> ReadingAnchor? {
+        guard let last = chapters.max(by: { $0.index < $1.index }),
+              // Only convert (cached, but not free) once the last chapter's
+              // anchors are actually being laid out near the viewport.
+              offsets.keys.contains(where: { $0.hasPrefix("c\(last.index)-p") }) else { return nil }
+        let lastParagraph = HTMLToAttributed.convertParagraphs(last.bodyHTML).count - 1
+        return ChapterTracking.endOfContentAnchor(
+            offsets,
+            lastChapter: last.index,
+            lastParagraph: lastParagraph,
+            viewportHeight: viewportHeight
+        )
+    }
+
     private func readingProgressFraction(for anchor: ReadingAnchor) -> Double {
         let orderedChapters = chapters.sorted { $0.index < $1.index }
         guard !orderedChapters.isEmpty,
@@ -729,7 +779,7 @@ struct ReaderView: View {
         }
 
         let chapter = orderedChapters[chapterOffset]
-        let paragraphCount = max(HTMLToAttributed.convertParagraphs(chapter.bodyHTML).count, 1)
+        let paragraphCount = max(HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: showImages).count, 1)
         let paragraphDenominator = max(paragraphCount - 1, 1)
         let paragraphProgress = min(max(Double(anchor.paragraph) / Double(paragraphDenominator), 0), 1)
         let rawProgress = (Double(chapterOffset) + paragraphProgress) / Double(orderedChapters.count)
@@ -844,9 +894,10 @@ struct ReaderView: View {
                     if anchor.paragraph > 0 { pendingParagraphRestore = anchor }
                 }
                 let currentChapters = chapters
+                let include = showImages
                 Task.detached(priority: .background) {
                     for chapter in currentChapters {
-                        _ = HTMLToAttributed.convertParagraphs(chapter.bodyHTML)
+                        _ = HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: include)
                     }
                 }
                 try? await Task.sleep(nanoseconds: 200_000_000)
@@ -904,6 +955,17 @@ struct ReaderView: View {
                 .coordinateSpace(name: scrollSpace)
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
                     guard chapter.index == selectedChapterIndex, !isRestoring else { return }
+                    // End of the work on screen registers immediately (no
+                    // sample throttle) so the final scroll can't be dropped —
+                    // same as continuous mode. This page's coordinate space
+                    // only carries its own chapter's anchors, so this hits
+                    // only on the last chapter's page.
+                    if let end = endOfContentAnchor(offsets, viewportHeight: geo.size.height) {
+                        lastAnchorSampleAt = Date()
+                        currentAnchor = end
+                        saveProgress(end)
+                        return
+                    }
                     let now = Date()
                     guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
                     lastAnchorSampleAt = now
@@ -956,6 +1018,7 @@ struct ReaderView: View {
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 kerning: kerningPt / zoomScale,
                 boldText: boldText,
+                showImages: showImages,
                 size: CGSize(
                     width: geo.size.width,
                     height: stableHeight > 0 ? stableHeight : immersiveReadingHeight(fallback: geo.size.height)
@@ -1064,8 +1127,7 @@ struct ReaderView: View {
                 kerning: kerning,
                 boldText: boldText,
                 foreground: fg,
-                highlightParagraph: highlightedParagraph(for: page.chapterIndex),
-                isScrollable: !isUIMinimized
+                highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
             .frame(maxWidth: containerWidth * CGFloat(widthPercent / 100.0), alignment: .leading)
             .padding(.horizontal, containerWidth * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
@@ -1122,9 +1184,18 @@ struct ReaderView: View {
         
         if !isRestoring {
             if let atoms = parsedAtoms[page.chapterIndex], !page.paragraphIndices.isEmpty {
-                let firstParaAtomIndex = page.paragraphIndices.lowerBound
-                if firstParaAtomIndex < atoms.count {
-                    let originalParaIndex = atoms[firstParaAtomIndex].originalParagraphIndex
+                // Landing on the work's final page puts the end of the content
+                // on screen: anchor to its last paragraph, not its first, so
+                // progress reads 100% (a first-paragraph anchor tops out a
+                // page short of the Finished threshold). Restore still lands
+                // on the same page — it matches pages by contained paragraph.
+                let isFinalPage = page.chapterIndex == chapters.map(\.index).max()
+                    && page.paragraphIndices.upperBound >= atoms.count
+                let anchorAtomIndex = isFinalPage
+                    ? page.paragraphIndices.upperBound - 1
+                    : page.paragraphIndices.lowerBound
+                if anchorAtomIndex < atoms.count {
+                    let originalParaIndex = atoms[anchorAtomIndex].originalParagraphIndex
                     let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: originalParaIndex)
                     currentAnchor = anchor
                     saveProgress(anchor)
@@ -1338,7 +1409,7 @@ struct ReaderView: View {
         for chIndex in targetChapters.sorted() {
             guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
             
-            let paragraphs = HTMLToAttributed.convertParagraphs(chapter.bodyHTML)
+            let paragraphs = HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: trigger.showImages)
             
             var atoms: [ParagraphAtom] = []
             for (pIndex, para) in paragraphs.enumerated() {
@@ -1405,6 +1476,12 @@ struct ReaderView: View {
         kerning: CGFloat,
         boldText: Bool
     ) -> CGFloat {
+        // An image slot renders as a fixed-height image cell, not text, so its
+        // measured height is that fixed height — text measurement of the
+        // placeholder character would badly under-count it.
+        if HTMLToAttributed.imageAttachmentURL(in: attributedString) != nil {
+            return ReaderInlineImage.slotHeight
+        }
         let ns = NSAttributedString(attributedString)
         let mutableNs = NSMutableAttributedString(attributedString: ns)
 
@@ -1543,10 +1620,17 @@ struct ReaderView: View {
             if displaysChapterHeader {
                 pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
             }
-            
+
+            // boundingRect and SwiftUI's Text layout disagree by fractions of
+            // a point per line (more under Mac Catalyst's Mac-idiom metrics);
+            // over a page of lines that drift can overpack the page. Pack
+            // against a slightly smaller budget so the rendered page keeps
+            // headroom and never needs its overflow fallback.
+            let packingBudget = pageMaxHeight - min(24, max(8, pageMaxHeight * 0.02))
+
             var currentHeight: CGFloat = 0
             var includedAny = false
-            
+
             if pageMaxHeight > 40 {
                 var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
                 var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
@@ -1581,7 +1665,7 @@ struct ReaderView: View {
                         )
                         
                         let potentialHeight = completedBlocksHeight + proposedBlockHeight
-                        if potentialHeight <= pageMaxHeight {
+                        if potentialHeight <= packingBudget {
                             endIndex += 1
                             currentBlockAtoms = proposedBlockAtoms
                             currentBlockHeight = proposedBlockHeight
@@ -1602,7 +1686,7 @@ struct ReaderView: View {
                         )
                         
                         let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
-                        if potentialHeight <= pageMaxHeight {
+                        if potentialHeight <= packingBudget {
                             endIndex += 1
                             completedBlocksHeight += currentBlockHeight + paragraphSpacing
                             currentBlockParaIndex = nextAtom.originalParagraphIndex
@@ -1693,7 +1777,8 @@ struct ReaderView: View {
             scrollSpace: scrollSpace,
             kerning: kerning,
             boldText: boldText,
-            highlightParagraph: highlightedParagraph(for: chapter.index)
+            highlightParagraph: highlightedParagraph(for: chapter.index),
+            showImages: showImages
         )
         .padding(.vertical, Spacing.sm)
     }
@@ -1884,6 +1969,7 @@ struct PaginationTrigger: Equatable {
     let paragraphSpacing: Double
     let kerning: Double
     let boldText: Bool
+    let showImages: Bool
     let size: CGSize
 }
 
@@ -1908,8 +1994,7 @@ struct ReaderPageCell: View {
     let boldText: Bool
     let foreground: Color
     let highlightParagraph: Int?
-    let isScrollable: Bool
-    
+
     private var renderedBlocks: [RenderedBlock] {
         var blocks: [RenderedBlock] = []
         let indices = Array(page.paragraphIndices)
@@ -1974,15 +2059,16 @@ struct ReaderPageCell: View {
     }
     
     var body: some View {
-        Group {
-            if showTitleHeader || isScrollable {
-                ScrollView(.vertical, showsIndicators: false) {
-                    content
-                }
-            } else {
-                content
-            }
+        // Always the ScrollView, even with the UI minimized: a bare VStack in
+        // the fixed-height TabView page lets SwiftUI compress the paragraph
+        // Texts whenever the paginator's boundingRect estimate under-measures
+        // the rendered layout (worst on Mac Catalyst), which truncated
+        // mid-page paragraphs to "…". basedOnSize keeps an exact-fit page
+        // inert — it only scrolls when the page genuinely overflows.
+        ScrollView(.vertical, showsIndicators: false) {
+            content
         }
+        .scrollBounceBehavior(.basedOnSize)
     }
     
     private var content: some View {
@@ -1998,17 +2084,26 @@ struct ReaderPageCell: View {
             
             VStack(alignment: .leading, spacing: paragraphSpacing) {
                 ForEach(renderedBlocks) { block in
-                    Text(block.text)
-                        .font(font)
-                        .tracking(kerning)
-                        .bold(boldText)
-                        .lineSpacing(lineSpacing)
-                        .foregroundStyle(foreground)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 5)
-                        )
+                    if let imageURL = HTMLToAttributed.imageAttachmentURL(in: block.text) {
+                        // Renders at ReaderInlineImage.slotHeight — the same
+                        // height the paginator budgeted for this block.
+                        ReaderInlineImage(url: imageURL)
+                    } else {
+                        Text(block.text)
+                            .font(font)
+                            .tracking(kerning)
+                            .bold(boldText)
+                            .lineSpacing(lineSpacing)
+                            .foregroundStyle(foreground)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // Story text must never ellipsize: take the full
+                            // ideal height even if a parent proposes less.
+                            .fixedSize(horizontal: false, vertical: true)
+                            .background(
+                                highlightParagraph == block.originalParagraphIndex ? Color.accentColor.opacity(0.15) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                    }
                 }
             }
             Spacer(minLength: 0)

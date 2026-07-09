@@ -53,17 +53,33 @@ enum TagResolver {
         if let cached = await ResolutionCache.shared.value(for: cacheKey) {
             return cached
         }
-        let result = await resolveUncached(term, field: field, client: client)
-        await ResolutionCache.shared.set(result, for: cacheKey)
-        return result
+        let outcome = await resolveUncached(term, field: field, client: client)
+        // Only memoize answers AO3 actually gave. If a lookup failed (offline,
+        // 429), caching the raw typed term would pin the unresolved literal
+        // for the rest of the session — that tag's searches would silently
+        // match nothing even after connectivity recovers.
+        if outcome.authoritative {
+            await ResolutionCache.shared.set(outcome.value, for: cacheKey)
+        }
+        return outcome.value
     }
 
-    private static func resolveUncached(_ term: String, field: AO3AutocompleteField, client: any AO3ClientProtocol) async -> String {
+    private static func resolveUncached(
+        _ term: String, field: AO3AutocompleteField, client: any AO3ClientProtocol
+    ) async -> (value: String, authoritative: Bool) {
+        // `authoritative` = every lookup we needed got an answer (even an
+        // empty one). A thrown autocomplete anywhere makes the result a
+        // best-effort fallback that must not be cached.
+        var authoritative = true
         // Try the term as typed, then a few simple fallbacks.
         for candidate in candidates(for: term, field: field) {
-            if let matches = try? await client.autocomplete(field: field, term: candidate),
-               let best = bestMatch(for: term, in: matches, field: field) {
-                return best
+            do {
+                let matches = try await client.autocomplete(field: field, term: candidate)
+                if let best = bestMatch(for: term, in: matches, field: field) {
+                    return (best, true)
+                }
+            } catch {
+                authoritative = false
             }
         }
         // Relationship couldn't be matched directly (AO3's autocomplete needs
@@ -77,16 +93,20 @@ enum TagResolver {
                 let b = await resolveOne(parts[1], field: .character, client: client)
                 // Try the ship in both orders / separators.
                 for query in ["\(a)/\(b)", "\(a) \(b)", "\(b)/\(a)", "\(b) \(a)"] {
-                    if let matches = try? await client.autocomplete(field: .relationship, term: query),
-                       let best = bestMatch(for: "\(a)/\(b)", in: matches, field: .relationship) {
-                        return best
+                    do {
+                        let matches = try await client.autocomplete(field: .relationship, term: query)
+                        if let best = bestMatch(for: "\(a)/\(b)", in: matches, field: .relationship) {
+                            return (best, true)
+                        }
+                    } catch {
+                        authoritative = false
                     }
                 }
                 // Last resort: construct it from the resolved names.
-                if a != parts[0] || b != parts[1] { return "\(a)/\(b)" }
+                if a != parts[0] || b != parts[1] { return ("\(a)/\(b)", authoritative) }
             }
         }
-        return term
+        return (term, authoritative)
     }
 
     static func candidates(for term: String, field: AO3AutocompleteField) -> [String] {
@@ -103,8 +123,10 @@ enum TagResolver {
         return list
     }
 
-    /// Prefer a case-insensitive exact match, else the top suggestion,
-    /// else keep the original term.
+    /// Prefer a case-insensitive exact match; then relationships pick the
+    /// best-scored ship, freeforms accept only a formatting variant of what
+    /// was typed (else keep the typed term), and other fields take the top
+    /// suggestion.
     static func bestMatch(for term: String, in matches: [String], field: AO3AutocompleteField = .freeform) -> String? {
         guard !matches.isEmpty else { return nil }
         if let exact = matches.first(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
@@ -113,7 +135,29 @@ enum TagResolver {
         if field == .relationship, term.contains("/") {
             return bestRelationshipMatch(for: term, in: matches) ?? matches.first
         }
+        if field == .freeform {
+            return bestFreeformMatch(for: term, in: matches)
+        }
         return matches.first
+    }
+
+    /// Freeform (additional) tags are user-authored descriptors, and AO3's
+    /// autocomplete ranks suggestions by popularity — so a plain tag like
+    /// "Caveman" gets outranked by a more specific compound tag that merely
+    /// contains it ("Caveman Derek Hale"). Blindly taking the top suggestion
+    /// therefore silently rewrites the user's tag into a different, narrower one.
+    /// Only accept a suggestion that is the *same* tag up to case / spacing /
+    /// punctuation (so we still canonicalize e.g. "hurt comfort" → "Hurt/Comfort"
+    /// or fix casing); otherwise keep exactly what the user typed.
+    private static func bestFreeformMatch(for term: String, in matches: [String]) -> String {
+        let typed = normalizedTag(term)
+        return matches.first(where: { normalizedTag($0) == typed }) ?? term
+    }
+
+    /// Lowercased, alphanumerics only — collapses case, whitespace and
+    /// punctuation differences so superficial formatting variants compare equal.
+    private static func normalizedTag(_ s: String) -> String {
+        s.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
     /// Score each candidate ship against the typed term. Penalize candidates

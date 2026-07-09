@@ -65,6 +65,7 @@
 		9A588B2CABC08E0A3E6D1214 /* FoundationModelsEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42DE1E292D1452982BBDC3C /* FoundationModelsEnricher.swift */; };
 		9AC41B8243A955860021EC28 /* AO3EndpointsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 958A36B95570920660E8048F /* AO3EndpointsTests.swift */; };
 		9BED255255BD7A5E8D9D5327 /* LoginParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACACAA505129855113410345 /* LoginParser.swift */; };
+		9F9274BB4FA70A299696456F /* ResumeProgressPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F70E265A47467EA5CE433A /* ResumeProgressPolicyTests.swift */; };
 		A12E23E76FFA94451D62DF18 /* FanficlyWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 79D8E6F7C34B59D6D90E268D /* FanficlyWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A4220FE80C820732CA00966C /* SubscriptionsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A868E9B5D6BF8FC8919B8924 /* SubscriptionsParser.swift */; };
 		A6F1DF3628D4AD7345991B68 /* ReaderProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA35360B96DE5B2B27E1CC16 /* ReaderProfile.swift */; };
@@ -242,6 +243,7 @@
 		DA91CA4D906D56ACC8598AE1 /* FlowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowLayout.swift; sourceTree = "<group>"; };
 		DBE134CABB0F90B6C9B9DAD7 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DE70E6F403D1F1C214C9555C /* WorkMetadataParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkMetadataParserTests.swift; sourceTree = "<group>"; };
+		E1F70E265A47467EA5CE433A /* ResumeProgressPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeProgressPolicyTests.swift; sourceTree = "<group>"; };
 		E970EC8D49395624D894D95A /* AuthorWorksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthorWorksView.swift; sourceTree = "<group>"; };
 		F42DE1E292D1452982BBDC3C /* FoundationModelsEnricher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsEnricher.swift; sourceTree = "<group>"; };
 		FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTextTests.swift; sourceTree = "<group>"; };
@@ -485,6 +487,7 @@
 				C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */,
 				9F667B1136698256D6B0A641 /* PersistenceTests.swift */,
 				FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */,
+				E1F70E265A47467EA5CE433A /* ResumeProgressPolicyTests.swift */,
 				52C27A7CFAECCBC8991BEE84 /* SearchPromptParserTests.swift */,
 				CF32C50D24CC6533F2C9D36D /* SearchResultsParserTests.swift */,
 				CB8F393F4A7555AB00B220C3 /* StreakStoreTests.swift */,
@@ -777,6 +780,7 @@
 				AEDF3AD7C78F563F454DE499 /* MediaCategoryParserTests.swift in Sources */,
 				B0D8442B64B5A18AC1E17F06 /* PersistenceTests.swift in Sources */,
 				D90E237DC130AA3A1DBC764B /* PromptTextTests.swift in Sources */,
+				9F9274BB4FA70A299696456F /* ResumeProgressPolicyTests.swift in Sources */,
 				D038A05D8AA36A020FF7AB66 /* SearchPromptParserTests.swift in Sources */,
 				F34FD1A3F781F0ED764362E9 /* SearchResultsParserTests.swift in Sources */,
 				6BF7C742D7C8BFF8121A3B0D /* StreakStoreTests.swift in Sources */,
@@ -892,7 +896,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -912,7 +916,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1163,7 +1167,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 25;
+				CURRENT_PROJECT_VERSION = 26;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1177,7 +1181,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.7.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

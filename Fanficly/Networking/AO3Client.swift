@@ -352,13 +352,33 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] {
-        await throttle.wait()
-        let url = try AO3Endpoints.userSubscriptions(name: username, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
-        guard let html = String(data: data, encoding: .utf8) else {
-            throw AO3Error.parseFailed(reason: "Subscriptions response not UTF-8")
+        // AO3 paginates the subscriptions index at 20 per page — walk every
+        // page (each fetch goes through the 1 req/s throttle) or anything past
+        // the first 20 is invisible and its records get treated as stale. Any
+        // page failing throws the whole call, so a partial list can never
+        // reach the caller's delete pass. The page ceiling only guards against
+        // a pagination-parse glitch turning one sync into an unbounded crawl.
+        var all: [AO3Subscription] = []
+        var seen = Set<String>()
+        var page = 1
+        var totalPages = 1
+        let maxPages = 50
+        while page <= min(totalPages, maxPages) {
+            await throttle.wait()
+            let url = try AO3Endpoints.userSubscriptions(name: username, page: page, base: baseURL)
+            logger.debug("GET \(url.absoluteString, privacy: .public)")
+            let (data, _) = try await performRequest(URLRequest(url: url))
+            guard let html = String(data: data, encoding: .utf8) else {
+                throw AO3Error.parseFailed(reason: "Subscriptions response not UTF-8")
+            }
+            let parsed = try SubscriptionsParser.parsePage(html: html)
+            for sub in parsed.subscriptions where seen.insert(sub.key).inserted {
+                all.append(sub)
+            }
+            totalPages = parsed.totalPages
+            page += 1
         }
-        return try SubscriptionsParser.parse(html: html)
+        return all
     }
 
     public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {
@@ -571,8 +591,17 @@ public actor AO3Client: AO3ClientProtocol {
         }
     }
 
-    private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    /// How many times a transient failure (timeout / dropped connection / a 429
+    /// rate-limit) is retried before it surfaces to the caller.
+    private static let maxRetries = 2
+
+    private func performRequest(_ request: URLRequest, attempt: Int = 0) async throws -> (Data, HTTPURLResponse) {
         ensureCookiesLoaded()
+        // Only auto-retry idempotent reads. Replaying a POST (login, comment,
+        // subscribe) after a timeout could double-submit — e.g. a comment that
+        // actually landed but whose response was lost — so those surface the
+        // error to the caller instead.
+        let canRetry = (request.httpMethod ?? "GET").uppercased() == "GET" && attempt < Self.maxRetries
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
@@ -581,13 +610,68 @@ public actor AO3Client: AO3ClientProtocol {
             switch http.statusCode {
             case 200..<300, 302: return (data, http)
             case 401, 403:        throw AO3Error.unauthorized
-            case 429:             throw AO3Error.rateLimited
+            case 429:
+                // Rate-limited. Only retry when AO3's own Retry-After header
+                // says the window is short enough to politely wait out;
+                // otherwise fail fast. Blind backoff here would send more
+                // requests into a window the server just declared closed —
+                // real 429s from a client already throttled to 1 req/s mean a
+                // clamp-down much longer than any in-request backoff.
+                if canRetry,
+                   let retryAfter = Self.retryAfterSeconds(http),
+                   retryAfter <= Self.maxPoliteRetryAfter {
+                    try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
+                    await throttle.wait()
+                    return try await performRequest(request, attempt: attempt + 1)
+                }
+                throw AO3Error.rateLimited
             default:              throw AO3Error.http(status: http.statusCode)
             }
         } catch let error as AO3Error {
             throw error
+        } catch let urlError as URLError where canRetry && Self.isTransient(urlError) {
+            // Timeouts and dropped connections are often transient (a slow AO3
+            // response, a network blip) — retry with backoff instead of failing
+            // the whole load.
+            try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
+            await throttle.wait()
+            return try await performRequest(request, attempt: attempt + 1)
         } catch {
             throw AO3Error.network(underlying: error.localizedDescription)
+        }
+    }
+
+    /// Exponential backoff before a retry: ~0.5s, then ~1s.
+    private static func backoffNanos(_ attempt: Int) -> UInt64 {
+        let seconds = 0.5 * pow(2.0, Double(attempt))
+        return UInt64(seconds * 1_000_000_000)
+    }
+
+    /// The longest Retry-After we're willing to wait out inside a request
+    /// before surfacing `.rateLimited` to the caller.
+    private static let maxPoliteRetryAfter: TimeInterval = 10
+
+    /// Parses a 429's Retry-After header (delta-seconds form; the HTTP-date
+    /// form parses as nil, which callers treat as "don't retry").
+    private static func retryAfterSeconds(_ response: HTTPURLResponse) -> TimeInterval? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+                .trimmingCharacters(in: .whitespaces),
+              let seconds = TimeInterval(raw), seconds >= 0 else { return nil }
+        return seconds
+    }
+
+    /// URLSession errors worth retrying — network hiccups rather than
+    /// programmer/permanent errors. A bad URL or cancellation isn't retried,
+    /// and neither is being offline (`.notConnectedToInternet`): retrying
+    /// with no connectivity just burns backoff time and throttle slots.
+    private static func isTransient(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .networkConnectionLost,
+             .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+             .resourceUnavailable, .secureConnectionFailed:
+            return true
+        default:
+            return false
         }
     }
 
