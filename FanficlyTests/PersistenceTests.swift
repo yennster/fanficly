@@ -477,6 +477,196 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(restoredProfiles.first(where: { $0.name == "iPhone" })?.fontSizePt, 20.0)
     }
 
+    // MARK: - iCloud backup/restore merge rules
+
+    private func makeTempBackupURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_backup_\(UUID().uuidString).json")
+    }
+
+    private func decodeBackup(at url: URL) throws -> LibraryBackup {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(LibraryBackup.self, from: Data(contentsOf: url))
+    }
+
+    /// A device holding only part of the library must union with the cloud
+    /// backup, not overwrite it (the "iPad with 5 works clobbers the iPhone's
+    /// 50" data-loss scenario).
+    func test_backupUnionsWithExistingCloudBackup() throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // The "iPhone": three works, backed up first.
+        let phone = try makeContext()
+        for id in 1...3 { _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 2), into: phone) }
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+        XCTAssertEqual(try decodeBackup(at: url).works.count, 3)
+
+        // The "iPad": holds only work 4. Its backup must keep the other three.
+        let pad = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 4, chapters: 1), into: pad)
+        iCloudSyncManager.shared.backupToiCloud(context: pad)
+
+        XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2, 3, 4])
+    }
+
+    /// On a per-work conflict the backing-up device's record wins, but the
+    /// cloud copy's chapters survive when the local copy is metadata-only.
+    func test_backupMergeLocalWinsButKeepsCloudChapters() throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // Device A saved the full download (3 chapters, with AO3 chapter ids)…
+        let a = try makeContext()
+        let downloaded = Work(ao3Id: 1, title: "Old Title", authorName: "A")
+        a.insert(downloaded)
+        for i in 0..<3 {
+            a.insert(Chapter(work: downloaded, index: i + 1, title: "Ch \(i + 1)",
+                             bodyHTML: "<p>body</p>", aoId: 900 + i))
+        }
+        try a.save()
+        iCloudSyncManager.shared.backupToiCloud(context: a)
+
+        // …device B holds a metadata-only copy with fresher metadata.
+        let b = try makeContext()
+        b.insert(Work(ao3Id: 1, title: "New Title", authorName: "A"))
+        try b.save()
+        iCloudSyncManager.shared.backupToiCloud(context: b)
+
+        let merged = try decodeBackup(at: url)
+        XCTAssertEqual(merged.works.count, 1)
+        XCTAssertEqual(merged.works[0].title, "New Title")
+        XCTAssertEqual(merged.works[0].chapters.map(\.aoId), [900, 901, 902],
+                       "cloud chapters (and their AO3 ids) must survive a metadata-only backup")
+    }
+
+    /// Stats from two devices union in the backup file: per-day maxima, and a
+    /// total lifted to Σ daySeconds rather than the max of the device totals.
+    func test_backupMergesStatsAcrossDevices() throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let a = try makeContext()
+        a.insert(ReadingStat(ao3Id: 7, title: "T", author: "A",
+                             totalSeconds: 1000, daySeconds: ["2026-06-01": 1000]))
+        try a.save()
+        iCloudSyncManager.shared.backupToiCloud(context: a)
+
+        let b = try makeContext()
+        b.insert(ReadingStat(ao3Id: 7, title: "T", author: "A",
+                             totalSeconds: 2000, daySeconds: ["2026-06-02": 2000]))
+        try b.save()
+        iCloudSyncManager.shared.backupToiCloud(context: b)
+
+        let stat = try XCTUnwrap(decodeBackup(at: url).stats?.first)
+        XCTAssertEqual(stat.daySeconds["2026-06-01"] ?? 0, 1000, accuracy: 0.001)
+        XCTAssertEqual(stat.daySeconds["2026-06-02"] ?? 0, 2000, accuracy: 0.001)
+        XCTAssertEqual(stat.totalSeconds, 3000, accuracy: 0.001)
+    }
+
+    /// Restoring a metadata-only backup (chapters: []) must not delete a
+    /// fuller offline download — the Downloaded badge keys off the epub file,
+    /// so wiping chapters here would silently strand it.
+    func test_restoreKeepsDownloadedChaptersWhenBackupHasFewer() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // A metadata-only device (follow without download) wrote the backup…
+        let metadataOnly = try makeContext()
+        metadataOnly.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try metadataOnly.save()
+        iCloudSyncManager.shared.backupToiCloud(context: metadataOnly)
+
+        // …restoring on the device holding the 4-chapter download keeps it.
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 4), into: device)
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(work.chapters.count, 4)
+    }
+
+    /// When the backup does carry more chapters than the local copy, they
+    /// replace it — and each chapter's AO3 id survives the round-trip.
+    func test_restoreReplacesChaptersWhenBackupHasMoreAndKeepsAoId() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let full = try makeContext()
+        let downloaded = Work(ao3Id: 1, title: "T", authorName: "A")
+        full.insert(downloaded)
+        for i in 0..<3 {
+            full.insert(Chapter(work: downloaded, index: i + 1, title: "Ch \(i + 1)",
+                                bodyHTML: "<p>body</p>", aoId: 900 + i))
+        }
+        try full.save()
+        iCloudSyncManager.shared.backupToiCloud(context: full)
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        let chapters = work.chapters.sorted { $0.index < $1.index }
+        XCTAssertEqual(chapters.count, 3)
+        XCTAssertEqual(chapters.map(\.aoId), [900, 901, 902])
+    }
+
+    /// Restore's stat merge must keep totalSeconds == Σ daySeconds: per-day
+    /// maxima from two devices (iPhone read Monday, iPad Tuesday) sum past
+    /// either device's own total, and taking only max(totals) left All Time
+    /// showing less than a single Year period.
+    func test_restoreStatMergeKeepsTotalAtLeastSumOfDays() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // The iPhone backed up 1000s read on Monday…
+        let phone = try makeContext()
+        phone.insert(ReadingStat(ao3Id: 7, title: "T", author: "A",
+                                 totalSeconds: 1000, daySeconds: ["2026-06-01": 1000]))
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        // …the iPad read 2000s on Tuesday, then restores.
+        let pad = try makeContext()
+        pad.insert(ReadingStat(ao3Id: 7, title: "T", author: "A",
+                               totalSeconds: 2000, daySeconds: ["2026-06-02": 2000]))
+        try pad.save()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(success)
+
+        let row = try XCTUnwrap(try pad.fetch(FetchDescriptor<ReadingStat>()).first)
+        XCTAssertEqual(row.daySeconds["2026-06-01"] ?? 0, 1000, accuracy: 0.001)
+        XCTAssertEqual(row.daySeconds["2026-06-02"] ?? 0, 2000, accuracy: 0.001)
+        XCTAssertEqual(row.totalSeconds, 3000, accuracy: 0.001,
+                       "total must be Σ daySeconds (3000), not max of device totals (2000)")
+    }
+
     func test_workMatchesSearchQuery() {
         let work = Work(
             ao3Id: 101,
