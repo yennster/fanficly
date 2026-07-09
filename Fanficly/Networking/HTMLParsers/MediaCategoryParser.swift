@@ -64,26 +64,36 @@ enum WorkFiltersParser {
     static func parse(html: String) throws -> AO3WorkFilters {
         let doc = try SwiftSoup.parse(html)
         return AO3WorkFilters(
-            relationships: facets(in: doc, idPrefix: "include_relationship_ids"),
-            characters: facets(in: doc, idPrefix: "include_character_ids"),
-            fandoms: facets(in: doc, idPrefix: "include_fandom_ids"),
-            freeforms: facets(in: doc, idPrefix: "include_freeform_ids")
+            relationships: facets(in: doc, kind: "relationship"),
+            characters: facets(in: doc, kind: "character"),
+            fandoms: facets(in: doc, kind: "fandom"),
+            freeforms: facets(in: doc, kind: "freeform")
         )
     }
 
-    /// Each facet is a `<label for="include_<kind>_ids_<n>">Tag Name <span
-    /// class="count">(123)</span></label>` wrapping a checkbox. Read the count
-    /// from `span.count` and the tag name from the remaining label text.
-    private static func facets(in doc: Document, idPrefix: String) -> [AO3TagFacet] {
-        let labels = (try? doc.select("label[for^=\(idPrefix)]").array()) ?? []
+    /// Each facet is a checkbox label in the sidebar's "Include" half. Live
+    /// AO3 ids are `include_work_search_<kind>_ids_<tag id>` with the name and
+    /// count together in a plain span — `<span>Sherlock Holmes/John Watson
+    /// (57746)</span>` — while older markup used `include_<kind>_ids_<n>` with
+    /// the count in `span.count`; match both. Must stay anchored on
+    /// `include_`: the "Exclude" half repeats every tag under
+    /// `exclude_work_search_…` ids, and a bare contains-match would return
+    /// each facet twice.
+    private static func facets(in doc: Document, kind: String) -> [AO3TagFacet] {
+        let labels = (try? doc.select("label[for^=include_][for*=_\(kind)_ids_]").array()) ?? []
         var result: [AO3TagFacet] = []
         for label in labels {
-            let countText = (try? label.select("span.count").first()?.text()) ?? nil
-            let count = countText.flatMap(MediaCategoryParser.trailingCount(in:)) ?? 0
-            let full = (try? label.text()) ?? ""
+            let full = ((try? label.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             var name = full
-            if let countText { name = name.replacingOccurrences(of: countText, with: "") }
-            name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            var count = 0
+            // Trailing "(N)" is the work count; only strip it when it parses
+            // as a number, since tag names themselves can end in parentheses
+            // ("Sherlock (BBC TV 2010)" has a count, "Ocean's (Movies)" may not).
+            if let open = full.lastIndex(of: "("),
+               let parsed = MediaCategoryParser.trailingCount(in: full) {
+                count = parsed
+                name = String(full[..<open]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             guard !name.isEmpty else { continue }
             result.append(AO3TagFacet(name: name, count: count))
         }
