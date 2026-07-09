@@ -63,3 +63,11 @@ cache/
 # Environment
 .env
 .env.local
+
+# Local agent/session tooling
+.entire/
+.claude/
+
+# Android machine-local files
+android/.gradle/
+android/local.properties
