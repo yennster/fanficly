@@ -17,8 +17,16 @@ final class TagResolverTests: XCTestCase {
     }
 
     func test_bestMatch_fallsBackToFirst() {
-        let matches = ["Hermione Granger/Draco Malfoy", "Other Ship"]
-        XCTAssertEqual(TagResolver.bestMatch(for: "dramione", in: matches), "Hermione Granger/Draco Malfoy")
+        // Non-freeform fields still take AO3's top (most popular) suggestion
+        // when nothing matches exactly — that's what lets a character lookup
+        // like "hermione" canonicalize to "Hermione Granger", and it powers
+        // ship-via-character resolution. Freeform tags are stricter — see the
+        // freeform tests below.
+        let matches = ["Hermione Granger", "Hermione Granger (Wizarding World)"]
+        XCTAssertEqual(
+            TagResolver.bestMatch(for: "hermione", in: matches, field: .character),
+            "Hermione Granger"
+        )
     }
 
     func test_bestMatch_emptyReturnsNil() {

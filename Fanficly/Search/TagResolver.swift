@@ -103,8 +103,10 @@ enum TagResolver {
         return list
     }
 
-    /// Prefer a case-insensitive exact match, else the top suggestion,
-    /// else keep the original term.
+    /// Prefer a case-insensitive exact match; then relationships pick the
+    /// best-scored ship, freeforms accept only a formatting variant of what
+    /// was typed (else keep the typed term), and other fields take the top
+    /// suggestion.
     static func bestMatch(for term: String, in matches: [String], field: AO3AutocompleteField = .freeform) -> String? {
         guard !matches.isEmpty else { return nil }
         if let exact = matches.first(where: { $0.caseInsensitiveCompare(term) == .orderedSame }) {
