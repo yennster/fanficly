@@ -59,10 +59,25 @@ final class iCloudSyncManager {
         }
     }
     
-    /// Performs a backup of the SwiftData database to iCloud.
+    /// Performs a backup of the SwiftData database to iCloud, merging with the
+    /// backup already in the cloud so a device that holds only part of the
+    /// library (a fresh install, a metadata-only iPad) can never last-writer-
+    /// wins away another device's records.
     func backupToiCloud(context: ModelContext) {
         guard let url = Self.backupURL else { return }
-        
+
+        // If the cloud backup exists only as a not-yet-downloaded placeholder
+        // we can't merge with it, and overwriting would drop every record the
+        // other device backed up. Kick off the download and let a later
+        // queueBackup (they fire on every mutation) retry once it's local.
+        let fileManager = FileManager.default
+        let placeholderURL = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).icloud")
+        if !fileManager.fileExists(atPath: url.path), fileManager.fileExists(atPath: placeholderURL.path) {
+            try? fileManager.startDownloadingUbiquitousItem(at: url)
+            return
+        }
+
         do {
             // 1. Fetch all records from SwiftData
             let works = (try? context.fetch(FetchDescriptor<Work>())) ?? []
@@ -111,7 +126,7 @@ final class iCloudSyncManager {
                     isStarred: work.isStarred,
                     isPinned: work.isPinned,
                     chapters: work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
-                        ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML)
+                        ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
                     },
                     folderName: work.folders.first?.name,
                     folderNames: work.folders.map(\.name)
@@ -224,7 +239,7 @@ final class iCloudSyncManager {
                 )
             }
 
-            let backup = LibraryBackup(
+            var backup = LibraryBackup(
                 works: workBackups,
                 bookmarks: bookmarkBackups,
                 subscriptions: subscriptionBackups,
@@ -237,8 +252,18 @@ final class iCloudSyncManager {
                 stats: statBackups,
                 timestamp: .now
             )
-            
-            // 3. Serialize to JSON and write
+
+            // 3. Union with the backup already in the cloud (an undecodable or
+            // absent file falls back to writing the local snapshot as before).
+            if let existingData = try? Data(contentsOf: url) {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                if let cloudBackup = try? decoder.decode(LibraryBackup.self, from: existingData) {
+                    backup = Self.mergedBackup(local: backup, cloud: cloudBackup)
+                }
+            }
+
+            // 4. Serialize to JSON and write
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(backup)
@@ -247,7 +272,99 @@ final class iCloudSyncManager {
             print("Failed to backup to iCloud: \(error)")
         }
     }
-    
+
+    /// Unions a freshly-built local backup with the backup already in iCloud.
+    /// Records the other device backed up but this one doesn't hold are kept;
+    /// on conflicts the local record wins (this device just produced it), with
+    /// the exceptions mirroring the restore rules: chapters survive from
+    /// whichever side has more, reading positions keep the newer one, and
+    /// reading stats merge conservatively.
+    nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup) -> LibraryBackup {
+        var worksById = Dictionary(cloud.works.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
+        for var w in local.works {
+            if let cloudWork = worksById[w.ao3Id], cloudWork.chapters.count > w.chapters.count {
+                w.chapters = cloudWork.chapters
+            }
+            worksById[w.ao3Id] = w
+        }
+
+        var bookmarksById = Dictionary(cloud.bookmarks.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
+        for b in local.bookmarks { bookmarksById[b.ao3Id] = b }
+
+        var subscriptionsByKey = Dictionary(cloud.subscriptions.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        for s in local.subscriptions { subscriptionsByKey[s.key] = s }
+
+        var searchesByName = Dictionary(cloud.searches.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        for s in local.searches { searchesByName[s.name] = s }
+
+        var progressById = Dictionary(cloud.progress.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
+        for p in local.progress {
+            if let c = progressById[p.ao3Id], c.updatedAt > p.updatedAt { continue }
+            progressById[p.ao3Id] = p
+        }
+
+        var filtersByName = Dictionary(cloud.filters.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        for f in local.filters { filtersByName[f.name] = f }
+
+        var hiddenById = Dictionary(cloud.hidden.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
+        for h in local.hidden { hiddenById[h.ao3Id] = h }
+
+        var foldersByName = Dictionary((cloud.folders ?? []).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+        for f in local.folders ?? [] { foldersByName[f.name] = f }
+
+        var statsById = Dictionary((cloud.stats ?? []).map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
+        for s in local.stats ?? [] {
+            if let c = statsById[s.ao3Id] {
+                statsById[s.ao3Id] = mergedStat(local: s, cloud: c)
+            } else {
+                statsById[s.ao3Id] = s
+            }
+        }
+
+        return LibraryBackup(
+            works: worksById.values.sorted { $0.ao3Id < $1.ao3Id },
+            bookmarks: bookmarksById.values.sorted { $0.ao3Id < $1.ao3Id },
+            subscriptions: subscriptionsByKey.values.sorted { $0.key < $1.key },
+            searches: searchesByName.values.sorted { $0.name < $1.name },
+            progress: progressById.values.sorted { $0.ao3Id < $1.ao3Id },
+            filters: filtersByName.values.sorted { $0.name < $1.name },
+            hidden: hiddenById.values.sorted { $0.ao3Id < $1.ao3Id },
+            settings: local.settings ?? cloud.settings,
+            folders: foldersByName.values.sorted { $0.name < $1.name },
+            stats: statsById.values.sorted { $0.ao3Id < $1.ao3Id },
+            timestamp: local.timestamp
+        )
+    }
+
+    /// The same conservative per-stat merge `restoreFromiCloud` applies: max of
+    /// totals and per-day buckets, widest date span, non-empty metadata wins —
+    /// and `totalSeconds` is lifted to at least Σ daySeconds, because per-day
+    /// maxima from two devices can sum past either device's own total.
+    nonisolated static func mergedStat(local: StatBackup, cloud: StatBackup) -> StatBackup {
+        var daySeconds = local.daySeconds
+        for (day, seconds) in cloud.daySeconds {
+            daySeconds[day] = max(daySeconds[day] ?? 0, seconds)
+        }
+        let totalSeconds = max(max(local.totalSeconds, cloud.totalSeconds),
+                               daySeconds.values.reduce(0, +))
+        return StatBackup(
+            ao3Id: local.ao3Id,
+            title: local.title.isEmpty ? cloud.title : local.title,
+            author: local.author.isEmpty ? cloud.author : local.author,
+            fandoms: local.fandoms.isEmpty ? cloud.fandoms : local.fandoms,
+            categories: local.categories.isEmpty ? cloud.categories : local.categories,
+            relationships: local.relationships.isEmpty ? cloud.relationships : local.relationships,
+            rating: local.rating.isEmpty ? cloud.rating : local.rating,
+            wordCount: local.wordCount > 0 ? local.wordCount : cloud.wordCount,
+            firstReadAt: min(local.firstReadAt, cloud.firstReadAt),
+            lastReadAt: max(local.lastReadAt, cloud.lastReadAt),
+            totalSeconds: totalSeconds,
+            daySeconds: daySeconds,
+            maxProgress: max(local.maxProgress ?? 0, cloud.maxProgress ?? 0),
+            workIsComplete: (local.workIsComplete == true) || (cloud.workIsComplete == true)
+        )
+    }
+
     /// Restores all records from iCloud backup. Returns true if successful.
     @discardableResult
     func restoreFromiCloud(context: ModelContext) async -> Bool {
@@ -437,14 +554,20 @@ final class iCloudSyncManager {
                     }
                 }
                 
-                // Clear existing chapters first to prevent duplicates
-                for ch in work.chapters { context.delete(ch) }
-                work.chapters.removeAll()
-                
-                // Add backup chapters
-                for ch in w.chapters {
-                    let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML)
-                    context.insert(chapter)
+                // Replace chapters only when the backup carries more than we
+                // hold: a metadata-only backup (chapters: []) or a stale
+                // partial download must not wipe a fuller offline download —
+                // the Downloaded badge keys off the epub file, so deleting
+                // here would silently strand it.
+                if w.chapters.count > work.chapters.count {
+                    // Clear existing chapters first to prevent duplicates
+                    for ch in work.chapters { context.delete(ch) }
+                    work.chapters.removeAll()
+
+                    for ch in w.chapters {
+                        let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+                        context.insert(chapter)
+                    }
                 }
             }
             
@@ -556,6 +679,11 @@ final class iCloudSyncManager {
                         merged[day] = max(merged[day] ?? 0, seconds)
                     }
                     existing.daySeconds = merged
+                    // Per-day maxima from two devices can sum past either
+                    // device's own total (iPhone read Monday, iPad Tuesday),
+                    // which would leave All Time showing less than a single
+                    // period. Lift the total back to Σ daySeconds.
+                    existing.totalSeconds = max(existing.totalSeconds, merged.values.reduce(0, +))
                 } else {
                     context.insert(ReadingStat(
                         ao3Id: st.ao3Id, title: st.title, author: st.author,
@@ -727,7 +855,9 @@ struct WorkBackup: Codable {
     let lastSeenChapterCount: Int?
     let isStarred: Bool?
     let isPinned: Bool?
-    let chapters: [ChapterBackup]
+    /// `var` so the backup merge can graft the cloud copy's chapters onto a
+    /// local metadata-only record.
+    var chapters: [ChapterBackup]
     let folderName: String?
     let folderNames: [String]?
 }
@@ -736,6 +866,9 @@ struct ChapterBackup: Codable {
     let index: Int
     let title: String
     let bodyHTML: String
+    /// AO3 chapter id (drives per-chapter comments). Optional so backups
+    /// written before this field still decode.
+    let aoId: Int?
 }
 
 struct BookmarkBackup: Codable {
