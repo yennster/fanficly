@@ -23,7 +23,16 @@ struct ChapterContentView: View {
     /// Position is sampled every N paragraphs — enough for "resume where you
     /// left off" without a GeometryReader on every paragraph (which made
     /// scrolling stutter).
-    private let anchorStride = 6
+    static let anchorStride = 6
+
+    /// Whether paragraph `index` of `count` carries a scroll-anchor reporter:
+    /// every `anchorStride`-th one, plus always the final paragraph. Without
+    /// the final anchor the end of a chapter is invisible to progress
+    /// tracking, so a work read to the last line could never reach 100%
+    /// (see `ChapterTracking.endOfContentAnchor`).
+    static func isAnchorIndex(_ index: Int, count: Int) -> Bool {
+        index % anchorStride == 0 || index == count - 1
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: paragraphSpacing) {
@@ -44,7 +53,7 @@ struct ChapterContentView: View {
                         )
                         .id(ChapterTracking.key(chapter: chapterIndex, paragraph: index))
                         .background {
-                            if index % anchorStride == 0 {
+                            if Self.isAnchorIndex(index, count: paragraphs.count) {
                                 anchorReporter(paragraph: index)
                             }
                         }
