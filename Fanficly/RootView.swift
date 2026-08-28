@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
+import UIKit // UIAccessibility announcements (ImportOverlay)
 
 struct PinnedFolderRoute: Hashable, Sendable {
     let folderName: String
@@ -157,6 +158,7 @@ struct RootView: View {
                     Color.black.opacity(0.4)
                         .ignoresSafeArea()
                         .transition(.opacity)
+                        .accessibilityHidden(true)
                     
                     ImportOverlay(workId: workId) { work in
                         self.importingWorkId = nil
@@ -173,6 +175,9 @@ struct RootView: View {
             .onPasteCommandIfAvailable { providers in
                 _ = self.handleImportProviders(providers)
             }
+            // Post-iCloud-restore "re-download offline stories?" prompt and
+            // its progress banner — root-level so it shows on any tab.
+            .restoreRedownloadUI()
     }
 
     private var isCompactNavigation: Bool {
@@ -466,6 +471,20 @@ struct ImportOverlay: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(radius: 10)
         .frame(width: 280)
+        // Overlay, not a presentation — keep VoiceOver out of the dimmed content.
+        .accessibilityAddTraits(.isModal)
+        .onAppear {
+            UIAccessibility.post(notification: .announcement, argument: status)
+        }
+        .onChange(of: status) { _, newStatus in
+            // Announce completion only; the mid-import steps are too chatty.
+            guard newStatus == "Done!" else { return }
+            UIAccessibility.post(notification: .announcement, argument: newStatus)
+        }
+        .onChange(of: error) { _, newError in
+            guard let newError else { return }
+            UIAccessibility.post(notification: .announcement, argument: "Import failed. \(newError)")
+        }
         .task {
             do {
                 status = "Fetching metadata..."

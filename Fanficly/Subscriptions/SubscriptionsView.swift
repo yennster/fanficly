@@ -117,6 +117,7 @@ struct SubscriptionsView: View {
                         if isRefreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isRefreshing)
+                    .accessibilityLabel("Refresh subscriptions")
                 }
             }
         }
@@ -169,6 +170,7 @@ struct SubscriptionRow: View {
             HStack(spacing: 8) {
                 HStack(spacing: 4) {
                     Image(systemName: icon).font(.caption2)
+                        .accessibilityHidden(true)
                     Text(kindLabel).font(.caption)
                 }
                 .foregroundStyle(.secondary)
@@ -184,6 +186,7 @@ struct SubscriptionRow: View {
         }
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+        .accessibilityElement(children: .combine)
     }
 
     private var icon: String {
@@ -281,6 +284,7 @@ struct BookmarksView: View {
                         if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isLoading)
+                    .accessibilityLabel("Refresh bookmarks")
                 }
             }
         }

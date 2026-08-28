@@ -225,6 +225,7 @@ struct ReaderSettingsView: View {
                     }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .accessibilityLabel("Reading mode")
                 .help("Choose how stories are paginated and scrolled.")
 
                 Toggle(isOn: $pageTurnHaptics) {
@@ -294,6 +295,7 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderTheme.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .accessibilityLabel("Theme")
                 .help("Choose the color scheme for the reader.")
             }
 
@@ -302,6 +304,7 @@ struct ReaderSettingsView: View {
                     ForEach(ReaderFontFamily.allCases) { Text($0.displayName).tag($0.rawValue) }
                 }
                 .pickerStyle(.inline).labelsHidden()
+                .accessibilityLabel("Font")
                 .help("Choose the typography for the reader.")
                 
                 Toggle(isOn: $boldText) {
@@ -372,13 +375,15 @@ struct ReaderSettingsView: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+            // Fractional steps (e.g. 0.1) would read "by 0 pt" through Int().
+            let stepText = step < 1.0 ? String(format: "%.1f", step) : "\(Int(step))"
             HStack(spacing: 12) {
                 Button {
                     value.wrappedValue = max(range.lowerBound, value.wrappedValue - step)
                 } label: { Image(systemName: "minus.circle") }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Decrease \(title)")
-                .accessibilityHint("Decreases \(title.lowercased()) by \(Int(step)) \(unit)")
+                .accessibilityHint("Decreases \(title.lowercased()) by \(stepText) \(unit)")
 
                 Slider(value: value, in: range, step: step)
                     .accessibilityLabel(title)
@@ -390,7 +395,7 @@ struct ReaderSettingsView: View {
                 } label: { Image(systemName: "plus.circle") }
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Increase \(title)")
-                .accessibilityHint("Increases \(title.lowercased()) by \(Int(step)) \(unit)")
+                .accessibilityHint("Increases \(title.lowercased()) by \(stepText) \(unit)")
             }
         }
         .padding(.vertical, 2)

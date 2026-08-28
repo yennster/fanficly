@@ -633,6 +633,93 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(chapters.map(\.aoId), [900, 901, 902])
     }
 
+    /// Restore also runs as a background launch sync now, so it must be a
+    /// strictly forward merge: a cloud backup older than this device's state
+    /// can never rewind a reading position — but a newer one still advances it.
+    func test_restoreNeverRewindsNewerLocalProgress() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // The cloud device read work 1 an hour ago (ch 2) but work 2 just now (ch 9).
+        let cloudDevice = try makeContext()
+        cloudDevice.insert(ReadingProgress(ao3Id: 1, chapterIndex: 2, paragraphIndex: 5,
+                                           title: "T", author: "A",
+                                           updatedAt: Date(timeIntervalSinceNow: -3600)))
+        cloudDevice.insert(ReadingProgress(ao3Id: 2, chapterIndex: 9, paragraphIndex: 0,
+                                           title: "U", author: "A", updatedAt: .now))
+        try cloudDevice.save()
+        iCloudSyncManager.shared.backupToiCloud(context: cloudDevice)
+
+        // This device is ahead on work 1 (ch 7) and behind on work 2 (ch 1).
+        let device = try makeContext()
+        device.insert(ReadingProgress(ao3Id: 1, chapterIndex: 7, paragraphIndex: 0,
+                                      title: "T", author: "A", updatedAt: .now))
+        device.insert(ReadingProgress(ao3Id: 2, chapterIndex: 1, paragraphIndex: 0,
+                                      title: "U", author: "A",
+                                      updatedAt: Date(timeIntervalSinceNow: -7200)))
+        try device.save()
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let all = try device.fetch(FetchDescriptor<ReadingProgress>())
+        XCTAssertEqual(all.first(where: { $0.ao3Id == 1 })?.chapterIndex, 7)  // kept local
+        XCTAssertEqual(all.first(where: { $0.ao3Id == 2 })?.chapterIndex, 9)  // took cloud
+    }
+
+    /// Star/follow flags and folder assignments made locally since the last
+    /// backup survive a restore (OR/union semantics), and the subscription
+    /// notification baseline never regresses to re-fire old alerts.
+    func test_restoreKeepsLocalFlagsFoldersAndSeenBaseline() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // The cloud copy predates this device's star, folder, and seen-count.
+        let cloudDevice = try makeContext()
+        let cloudWork = Work(ao3Id: 1, title: "T", authorName: "A")
+        cloudWork.lastSeenChapterCount = 3
+        cloudDevice.insert(cloudWork)
+        try cloudDevice.save()
+        iCloudSyncManager.shared.backupToiCloud(context: cloudDevice)
+
+        let device = try makeContext()
+        let folder = CustomFolder(name: "Faves")
+        device.insert(folder)
+        let local = Work(ao3Id: 1, title: "T", authorName: "A")
+        local.isStarred = true
+        local.isFollowed = true
+        local.lastSeenChapterCount = 8
+        device.insert(local)
+        local.folders.append(folder)
+        try device.save()
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertTrue(work.isStarred)
+        XCTAssertTrue(work.isFollowed)
+        XCTAssertEqual(work.lastSeenChapterCount, 8)
+        XCTAssertEqual(work.folders.map(\.name), ["Faves"])
+    }
+
+    /// Only works with restored chapter text (i.e. downloaded on the device
+    /// that made the backup) and no local EPUB file are offered for
+    /// re-download after a restore.
+    func test_redownloadCandidatesRequireChapters() throws {
+        let ctx = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 987654321, chapters: 2), into: ctx)  // downloaded
+        ctx.insert(Work(ao3Id: 987654322, title: "Metadata only", authorName: "A"))          // follow
+        try ctx.save()
+        XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx), [987654321])
+    }
+
     /// Restore's stat merge must keep totalSeconds == Σ daySeconds: per-day
     /// maxima from two devices (iPhone read Monday, iPad Tuesday) sum past
     /// either device's own total, and taking only max(totals) left All Time

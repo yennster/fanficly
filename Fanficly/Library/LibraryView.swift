@@ -123,6 +123,7 @@ struct LibraryView: View {
                                 NavigationLink(value: folder) {
                                     HStack {
                                         Image(systemName: "folder").foregroundStyle(.blue)
+                                            .accessibilityHidden(true)
                                         Text(folder.name).font(.headline)
                                         Spacer()
                                         let totalCount = folder.works.count
@@ -339,7 +340,7 @@ private struct LibraryFilterBar: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(filter.title)
-                    .accessibilityValue(selection == filter ? "Selected" : "")
+                    .accessibilityAddTraits(selection == filter ? .isSelected : [])
                 }
             }
             .padding(.horizontal, 4)
@@ -403,6 +404,7 @@ struct LibraryRow: View {
             if let firstFandom = work.fandoms.first {
                 HStack(spacing: 4) {
                     Image(systemName: FandomCatalog.symbol(for: firstFandom)).font(.caption2)
+                        .accessibilityHidden(true)
                     Text(fandomLabel).font(.caption)
                 }
                 .foregroundStyle(.secondary)
@@ -422,6 +424,8 @@ struct LibraryRow: View {
         }
         .padding(.vertical, 6)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+        // One VoiceOver element per row; swipe actions/context menus are unaffected.
+        .accessibilityElement(children: .combine)
     }
 
     /// Reading-progress strip: a bar plus a "% read · Ch n · last read …" line,
@@ -440,6 +444,7 @@ struct LibraryRow: View {
                     if finished {
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.circle.fill")
+                                .accessibilityHidden(true)
                             Text("Finished")
                         }
                         .foregroundStyle(.green)
@@ -460,8 +465,20 @@ struct LibraryRow: View {
             }
             .padding(.top, 2)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(finished ? "Finished reading" : "\(Int(progress * 100)) percent read")
+            .accessibilityLabel(progressAccessibilityLabel(progress: progress, finished: finished))
         }
+    }
+
+    /// Mirrors the visible strip: percent (or Finished), chapter reached, last-read date.
+    private func progressAccessibilityLabel(progress: Double, finished: Bool) -> String {
+        var parts = [finished ? "Finished reading" : "\(Int(progress * 100)) percent read"]
+        if !finished, let chapter = work.lastReadChapter, (work.totalChapters ?? 0) > 1 {
+            parts.append("chapter \(chapter)")
+        }
+        if let lastReadAt = work.lastReadAt {
+            parts.append("last read \(lastReadAt.formatted(.relative(presentation: .named)))")
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -502,6 +519,7 @@ private struct LibraryMetadataPill: View {
             if isFolder {
                 Image(systemName: "folder")
                     .font(.caption2)
+                    .accessibilityHidden(true)
             }
             Text(text)
                 .lineLimit(1)
@@ -613,6 +631,7 @@ struct FolderDetailView: View {
                     } label: {
                         HStack {
                             Image(systemName: "folder.badge.minus")
+                                .accessibilityHidden(true)
                             Text("Remove (\(selectedWorkIds.count))")
                         }
                         .font(.headline)
@@ -711,10 +730,12 @@ struct FolderSelectionSheet: View {
                                 if work.folders.contains(where: { $0.id == folder.id }) {
                                     Image(systemName: "checkmark")
                                         .foregroundStyle(Color.accentColor)
+                                        .accessibilityHidden(true)
                                 }
                             }
                         }
                         .foregroundStyle(.primary)
+                        .accessibilityAddTraits(work.folders.contains(where: { $0.id == folder.id }) ? .isSelected : [])
                     }
                 }
             }
@@ -732,6 +753,7 @@ struct FolderSelectionSheet: View {
                     } label: {
                         Image(systemName: "folder.badge.plus")
                     }
+                    .accessibilityLabel("New folder")
                 }
             }
             .alert("New Folder", isPresented: $showingCreateFolderAlert) {
@@ -944,6 +966,7 @@ struct StatsView: View {
                             .frame(width: 44, height: 36)
                             .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("Previous \(period.title.lowercased())")
                     .disabled(!canPageBackward)
 
                     Spacer(minLength: 0)
@@ -959,6 +982,7 @@ struct StatsView: View {
                             .frame(width: 44, height: 36)
                             .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("Next \(period.title.lowercased())")
                     .disabled(!canPageForward)
                 }
                 .buttonStyle(.borderless)
@@ -1048,6 +1072,8 @@ private struct StatTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label): \(value)")
     }
 }
 
@@ -1077,7 +1103,10 @@ private struct StatBarRow: View {
                 }
             }
             .frame(height: 6)
+            .accessibilityHidden(true)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name), \(count) \(count == 1 ? "story" : "stories")")
     }
 }
 

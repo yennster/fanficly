@@ -94,6 +94,7 @@ struct RecentlyViewedRow: View {
             if !fandomShort.isEmpty {
                 HStack(spacing: 4) {
                     Image(systemName: FandomCatalog.symbol(for: item.fandom)).font(.caption2)
+                        .accessibilityHidden(true)
                     Text(fandomShort).font(.caption)
                 }
                 .foregroundStyle(.secondary)

@@ -21,14 +21,18 @@ enum HTMLToAttributed {
 
     nonisolated(unsafe) private static let paragraphsCache = NSCache<NSString, ParagraphsWrapper>()
 
-    /// The whole body as one AttributedString (paragraphs joined by blank lines).
+    /// The whole body as one AttributedString (paragraphs joined by blank
+    /// lines). Used by `HTMLText` (summaries, notes, comments) — hyperlinks
+    /// are enabled here, but NOT in the reader's chapter-body path
+    /// (`convertParagraphs` default): the reader has tap-to-turn/tap-to-toggle
+    /// gestures that tappable links inside the story text would fight with.
     static func convert(_ html: String) -> AttributedString {
         let nsHtml = html as NSString
         if let cached = cache.object(forKey: nsHtml) as? AttributedStringWrapper {
             return cached.value
         }
-        
-        let paragraphs = convertParagraphs(html)
+
+        let paragraphs = convertParagraphs(html, includeLinks: true)
         var out = AttributedString()
         for (i, para) in paragraphs.enumerated() {
             if i > 0 { out.append(AttributedString("\n\n")) }
@@ -45,10 +49,11 @@ enum HTMLToAttributed {
     /// one-character placeholder carrying the image URL (see
     /// `imageAttachmentURL(in:)`) that the reader renders as an image view.
     /// Off (the default) drops images entirely, the historical behavior.
-    static func convertParagraphs(_ html: String, includeImages: Bool = false) -> [AttributedString] {
-        // The two modes produce different paragraph arrays, so they must not
+    static func convertParagraphs(_ html: String, includeImages: Bool = false,
+                                  includeLinks: Bool = false) -> [AttributedString] {
+        // The modes produce different paragraph arrays, so they must not
         // share cache entries.
-        let cacheKey = (includeImages ? "img|" : "txt|") + html as NSString
+        let cacheKey = (includeImages ? "img|" : "txt|") + (includeLinks ? "lnk|" : "") + html as NSString
         if let cached = paragraphsCache.object(forKey: cacheKey) {
             return cached.value
         }
@@ -60,7 +65,7 @@ enum HTMLToAttributed {
             paragraphsCache.setObject(ParagraphsWrapper(result), forKey: cacheKey)
             return result
         }
-        var ctx = RenderContext(includeImages: includeImages)
+        var ctx = RenderContext(includeImages: includeImages, includeLinks: includeLinks)
         let children = body.getChildNodes()
         for child in children {
             renderNode(child, into: &ctx, style: InlineStyle())
@@ -128,11 +133,35 @@ enum HTMLToAttributed {
         }
     }
 
+    /// Resolves an `<a href>` to an openable URL: protocol-relative hrefs get
+    /// https, `http` upgrades to `https`, and root-relative paths resolve
+    /// against archiveofourown.org (links to other works/users/tags are common
+    /// in notes and comments). Anything that doesn't yield an absolute https
+    /// URL — `javascript:`, `data:`, `mailto:`, fragments, scheme-less
+    /// relatives — is rejected: the text still renders, just not as a link.
+    static func resolvedLinkURL(fromHref href: String) -> URL? {
+        let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var absolute = trimmed
+        if trimmed.hasPrefix("//") {
+            absolute = "https:" + trimmed
+        } else if trimmed.hasPrefix("/") {
+            absolute = "https://archiveofourown.org" + trimmed
+        } else if trimmed.lowercased().hasPrefix("http://") {
+            absolute = "https://" + trimmed.dropFirst("http://".count)
+        }
+        guard let url = URL(string: absolute),
+              url.scheme?.lowercased() == "https",
+              let host = url.host, !host.isEmpty else { return nil }
+        return url
+    }
+
     private struct InlineStyle {
         var bold = false
         var italic = false
         var underline = false
         var strike = false
+        var link: URL? = nil
     }
 
     /// Accumulates the body into discrete paragraphs, collapsing whitespace
@@ -140,12 +169,14 @@ enum HTMLToAttributed {
     /// empty paragraphs or big gaps.
     private struct RenderContext {
         let includeImages: Bool
+        let includeLinks: Bool
         private var paragraphs: [AttributedString] = []
         private var current = AttributedString()
         private var pendingParagraph = false
 
-        init(includeImages: Bool = false) {
+        init(includeImages: Bool = false, includeLinks: Bool = false) {
             self.includeImages = includeImages
+            self.includeLinks = includeLinks
         }
 
         /// Emit an image as its own paragraph slot (an inline `<img>` splits
@@ -247,6 +278,12 @@ enum HTMLToAttributed {
         case "em", "i", "cite":        next.italic = true
         case "u":                      next.underline = true
         case "s", "strike", "del":     next.strike = true
+        case "a":
+            if ctx.includeLinks,
+               let href = try? el.attr("href"),
+               let url = resolvedLinkURL(fromHref: href) {
+                next.link = url
+            }
         case "p", "div", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6":
             ctx.paragraphBreak()
             for child in el.getChildNodes() {
@@ -282,6 +319,12 @@ enum HTMLToAttributed {
         }
         if style.underline { fragment.underlineStyle = .single }
         if style.strike { fragment.strikethroughStyle = .single }
+        if let url = style.link {
+            fragment.link = url
+            // Underline as well: HTMLText callers often override the text
+            // color (themed reader summaries), which hides the link tint.
+            fragment.underlineStyle = .single
+        }
         return fragment
     }
 

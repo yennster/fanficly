@@ -60,6 +60,7 @@ struct SettingsView: View {
                                     if success {
                                         lastSync = syncManager.lastBackupDate
                                         showingRestoreSuccess = true
+                                        RestoreDownloadCenter.shared.proposeRedownload(context: context)
                                     }
                                 }
                             }
@@ -89,6 +90,7 @@ struct SettingsView: View {
                                 if success {
                                     lastSync = syncManager.lastBackupDate
                                     showingRestoreSuccess = true
+                                    RestoreDownloadCenter.shared.proposeRedownload(context: context)
                                 } else {
                                     showingRestoreFailure = true
                                 }
@@ -122,6 +124,7 @@ struct SettingsView: View {
                                 iCloudSyncEnabled = true
                                 lastSync = syncManager.lastBackupDate
                                 showingRestoreSuccess = true
+                                RestoreDownloadCenter.shared.proposeRedownload(context: context)
                             } else {
                                 showingRestoreFailure = true
                             }

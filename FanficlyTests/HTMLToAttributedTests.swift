@@ -228,5 +228,68 @@ final class HTMLToAttributedTests: XCTestCase {
         let secondResult = HTMLToAttributed.convert(html)
         XCTAssertEqual(firstResult, secondResult)
     }
+
+    // MARK: - Hyperlinks
+
+    func test_anchorCarriesLinkInConvert() {
+        let out = HTMLToAttributed.convert(
+            "<p>See <a href=\"https://example.com/fic\">this fic</a> too.</p>")
+        let linkRun = out.runs.first { $0.link != nil }
+        XCTAssertNotNil(linkRun)
+        XCTAssertEqual(linkRun?.link, URL(string: "https://example.com/fic"))
+        XCTAssertEqual(String(out[linkRun!.range].characters), "this fic")
+        // Link runs are underlined so a themed foreground can't hide them.
+        XCTAssertNotNil(linkRun?.underlineStyle)
+    }
+
+    func test_linkURLResolution() {
+        XCTAssertEqual(HTMLToAttributed.resolvedLinkURL(fromHref: "https://example.com/a"),
+                       URL(string: "https://example.com/a"))
+        // http upgrades to https.
+        XCTAssertEqual(HTMLToAttributed.resolvedLinkURL(fromHref: "http://example.com/a"),
+                       URL(string: "https://example.com/a"))
+        // Protocol-relative gets https.
+        XCTAssertEqual(HTMLToAttributed.resolvedLinkURL(fromHref: "//example.com/a"),
+                       URL(string: "https://example.com/a"))
+        // Root-relative resolves against AO3 (work/user links in notes).
+        XCTAssertEqual(HTMLToAttributed.resolvedLinkURL(fromHref: "/works/123"),
+                       URL(string: "https://archiveofourown.org/works/123"))
+        // Unusable hrefs are rejected.
+        XCTAssertNil(HTMLToAttributed.resolvedLinkURL(fromHref: "javascript:alert(1)"))
+        XCTAssertNil(HTMLToAttributed.resolvedLinkURL(fromHref: "data:text/html,hi"))
+        XCTAssertNil(HTMLToAttributed.resolvedLinkURL(fromHref: "mailto:a@b.c"))
+        XCTAssertNil(HTMLToAttributed.resolvedLinkURL(fromHref: "#footnote1"))
+        XCTAssertNil(HTMLToAttributed.resolvedLinkURL(fromHref: "works/123"))
+        XCTAssertNil(HTMLToAttributed.resolvedLinkURL(fromHref: ""))
+    }
+
+    func test_rejectedAnchorStillRendersItsText() {
+        let out = HTMLToAttributed.convert(
+            "<p>Click <a href=\"javascript:alert(1)\">here</a> now.</p>")
+        XCTAssertTrue(String(out.characters).contains("Click here now."))
+        XCTAssertFalse(out.runs.contains { $0.link != nil })
+    }
+
+    func test_chapterBodyPathDropsLinksAndStaysAligned() {
+        let html = "<p>Read <a href=\"https://example.com\">this</a>.</p><p>Next.</p>"
+        // The reader's chapter-body path (convertParagraphs default) must not
+        // produce tappable links — they'd fight the tap-to-turn zones.
+        let rendered = HTMLToAttributed.convertParagraphs(html)
+        XCTAssertFalse(rendered.contains { para in para.runs.contains { $0.link != nil } })
+        // The anchor's text still renders and speech stays index-aligned.
+        XCTAssertEqual(String(rendered[0].characters), "Read this.")
+        XCTAssertEqual(HTMLToAttributed.speechParagraphs(html), ["Read this.", "Next."])
+    }
+
+    func test_linkCacheKeysDoNotCollide() {
+        let html = "<p><a href=\"https://example.com\">link</a></p>"
+        let without = HTMLToAttributed.convertParagraphs(html)
+        let with = HTMLToAttributed.convertParagraphs(html, includeLinks: true)
+        XCTAssertFalse(without[0].runs.contains { $0.link != nil })
+        XCTAssertTrue(with[0].runs.contains { $0.link != nil })
+        // Ask again in the original mode — must not get the linked variant back.
+        let again = HTMLToAttributed.convertParagraphs(html)
+        XCTAssertFalse(again[0].runs.contains { $0.link != nil })
+    }
 }
 

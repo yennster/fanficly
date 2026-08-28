@@ -376,7 +376,11 @@ final class ScreenshotTests: XCTestCase {
                     if ttsButtonToStop.waitForExistence(timeout: 3) {
                         ttsButtonToStop.tap()
                         usleep(600_000)
-                        let stopButton = app.buttons["Stop listening"]
+                        // firstMatch: the narration bar's close button carries the
+                        // same "Stop listening" accessibility label as this menu
+                        // item, and both are on screen here — an un-disambiguated
+                        // query throws on tap. Either element stops narration.
+                        let stopButton = app.buttons["Stop listening"].firstMatch
                         if stopButton.waitForExistence(timeout: 3) {
                             stopButton.tap()
                             usleep(600_000)

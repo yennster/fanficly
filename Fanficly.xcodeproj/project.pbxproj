@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		009E61A437B7836540A5154D /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 85A309174B415ED2A3953364 /* SwiftSoup */; };
+		0117FF773514BF619A52BF56 /* PreviewTourTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738BD99703338F0BBCABB8EA /* PreviewTourTests.swift */; };
 		01A57A69F4D7F11702AB8264 /* SearchResultsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D14407D4A1F4D7FEA9348D29 /* SearchResultsParser.swift */; };
 		057AD6C4830B77B0B3B85499 /* SearchPromptParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ADAAAAAF22BFA604DFA7888 /* SearchPromptParser.swift */; };
 		081D919EAA04B46512A11349 /* WorkFilterSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E5D506137E5E8CD47C34FEF /* WorkFilterSheet.swift */; };
@@ -15,6 +16,7 @@
 		0C0E579887A18A207BD4312A /* ReadingProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9514E85985142BCB7F62DCB /* ReadingProgressStore.swift */; };
 		0C93417318501312E62FD5EE /* StreakStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE782127AFD722CB912AB10C /* StreakStore.swift */; };
 		0D50643FD38DFF0A35515E7E /* DemoSeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 946E7A305EC096F8075E6C03 /* DemoSeed.swift */; };
+		0D7F1604C6F11E4176F1491B /* RestoreDownloadCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 258376850C460A145A373FC6 /* RestoreDownloadCenter.swift */; };
 		1287C3DEB74B3638260FA127 /* FanficlyShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = FE4F76A060504CC63D18FB5E /* FanficlyShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		1D374C42759FFCB060BCFA5B /* WidgetProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9EF004C875B5BB68DD3A22 /* WidgetProgressStore.swift */; };
 		1F7AE3AC57F43B95AA9BD388 /* ReaderProfileSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 295A64264E4E4324269BFF11 /* ReaderProfileSyncStore.swift */; };
@@ -86,6 +88,7 @@
 		CEF5E851F00BA1873011A47E /* FanficlyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C800E1CBCB775F93A3B718FB /* FanficlyApp.swift */; };
 		D038A05D8AA36A020FF7AB66 /* SearchPromptParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C27A7CFAECCBC8991BEE84 /* SearchPromptParserTests.swift */; };
 		D90E237DC130AA3A1DBC764B /* PromptTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */; };
+		DBA81F87145774CFAE42E8A1 /* WorkExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 915C63AC65FBC4EB1211BCF0 /* WorkExporterTests.swift */; };
 		DF3E2176E6D631CEA095174C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A272FB51659AD4DBA99A7EB9 /* PrivacyInfo.xcprivacy */; };
 		E34C4F3EE4725E19198EDFB5 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D982066D8837E7AFC8C8164C /* ShareViewController.swift */; };
 		E59B398BB43AFC5A3175407D /* DemoAO3Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3F1CDC54EF7C6837A84AE8 /* DemoAO3Client.swift */; };
@@ -159,6 +162,7 @@
 		1856816C43554EF5BF0180F3 /* TagResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagResolver.swift; sourceTree = "<group>"; };
 		1BCB5C2C145A18FCF28C9641 /* MediaCategoryParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCategoryParser.swift; sourceTree = "<group>"; };
 		1E3470AAB37F7FC5A29385D8 /* WorkPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkPersistence.swift; sourceTree = "<group>"; };
+		258376850C460A145A373FC6 /* RestoreDownloadCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoreDownloadCenter.swift; sourceTree = "<group>"; };
 		260904811376E7965E880723 /* FanficlyWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FanficlyWidget.entitlements; sourceTree = "<group>"; };
 		2713168F72647EA18FC7D54D /* AO3SearchFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3SearchFilters.swift; sourceTree = "<group>"; };
 		27B8564F7747BDCE86437C90 /* WorkPageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkPageParser.swift; sourceTree = "<group>"; };
@@ -189,6 +193,7 @@
 		6D0234AF19606954547D2C84 /* SpeechController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechController.swift; sourceTree = "<group>"; };
 		6F0F0FF56D72C1AA78B8A646 /* AO3Endpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3Endpoints.swift; sourceTree = "<group>"; };
 		72C033CBA388EA9FBB5E9D85 /* ScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotTests.swift; sourceTree = "<group>"; };
+		738BD99703338F0BBCABB8EA /* PreviewTourTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewTourTests.swift; sourceTree = "<group>"; };
 		7878F783AFB1158EA7107223 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		79D8E6F7C34B59D6D90E268D /* FanficlyWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FanficlyWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A9B95678D459F38A75389DB /* ChapterContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterContentView.swift; sourceTree = "<group>"; };
@@ -200,6 +205,7 @@
 		8C632D73A950AC343EBDB92D /* SavedWorkReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedWorkReader.swift; sourceTree = "<group>"; };
 		8DBE194BD55409AE171449B7 /* ThrottleActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThrottleActor.swift; sourceTree = "<group>"; };
 		8E5D506137E5E8CD47C34FEF /* WorkFilterSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkFilterSheet.swift; sourceTree = "<group>"; };
+		915C63AC65FBC4EB1211BCF0 /* WorkExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkExporterTests.swift; sourceTree = "<group>"; };
 		946E7A305EC096F8075E6C03 /* DemoSeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSeed.swift; sourceTree = "<group>"; };
 		958A36B95570920660E8048F /* AO3EndpointsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AO3EndpointsTests.swift; sourceTree = "<group>"; };
 		98EF9886D03CF86890DD62E5 /* WidgetDataStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDataStoreTests.swift; sourceTree = "<group>"; };
@@ -249,7 +255,7 @@
 		FE2D61E9A2BC3930D40D784F /* PromptTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTextTests.swift; sourceTree = "<group>"; };
 		FE4F76A060504CC63D18FB5E /* FanficlyShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FanficlyShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF3F1CDC54EF7C6837A84AE8 /* DemoAO3Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoAO3Client.swift; sourceTree = "<group>"; };
-		"TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		"TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -360,6 +366,7 @@
 				862C0CD3C81FE0DC315D48DE /* iCloudSyncManager.swift */,
 				7878F783AFB1158EA7107223 /* LibraryView.swift */,
 				A4C473C55086269C2EB16927 /* RecentlyViewedView.swift */,
+				258376850C460A145A373FC6 /* RestoreDownloadCenter.swift */,
 				8C632D73A950AC343EBDB92D /* SavedWorkReader.swift */,
 				1E3470AAB37F7FC5A29385D8 /* WorkPersistence.swift */,
 			);
@@ -370,6 +377,7 @@
 			isa = PBXGroup;
 			children = (
 				52838C1ACEDD22576C399750 /* FanficlyUITests.swift */,
+				738BD99703338F0BBCABB8EA /* PreviewTourTests.swift */,
 				72C033CBA388EA9FBB5E9D85 /* ScreenshotTests.swift */,
 			);
 			path = FanficlyUITests;
@@ -496,6 +504,7 @@
 				CC5A8E8054D0CC319F382113 /* TagResolverTests.swift */,
 				D9CEA2F373D507F3282D733F /* ThrottleActorTests.swift */,
 				98EF9886D03CF86890DD62E5 /* WidgetDataStoreTests.swift */,
+				915C63AC65FBC4EB1211BCF0 /* WorkExporterTests.swift */,
 				DE70E6F403D1F1C214C9555C /* WorkMetadataParserTests.swift */,
 				BB40164C465D9753C5B808C2 /* WorkPageParserTests.swift */,
 			);
@@ -515,10 +524,10 @@
 			path = HTMLParsers;
 			sourceTree = "<group>";
 		};
-		"TEMP_6035EC91-54FE-4B62-B81F-BAAE9128D35A" /* ao3-app */ = {
+		"TEMP_EB5E4A00-ED56-4148-AB14-6E8A36A0033A" /* ao3-app */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */,
+				"TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */,
 			);
 			path = "ao3-app";
 			sourceTree = "<group>";
@@ -736,6 +745,7 @@
 				877A6CCB50D5F660D3E50E1A /* ReaderView.swift in Sources */,
 				0C0E579887A18A207BD4312A /* ReadingProgressStore.swift in Sources */,
 				56A163B595C20D47EF3D5B09 /* RecentlyViewedView.swift in Sources */,
+				0D7F1604C6F11E4176F1491B /* RestoreDownloadCenter.swift in Sources */,
 				439C7ED113C7972DE2915072 /* RootView.swift in Sources */,
 				978F1525C4BF6CAA6EAFD8DB /* SafariView.swift in Sources */,
 				09189CA1D95C6E126023F6DE /* SavedWorkReader.swift in Sources */,
@@ -789,6 +799,7 @@
 				E994541F6ECDCB44D99593B4 /* TagResolverTests.swift in Sources */,
 				44F2C4F0FD91247C70E510BD /* ThrottleActorTests.swift in Sources */,
 				4A5A01AE97465E64487C6C7E /* WidgetDataStoreTests.swift in Sources */,
+				DBA81F87145774CFAE42E8A1 /* WorkExporterTests.swift in Sources */,
 				976DBFDCDF8637D808A7AAD1 /* WorkMetadataParserTests.swift in Sources */,
 				7C6D7B9749A3BD62511C9590 /* WorkPageParserTests.swift in Sources */,
 			);
@@ -810,6 +821,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9B431892C23DB6492C91B8C /* FanficlyUITests.swift in Sources */,
+				0117FF773514BF619A52BF56 /* PreviewTourTests.swift in Sources */,
 				745A7910FCA667DC1279FAA4 /* ScreenshotTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -842,7 +854,7 @@
 /* Begin XCBuildConfiguration section */
 		101DDA49A6903ACE8E8B0566 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -896,7 +908,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 28;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -916,7 +928,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.7.0;
+				MARKETING_VERSION = 1.8.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -935,7 +947,7 @@
 		};
 		6FAF1406E881D8C0AC736895 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -961,7 +973,7 @@
 		};
 		9925155C6903BF8310099F16 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyShare/FanficlyShareMac.entitlements;
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -982,7 +994,7 @@
 		};
 		C1C42BD5CB7E6D67B69726DD /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -1008,7 +1020,7 @@
 		};
 		C33115565CF63EBC63BAECAD /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FanficlyWidget/FanficlyWidget.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyWidget/FanficlyWidgetMac.entitlements;
@@ -1030,7 +1042,7 @@
 		};
 		C613CC5642BD299A9EFC48E5 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1050,7 +1062,7 @@
 		};
 		CD522EF40C68CFE62723F737 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FanficlyWidget/FanficlyWidget.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyWidget/FanficlyWidgetMac.entitlements;
@@ -1072,7 +1084,7 @@
 		};
 		D5315B3D0C14233907B25D13 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = FanficlyShare/FanficlyShareMac.entitlements;
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1093,7 +1105,7 @@
 		};
 		E0E47751AC9B94FBBD68AF0C /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1113,7 +1125,7 @@
 		};
 		EDF7B1B0FCFFA1368D41D69E /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = "TEMP_220A219A-265F-4B09-8AE5-7469E3909A3F" /* Signing.xcconfig */;
+			baseConfigurationReference = "TEMP_D3DB2B6E-4218-4967-B356-97937B6F519F" /* Signing.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
@@ -1167,7 +1179,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 28;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -1181,7 +1193,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.7.0;
+				MARKETING_VERSION = 1.8.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -14,6 +14,7 @@ struct AgeGateView: View {
             Image(systemName: "book.closed.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(Color.accentColor)
+                .accessibilityHidden(true)
             Text("Welcome to Fanficly")
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
