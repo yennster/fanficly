@@ -57,6 +57,11 @@ struct ReaderView: View {
     @State private var parsedAtoms: [Int: [ParagraphAtom]] = [:]
     @State private var stableWidth: CGFloat = 0
     @State private var stableHeight: CGFloat = 0
+    /// Measured height of the narration mini-player. Page-by-page layout is
+    /// pinned to the immersive height and ignores chrome, so while narration
+    /// is active this must be carved out of the page height — otherwise the
+    /// bar covers the bottom lines of every page with no way to reveal them.
+    @State private var narrationBarHeight: CGFloat = 0
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -331,6 +336,9 @@ struct ReaderView: View {
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
                 narrationBar(fg: fg, bg: bg)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
+                        narrationBarHeight = $0
+                    }
             } else if mode == .pageByPage && !isUIMinimized {
                 pageFooterBar(fg: fg, bg: bg)
             }
@@ -1046,7 +1054,11 @@ struct ReaderView: View {
                 showImages: showImages,
                 size: CGSize(
                     width: geo.size.width,
-                    height: stableHeight > 0 ? stableHeight : immersiveReadingHeight(fallback: geo.size.height)
+                    // While narrating, pages must fit above the narration bar —
+                    // the height change re-triggers pagination, and
+                    // restoreOrValidatePageSelection re-lands on the anchor.
+                    height: (stableHeight > 0 ? stableHeight : immersiveReadingHeight(fallback: geo.size.height))
+                        - (speech.isActive ? narrationBarHeight : 0)
                 )
             )
             
