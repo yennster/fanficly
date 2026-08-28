@@ -268,9 +268,32 @@ final class iCloudSyncManager {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(backup)
             try data.write(to: url, options: .atomic)
+            // We just wrote the cloud file, so its content is already applied
+            // here — stamp it so the launch auto-sync doesn't re-restore our
+            // own backup.
+            markCloudBackupApplied()
         } catch {
             print("Failed to backup to iCloud: \(error)")
         }
+    }
+
+    // MARK: - Launch auto-sync bookkeeping
+
+    static let lastRestoredStampKey = "icloud.lastRestoredBackupDate"
+
+    /// Whether the cloud backup has changed since this device last applied
+    /// (or wrote) it — the launch auto-sync's cheap "anything new?" check.
+    /// True when we can't tell (no stamp yet, or an undownloaded placeholder
+    /// with no readable date): restore is a conservative merge, so restoring
+    /// once too often is safe; skipping a real change is not.
+    var cloudBackupHasUnappliedChanges: Bool {
+        guard let applied = UserDefaults.standard.object(forKey: Self.lastRestoredStampKey) as? Date,
+              let cloudDate = lastBackupDate else { return true }
+        return cloudDate > applied
+    }
+
+    private func markCloudBackupApplied() {
+        UserDefaults.standard.set(lastBackupDate ?? Date(), forKey: Self.lastRestoredStampKey)
     }
 
     /// Unions a freshly-built local backup with the backup already in iCloud.
@@ -529,26 +552,33 @@ final class iCloudSyncManager {
                 work.publishedAt = w.publishedAt
                 work.updatedAt = w.updatedAt
                 work.savedAt = w.savedAt
-                work.lastReadAt = w.lastReadAt
-                work.lastReadChapter = w.lastReadChapter
-                work.lastReadProgress = w.lastReadProgress
-                work.isFollowed = w.isFollowed
-                work.followedAt = w.followedAt
-                work.lastSeenChapterCount = w.lastSeenChapterCount
-                work.isStarred = w.isStarred ?? false
-                work.isPinned = w.isPinned ?? false
-                
+                // Reading position: keep whichever side read more recently.
+                // Restore also runs as a background launch sync now, which
+                // must never rewind this device to an older backup.
+                if (w.lastReadAt ?? .distantPast) > (work.lastReadAt ?? .distantPast) {
+                    work.lastReadAt = w.lastReadAt
+                    work.lastReadChapter = w.lastReadChapter
+                    work.lastReadProgress = w.lastReadProgress
+                }
+                // Follow/star/pin merge as an OR: the cloud union can lag a
+                // flag set locally moments ago, and un-flagging deliberately
+                // doesn't propagate (same rule as mergedBackup).
+                work.isFollowed = work.isFollowed || w.isFollowed
+                if work.followedAt == nil { work.followedAt = w.followedAt }
+                // Notification baseline only advances — regressing it would
+                // re-fire "new chapter" alerts for chapters already seen.
+                if let cloudSeen = w.lastSeenChapterCount {
+                    work.lastSeenChapterCount = max(work.lastSeenChapterCount ?? 0, cloudSeen)
+                }
+                work.isStarred = work.isStarred || (w.isStarred ?? false)
+                work.isPinned = work.isPinned || (w.isPinned ?? false)
+
                 work.folder = nil // clear legacy single folder reference
-                work.folders.removeAll()
-                if let folderNames = w.folderNames {
-                    for fName in folderNames {
-                        let folderDescriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == fName })
-                        if let folder = (try? context.fetch(folderDescriptor))?.first {
-                            work.folders.append(folder)
-                        }
-                    }
-                } else if let folderName = w.folderName {
-                    let folderDescriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == folderName })
+                // Folders union, not replace: a launch sync must not drop an
+                // assignment made locally since the last backup.
+                let folderNames = w.folderNames ?? w.folderName.map { [$0] } ?? []
+                for fName in folderNames where !work.folders.contains(where: { $0.name == fName }) {
+                    let folderDescriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == fName })
                     if let folder = (try? context.fetch(folderDescriptor))?.first {
                         work.folders.append(folder)
                     }
@@ -617,16 +647,19 @@ final class iCloudSyncManager {
                 }
             }
             
-            // 5. Restore ReadingProgress entries
+            // 5. Restore ReadingProgress entries — newer side wins, so a
+            // background sync can only advance a position, never rewind it.
             for p in backup.progress {
                 let descriptor = FetchDescriptor<ReadingProgress>(predicate: #Predicate { $0.ao3Id == p.ao3Id })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
-                    existing.chapterIndex = p.chapterIndex
-                    existing.paragraphIndex = p.paragraphIndex
-                    existing.title = p.title
-                    existing.author = p.author
-                    existing.updatedAt = p.updatedAt
+                    if p.updatedAt > existing.updatedAt {
+                        existing.chapterIndex = p.chapterIndex
+                        existing.paragraphIndex = p.paragraphIndex
+                        existing.title = p.title
+                        existing.author = p.author
+                        existing.updatedAt = p.updatedAt
+                    }
                 } else {
                     context.insert(ReadingProgress(ao3Id: p.ao3Id, chapterIndex: p.chapterIndex, paragraphIndex: p.paragraphIndex, title: p.title, author: p.author, updatedAt: p.updatedAt))
                 }
@@ -697,6 +730,7 @@ final class iCloudSyncManager {
             }
 
             try context.save()
+            markCloudBackupApplied()
             return true
         } catch {
             print("Failed to restore from iCloud: \(error)")

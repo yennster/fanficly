@@ -121,9 +121,18 @@ struct FanficlyApp: App {
 
                     let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                     if iCloudEnabled && !Self.isDemoMode {
-                        let worksCount = (try? context.fetchCount(FetchDescriptor<Work>())) ?? 0
-                        if worksCount == 0 && iCloudSyncManager.shared.isBackupAvailable {
-                            await iCloudSyncManager.shared.restoreFromiCloud(context: context)
+                        let sync = iCloudSyncManager.shared
+                        // Adopt the newest cloud backup automatically, not just
+                        // on an empty library: restore is a conservative merge
+                        // (positions and flags only advance, chapters only
+                        // grow), so pulling at every launch is safe and keeps
+                        // iPhone and Mac in step without a manual Restore. The
+                        // stamp skips the work when the cloud file is unchanged
+                        // since this device last applied or wrote it.
+                        if sync.isBackupAvailable && sync.cloudBackupHasUnappliedChanges {
+                            if await sync.restoreFromiCloud(context: context) {
+                                RestoreDownloadCenter.shared.proposeRedownload(context: context)
+                            }
                         }
                     }
 

@@ -175,6 +175,9 @@ struct RootView: View {
             .onPasteCommandIfAvailable { providers in
                 _ = self.handleImportProviders(providers)
             }
+            // Post-iCloud-restore "re-download offline stories?" prompt and
+            // its progress banner — root-level so it shows on any tab.
+            .restoreRedownloadUI()
     }
 
     private var isCompactNavigation: Bool {
