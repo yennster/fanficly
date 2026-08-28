@@ -177,6 +177,7 @@ private struct FollowedAuthorRow: View {
             HStack(spacing: 8) {
                 HStack(spacing: 4) {
                     Image(systemName: "person").font(.caption2)
+                        .accessibilityHidden(true)
                     Text("Author").font(.caption)
                 }
                 .foregroundStyle(.secondary)

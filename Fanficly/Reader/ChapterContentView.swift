@@ -132,6 +132,8 @@ struct ReaderInlineImage: View {
     static let slotHeight: CGFloat = 240
 
     var body: some View {
+        // Per-phase labels: a container-wide "Story image" would override the
+        // loading and "Image unavailable" states for VoiceOver.
         AsyncImage(url: url) { phase in
             switch phase {
             case .success(let image):
@@ -139,18 +141,19 @@ struct ReaderInlineImage: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel("Story image")
             case .failure:
                 Label("Image unavailable", systemImage: "photo")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             case .empty:
                 ProgressView()
+                    .accessibilityLabel("Story image, loading")
             @unknown default:
                 EmptyView()
             }
         }
         .frame(maxWidth: .infinity)
         .frame(height: Self.slotHeight)
-        .accessibilityLabel("Story image")
     }
 }

@@ -11,6 +11,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     private(set) var autocompleteCalls: [String] = []
     /// Scripted subscriptions-list response (SubscriptionPoller tests).
     var subscriptionsResponse: [AO3Subscription] = []
+    /// Scripted export failure (WorkExporter tests).
+    var exportError: Error?
 
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         autocompleteCalls.append(term)
@@ -50,7 +52,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
-        URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
+        if let exportError { throw exportError }
+        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
     func subscribeToWork(workId: Int) async throws {}
 }

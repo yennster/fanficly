@@ -379,6 +379,8 @@ struct FandomWorksView: View {
                           ? "line.3.horizontal.decrease.circle.fill"
                           : "line.3.horizontal.decrease.circle")
                 }
+                .accessibilityLabel("Filters")
+                .accessibilityValue(activeFilterCount > 0 ? "\(activeFilterCount) active" : "None")
             }
         }
         .sheet(isPresented: $showingFilters) {
@@ -410,12 +412,16 @@ struct FandomWorksView: View {
                             .font(.caption2)
                             .foregroundStyle(Color.accentColor)
                             .padding(.leading, 2)
+                            .accessibilityHidden(true)
                     }
                 }
             }
             .buttonStyle(.plain)
             .textCase(nil)
             .padding(.vertical, 2)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Active filters: \(filterChips.joined(separator: ", "))")
+            .accessibilityHint("Opens filter options.")
         }
     }
 

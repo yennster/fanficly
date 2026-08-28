@@ -107,6 +107,8 @@ struct FanficlyWidgetEntryView : View {
             }
         }
         .padding(isSmall ? 12 : 14)
+        // One VoiceOver sentence — the widget is a single tap target.
+        .accessibilityElement(children: .combine)
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
@@ -161,6 +163,8 @@ private struct WidgetProgressBar: View {
             }
         }
         .frame(height: 5)
+        .accessibilityLabel("Reading progress")
+        .accessibilityValue("\(Int(min(max(value, 0), 1) * 100)) percent")
     }
 }
 
@@ -250,6 +254,7 @@ private struct AppBookIcon: View {
                 context.fill(Path(rightRect), with: .color(.black))
             }
         }
+        .accessibilityHidden(true) // decorative logo
     }
 }
 
@@ -421,6 +426,8 @@ struct StreakWidgetEntryView: View {
                             .frame(width: isSmall ? 15 : 18, height: isSmall ? 15 : 18)
                         }
                         .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(dayAccessibilityLabel(for: day, in: days))
                     }
                 }
                 .padding(.vertical, isSmall ? 4 : 3)
@@ -430,6 +437,8 @@ struct StreakWidgetEntryView: View {
         }
         .padding(.horizontal, isSmall ? 12 : 14)
         .padding(.vertical, isSmall ? 12 : 14)
+        // One VoiceOver sentence — the widget is a single tap target.
+        .accessibilityElement(children: .combine)
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
@@ -437,6 +446,19 @@ struct StreakWidgetEntryView: View {
 
     private var isSmall: Bool {
         family == .systemSmall
+    }
+
+    /// Full weekday name for VoiceOver — the one-letter labels are ambiguous.
+    /// The dots run from the calendar's first weekday (see `getLast7DaysActivity`).
+    private func dayAccessibilityLabel(for day: WeekdayActivity, in days: [WeekdayActivity]) -> String {
+        let calendar = Calendar.current
+        var name = day.name
+        if let index = days.firstIndex(where: { $0.id == day.id }) {
+            name = calendar.standaloneWeekdaySymbols[(calendar.firstWeekday - 1 + index) % 7]
+        }
+        var label = "\(name), \(day.isRead ? "read" : "not read")"
+        if day.isToday { label += ", today" }
+        return label
     }
 }
 
@@ -564,6 +586,7 @@ struct SubscriptionsWidgetEntryView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
                     }
                 } else {
                     // Medium Family lists top 3 updates
@@ -589,6 +612,7 @@ struct SubscriptionsWidgetEntryView: View {
                                         .padding(.vertical, 3)
                                         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                                 }
+                                .accessibilityElement(children: .combine)
                             }
                         }
                     }
@@ -599,6 +623,8 @@ struct SubscriptionsWidgetEntryView: View {
             }
         }
         .padding(isSmall ? 12 : 14)
+        // No container-level combine here: each update row is its own Link, and
+        // combining would hide those from VoiceOver. The rows combine themselves.
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
@@ -718,6 +744,7 @@ struct FolderShortcutWidgetEntryView: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
                     }
                 } else {
                     // Medium Family lists top 3 folders
@@ -738,6 +765,7 @@ struct FolderShortcutWidgetEntryView: View {
                                         .font(.system(size: 11, weight: .bold))
                                         .foregroundStyle(.white.opacity(0.55))
                                 }
+                                .accessibilityElement(children: .combine)
                             }
                         }
                     }
@@ -748,6 +776,8 @@ struct FolderShortcutWidgetEntryView: View {
             }
         }
         .padding(isSmall ? 12 : 14)
+        // No container-level combine here: each folder row is its own Link, and
+        // combining would hide those from VoiceOver. The rows combine themselves.
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
@@ -870,6 +900,7 @@ struct SavedSearchesWidgetEntryView: View {
                             .background(.white.opacity(0.12), in: Capsule())
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityElement(children: .combine)
                     }
                 } else {
                     // Medium Family lists top 3 searches
@@ -895,6 +926,7 @@ struct SavedSearchesWidgetEntryView: View {
                                         .padding(.vertical, 2)
                                         .background(.white.opacity(0.08), in: Capsule())
                                 }
+                                .accessibilityElement(children: .combine)
                             }
                         }
                     }
@@ -905,6 +937,8 @@ struct SavedSearchesWidgetEntryView: View {
             }
         }
         .padding(isSmall ? 12 : 14)
+        // No container-level combine here: each search row is its own Link, and
+        // combining would hide those from VoiceOver. The rows combine themselves.
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }
@@ -1036,6 +1070,7 @@ struct RecommendationWidgetEntryView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1050,6 +1085,8 @@ struct RecommendationWidgetEntryView: View {
             }
         }
         .padding(isSmall ? 12 : 14)
+        // No container-level combine: the rec is a Link, and combining would
+        // hide it from VoiceOver. The Link content combines itself.
         .containerBackground(for: .widget) {
             WidgetGlassBackground()
         }

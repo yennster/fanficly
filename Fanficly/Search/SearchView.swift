@@ -63,6 +63,7 @@ struct SearchView: View {
                 } label: {
                     Image(systemName: "bookmark")
                 }
+                .accessibilityLabel("Saved searches")
             }
         }
         .alert("Save search", isPresented: $showingSaveDialog) {
@@ -145,6 +146,8 @@ struct SearchView: View {
                             ChipView(text: chip.label, kind: chip.kind, removable: true)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove filter: \(chipAccessibilityText(chip.label))")
+                        .accessibilityHint("Removes this filter and re-runs the search.")
                     }
                 }
             }
@@ -310,9 +313,12 @@ struct SearchView: View {
                     Image(systemName: "arrow.up.arrow.down")
                     Text(sortColumn.displayName)
                     Image(systemName: "chevron.down").font(.caption2)
+                        .accessibilityHidden(true)
                 }
                 .font(.subheadline)
             }
+            .accessibilityLabel("Sort by")
+            .accessibilityValue(sortColumn.displayName)
             .onChange(of: sortColumn) { _, _ in
                 if !results.isEmpty { Task { await executeSearch(resolve: false) } }
             }
@@ -328,6 +334,8 @@ struct SearchView: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Sort direction")
+            .accessibilityValue(sortDirection.displayName)
 
             Spacer()
         }
@@ -374,6 +382,10 @@ struct SearchView: View {
             totalPages = result.totalPages
             currentPage = result.currentPage
             hasSearched = true
+            // Tell VoiceOver users the async search finished (the list swap
+            // alone gives no audible cue).
+            UIAccessibility.post(notification: .announcement,
+                                 argument: "Search finished. \(results.count) works on this page.")
         } catch let AO3Error.loginFailed(reason) {
             errorMessage = reason
             hasSearched = false
@@ -416,6 +428,15 @@ struct SearchView: View {
         let label: String
         let kind: ChipView.Kind
         let remove: () -> Void
+    }
+
+    /// VoiceOver reads emoji names aloud ("black heart suit Hermione…"), so
+    /// strip the decorative emoji prefix for accessibility strings.
+    private func chipAccessibilityText(_ label: String) -> String {
+        for prefix in ["♥ ", "👤 ", "📚 "] where label.hasPrefix(prefix) {
+            return String(label.dropFirst(prefix.count))
+        }
+        return label
     }
 
     /// Tap a chip to remove that filter and re-run the search.
@@ -545,6 +566,7 @@ struct WorkRow: View {
                     if work.kudos > 0 {
                         HStack(spacing: 4) {
                             Image(systemName: "heart")
+                                .accessibilityHidden(true)
                             Text(work.kudos.formatted())
                         }
                         .font(.caption)
@@ -557,6 +579,9 @@ struct WorkRow: View {
                     Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
                 }
             }
+            // Combine only the text stack, so the inline bookmark button stays
+            // its own focusable element.
+            .accessibilityElement(children: .combine)
             Spacer(minLength: 8)
             bookmarkButton
         }
@@ -598,6 +623,7 @@ struct ChipView: View {
             Text(text)
             if removable {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).opacity(0.6)
+                    .accessibilityHidden(true)
             }
         }
         .font(.caption)
@@ -639,6 +665,7 @@ struct WorkDetailView: View {
     @State private var showingReport: Bool = false
     @State private var showingComments: Bool = false
     @State private var currentChapterIndex = 1
+    @State private var exporter = WorkExporter()
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -686,6 +713,8 @@ struct WorkDetailView: View {
         // loads or during the push transition.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(readerBackground.ignoresSafeArea())
+        // On the screen view, NOT inside the menu — see WorkExporter's docs.
+        .workExportPresentation(exporter)
         .task { await load() }
     }
 
@@ -707,7 +736,8 @@ struct WorkDetailView: View {
 
             Divider()
 
-            WorkExportButton(workId: workId, title: payload.summary.title, useTextLabel: true)
+            WorkExportButton(workId: workId, title: payload.summary.title,
+                             exporter: exporter, useTextLabel: true)
             Button {
                 Task { await saveOffline(payload) }
             } label: {
@@ -735,7 +765,11 @@ struct WorkDetailView: View {
                 Label("Hide this work", systemImage: "eye.slash")
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            if exporter.isExporting {
+                ProgressView()
+            } else {
+                Image(systemName: "ellipsis.circle")
+            }
         }
         .accessibilityLabel("Work options")
     }
@@ -847,6 +881,7 @@ struct CommentsView: View {
                         if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isLoading)
+                    .accessibilityLabel("Refresh comments")
                 }
             }
             .safeAreaInset(edge: .bottom) { composer }
@@ -860,6 +895,7 @@ struct CommentsView: View {
             if auth.username == nil {
                 HStack(spacing: 8) {
                     Image(systemName: "person.crop.circle.badge.questionmark")
+                        .accessibilityHidden(true)
                     Text("Log in to AO3 (Settings) to post a comment.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -939,11 +975,13 @@ private struct CommentRow: View {
                 RoundedRectangle(cornerRadius: 1)
                     .fill(Color.secondary.opacity(0.3))
                     .frame(width: 2)
+                    .accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Image(systemName: comment.commenterUsername.isEmpty ? "person.crop.circle.badge.questionmark" : "person.crop.circle")
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                     Text(comment.commenterName)
                         .font(.subheadline.weight(.semibold))
                     Spacer()
@@ -953,6 +991,9 @@ private struct CommentRow: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                // Combine only the header (name + date); the body may carry
+                // links, which combining would flatten.
+                .accessibilityElement(children: .combine)
                 HTMLText(html: comment.bodyHTML)
                     .font(.callout)
             }
@@ -1076,6 +1117,7 @@ struct HelpSection: View {
                 Image(systemName: icon)
                     .foregroundStyle(color)
                     .font(.headline)
+                    .accessibilityHidden(true)
                 Text(title)
                     .font(.headline)
             }

@@ -19,6 +19,7 @@ struct SavedWorkReader: View {
     @State private var showingComments = false
     @State private var currentChapterIndex = 1
     @State private var isResolvingComments = false
+    @State private var exporter = WorkExporter()
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
 
@@ -95,7 +96,8 @@ struct SavedWorkReader: View {
                 // ~5 trailing icons the iPhone nav bar fits before it spills
                 // into its own overflow (a confusing second ellipsis).
                 Menu {
-                    WorkExportButton(workId: work.ao3Id, title: work.title, useTextLabel: true)
+                    WorkExportButton(workId: work.ao3Id, title: work.title,
+                                     exporter: exporter, useTextLabel: true)
                     Button {
                         Task { await saveOffline() }
                     } label: {
@@ -104,7 +106,7 @@ struct SavedWorkReader: View {
                     }
                     .disabled(isSavingOffline || isDownloaded)
                 } label: {
-                    if isSavingOffline {
+                    if isSavingOffline || exporter.isExporting {
                         ProgressView()
                     } else {
                         Image(systemName: "ellipsis.circle")
@@ -119,6 +121,8 @@ struct SavedWorkReader: View {
                          chapterNumber: currentChapterIndex,
                          totalChapters: totalChapterCount)
         }
+        // On the screen view, NOT inside the menu — see WorkExporter's docs.
+        .workExportPresentation(exporter)
         .task { await load() }
         .onAppear {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil

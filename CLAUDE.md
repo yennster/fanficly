@@ -178,6 +178,8 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - **SwiftData models** live in `Models/Work.swift`. The model container is constructed once in `FanficlyApp` and shared with `BackgroundRefresh`.
 - **Settings come from `@AppStorage`**, not custom UserDefaults wrappers. Reader typography keys are per-device — always go through `ReaderProfile.deviceKey(_:)` (suffixes `.phone`/`.pad`/`.mac`).
 - **No third-party dependencies beyond SwiftSoup and KeychainAccess.** Don't add analytics, crash reporters, or any SDK with a network side-channel — privacy posture is the headline feature.
+- **Never present sheets/alerts from `Menu` content.** Menu content is torn down when the menu dismisses, so a `.sheet`/`.alert` attached to a view *inside* a menu has no live anchor by the time async work finishes and silently never presents (VoiceOver users hit it every time — slower dismissal). Own the state in the screen view and attach the presentation there; `WorkExporter` + `.workExportPresentation(_:)` (in `WorkExportButton.swift`) is the pattern.
+- **VoiceOver is a supported input.** Icon-only buttons/menus get `.accessibilityLabel`; multi-`Text` rows get `.accessibilityElement(children: .combine)` (but never combine a container holding tappable `Link`s/buttons — it hides them); decorative SF Symbols next to text get `.accessibilityHidden(true)`; invisible gestures (the reader's tap-to-turn zones, chrome-toggle tap) need `.accessibilityAction(named:)` equivalents — the reader's live in `ReaderView` (`accessibilityTurnPage`/`accessibilityTurnChapter`/`toggleChromeAccessibly`, which also posts announcements). Long-running silent transitions (export download, search, import) post `UIAccessibility.announcement`.
 
 ## Common tasks
 

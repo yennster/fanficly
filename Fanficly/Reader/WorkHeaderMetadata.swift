@@ -34,11 +34,13 @@ struct WorkHeaderMetadata: View {
                         Text(showDetails ? "Hide tags & relationships" : "Tags & relationships")
                         Image(systemName: showDetails ? "chevron.up" : "chevron.down")
                             .font(.caption2)
+                            .accessibilityHidden(true)
                     }
                     .font(.caption.weight(.medium))
                     .foregroundStyle(Color.accentColor)
                 }
                 .buttonStyle(.plain)
+                .accessibilityHint("Shows the work's fandoms, relationships, characters, and tags.")
 
                 if showDetails {
                     VStack(alignment: .leading, spacing: 10) {
@@ -90,6 +92,20 @@ private struct MetadataRow: View {
 enum ChipKind {
     case rating, warning, category, fandom, relationship, character, tag
 
+    /// Spoken category prefix, so a chip out of visual context still says what
+    /// it is ("Warning: Major Character Death", not just the tag text).
+    var accessibilityName: String {
+        switch self {
+        case .rating:       "Rating"
+        case .warning:      "Warning"
+        case .category:     "Category"
+        case .fandom:       "Fandom"
+        case .relationship: "Relationship"
+        case .character:    "Character"
+        case .tag:          "Tag"
+        }
+    }
+
     var foreground: Color {
         switch self {
         case .rating:       .white
@@ -125,6 +141,7 @@ private struct SmallChip: View {
             .background(kind.background)
             .foregroundStyle(kind.foreground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .accessibilityLabel("\(kind.accessibilityName): \(text)")
     }
 }
 
@@ -140,7 +157,7 @@ private struct RatingBadge: View {
             .background(color)
             .foregroundStyle(.white)
             .clipShape(Capsule())
-            .accessibilityLabel(rating)
+            .accessibilityLabel(rating.isEmpty ? "Rating not specified" : "Rating: \(rating)")
     }
 
     private func badge(for rating: String) -> (Color, String) {

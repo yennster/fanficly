@@ -352,8 +352,13 @@ struct ReaderView: View {
                         isUIMinimized = true
                     }
                 } label: {
-                    Label("Maximize", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Label("Hide reader controls", systemImage: "arrow.up.left.and.arrow.down.right")
                 }
+                // Hiding the toolbar removes every visible way back for
+                // VoiceOver users; the custom "Show reader controls" action on
+                // the reader body (readerChromeAccessibilityActions) is the
+                // escape hatch — keep them in sync.
+                .accessibilityHint("Hides the toolbar. To bring it back, use the Show Reader Controls action on the story text.")
             }
         }
         // When a chapter finishes narrating, roll on to the next (or stop).
@@ -469,11 +474,14 @@ struct ReaderView: View {
     private func narrationBar(fg: Color, bg: Color) -> some View {
         HStack(spacing: 20) {
             Button { speech.skipBackward() } label: { Image(systemName: "backward.fill") }
+                .accessibilityLabel("Previous paragraph")
             Button { speech.togglePlayPause() } label: {
                 Image(systemName: speech.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title3)
             }
+            .accessibilityLabel(speech.isPlaying ? "Pause" : "Play")
             Button { speech.skipForward() } label: { Image(systemName: "forward.fill") }
+                .accessibilityLabel("Next paragraph")
 
             if chapters.count > 1 {
                 Menu {
@@ -488,11 +496,12 @@ struct ReaderView: View {
                     narrationStatus(fg: fg, showChevron: true)
                 }
                 .foregroundStyle(fg)
+                .accessibilityHint("Choose a chapter to listen to.")
             } else {
                 narrationStatus(fg: fg, showChevron: false)
             }
             Spacer()
-            
+
             // Speaking rate selection menu
             Menu {
                 ForEach([0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0], id: \.self) { rate in
@@ -515,13 +524,16 @@ struct ReaderView: View {
                     .background(fg.opacity(0.12))
                     .cornerRadius(5)
             }
-            
+            .accessibilityLabel("Speaking rate")
+            .accessibilityValue(String(format: "%.1f times normal speed", speech.rateMultiplier))
+
             Button {
                 speech.stop()
                 listeningChapter = nil
             } label: {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(fg.opacity(0.45))
             }
+            .accessibilityLabel("Stop listening")
         }
         .foregroundStyle(fg)
         .padding(.horizontal, 18)
@@ -550,6 +562,10 @@ struct ReaderView: View {
                 .font(.caption2)
                 .foregroundStyle(fg.opacity(0.6))
         }
+        // "¶ 3 / 40" reads as "pilcrow sign" to VoiceOver — speak it properly.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Now reading")
+        .accessibilityValue("\(speech.chapterLabel), paragraph \(speech.spokenPosition) of \(speech.spokenCount)")
     }
 
     /// Drives the narration-bar chapter Picker: reads the chapter being read
@@ -622,6 +638,9 @@ struct ReaderView: View {
                         }
                     }
                 )
+                .accessibilityAction(named: chromeAccessibilityActionName()) {
+                    toggleChromeAccessibly()
+                }
                 .safeAreaInset(edge: .top, spacing: 0) {
                     if chapters.count > 1 && !isUIMinimized {
                         chapterIndicatorBar(fg: fg, bg: bg)
@@ -830,6 +849,9 @@ struct ReaderView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
         }
+        // One element instead of two loose Texts ("Chapter 3 · Title" + "3/12").
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), chapter \(visibleChapterIndex) of \(chapters.count)")
     }
 
     private func chapterHeader(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
@@ -887,6 +909,9 @@ struct ReaderView: View {
                     }
                 }
             )
+            .accessibilityAction(named: "Next chapter") { accessibilityTurnChapter(forward: true) }
+            .accessibilityAction(named: "Previous chapter") { accessibilityTurnChapter(forward: false) }
+            .accessibilityAction(named: chromeAccessibilityActionName()) { toggleChromeAccessibly() }
             .task {
                 isRestoring = true
                 if let anchor = loadAnchorIfNeeded() {
@@ -1063,6 +1088,9 @@ struct ReaderView: View {
                             }
                         }
                     )
+                    .accessibilityAction(named: "Next page") { accessibilityTurnPage(forward: true) }
+                    .accessibilityAction(named: "Previous page") { accessibilityTurnPage(forward: false) }
+                    .accessibilityAction(named: chromeAccessibilityActionName()) { toggleChromeAccessibly() }
                 }
             }
             .background(bg)
@@ -1275,8 +1303,43 @@ struct ReaderView: View {
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
         }
-        
+
         updatePageSelection(targetPage.id)
+    }
+
+    // MARK: - VoiceOver equivalents for the invisible tap zones
+
+    // The tap-to-turn thirds and the chrome-toggle tap are invisible targets
+    // VoiceOver can never discover, so the same operations are exposed as
+    // custom accessibility actions on the reader body (SwiftUI propagates them
+    // to every focused element inside).
+
+    private func toggleChromeAccessibly() {
+        withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized.toggle() }
+        UIAccessibility.post(notification: .announcement,
+                             argument: isUIMinimized ? "Reader controls hidden" : "Reader controls shown")
+    }
+
+    private func accessibilityTurnChapter(forward: Bool) {
+        let target = selectedChapterIndex + (forward ? 1 : -1)
+        guard chapters.contains(where: { $0.index == target }) else { return }
+        selectedChapterIndex = target
+        UIAccessibility.post(notification: .pageScrolled,
+                             argument: "Chapter \(target) of \(chapters.count)")
+    }
+
+    private func accessibilityTurnPage(forward: Bool) {
+        turnPageByPage(forward: forward)
+        if let page = paginatedPages.first(where: { $0.id == selectedPageId }) {
+            let total = paginatedPages.filter { $0.chapterIndex == page.chapterIndex }.count
+            UIAccessibility.post(notification: .pageScrolled,
+                                 argument: "Page \(page.pageIndex + 1) of \(total), chapter \(page.chapterIndex)")
+        }
+    }
+
+    /// The chrome toggle, as a custom action whose name tracks the state.
+    private func chromeAccessibilityActionName() -> String {
+        isUIMinimized ? "Show reader controls" : "Hide reader controls"
     }
 
     private func restoreOrValidatePageSelection() {
@@ -1362,6 +1425,8 @@ struct ReaderView: View {
             .overlay(alignment: .top) {
                 Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(label), page \(currentPageNum) of \(totalPagesInChapter)")
         }
     }
 
@@ -1742,11 +1807,13 @@ struct ReaderView: View {
                         HStack(spacing: 4) {
                             Text("by \(author)")
                             Image(systemName: "chevron.right").font(.caption2)
+                                .accessibilityHidden(true)
                         }
                         .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
+                    .accessibilityHint("Shows this author's other works.")
                 }
             }
             if let summary {
@@ -1803,6 +1870,7 @@ struct ReaderView: View {
         } label: {
             Image(systemName: "list.bullet")
         }
+        .accessibilityLabel("Chapters")
     }
 
     private var typographyMenu: some View {
