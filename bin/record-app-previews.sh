@@ -107,15 +107,24 @@ record() { # <name> <sim name> <test method>
 #   ffmpeg -i build/previews-raw/<name>.mov -vf "fps=1,scale=110:-2,tile=8x6" \
 #     -frames:v 1 sheet.png
 
-make_caption() { # <text> <fontsize> <out.png>
-    bin/.venv/bin/python - "$1" "$2" "$3" <<'PY'
+make_caption() { # <text> <max fontsize> <max pill width px> <out.png>
+    bin/.venv/bin/python - "$1" "$2" "$3" "$4" <<'PY'
 import sys
 from PIL import Image, ImageDraw, ImageFont
-text, size, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
-font = ImageFont.truetype("/Library/Fonts/SF-Pro-Display-Black.otf", size)
-l, t, r, b = font.getbbox(text)
-px, py = int(size * 0.5), int(size * 0.32)
-w, h = r - l + 2 * px, b - t + 2 * py
+text, size, max_w, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+FONT = "/Library/Fonts/SF-Pro-Display-Black.otf"
+
+# Shrink until the pill fits the frame — a long caption at full size would
+# be wider than the video and get clipped by the centered overlay.
+while size > 24:
+    font = ImageFont.truetype(FONT, size)
+    l, t, r, b = font.getbbox(text)
+    px, py = int(size * 0.5), int(size * 0.32)
+    w, h = r - l + 2 * px, b - t + 2 * py
+    if w <= max_w:
+        break
+    size -= 4
+
 img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
 d = ImageDraw.Draw(img)
 d.rounded_rectangle([0, 0, w - 1, h - 1], radius=h // 2, fill=(0x3B, 0x2E, 0x8C, 242))
@@ -124,29 +133,46 @@ img.save(out)
 PY
 }
 
-post() { # <name> <content end (raw s)> <geometry filter>
+post() { # <name> <geometry filter>
     # Uses per-video globals: PRE (filter before captions, e.g. transpose),
-    # CAPS ("TEXT|start|end" triplets), CAPSIZE, CAPY.
-    # Trim launch settle (head) and everything past the content end (the
-    # recorder tails into the home screen after teardown), then uniformly
-    # speed up whatever remains so the preview lands at ~27.5 s — under the
-    # App Store's 30 s cap. Mild speed-up reads as "snappy" in previews.
-    local name="$1" end="$2" geo="$3" speed
-    speed=$(python3 -c "print(max(1.0, ($end - 1.0) / 27.5))")
-    echo "==> $name: content end ${end}s, speed ${speed}x"
+    # CAPS ("TEXT|start|end" triplets), CAPSIZE, CAPY, and SEGMENTS
+    # ("start|end" in raw seconds) — the kept slices, concatenated in order.
+    # Segment editing is what keeps the pacing snappy: dead time (long
+    # sidebar dwells between beats, the recorder's home-screen tail after
+    # teardown) is simply not in the list; a transition keeps only a short
+    # flash of the menu so the cut still reads. Captions overlay BEFORE the
+    # cuts, so their windows stay in raw capture time. Whatever total
+    # remains is uniformly sped up to land at ~27.5 s when it runs long.
+    local name="$1" geo="$2" total speed
+    total=$(python3 -c "
+segs = '${SEGMENTS[*]}'.split()
+print(sum(float(s.split('|')[1]) - float(s.split('|')[0]) for s in segs))")
+    speed=$(python3 -c "print(max(1.0, $total / 27.5))")
+    echo "==> $name: ${#SEGMENTS[@]} segments, ${total}s kept, speed ${speed}x"
     local inputs=(-i "$RAW/$name.mov")
-    local fc="[0:v]${PRE}[v0]"
+    # fps=30 FIRST: simctl records variable frame rate with no frames at all
+    # during static stretches, so trim boundaries and caption windows would
+    # snap to the next real frame and silently drop static seconds.
+    local fc="[0:v]fps=30,${PRE}[v0]"
     local idx=1 cur="v0" spec text start endt png
     for spec in "${CAPS[@]}"; do
         IFS='|' read -r text start endt <<< "$spec"
         png="$RAW/caps-$name-$idx.png"
-        make_caption "$text" "$CAPSIZE" "$png"
+        make_caption "$text" "$CAPSIZE" "$CAPMAXW" "$png"
         inputs+=(-i "$png")
         fc="$fc;[$cur][$idx:v]overlay=(W-w)/2:$CAPY:enable='between(t,$start,$endt)'[v$idx]"
         cur="v$idx"
         idx=$((idx + 1))
     done
-    fc="$fc;[$cur]trim=start=1:end=$end,setpts=(PTS-STARTPTS)/$speed,$geo,fps=30[vout]"
+    local n=${#SEGMENTS[@]} i=1 labels=""
+    fc="$fc;[$cur]split=$n"
+    for ((i = 1; i <= n; i++)); do fc="$fc[c$i]"; done
+    for ((i = 1; i <= n; i++)); do
+        IFS='|' read -r start endt <<< "${SEGMENTS[$((i - 1))]}"
+        fc="$fc;[c$i]trim=start=$start:end=$endt,setpts=PTS-STARTPTS[s$i]"
+        labels="$labels[s$i]"
+    done
+    fc="$fc;${labels}concat=n=$n:v=1:a=0[vseg];[vseg]setpts=PTS/$speed,$geo,fps=30[vout]"
     ffmpeg -hide_banner -loglevel error -y \
         "${inputs[@]}" \
         -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 \
@@ -163,28 +189,34 @@ if ! $POST_ONLY; then
     record mac    "$IPAD_SIM"   testPreviewTourMac
 fi
 
-PRE="null" CAPSIZE=64 CAPY=200
+PRE="null" CAPSIZE=100 CAPY=200 CAPMAXW=1230
 CAPS=("NEVER MISS A CHAPTER|4.5|8.5"
       "DISCOVER WHAT’S POPULAR|12|16"
-      "SEARCH IN PLAIN ENGLISH|19.5|24"
+      "SEARCH IN PLAIN ENGLISH|19.7|24"
       "READ ANYWHERE, OFFLINE|24.5|31.5"
       "LISTEN ON THE GO|33|40.5")
-post iphone 40.5 "scale=886:1920:flags=lanczos"
+# Keep only a flash of the sidebar between beats — the full back-pop dwells
+# read as dead air.
+SEGMENTS=("1.0|2.2" "4.5|8.5" "8.5|9.3" "12.0|16.0" "16.0|16.8" "19.7|40.5")
+post iphone "scale=886:1920:flags=lanczos"
 
-PRE="null" CAPSIZE=72 CAPY=150
+PRE="null" CAPSIZE=110 CAPY=150 CAPMAXW=1920
 CAPS=("SEARCH IN PLAIN ENGLISH|1.5|11"
       "READ ANYWHERE, OFFLINE|12.5|19.5"
       "LISTEN ON THE GO|22.5|26.5")
-post ipad 26.5 "scale=1200:1600:flags=lanczos"
+# Tighten the long static hold on saved searches before typing begins.
+SEGMENTS=("1.0|3.0" "6.5|26.5")
+post ipad "scale=1200:1600:flags=lanczos"
 
 # simctl records a rotated simulator in its portrait buffer with sideways
 # content, so the mac chain rotates upright (landscapeRight → transpose=1)
 # BEFORE captioning, then pillarboxes the 4:3 capture onto the 16:9 canvas
 # in brand indigo (bin/frame-screenshots.py BG), matching the screenshot set.
-PRE="transpose=1" CAPSIZE=68 CAPY=110
+PRE="transpose=1" CAPSIZE=100 CAPY=110 CAPMAXW=2500
 CAPS=("SEARCH IN PLAIN ENGLISH|1.5|8.5"
       "READ ANYWHERE, OFFLINE|10|17"
       "LISTEN ON THE GO|20|23.5")
-post mac 23.5 "scale=-2:1080:flags=lanczos,pad=1920:1080:(ow-iw)/2:0:color=0x3B2E8C"
+SEGMENTS=("1.5|3.5" "6.5|23.5")
+post mac "scale=-2:1080:flags=lanczos,pad=1920:1080:(ow-iw)/2:0:color=0x3B2E8C"
 
 echo "Done. Previews in $OUT"
