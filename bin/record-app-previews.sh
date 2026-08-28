@@ -154,13 +154,20 @@ print(sum(float(s.split('|')[1]) - float(s.split('|')[0]) for s in segs))")
     # during static stretches, so trim boundaries and caption windows would
     # snap to the next real frame and silently drop static seconds.
     local fc="[0:v]fps=30,${PRE}[v0]"
-    local idx=1 cur="v0" spec text start endt png
+    local idx=1 cur="v0" spec text start endt anchor y png x
     for spec in "${CAPS[@]}"; do
-        IFS='|' read -r text start endt <<< "$spec"
+        # "TEXT|start|end|anchor|y" — anchor L/R/C slides the pill in from
+        # that side over 0.25 s and parks it at the margin (or centered).
+        IFS='|' read -r text start endt anchor y <<< "$spec"
         png="$RAW/caps-$name-$idx.png"
         make_caption "$text" "$CAPSIZE" "$CAPMAXW" "$png"
         inputs+=(-i "$png")
-        fc="$fc;[$cur][$idx:v]overlay=(W-w)/2:$CAPY:enable='between(t,$start,$endt)'[v$idx]"
+        case "$anchor" in
+            L) x="-w+clip((t-$start)/0.25,0,1)*($CAPMARGIN+w)" ;;
+            R) x="W-clip((t-$start)/0.25,0,1)*($CAPMARGIN+w)" ;;
+            *) x="W-clip((t-$start)/0.25,0,1)*((W-w)/2+w)" ;;
+        esac
+        fc="$fc;[$cur][$idx:v]overlay=x='$x':y=$y:enable='between(t,$start,$endt)'[v$idx]"
         cur="v$idx"
         idx=$((idx + 1))
     done
@@ -189,34 +196,34 @@ if ! $POST_ONLY; then
     record mac    "$IPAD_SIM"   testPreviewTourMac
 fi
 
-PRE="null" CAPSIZE=100 CAPY=200 CAPMAXW=1230
-CAPS=("NEVER MISS A CHAPTER|4.5|8.5"
-      "DISCOVER WHAT’S POPULAR|12|16"
-      "SEARCH IN PLAIN ENGLISH|19.7|24"
-      "READ ANYWHERE, OFFLINE|24.5|31.5"
-      "LISTEN ON THE GO|33|40.5")
-# Keep only a flash of the sidebar between beats — the full back-pop dwells
-# read as dead air.
-SEGMENTS=("1.0|2.2" "4.5|8.5" "8.5|9.3" "12.0|16.0" "16.0|16.8" "19.7|40.5")
+PRE="null" CAPSIZE=100 CAPMAXW=1230 CAPMARGIN=48
+CAPS=("NEVER MISS A CHAPTER|4.5|7.3|L|210"
+      "DISCOVER WHAT’S POPULAR|12|14.8|R|210"
+      "SEARCH IN PLAIN ENGLISH|19.7|23.5|L|470"
+      "READ ANYWHERE, OFFLINE|24|29.5|L|2360"
+      "LISTEN ON THE GO|35|40.5|C|2300")
+# Hard cuts: only a flash of the sidebar between beats, jump-cuts inside the
+# long reader stretch — the dwells read as dead air at full length.
+SEGMENTS=("1.0|1.8" "4.5|7.3" "8.5|9.0" "12.0|14.8" "16.0|16.5"
+          "19.7|23.5" "24.0|26.0" "27.5|29.5" "32.0|34.0" "35.0|40.5")
 post iphone "scale=886:1920:flags=lanczos"
 
-PRE="null" CAPSIZE=110 CAPY=150 CAPMAXW=1920
-CAPS=("SEARCH IN PLAIN ENGLISH|1.5|11"
-      "READ ANYWHERE, OFFLINE|12.5|19.5"
-      "LISTEN ON THE GO|22.5|26.5")
-# Tighten the long static hold on saved searches before typing begins.
-SEGMENTS=("1.0|3.0" "6.5|26.5")
+PRE="null" CAPSIZE=110 CAPMAXW=1920 CAPMARGIN=64
+CAPS=("SEARCH IN PLAIN ENGLISH|1.0|9.8|L|170"
+      "READ ANYWHERE, OFFLINE|10.8|16.5|L|2320"
+      "LISTEN ON THE GO|22|26.5|R|2320")
+SEGMENTS=("1.0|2.5" "6.3|9.8" "10.8|13.8" "15.0|16.5" "19.5|21.5" "22.0|26.5")
 post ipad "scale=1200:1600:flags=lanczos"
 
 # simctl records a rotated simulator in its portrait buffer with sideways
 # content, so the mac chain rotates upright (landscapeRight → transpose=1)
 # BEFORE captioning, then pillarboxes the 4:3 capture onto the 16:9 canvas
 # in brand indigo (bin/frame-screenshots.py BG), matching the screenshot set.
-PRE="transpose=1" CAPSIZE=100 CAPY=110 CAPMAXW=2500
-CAPS=("SEARCH IN PLAIN ENGLISH|1.5|8.5"
-      "READ ANYWHERE, OFFLINE|10|17"
-      "LISTEN ON THE GO|20|23.5")
-SEGMENTS=("1.5|3.5" "6.5|23.5")
+PRE="transpose=1" CAPSIZE=100 CAPMAXW=2500 CAPMARGIN=80
+CAPS=("SEARCH IN PLAIN ENGLISH|1.5|9.6|R|120"
+      "READ ANYWHERE, OFFLINE|10.2|13.4|C|1720"
+      "LISTEN ON THE GO|19.7|23.5|R|1700")
+SEGMENTS=("1.5|3.0" "3.5|7.0" "8.6|13.4" "17.0|19.0" "19.7|23.5")
 post mac "scale=-2:1080:flags=lanczos,pad=1920:1080:(ow-iw)/2:0:color=0x3B2E8C"
 
 echo "Done. Previews in $OUT"
