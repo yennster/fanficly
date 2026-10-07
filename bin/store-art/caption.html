@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- App-preview caption card, rendered on transparency by
+     `bin/store_art.py caption` and composited by bin/record-app-previews.sh.
+     Previews may only show the app's own screen capture plus text/design
+     overlays (no device frames), so the brand look lives in this card. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="$css">
+<style>
+  html, body { width: auto; height: auto; background: transparent; }
+  body::before, body::after { display: none; }
+  body { --hs: ${size}px; padding: calc(var(--hs) * .9); display: flex; justify-content: $align; }
+  .card {
+    position: relative; max-width: ${width}px; padding: calc(var(--hs) * .5) calc(var(--hs) * .62) calc(var(--hs) * .56);
+    border-radius: calc(var(--hs) * .5);
+    display: flex; flex-direction: column; gap: calc(var(--hs) * .26); align-items: flex-start; text-align: left;
+    background:
+      radial-gradient(ellipse 70% 90% at 15% 0%, rgba(140, 124, 240, .5), transparent 70%),
+      linear-gradient(180deg, rgba(72, 57, 165, .96), rgba(44, 33, 112, .96));
+    border: calc(var(--hs) * .025) solid rgba(255, 255, 255, .24);
+    box-shadow: 0 calc(var(--hs) * .3) calc(var(--hs) * .6) rgba(10, 5, 45, .45),
+                inset 0 1px 0 rgba(255, 255, 255, .25);
+    overflow: hidden;
+  }
+  /* The same paper grain as the store art, clipped to the card. */
+  .card::after {
+    content: ""; position: absolute; inset: 0; opacity: .08; mix-blend-mode: soft-light; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .label { font-size: calc(var(--hs) * .34); gap: calc(var(--hs) * .25); }
+  .label::before { display: none; }
+  .label::after { width: calc(var(--hs) * 1.1); height: calc(var(--hs) * .03); transform: none;
+                  background: linear-gradient(90deg, rgba(201, 191, 255, .75), transparent); }
+  h1 { font-size: var(--hs); line-height: 1.04; text-shadow: none; }
+  .spark { position: absolute; width: calc(var(--hs) * .34); height: calc(var(--hs) * .34);
+           filter: drop-shadow(0 0 calc(var(--hs) * .1) rgba(255, 216, 163, .75)); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="label">$label</div>
+    <h1>$headline</h1>
+    <div class="spark" id="s1"><svg viewBox="0 0 100 100"><path fill="#FFE2B8" d="M50 0 C54 34 66 46 100 50 C66 54 54 66 50 100 C46 66 34 54 0 50 C34 46 46 34 50 0Z"/></svg></div>
+  </div>
+<script>
+document.fonts.ready.then(() => {
+  const em = document.querySelector("h1 em"), card = document.querySelector(".card");
+  const s1 = document.getElementById("s1");
+  if (!em) { s1.remove(); return; }
+  const rects = em.getClientRects(), r = rects[rects.length - 1], c = card.getBoundingClientRect();
+  const hs = parseFloat(getComputedStyle(document.body).getPropertyValue("--hs"));
+  // Leave room for the sparkle inside the card, just right of the accent word.
+  card.style.paddingRight = Math.max(parseFloat(getComputedStyle(card).paddingRight), hs * .8) + "px";
+  const r2 = em.getClientRects()[rects.length - 1], c2 = card.getBoundingClientRect();
+  Object.assign(s1.style, { left: (r2.right - c2.left + hs * .1) + "px", top: (r2.top - c2.top + r2.height * .12) + "px" });
+});
+</script>
+</body>
+</html>
