@@ -1,0 +1,96 @@
+@font-face { font-family: "NY"; font-weight: 700; font-style: normal;
+  src: local("New York Extra Large Bold"), url("file:///Library/Fonts/NewYorkExtraLarge-Bold.otf"); }
+@font-face { font-family: "NY"; font-weight: 700; font-style: italic;
+  src: local("New York Extra Large Bold Italic"), url("file:///Library/Fonts/NewYorkExtraLarge-BoldItalic.otf"); }
+@font-face { font-family: "NY"; font-weight: 500; font-style: italic;
+  src: local("New York Extra Large Medium Italic"), url("file:///Library/Fonts/NewYorkExtraLarge-MediumItalic.otf"); }
+@font-face { font-family: "SFD"; font-weight: 400;
+  src: local("SF Pro Display Regular"), url("file:///Library/Fonts/SF-Pro-Display-Regular.otf"); }
+@font-face { font-family: "SFD"; font-weight: 500;
+  src: local("SF Pro Display Medium"), url("file:///Library/Fonts/SF-Pro-Display-Medium.otf"); }
+@font-face { font-family: "SFT"; font-weight: 600;
+  src: local("SF Pro Text Semibold"), url("file:///Library/Fonts/SF-Pro-Text-Semibold.otf"); }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: var(--w); height: var(--h); overflow: hidden; }
+body {
+  position: relative;
+  background:
+    radial-gradient(ellipse 34% 52% at 50% 46%, rgba(132, 116, 238, .55), transparent 70%),
+    radial-gradient(ellipse 30% 60% at var(--warm-x, 16%) 62%, rgba(255, 190, 130, .22), transparent 70%),
+    radial-gradient(ellipse 30% 60% at var(--cool-x, 84%) 40%, rgba(96, 150, 255, .22), transparent 70%),
+    radial-gradient(ellipse 45% 55% at 32% 105%, rgba(232, 104, 170, .20), transparent 70%),
+    radial-gradient(ellipse 40% 50% at 70% -5%, rgba(120, 170, 255, .16), transparent 70%),
+    linear-gradient(180deg, #45369F 0%, #3B2E8C 48%, #2C2170 100%);
+  -webkit-font-smoothing: antialiased;
+  font-kerning: normal;
+}
+/* Vignette + paper grain, above the background, below the content. */
+body::before, body::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+body::before { background: radial-gradient(ellipse 75% 85% at 50% 50%, transparent 55%, rgba(14, 8, 52, .55) 100%); }
+body::after {
+  opacity: .07; mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.phone {
+  position: absolute; width: var(--pw); aspect-ratio: 1470 / 3000;
+  transform: translate(-50%, -50%) rotate(var(--r, 0deg));
+  filter: drop-shadow(0 70px 90px rgba(10, 5, 45, .55)) drop-shadow(0 18px 24px rgba(10, 5, 45, .35));
+  z-index: 2;
+}
+.phone img { width: 100%; height: 100%; display: block; }
+
+.chip {
+  position: absolute; transform: translate(-50%, -50%) rotate(var(--r, 0deg)) scale(var(--s, 1));
+  padding: 24px 46px; border-radius: 999px; white-space: nowrap;
+  font: 600 46px/1 "SFT", system-ui; letter-spacing: -.005em; color: rgba(255, 255, 255, .94);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .17), rgba(255, 255, 255, .07));
+  border: 2px solid rgba(255, 255, 255, .26);
+  box-shadow: 0 24px 50px rgba(12, 6, 50, .35), inset 0 1px 0 rgba(255, 255, 255, .25);
+  backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  z-index: 1;
+}
+.chip.far { filter: blur(1.6px); opacity: .42; }
+.chip.accent {
+  color: #2A1F6E; background: linear-gradient(180deg, #F3E7FF, #D9CCFF);
+  border-color: rgba(255, 255, 255, .7);
+}
+.chip.warm { color: #4A2E12; background: linear-gradient(180deg, #FFF3DE, #F6E3C2); border-color: rgba(255, 255, 255, .7); }
+
+.label {
+  display: flex; align-items: center; gap: 34px;
+  font: 600 38px/1 "SFT", system-ui; letter-spacing: .32em; text-transform: uppercase;
+  color: #C9BFFF;
+}
+.label::before, .label::after { content: ""; height: 3px; width: 150px; background: linear-gradient(90deg, transparent, rgba(201, 191, 255, .75)); }
+.label::after { transform: scaleX(-1); }
+.label.left::before { display: none; }
+
+h1 { font: 700 var(--hs) / 1.0 "NY", serif; color: #fff; letter-spacing: -.012em;
+     text-shadow: 0 6px 40px rgba(20, 10, 70, .45); }
+h1 em { font-style: italic; font-weight: 700; color: #FFD8A3; }
+.sub { font: 400 var(--ss) / 1.32 "SFD", system-ui; color: rgba(255, 255, 255, .84); letter-spacing: .002em; }
+
+/* ?guides=1 overlays the Apple-template safe area. */
+.guide { position: absolute; border: 6px dashed #00F0A0; z-index: 99; display: none; }
+.guides .guide { display: block; }
+
+/* Floating pages from the app icon, as soft background depth. */
+.page {
+  position: absolute; width: var(--ps); aspect-ratio: 290 / 420; border-radius: calc(var(--ps) * .07);
+  transform: translate(-50%, -50%) rotate(var(--r, 0deg));
+  background: #fff; opacity: var(--o, .10); filter: blur(var(--b, 0px));
+  z-index: 0;
+}
+.page::before {
+  content: ""; position: absolute; left: 16%; right: 16%; top: 19%; height: 46%;
+  background:
+    linear-gradient(#3B2E8C, #3B2E8C) 0 0 / 45% 9% no-repeat,
+    repeating-linear-gradient(180deg, #3B2E8C 0 9%, transparent 9% 24%) 0 26% / 100% 76% no-repeat;
+  opacity: .9;
+}
+.sub { text-wrap: balance; }
+
+.spark { position: absolute; transform: translate(-50%, -50%); z-index: 4; filter: drop-shadow(0 0 18px rgba(255, 216, 163, .7)); }
+.spark svg { display: block; width: 100%; height: 100%; }

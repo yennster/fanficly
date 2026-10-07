@@ -36,10 +36,12 @@ final class ScreenshotTests: XCTestCase {
             .appendingPathComponent(device)
         try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
 
+        // US formatting ("48,213 words") whatever the simulator's region is.
+        let locale = ["-AppleLocale", "en_US", "-AppleLanguages", "(en)"]
         if device == "mac" {
-            app.launchArguments = ["-demoMode", "-app.zoomScale", "0.7"]
+            app.launchArguments = ["-demoMode", "-app.zoomScale", "0.7"] + locale
         } else {
-            app.launchArguments = ["-demoMode", "-app.zoomScale", "1.0"]
+            app.launchArguments = ["-demoMode", "-app.zoomScale", "1.0"] + locale
         }
 
         app.launch()
@@ -117,10 +119,14 @@ final class ScreenshotTests: XCTestCase {
             // navigation happened and synchronises before we capture.
             for _ in 0..<6 {
                 app.typeKey(key, modifierFlags: .command)
-                if app.navigationBars[title].waitForExistence(timeout: 2.5) { break }
+                if app.navigationBars[title].waitForExistence(timeout: 2.5) {
+                    usleep(700_000)
+                    return
+                }
             }
-            usleep(700_000)
-            return
+            // The keypresses never landed (it happens on a freshly booted
+            // simulator): fall through to tapping the sidebar row rather than
+            // capturing whatever screen is still showing.
         }
         revealSidebar()
         let cell = app.collectionViews.staticTexts[title].firstMatch
@@ -256,8 +262,16 @@ final class ScreenshotTests: XCTestCase {
         // to the Settings root, then open the privacy page. On iPad's split view
         // re-selecting the Settings sidebar item won't pop the detail stack, so
         // navigate via the back button instead of openSidebarItem.
+        // The row sits below the fold, and a List doesn't create off-screen
+        // rows, so scroll until it exists (without this the shot was silently
+        // skipped and 08-privacy.png went stale).
         let settingsBack = app.navigationBars.buttons.element(boundBy: 0)
         if settingsBack.exists && settingsBack.isHittable { settingsBack.tap(); usleep(700_000) }
+        for _ in 0..<6 where !app.staticTexts["What this app sees and stores"].exists
+                             && !app.buttons["What this app sees and stores"].exists {
+            app.swipeUp(velocity: .slow)
+            usleep(400_000)
+        }
         if tapRow("What this app sees and stores") {
             usleep(800_000)
             snap("08-privacy")
@@ -291,12 +305,12 @@ final class ScreenshotTests: XCTestCase {
         if field.waitForExistence(timeout: 3) {
             field.tap()
             usleep(300_000)
-            // The end state of tapping two AO3 tag suggestions plus typing the
-            // filter word "complete": three chips over the results. Typed as
-            // the equivalent explicit tags, which become the same chips on
-            // submit, because waiting on live typeahead made the shot flaky
+            // The end state of tapping an AO3 tag suggestion plus typing the
+            // filter word "complete": two chips over a full page of results.
+            // Typed as the equivalent explicit tag, which becomes the same chip
+            // on submit, because waiting on live typeahead made the shot flaky
             // (it timed out on iPhone mid-run while passing in isolation).
-            field.typeText("tag:\"Found Family\" tag:\"Slow Burn\" complete\n")
+            field.typeText("tag:\"Slow Burn\" complete\n")
             _ = app.cells.firstMatch.waitForExistence(timeout: 6)
             usleep(700_000)
             snap("02-search-results")
