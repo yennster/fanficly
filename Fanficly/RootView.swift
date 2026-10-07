@@ -40,6 +40,7 @@ struct RootView: View {
     @State private var detailPath = NavigationPath()
     @State private var pendingResumeRoute: ResumeWorkRoute?
     @State private var pendingFolderRoute: PinnedFolderRoute?
+    @State private var pendingNotificationRoute: NotificationRoute?
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
@@ -107,6 +108,23 @@ struct RootView: View {
                 .navigationDestination(for: PinnedFolderRoute.self) { route in
                     FolderRouteDetailLoader(folderName: route.folderName)
                 }
+                .navigationDestination(for: NotificationRoute.self) { route in
+                    Group {
+                        switch route {
+                        // Always the live work, even when it's saved: a downloaded
+                        // copy doesn't have the chapter the alert is about.
+                        // Reading position is keyed by work id, so it still resumes.
+                        case .newChapters(let workId), .newWork(let workId):
+                            WorkDetailView(workId: workId)
+                        case .newWorks(let author):
+                            AuthorWorksView(author: author)
+                        }
+                    }
+                    // A tap can replace one route with another in the same slot;
+                    // without this SwiftUI keeps the old screen (and its loaded
+                    // work) and just hands it the new route.
+                    .id(route)
+                }
                 // Performs the widget-resume push. Driven by state instead of
                 // an imperative append so it runs once this stack's content is
                 // actually mounted: in compact width the detail column doesn't
@@ -122,6 +140,11 @@ struct RootView: View {
                 .task(id: pendingFolderRoute) {
                     guard let route = pendingFolderRoute else { return }
                     pendingFolderRoute = nil
+                    detailPath = NavigationPath([route])
+                }
+                .task(id: pendingNotificationRoute) {
+                    guard let route = pendingNotificationRoute else { return }
+                    pendingNotificationRoute = nil
                     detailPath = NavigationPath([route])
                 }
             }
@@ -152,6 +175,13 @@ struct RootView: View {
             }
             .onOpenURL { url in
                 handleIncomingURL(url)
+            }
+            // `initial: true` catches a tap that cold-launched the app and
+            // landed before this view existed.
+            .onChange(of: NotificationRouter.shared.pendingRoute, initial: true) { _, route in
+                guard let route else { return }
+                NotificationRouter.shared.pendingRoute = nil
+                openNotificationRoute(route)
             }
             .overlay {
                 if let workId = importingWorkId {
@@ -277,6 +307,27 @@ struct RootView: View {
         selectedTabRaw = SidebarItem.library.rawValue
         if isCompactNavigation { compactSelection = .library }
         pendingResumeRoute = route   // pushed by the .task(id:) on the stack
+    }
+
+    /// Opens what a tapped notification is about.
+    private func openNotificationRoute(_ route: NotificationRoute) {
+        if isCompactNavigation && compactSelection == nil {
+            // iPhone on the sidebar menu (always the case after a cold launch):
+            // open the route's own tab. Its detail column has to mount first,
+            // and pushing in that same frame drops the push, so the stack's
+            // .task(id:) does it once mounted (as in `openResumeRoute`).
+            let workIsSaved = route.workId.map { savedWork(with: $0) != nil } ?? false
+            let tab = route.landingTab(workIsSaved: workIsSaved)
+            selectedTabRaw = tab.rawValue
+            compactSelection = tab
+            pendingNotificationRoute = route
+        } else {
+            // A tab's stack is already on screen: open the route on top of it
+            // instead of switching tabs. Switching the split view's selection
+            // while a screen is pushed can drop the push, and the deferred
+            // .task never runs on a stack with a screen pushed over it.
+            detailPath = NavigationPath([route])
+        }
     }
 
     private func installResumeProgressIfAvailable(for route: ResumeWorkRoute) {

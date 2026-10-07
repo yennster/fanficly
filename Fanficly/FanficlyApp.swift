@@ -14,6 +14,10 @@ struct FanficlyApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Before launch finishes, so a tap that cold-launches the app still
+        // opens the work/author it's about.
+        NotificationTapHandler.install()
+
         if Self.isDemoMode {
             let defaults = UserDefaults.standard
             let demoReaderWidthKey = ReaderProfile.deviceKey("reader.widthPercent")
