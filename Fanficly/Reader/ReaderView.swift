@@ -75,6 +75,10 @@ struct ReaderView: View {
     /// were up; this way a page always fits, and hiding the controls only
     /// adds bottom margin — the page count doesn't change.
     @State private var pageAreaHeight: CGFloat = 0
+    /// True while an iPhone Duo spread draws up under the top bar
+    /// (topBarReclaim): the bar's background then goes transparent, or it
+    /// would paint over the pages' top lines.
+    @State private var spreadUnderTopBar = false
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -359,7 +363,7 @@ struct ReaderView: View {
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbarBackground(bg, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(spreadUnderTopBar ? .hidden : .visible, for: .navigationBar)
         .toolbar(isUIMinimized ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             if chapters.count > 1 {
@@ -1109,6 +1113,10 @@ struct ReaderView: View {
         UIDevice.current.userInterfaceIdiom == .phone
     }
 
+    /// A page's top and bottom margin, inside the area between the reader's
+    /// bars. Pagination subtracts exactly this, so measured pages match drawn ones.
+    static let pageVerticalMargin: CGFloat = 12
+
     private func columnWidth(_ containerWidth: CGFloat, widthPercent percent: Double? = nil) -> CGFloat {
         ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
                                       fontSize: fontSizePt, limitLineLength: Self.limitsLineLength)
@@ -1145,7 +1153,8 @@ struct ReaderView: View {
 
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
-            let readingHeight = pageAreaHeight > 0 ? pageAreaHeight : geo.size.height
+            let reclaim = topBarReclaim(geo)
+            let readingHeight = pageAreaHeight > 0 ? pageAreaHeight : geo.size.height + reclaim
             // Two pages side by side when the window is wide enough; both are
             // paginated at the spread's page width, gutter on iPhone Duo's fold.
             let spread = twoPageSpread
@@ -1225,11 +1234,17 @@ struct ReaderView: View {
             .foregroundStyle(fg)
             
             content
+                // Extend up into the top bar's spare height (see topBarReclaim).
+                .frame(width: geo.size.width, height: geo.size.height + reclaim)
+                .offset(y: -reclaim)
                 .task(id: trigger) {
                     await handlePaginationTrigger(trigger)
                 }
                 .onChange(of: spread, initial: true) { _, layout in
                     spreadLayout = layout
+                }
+                .onChange(of: reclaim > 0, initial: true) { _, under in
+                    spreadUnderTopBar = under
                 }
                 .onChange(of: geo.size, initial: true) { _, newSize in
                     // Pages are measured for the smallest page area seen at the
@@ -1241,14 +1256,15 @@ struct ReaderView: View {
                     // own height moving (iPhone Duo pins a picture-in-picture
                     // video above the app) — starts the measurement over.
                     let immersive = immersiveReadingHeight(fallback: newSize.height)
+                    let area = newSize.height + topBarReclaim(geo)
                     let widthChanged = abs(stableWidth - newSize.width) > 1
                     let windowHeightChanged = abs(stableHeight - immersive) > 1
                     if widthChanged || windowHeightChanged || stableWidth == 0 {
                         stableWidth = newSize.width
                         stableHeight = immersive
-                        pageAreaHeight = newSize.height
-                    } else if newSize.height < pageAreaHeight - 1 {
-                        pageAreaHeight = newSize.height
+                        pageAreaHeight = area
+                    } else if area < pageAreaHeight - 1 {
+                        pageAreaHeight = area
                     }
                 }
                 .onAppear {
@@ -1276,6 +1292,20 @@ struct ReaderView: View {
         pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
             .tag(page.id)
     }
+
+    /// Height a two-page spread on iPhone Duo can borrow from the top bar.
+    /// There the bar holds only the sidebar button (the reader's other
+    /// controls sit in the vertical strip on the trailing edge), and the left
+    /// page's text starts well clear of it, so the pages extend up to the
+    /// display's own top margin instead of leaving the bar's height blank.
+    private func topBarReclaim(_ geo: GeometryProxy) -> CGFloat {
+        guard twoPageSpread, foldFrame(geo) != nil else { return 0 }
+        return max(0, geo.safeAreaInsets.top - Self.duoTopMargin)
+    }
+
+    /// The Duo's top margin in landscape: clear of the display's rounded
+    /// corners and camera, which the top safe-area inset covers beneath the bar.
+    private static let duoTopMargin: CGFloat = 24
 
     /// iPhone Duo's fold (its division region) in the geometry's space, if any.
     /// Lying flat ("open") the fold is inactive — the display reads as one —
@@ -1366,8 +1396,7 @@ struct ReaderView: View {
             )
             .frame(maxWidth: columnWidth(containerWidth, widthPercent: percent), alignment: .leading)
             .padding(.horizontal, (containerWidth - columnWidth(containerWidth, widthPercent: percent)) / 2)
-            .padding(.top, 20)
-            .padding(.bottom, 20)
+            .padding(.vertical, Self.pageVerticalMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ProgressView()
@@ -1387,7 +1416,12 @@ struct ReaderView: View {
         }
 
         let result = await performPagination(trigger: trigger)
+        // A newer trigger (a resize mid-pagination, e.g. the sidebar
+        // collapsing) cancels this task; applying its now-stale pages after
+        // the newer ones produced pages taller than the screen.
+        guard !Task.isCancelled else { return }
         await MainActor.run {
+            guard !Task.isCancelled else { return }
             var activeChapters = Set<Int>()
             activeChapters.insert(selectedChapterIndex)
             if let prev = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: false) {
@@ -1686,7 +1720,7 @@ struct ReaderView: View {
                                               widthPercent: trigger.widthPercent,
                                               fontSize: trigger.fontSize,
                                               limitLineLength: Self.limitsLineLength)
-        let h = trigger.size.height - 40 // margins
+        let h = trigger.size.height - 2 * Self.pageVerticalMargin
         
         guard w > 50 && h > 100 else {
             return PaginationResult(pages: [], atoms: [:])
