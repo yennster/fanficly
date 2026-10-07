@@ -95,6 +95,73 @@ enum ReaderMetrics {
     ]
 }
 
+/// Page-by-page's two-page spread: on a wide window (iPhone Duo unfolded,
+/// iPad in landscape, the Mac) pages pair up side by side like an open book,
+/// with the gutter on iPhone Duo's fold. Pure, so it's unit-tested.
+enum ReaderSpread {
+    /// Narrower windows keep one page: two columns of ~300 pt read cramped.
+    static let minimumWidth: CGFloat = 700
+    static let minimumAspect: CGFloat = 1.15
+    /// The gutter between pages, also used around a fold thinner than this.
+    static let minimumGutter: CGFloat = 56
+    /// Each page is half the window, where the single-column width setting
+    /// (70% by default) would leave wide empty margins on every page.
+    static let minimumWidthPercent: Double = 84
+
+    struct Layout: Equatable {
+        /// Both pages share this width, so they paginate identically.
+        let pageWidth: CGFloat
+        /// Leading x of the left page; the right page starts at `gutter.upperBound`.
+        let leftX: CGFloat
+        let gutter: ClosedRange<CGFloat>
+    }
+
+    /// The spread for a container, or nil when it's too narrow for two pages.
+    /// `fold` is iPhone Duo's division region (in the container's space); a
+    /// vertical one near the middle becomes the gutter, otherwise it's centered.
+    static func layout(containerSize: CGSize, fold: CGRect?) -> Layout? {
+        let w = containerSize.width
+        guard w >= minimumWidth, w >= containerSize.height * minimumAspect else { return nil }
+        var center = w / 2
+        var gutterWidth = minimumGutter
+        if let fold, fold.height > fold.width, fold.midX > w * 0.3, fold.midX < w * 0.7 {
+            center = fold.midX
+            gutterWidth = max(fold.width, minimumGutter)
+        }
+        let gutter = (center - gutterWidth / 2)...(center + gutterWidth / 2)
+        let pageWidth = floor(min(gutter.lowerBound, w - gutter.upperBound))
+        guard pageWidth >= 280 else { return nil }
+        return Layout(pageWidth: pageWidth, leftX: gutter.lowerBound - pageWidth, gutter: gutter)
+    }
+
+    struct Spread: Identifiable, Equatable {
+        let left: ChapterPage
+        let right: ChapterPage?
+        var id: String { left.id }
+        func contains(_ pageId: String) -> Bool { left.id == pageId || right?.id == pageId }
+    }
+
+    /// Pairs pages two by two within each chapter, so every chapter opens on
+    /// a fresh spread (and the pairing doesn't shift as neighboring chapters
+    /// load); a chapter with an odd page count ends on a lone left page.
+    static func spreads(from pages: [ChapterPage]) -> [Spread] {
+        var out: [Spread] = []
+        var i = 0
+        while i < pages.count {
+            let left = pages[i]
+            let next = i + 1 < pages.count ? pages[i + 1] : nil
+            if let next, next.chapterIndex == left.chapterIndex {
+                out.append(Spread(left: left, right: next))
+                i += 2
+            } else {
+                out.append(Spread(left: left, right: nil))
+                i += 1
+            }
+        }
+        return out
+    }
+}
+
 enum ReaderFontFamily: String, CaseIterable, Identifiable {
     case newYork  = "newYork"
     case serif    = "serif"

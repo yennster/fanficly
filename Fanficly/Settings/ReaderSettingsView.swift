@@ -14,6 +14,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
+    @AppStorage(ReaderProfile.deviceKey("reader.twoPageSpread")) private var twoPageSpread: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
@@ -228,6 +229,13 @@ struct ReaderSettingsView: View {
                 .accessibilityLabel("Reading mode")
                 .help("Choose how stories are paginated and scrolled.")
 
+                if modeRaw == ReadingMode.pageByPage.rawValue {
+                    Toggle(isOn: $twoPageSpread) {
+                        Label("Two-page spread", systemImage: "book.pages")
+                    }
+                    .help("On wide screens, show two pages side by side like an open book.")
+                }
+
                 Toggle(isOn: $pageTurnHaptics) {
                     Label("Page-turn haptics", systemImage: "hand.tap")
                 }
@@ -245,7 +253,7 @@ struct ReaderSettingsView: View {
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn. Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Two-page spread” on, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book. Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.")
             }
 
             Section {

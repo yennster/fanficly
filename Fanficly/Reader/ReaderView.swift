@@ -22,6 +22,10 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    // Page-by-page shows two pages side by side on a wide window (iPhone Duo
+    // unfolded, iPad landscape, Mac). Per device but not in reading profiles:
+    // it's about the screen's shape, not typography.
+    @AppStorage(ReaderProfile.deviceKey("reader.twoPageSpread")) private var twoPageSpread: Bool = true
     // Keep the display awake while reading (like a video player), so the screen
     // doesn't dim/lock mid-page when you go a while without touching it.
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
@@ -56,15 +60,21 @@ struct ReaderView: View {
     @State private var listeningChapter: Int?
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
+    /// Page-by-page selection is always a page id; with a spread on screen the
+    /// TabView shows the spread containing it (see spreadSelection).
     @State private var selectedPageId: String = ""
+    /// The two-page spread geometry while one is showing (nil = one page).
+    @State private var spreadLayout: ReaderSpread.Layout?
     @State private var parsedAtoms: [Int: [ParagraphAtom]] = [:]
     @State private var stableWidth: CGFloat = 0
     @State private var stableHeight: CGFloat = 0
-    /// Measured height of the narration mini-player. Page-by-page layout is
-    /// pinned to the immersive height and ignores chrome, so while narration
-    /// is active this must be carved out of the page height — otherwise the
-    /// bar covers the bottom lines of every page with no way to reveal them.
-    @State private var narrationBarHeight: CGFloat = 0
+    /// The page area pages are measured for: the smallest height the page
+    /// container has had at the current window size, i.e. with the reader
+    /// controls (nav bar, page footer, narration bar) showing. Measuring for
+    /// the chrome-hidden height cut the last lines off whenever the controls
+    /// were up; this way a page always fits, and hiding the controls only
+    /// adds bottom margin — the page count doesn't change.
+    @State private var pageAreaHeight: CGFloat = 0
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -341,9 +351,6 @@ struct ReaderView: View {
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
                 narrationBar(fg: fg, bg: bg)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                        narrationBarHeight = $0
-                    }
             } else if mode == .pageByPage && !isUIMinimized {
                 pageFooterBar(fg: fg, bg: bg)
             }
@@ -1102,8 +1109,8 @@ struct ReaderView: View {
         UIDevice.current.userInterfaceIdiom == .phone
     }
 
-    private func columnWidth(_ containerWidth: CGFloat) -> CGFloat {
-        ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: widthPercent,
+    private func columnWidth(_ containerWidth: CGFloat, widthPercent percent: Double? = nil) -> CGFloat {
+        ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
                                       fontSize: fontSizePt, limitLineLength: Self.limitsLineLength)
     }
 
@@ -1138,23 +1145,30 @@ struct ReaderView: View {
 
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
+            let readingHeight = pageAreaHeight > 0 ? pageAreaHeight : geo.size.height
+            // Two pages side by side when the window is wide enough; both are
+            // paginated at the spread's page width, gutter on iPhone Duo's fold.
+            let spread = twoPageSpread
+                ? ReaderSpread.layout(containerSize: CGSize(width: geo.size.width, height: readingHeight),
+                                      fold: foldFrame(geo))
+                : nil
             let trigger = PaginationTrigger(
                 chapter: selectedChapterIndex,
                 fontSize: fontSizePt / zoomScale,
                 fontFamily: fontFamilyRaw,
-                widthPercent: widthPercent,
+                widthPercent: spread == nil ? widthPercent : max(widthPercent, ReaderSpread.minimumWidthPercent),
                 lineSpacing: lineSpacingPt / zoomScale,
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 kerning: kerningPt / zoomScale,
                 boldText: boldText,
                 showImages: showImages,
                 size: CGSize(
-                    width: geo.size.width,
-                    // While narrating, pages must fit above the narration bar —
-                    // the height change re-triggers pagination, and
+                    width: spread?.pageWidth ?? geo.size.width,
+                    // The narration bar replaces the page footer as a bottom
+                    // inset, so its height is already out of the page area;
+                    // the change re-triggers pagination and
                     // restoreOrValidatePageSelection re-lands on the anchor.
-                    height: (stableHeight > 0 ? stableHeight : immersiveReadingHeight(fallback: geo.size.height))
-                        - (speech.isActive ? narrationBarHeight : 0)
+                    height: readingHeight
                 )
             )
             
@@ -1168,19 +1182,25 @@ struct ReaderView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    let activePageIds = nearbyPageIds(radius: 2)
-                    TabView(selection: $selectedPageId) {
-                        ForEach(paginatedPages, id: \.id) { page in
-                            if activePageIds.contains(page.id) {
-                                makePageCell(page: page, fg: fg, containerWidth: geo.size.width)
-                            } else {
-                                Color.clear
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .tag(page.id)
+                    Group {
+                        if let spread {
+                            spreadTabView(layout: spread, fg: fg)
+                        } else {
+                            let activePageIds = nearbyPageIds(radius: 2)
+                            TabView(selection: $selectedPageId) {
+                                ForEach(paginatedPages, id: \.id) { page in
+                                    if activePageIds.contains(page.id) {
+                                        makePageCell(page: page, fg: fg, containerWidth: geo.size.width)
+                                    } else {
+                                        Color.clear
+                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                            .tag(page.id)
+                                    }
+                                }
                             }
+                            .tabViewStyle(.page(indexDisplayMode: .never))
                         }
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
                     .simultaneousGesture(
                         SpatialTapGesture().onEnded { value in
                             let x = value.location.x
@@ -1208,24 +1228,28 @@ struct ReaderView: View {
                 .task(id: trigger) {
                     await handlePaginationTrigger(trigger)
                 }
-                .onChange(of: geo.size) { _, newSize in
-                    // Keep the page count stable when the reader chrome (nav bar
-                    // + page footer) toggles. Hiding/showing that chrome shrinks
-                    // and grows `geo.size.height`, but the *reading* viewport —
-                    // the area a page fills once chrome is gone — is fixed by the
-                    // device, so we pin pagination to that immersive height and
-                    // ignore chrome-driven height changes. Only a genuine layout
-                    // change (rotation / split-view resize, which also moves the
-                    // width) re-derives it.
-                    // The window's own height moving (iPhone Duo pins a
-                    // picture-in-picture video above the app, shrinking it
-                    // vertically) is genuine too; chrome toggles don't move it.
+                .onChange(of: spread, initial: true) { _, layout in
+                    spreadLayout = layout
+                }
+                .onChange(of: geo.size, initial: true) { _, newSize in
+                    // Pages are measured for the smallest page area seen at the
+                    // current window size: the controls (nav bar, page footer,
+                    // narration bar) only ever shrink it, so a page always fits
+                    // on screen and hiding them adds margin without changing
+                    // the page count. A genuine layout change — rotation, a
+                    // split-view resize (both move the width), or the window's
+                    // own height moving (iPhone Duo pins a picture-in-picture
+                    // video above the app) — starts the measurement over.
                     let immersive = immersiveReadingHeight(fallback: newSize.height)
                     let widthChanged = abs(stableWidth - newSize.width) > 1
                     let windowHeightChanged = abs(stableHeight - immersive) > 1
-                    guard widthChanged || windowHeightChanged || stableWidth == 0 else { return }
-                    stableWidth = newSize.width
-                    stableHeight = immersive
+                    if widthChanged || windowHeightChanged || stableWidth == 0 {
+                        stableWidth = newSize.width
+                        stableHeight = immersive
+                        pageAreaHeight = newSize.height
+                    } else if newSize.height < pageAreaHeight - 1 {
+                        pageAreaHeight = newSize.height
+                    }
                 }
                 .onAppear {
                     isRestoring = true
@@ -1248,8 +1272,78 @@ struct ReaderView: View {
         }
     }
 
-    @ViewBuilder
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
+        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
+            .tag(page.id)
+    }
+
+    /// iPhone Duo's fold (its division region) in the geometry's space, if any.
+    /// Lying flat ("open") the fold is inactive — the display reads as one —
+    /// but it's still where the gutter belongs, so inactive regions count too.
+    private func foldFrame(_ geo: GeometryProxy) -> CGRect? {
+        if #available(iOS 27.1, *) {
+            let regions = geo.reservedRegions(kind: .division, options: .includeInactive)
+            return (regions.first(where: \.isActive) ?? regions.first)?.frame
+        }
+        return nil
+    }
+
+    /// Page-by-page as an open book: one TabView page per spread. Selection
+    /// stays a page id (progress, restore and narration all work in pages);
+    /// the TabView shows whichever spread contains it.
+    private func spreadTabView(layout: ReaderSpread.Layout, fg: Color) -> some View {
+        let spreads = ReaderSpread.spreads(from: paginatedPages)
+        let active = nearbySpreadIds(spreads, radius: 1)
+        return TabView(selection: Binding(
+            get: { spreads.first(where: { $0.contains(selectedPageId) })?.id ?? selectedPageId },
+            set: { selectedPageId = $0 }
+        )) {
+            ForEach(spreads) { spread in
+                if active.contains(spread.id) {
+                    makeSpreadCell(spread, layout: layout, fg: fg)
+                } else {
+                    Color.clear
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .tag(spread.id)
+                }
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+    }
+
+    private func makeSpreadCell(_ spread: ReaderSpread.Spread, layout: ReaderSpread.Layout, fg: Color) -> some View {
+        let percent = max(widthPercent, ReaderSpread.minimumWidthPercent)
+        return HStack(spacing: 0) {
+            Color.clear.frame(width: max(0, layout.leftX))
+            pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent)
+                .frame(width: layout.pageWidth)
+            // The gutter: blank space on the fold. No drawn crease — the
+            // hardware fold is the only seam, even lying flat.
+            Color.clear.frame(width: layout.gutter.upperBound - layout.gutter.lowerBound)
+            Group {
+                if let right = spread.right {
+                    pageCellContent(page: right, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: layout.pageWidth)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .tag(spread.id)
+    }
+
+    private func nearbySpreadIds(_ spreads: [ReaderSpread.Spread], radius: Int) -> Set<String> {
+        guard !spreads.isEmpty else { return [] }
+        guard let i = spreads.firstIndex(where: { $0.contains(selectedPageId) }) else {
+            return Set(spreads.prefix(radius * 2 + 1).map(\.id))
+        }
+        return Set(spreads[max(0, i - radius)...min(spreads.count - 1, i + radius)].map(\.id))
+    }
+
+    @ViewBuilder
+    private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent percent: Double) -> some View {
         if let chapter = chapters.first(where: { $0.index == page.chapterIndex }),
            let atoms = parsedAtoms[page.chapterIndex] {
             
@@ -1270,15 +1364,13 @@ struct ReaderView: View {
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
-            .frame(maxWidth: columnWidth(containerWidth), alignment: .leading)
-            .padding(.horizontal, (containerWidth - columnWidth(containerWidth)) / 2)
+            .frame(maxWidth: columnWidth(containerWidth, widthPercent: percent), alignment: .leading)
+            .padding(.horizontal, (containerWidth - columnWidth(containerWidth, widthPercent: percent)) / 2)
             .padding(.top, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .tag(page.id)
         } else {
             ProgressView()
-                .tag(page.id)
         }
     }
 
@@ -1316,7 +1408,16 @@ struct ReaderView: View {
     private func handlePageIdChange(_ pageId: String) {
         guard mode == .pageByPage else { return }
         let pagesList = self.paginatedPages
-        guard let page = pagesList.first(where: { $0.id == pageId }) else { return }
+        guard var page = pagesList.first(where: { $0.id == pageId }) else { return }
+        // A spread selects its left page; when its right page ends the work,
+        // anchor there instead so reading to the last line still reads 100%.
+        if spreadLayout != nil,
+           let right = ReaderSpread.spreads(from: pagesList).first(where: { $0.left.id == pageId })?.right,
+           right.chapterIndex == chapters.map(\.index).max(),
+           let atoms = parsedAtoms[right.chapterIndex],
+           right.paragraphIndices.upperBound >= atoms.count {
+            page = right
+        }
         
         if page.chapterIndex != selectedChapterIndex {
             selectedChapterIndex = page.chapterIndex
@@ -1405,19 +1506,27 @@ struct ReaderView: View {
     }
 
     private func turnPageByPage(forward: Bool) {
-        guard let currentIndex = paginatedPages.firstIndex(where: { $0.id == selectedPageId }) else { return }
-        
-        let targetIndex = forward ? currentIndex + 1 : currentIndex - 1
-        guard targetIndex >= 0 && targetIndex < paginatedPages.count else { return }
-        
-        let targetPage = paginatedPages[targetIndex]
-        
+        let targetId: String
+        if spreadLayout != nil {
+            // A spread turns two pages at a time.
+            let spreads = ReaderSpread.spreads(from: paginatedPages)
+            guard let current = spreads.firstIndex(where: { $0.contains(selectedPageId) }) else { return }
+            let target = forward ? current + 1 : current - 1
+            guard spreads.indices.contains(target) else { return }
+            targetId = spreads[target].id
+        } else {
+            guard let currentIndex = paginatedPages.firstIndex(where: { $0.id == selectedPageId }) else { return }
+            let targetIndex = forward ? currentIndex + 1 : currentIndex - 1
+            guard targetIndex >= 0 && targetIndex < paginatedPages.count else { return }
+            targetId = paginatedPages[targetIndex].id
+        }
+
         if pageTurnHaptics {
             let generator = UIImpactFeedbackGenerator(style: .light)
             generator.impactOccurred()
         }
 
-        updatePageSelection(targetPage.id)
+        updatePageSelection(targetId)
     }
 
     // MARK: - VoiceOver equivalents for the invisible tap zones
@@ -1514,8 +1623,13 @@ struct ReaderView: View {
             page.id == targetId
         }) {
             let chapterPages = pagesList.filter { $0.chapterIndex == currentPage.chapterIndex }
-            let currentPageNum = currentPage.pageIndex + 1
             let totalPagesInChapter = chapterPages.count
+            // A spread shows two pages: "Pages 3–4 of 12".
+            let onScreen = spreadLayout == nil ? nil
+                : ReaderSpread.spreads(from: pagesList).first(where: { $0.contains(targetId) })
+            let firstNum = (onScreen?.left ?? currentPage).pageIndex + 1
+            let pageLabel = onScreen?.right.map { "Pages \(firstNum)–\($0.pageIndex + 1) of \(totalPagesInChapter)" }
+                ?? "Page \(firstNum) of \(totalPagesInChapter)"
             
             let chapter = chapters.first(where: { $0.index == currentPage.chapterIndex })
             let label = chapter?.title.isEmpty == false
@@ -1528,7 +1642,7 @@ struct ReaderView: View {
                     .lineLimit(1)
                     .foregroundStyle(fg.opacity(0.85))
                 Spacer()
-                Text("Page \(currentPageNum) of \(totalPagesInChapter)")
+                Text(pageLabel)
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(fg.opacity(0.5))
             }
@@ -1539,7 +1653,7 @@ struct ReaderView: View {
                 Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label), page \(currentPageNum) of \(totalPagesInChapter)")
+            .accessibilityLabel("\(label), \(pageLabel.lowercased())")
         }
     }
 
@@ -2036,6 +2150,11 @@ struct ReaderView: View {
                 Picker("Reading mode", selection: $modeRaw) {
                     ForEach(ReadingMode.allCases) {
                         Label($0.displayName, systemImage: $0.symbol).tag($0.rawValue)
+                    }
+                }
+                if mode == .pageByPage {
+                    Toggle(isOn: $twoPageSpread) {
+                        Label("Two-page spread", systemImage: "book.pages")
                     }
                 }
             } label: {
