@@ -72,8 +72,8 @@ final class PreviewTourTests: XCTestCase {
             pause(2.0)
         }
 
-        // 3. Smart search — type the prompt on camera; demo data answers
-        //    instantly and offline.
+        // 3. Search — type on camera ("complete" turns into a filter chip);
+        //    demo data answers instantly and offline.
         openSidebarItem("Search", key: "1")
         pause(0.8)
         let field = searchField()
@@ -112,8 +112,8 @@ final class PreviewTourTests: XCTestCase {
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "pause")], timeout: seconds)
     }
 
-    /// The smart-search field is a vertical-axis TextField; Mac Catalyst
-    /// exposes it as a text view, so fall back through the element types.
+    /// The search box is a TextField; fall back through the element types in
+    /// case a platform exposes it differently.
     private func searchField() -> XCUIElement {
         if app.textFields.firstMatch.exists { return app.textFields.firstMatch }
         if app.textViews.firstMatch.exists { return app.textViews.firstMatch }

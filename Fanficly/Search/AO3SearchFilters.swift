@@ -14,6 +14,12 @@ public struct AO3SearchFilters: Equatable, Sendable, Codable {
     public var characterNames: [String] = []
     public var relationshipNames: [String] = []
     public var freeformNames: [String] = []
+    /// Canonical tags of any kind (fandom, character, ship or trope), as
+    /// picked from search suggestions → `work_search[other_tag_names]`, which
+    /// AO3 matches against every tag type.
+    public var otherTagNames: [String] = []
+    /// Canonical tags to exclude → `work_search[excluded_tag_names]`.
+    public var excludedTagNames: [String] = []
     public var excludedFreeforms: [String] = []
     public var ratings: Set<Rating> = []
     public var warnings: Set<ArchiveWarning> = []
@@ -139,6 +145,8 @@ public struct AO3SearchFilters: Equatable, Sendable, Codable {
         characterNames.isEmpty &&
         relationshipNames.isEmpty &&
         freeformNames.isEmpty &&
+        otherTagNames.isEmpty &&
+        excludedTagNames.isEmpty &&
         excludedFreeforms.isEmpty &&
         ratings.isEmpty &&
         warnings.isEmpty &&
@@ -151,42 +159,11 @@ public struct AO3SearchFilters: Equatable, Sendable, Codable {
 }
 
 extension AO3SearchFilters {
-    /// A normalized prompt-style string of the active filters. Used to keep
-    /// the search box in sync when a chip is removed (so the matching text
-    /// disappears too).
+    /// The filters as search-box text (explicit `key:value` tokens after the
+    /// keywords) — what saved searches, recents and deep links store.
+    /// `SearchSyntax.parse` reads it back exactly.
     public func promptText() -> String {
-        var parts: [String] = []
-        parts += relationshipNames
-        parts += characterNames
-        parts += fandomNames
-        parts += freeformNames
-        parts += ratings.map(\.displayName)
-        parts += warnings.map(\.displayName)
-        parts += categories.map(\.displayName)
-        if singleChapter { parts.append("oneshot") }
-        switch complete {
-        case .yes: parts.append("complete")
-        case .no:  parts.append("wip")
-        case .any: break
-        }
-        switch crossover {
-        case .yes: parts.append("crossover")
-        case .no:  parts.append("no crossovers")
-        case .any: break
-        }
-        if !wordCount.isEmpty { parts.append(Self.wordCountPhrase(wordCount)) }
-        if !languageId.isEmpty { parts.append("in \(languageId)") }
-        if !title.isEmpty {
-            let quoted = title.contains(" ") ? "\"\(title)\"" : title
-            parts.append("title:\(quoted)")
-        }
-        if !creators.isEmpty {
-            let quoted = creators.contains(" ") ? "\"\(creators)\"" : creators
-            parts.append("author:\(quoted)")
-        }
-        if !query.isEmpty { parts.append(query) }
-        parts += excludedFreeforms.map { "-\($0)" }
-        return parts.joined(separator: " ")
+        SearchSyntax.render(self)
     }
 
     static func wordCountPhrase(_ wc: String) -> String {
@@ -281,6 +258,12 @@ extension AO3SearchFilters {
         if !freeformNames.isEmpty {
             items.append(URLQueryItem(name: "work_search[freeform_names]", value: freeformNames.joined(separator: ", ")))
         }
+        if !otherTagNames.isEmpty {
+            items.append(URLQueryItem(name: "work_search[other_tag_names]", value: otherTagNames.joined(separator: ", ")))
+        }
+        if !excludedTagNames.isEmpty {
+            items.append(URLQueryItem(name: "work_search[excluded_tag_names]", value: excludedTagNames.joined(separator: ", ")))
+        }
         // A single rating uses AO3's dedicated form field; 2+ ratings are
         // OR-ed via the query field in composedQueryString() above, because
         // the array form AND-matches and returns nothing.
@@ -331,5 +314,92 @@ extension AO3SearchFilters {
             parts.append("(\(clause))")
         }
         return parts.joined(separator: " ")
+    }
+}
+
+extension AO3SearchFilters {
+    /// Tolerant decoding: any missing or unreadable field keeps its default,
+    /// so filters saved before a field existed (e.g. `otherTagNames`) still
+    /// load instead of failing the whole decode and losing the saved filter.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            ((try? c.decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+        }
+        query = value(.query, query)
+        title = value(.title, title)
+        creators = value(.creators, creators)
+        revisedAt = value(.revisedAt, revisedAt)
+        complete = value(.complete, complete)
+        crossover = value(.crossover, crossover)
+        singleChapter = value(.singleChapter, singleChapter)
+        wordCount = value(.wordCount, wordCount)
+        languageId = value(.languageId, languageId)
+        fandomNames = value(.fandomNames, fandomNames)
+        characterNames = value(.characterNames, characterNames)
+        relationshipNames = value(.relationshipNames, relationshipNames)
+        freeformNames = value(.freeformNames, freeformNames)
+        otherTagNames = value(.otherTagNames, otherTagNames)
+        excludedTagNames = value(.excludedTagNames, excludedTagNames)
+        excludedFreeforms = value(.excludedFreeforms, excludedFreeforms)
+        ratings = value(.ratings, ratings)
+        warnings = value(.warnings, warnings)
+        categories = value(.categories, categories)
+        hits = value(.hits, hits)
+        kudosCount = value(.kudosCount, kudosCount)
+        commentsCount = value(.commentsCount, commentsCount)
+        bookmarksCount = value(.bookmarksCount, bookmarksCount)
+        sortColumn = value(.sortColumn, sortColumn)
+        sortDirection = value(.sortDirection, sortDirection)
+    }
+
+    /// Folds `other`'s filters into these (lists and sets union, set scalars
+    /// win). The search box uses this to move tokens typed as text into the
+    /// active filter chips; `other.query` is ignored.
+    func merging(_ other: AO3SearchFilters) -> AO3SearchFilters {
+        var m = self
+        func union(_ a: [String], _ b: [String]) -> [String] {
+            b.reduce(into: a) { list, item in
+                if !list.contains(where: { $0.caseInsensitiveCompare(item) == .orderedSame }) { list.append(item) }
+            }
+        }
+        if !other.title.isEmpty { m.title = other.title }
+        if !other.creators.isEmpty { m.creators = other.creators }
+        if !other.revisedAt.isEmpty { m.revisedAt = other.revisedAt }
+        if other.complete != .any { m.complete = other.complete }
+        if other.crossover != .any { m.crossover = other.crossover }
+        if other.singleChapter { m.singleChapter = true }
+        if !other.wordCount.isEmpty { m.wordCount = other.wordCount }
+        if !other.languageId.isEmpty { m.languageId = other.languageId }
+        m.fandomNames = union(m.fandomNames, other.fandomNames)
+        m.characterNames = union(m.characterNames, other.characterNames)
+        m.relationshipNames = union(m.relationshipNames, other.relationshipNames)
+        m.freeformNames = union(m.freeformNames, other.freeformNames)
+        m.otherTagNames = union(m.otherTagNames, other.otherTagNames)
+        m.excludedTagNames = union(m.excludedTagNames, other.excludedTagNames)
+        m.excludedFreeforms = union(m.excludedFreeforms, other.excludedFreeforms)
+        m.ratings.formUnion(other.ratings)
+        m.warnings.formUnion(other.warnings)
+        m.categories.formUnion(other.categories)
+        if !other.hits.isEmpty { m.hits = other.hits }
+        if !other.kudosCount.isEmpty { m.kudosCount = other.kudosCount }
+        if !other.commentsCount.isEmpty { m.commentsCount = other.commentsCount }
+        if !other.bookmarksCount.isEmpty { m.bookmarksCount = other.bookmarksCount }
+        return m
+    }
+}
+
+extension AO3SearchFilters {
+    /// "Under 10,000 words" for `<10000`, "1,000–5,000 words" for a range.
+    static func wordCountLabel(_ range: String) -> String {
+        func n(_ s: Substring) -> String {
+            Int(s).map { $0.formatted(.number) } ?? String(s)
+        }
+        if range.hasPrefix("<") { return "Under \(n(range.dropFirst())) words" }
+        if range.hasPrefix(">") { return "Over \(n(range.dropFirst())) words" }
+        let parts = range.split(separator: "-")
+        if parts.count == 2 { return "\(n(parts[0]))–\(n(parts[1])) words" }
+        return "\(n(Substring(range))) words"
     }
 }

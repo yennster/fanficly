@@ -37,16 +37,22 @@ Fanficly/
                                #   callers space out instead of bursting
     HTMLParsers/               # one file per page kind
   Search/
-    SearchView.swift           # smart-search UI; results (WorkRow has an inline
-                               #   bookmark/save button); saved searches;
+    SearchView.swift           # search UI: keyword box + suggestion row +
+                               #   filter chips + Filters sheet; results (WorkRow
+                               #   has an inline bookmark/save button); recent &
+                               #   saved searches;
                                #   WorkDetailView (reader + toolbar actions);
                                #   CommentsView (view/post chapter comments)
     AuthorWorksView.swift      # one author's works; Follow button +
                                #   FollowedAuthorsView (the Authors tab)
-    SearchPromptParser.swift   # rules-based prompt → AO3SearchFilters
+    SearchSyntax.swift         # search text ⇄ AO3SearchFilters: keywords stay
+                               #   keywords; only key:value tokens + a short
+                               #   filter-only phrase list become filters
+    SearchSuggestions.swift    # typeahead: AO3 /autocomplete/tag (re-ranked) +
+                               #   local filter/abbreviation suggestions; recents
     AO3SearchFilters.swift     # 1:1 mapping of AO3's /works/search fields
-    KnownTags.swift            # curated freeform + fandom dictionaries
-    FoundationModelsEnricher.swift   # iOS 26+ on-device LLM fallback (no-op elsewhere)
+    KnownTags.swift            # fandom abbreviations + alias dictionaries
+                               #   (suggestion vocabulary — never auto-applied)
   Browse/
     FandomCategories.swift     # 10 AO3 media categories + curated seed lists;
                                #   PopularTags (curated popular fandoms/ships/chars,
@@ -169,7 +175,7 @@ CI runs the same on both an iPhone and an iPad simulator. CI picks the newest in
 
 ~240 unit tests (`FanficlyTests`), all pure/fixture-based (no network):
 - **Parsers** — `SearchResultsParserTests` (incl. the bookmarks page: `li.bookmark.blurb`, work id from the `/works/<id>` link, skipping series/external bookmarks), `WorkPageParserTests` (+ `LoginParserTests`, `CommentsParserTests` — threaded comment depth, guest comments, comment-form pseud id), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
-- **Search** — `SearchPromptParserTests` (ships, characters, ratings, warnings, categories, freeforms incl. romance, fandoms, word count, status, engagement, language, exclusions), `AO3SearchFiltersTests` (every `work_search[*]` field mapping, NOT-exclusion composition, Codable round-trip for saved filters), `TagResolverTests` (canonical resolution, ship slash variants, character-fallback ship resolution via `StubAO3Client`), `PromptTextTests` (chip-removal → search-box text), `FandomCatalogTests` (fandom → category icon).
+- **Search** — `SearchSyntaxTests` (everyday words like "teen wolf"/"supernatural"/"french kiss" stay keywords; the filter-only phrases; every `key:value` token; render⇄parse round trip; old saved-filter JSON still decodes), `SearchSuggestionsTests` (trailing-word extraction, local suggestions, AO3 tag ranking, applying a suggestion, recents, results count), `AO3SearchFiltersTests` (every `work_search[*]` field mapping, NOT-exclusion composition, Codable round-trip for saved filters), `TagResolverTests` (canonical resolution, ship slash variants, character-fallback ship resolution via `StubAO3Client`), `FandomCatalogTests` (fandom → category icon).
 - **Endpoints** — `AO3EndpointsTests` (URLs, pagination, AO3 media path-encoding).
 - **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr, transparent conversion caching), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter).
 - **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow, plus author follow: `isAuthorFollowed`/`toggleFollowAuthor` with seeded work ids, empty-username guard) and `ReadingProgressStore` (save/load round-trips), plus `ReaderProfile` merging (incl. deletion tombstones), per-device key migration, the iCloud backup/restore merge rules (two simulated devices via `overrideBackupURL`), and poller-level subscription-sync behavior.
@@ -192,7 +198,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 ## Common tasks
 
-**Add a new search filter.** Add the field on `AO3SearchFilters` + a row to its `queryItems()`, then add an extractor to `SearchPromptParser`, then a test. UI chips render automatically from the existing chip strip — see `includeChips()`.
+**Add a new search filter.** Add the field on `AO3SearchFilters` (+ its `queryItems()` row, `isEmpty`, the tolerant `init(from:)` and `merging`), a `key:value` token in `SearchSyntax.apply`/`render` (round-trip test), a chip in `SearchView.activeChips`, and optionally a control in `WorkFilterSheet`. Only add a *natural phrase* to `SearchSyntax.phrases` if it can never mean anything but the filter — that list is deliberately short.
 
 **Add a new HTML parser.** Put it in `Networking/HTMLParsers/`. Take a `String` of HTML, parse with SwiftSoup, return a Sendable struct. Add fixture-based tests in `FanficlyTests/`.
 
@@ -224,8 +230,16 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - **"More by this author"** — `AO3WorkSummary.authorUsername` (parsed from the byline `/users/<login>` href by `SearchResultsParser.authorLogin`) makes the reader byline a `NavigationLink(value: AuthorRef)`. `AuthorWorksView` lists that author's works via `AO3Client.fetchAuthorWorks` (the works page reuses the search blurb parser). Every navigation stack applies the shared `.workAndAuthorDestinations()` modifier so both `AO3WorkSummary`→reader and `AuthorRef`→author works resolve everywhere.
 - **Following authors** (the Authors tab) is local-only, like work follows — see "Local follow vs. AO3 subscribe" below. `AuthorWorksView` has a Follow button; `FollowedAuthorsView` lists followed authors. The poller checks each for newly-published works.
 - **Popular tab** — AO3 has no popular/trending endpoint, so popularity is derived from AO3's cumulative work counts: `AO3Client.fetchPopularSnapshot()` ranks **fandoms** by the `/media/<cat>/fandoms` counts (`MediaCategoryParser` now also reads the trailing `(count)`) and aggregates **ships/characters** from the works-filter facet sidebar of the top few fandoms (`WorkFiltersParser` over `/tags/<tag>/works`, `AO3Endpoints.tagWorks`). Live facet markup: include-checkbox ids are `include_work_search_<kind>_ids_<tagid>` and the name+count share one plain span (`Ship Name (57746)`), so the selector is `label[for^=include_][for*=_<kind>_ids_]` (anchoring on `include_` matters — the Exclude half repeats every tag) with the count parsed from the trailing `(N)` via `MediaCategoryParser.trailingCount`. `PopularStore` caches the `PopularSnapshot` in `UserDefaults` and refreshes at most once/day in the background; `PopularView` shows the cached/live lists immediately and **falls back to the curated `PopularTags` seed** whenever a list is empty (offline / markup drift), so the tab is never blank. Tapping a tag opens `FandomWorksView(popular:)`, which maps it to fandom/relationship/character `AO3SearchFilters` sorted by kudos. Names (live or curated) must stay in AO3's exact canonical form or the tag won't resolve. NB: counts are cumulative, not daily/trending — AO3 exposes no trend feed.
-- The search field is a vertical-axis `TextField`, so Return inserts a newline rather than firing `.onSubmit`. SearchView watches `onChange` for a `\n` and triggers the search itself.
-- `SearchPromptParser` matches regexes on a lowercased buffer but extracts title/creator text from the original-case buffer with the same NSRanges — so the lowercase fold must be **length-preserving** (Turkish `İ` lowercases to two UTF-16 units and desynced them; `İstanbul by:melis` used to crash with `NSRangeException`). Don't replace the custom fold with a plain `.lowercased()`.
+- **Search never silently reinterprets words** (the 2026-10 overhaul). The old prompt parser turned common words into hard filters: "teen wolf" became a Teen rating plus the word "wolf", "supernatural" the Supernatural fandom, "french kiss" French-language works, "the other side" the Other category, "soft/family/drama" AND-ed tags. On iOS 26 an on-device LLM step also *erased the keywords* whenever it guessed any tag. Now:
+  - The box text goes to AO3's own full-text search (`work_search[query]`).
+  - Tags become filters only when a suggestion is tapped. They go in `work_search[other_tag_names]`, which AO3 matches against any tag type (verified: same counts as `fandom_names`). Excludes go in `excluded_tag_names`.
+  - Only `key:value` tokens and `SearchSyntax.phrases` convert on submit. Those phrases must convert because **AO3 requires every keyword to match**: "edward bella romance all human" had 496 results, adding the word "complete" left 9.
+  - Don't reintroduce guessing.
+  - The parser runs case-insensitive regexes on the original string (no lowercased twin buffer), so the old Turkish-`İ` NSRange desync can't recur.
+- **Search typeahead:** after 350 ms of no typing, the trailing ≤3 words go to `/autocomplete/tag`, backing off a word at a time when nothing comes back. That endpoint returns every tag type in one throttled request but ranks poorly ("Teen Wolf (TV)" came 4th), so `SearchSuggestions.rankTags` re-ranks. Results are memoized in `TagSuggestionCache`. Tapping a suggestion removes the words it came from.
+- **AO3 search is slow:** 20–30 s time-to-first-byte is normal. `AO3Client.search` uses a 60 s request timeout and 1 retry; the session resource timeout is 90 s. `SearchView` keeps one cancellable `searchTask`, so an old response can never overwrite newer results, and offers Cancel after 5 s. There are no pre-search requests (suggestions are already canonical; only tags typed into the Filters sheet go through `TagResolver`).
+- **Filter-only searches default to Kudos sort** (`SearchSyntax.automaticSort`). AO3's best match has nothing to rank without keywords. This applies until the user picks a sort.
+- **Saved searches, recents and the `fanficly://search?query=` deep link store `promptText()`**, the `key:value` rendering, which `SearchSyntax.parse` reads back exactly. Saved searches from before the overhaul were natural-language prompts; they now run as keyword searches.
 - Top-level tab views (Search, Library) use an **inline** nav title — a large title pops in awkwardly because those screens have a custom header VStack, not a scroll view for the title to anchor against.
 - AO3 may return 429 if we hit it too fast. The throttle should prevent this but handle the case anyway: `performRequest` retries transient failures (URLSession timeouts/dropped connections, 429 within a short `Retry-After`) with exponential backoff — **idempotent GETs only**, never POSTs (login/comment/subscribe must not double-submit), and never while offline. `ThrottleActor.wait()` reserves each caller's slot atomically *before* suspending (actor methods run synchronously up to the first await), so concurrent callers get strictly-spaced instants — a burst of simultaneous requests was what tripped AO3's tarpit and surfaced as 30s "network timeout" errors on list screens.
 - **The reader uses the plain system nav bar — no auto-hide.** We tried scroll-to-hide chrome twice (parent-driven `.toolbar(.hidden)`, then a fully custom floating toolbar) and both were unreliable/ugly, so the reader just keeps the standard `.toolbar` items: `ReaderView` provides the chapters + typography (Aa) + minimize items; the parent adds export plus either a save button (`SavedWorkReader`) or a single options menu (`WorkDetailView`: comments / save-to-library / download / report / hide). Keep the parent to ≤2 items — the iPhone portrait nav bar fits ~5 trailing icons before the system spills the rest into its own "…" overflow, which reads as a confusing second ellipsis next to the `ellipsis.circle` menu. The bar is painted with the reader's `background` (`.toolbarBackground(bg, .visible)`) and themed with `.toolbarColorScheme` — never `.preferredColorScheme`, which propagates to the whole window and flips the app light↔dark when you leave a light reader. The chapter indicator bar (continuous mode) uses `bg`, not `.ultraThinMaterial`, so nothing reads as system gray. If you reattempt auto-hide, do NOT reintroduce a custom chrome — the consensus was to leave it.
