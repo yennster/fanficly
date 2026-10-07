@@ -291,22 +291,12 @@ final class ScreenshotTests: XCTestCase {
         if field.waitForExistence(timeout: 3) {
             field.tap()
             usleep(300_000)
-            // Build the search the way people do now: tap AO3 tag suggestions
-            // into exact filter chips, then type "complete" (a filter word).
-            // Falls back to plain typing if a suggestion doesn't show.
-            var tapped = 0
-            for (fragment, tag) in [("found fam", "Found Family"), ("slow bur", "Slow Burn")] {
-                field.typeText(fragment)
-                let suggestion = app.buttons["Add filter: \(tag)"]
-                if suggestion.waitForExistence(timeout: 4) && suggestion.isHittable {
-                    suggestion.tap()
-                    tapped += 1
-                    usleep(300_000)
-                } else {
-                    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: fragment.count))
-                }
-            }
-            field.typeText(tapped == 2 ? "complete\n" : "found family slow burn complete\n")
+            // The end state of tapping two AO3 tag suggestions plus typing the
+            // filter word "complete": three chips over the results. Typed as
+            // the equivalent explicit tags, which become the same chips on
+            // submit, because waiting on live typeahead made the shot flaky
+            // (it timed out on iPhone mid-run while passing in isolation).
+            field.typeText("tag:\"Found Family\" tag:\"Slow Burn\" complete\n")
             _ = app.cells.firstMatch.waitForExistence(timeout: 6)
             usleep(700_000)
             snap("02-search-results")
