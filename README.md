@@ -17,16 +17,17 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 - **Reading stats & yearly wrap** — the Stats tab totals your stories finished, time read, words read, and day-streak, with top fandoms / ships / categories / authors for any Week / Month / Year / All Time period — plus a shareable wrap-up card, all computed on-device.
 - **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story. Your library shows a reading-progress bar on every story you've started, and a "Finished" badge once you're done.
 - **Home-screen widget** — small and medium widgets show your last-read story with its progress; tapping jumps straight back to your paragraph, with progress synced across devices via iCloud.
-- **Follow, Star & Pin** — bookmark any story with one tap (right from the results list, no need to open it). Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop.
+- **Follow, Star & Pin** — bookmark any story with one tap (right from the results list, no need to open it). Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop — tap one to open the story (or, for an author's new works, their page), even from a cold launch.
 - **Follow authors** — follow an author from their page and get a local notification when they post a new work; the Authors tab keeps everyone you follow in one place.
 - **Comments** — read a work's comment thread, and when you're logged into AO3, post a comment of your own.
 - **Folders** — group library stories into custom folders, included in iCloud library backups.
+- **Library sorting** — sort saved stories by date saved, last read, last updated, title, author, or length (pinned stories stay on top); the control sits in the filter row, not the toolbar, and folders follow the same order.
 - **Library Search** — search works in your library in real-time by title, author, or tags (fandoms, characters, relationships, freeforms, ratings, warnings, and categories). When on the Folders tab, search filters custom folders by name.
 - **Safari Share Sheet Integration** — add works to your library directly from mobile Safari or other browsers. Selecting the Fanficly action in the share sheet imports the work metadata and chapters instantly.
 - **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage, with options to manually backup/restore or purge backups.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3, PDF, or HTML through the iOS share sheet (AirDrop, Books, Files, …).
 - **AO3 account (optional)** — log in to subscribe on AO3 and sync your subscriptions, browse your AO3 bookmarks (including private ones), and post comments. Credentials never stored; only the session cookie, in the Keychain.
-- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0).
+- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0). Resizing never loses your place: rotating, iPad multitasking, or unfolding iPhone Duo keeps the story and paragraph you were on, and lines stay a comfortable length on wide screens.
 - **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
 
 ## Tech

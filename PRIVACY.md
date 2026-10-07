@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective: 2026-07-09
+Effective: 2026-10-07
 
 ## What we collect
 
@@ -12,7 +12,8 @@ Fanficly has no servers. There is no analytics, no crash reporting, no telemetry
 
 - **Your AO3 session cookie** (`_otwarchive_session`), kept in the iOS Keychain so you stay logged in between sessions
 - **Works you've saved offline**, your reading position, custom folders, followed authors, and your bookmark/history/subscription cache, kept in your app's private SwiftData store and Documents directory
-- **Your preferences** (theme, font size, reader profiles, etc.), kept in app storage
+- **Your preferences** (theme, font size, reader profiles, library sort order, etc.), kept in app storage
+- **Your searches** — recent searches stay on this device only (never synced or backed up; clear them from the Search screen); saved searches are kept in app storage and included in the optional iCloud library backup
 - **Your last-read story and its progress**, kept in a private app-group container shared only between the app and its home-screen widget
 
 None of this is ever sent to us — there is no Fanficly server. The only place any of it can go off-device is your own iCloud account, described next.
@@ -30,7 +31,7 @@ This data lives in your private iCloud account and is covered by Apple's iCloud 
 
 The app makes HTTP requests directly to `archiveofourown.org` on your behalf, the same way a web browser would:
 - To read works, the app fetches `/works/<id>` and downloads `/downloads/<id>/...epub` files
-- To search, the app submits queries to `/works/search`
+- To search, the app submits queries to `/works/search`. While you type in the search box, the last few words you've typed are sent to AO3's tag autocomplete (`/autocomplete/tag`) to suggest exact tags — the same lookup AO3's own search form makes
 - To log in, the app POSTs your username and password to `/users/login` and stores the resulting session cookie
 - To sync your account state, the app fetches your bookmarks, history, and subscriptions pages while logged in
 - To subscribe to a work or post a chapter comment — only when you're logged in and choose to (these are user-initiated and happen only when you tap the button) — the app POSTs that action to AO3 on your behalf; any comment text goes only to AO3, which hosts and moderates it
