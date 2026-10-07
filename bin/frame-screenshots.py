@@ -13,6 +13,9 @@ serif headline with a gold italic accent, and the app in a genuine Apple bezel
   - screenshots/final/{iphone,ipad,mac}/ — the tracked marketing set (README)
   - fastlane/screenshots/en-US/          — what `fastlane deliver` uploads (iOS)
   - fastlane/screenshots-mac/en-US/      — what `fastlane release_mac` uploads (macOS)
+  - fastlane/screenshots-duo/en-US/      — iPhone Duo outer (1398×2034, folded) and inner
+                                           (2853×2007, unfolded landscape), uploaded by
+                                           bin/upload-duo-assets.py
 …at exact App Store pixel sizes (deliver picks the slot by resolution). It also
 rebuilds screenshots/showcase.png, the README hero strip, from the first three
 iPhone shots.
@@ -55,7 +58,7 @@ GITHUB_URL = "github.com/yennster/fanficly"
 SHOWCASE_FONT = "/Library/Fonts/SF-Pro-Display-Regular.otf"
 
 # (raw basename, output slug, label, headline). *word* is the gold italic
-# accent and "|" the line break (the landscape Mac layout joins the lines). Output order = this order; deliver sorts by filename, so the NN prefix
+# accent and "|" the line break (the landscape Mac and Duo-inner layouts join the lines). Output order = this order; deliver sorts by filename, so the NN prefix
 # preserves it. The App Store caps a device at 10 screenshots — keep ≤10.
 SLIDES = [
     ("02-search-results",  "search-plain-english",  "Smart search",        "Find your|next *fic.*"),
@@ -71,7 +74,19 @@ SLIDES = [
 ]
 
 # Exact App Store output sizes per device family.
-SIZES = {"iphone": (1320, 2868), "ipad": (2064, 2752), "mac": (2560, 1600)}
+SIZES = {"iphone": (1320, 2868), "ipad": (2064, 2752), "mac": (2560, 1600),
+         "duo-outer": (1398, 2034), "duo-inner": (2853, 2007)}
+
+# iPhone Duo: deliver doesn't know these sizes, so they go to their own tree
+# and bin/upload-duo-assets.py places them through the App Asset Library API.
+OUT_DUO = os.path.join(REPO, "fastlane", "screenshots-duo", "en-US")
+# Duo display aspect ratios: the folded outer display is portrait, the
+# unfolded inner one is captured landscape (a book with the fold down the middle).
+DUO_ASPECT = {"duo-outer": 1398 / 2034, "duo-inner": 2853 / 2007}
+# Slides whose point is a bar pinned to the bottom of the screen (the Listen
+# player, the comment composer): a stand-in keeps that strip, as a shorter
+# display would, and trims content above it instead.
+DUO_KEEP_BOTTOM = {"09-tts": 0.10, "11-comments": 0.09}
 
 MAC_STATUS_BAR = 52     # px of iPad status bar at the top of a landscape capture
 MAC_EDGE_CROP = 18      # px of rounded iPad display corner on the other edges
@@ -89,6 +104,44 @@ def mac_screen(shot: Image.Image) -> Image.Image:
     return shot.crop(((w - new_w) // 2, 0, (w - new_w) // 2 + new_w, h))
 
 
+def duo_screen(shot: Image.Image, device: str, keep_bottom: float = 0.0) -> Image.Image:
+    """A Duo display's screen from a capture. A real iPhone Duo capture already
+    has the display's shape (XCUITest returns it a pixel short; the template
+    scales it into its card either way). Without a Duo simulator the outer
+    display is stood in for by an iPhone capture (same compact width), cropped
+    top-anchored to the outer display's squat aspect."""
+    if abs(shot.width / shot.height - DUO_ASPECT[device]) < 0.01:
+        return shot
+    w, h = shot.size
+    target = min(h, round(w / DUO_ASPECT[device]))
+    bottom = round(h * keep_bottom)
+    if not bottom or target >= h:
+        return shot.crop((0, 0, w, target))
+    # Splice on uniform rows (the gaps between lines of text, or the bar's
+    # hairline) so neither side ends on a half-cut line.
+    xs = range(int(w * .03), int(w * .97), 6)
+    def uniform(y):
+        first = shot.getpixel((xs[0], y))
+        return all(max(abs(a - b) for a, b in zip(shot.getpixel((x, y)), first)) < 12 for x in xs)
+    strip_top = next((y for y in range(h - bottom, h - bottom // 3) if uniform(y)), h - bottom)
+    strip = shot.crop((0, strip_top, w, h))
+    room = target - strip.height
+    cut = next((y for y in range(room, room - h // 8, -1) if uniform(y)), room)
+    out = Image.new("RGB", (w, target), shot.getpixel((xs[0], cut)))
+    out.paste(shot.crop((0, 0, w, cut)), (0, 0))
+    out.paste(strip, (0, room))
+    return out
+
+
+def raw_dir(device: str) -> str:
+    """Where a device's raw captures live. Without a Duo simulator the outer
+    display is derived from the iPhone captures (see duo_screen)."""
+    path = os.path.join(RAW, device)
+    if device == "duo-outer" and not os.path.isdir(path):
+        return os.path.join(RAW, "iphone")
+    return path
+
+
 def make_slide(device: str, index: int, raw_path: str, label: str, headline: str,
                work: str, out_path: str) -> None:
     w, h = SIZES[device]
@@ -96,14 +149,18 @@ def make_slide(device: str, index: int, raw_path: str, label: str, headline: str
     if device == "mac":
         shot = mac_screen(shot)
     framed = os.path.join(work, f"{device}-{index:02d}-device.png")
-    store_art.frame_device(shot, device).save(framed)
+    if device.startswith("duo"):
+        base = os.path.splitext(os.path.basename(raw_path))[0]
+        duo_screen(shot, device, DUO_KEEP_BOTTOM.get(base, 0.0)).save(framed)
+    else:
+        store_art.frame_device(shot, device).save(framed)
     page = os.path.join(work, f"{device}-{index:02d}.html")
     with open(page, "w", encoding="utf-8") as fh:
         fh.write(store_art.fill(
             "screenshot.html", w=str(w), h=str(h), device=device,
-            device_png="file://" + framed,
+            device_png="file://" + framed, device_class="card" if device.startswith("duo") else "",
             label=store_art.html.escape(label),
-            headline=store_art.headline_html(headline, one_line=device == "mac"),
+            headline=store_art.headline_html(headline, one_line=device in ("mac", "duo-inner")),
             pages=store_art.pages_html(seed=index * 7 + len(device), width=w, height=h)))
     store_art.render(page, w, h, out_path)
 
@@ -141,16 +198,18 @@ def parse_args():
 
 def main():
     args = parse_args()
-    os.makedirs(OUT, exist_ok=True)
-    os.makedirs(OUT_MAC, exist_ok=True)
+    for d in (OUT, OUT_MAC, OUT_DUO):
+        os.makedirs(d, exist_ok=True)
     made, iphone_finals = 0, []
     work = tempfile.mkdtemp(prefix="store-art-")
     for device in args.devices or SIZES:
-        src = os.path.join(RAW, device)
+        src = raw_dir(device)
         if not os.path.isdir(src):
             print(f"skip {device}: {src} not found")
             continue
-        final_dir = os.path.join(FINAL, device)
+        # Duo finals stay out of git (screenshots/final is the tracked README
+        # set); they only live in the upload tree.
+        final_dir = OUT_DUO if device.startswith("duo") else os.path.join(FINAL, device)
         os.makedirs(final_dir, exist_ok=True)
         for i, (base, slug, label, headline) in enumerate(SLIDES, start=1):
             if args.only and i not in args.only:
@@ -160,6 +219,12 @@ def main():
                 print(f"  missing {raw}")
                 continue
             name = f"{i:02d}-{slug}"
+            if device.startswith("duo"):
+                make_slide(device, i, raw, label, headline, work,
+                           os.path.join(OUT_DUO, f"{device}-{name}.png"))
+                print(f"  ✓ {device}-{name}.png")
+                made += 1
+                continue
             final_out = os.path.join(final_dir, f"{name}.png")
             make_slide(device, i, raw, label, headline, work, final_out)
             deliver_dir = OUT_MAC if device == "mac" else OUT
@@ -171,8 +236,8 @@ def main():
     shutil.rmtree(work, ignore_errors=True)
     if len(iphone_finals) >= 3 and not args.only:
         make_showcase(iphone_finals[:3], SHOWCASE)
-    print(f"Done — {made} images → screenshots/final/, fastlane/screenshots/en-US/ (iOS) "
-          "and fastlane/screenshots-mac/en-US/ (Mac)")
+    print(f"Done — {made} images → screenshots/final/, fastlane/screenshots/en-US/ (iOS), "
+          "fastlane/screenshots-mac/en-US/ (Mac) and fastlane/screenshots-duo/en-US/ (iPhone Duo)")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,8 @@ final class ScreenshotTests: XCTestCase {
     /// keeps tapping because it uses the collapsed phone navigation shape.
     private var useKeyboardNav = false
     private var currentOrientation: UIDeviceOrientation = .portrait
+    /// A real iPhone Duo, unfolded (set once the app's window shows it).
+    private var isDuoInner = false
 
     override func setUpWithError() throws {
         // Best-effort capture: a single flaky navigation step on Mac Catalyst
@@ -34,12 +36,18 @@ final class ScreenshotTests: XCTestCase {
             .deletingLastPathComponent)
         shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
             .appendingPathComponent(device)
-        try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+        if device != "duo" {
+            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+        }
 
         // US formatting ("48,213 words") whatever the simulator's region is.
         let locale = ["-AppleLocale", "en_US", "-AppleLanguages", "(en)"]
         if device == "mac" {
             app.launchArguments = ["-demoMode", "-app.zoomScale", "0.7"] + locale
+        } else if device == "duo" {
+            // The unfolded Duo's reader shot shows page-by-page's two-page spread.
+            app.launchArguments = ["-demoMode", "-app.zoomScale", "1.0",
+                                   "-reader.mode.phone", "pageByPage"] + locale
         } else {
             app.launchArguments = ["-demoMode", "-app.zoomScale", "1.0"] + locale
         }
@@ -68,6 +76,30 @@ final class ScreenshotTests: XCTestCase {
         // Wait non-blockingly for the app to settle into the final layout.
         let exp = XCTestExpectation(description: "Wait for layout")
         _ = XCTWaiter.wait(for: [exp], timeout: 3.0)
+
+        // iPhone Duo: which display the app is on is only knowable from its
+        // window — the test runner's own UIScreen reports the outer display
+        // whatever the pose — so pick the folder now. The unfolded inner
+        // display is ≥600 pt on its short side; the folded outer one ~466.
+        if device == "duo" {
+            let frame = app.windows.firstMatch.frame
+            let display = min(frame.width, frame.height) >= 600 ? "duo-inner" : "duo-outer"
+            shotDir = ((shotDir as NSString).deletingLastPathComponent as NSString).appendingPathComponent(display)
+            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+            if display == "duo-inner" {
+                isDuoInner = true
+                // Unfolded, the Duo is a landscape book (fold down the middle),
+                // which is also when page-by-page shows its two-page spread.
+                currentOrientation = .landscapeLeft
+                XCUIDevice.shared.orientation = .landscapeLeft
+                _ = XCTWaiter.wait(for: [XCTestExpectation(description: "rotate")], timeout: 2.5)
+            }
+            // Tap around rather than using ⌘1–9: the shortcuts don't reach the
+            // app on the folded Duo, and on the unfolded one (where the
+            // sidebar is always showing) iOS 27.1's vertical bars mean no
+            // screen exposes a titled navigation bar to confirm a jump by.
+            useKeyboardNav = false
+        }
     }
 
     private func snap(_ name: String) {
@@ -79,7 +111,17 @@ final class ScreenshotTests: XCTestCase {
         // app.activate() here is NOT needed and actually destabilises the app
         // reference ("cannot request screenshot data because it does not exist").
         let window = app.windows.firstMatch
-        let shot = window.exists ? window.screenshot() : app.screenshot()
+        var shot = window.exists ? window.screenshot() : app.screenshot()
+        // iPhone Duo: capture the whole display the app is on — the largest
+        // screen — at its exact App Store size (window snapshots came back a
+        // pixel short, or as a transient window's size).
+        if duoDisplay != nil,
+           let screen = XCUIScreen.screens.max(by: {
+               let a = $0.screenshot().image.size, b = $1.screenshot().image.size
+               return a.width * a.height < b.width * b.height
+           }) {
+            shot = screen.screenshot()
+        }
         let path = (shotDir as NSString).appendingPathComponent("\(name).png")
         do {
             try shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
@@ -93,8 +135,18 @@ final class ScreenshotTests: XCTestCase {
 
     /// Tap the leading nav-bar (back) button until the sidebar is showing.
     private func revealSidebar() {
+        let duo = duoDisplay != nil
         for _ in 0..<6 {
-            if app.navigationBars["Fanficly"].exists { return }
+            if app.navigationBars["Fanficly"].exists || (duo && app.staticTexts["Fanficly"].exists) { return }
+            if duo {
+                // iPhone Duo moves the bars into a vertical strip on the
+                // trailing edge, outside the navigation bar — where the first
+                // nav-bar button is a screen's own action (e.g. Recently
+                // Viewed's Clear), so only tap the back button by name.
+                let back = app.buttons["BackButton"]
+                if back.exists && back.isHittable { back.tap(); usleep(700_000); continue }
+                break
+            }
             let back = app.navigationBars.buttons.element(boundBy: 0)
             if back.exists && back.isHittable { back.tap(); usleep(600_000) } else { break }
         }
@@ -119,7 +171,8 @@ final class ScreenshotTests: XCTestCase {
             // navigation happened and synchronises before we capture.
             for _ in 0..<6 {
                 app.typeKey(key, modifierFlags: .command)
-                if app.navigationBars[title].waitForExistence(timeout: 2.5) {
+                let landed = app.navigationBars[title].waitForExistence(timeout: 2.5)
+                if landed {
                     usleep(700_000)
                     return
                 }
@@ -164,6 +217,19 @@ final class ScreenshotTests: XCTestCase {
         }
         return false
     }
+    /// On iPhone, trailing toolbar items collapse into a system overflow
+    /// button at the far right of the navigation bar; open it if there is one.
+    /// iPhone Duo puts the items in a vertical strip outside any navigation
+    /// bar, so there may be nothing to tap — never tap a button that isn't there.
+    private func openToolbarOverflow() {
+        let more = app.buttons["More"]
+        let buttons = app.navigationBars.buttons
+        let overflow = more.exists ? more : (buttons.count > 0 ? buttons.element(boundBy: buttons.count - 1) : nil)
+        guard let overflow, overflow.waitForExistence(timeout: 3), overflow.isHittable else { return }
+        overflow.tap()
+        usleep(600_000)
+    }
+
     private func findSettingsButton() -> XCUIElement {
         let identifier = app.descendants(matching: .any).element(matching: .any, identifier: "reader_settings_button")
         if identifier.exists && identifier.isHittable { return identifier }
@@ -189,7 +255,26 @@ final class ScreenshotTests: XCTestCase {
         
         return identifier // return the non-existent identifier instead of the back button fallback
     }
+    /// Whether this simulator is (or stands in for) an iPhone Duo display. The
+    /// inner display is regular width at ~669×951 pt, so an iPad mini in
+    /// portrait (744 pt) can stand in for it. On a real Duo (phone idiom) this
+    /// process's UIScreen always reports the squat ~466×678 pt outer display —
+    /// no other iPhone is wider than 0.6:1 — whatever the pose, so treat the
+    /// answer as "is a Duo"; setupAndLaunch picks inner vs outer from the
+    /// app's window.
+    private var duoDisplay: String? {
+        let bounds = UIScreen.main.bounds
+        let short = min(bounds.width, bounds.height), long = max(bounds.width, bounds.height)
+        switch UIDevice.current.userInterfaceIdiom {
+        case .pad:   return short < 900 ? "duo-inner" : nil
+        case .phone: return short >= 600 ? "duo-inner" : short / long > 0.6 ? "duo-outer" : nil
+        default:     return nil
+        }
+    }
+
     func testCaptureMainScreens() throws {
+        // Duo stand-ins capture into their own folders (testCaptureDuoScreens).
+        guard duoDisplay == nil else { return }
         let device: String
         switch UIDevice.current.userInterfaceIdiom {
         case .pad:
@@ -201,9 +286,27 @@ final class ScreenshotTests: XCTestCase {
         try runCaptureFlow()
     }
 
+    /// iPhone Duo screenshots → docs/screenshots/duo-inner (or duo-outer on a
+    /// folded Duo simulator). bin/frame-screenshots.py derives the outer set
+    /// from the iPhone captures when there's no duo-outer folder.
+    func testCaptureDuoScreens() throws {
+        guard let display = duoDisplay else { return }
+        if display == "duo-inner" && UIDevice.current.userInterfaceIdiom == .pad {
+            // iPad mini standing in for the inner display.
+            useKeyboardNav = true
+            try setupAndLaunch(device: "duo-inner", orientation: .portrait)
+        } else {
+            // A real iPhone Duo: the folder is chosen from the app's window
+            // after launch (setupAndLaunch), since it depends on the pose.
+            try setupAndLaunch(device: "duo", orientation: .portrait)
+        }
+        try runCaptureFlow()
+    }
+
     func testCaptureMacScreens() throws {
         // We capture landscape screenshots on iPad (or Mac Catalyst) for "mac"
         guard UIDevice.current.userInterfaceIdiom == .pad || UIDevice.current.userInterfaceIdiom == .mac else { return }
+        guard duoDisplay == nil else { return }
         useKeyboardNav = true
         try setupAndLaunch(device: "mac", orientation: .landscapeRight)
         try runCaptureFlow()
@@ -265,11 +368,19 @@ final class ScreenshotTests: XCTestCase {
         // The row sits below the fold, and a List doesn't create off-screen
         // rows, so scroll until it exists (without this the shot was silently
         // skipped and 08-privacy.png went stale).
-        let settingsBack = app.navigationBars.buttons.element(boundBy: 0)
+        let settingsBack = duoDisplay != nil
+            ? app.buttons["BackButton"]
+            : app.navigationBars.buttons.element(boundBy: 0)
         if settingsBack.exists && settingsBack.isHittable { settingsBack.tap(); usleep(700_000) }
         for _ in 0..<6 where !app.staticTexts["What this app sees and stores"].exists
                              && !app.buttons["What this app sees and stores"].exists {
-            app.swipeUp(velocity: .slow)
+            // Swipe the widest list (Settings, not the sidebar) rather than
+            // the app: on the unfolded iPhone Duo XCUITest reports the app's
+            // frame in portrait while the UI is landscape, so an app-level
+            // swipe lands in the wrong place.
+            let lists = app.collectionViews.allElementsBoundByIndex
+            let list = lists.max { $0.frame.width < $1.frame.width }
+            (list ?? app).swipeUp(velocity: .slow)
             usleep(400_000)
         }
         if tapRow("What this app sees and stores") {
@@ -319,6 +430,15 @@ final class ScreenshotTests: XCTestCase {
             app.cells.firstMatch.tap()
             _ = app.staticTexts.firstMatch.waitForExistence(timeout: 6)
             usleep(900_000)
+            if isDuoInner {
+                // Collapse the sidebar so the reader gets the whole display
+                // (and its two-page spread), then turn past the title page.
+                let toggle = app.buttons.matching(NSPredicate(
+                    format: "identifier == 'ToggleSidebar' OR label CONTAINS[c] 'sidebar'")).firstMatch
+                if toggle.exists && toggle.isHittable { toggle.tap(); usleep(1_200_000) }
+                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+                usleep(1_200_000)
+            }
             snap("03-reader")
 
             // Comments — open the reader's "Work options" menu (collapsed into the
@@ -326,12 +446,7 @@ final class ScreenshotTests: XCTestCase {
             // signed in, so the thread + composer render. Dismiss with Done after.
             var optionsButton = app.buttons["Work options"]
             if !optionsButton.waitForExistence(timeout: 2) || !optionsButton.isHittable {
-                let navButtons = app.navigationBars.buttons
-                let count = navButtons.count
-                if count > 0 {
-                    let overflowButton = app.buttons["More"].exists ? app.buttons["More"] : navButtons.element(boundBy: count - 1)
-                    if overflowButton.waitForExistence(timeout: 3) { overflowButton.tap(); usleep(600_000) }
-                }
+                openToolbarOverflow()
                 optionsButton = app.buttons["Work options"]
             }
             if optionsButton.waitForExistence(timeout: 3) {
@@ -356,15 +471,7 @@ final class ScreenshotTests: XCTestCase {
             var ttsButton = findSettingsButton()
             if !ttsButton.isHittable {
                 // On iPhone, trailing toolbar items are collapsed into a default overflow button at the far right
-                let navButtons = app.navigationBars.buttons
-                let count = navButtons.count
-                if count > 0 {
-                    let overflowButton = app.buttons["More"].exists ? app.buttons["More"] : navButtons.element(boundBy: count - 1)
-                    if overflowButton.waitForExistence(timeout: 3) {
-                        overflowButton.tap()
-                        usleep(600_000)
-                    }
-                }
+                openToolbarOverflow()
                 ttsButton = findSettingsButton() // Refresh after opening overflow menu
             }
 
@@ -380,15 +487,7 @@ final class ScreenshotTests: XCTestCase {
                     // Stop narration to clean up
                     var ttsButtonToStop = findSettingsButton()
                     if !ttsButtonToStop.isHittable {
-                        let navButtons = app.navigationBars.buttons
-                        let count = navButtons.count
-                        if count > 0 {
-                            let overflowButton = app.buttons["More"].exists ? app.buttons["More"] : navButtons.element(boundBy: count - 1)
-                            if overflowButton.waitForExistence(timeout: 3) {
-                                overflowButton.tap()
-                                usleep(600_000)
-                            }
-                        }
+                        openToolbarOverflow()
                         ttsButtonToStop = findSettingsButton() // Refresh after opening overflow menu
                     }
                     
