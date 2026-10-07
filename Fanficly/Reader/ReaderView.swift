@@ -75,10 +75,10 @@ struct ReaderView: View {
     /// were up; this way a page always fits, and hiding the controls only
     /// adds bottom margin — the page count doesn't change.
     @State private var pageAreaHeight: CGFloat = 0
-    /// True while an iPhone Duo spread draws up under the top bar
-    /// (topBarReclaim): the bar's background then goes transparent, or it
-    /// would paint over the pages' top lines.
-    @State private var spreadUnderTopBar = false
+    /// True while page-by-page shows an open-book spread on iPhone Duo
+    /// (bookTopShift): the pages sit at a fixed spot under a transparent top
+    /// bar, and the running footer stays put even with the controls hidden.
+    @State private var duoBookLayout = false
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -355,7 +355,7 @@ struct ReaderView: View {
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
                 narrationBar(fg: fg, bg: bg)
-            } else if mode == .pageByPage && !isUIMinimized {
+            } else if mode == .pageByPage && (!isUIMinimized || duoBookLayout) {
                 pageFooterBar(fg: fg, bg: bg)
             }
         }
@@ -363,7 +363,7 @@ struct ReaderView: View {
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbarBackground(bg, for: .navigationBar)
-        .toolbarBackground(spreadUnderTopBar ? .hidden : .visible, for: .navigationBar)
+        .toolbarBackground(duoBookLayout ? .hidden : .visible, for: .navigationBar)
         .toolbar(isUIMinimized ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             if chapters.count > 1 {
@@ -1153,8 +1153,8 @@ struct ReaderView: View {
 
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
-            let reclaim = topBarReclaim(geo)
-            let readingHeight = pageAreaHeight > 0 ? pageAreaHeight : geo.size.height + reclaim
+            let topShift = bookTopShift(geo)
+            let readingHeight = pageAreaHeight > 0 ? pageAreaHeight : geo.size.height + topShift
             // Two pages side by side when the window is wide enough; both are
             // paginated at the spread's page width, gutter on iPhone Duo's fold.
             let spread = twoPageSpread
@@ -1234,17 +1234,17 @@ struct ReaderView: View {
             .foregroundStyle(fg)
             
             content
-                // Extend up into the top bar's spare height (see topBarReclaim).
-                .frame(width: geo.size.width, height: geo.size.height + reclaim)
-                .offset(y: -reclaim)
+                // Pin the pages' top (see bookTopShift).
+                .frame(width: geo.size.width, height: geo.size.height + topShift)
+                .offset(y: -topShift)
                 .task(id: trigger) {
                     await handlePaginationTrigger(trigger)
                 }
                 .onChange(of: spread, initial: true) { _, layout in
                     spreadLayout = layout
                 }
-                .onChange(of: reclaim > 0, initial: true) { _, under in
-                    spreadUnderTopBar = under
+                .onChange(of: isDuoBook(geo), initial: true) { _, book in
+                    duoBookLayout = book
                 }
                 .onChange(of: geo.size, initial: true) { _, newSize in
                     // Pages are measured for the smallest page area seen at the
@@ -1256,7 +1256,7 @@ struct ReaderView: View {
                     // own height moving (iPhone Duo pins a picture-in-picture
                     // video above the app) — starts the measurement over.
                     let immersive = immersiveReadingHeight(fallback: newSize.height)
-                    let area = newSize.height + topBarReclaim(geo)
+                    let area = newSize.height + bookTopShift(geo)
                     let widthChanged = abs(stableWidth - newSize.width) > 1
                     let windowHeightChanged = abs(stableHeight - immersive) > 1
                     if widthChanged || windowHeightChanged || stableWidth == 0 {
@@ -1293,19 +1293,27 @@ struct ReaderView: View {
             .tag(page.id)
     }
 
-    /// Height a two-page spread on iPhone Duo can borrow from the top bar.
-    /// There the bar holds only the sidebar button (the reader's other
-    /// controls sit in the vertical strip on the trailing edge), and the left
-    /// page's text starts well clear of it, so the pages extend up to the
-    /// display's own top margin instead of leaving the bar's height blank.
-    private func topBarReclaim(_ geo: GeometryProxy) -> CGFloat {
-        guard twoPageSpread, foldFrame(geo) != nil else { return 0 }
-        return max(0, geo.safeAreaInsets.top - Self.duoTopMargin)
+    /// Page-by-page on an unfolded iPhone Duo wide enough for a spread: laid
+    /// out like a printed book (see bookTopShift).
+    private func isDuoBook(_ geo: GeometryProxy) -> Bool {
+        twoPageSpread && geo.size.width >= ReaderSpread.minimumWidth && foldFrame(geo) != nil
     }
 
-    /// The Duo's top margin in landscape: clear of the display's rounded
-    /// corners and camera, which the top safe-area inset covers beneath the bar.
-    private static let duoTopMargin: CGFloat = 24
+    /// How far to move the pages up (positive) or down (negative) so their top
+    /// sits `duoTopMargin` below the top of the display, whatever the bars do.
+    /// On iPhone Duo the top bar holds only the sidebar button (the reader's
+    /// other controls sit in the vertical strip) and the left page's text
+    /// starts well clear of it, so the pages use the bar's height instead of
+    /// leaving it blank. With the controls hidden the bar's inset goes to zero;
+    /// shifting down then keeps the text from jumping up to the display's edge.
+    private func bookTopShift(_ geo: GeometryProxy) -> CGFloat {
+        guard isDuoBook(geo) else { return 0 }
+        return geo.safeAreaInsets.top - Self.duoTopMargin
+    }
+
+    /// Where an open-book spread's pages start on iPhone Duo: clear of the
+    /// display's rounded corners and camera, with room to breathe.
+    private static let duoTopMargin: CGFloat = 32
 
     /// iPhone Duo's fold (its division region) in the geometry's space, if any.
     /// Lying flat ("open") the fold is inactive — the display reads as one —
@@ -1753,8 +1761,6 @@ struct ReaderView: View {
                     ))
                 }
             }
-            allAtoms[chIndex] = atoms
-            
             let titleHeaderHeight = estimateTitleHeaderHeight(
                 title: title,
                 author: author,
@@ -1775,9 +1781,11 @@ struct ReaderView: View {
             let isFirstChapter = chIndex == chapters.first?.index
             let showChapterHeader = chapters.count > 1
             
+            // Pagination may split a sentence at a line end (see splitAtomToFit),
+            // so the atoms are stored after it — pages index into the split list.
             let chPages = paginateChapter(
                 chapterIndex: chIndex,
-                atoms: atoms,
+                atoms: &atoms,
                 width: w,
                 viewportHeight: h,
                 titleHeaderHeight: titleHeaderHeight,
@@ -1792,10 +1800,48 @@ struct ReaderView: View {
                 boldText: trigger.boldText
             )
 
+            allAtoms[chIndex] = atoms
             allPages.append(contentsOf: chPages)
         }
         
         return PaginationResult(pages: allPages, atoms: allAtoms)
+    }
+
+    /// Splits `atom` (a sentence) so its first part, laid out after `leading`
+    /// (atoms of the same paragraph already on the page), fits in `budget`.
+    /// It keeps the longest run of whole words that fits, which is exactly
+    /// where a line ends, so the page fills to its last line and the sentence
+    /// carries on at the top of the next one, like a printed book. Returns nil
+    /// when not even one word fits, or for an image slot.
+    private func splitAtomToFit(_ atom: ParagraphAtom, after leading: [ParagraphAtom], budget: CGFloat,
+                                measure: (AttributedString) -> CGFloat) -> (ParagraphAtom, ParagraphAtom)? {
+        guard HTMLToAttributed.imageAttachmentURL(in: atom.text) == nil else { return nil }
+        let chars = Array(atom.text.characters)
+        // Candidate break points: just before each space (the space is dropped).
+        let breaks = chars.indices.filter { chars[$0] == " " && $0 > 0 }
+        guard !breaks.isEmpty else { return nil }
+        func head(_ k: Int) -> AttributedString {
+            let end = atom.text.characters.index(atom.text.startIndex, offsetBy: breaks[k])
+            return AttributedString(atom.text[atom.text.startIndex..<end])
+        }
+        func fits(_ k: Int) -> Bool {
+            let part = ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: head(k),
+                                     isContinuation: atom.isContinuation)
+            return measure(ReaderPageCell.concatenateAtoms(leading + [part])) <= budget
+        }
+        guard fits(0) else { return nil }
+        var lo = 0, hi = breaks.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if fits(mid) { lo = mid } else { hi = mid - 1 }
+        }
+        let start = atom.text.characters.index(atom.text.startIndex, offsetBy: breaks[lo] + 1)
+        let rest = AttributedString(atom.text[start...])
+        guard !rest.characters.isEmpty else { return nil }
+        return (ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: head(lo),
+                              isContinuation: atom.isContinuation),
+                ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: rest,
+                              isContinuation: true))
     }
 
     private func calculateHeight(
@@ -1908,7 +1954,7 @@ struct ReaderView: View {
 
     private func paginateChapter(
         chapterIndex: Int,
-        atoms: [ParagraphAtom],
+        atoms: inout [ParagraphAtom],
         width: CGFloat,
         viewportHeight: CGFloat,
         titleHeaderHeight: CGFloat,
@@ -1962,18 +2008,26 @@ struct ReaderView: View {
             var currentHeight: CGFloat = 0
             var includedAny = false
 
+            let measure: (AttributedString) -> CGFloat = { text in
+                calculateHeight(for: text, width: width, fontSize: fontSize, fontFamily: fontFamily,
+                                lineSpacing: lineSpacing, kerning: kerning, boldText: boldText)
+            }
+            // Two lines of body text: two line heights plus the gap between them.
+            let twoLines = 2 * fontFamily.uiFont(size: fontSize).lineHeight + lineSpacing
+
             if pageMaxHeight > 40 {
                 var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
                 var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
-                var currentBlockHeight = calculateHeight(
-                    for: ReaderPageCell.concatenateAtoms(currentBlockAtoms),
-                    width: width,
-                    fontSize: fontSize,
-                    fontFamily: fontFamily,
-                    lineSpacing: lineSpacing,
-                    kerning: kerning,
-                    boldText: boldText
-                )
+                var currentBlockHeight = measure(ReaderPageCell.concatenateAtoms(currentBlockAtoms))
+                // A single sentence taller than the page: break it at a line
+                // end rather than letting the page overflow.
+                if currentBlockHeight > packingBudget,
+                   let (head, tail) = splitAtomToFit(atoms[startIndex], after: [], budget: packingBudget, measure: measure) {
+                    atoms[startIndex] = head
+                    atoms.insert(tail, at: startIndex + 1)
+                    currentBlockAtoms = [head]
+                    currentBlockHeight = measure(head.text)
+                }
                 
                 currentHeight = currentBlockHeight
                 includedAny = true
@@ -2002,6 +2056,15 @@ struct ReaderView: View {
                             currentBlockHeight = proposedBlockHeight
                             currentHeight = potentialHeight
                         } else {
+                            // Fill the page to its last line, like a printed
+                            // book: the sentence continues on the next page.
+                            if let (head, tail) = splitAtomToFit(nextAtom, after: currentBlockAtoms,
+                                                                 budget: packingBudget - completedBlocksHeight,
+                                                                 measure: measure) {
+                                atoms[endIndex + 1] = head
+                                atoms.insert(tail, at: endIndex + 2)
+                                endIndex += 1
+                            }
                             break
                         }
                     } else {
@@ -2025,6 +2088,16 @@ struct ReaderView: View {
                             currentBlockHeight = proposedBlockHeight
                             currentHeight = potentialHeight
                         } else {
+                            // Start the paragraph here only if at least two of
+                            // its lines fit (no lone opening line at the foot
+                            // of a page); otherwise it opens the next page.
+                            let room = packingBudget - currentHeight - paragraphSpacing
+                            if room >= twoLines,
+                               let (head, tail) = splitAtomToFit(nextAtom, after: [], budget: room, measure: measure) {
+                                atoms[endIndex + 1] = head
+                                atoms.insert(tail, at: endIndex + 2)
+                                endIndex += 1
+                            }
                             break
                         }
                     }
