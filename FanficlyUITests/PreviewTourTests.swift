@@ -72,21 +72,32 @@ final class PreviewTourTests: XCTestCase {
             pause(2.0)
         }
 
-        // 3. Search — type on camera ("complete" turns into a filter chip);
-        //    demo data answers instantly and offline.
+        // 3. Search — run a saved search so its exact tag chips and results
+        //    land on camera. Not typed: `simctl io recordVideo` stops
+        //    capturing frames once the software keyboard is up, so a typed
+        //    search vanished from the video (it cut straight to the reader).
+        //    Demo data answers instantly and offline.
         openSidebarItem("Search", key: "1")
         pause(0.8)
-        let field = searchField()
-        if field.waitForExistence(timeout: 5) {
-            field.tap()
-            pause(0.5)
-            field.typeText("found family slow burn complete\n")
+        //    Then scroll the results slowly: the recorder emits no frames
+        //    while the screen is perfectly still and squeezes that time out
+        //    of the video, so a static results dwell vanished entirely.
+        let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Slow burn, complete")).firstMatch
+        if saved.waitForExistence(timeout: 5) {
+            saved.tap()
         }
-        pause(1.5)
+        pause(0.8)
+        let window = app.windows.firstMatch
+        let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: XCUIGestureVelocity(130), thenHoldForDuration: 0.3)
+        pause(0.4)
 
-        // 4. Open the top result into the reader; linger, then scroll slowly.
+        // 4. Open a result into the reader (the first one still on screen
+        //    after the scroll); linger, then scroll slowly.
         if app.cells.firstMatch.waitForExistence(timeout: 5) {
-            app.cells.firstMatch.tap()
+            let cells = app.cells.allElementsBoundByIndex
+            (cells.first(where: { $0.isHittable }) ?? app.cells.firstMatch).tap()
         }
         pause(2.0)
         app.swipeUp(velocity: .slow)
@@ -110,14 +121,6 @@ final class PreviewTourTests: XCTestCase {
 
     private func pause(_ seconds: TimeInterval) {
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "pause")], timeout: seconds)
-    }
-
-    /// The search box is a TextField; fall back through the element types in
-    /// case a platform exposes it differently.
-    private func searchField() -> XCUIElement {
-        if app.textFields.firstMatch.exists { return app.textFields.firstMatch }
-        if app.textViews.firstMatch.exists { return app.textViews.firstMatch }
-        return app.searchFields.firstMatch
     }
 
     private func settingsButton() -> XCUIElement {

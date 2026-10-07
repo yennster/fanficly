@@ -32,6 +32,12 @@ struct FanficlyApp: App {
             defaults.removeObject(forKey: "reader.pageTurnHaptics")
             defaults.removeObject(forKey: "reader.pageTurnAnimations")
             defaults.removeObject(forKey: "settings.iCloudSyncEnabled")
+            // Recent searches and the Library sort persist across launches;
+            // clear them so every demo run (screenshots, previews) starts
+            // from the same defaults.
+            defaults.removeObject(forKey: RecentSearches.storageKey)
+            defaults.removeObject(forKey: LibrarySort.keyStorageKey)
+            defaults.removeObject(forKey: LibrarySort.ascendingStorageKey)
             
             // Clean up device-specific keys too
             let deviceKeys = [
