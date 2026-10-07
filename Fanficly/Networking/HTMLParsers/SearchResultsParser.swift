@@ -27,7 +27,18 @@ enum SearchResultsParser {
             if liIsCurrent || innerIsCurrent { currentPage = num }
         }
 
-        return AO3SearchResults(works: works, totalPages: totalPages, currentPage: currentPage)
+        return AO3SearchResults(works: works, totalPages: totalPages, currentPage: currentPage,
+                                totalFound: try totalFound(in: doc))
+    }
+
+    /// The `<h3 class="heading">126,555 Found …</h3>` count on search pages.
+    static func totalFound(in doc: Document) throws -> Int? {
+        for heading in try doc.select("h3.heading").array() {
+            let text = try heading.text()
+            guard let range = text.range(of: #"^[\d,.]+(?=\s+Found)"#, options: .regularExpression) else { continue }
+            return Int(text[range].filter(\.isNumber))
+        }
+        return nil
     }
 
     static func parseBlurb(_ li: Element) throws -> AO3WorkSummary? {

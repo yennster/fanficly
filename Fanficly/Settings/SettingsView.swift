@@ -163,6 +163,9 @@ struct SettingsView: View {
                 Link(destination: Self.feedbackMailto) {
                     Label("Send feedback", systemImage: "envelope")
                 }
+                Link(destination: ReviewPrompter.writeReviewURL) {
+                    Label("Rate Fanficly on the App Store", systemImage: "star")
+                }
             }
         }
         .navigationTitle("Settings")

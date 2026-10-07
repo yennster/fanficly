@@ -47,6 +47,9 @@ struct ReaderView: View {
     // Paginated-mode one-shot paragraph restore.
     @State private var pendingParagraphRestore: ReadingAnchor?
     @State private var lastAnchorSampleAt: Date = .distantPast
+    /// Newest anchor offsets between samples (a reference, so storing them
+    /// every scroll frame doesn't re-render). See `scheduleTrailingAnchorSample`.
+    @State private var trailingAnchorSample = TrailingAnchorSample()
     // Text-to-speech ("Listen") narration of the current chapter.
     @State private var speech = SpeechController()
     @State private var isUIMinimized: Bool = false
@@ -279,6 +282,7 @@ struct ReaderView: View {
         let startTimer: () -> Void
         let flushTimer: () -> Void
         let stopSpeech: () -> Void
+        let readerClosed: () -> Void
 
         /// Whether this reader is actually on screen. A reader left in the
         /// NavigationStack under a pushed view (author page, another reader)
@@ -307,6 +311,7 @@ struct ReaderView: View {
                     stopSpeech()
                     applyKeepScreenAwake(false)
                     flushTimer()
+                    readerClosed()
                 }
         }
     }
@@ -384,7 +389,10 @@ struct ReaderView: View {
             applyKeepScreenAwake: { applyKeepScreenAwake($0) },
             startTimer: { startReadingTimer() },
             flushTimer: { recordReadingSpan(restart: false) },
-            stopSpeech: { speech.stop() }
+            stopSpeech: { speech.stop() },
+            readerClosed: {
+                ReviewPrompter.shared.readerClosed(stats: { ReadingStatsStore.snapshots(in: modelContext) })
+            }
         ))
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
@@ -607,18 +615,34 @@ struct ReaderView: View {
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
                         }
                     }
-                    .frame(maxWidth: geo.size.width * CGFloat(widthPercent / 100.0), alignment: .leading)
-                    .padding(.horizontal, geo.size.width * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
+                    .frame(maxWidth: columnWidth(geo.size.width), alignment: .leading)
+                    .padding(.horizontal, (geo.size.width - columnWidth(geo.size.width)) / 2)
                     .padding(.vertical, Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .coordinateSpace(name: scrollSpace)
+                // Rotation, an iPhone Duo fold/unfold or a Split View resize
+                // reflows the text, and the old offset would land on a
+                // different paragraph — put the one you were on back on top.
+                .onChange(of: geo.size.width) { old, new in
+                    guard abs(old - new) > 1 else { return }
+                    beginResize(width: new)
+                    guard let anchor = currentAnchor else { return }
+                    isRestoring = true
+                    Task { await reanchor(to: anchor, proxy: proxy) }
+                }
                 .onPreferenceChange(ChapterOffsetKey.self) { offsets in
                     if let current = ChapterTracking.currentChapter(offsets: offsets) {
                         visibleChapterIndex = current
                     }
                 }
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
+                    // A resize (rotation, iPhone Duo fold, Split View) reflows the
+                    // text and moves every anchor without the reader scrolling;
+                    // ignore it so `reanchor` restores the pre-resize paragraph.
+                    if trailingAnchorSample.width == 0 { trailingAnchorSample.width = geo.size.width }
+                    guard abs(trailingAnchorSample.width - geo.size.width) <= 1 else { return }
+                    trailingAnchorSample.offsets = offsets
                     guard !isRestoring else { return }
                     // Reaching the very end always registers — bypassing the
                     // sample throttle — so a final flick to the bottom can't
@@ -631,7 +655,10 @@ struct ReaderView: View {
                     // Sample at most ~3x/sec so progress tracking never competes
                     // with the scroll for main-thread time.
                     let now = Date()
-                    guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
+                    guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else {
+                        scheduleTrailingAnchorSample { currentAnchor = $0 }
+                        return
+                    }
                     lastAnchorSampleAt = now
                     if let anchor = ChapterTracking.topmostAnchor(offsets) {
                         currentAnchor = anchor
@@ -739,7 +766,7 @@ struct ReaderView: View {
         // Credit only as far as the reader has actually read, so words-read and
         // "finished" status track real progress rather than the work's length.
         let progress = currentAnchor.map(readingProgressFraction(for:)) ?? 0
-        ReadingStatsStore.record(
+        let justFinished = ReadingStatsStore.record(
             ao3Id: summary.id,
             title: title,
             author: author,
@@ -753,6 +780,7 @@ struct ReaderView: View {
             isComplete: summary.isComplete,
             in: modelContext
         )
+        if justFinished { ReviewPrompter.shared.storyFinished() }
     }
 
     /// Periodically persist the in-progress span so a force-quit doesn't lose a
@@ -977,8 +1005,8 @@ struct ReaderView: View {
                         }
                         chapterBlock(chapter, fg: fg)
                     }
-                    .frame(maxWidth: geo.size.width * CGFloat(widthPercent / 100.0), alignment: .leading)
-                    .padding(.horizontal, geo.size.width * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
+                    .frame(maxWidth: columnWidth(geo.size.width), alignment: .leading)
+                    .padding(.horizontal, (geo.size.width - columnWidth(geo.size.width)) / 2)
                     .padding(.top, Spacing.lg)
                     .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -987,7 +1015,14 @@ struct ReaderView: View {
                 // this page's paragraph anchors.
                 .coordinateSpace(name: scrollSpace)
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
-                    guard chapter.index == selectedChapterIndex, !isRestoring else { return }
+                    guard chapter.index == selectedChapterIndex else { return }
+                    // A resize (rotation, iPhone Duo fold, Split View) reflows the
+                    // text and moves every anchor without the reader scrolling;
+                    // ignore it so `reanchor` restores the pre-resize paragraph.
+                    if trailingAnchorSample.width == 0 { trailingAnchorSample.width = geo.size.width }
+                    guard abs(trailingAnchorSample.width - geo.size.width) <= 1 else { return }
+                    trailingAnchorSample.offsets = offsets
+                    guard !isRestoring else { return }
                     // End of the work on screen registers immediately (no
                     // sample throttle) so the final scroll can't be dropped —
                     // same as continuous mode. This page's coordinate space
@@ -1000,7 +1035,14 @@ struct ReaderView: View {
                         return
                     }
                     let now = Date()
-                    guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else { return }
+                    guard now.timeIntervalSince(lastAnchorSampleAt) > 0.35 else {
+                        scheduleTrailingAnchorSample { anchor in
+                            let updated = ReadingAnchor(chapter: chapter.index, paragraph: anchor.paragraph)
+                            currentAnchor = updated
+                            saveProgress(updated)
+                        }
+                        return
+                    }
                     lastAnchorSampleAt = now
                     if let anchor = ChapterTracking.topmostAnchor(offsets) {
                         let updated = ReadingAnchor(chapter: chapter.index, paragraph: anchor.paragraph)
@@ -1011,6 +1053,13 @@ struct ReaderView: View {
                 .task(id: selectedChapterIndex) {
                     await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
                 }
+                .onChange(of: geo.size.width) { old, new in
+                    guard abs(old - new) > 1, chapter.index == selectedChapterIndex else { return }
+                    beginResize(width: new)
+                    guard let anchor = currentAnchor else { return }
+                    isRestoring = true
+                    Task { await reanchor(to: anchor, proxy: pageProxy) }
+                }
                 // Karaoke: follow the narrated paragraph on this page.
                 .onChange(of: speech.currentParagraph) { _, p in
                     guard speech.isActive, chapter.index == listeningChapter else { return }
@@ -1020,6 +1069,53 @@ struct ReaderView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Records the scroll position once updates go quiet. The ~3/sec sample
+    /// throttle alone drops the last updates of a fling, so the spot it came
+    /// to rest on was never recorded: the tracked anchor (and so saved
+    /// progress, and the re-anchor after a resize) could sit a whole fling
+    /// behind what's on screen.
+    private func scheduleTrailingAnchorSample(_ apply: @escaping @MainActor (ReadingAnchor) -> Void) {
+        guard trailingAnchorSample.task == nil else { return }
+        trailingAnchorSample.task = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            trailingAnchorSample.task = nil
+            guard !isRestoring, let anchor = ChapterTracking.topmostAnchor(trailingAnchorSample.offsets) else { return }
+            lastAnchorSampleAt = Date()
+            apply(anchor)
+        }
+    }
+
+    /// A resize starts: anchor samples resume at the new width, and a pending
+    /// trailing sample (taken from the old layout) is dropped.
+    private func beginResize(width: CGFloat) {
+        trailingAnchorSample.width = width
+        trailingAnchorSample.task?.cancel()
+        trailingAnchorSample.task = nil
+    }
+
+    /// Phone settings get the line-length cap — see `ReaderMetrics.textColumnWidth`.
+    @MainActor private static var limitsLineLength: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
+    private func columnWidth(_ containerWidth: CGFloat) -> CGFloat {
+        ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: widthPercent,
+                                      fontSize: fontSizePt, limitLineLength: Self.limitsLineLength)
+    }
+
+    /// Scrolls the paragraph that was on top back to the top once a resize
+    /// has reflowed the text (the tracked anchor is always a rendered one).
+    private func reanchor(to anchor: ReadingAnchor, proxy: ScrollViewProxy) async {
+        defer { isRestoring = false }
+        guard anchor.chapter > 1 || anchor.paragraph > 0 else { return }
+        let key = ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph)
+        for delay: UInt64 in [120, 280] {
+            try? await Task.sleep(nanoseconds: delay * 1_000_000)
+            proxy.scrollTo(key, anchor: .top)
         }
     }
 
@@ -1121,10 +1217,15 @@ struct ReaderView: View {
                     // ignore chrome-driven height changes. Only a genuine layout
                     // change (rotation / split-view resize, which also moves the
                     // width) re-derives it.
+                    // The window's own height moving (iPhone Duo pins a
+                    // picture-in-picture video above the app, shrinking it
+                    // vertically) is genuine too; chrome toggles don't move it.
+                    let immersive = immersiveReadingHeight(fallback: newSize.height)
                     let widthChanged = abs(stableWidth - newSize.width) > 1
-                    guard widthChanged || stableWidth == 0 else { return }
+                    let windowHeightChanged = abs(stableHeight - immersive) > 1
+                    guard widthChanged || windowHeightChanged || stableWidth == 0 else { return }
                     stableWidth = newSize.width
-                    stableHeight = immersiveReadingHeight(fallback: newSize.height)
+                    stableHeight = immersive
                 }
                 .onAppear {
                     isRestoring = true
@@ -1169,8 +1270,8 @@ struct ReaderView: View {
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
-            .frame(maxWidth: containerWidth * CGFloat(widthPercent / 100.0), alignment: .leading)
-            .padding(.horizontal, containerWidth * CGFloat(1.0 - widthPercent / 100.0) / 2.0)
+            .frame(maxWidth: columnWidth(containerWidth), alignment: .leading)
+            .padding(.horizontal, (containerWidth - columnWidth(containerWidth)) / 2)
             .padding(.top, 20)
             .padding(.bottom, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -1465,7 +1566,12 @@ struct ReaderView: View {
     }
 
     private func performPagination(trigger: PaginationTrigger) async -> PaginationResult {
-        let w = trigger.size.width * CGFloat(trigger.widthPercent / 100.0)
+        // Must match `makePageCell`'s column, or pages are measured at one
+        // width and drawn at another.
+        let w = ReaderMetrics.textColumnWidth(containerWidth: trigger.size.width,
+                                              widthPercent: trigger.widthPercent,
+                                              fontSize: trigger.fontSize,
+                                              limitLineLength: Self.limitsLineLength)
         let h = trigger.size.height - 40 // margins
         
         guard w > 50 && h > 100 else {
@@ -2231,4 +2337,14 @@ struct ReaderKeyPressModifier: ViewModifier {
                 }
             )
     }
+}
+
+/// Mutable holder for the reader's trailing scroll-anchor sample.
+@MainActor
+final class TrailingAnchorSample {
+    var offsets: [String: CGFloat] = [:]
+    /// The container width the samples belong to; updates at any other width
+    /// are a resize reflowing the text, not the reader scrolling.
+    var width: CGFloat = 0
+    var task: Task<Void, Never>?
 }

@@ -87,9 +87,11 @@ enum DemoSeed {
         }
 
         // Saved searches (Search toolbar menu).
-        context.insert(SavedSearch(name: "Slow burn, complete", prompt: "slow burn complete general"))
-        context.insert(SavedSearch(name: "Found family", prompt: "found family hurt/comfort"))
-        context.insert(SavedSearch(name: "Coffee shop AUs", prompt: "coffee shop au fluff teen"))
+        // In the search box's own syntax (`SearchSyntax`), so loading one
+        // shows exact tag chips, as a saved search made in the app would.
+        context.insert(SavedSearch(name: "Slow burn, complete", prompt: #"tag:"Slow Burn" complete:yes"#))
+        context.insert(SavedSearch(name: "Found family", prompt: #"tag:"Found Family" tag:Hurt/Comfort"#))
+        context.insert(SavedSearch(name: "Coffee shop AUs", prompt: #"coffee shop tag:Fluff rating:teen"#))
 
         // Saved filters (Browse landing).
         var slowBurn = AO3SearchFilters()

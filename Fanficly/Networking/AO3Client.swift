@@ -28,6 +28,15 @@ public struct AO3SearchResults: Sendable, Equatable {
     public let works: [AO3WorkSummary]
     public let totalPages: Int
     public let currentPage: Int
+    /// The search page's "126,555 Found" total; nil on listings without one.
+    public let totalFound: Int?
+
+    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil) {
+        self.works = works
+        self.totalPages = totalPages
+        self.currentPage = currentPage
+        self.totalFound = totalFound
+    }
 }
 
 public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
@@ -150,6 +159,8 @@ public struct AO3ChapterPayload: Sendable {
 
 public enum AO3AutocompleteField: String, Sendable {
     case relationship, character, freeform, fandom
+    /// Every canonical tag type at once — one request per search suggestion.
+    case tag
 }
 
 public enum WorkExportFormat: String, CaseIterable, Sendable, Identifiable {
@@ -211,7 +222,8 @@ public actor AO3Client: AO3ClientProtocol {
             // Don't let a stalled request hang forever (default resource
             // timeout is ~7 days) — surface an error instead.
             cfg.timeoutIntervalForRequest = 30
-            cfg.timeoutIntervalForResource = 45
+            // Room for search, which sets its own longer request timeout.
+            cfg.timeoutIntervalForResource = 90
             self.session = URLSession(configuration: cfg)
         }
         
@@ -298,7 +310,13 @@ public actor AO3Client: AO3ClientProtocol {
         await throttle.wait()
         let url = try AO3Endpoints.search(filters: filters, page: page, base: baseURL)
         logger.debug("GET \(url.absoluteString, privacy: .public)")
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        // AO3's search pages routinely take 20–30s to start responding (the
+        // server is busy rendering, not stalled), so the default 30s idle
+        // timeout failed searches on slow days, then retried them twice for
+        // a minute-plus wait. Give search 60s and a single retry.
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60
+        let (data, _) = try await performRequest(request, maxRetries: 1)
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Search response not UTF-8")
         }
@@ -595,13 +613,14 @@ public actor AO3Client: AO3ClientProtocol {
     /// rate-limit) is retried before it surfaces to the caller.
     private static let maxRetries = 2
 
-    private func performRequest(_ request: URLRequest, attempt: Int = 0) async throws -> (Data, HTTPURLResponse) {
+    private func performRequest(_ request: URLRequest, attempt: Int = 0,
+                                maxRetries: Int = AO3Client.maxRetries) async throws -> (Data, HTTPURLResponse) {
         ensureCookiesLoaded()
         // Only auto-retry idempotent reads. Replaying a POST (login, comment,
         // subscribe) after a timeout could double-submit — e.g. a comment that
         // actually landed but whose response was lost — so those surface the
         // error to the caller instead.
-        let canRetry = (request.httpMethod ?? "GET").uppercased() == "GET" && attempt < Self.maxRetries
+        let canRetry = (request.httpMethod ?? "GET").uppercased() == "GET" && attempt < maxRetries
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
@@ -622,7 +641,7 @@ public actor AO3Client: AO3ClientProtocol {
                    retryAfter <= Self.maxPoliteRetryAfter {
                     try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
                     await throttle.wait()
-                    return try await performRequest(request, attempt: attempt + 1)
+                    return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries)
                 }
                 throw AO3Error.rateLimited
             default:              throw AO3Error.http(status: http.statusCode)
@@ -635,7 +654,7 @@ public actor AO3Client: AO3ClientProtocol {
             // the whole load.
             try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
             await throttle.wait()
-            return try await performRequest(request, attempt: attempt + 1)
+            return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries)
         } catch {
             throw AO3Error.network(underlying: error.localizedDescription)
         }

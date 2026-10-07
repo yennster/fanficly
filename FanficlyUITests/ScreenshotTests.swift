@@ -281,8 +281,8 @@ final class ScreenshotTests: XCTestCase {
         // Search — type a prompt; demo data returns results instantly (offline).
         openSidebarItem("Search")
         usleep(500_000)
-        // The smart-search field is a vertical-axis TextField; Mac Catalyst
-        // exposes it as a text view rather than a text field, so fall back.
+        // The search box is a TextField; fall back through the element types in
+        // case a platform exposes it differently.
         var field = app.textFields.firstMatch
         if !field.waitForExistence(timeout: 3) {
             if app.textViews.firstMatch.exists { field = app.textViews.firstMatch }
@@ -291,7 +291,12 @@ final class ScreenshotTests: XCTestCase {
         if field.waitForExistence(timeout: 3) {
             field.tap()
             usleep(300_000)
-            field.typeText("found family slow burn complete\n")
+            // The end state of tapping two AO3 tag suggestions plus typing the
+            // filter word "complete": three chips over the results. Typed as
+            // the equivalent explicit tags, which become the same chips on
+            // submit, because waiting on live typeahead made the shot flaky
+            // (it timed out on iPhone mid-run while passing in isolation).
+            field.typeText("tag:\"Found Family\" tag:\"Slow Burn\" complete\n")
             _ = app.cells.firstMatch.waitForExistence(timeout: 6)
             usleep(700_000)
             snap("02-search-results")

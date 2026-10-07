@@ -202,7 +202,7 @@ struct SubscriptionPoller {
                 let newWorks = result.works.filter { !known.contains($0.id) }
                 if !newWorks.isEmpty {
                     await postNewWorkNotification(
-                        author: author.displayName,
+                        author: author,
                         newWorks: newWorks
                     )
                     notifyCount = newWorks.count
@@ -235,19 +235,15 @@ struct SubscriptionPoller {
         return ((try? context.fetch(descriptor)) ?? []).filter { !$0.username.isEmpty }
     }
 
-    private func postNewWorkNotification(author: String, newWorks: [AO3WorkSummary]) async {
-        let content = UNMutableNotificationContent()
-        content.title = author
-        if newWorks.count == 1, let work = newWorks.first {
-            content.body = "New work: \(work.title)"
-            content.userInfo = ["workId": work.id]
-        } else {
-            content.body = "\(newWorks.count) new works posted"
-        }
-        content.sound = .default
+    private func postNewWorkNotification(author: FollowedAuthor, newWorks: [AO3WorkSummary]) async {
+        let content = Self.newWorkContent(
+            authorUsername: author.username,
+            authorName: author.displayName,
+            newWorks: newWorks
+        )
         let newestId = newWorks.first?.id ?? 0
         let request = UNNotificationRequest(
-            identifier: "author-\(author)-newwork-\(newestId)",
+            identifier: "author-\(author.displayName)-newwork-\(newestId)",
             content: content,
             trigger: nil
         )
@@ -255,6 +251,47 @@ struct SubscriptionPoller {
     }
 
     private func postNewChapterNotification(title: String, oldCount: Int, newCount: Int, workId: Int) async {
+        let content = Self.newChapterContent(title: title, oldCount: oldCount, newCount: newCount, workId: workId)
+        let request = UNNotificationRequest(
+            identifier: "work-\(workId)-update-\(newCount)",
+            content: content,
+            trigger: nil
+        )
+        try? await UNUserNotificationCenter.current().add(request)
+    }
+
+    // MARK: - Notification content
+
+    /// A followed author's new work(s). One work opens that work; several open
+    /// the author's page. Internal for tests.
+    nonisolated static func newWorkContent(
+        authorUsername: String,
+        authorName: String,
+        newWorks: [AO3WorkSummary]
+    ) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = authorName
+        if newWorks.count == 1, let work = newWorks.first {
+            content.body = "New work: \(work.title)"
+            content.userInfo = NotificationRoute.newWork(workId: work.id).userInfo
+        } else {
+            content.body = "\(newWorks.count) new works posted"
+            content.userInfo = NotificationRoute.newWorks(
+                author: AuthorRef(username: authorUsername, displayName: authorName)
+            ).userInfo
+        }
+        content.sound = .default
+        return content
+    }
+
+    /// New chapters on a followed or subscribed work; opens the work. Internal
+    /// for tests.
+    nonisolated static func newChapterContent(
+        title: String,
+        oldCount: Int,
+        newCount: Int,
+        workId: Int
+    ) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = title
         let added = newCount - oldCount
@@ -262,13 +299,8 @@ struct SubscriptionPoller {
             ? "1 new chapter posted (\(newCount) total)"
             : "\(added) new chapters posted (\(newCount) total)"
         content.sound = .default
-        content.userInfo = ["workId": workId]
-        let request = UNNotificationRequest(
-            identifier: "work-\(workId)-update-\(newCount)",
-            content: content,
-            trigger: nil
-        )
-        try? await UNUserNotificationCenter.current().add(request)
+        content.userInfo = NotificationRoute.newChapters(workId: workId).userInfo
+        return content
     }
 }
 

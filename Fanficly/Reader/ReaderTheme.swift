@@ -50,6 +50,21 @@ enum ReaderTheme: String, CaseIterable, Identifiable {
 /// Numeric reader metrics adjusted by sliders in Settings. Stored as raw
 /// point values in @AppStorage so they can vary continuously.
 enum ReaderMetrics {
+    /// The reading column: `widthPercent` of the container, capped at
+    /// `maxLineLengthEm` (~80 characters) when `limitLineLength`. The phone
+    /// profile sets it: its width was tuned on a ~400pt screen, and the same
+    /// percentage stretches lines unreadably across a wide phone layout — a
+    /// Pro Max in landscape, or iPhone Duo's 7.6" inner display, which stays
+    /// the phone idiom (and phone settings) while unfolded.
+    static func textColumnWidth(containerWidth: CGFloat, widthPercent: Double,
+                                fontSize: Double, limitLineLength: Bool) -> CGFloat {
+        let column = containerWidth * CGFloat(widthPercent / 100.0)
+        guard limitLineLength else { return column }
+        return min(column, CGFloat(fontSize * maxLineLengthEm))
+    }
+
+    static let maxLineLengthEm: Double = 40
+
     static let defaultFontSize: Double = 18
     static let fontSizeRange: ClosedRange<Double> = 12...30
 

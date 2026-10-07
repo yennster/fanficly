@@ -8,7 +8,7 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 
 ## Features
 
-- **Smart prompt-style search** — type `draco/hermione enemies to lovers complete -angst` and it parses into proper AO3 filters (ships, characters, fandoms, ratings, warnings, categories, tags, word count, language, and `-`/`not` exclusions). Quote a phrase — `"Hermione Granger/Draco Malfoy"` — to pin an exact tag, pick several ratings at once, and use AO3's full sort options and pagination.
+- **Search that does what you typed** — keywords go straight to AO3's own search, and as you type, live suggestions from AO3's tag list (fandoms, ships, characters, tropes) turn words into exact tag filters with one tap. Type `complete`, `wip`, `explicit`, `m/m`, `under 10k` or `in spanish` and they become filter chips; everything else stays a keyword — so `teen wolf` means Teen Wolf. A Filters panel covers ratings, warnings, categories, length, language and sort, and `title:`, `by:`, `tag:"…"` and `-tag:"…"` give precise control. Recent and saved searches are one tap away.
 - **Browse by fandom, with AO3's full filter set** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search. A fandom's works can be filtered exactly like on AO3 (rating, warnings, category, completion, crossovers, word count, relationships/characters/tags include & exclude) — and typed tags resolve to AO3's canonical names via autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`. Save a filter preset once and reapply it to any fandom — or straight from the Browse home.
 - **Popular** — popular fandoms, ships, and characters, ranked live from AO3's work counts (refreshed in the background) with a curated fallback; tap one to see its works sorted by kudos.
 - **Reader** — continuous scroll, swipe-by-chapter, or horizontal page-by-page mode. Six themes (light, sepia, dark, OLED black, Dracula navy, match-system), five font families, and continuously adjustable text size, line-spacing, paragraph-spacing, character-spacing (kerning), bold-text, and margin controls (with quick presets in the Aa menu) — all persisted and synced via iCloud. Arrow keys turn pages on a hardware keyboard. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
@@ -17,22 +17,23 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 - **Reading stats & yearly wrap** — the Stats tab totals your stories finished, time read, words read, and day-streak, with top fandoms / ships / categories / authors for any Week / Month / Year / All Time period — plus a shareable wrap-up card, all computed on-device.
 - **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story. Your library shows a reading-progress bar on every story you've started, and a "Finished" badge once you're done.
 - **Home-screen widget** — small and medium widgets show your last-read story with its progress; tapping jumps straight back to your paragraph, with progress synced across devices via iCloud.
-- **Follow, Star & Pin** — bookmark any story with one tap (right from the results list, no need to open it). Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop.
+- **Follow, Star & Pin** — bookmark any story with one tap (right from the results list, no need to open it). Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop — tap one to open the story (or, for an author's new works, their page), even from a cold launch.
 - **Follow authors** — follow an author from their page and get a local notification when they post a new work; the Authors tab keeps everyone you follow in one place.
 - **Comments** — read a work's comment thread, and when you're logged into AO3, post a comment of your own.
 - **Folders** — group library stories into custom folders, included in iCloud library backups.
+- **Library sorting** — sort saved stories by date saved, last read, last updated, title, author, or length (pinned stories stay on top); the control sits in the filter row, not the toolbar, and folders follow the same order.
 - **Library Search** — search works in your library in real-time by title, author, or tags (fandoms, characters, relationships, freeforms, ratings, warnings, and categories). When on the Folders tab, search filters custom folders by name.
 - **Safari Share Sheet Integration** — add works to your library directly from mobile Safari or other browsers. Selecting the Fanficly action in the share sheet imports the work metadata and chapters instantly.
 - **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage, with options to manually backup/restore or purge backups.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3, PDF, or HTML through the iOS share sheet (AirDrop, Books, Files, …).
 - **AO3 account (optional)** — log in to subscribe on AO3 and sync your subscriptions, browse your AO3 bookmarks (including private ones), and post comments. Credentials never stored; only the session cookie, in the Keychain.
-- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0).
+- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0). Resizing never loses your place: rotating, iPad multitasking, or unfolding iPhone Duo keeps the story and paragraph you were on, and lines stay a comfortable length on wide screens.
 - **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
 
 ## Tech
 
 - Swift 6, SwiftUI, SwiftData
-- iOS 17+, plus macOS via Mac Catalyst. The optional on-device smart-search enrichment uses Apple's Foundation Models framework, which requires iOS 26+ and an Apple-Intelligence-capable device; on everything else the rules-based parser handles search and the enricher is a no-op.
+- iOS 17+, plus macOS via Mac Catalyst.
 - [SwiftSoup](https://github.com/scinfu/SwiftSoup) for AO3 HTML parsing
 - [KeychainAccess](https://github.com/kishikawakatsumi/KeychainAccess) for credential storage
 - Project generated by [xcodegen](https://github.com/yonaskolb/XcodeGen) — `project.yml` is the source of truth

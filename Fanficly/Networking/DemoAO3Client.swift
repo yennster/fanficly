@@ -36,6 +36,14 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
                 w.freeforms.contains { t in wanted.contains { t.lowercased().contains($0) } }
             }
         }
+        // Tags tapped from search suggestions can be any kind.
+        if !filters.otherTagNames.isEmpty {
+            let wanted = filters.otherTagNames.map { $0.lowercased() }
+            works = works.filter { w in
+                let tags = (w.fandoms + w.relationships + w.characters + w.freeforms).map { $0.lowercased() }
+                return wanted.allSatisfy { tag in tags.contains(tag) }
+            }
+        }
         if !filters.categories.isEmpty {
             let names = Set(filters.categories.map(\.displayName))
             works = works.filter { !Set($0.categories).isDisjoint(with: names) }
@@ -51,7 +59,7 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         // empty in a demo.
         if works.isEmpty { works = DemoCatalog.works }
 
-        return AO3SearchResults(works: works, totalPages: 1, currentPage: page)
+        return AO3SearchResults(works: works, totalPages: 1, currentPage: page, totalFound: works.count)
     }
 
     public func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
@@ -98,7 +106,14 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
 
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
-        [term]
+        guard field == .tag else { return [term] }
+        // Search suggestions: real tags from the curated catalog, so the
+        // offline demo (and its screenshots) shows genuine matches.
+        let needle = term.lowercased()
+        var seen = Set<String>()
+        return DemoCatalog.works
+            .flatMap { $0.fandoms + $0.relationships + $0.characters + $0.freeforms }
+            .filter { $0.lowercased().contains(needle) && seen.insert($0).inserted }
     }
 
     public func downloadEPUB(workId: Int) async throws -> URL {

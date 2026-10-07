@@ -1,6 +1,10 @@
 import SwiftUI
 import SwiftData
 
+/// Search AO3. What you type is a keyword search run by AO3's own ranking;
+/// suggestions turn the words you're typing into exact tag or filter chips
+/// when tapped; the Filters sheet covers everything else. Words are never
+/// silently reinterpreted — see `SearchSyntax` for the few phrases that are.
 struct SearchView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
@@ -8,25 +12,36 @@ struct SearchView: View {
     @Query private var hiddenWorks: [HiddenWork]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("search.pendingQuery") private var pendingQuery: String = ""
-    @State private var prompt: String = ""
-    @State private var lastParsed: AO3SearchFilters = AO3SearchFilters()
+    @AppStorage(RecentSearches.storageKey) private var recentRaw: String = ""
+
+    /// The keywords in the search box.
+    @State private var text = ""
+    /// Everything else, shown as chips: tapped suggestions, the Filters
+    /// sheet, and `key:value` tokens typed into the box (moved here when the
+    /// search runs). Also carries the sort.
+    @State private var active = AO3SearchFilters()
+    /// The filters the current results came from (for loading more pages).
+    @State private var searched: AO3SearchFilters?
     @State private var results: [AO3WorkSummary] = []
-    @State private var currentPage: Int = 1
-    @State private var totalPages: Int = 1
-    @State private var isSearching: Bool = false
+    @State private var totalFound: Int?
+    @State private var currentPage = 1
+    @State private var totalPages = 1
+    @State private var isSearching = false
     @State private var hasSearched = false
-    @State private var isLoadingMore: Bool = false
+    @State private var isLoadingMore = false
     @State private var errorMessage: String?
-    @State private var sortColumn: AO3SearchFilters.SortColumn = .bestMatch
-    @State private var sortDirection: AO3SearchFilters.SortDirection = .desc
-    @State private var showingSaveDialog: Bool = false
-    @State private var saveName: String = ""
-    @State private var suppressParse: Bool = false
-    @State private var filtersResolved: Bool = false
-    @State private var showingHelpSheet: Bool = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var searchStartedAt: Date?
+    @State private var tagSuggestions: [SuggestionCandidate] = []
+    @State private var showingFilters = false
+    /// Set once a sort is chosen deliberately (sort bar, Filters sheet, a
+    /// saved search); until then the sort follows `SearchSyntax.automaticSort`.
+    @State private var userPickedSort = false
+    @State private var sortWhenFiltersOpened: AO3SearchFilters.SortColumn?
+    @State private var showingHelp = false
+    @State private var showingSaveDialog = false
+    @State private var saveName = ""
     @FocusState private var searchFocused: Bool
-    private let parser = SearchPromptParser()
-    private let enricher: any SearchEnricher = SearchEnricherFactory.make()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,118 +53,59 @@ struct SearchView: View {
         .navigationBarTitleDisplayMode(.inline)
         .workAndAuthorDestinations()
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        saveName = suggestName()
-                        showingSaveDialog = true
-                    } label: {
-                        Label("Save this search", systemImage: "bookmark")
-                    }
-                    .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                    if !savedSearches.isEmpty {
-                        Section("Saved searches") {
-                            ForEach(savedSearches) { saved in
-                                Button(saved.name) {
-                                    load(saved)
-                                    searchFocused = false
-                                    hasSearched = false
-                                    Task { await runSearch() }
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "bookmark")
-                }
-                .accessibilityLabel("Saved searches")
-            }
+            ToolbarItem(placement: .topBarTrailing) { savedSearchesMenu }
         }
         .alert("Save search", isPresented: $showingSaveDialog) {
             TextField("Name", text: $saveName)
             Button("Save") { saveCurrent() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Saves the prompt and sort options so you can re-run it later.")
+            Text("Saves the keywords, filters and sort so you can re-run it later.")
         }
-        .sheet(isPresented: $showingHelpSheet) {
+        .sheet(isPresented: $showingFilters) {
+            WorkFilterSheet(filters: $active) {
+                if active.sortColumn != sortWhenFiltersOpened { userPickedSort = true }
+                if hasSearched || !currentFilters.isEmpty { submit() }
+            }
+        }
+        .sheet(isPresented: $showingHelp) {
             SearchHelpView()
         }
-        .onAppear {
-            if !pendingQuery.isEmpty {
-                prompt = pendingQuery
-                pendingQuery = ""
-                Task { await runSearch() }
-            }
-        }
-        .onChange(of: pendingQuery) { _, newValue in
-            if !newValue.isEmpty {
-                prompt = newValue
-                pendingQuery = ""
-                Task { await runSearch() }
-            }
-        }
+        .onAppear(perform: consumePendingQuery)
+        .onChange(of: pendingQuery) { _, _ in consumePendingQuery() }
+        // Debounced AO3 tag suggestions for the words being typed; restarts
+        // (cancelling the last lookup) whenever those words change.
+        .task(id: suggestionKey) { await loadTagSuggestions() }
     }
+
+    // MARK: - Header
 
     private var searchHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 8) {
-                TextField("e.g. edward/bella romance all human complete", text: $prompt, axis: .vertical)
-                    .lineLimit(1...3)
-                    .textFieldStyle(.roundedBorder)
-                    .submitLabel(.search)
-                    .focused($searchFocused)
-                    .onSubmit {
-                        searchFocused = false
-                        Task { await runSearch() }
-                    }
-                    .onChange(of: prompt) { _, newValue in
-                        if suppressParse { return }
-                        // A vertical-axis TextField inserts a newline on Return
-                        // rather than firing onSubmit. Treat a trailing newline
-                        // as "search now" and drop the keyboard.
-                        if newValue.contains("\n") {
-                            prompt = newValue.replacingOccurrences(of: "\n", with: "")
-                            searchFocused = false
-                            lastParsed = parser.parse(prompt)
-                            filtersResolved = false
-                            hasSearched = false
-                            Task { await runSearch() }
-                        } else {
-                            lastParsed = parser.parse(prompt)
-                            filtersResolved = false
-                            hasSearched = false
-                        }
-                    }
-
-                Button {
-                    showingHelpSheet = true
-                } label: {
-                    Image(systemName: "questionmark.circle")
-                        .font(.title3)
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Search Help")
+            HStack(spacing: 10) {
+                searchField
+                filtersButton
             }
-
-            sortBar
-
-            if !lastParsed.isEmpty {
+            if searchFocused && !suggestionCandidates.isEmpty {
+                suggestionRow
+            }
+            if !activeChips.isEmpty {
                 FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach(filterChips()) { chip in
+                    ForEach(activeChips) { chip in
                         Button {
-                            chip.remove()
+                            chip.remove(&active)
+                            if hasSearched { startSearch() }
                         } label: {
                             ChipView(text: chip.label, kind: chip.kind, removable: true)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Remove filter: \(chipAccessibilityText(chip.label))")
-                        .accessibilityHint("Removes this filter and re-runs the search.")
+                        .accessibilityLabel("Remove filter: \(chip.label)")
+                        .accessibilityHint(hasSearched ? "Removes this filter and searches again." : "Removes this filter.")
                     }
                 }
+            }
+            if hasSearched && !isSearching && errorMessage == nil {
+                sortBar
             }
         }
         .padding(.horizontal)
@@ -157,6 +113,175 @@ struct SearchView: View {
         .padding(.bottom, 8)
         .background(Color(.systemBackground))
     }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Fandoms, ships, tropes, titles…", text: $text)
+                // Fandom names and ships aren't dictionary words — autocorrect
+                // turned "sterek" into "streak".
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchFocused)
+                .onSubmit(submit)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search text")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var filtersButton: some View {
+        let count = activeChips.count
+        return Button {
+            sortWhenFiltersOpened = active.sortColumn
+            showingFilters = true
+        } label: {
+            Image(systemName: count > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 36, height: 36)
+                .overlay(alignment: .topTrailing) {
+                    if count > 0 {
+                        Text("\(count)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(Color.accentColor, in: Capsule())
+                            .offset(x: 4, y: -2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Filters")
+        .accessibilityValue(count > 0 ? "\(count) active" : "None")
+        .help("Filters")
+    }
+
+    private var suggestionRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(suggestionCandidates) { candidate in
+                    Button {
+                        applySuggestion(candidate)
+                    } label: {
+                        Label(candidate.suggestion.label, systemImage: candidate.suggestion.systemImage)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add filter: \(candidate.suggestion.label)")
+                }
+            }
+            .padding(.horizontal, 2)
+        }
+        .scrollClipDisabled()
+        .transition(.opacity)
+    }
+
+    private var sortBar: some View {
+        HStack(spacing: 12) {
+            if let totalFound {
+                Text(totalFound == 1 ? "1 work" : "\(totalFound.formatted()) works")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Menu {
+                Picker("Sort by", selection: sortColumnBinding) {
+                    ForEach(AO3SearchFilters.SortColumn.allCases, id: \.self) { column in
+                        Text(column.displayName).tag(column)
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .accessibilityHidden(true)
+                    Text(active.sortColumn.displayName)
+                    Image(systemName: "chevron.down").font(.caption2)
+                        .accessibilityHidden(true)
+                }
+                .font(.subheadline)
+            }
+            .accessibilityLabel("Sort by")
+            .accessibilityValue(active.sortColumn.displayName)
+
+            Button {
+                active.sortDirection = active.sortDirection == .asc ? .desc : .asc
+                userPickedSort = true
+                startSearch()
+            } label: {
+                Image(systemName: active.sortDirection.symbol)
+                    .font(.subheadline)
+                    .frame(width: 32, height: 32)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Sort direction")
+            .accessibilityValue(active.sortDirection.displayName)
+        }
+    }
+
+    private var sortColumnBinding: Binding<AO3SearchFilters.SortColumn> {
+        Binding {
+            active.sortColumn
+        } set: { column in
+            guard column != active.sortColumn else { return }
+            active.sortColumn = column
+            userPickedSort = true
+            startSearch()
+        }
+    }
+
+    private var savedSearchesMenu: some View {
+        Menu {
+            Button {
+                saveName = suggestName()
+                showingSaveDialog = true
+            } label: {
+                Label("Save this search", systemImage: "bookmark")
+            }
+            .disabled(currentFilters.isEmpty)
+
+            if !savedSearches.isEmpty {
+                Section("Saved searches") {
+                    ForEach(savedSearches) { saved in
+                        Button(saved.name) { load(saved) }
+                    }
+                }
+            }
+
+            Divider()
+            Button {
+                showingHelp = true
+            } label: {
+                Label("Search tips", systemImage: "questionmark.circle")
+            }
+        } label: {
+            Image(systemName: "bookmark")
+        }
+        .accessibilityLabel("Saved searches")
+    }
+
+    // MARK: - Content
 
     /// Results minus hidden works and (optionally) Mature/Explicit-rated ones.
     private var visibleResults: [AO3WorkSummary] {
@@ -166,376 +291,493 @@ struct SearchView: View {
     @ViewBuilder
     private var contentArea: some View {
         if isSearching {
-            VStack {
-                Spacer()
-                ProgressView("Searching AO3…")
-                Spacer()
-            }
+            searchingView
         } else if let error = errorMessage {
-            ContentUnavailableView("Search failed", systemImage: "exclamationmark.triangle", description: Text(error))
-        } else if results.isEmpty && !hasSearched && !savedSearches.isEmpty {
-            savedSearchesList
-        } else if results.isEmpty && !hasSearched {
-            ContentUnavailableView("Type a prompt", systemImage: "sparkle.magnifyingglass",
-                description: Text("e.g. \"edward/bella romance all human complete\""))
+            ContentUnavailableView {
+                Label("Search failed", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("Try Again") { startSearch() }
+            }
+        } else if !hasSearched {
+            startView
         } else if results.isEmpty {
-            ContentUnavailableView("No results found", systemImage: "magnifyingglass",
-                description: Text("Try adjusting your filters or search terms."))
+            ContentUnavailableView {
+                Label("No results", systemImage: "magnifyingglass")
+            } description: {
+                Text(activeChips.isEmpty
+                     ? "Try different keywords, or fewer of them — AO3 matches every word."
+                     : "Try removing a filter, or fewer keywords — AO3 matches every word.")
+            } actions: {
+                if !activeChips.isEmpty {
+                    Button("Remove All Filters") {
+                        clearFilters()
+                        startSearch()
+                    }
+                }
+            }
         } else if visibleResults.isEmpty {
             ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
                 description: Text("Every match is hidden or filtered out by your content settings."))
         } else {
-            List {
-                ForEach(visibleResults) { work in
-                    NavigationLink(value: work) {
-                        WorkRow(work: work)
-                            .hoverEffect(.highlight)
-                            .help("Read \(work.title)")
-                            .contextMenu {
-                                NavigationLink(value: work) {
-                                    Label("Read Now", systemImage: "book")
-                                }
-                                
-                                Button {
-                                    _ = WorkPersistence.toggleFollow(summary: work, into: context)
-                                } label: {
-                                    if WorkPersistence.isFollowed(workId: work.id, in: context) {
-                                        Label("Remove from Library", systemImage: "bookmark.slash")
-                                    } else {
-                                        Label("Save to Library", systemImage: "bookmark")
-                                    }
-                                }
-                                
-                                if let url = URL(string: "https://archiveofourown.org/works/\(work.id)") {
-                                    ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
-                                        Label("Share Story...", systemImage: "square.and.arrow.up")
-                                    }
-                                }
-                            }
-                    }
-                    // Infinite scroll: pull the next page as the last row appears.
-                    .onAppear {
-                        if work.id == visibleResults.last?.id {
-                            Task { await loadMore() }
-                        }
-                    }
-                }
-                if isLoadingMore {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                    .padding(.vertical, 8)
-                    .listRowSeparator(.hidden)
-                }
-            }
-            .listStyle(.plain)
+            resultsList
         }
     }
 
-    private var savedSearchesList: some View {
+    private var searchingView: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            ProgressView("Searching AO3…")
+            // AO3 often takes 20–30s to answer a search; say so, and offer a
+            // way out, once it's clearly not instant.
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                if let start = searchStartedAt, timeline.date.timeIntervalSince(start) >= 5 {
+                    VStack(spacing: 10) {
+                        Text("AO3 can take up to half a minute to search.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("Cancel", action: cancelSearch)
+                            .buttonStyle(.bordered)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+    }
+
+    private var resultsList: some View {
         List {
-            Section("Saved searches") {
-                ForEach(savedSearches) { saved in
-                    Button {
-                        load(saved)
-                        Task { await runSearch() }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(saved.name).font(.headline).foregroundStyle(.primary)
-                            Text(saved.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            if let col = AO3SearchFilters.SortColumn(rawValue: saved.sortColumn) {
-                                Text("Sort: \(col.displayName) \(saved.sortDirection == "asc" ? "↑" : "↓")")
-                                    .font(.caption2).foregroundStyle(.tertiary)
+            ForEach(visibleResults) { work in
+                NavigationLink(value: work) {
+                    WorkRow(work: work)
+                        .hoverEffect(.highlight)
+                        .help("Read \(work.title)")
+                        .contextMenu {
+                            NavigationLink(value: work) {
+                                Label("Read Now", systemImage: "book")
+                            }
+
+                            Button {
+                                _ = WorkPersistence.toggleFollow(summary: work, into: context)
+                            } label: {
+                                if WorkPersistence.isFollowed(workId: work.id, in: context) {
+                                    Label("Remove from Library", systemImage: "bookmark.slash")
+                                } else {
+                                    Label("Save to Library", systemImage: "bookmark")
+                                }
+                            }
+
+                            if let url = URL(string: "https://archiveofourown.org/works/\(work.id)") {
+                                ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
+                                    Label("Share Story...", systemImage: "square.and.arrow.up")
+                                }
                             }
                         }
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            context.delete(saved)
-                            try? context.save()
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
+                }
+                // Infinite scroll: pull the next page as the last row appears.
+                .onAppear {
+                    if work.id == visibleResults.last?.id {
+                        Task { await loadMore() }
                     }
                 }
+            }
+            if isLoadingMore {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+                .padding(.vertical, 8)
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)
+        .scrollDismissesKeyboard(.immediately)
     }
 
-    private func load(_ saved: SavedSearch) {
-        prompt = saved.prompt
-        sortColumn = AO3SearchFilters.SortColumn(rawValue: saved.sortColumn) ?? .bestMatch
-        sortDirection = AO3SearchFilters.SortDirection(rawValue: saved.sortDirection) ?? .desc
-        lastParsed = parser.parse(saved.prompt)
-    }
-
-    private func suggestName() -> String {
-        let trimmed = prompt.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return "Untitled" }
-        return String(trimmed.prefix(40))
-    }
-
-    private func saveCurrent() {
-        let name = saveName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { return }
-        let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == name })
-        let existing = (try? context.fetch(descriptor))?.first
-        if let existing {
-            existing.prompt = prompt
-            existing.sortColumn = sortColumn.rawValue
-            existing.sortDirection = sortDirection.rawValue
-            existing.savedAt = .now
+    /// Before the first search: recent and saved searches, or a short intro.
+    @ViewBuilder
+    private var startView: some View {
+        let recents = RecentSearches.list(recentRaw)
+        if recents.isEmpty && savedSearches.isEmpty {
+            ContentUnavailableView {
+                Label("Search AO3", systemImage: "magnifyingglass")
+            } description: {
+                Text("Type a fandom, ship, trope, title or author. Tap a suggestion to filter by an exact tag.")
+            } actions: {
+                Button("Search Tips") { showingHelp = true }
+            }
         } else {
-            let new = SavedSearch(
-                name: name,
-                prompt: prompt,
-                sortColumn: sortColumn.rawValue,
-                sortDirection: sortDirection.rawValue
-            )
-            context.insert(new)
-        }
-        try? context.save()
-    }
-
-    private var sortBar: some View {
-        HStack(spacing: 12) {
-            Menu {
-                Picker("Sort by", selection: $sortColumn) {
-                    ForEach(AO3SearchFilters.SortColumn.allCases, id: \.self) { column in
-                        Text(column.displayName).tag(column)
+            List {
+                if !recents.isEmpty {
+                    Section {
+                        ForEach(recents, id: \.self) { prompt in
+                            Button {
+                                load(prompt: prompt)
+                            } label: {
+                                Label(prompt, systemImage: "clock.arrow.circlepath")
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary)
+                            }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    recentRaw = RecentSearches.removing(prompt, from: recentRaw)
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Text("Recent")
+                            Spacer()
+                            Button("Clear") { recentRaw = "" }
+                                .font(.subheadline)
+                                .textCase(nil)
+                        }
                     }
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.arrow.down")
-                    Text(sortColumn.displayName)
-                    Image(systemName: "chevron.down").font(.caption2)
-                        .accessibilityHidden(true)
+                if !savedSearches.isEmpty {
+                    Section("Saved searches") {
+                        ForEach(savedSearches) { saved in
+                            Button {
+                                load(saved)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(saved.name).font(.headline).foregroundStyle(.primary)
+                                    Text(saved.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    if let col = AO3SearchFilters.SortColumn(rawValue: saved.sortColumn) {
+                                        Text("Sort: \(col.displayName) \(saved.sortDirection == "asc" ? "↑" : "↓")")
+                                            .font(.caption2).foregroundStyle(.tertiary)
+                                    }
+                                }
+                            }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    context.delete(saved)
+                                    try? context.save()
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
                 }
-                .font(.subheadline)
             }
-            .accessibilityLabel("Sort by")
-            .accessibilityValue(sortColumn.displayName)
-            .onChange(of: sortColumn) { _, _ in
-                if !results.isEmpty { Task { await executeSearch(resolve: false) } }
-            }
-
-            Button {
-                sortDirection = sortDirection == .asc ? .desc : .asc
-                if !results.isEmpty { Task { await executeSearch(resolve: false) } }
-            } label: {
-                Image(systemName: sortDirection.symbol)
-                    .font(.subheadline)
-                    .frame(width: 32, height: 32)
-                    .background(Color.accentColor.opacity(0.12))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Sort direction")
-            .accessibilityValue(sortDirection.displayName)
-
-            Spacer()
+            .listStyle(.plain)
+            .scrollDismissesKeyboard(.immediately)
         }
     }
 
-    private func runSearch() async {
-        lastParsed = parser.parse(prompt)
-        filtersResolved = false
-        await executeSearch(resolve: true)
+    // MARK: - Suggestions
+
+    /// The words at the end of the box, when the box is being typed in.
+    private var suggestionKey: String {
+        searchFocused ? SearchSuggestions.activeWords(in: text).joined(separator: " ").lowercased() : ""
     }
 
-    /// Searches using the current `lastParsed` (without re-parsing the
-    /// prompt, so chip removals stick). Resolves tags to AO3's canonical
-    /// names first — the same step Browse uses, so results match. Removing
-    /// a chip passes `resolve: false` (tags are already canonical) so the
-    /// re-search is instant instead of re-hitting autocomplete per tag.
-    private func executeSearch(resolve: Bool) async {
+    /// Instant local suggestions first, then AO3's tags; anything already
+    /// applied is left out.
+    private var suggestionCandidates: [SuggestionCandidate] {
+        var out = SearchSuggestions.local(for: SearchSuggestions.activeWords(in: text))
+        for candidate in tagSuggestions where !out.contains(where: {
+            $0.suggestion.label.caseInsensitiveCompare(candidate.suggestion.label) == .orderedSame
+        }) {
+            out.append(candidate)
+        }
+        return out.filter { candidate in
+            var probe = active
+            candidate.suggestion.apply(to: &probe)
+            return probe != active
+        }
+    }
+
+    private func loadTagSuggestions() async {
+        tagSuggestions = []
+        let words = SearchSuggestions.activeWords(in: text)
+        guard searchFocused, !words.isEmpty else { return }
+        // Wait for a pause in typing: every lookup is a throttled AO3 request.
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        // The longest trailing phrase AO3 has tags for: "teen wolf slow"
+        // backs off to "wolf slow", then "slow".
+        for n in stride(from: words.count, through: 1, by: -1) {
+            let phrase = words.suffix(n).joined(separator: " ")
+            guard phrase.count >= 2 else { continue }
+            let names: [String]
+            if let cached = await TagSuggestionCache.shared.value(for: phrase) {
+                names = cached
+            } else {
+                guard let fetched = try? await client.autocomplete(field: .tag, term: phrase) else { return }
+                await TagSuggestionCache.shared.set(fetched, for: phrase)
+                names = fetched
+            }
+            guard !Task.isCancelled else { return }
+            let ranked = SearchSuggestions.rankTags(names, for: phrase)
+            if !ranked.isEmpty {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    tagSuggestions = ranked.map { SuggestionCandidate(suggestion: .tag($0), consumedWords: n) }
+                }
+                return
+            }
+        }
+    }
+
+    private func applySuggestion(_ candidate: SuggestionCandidate) {
+        SearchSuggestions.apply(candidate, text: &text, filters: &active)
+        tagSuggestions = []
+        UIAccessibility.post(notification: .announcement, argument: "Added filter: \(candidate.suggestion.label)")
+        // Refining results that are already showing: keep them in step with
+        // the chips. Before the first search, keep composing instead.
+        if hasSearched { startSearch() }
+    }
+
+    // MARK: - Chips
+
+    private struct ActiveChip: Identifiable {
+        let id: String
+        let label: String
+        var kind: ChipView.Kind = .include
+        let remove: (inout AO3SearchFilters) -> Void
+    }
+
+    /// Every active filter as a removable chip (keywords stay in the box).
+    private var activeChips: [ActiveChip] {
+        let f = active
+        var chips: [ActiveChip] = []
+        func list(_ names: [String], _ key: String, prefix: String = "", kind: ChipView.Kind = .include,
+                  _ path: WritableKeyPath<AO3SearchFilters, [String]>) {
+            for name in names {
+                chips.append(ActiveChip(id: "\(key)|\(name)", label: prefix + name, kind: kind) {
+                    $0[keyPath: path].removeAll { $0 == name }
+                })
+            }
+        }
+        if !f.title.isEmpty {
+            chips.append(ActiveChip(id: "title", label: "Title: \(f.title)") { $0.title = "" })
+        }
+        if !f.creators.isEmpty {
+            chips.append(ActiveChip(id: "creators", label: "By \(f.creators)") { $0.creators = "" })
+        }
+        list(f.otherTagNames, "tag", \.otherTagNames)
+        list(f.fandomNames, "fandom", \.fandomNames)
+        list(f.relationshipNames, "ship", \.relationshipNames)
+        list(f.characterNames, "character", \.characterNames)
+        list(f.freeformNames, "freeform", \.freeformNames)
+        list(f.excludedTagNames, "-tag", prefix: "Not ", kind: .exclude, \.excludedTagNames)
+        list(f.excludedFreeforms, "exclude", prefix: "Not ", kind: .exclude, \.excludedFreeforms)
+        for rating in f.ratings.sorted(by: { $0.rawValue < $1.rawValue }) {
+            chips.append(ActiveChip(id: "rating|\(rating.rawValue)", label: "Rated \(rating.displayName)") { $0.ratings.remove(rating) })
+        }
+        for warning in f.warnings.sorted(by: { $0.rawValue < $1.rawValue }) {
+            chips.append(ActiveChip(id: "warning|\(warning.rawValue)", label: warning.displayName) { $0.warnings.remove(warning) })
+        }
+        for category in f.categories.sorted(by: { $0.rawValue < $1.rawValue }) {
+            chips.append(ActiveChip(id: "category|\(category.rawValue)", label: category.displayName) { $0.categories.remove(category) })
+        }
+        if f.complete != .any {
+            chips.append(ActiveChip(id: "complete", label: f.complete == .yes ? "Complete works" : "Works in progress") { $0.complete = .any })
+        }
+        if f.crossover != .any {
+            chips.append(ActiveChip(id: "crossover", label: f.crossover == .yes ? "Crossovers" : "No crossovers") { $0.crossover = .any })
+        }
+        if f.singleChapter {
+            chips.append(ActiveChip(id: "oneshot", label: "One-shots") { $0.singleChapter = false })
+        }
+        if !f.wordCount.isEmpty {
+            chips.append(ActiveChip(id: "words", label: AO3SearchFilters.wordCountLabel(f.wordCount)) { $0.wordCount = "" })
+        }
+        if !f.languageId.isEmpty {
+            chips.append(ActiveChip(id: "lang", label: "In \(SearchSyntax.languageNames[f.languageId] ?? f.languageId)") { $0.languageId = "" })
+        }
+        if !f.kudosCount.isEmpty {
+            chips.append(ActiveChip(id: "kudos", label: "Kudos \(f.kudosCount)") { $0.kudosCount = "" })
+        }
+        if !f.hits.isEmpty {
+            chips.append(ActiveChip(id: "hits", label: "Hits \(f.hits)") { $0.hits = "" })
+        }
+        if !f.commentsCount.isEmpty {
+            chips.append(ActiveChip(id: "comments", label: "Comments \(f.commentsCount)") { $0.commentsCount = "" })
+        }
+        if !f.bookmarksCount.isEmpty {
+            chips.append(ActiveChip(id: "bookmarks", label: "Bookmarks \(f.bookmarksCount)") { $0.bookmarksCount = "" })
+        }
+        if !f.revisedAt.isEmpty {
+            chips.append(ActiveChip(id: "updated", label: "Updated \(f.revisedAt)") { $0.revisedAt = "" })
+        }
+        return chips
+    }
+
+    private func clearFilters() {
+        let sort = (active.sortColumn, active.sortDirection)
+        active = AO3SearchFilters()
+        (active.sortColumn, active.sortDirection) = sort
+    }
+
+    // MARK: - Searching
+
+    /// The whole search: chips plus the keywords in the box.
+    private var currentFilters: AO3SearchFilters {
+        var filters = active
+        filters.query = SearchSyntax.collapseWhitespace(text)
+        return filters
+    }
+
+    /// Runs the search box: explicit tokens and filter phrases typed there
+    /// become chips; the rest stays as keywords.
+    private func submit() {
+        let parsed = SearchSyntax.parse(text)
+        active = active.merging(parsed)
+        text = parsed.query
+        searchFocused = false
+        startSearch()
+    }
+
+    private func startSearch() {
+        guard !currentFilters.isEmpty else { return }
+        if !userPickedSort {
+            active.sortColumn = SearchSyntax.automaticSort(hasKeywords: !currentFilters.query.isEmpty)
+            active.sortDirection = .desc
+        }
+        let filters = currentFilters
+        recentRaw = RecentSearches.adding(filters.promptText(), to: recentRaw)
+        // A newer search replaces an in-flight one, so a slow earlier
+        // response can never overwrite the results you asked for last.
+        searchTask?.cancel()
+        searchTask = Task { await performSearch(filters) }
+    }
+
+    private func cancelSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+        searchStartedAt = nil
+        withAnimation { isSearching = false }
+    }
+
+    private func performSearch(_ requested: AO3SearchFilters) async {
         errorMessage = nil
-        withAnimation {
-            isSearching = true
-        }
-        currentPage = 1
-        defer {
-            withAnimation {
-                isSearching = false
-            }
-        }
-        
-        var filters = lastParsed
-        if resolve {
-            if !filters.query.isEmpty {
-                filters = await enricher.enrich(filters: filters, prompt: filters.query)
-            }
+        searchStartedAt = .now
+        withAnimation { isSearching = true }
+        var filters = requested
+
+        // Tags typed into the Filters sheet's fields get AO3's canonical names
+        // first (suggestions already are canonical, so they skip this).
+        if !(filters.fandomNames + filters.relationshipNames + filters.characterNames + filters.freeformNames).isEmpty {
             filters = await TagResolver.resolve(filters, using: client)
-            filtersResolved = true
+            guard !Task.isCancelled else { return }
+            active.fandomNames = filters.fandomNames
+            active.relationshipNames = filters.relationshipNames
+            active.characterNames = filters.characterNames
+            active.freeformNames = filters.freeformNames
         }
-        filters.sortColumn = sortColumn
-        filters.sortDirection = sortDirection
-        lastParsed = filters  // reflect canonical names in the chips
-        
+
         do {
             let result = try await client.search(filters: filters, page: 1)
+            guard !Task.isCancelled else { return }
             results = result.works
+            totalFound = result.totalFound
             totalPages = result.totalPages
             currentPage = result.currentPage
+            searched = filters
             hasSearched = true
-            // Tell VoiceOver users the async search finished (the list swap
-            // alone gives no audible cue).
-            UIAccessibility.post(notification: .announcement,
-                                 argument: "Search finished. \(results.count) works on this page.")
-        } catch let AO3Error.loginFailed(reason) {
-            errorMessage = reason
-            hasSearched = false
-        } catch let AO3Error.http(status) {
-            errorMessage = "AO3 returned HTTP \(status)"
-            hasSearched = false
-        } catch let AO3Error.parseFailed(reason) {
-            errorMessage = "Couldn't parse AO3's response: \(reason)"
-            hasSearched = false
-        } catch let AO3Error.network(underlying) {
-            errorMessage = "Network: \(underlying)"
-            hasSearched = false
+            // VoiceOver gets no cue from the list swap alone.
+            UIAccessibility.post(notification: .announcement, argument: result.totalFound.map {
+                "Search finished. \($0) works found."
+            } ?? "Search finished. \(results.count) works on this page.")
         } catch {
-            errorMessage = error.localizedDescription
-            hasSearched = false
+            guard !Task.isCancelled else { return }
+            errorMessage = Self.message(for: error)
+        }
+        searchStartedAt = nil
+        withAnimation { isSearching = false }
+    }
+
+    private static func message(for error: Error) -> String {
+        switch error {
+        case AO3Error.loginFailed(let reason): return reason
+        case AO3Error.http(let status): return "AO3 returned HTTP \(status)."
+        case AO3Error.parseFailed(let reason): return "Couldn't read AO3's response: \(reason)"
+        case AO3Error.network(let underlying): return "Network: \(underlying)"
+        case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
+        default: return error.localizedDescription
         }
     }
 
     private func loadMore() async {
         // onAppear can fire repeatedly, and there's no page past totalPages.
-        guard !isLoadingMore, currentPage < totalPages else { return }
+        guard !isLoadingMore, !isSearching, currentPage < totalPages, let searched else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
-        var filters = lastParsed
-        filters.sortColumn = sortColumn
-        filters.sortDirection = sortDirection
         do {
-            let result = try await client.search(filters: filters, page: currentPage + 1)
+            let result = try await client.search(filters: searched, page: currentPage + 1)
+            guard searched == self.searched else { return }  // a new search started meanwhile
             let existing = Set(results.map(\.id))
             results.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "Couldn't load more: \(error)"
+            errorMessage = "Couldn't load more: \(Self.message(for: error))"
         }
     }
 
-    struct FilterChip: Identifiable {
-        let id = UUID()
-        let label: String
-        let kind: ChipView.Kind
-        let remove: () -> Void
+    // MARK: - Saved, recent and linked searches
+
+    /// Loads a stored search (saved, recent, widget or Shortcut link) into the
+    /// box and chips, then runs it.
+    private func load(prompt: String, sortColumn: AO3SearchFilters.SortColumn? = nil,
+                      sortDirection: AO3SearchFilters.SortDirection? = nil) {
+        let parsed = SearchSyntax.parse(prompt)
+        var filters = AO3SearchFilters().merging(parsed)
+        filters.sortColumn = sortColumn ?? active.sortColumn
+        filters.sortDirection = sortDirection ?? active.sortDirection
+        active = filters
+        text = parsed.query
+        searchFocused = false
+        startSearch()
     }
 
-    /// VoiceOver reads emoji names aloud ("black heart suit Hermione…"), so
-    /// strip the decorative emoji prefix for accessibility strings.
-    private func chipAccessibilityText(_ label: String) -> String {
-        for prefix in ["♥ ", "👤 ", "📚 "] where label.hasPrefix(prefix) {
-            return String(label.dropFirst(prefix.count))
-        }
-        return label
+    private func load(_ saved: SavedSearch) {
+        userPickedSort = true
+        load(prompt: saved.prompt,
+             sortColumn: AO3SearchFilters.SortColumn(rawValue: saved.sortColumn) ?? .bestMatch,
+             sortDirection: AO3SearchFilters.SortDirection(rawValue: saved.sortDirection) ?? .desc)
     }
 
-    /// Tap a chip to remove that filter and re-run the search.
-    private func filterChips() -> [FilterChip] {
-        var chips: [FilterChip] = []
-
-        for ship in lastParsed.relationshipNames {
-            chips.append(FilterChip(label: "♥ \(ship)", kind: .include) {
-                lastParsed.relationshipNames.removeAll { $0 == ship }; chipChanged()
-            })
-        }
-        for character in lastParsed.characterNames {
-            chips.append(FilterChip(label: "👤 \(character)", kind: .include) {
-                lastParsed.characterNames.removeAll { $0 == character }; chipChanged()
-            })
-        }
-        for fandom in lastParsed.fandomNames {
-            chips.append(FilterChip(label: "📚 \(fandom)", kind: .include) {
-                lastParsed.fandomNames.removeAll { $0 == fandom }; chipChanged()
-            })
-        }
-        for tag in lastParsed.freeformNames {
-            chips.append(FilterChip(label: tag, kind: .include) {
-                lastParsed.freeformNames.removeAll { $0 == tag }; chipChanged()
-            })
-        }
-        for rating in lastParsed.ratings.sorted(by: { $0.rawValue < $1.rawValue }) {
-            chips.append(FilterChip(label: rating.displayName, kind: .include) {
-                lastParsed.ratings.remove(rating); chipChanged()
-            })
-        }
-        for warning in lastParsed.warnings.sorted(by: { $0.rawValue < $1.rawValue }) {
-            chips.append(FilterChip(label: warning.displayName, kind: .include) {
-                lastParsed.warnings.remove(warning); chipChanged()
-            })
-        }
-        for category in lastParsed.categories.sorted(by: { $0.rawValue < $1.rawValue }) {
-            chips.append(FilterChip(label: category.displayName, kind: .include) {
-                lastParsed.categories.remove(category); chipChanged()
-            })
-        }
-        if !lastParsed.wordCount.isEmpty {
-            chips.append(FilterChip(label: "words \(lastParsed.wordCount)", kind: .include) {
-                lastParsed.wordCount = ""; chipChanged()
-            })
-        }
-        if !lastParsed.languageId.isEmpty {
-            chips.append(FilterChip(label: "lang \(lastParsed.languageId)", kind: .include) {
-                lastParsed.languageId = ""; chipChanged()
-            })
-        }
-        if lastParsed.singleChapter {
-            chips.append(FilterChip(label: "oneshot", kind: .include) {
-                lastParsed.singleChapter = false; chipChanged()
-            })
-        }
-        if lastParsed.complete == .yes {
-            chips.append(FilterChip(label: "complete", kind: .include) { lastParsed.complete = .any; chipChanged() })
-        } else if lastParsed.complete == .no {
-            chips.append(FilterChip(label: "WIP", kind: .include) { lastParsed.complete = .any; chipChanged() })
-        }
-        if lastParsed.crossover == .yes {
-            chips.append(FilterChip(label: "crossover", kind: .include) { lastParsed.crossover = .any; chipChanged() })
-        } else if lastParsed.crossover == .no {
-            chips.append(FilterChip(label: "no crossover", kind: .include) { lastParsed.crossover = .any; chipChanged() })
-        }
-        if !lastParsed.title.isEmpty {
-            chips.append(FilterChip(label: "title \u{201C}\(lastParsed.title)\u{201D}", kind: .include) {
-                lastParsed.title = ""; chipChanged()
-            })
-        }
-        if !lastParsed.query.isEmpty {
-            chips.append(FilterChip(label: "\u{201C}\(lastParsed.query)\u{201D}", kind: .include) {
-                lastParsed.query = ""; chipChanged()
-            })
-        }
-        for excluded in lastParsed.excludedFreeforms {
-            chips.append(FilterChip(label: excluded, kind: .exclude) {
-                lastParsed.excludedFreeforms.removeAll { $0 == excluded }; chipChanged()
-            })
-        }
-        return chips
+    private func consumePendingQuery() {
+        guard !pendingQuery.isEmpty else { return }
+        let prompt = pendingQuery
+        pendingQuery = ""
+        load(prompt: prompt)
     }
 
-    /// After a chip is removed: sync the search box to the remaining
-    /// filters (so the corresponding text disappears too) and re-run the
-    /// search — without re-resolving, since tags are already canonical.
-    private func chipChanged() {
-        syncPromptToFilters()
-        if !results.isEmpty { Task { await executeSearch(resolve: false) } }
+    private func suggestName() -> String {
+        let prompt = currentFilters.promptText()
+        return prompt.isEmpty ? "Untitled" : String(prompt.prefix(40))
     }
 
-    /// Rewrites the search box to a normalized representation of the active
-    /// filters. `suppressParse` prevents the resulting onChange from
-    /// re-parsing (which would just reproduce the same filters).
-    private func syncPromptToFilters() {
-        suppressParse = true
-        prompt = lastParsed.promptText()
-        DispatchQueue.main.async { suppressParse = false }
+    private func saveCurrent() {
+        let name = saveName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        let prompt = currentFilters.promptText()
+        let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == name })
+        if let existing = (try? context.fetch(descriptor))?.first {
+            existing.prompt = prompt
+            existing.sortColumn = active.sortColumn.rawValue
+            existing.sortDirection = active.sortDirection.rawValue
+            existing.savedAt = .now
+        } else {
+            context.insert(SavedSearch(
+                name: name,
+                prompt: prompt,
+                sortColumn: active.sortColumn.rawValue,
+                sortDirection: active.sortDirection.rawValue
+            ))
+        }
+        try? context.save()
     }
 }
 
@@ -1006,93 +1248,71 @@ private struct CommentRow: View {
 
 struct SearchHelpView: View {
     @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("Search Syntax Guide")
+                    Text("How search works")
                         .font(.title2)
                         .fontWeight(.bold)
                         .padding(.top)
-                    
-                    Text("Fanficly supports advanced search prompt parsing to quickly find the exact fanfictions you want.")
+
+                    Text("Type anything — AO3 searches titles, summaries, tags and authors, and a work has to match every word. A few distinctive words beat a long sentence.")
                         .foregroundStyle(.secondary)
                         .font(.subheadline)
-                    
+
                     Divider()
-                    
-                    Group {
-                        HelpSection(
-                            title: "Story Title",
-                            icon: "doc.text",
-                            color: .blue,
-                            examples: [
-                                ("title:Gatsby", "Find works with 'Gatsby' in the title."),
-                                ("title:\"The Great Gatsby\"", "Use quotes for multi-word titles.")
-                            ]
-                        )
-                        
-                        HelpSection(
-                            title: "Relationships (Ships)",
-                            icon: "heart.fill",
-                            color: .red,
-                            examples: [
-                                ("harry/draco", "Search for relationships using a slash."),
-                                ("\"Hermione Granger/Draco Malfoy\"", "Use quotes for full canonical relationships.")
-                            ]
-                        )
-                        
-                        HelpSection(
-                            title: "Excluding Terms/Tags",
-                            icon: "minus.circle.fill",
-                            color: .orange,
-                            examples: [
-                                ("-angst", "Exclude works containing the word 'angst'."),
-                                ("not \"happy ending\"", "Exclude works tagged with 'happy ending'.")
-                            ]
-                        )
-                        
-                        HelpSection(
-                            title: "Word Count",
-                            icon: "number",
-                            color: .green,
-                            examples: [
-                                ("under 10k", "Less than 10,000 words."),
-                                ("over 50k", "More than 50,000 words."),
-                                ("between 10k and 50k", "Range of word count.")
-                            ]
-                        )
-                    }
-                    
-                    Group {
-                        HelpSection(
-                            title: "Completion & Format",
-                            icon: "checkmark.circle.fill",
-                            color: .purple,
-                            examples: [
-                                ("complete", "Show only completed works."),
-                                ("wip", "Show works in progress (unfinished)."),
-                                ("oneshot", "Show single-chapter works.")
-                            ]
-                        )
-                        
-                        HelpSection(
-                            title: "Engagement & Sorting",
-                            icon: "arrow.up.arrow.down.circle.fill",
-                            color: .teal,
-                            examples: [
-                                ("popular", "Show works with >1,000 kudos."),
-                                ("most kudos", "Sort results by kudos count."),
-                                ("most hits", "Sort results by hits count."),
-                                ("recently updated", "Sort by update date.")
-                            ]
-                        )
-                    }
+
+                    HelpSection(
+                        title: "Tap a suggestion for an exact tag",
+                        icon: "tag.fill",
+                        color: .blue,
+                        examples: [
+                            ("teen wolf", "Suggests the Teen Wolf (TV) fandom — tap it to filter by the tag instead of the words."),
+                            ("derek stiles", "Suggests their ship and characters."),
+                            ("slow burn", "Suggests the Slow Burn tag."),
+                        ]
+                    )
+
+                    HelpSection(
+                        title: "Filters",
+                        icon: "line.3.horizontal.decrease.circle.fill",
+                        color: .purple,
+                        examples: [
+                            ("Filters button", "Rating, warnings, categories, complete or in progress, length, language, sort and more."),
+                        ]
+                    )
+
+                    HelpSection(
+                        title: "Shortcuts you can type",
+                        icon: "bolt.fill",
+                        color: .orange,
+                        examples: [
+                            ("complete · wip · one shot", "Completion and single-chapter works."),
+                            ("explicit · nsfw · sfw", "Ratings (\"teen\" and \"mature\" stay words — use a suggestion or Filters)."),
+                            ("m/m · f/f · f/m", "Categories."),
+                            ("under 10k · over 50k · between 10k and 50k", "Word count."),
+                            ("in spanish · no crossovers · no mcd", "Language, crossovers, and leaving out Major Character Death."),
+                        ]
+                    )
+
+                    HelpSection(
+                        title: "Precise searching",
+                        icon: "scope",
+                        color: .green,
+                        examples: [
+                            ("\"enemies to lovers\"", "An exact phrase."),
+                            ("-angst", "Leave out works mentioning a word."),
+                            ("title:\"The Long Way Home\"", "Search titles only."),
+                            ("by:astolat", "Works by an author."),
+                            ("tag:\"Slow Burn\" -tag:\"Major Character Death\"", "Include or exclude an exact tag."),
+                        ]
+                    )
                 }
                 .padding(.horizontal)
             }
-            .navigationTitle("Search Help")
+            .navigationTitle("Search Tips")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

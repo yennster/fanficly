@@ -197,22 +197,22 @@ if ! $POST_ONLY; then
 fi
 
 PRE="null" CAPSIZE=100 CAPMAXW=1230 CAPMARGIN=48
-CAPS=("NEVER MISS A CHAPTER|4.5|7.0|L|210"
-      "DISCOVER WHAT’S POPULAR|12|14.8|R|210"
-      "SEARCH IN PLAIN ENGLISH|19.7|23.5|L|470"
-      "READ ANYWHERE, OFFLINE|24|29.5|L|2360"
-      "LISTEN ON THE GO|35|40.5|C|2300")
+CAPS=("NEVER MISS A CHAPTER|6.0|8.7|L|210"
+      "SEARCH IN PLAIN ENGLISH|17.9|24.7|L|2360"
+      "READ ANYWHERE, OFFLINE|25.3|30.5|L|2360"
+      "LISTEN ON THE GO|38.0|43.8|C|2300")
 # Hard cuts: only a flash of the sidebar between beats, jump-cuts inside the
-# long reader stretch — the dwells read as dead air at full length.
-SEGMENTS=("4.5|7.0" "8.5|9.0" "12.0|14.8" "16.0|16.5"
-          "19.7|23.5" "24.0|26.0" "27.5|29.5" "32.0|34.0" "35.0|40.5")
+# long reader stretch — the dwells read as dead air at full length. The
+# Popular beat is left out: simctl compresses its static frames to a blip.
+SEGMENTS=("6.0|8.7" "14.0|14.5" "17.9|24.7" "25.3|27.6" "28.5|30.5"
+          "34.6|35.8" "38.0|43.8")
 post iphone "scale=886:1920:flags=lanczos"
 
 PRE="null" CAPSIZE=110 CAPMAXW=1920 CAPMARGIN=64
-CAPS=("SEARCH IN PLAIN ENGLISH|1.0|9.8|L|170"
-      "READ ANYWHERE, OFFLINE|10.8|16.5|L|2320"
-      "LISTEN ON THE GO|22|26.5|R|2320")
-SEGMENTS=("1.0|1.7" "6.3|9.8" "10.8|13.8" "14.6|16.5" "19.5|21.5" "22.0|26.5")
+CAPS=("SEARCH IN PLAIN ENGLISH|5.8|14.2|L|2320"
+      "READ ANYWHERE, OFFLINE|15.3|21.5|L|2320"
+      "LISTEN ON THE GO|28.0|33.0|R|2320")
+SEGMENTS=("5.8|14.2" "15.3|17.5" "19.0|21.5" "24.0|25.4" "28.0|33.0")
 post ipad "scale=1200:1600:flags=lanczos"
 
 # simctl records a rotated simulator in its portrait buffer with sideways
@@ -220,10 +220,10 @@ post ipad "scale=1200:1600:flags=lanczos"
 # BEFORE captioning, then pillarboxes the 4:3 capture onto the 16:9 canvas
 # in brand indigo (bin/frame-screenshots.py BG), matching the screenshot set.
 PRE="transpose=1" CAPSIZE=100 CAPMAXW=2500 CAPMARGIN=80
-CAPS=("SEARCH IN PLAIN ENGLISH|1.5|9.6|R|120"
-      "READ ANYWHERE, OFFLINE|10.2|13.4|C|1720"
-      "LISTEN ON THE GO|19.7|23.5|R|1700")
-SEGMENTS=("1.5|2.1" "3.5|7.0" "8.6|13.8" "17.0|19.0" "19.5|23.5")
+CAPS=("SEARCH IN PLAIN ENGLISH|5.5|14.2|L|1720"
+      "READ ANYWHERE, OFFLINE|15.3|21.5|C|1720"
+      "LISTEN ON THE GO|27.6|32.6|R|1700")
+SEGMENTS=("5.5|14.2" "15.3|17.5" "19.0|21.5" "24.0|25.4" "27.6|32.6")
 post mac "scale=-2:1080:flags=lanczos,pad=1920:1080:(ow-iw)/2:0:color=0x3B2E8C"
 
 echo "Done. Previews in $OUT"

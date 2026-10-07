@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 import SwiftData
 import UniformTypeIdentifiers
 import UIKit // UIAccessibility announcements (ImportOverlay)
@@ -33,6 +34,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.ao3Client) private var client
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.requestReview) private var requestReview
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
     
     @State private var importingWorkId: Int? = nil
@@ -40,6 +42,7 @@ struct RootView: View {
     @State private var detailPath = NavigationPath()
     @State private var pendingResumeRoute: ResumeWorkRoute?
     @State private var pendingFolderRoute: PinnedFolderRoute?
+    @State private var pendingNotificationRoute: NotificationRoute?
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
@@ -98,22 +101,48 @@ struct RootView: View {
                     }
                 }
                 .navigationDestination(for: ResumeWorkRoute.self) { route in
-                    if let savedWork = savedWork(with: route.workId) {
-                        SavedWorkReader(work: savedWork)
-                    } else {
-                        WorkDetailView(workId: route.workId)
+                    Group {
+                        if let savedWork = savedWork(with: route.workId) {
+                            SavedWorkReader(work: savedWork)
+                        } else {
+                            WorkDetailView(workId: route.workId)
+                        }
                     }
+                    // A widget tap can replace one route with another in the
+                    // same slot; without this SwiftUI keeps the old reader (and
+                    // its loaded work) and just hands it the new route.
+                    .id(route)
                 }
                 .navigationDestination(for: PinnedFolderRoute.self) { route in
                     FolderRouteDetailLoader(folderName: route.folderName)
                 }
-                // Performs the widget-resume push. Driven by state instead of
-                // an imperative append so it runs once this stack's content is
-                // actually mounted: in compact width the detail column doesn't
-                // exist until the split view navigates to it, and pushing in
-                // the same frame as the tab switch trips SwiftUI's
-                // "NavigationRequestObserver tried to update multiple times
-                // per frame" warning (and can silently drop the push).
+                .navigationDestination(for: NotificationRoute.self) { route in
+                    Group {
+                        switch route {
+                        // Always the live work, even when it's saved: a downloaded
+                        // copy doesn't have the chapter the alert is about.
+                        // Reading position is keyed by work id, so it still resumes.
+                        case .newChapters(let workId), .newWork(let workId):
+                            WorkDetailView(workId: workId)
+                        case .newWorks(let author):
+                            AuthorWorksView(author: author)
+                        }
+                    }
+                    // A tap can replace one route with another in the same slot;
+                    // without this SwiftUI keeps the old screen (and its loaded
+                    // work) and just hands it the new route.
+                    .id(route)
+                }
+                // Performs the widget-resume push for a tap from the iPhone
+                // sidebar menu. Driven by state instead of an imperative append
+                // so it runs once this stack's content is actually mounted: in
+                // compact width the detail column doesn't exist until the split
+                // view navigates to it, and pushing in the same frame as the tab
+                // switch trips SwiftUI's "NavigationRequestObserver tried to
+                // update multiple times per frame" warning (and can silently
+                // drop the push). It only runs while this root content is
+                // showing, never under a pushed screen — `openResumeRoute`
+                // assigns the path directly when a tab is already on screen.
                 .task(id: pendingResumeRoute) {
                     guard let route = pendingResumeRoute else { return }
                     pendingResumeRoute = nil
@@ -122,6 +151,11 @@ struct RootView: View {
                 .task(id: pendingFolderRoute) {
                     guard let route = pendingFolderRoute else { return }
                     pendingFolderRoute = nil
+                    detailPath = NavigationPath([route])
+                }
+                .task(id: pendingNotificationRoute) {
+                    guard let route = pendingNotificationRoute else { return }
+                    pendingNotificationRoute = nil
                     detailPath = NavigationPath([route])
                 }
             }
@@ -134,9 +168,15 @@ struct RootView: View {
             .task {
                 if FanficlyApp.isDemoMode { DemoSeed.seed(into: context) }
             }
+            // Becoming compact (closing an iPhone Duo, rotating a Pro Max back
+            // to portrait, an iPad Split View resize) keeps you where you
+            // were: the tab on screen stays open with its navigation stack.
+            // This used to reset to the sidebar, so every fold dropped you
+            // out of the story you were reading. Only a fresh launch starts
+            // on the sidebar.
             .onChange(of: horizontalSizeClass) { _, newSizeClass in
                 if newSizeClass == .compact {
-                    compactSelection = nil
+                    compactSelection = SidebarItem(rawValue: selectedTabRaw) ?? .search
                 }
             }
             .onChange(of: selectedTabRaw) { _, raw in
@@ -152,6 +192,22 @@ struct RootView: View {
             }
             .onOpenURL { url in
                 handleIncomingURL(url)
+            }
+            // `initial: true` catches a tap that cold-launched the app and
+            // landed before this view existed.
+            .onChange(of: NotificationRouter.shared.pendingRoute, initial: true) { _, route in
+                guard let route else { return }
+                NotificationRouter.shared.pendingRoute = nil
+                openNotificationRoute(route)
+            }
+            // The rating prompt, shown just after a reader closes on a finished
+            // story; the short delay lets the pop settle so it lands over the
+            // list rather than mid-transition. See `ReviewPrompter`.
+            .onChange(of: ReviewPrompter.shared.requestCount) { _, _ in
+                Task {
+                    try? await Task.sleep(for: .seconds(1.2))
+                    requestReview()
+                }
             }
             .overlay {
                 if let workId = importingWorkId {
@@ -266,17 +322,52 @@ struct RootView: View {
 
     private func openResumeRoute(_ route: ResumeWorkRoute) {
         installResumeProgressIfAvailable(for: route)
-        // Switch to Library but DON'T clear the detail path here (as the general
-        // `select(_:)` does). Clearing it and then re-pushing in the deferred
-        // `.task` spans two update cycles and races with the tab switch; when the
-        // app is already open SwiftUI can drop the re-push ("tried to update
-        // multiple times per frame"), stranding you on an empty Library instead
-        // of the reader. Letting the `.task` set the path to `[route]` in one
-        // atomic mutation replaces whatever was there (empty, this same route, or
-        // another tab's stack) reliably and idempotently.
-        selectedTabRaw = SidebarItem.library.rawValue
-        if isCompactNavigation { compactSelection = .library }
-        pendingResumeRoute = route   // pushed by the .task(id:) on the stack
+        if isCompactNavigation && compactSelection == nil {
+            // iPhone on the sidebar menu (always the case after a cold launch):
+            // open Library. Its detail column has to mount first, and pushing in
+            // that same frame drops the push, so the stack's .task(id:) does it
+            // once mounted. DON'T clear the detail path here (as the general
+            // `select(_:)` does): clearing it and then re-pushing in the deferred
+            // `.task` spans two update cycles and races with the tab switch, and
+            // SwiftUI can drop the re-push ("tried to update multiple times per
+            // frame"), stranding you on an empty Library instead of the reader.
+            // The `.task` sets the path to `[route]` in one atomic mutation.
+            selectedTabRaw = SidebarItem.library.rawValue
+            compactSelection = .library
+            pendingResumeRoute = route
+        } else {
+            // A tab's stack is already on screen: open the reader on top of it
+            // instead of switching tabs, replacing whatever was pushed (another
+            // reader, say) in one assignment — a no-op if this same route is
+            // already open. The deferred .task can't do this: it never runs on a
+            // stack with a screen pushed over it (in compact width not even a
+            // .task on the NavigationStack itself), so the tap did nothing and
+            // the stale route fired later, when you popped back to the root. And
+            // switching the split view's selection while a screen is pushed can
+            // drop the push.
+            detailPath = NavigationPath([route])
+        }
+    }
+
+    /// Opens what a tapped notification is about.
+    private func openNotificationRoute(_ route: NotificationRoute) {
+        if isCompactNavigation && compactSelection == nil {
+            // iPhone on the sidebar menu (always the case after a cold launch):
+            // open the route's own tab. Its detail column has to mount first,
+            // and pushing in that same frame drops the push, so the stack's
+            // .task(id:) does it once mounted (as in `openResumeRoute`).
+            let workIsSaved = route.workId.map { savedWork(with: $0) != nil } ?? false
+            let tab = route.landingTab(workIsSaved: workIsSaved)
+            selectedTabRaw = tab.rawValue
+            compactSelection = tab
+            pendingNotificationRoute = route
+        } else {
+            // A tab's stack is already on screen: open the route on top of it
+            // instead of switching tabs. Switching the split view's selection
+            // while a screen is pushed can drop the push, and the deferred
+            // .task never runs on a stack with a screen pushed over it.
+            detailPath = NavigationPath([route])
+        }
     }
 
     private func installResumeProgressIfAvailable(for route: ResumeWorkRoute) {

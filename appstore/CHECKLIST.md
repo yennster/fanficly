@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Version bumped to **1.5.1 (build 22)** in `project.yml` (iOS 1.5.0/build 21 was uploaded first; bumped to 1.5.1 so the indigo build could also ship to Mac, whose 1.5.0 was already approved)
+- Current version: **1.9.0 (build 29)** in `project.yml`, iOS + Mac (both platforms take the same build number). Bump both for the next release (see *Releasing an update* below).
 
 ---
 

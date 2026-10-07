@@ -16,7 +16,7 @@ open Fanficly.xcodeproj
 
 1. **Be a good guest to AO3.** Don't increase request volume, don't parallelize scrapes per user, don't bypass our throttle. If you're adding a feature that needs more requests, profile it first and discuss in an issue.
 2. **No telemetry, no analytics, no third-party SDKs.** Period. The privacy story is the headline feature.
-3. **Test the parser.** New rules in `SearchPromptParser` need unit tests covering both positive and negative cases.
+3. **Never make search guess.** Typed words stay keywords for AO3's own search; tags become filters only when the user taps a suggestion. A new `key:value` token in `SearchSyntax` needs a round-trip test. Add a phrase to its filter-only list only if it can never mean anything but that filter, with tests for both the conversion and everyday text that must stay a keyword.
 4. **Match AO3's terminology.** Use the same field names and category names AO3 uses (relationships, freeforms, categories, archive warnings).
 5. **Keep dependencies minimal.** Adding a new SPM package needs a justification in the PR description.
 
