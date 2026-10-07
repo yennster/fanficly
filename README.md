@@ -4,7 +4,7 @@ An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https
 
 <img src="screenshots/showcase.png" alt="Fanficly showcase">
 
-_These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots` (or `python3 bin/frame-screenshots.py` once the raw demo-mode shots exist): the `ScreenshotTests` UI test captures the raw screens to `docs/screenshots/{iphone,ipad,mac}/` (Mac shots via `bin/take-mac-screenshots.sh`), then `bin/frame-screenshots.py` frames them in real Apple bezels via `fastlane frameit` and writes the finals to `screenshots/final/` and `fastlane/screenshots/en-US/`._
+_These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots`: the `ScreenshotTests` UI test captures the raw demo-mode screens to `docs/screenshots/{iphone,ipad,mac}/`, then `bin/frame-screenshots.py` lays each one out as a web page (`bin/store-art/`) with the app in a real Apple bezel and renders it with headless Chrome into `screenshots/final/` and `fastlane/screenshots/en-US/`._
 
 ## Features
 
