@@ -281,8 +281,8 @@ final class ScreenshotTests: XCTestCase {
         // Search — type a prompt; demo data returns results instantly (offline).
         openSidebarItem("Search")
         usleep(500_000)
-        // The smart-search field is a vertical-axis TextField; Mac Catalyst
-        // exposes it as a text view rather than a text field, so fall back.
+        // The search box is a TextField; fall back through the element types in
+        // case a platform exposes it differently.
         var field = app.textFields.firstMatch
         if !field.waitForExistence(timeout: 3) {
             if app.textViews.firstMatch.exists { field = app.textViews.firstMatch }
@@ -291,7 +291,22 @@ final class ScreenshotTests: XCTestCase {
         if field.waitForExistence(timeout: 3) {
             field.tap()
             usleep(300_000)
-            field.typeText("found family slow burn complete\n")
+            // Build the search the way people do now: tap AO3 tag suggestions
+            // into exact filter chips, then type "complete" (a filter word).
+            // Falls back to plain typing if a suggestion doesn't show.
+            var tapped = 0
+            for (fragment, tag) in [("found fam", "Found Family"), ("slow bur", "Slow Burn")] {
+                field.typeText(fragment)
+                let suggestion = app.buttons["Add filter: \(tag)"]
+                if suggestion.waitForExistence(timeout: 4) && suggestion.isHittable {
+                    suggestion.tap()
+                    tapped += 1
+                    usleep(300_000)
+                } else {
+                    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: fragment.count))
+                }
+            }
+            field.typeText(tapped == 2 ? "complete\n" : "found family slow burn complete\n")
             _ = app.cells.firstMatch.waitForExistence(timeout: 6)
             usleep(700_000)
             snap("02-search-results")
