@@ -279,6 +279,7 @@ struct ReaderView: View {
         let startTimer: () -> Void
         let flushTimer: () -> Void
         let stopSpeech: () -> Void
+        let readerClosed: () -> Void
 
         /// Whether this reader is actually on screen. A reader left in the
         /// NavigationStack under a pushed view (author page, another reader)
@@ -307,6 +308,7 @@ struct ReaderView: View {
                     stopSpeech()
                     applyKeepScreenAwake(false)
                     flushTimer()
+                    readerClosed()
                 }
         }
     }
@@ -384,7 +386,10 @@ struct ReaderView: View {
             applyKeepScreenAwake: { applyKeepScreenAwake($0) },
             startTimer: { startReadingTimer() },
             flushTimer: { recordReadingSpan(restart: false) },
-            stopSpeech: { speech.stop() }
+            stopSpeech: { speech.stop() },
+            readerClosed: {
+                ReviewPrompter.shared.readerClosed(stats: { ReadingStatsStore.snapshots(in: modelContext) })
+            }
         ))
         .onChange(of: themeRaw) { _, _ in queueBackup() }
         .onChange(of: fontFamilyRaw) { _, _ in queueBackup() }
@@ -739,7 +744,7 @@ struct ReaderView: View {
         // Credit only as far as the reader has actually read, so words-read and
         // "finished" status track real progress rather than the work's length.
         let progress = currentAnchor.map(readingProgressFraction(for:)) ?? 0
-        ReadingStatsStore.record(
+        let justFinished = ReadingStatsStore.record(
             ao3Id: summary.id,
             title: title,
             author: author,
@@ -753,6 +758,7 @@ struct ReaderView: View {
             isComplete: summary.isComplete,
             in: modelContext
         )
+        if justFinished { ReviewPrompter.shared.storyFinished() }
     }
 
     /// Periodically persist the in-progress span so a force-quit doesn't lose a

@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 import SwiftData
 import UniformTypeIdentifiers
 import UIKit // UIAccessibility announcements (ImportOverlay)
@@ -33,6 +34,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.ao3Client) private var client
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.requestReview) private var requestReview
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
     
     @State private var importingWorkId: Int? = nil
@@ -182,6 +184,15 @@ struct RootView: View {
                 guard let route else { return }
                 NotificationRouter.shared.pendingRoute = nil
                 openNotificationRoute(route)
+            }
+            // The rating prompt, shown just after a reader closes on a finished
+            // story; the short delay lets the pop settle so it lands over the
+            // list rather than mid-transition. See `ReviewPrompter`.
+            .onChange(of: ReviewPrompter.shared.requestCount) { _, _ in
+                Task {
+                    try? await Task.sleep(for: .seconds(1.2))
+                    requestReview()
+                }
             }
             .overlay {
                 if let workId = importingWorkId {

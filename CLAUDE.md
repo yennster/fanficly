@@ -111,7 +111,9 @@ Fanficly/
                                #   (the Bookmarks tab — your AO3 bookmarks);
                                #   NotificationRouting (notification tap →
                                #   work / author page)
-  Settings/                    # SettingsView + ReaderSettingsView + privacy
+  Settings/                    # SettingsView + ReaderSettingsView + privacy;
+                               #   ReviewPrompt (rare App Store rating prompt +
+                               #   Settings → About "Rate Fanficly" link)
   DesignSystem/                # Typography, Spacing, FlowLayout, SafariView, ShareSheet
   PrivacyInfo.xcprivacy        # zero collection, zero tracking
 FanficlyTests/                 # ~240 XCTest cases — parsers, filters, endpoints,
@@ -171,7 +173,7 @@ CI runs the same on both an iPhone and an iPad simulator. CI picks the newest in
 - **Endpoints** — `AO3EndpointsTests` (URLs, pagination, AO3 media path-encoding).
 - **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr, transparent conversion caching), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter).
 - **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow, plus author follow: `isAuthorFollowed`/`toggleFollowAuthor` with seeded work ids, empty-username guard) and `ReadingProgressStore` (save/load round-trips), plus `ReaderProfile` merging (incl. deletion tombstones), per-device key migration, the iCloud backup/restore merge rules (two simulated devices via `overrideBackupURL`), and poller-level subscription-sync behavior.
-- **Misc** — `ThrottleActorTests` (1 req/sec throttle timing + a concurrency test asserting N simultaneous waiters are serialized, never bursted). `ResumeProgressPolicyTests` (widget resume never rewinds saved progress). `LibrarySortTests` (every sort key + direction, pinned-first, missing dates sink, stable ties). `NotificationRouteTests` (each poller notification's payload survives plist storage and decodes to the right tap destination, incl. old work-id-only payloads). `StubAO3Client` is a scriptable `AO3ClientProtocol` test double for resolution logic.
+- **Misc** — `ThrottleActorTests` (1 req/sec throttle timing + a concurrency test asserting N simultaneous waiters are serialized, never bursted). `ResumeProgressPolicyTests` (widget resume never rewinds saved progress). `ReviewPromptTests` (rating-prompt policy gates; `ReadingStatsStore.record` flags only the read that finishes a story). `LibrarySortTests` (every sort key + direction, pinned-first, missing dates sink, stable ties). `NotificationRouteTests` (each poller notification's payload survives plist storage and decodes to the right tap destination, incl. old work-id-only payloads). `StubAO3Client` is a scriptable `AO3ClientProtocol` test double for resolution logic.
 
 When you add a feature, add its tests here. Make a private helper `internal` if it needs direct testing (see `TagResolver.candidates/bestMatch`).
 
@@ -341,6 +343,10 @@ two devices never double-count; the two progress fields are optional in
 `StatBackup` so older backups still decode), and seeded in `DemoSeed` for
 screenshots. `ReadingStat.snapshot` is the shared
 value-type bridge from the @Model to the pure aggregator.
+
+## App Store rating prompt
+
+`ReviewPrompter` (Settings/ReviewPrompt.swift) asks via SwiftUI `requestReview` only at a moment of success and only for clearly engaged readers. `ReadingStatsStore.record` returns true for the read that *finishes* a story; the reader reports it, and when that reader closes `ReviewPromptPolicy` must pass. The policy needs ≥3 finished stories, ≥3 reading days, ≥7 days since the first read, never asked in this version, and ≥120 days since the last ask. `RootView` then shows it ~1.2s later, over the list, never over story text. The ask is recorded up front, since StoreKit doesn't report display. Never in demo/test runs. Settings → About also has a manual "Rate Fanficly on the App Store" link (`ReviewPrompter.writeReviewURL`, app id 6775897153). Don't add more triggers: keeping it rare is the point.
 
 ## Privacy posture (do not regress)
 

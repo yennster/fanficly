@@ -253,17 +253,22 @@ enum ReadingStatsStore {
     /// into the calendar day of `date` so any period can be aggregated later.
     /// Non-empty metadata overwrites the snapshot; empty fields are left
     /// untouched so a later read that happens to lack metadata can't wipe it.
+    /// Returns true when this call is what finished the story (it wasn't
+    /// finished before, it is now) — the cue for the rating prompt.
+    @discardableResult
     static func record(ao3Id: Int, title: String, author: String,
                        fandoms: [String], categories: [String], relationships: [String],
                        rating: String, wordCount: Int, seconds: Double,
                        progress: Double = 0, isComplete: Bool = false,
-                       date: Date = .now, in context: ModelContext) {
-        guard seconds.isFinite, seconds >= 0 else { return }
+                       date: Date = .now, in context: ModelContext) -> Bool {
+        guard seconds.isFinite, seconds >= 0 else { return false }
+        let justFinished: Bool
         // Progress only ever advances — the furthest the reader has reached.
         let clampedProgress = progress.isFinite ? min(max(progress, 0), 1) : 0
         let dayKey = ReadingStatsAggregator.dayKey(for: date)
         let descriptor = FetchDescriptor<ReadingStat>(predicate: #Predicate { $0.ao3Id == ao3Id })
         if let stat = (try? context.fetch(descriptor))?.first {
+            let wasFinished = stat.snapshot.isFinished
             if !title.isEmpty { stat.title = title }
             if !author.isEmpty { stat.author = author }
             if !fandoms.isEmpty { stat.fandoms = fandoms }
@@ -276,17 +281,21 @@ enum ReadingStatsStore {
             stat.daySeconds[dayKey, default: 0] += seconds
             stat.maxProgress = max(stat.maxProgress, clampedProgress)
             if isComplete { stat.workIsComplete = true }
+            justFinished = !wasFinished && stat.snapshot.isFinished
         } else {
-            context.insert(ReadingStat(
+            let stat = ReadingStat(
                 ao3Id: ao3Id, title: title, author: author,
                 fandoms: fandoms, categories: categories, relationships: relationships,
                 rating: rating, wordCount: wordCount,
                 firstReadAt: date, lastReadAt: date,
                 totalSeconds: seconds, daySeconds: [dayKey: seconds],
                 maxProgress: clampedProgress, workIsComplete: isComplete
-            ))
+            )
+            context.insert(stat)
+            justFinished = stat.snapshot.isFinished
         }
         try? context.save()
+        return justFinished
     }
 
     /// Fetch every `ReadingStat` as a value-type snapshot for aggregation.
