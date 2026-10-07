@@ -168,93 +168,40 @@ private struct WidgetProgressBar: View {
     }
 }
 
+/// The app icon itself, not a redrawn approximation: `AppIconMark` holds
+/// copies of the AppIcon PNGs that `bin/make-icon.swift` writes (re-run it
+/// after any icon change). Dark home screens pick the dark variant through the
+/// asset's appearance; tinted/clear ones get the tinted variant, which the
+/// system colors the way it colors the tinted app icon.
 private struct AppBookIcon: View {
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
     var body: some View {
-        Canvas { context, size in
-            let width = size.width
-            let height = size.height
-            
-            let bookW = width * 0.60
-            let bookH = height * 0.46
-            let cx = width / 2
-            let cy = height / 2
-            let halfW = bookW / 2
-            let halfH = bookH / 2
-            let fan: CGFloat = bookH * 0.06
-            let spineDrop: CGFloat = bookH * 0.05
-            let spineGap: CGFloat = width * 0.018
-            let corner: CGFloat = width * 0.015
+        icon
+            .clipShape(AppIconShape())
+            .accessibilityHidden(true) // decorative logo
+    }
 
-            func normalize(_ p: CGPoint) -> CGPoint {
-                let len = max(1.0, (p.x * p.x + p.y * p.y).squareRoot())
-                return CGPoint(x: p.x / len, y: p.y / len)
-            }
-
-            func roundedQuadPath(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint, radius: CGFloat) -> Path {
-                let pts = [p0, p1, p2, p3]
-                var path = Path()
-                for i in 0..<4 {
-                    let curr = pts[i]
-                    let prev = pts[(i + 3) % 4]
-                    let next = pts[(i + 1) % 4]
-                    let toPrev = normalize(CGPoint(x: prev.x - curr.x, y: prev.y - curr.y))
-                    let toNext = normalize(CGPoint(x: next.x - curr.x, y: next.y - curr.y))
-                    let start = CGPoint(x: curr.x + toPrev.x * radius, y: curr.y + toPrev.y * radius)
-                    let end = CGPoint(x: curr.x + toNext.x * radius, y: curr.y + toNext.y * radius)
-                    if i == 0 { path.move(to: start) } else { path.addLine(to: start) }
-                    path.addQuadCurve(to: end, control: curr)
-                }
-                path.closeSubpath()
-                return path
-            }
-
-            let leftPath = roundedQuadPath(
-                p0: CGPoint(x: cx - halfW,    y: cy - halfH + fan),
-                p1: CGPoint(x: cx - spineGap, y: cy - halfH + spineDrop),
-                p2: CGPoint(x: cx - spineGap, y: cy + halfH - spineDrop),
-                p3: CGPoint(x: cx - halfW,    y: cy + halfH - fan),
-                radius: corner
-            )
-
-            let rightPath = roundedQuadPath(
-                p0: CGPoint(x: cx + spineGap, y: cy - halfH + spineDrop),
-                p1: CGPoint(x: cx + halfW,    y: cy - halfH + fan),
-                p2: CGPoint(x: cx + halfW,    y: cy + halfH - fan),
-                p3: CGPoint(x: cx + spineGap, y: cy + halfH - spineDrop),
-                radius: corner
-            )
-
-            // Fill book pages with white
-            context.fill(leftPath, with: .color(.white))
-            context.fill(rightPath, with: .color(.white))
-
-            // Cut out text lines by using blendMode .clear
-            context.blendMode = .clear
-
-            let lineCount = 5
-            let lineH: CGFloat = bookH * 0.045
-            let gap = (bookH * 0.62) / CGFloat(lineCount)
-            
-            let pageWidth = halfW - spineGap
-            let pagePadding = pageWidth * 0.16
-            let fullLineWidth = pageWidth - (pagePadding * 2)
-            
-            for i in 0..<lineCount {
-                let y = cy - bookH * 0.27 + CGFloat(i) * gap
-                let leftW = fullLineWidth * (i == 0 ? 0.6 : 1.0)
-                let rightW = fullLineWidth * (i == 0 ? 0.55 : 1.0)
-                
-                let leftX = cx - halfW + pagePadding
-                let rightX = cx + spineGap + pagePadding
-                
-                let leftRect = CGRect(x: leftX, y: y, width: leftW, height: lineH)
-                let rightRect = CGRect(x: rightX, y: y, width: rightW, height: lineH)
-                
-                context.fill(Path(leftRect), with: .color(.black))
-                context.fill(Path(rightRect), with: .color(.black))
-            }
+    @ViewBuilder
+    private var icon: some View {
+        if #available(iOS 18.0, *), renderingMode == .accented {
+            Image("AppIconMarkTinted")
+                .resizable()
+                .widgetAccentedRenderingMode(.accentedDesaturated)
+                .scaledToFit()
+        } else {
+            Image("AppIconMark")
+                .resizable()
+                .scaledToFit()
         }
-        .accessibilityHidden(true) // decorative logo
+    }
+}
+
+/// The home-screen icon outline: a continuous-corner square at iOS's ~22.4%
+/// corner radius.
+private struct AppIconShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) * 0.2237, style: .continuous)
     }
 }
 

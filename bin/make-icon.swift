@@ -5,8 +5,15 @@
 //   icon-1024-tinted.png  — tinted: light book on transparent (iOS tints it)
 //
 // Usage:
-//   bin/make-icon.swift            -> writes all three into the asset catalog
+//   bin/make-icon.swift            -> writes all three into the asset catalog,
+//                                     then refreshes the widget copies
+//   bin/make-icon.swift --widget   -> only refreshes the widget copies from the
+//                                     app icon PNGs already in the catalog
 //   bin/make-icon.swift <out.png>  -> writes only the light variant
+//
+// The widgets show the app icon itself, so FanficlyWidget/Assets.xcassets
+// holds small copies of these PNGs (AppIconMark / AppIconMarkTinted). Re-run
+// this after any icon change so the two can never drift apart.
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -172,6 +179,10 @@ func render(_ variant: Variant, to path: String) {
         FileHandle.standardError.write("makeImage failed\n".data(using: .utf8)!)
         exit(1)
     }
+    writePNG(image, to: path)
+}
+
+func writePNG(_ image: CGImage, to path: String) {
     let url = URL(fileURLWithPath: path)
     let dir = url.deletingLastPathComponent().path
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -187,12 +198,50 @@ func render(_ variant: Variant, to path: String) {
     print("wrote \(path)")
 }
 
-let assetDir = "Fanficly/Assets.xcassets/AppIcon.appiconset"
+/// Downsamples an existing PNG (the widgets draw the icon at ~30pt, so a
+/// 1024px decode per render would waste widget memory for nothing).
+func downscale(_ src: String, to dst: String, pixels: Int) {
+    guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: src) as CFURL, nil),
+          let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        FileHandle.standardError.write("could not read \(src)\n".data(using: .utf8)!)
+        exit(1)
+    }
+    guard let ctx = CGContext(
+        data: nil, width: pixels, height: pixels,
+        bitsPerComponent: 8, bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        FileHandle.standardError.write("could not create CGContext\n".data(using: .utf8)!)
+        exit(1)
+    }
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
+    guard let small = ctx.makeImage() else {
+        FileHandle.standardError.write("makeImage failed\n".data(using: .utf8)!)
+        exit(1)
+    }
+    writePNG(small, to: dst)
+}
 
-if CommandLine.arguments.count > 1 {
+let assetDir = "Fanficly/Assets.xcassets/AppIcon.appiconset"
+let widgetAssetDir = "FanficlyWidget/Assets.xcassets"
+
+/// Copies the app icon PNGs into the widget catalog at 192px (64pt @3x).
+func writeWidgetCopies() {
+    let px = 192
+    downscale("\(assetDir)/icon-1024.png", to: "\(widgetAssetDir)/AppIconMark.imageset/app-icon.png", pixels: px)
+    downscale("\(assetDir)/icon-1024-dark.png", to: "\(widgetAssetDir)/AppIconMark.imageset/app-icon-dark.png", pixels: px)
+    downscale("\(assetDir)/icon-1024-tinted.png", to: "\(widgetAssetDir)/AppIconMarkTinted.imageset/app-icon-tinted.png", pixels: px)
+}
+
+if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "--widget" {
+    writeWidgetCopies()
+} else if CommandLine.arguments.count > 1 {
     render(.light, to: CommandLine.arguments[1])
 } else {
     render(.light,  to: "\(assetDir)/icon-1024.png")
     render(.dark,   to: "\(assetDir)/icon-1024-dark.png")
     render(.tinted, to: "\(assetDir)/icon-1024-tinted.png")
+    writeWidgetCopies()
 }
