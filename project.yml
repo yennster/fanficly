@@ -70,8 +70,11 @@ targets:
               - fanficly
         UILaunchScreen:
           UIColorName: ""
+        # All four on iPhone too: iPhone Duo's multitasking requires every
+        # orientation (Face ID iPhones simply never use upside-down).
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:

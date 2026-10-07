@@ -280,6 +280,26 @@ Typography settings are per-device: every reader key goes through `ReaderProfile
 
 `FanficlyWidget` shows the last-read story with a progress bar. `ReadingProgressStore.save` writes every progress update into `WidgetProgressStore`, which persists to the `group.io.github.yennster.fanficly` app-group defaults and mirrors to iCloud KVS (debounced ~1.2 s; immediate when the reader closes) so the widget and other devices stay fresh. `FanficlyApp` installs the KVS observers at launch (`WidgetProgressStore` / `ReaderProfileSyncStore` `.installCloudSyncObserver()`), skipped in demo and unit-test runs. Tapping the widget opens the resume route above.
 
+## iPhone Duo (foldable) — Oct 2026
+
+The Duo (5.4" outer, 7.6" inner, iOS 27.1, ships Oct 23 2026) is the **phone** idiom on both displays. The outer display is compact width; the inner one is regular/regular, so the app shows its sidebar + detail layout there. Folding and unfolding resize the same scene: no relaunch, no scenePhase change. What's handled:
+
+- **Size-class changes keep your place.** `RootView`'s `onChange(of: horizontalSizeClass)` maps the tab on screen into `compactSelection` (keeping `detailPath`). It used to reset to the sidebar, so every fold, Pro Max rotation or iPad Split View resize dropped you out of the story. Only a fresh launch starts on the sidebar.
+- **The reader re-anchors after a width change.** Continuous and chapter-page modes scroll the tracked top paragraph back to the top (`reanchor`). Two subtleties make that correct:
+  - **Samples are resize-aware.** `TrailingAnchorSample.width` records the width samples belong to; preference updates at another width are reflow, not reading, and are ignored. Otherwise a reflow sample lands just before `onChange(of: width)` and re-anchors to the wrong paragraph.
+  - **There's a trailing sample.** The ~3/sec throttle used to drop the end of a fling, so the tracked anchor (and saved progress) could sit a whole fling behind the screen. `scheduleTrailingAnchorSample` records where scrolling settles.
+- **Line length is capped on wide phone layouts.** `ReaderMetrics.textColumnWidth` caps the column at 40 em (~80 characters) for the phone profile only. Its width % was tuned on ~400pt and would stretch across the inner display or a Pro Max in landscape. The paginator uses the same function, so measured pages match drawn ones.
+- **Page-by-page re-paginates when the window height changes**, e.g. when a pinned picture-in-picture video shrinks the app. Nav-bar/footer chrome toggles still don't move pagination.
+- **All four iPhone orientations are listed**, which Duo multitasking requires.
+
+**Testing without a Duo simulator:** an **iPhone Pro Max rotated** goes compact ↔ regular exactly like a fold. A temporary XCUITest using `XCUIDevice.shared.orientation` caught both bugs above. The real Duo simulator needs **Xcode 27.1** + the iOS 27.1 runtime; this repo was last built with Xcode 27.0, and pose can't be scripted there anyway.
+
+**Not done yet (needs the iOS 27.1 SDK / a decision):**
+- With a 27.1-SDK build, toolbars and tab bars go **vertical** on the Duo. Toolbar items need a title + symbol (`Label`, not `Image`), since icon-only and custom views don't adapt. Apple also reserves the ellipsis symbol for the system overflow menu, which conflicts with the reader's `ellipsis.circle` options menu.
+- Optional: a two-page spread in paginated mode, placing the gutter at the fold with `reservedRegions(kind: .division)`.
+- App Store Connect: Duo screenshots (outer 1398×2034, inner 2007×2853) become **required from April 2027**. Inner shots must be captured by hand, and `frame-screenshots.py` needs Duo canvases.
+- There's no API to detect a Duo. Never branch on idiom or screen size; use size classes and geometry.
+
 ## Mac Catalyst
 
 The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale`, bound to ⌘+/⌘=/⌘−/⌘0 — by counter-scaling the root view. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).

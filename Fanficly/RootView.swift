@@ -159,9 +159,15 @@ struct RootView: View {
             .task {
                 if FanficlyApp.isDemoMode { DemoSeed.seed(into: context) }
             }
+            // Becoming compact (closing an iPhone Duo, rotating a Pro Max back
+            // to portrait, an iPad Split View resize) keeps you where you
+            // were: the tab on screen stays open with its navigation stack.
+            // This used to reset to the sidebar, so every fold dropped you
+            // out of the story you were reading. Only a fresh launch starts
+            // on the sidebar.
             .onChange(of: horizontalSizeClass) { _, newSizeClass in
                 if newSizeClass == .compact {
-                    compactSelection = nil
+                    compactSelection = SidebarItem(rawValue: selectedTabRaw) ?? .search
                 }
             }
             .onChange(of: selectedTabRaw) { _, raw in
