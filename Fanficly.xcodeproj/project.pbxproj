@@ -27,6 +27,7 @@
 		371D9E67A6527239540BE6E5 /* StreakStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE782127AFD722CB912AB10C /* StreakStore.swift */; };
 		3AA565C777348A43C0CCC5FB /* WorkPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E3470AAB37F7FC5A29385D8 /* WorkPersistence.swift */; };
 		3CAF9D81638C97C4F551943B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B65483789D353259CA9BF06B /* SettingsView.swift */; };
+		3CD76C213211B007EE85F956 /* LibrarySort.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12F05B762D20B80A8C142B9 /* LibrarySort.swift */; };
 		41B451BF95D793594BB5AA12 /* ChapterTrackingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B32B3C5F0A68BE8524C92D9A /* ChapterTrackingTests.swift */; };
 		439C7ED113C7972DE2915072 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31ABEF72A383E0C4AD8DDACC /* RootView.swift */; };
 		44F2C4F0FD91247C70E510BD /* ThrottleActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CEA2F373D507F3282D733F /* ThrottleActorTests.swift */; };
@@ -35,6 +36,7 @@
 		499D0181021C8A27C18619F6 /* ContentSafetyViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64FD076B306A66D55EC9DAD2 /* ContentSafetyViews.swift */; };
 		4A5A01AE97465E64487C6C7E /* WidgetDataStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98EF9886D03CF86890DD62E5 /* WidgetDataStoreTests.swift */; };
 		4A99F49139A429A15B017F4E /* KeychainAccess in Frameworks */ = {isa = PBXBuildFile; productRef = 22763D2E3B0EAC69D3167A0F /* KeychainAccess */; };
+		4E79ED9555F62366DBCDE10C /* LibrarySortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EE96A36611D97451386E051 /* LibrarySortTests.swift */; };
 		4F9C89B3C475AE381171EEC4 /* WidgetProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB9EF004C875B5BB68DD3A22 /* WidgetProgressStore.swift */; };
 		56A163B595C20D47EF3D5B09 /* RecentlyViewedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C473C55086269C2EB16927 /* RecentlyViewedView.swift */; };
 		598701A3456706C6A7E34D95 /* HTMLToAttributedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B69A7DDA66AA7FB98A69A19E /* HTMLToAttributedTests.swift */; };
@@ -184,6 +186,7 @@
 		4097F32DB6D5B329CCF586B4 /* StubAO3Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubAO3Client.swift; sourceTree = "<group>"; };
 		440C938F152FF83826ABBF7D /* .gitkeep */ = {isa = PBXFileReference; path = .gitkeep; sourceTree = "<group>"; };
 		4CA6525F6BADFFEE33426FD3 /* FanficlyWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanficlyWidget.swift; sourceTree = "<group>"; };
+		4EE96A36611D97451386E051 /* LibrarySortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySortTests.swift; sourceTree = "<group>"; };
 		4EEA4522460B6B01FA40030C /* KnownTags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownTags.swift; sourceTree = "<group>"; };
 		522DE6279E9FE46AFB74EC34 /* SubscriptionPoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionPoller.swift; sourceTree = "<group>"; };
 		52838C1ACEDD22576C399750 /* FanficlyUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FanficlyUITests.swift; sourceTree = "<group>"; };
@@ -224,6 +227,7 @@
 		AB9EF004C875B5BB68DD3A22 /* WidgetProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetProgressStore.swift; sourceTree = "<group>"; };
 		ACACAA505129855113410345 /* LoginParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginParser.swift; sourceTree = "<group>"; };
 		B085359CD6B4D3EAA6A68638 /* BackgroundRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefresh.swift; sourceTree = "<group>"; };
+		B12F05B762D20B80A8C142B9 /* LibrarySort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySort.swift; sourceTree = "<group>"; };
 		B32B3C5F0A68BE8524C92D9A /* ChapterTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChapterTrackingTests.swift; sourceTree = "<group>"; };
 		B344EE0923423982B0D36353 /* FandomCategories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FandomCategories.swift; sourceTree = "<group>"; };
 		B65483789D353259CA9BF06B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -371,6 +375,7 @@
 			isa = PBXGroup;
 			children = (
 				862C0CD3C81FE0DC315D48DE /* iCloudSyncManager.swift */,
+				B12F05B762D20B80A8C142B9 /* LibrarySort.swift */,
 				7878F783AFB1158EA7107223 /* LibraryView.swift */,
 				A4C473C55086269C2EB16927 /* RecentlyViewedView.swift */,
 				258376850C460A145A373FC6 /* RestoreDownloadCenter.swift */,
@@ -499,6 +504,7 @@
 				2AD3FD22014FAABDF1B5F397 /* ContentSafetyTests.swift */,
 				C97B027978587DDDCA8B4C41 /* FandomCatalogTests.swift */,
 				B69A7DDA66AA7FB98A69A19E /* HTMLToAttributedTests.swift */,
+				4EE96A36611D97451386E051 /* LibrarySortTests.swift */,
 				0969C4D9BD5F96573BF43A15 /* LiveResolutionTests.swift */,
 				C6D22D64BC349BE975BFCF67 /* MediaCategoryParserTests.swift */,
 				F1BB4F6FA5B14D0639EAAFAB /* NotificationRouteTests.swift */,
@@ -752,6 +758,7 @@
 				92261E4F3D0A327B6A000349 /* HTMLText.swift in Sources */,
 				7B7A43CBC68F499274C69EAB /* HTMLToAttributed.swift in Sources */,
 				8C5869066ACD7F9B92B39777 /* KnownTags.swift in Sources */,
+				3CD76C213211B007EE85F956 /* LibrarySort.swift in Sources */,
 				BA12B516B16127F8960278FC /* LibraryView.swift in Sources */,
 				9BED255255BD7A5E8D9D5327 /* LoginParser.swift in Sources */,
 				6E9229F121F4EAA8F30B094C /* LoginView.swift in Sources */,
@@ -805,6 +812,7 @@
 				642B8345C84FFEE0E1780EC6 /* ContentSafetyTests.swift in Sources */,
 				B1BF546C967418F60B6FFA2F /* FandomCatalogTests.swift in Sources */,
 				598701A3456706C6A7E34D95 /* HTMLToAttributedTests.swift in Sources */,
+				4E79ED9555F62366DBCDE10C /* LibrarySortTests.swift in Sources */,
 				48BF03C9780A56EBC787A14A /* LiveResolutionTests.swift in Sources */,
 				AEDF3AD7C78F563F454DE499 /* MediaCategoryParserTests.swift in Sources */,
 				89AC1A033E6C87D6CCAD68FE /* NotificationRouteTests.swift in Sources */,

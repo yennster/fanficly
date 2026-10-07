@@ -7,6 +7,8 @@ struct LibraryView: View {
     @Query(sort: \CustomFolder.name) private var folders: [CustomFolder]
     @Query private var readingStats: [ReadingStat]
     @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
+    @AppStorage(LibrarySort.keyStorageKey) private var sortKeyRaw = LibrarySort.default.key.rawValue
+    @AppStorage(LibrarySort.ascendingStorageKey) private var sortAscending = LibrarySort.default.ascending
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var filter: LibraryFilter = .all
@@ -58,13 +60,8 @@ struct LibraryView: View {
         if !query.isEmpty {
             base = base.filter { $0.matches(query: query) }
         }
-        
-        return base.sorted { a, b in
-            if a.isPinned != b.isPinned {
-                return a.isPinned && !b.isPinned
-            }
-            return a.savedAt > b.savedAt
-        }
+
+        return LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(base)
     }
 
     var body: some View {
@@ -94,13 +91,18 @@ struct LibraryView: View {
                     }
                     Section {
                         Group {
+                            // Sorting rides in this row rather than the nav bar.
+                            // In Folders it orders the stories inside each folder.
                             if usesCompactFilterBar {
                                 LibraryFilterBar(selection: $filter)
                             } else {
-                                Picker("Filter", selection: $filter) {
-                                    ForEach(LibraryFilter.allCases) { Text($0.title).tag($0) }
+                                HStack(spacing: 10) {
+                                    LibrarySortMenu()
+                                    Picker("Filter", selection: $filter) {
+                                        ForEach(LibraryFilter.allCases) { Text($0.title).tag($0) }
+                                    }
+                                    .pickerStyle(.segmented)
                                 }
-                                .pickerStyle(.segmented)
                             }
                         }
                         .listRowSeparator(.hidden)
@@ -322,6 +324,7 @@ private struct LibraryFilterBar: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                LibrarySortMenu()
                 ForEach(LibraryView.LibraryFilter.allCases) { filter in
                     Button {
                         selection = filter
@@ -547,6 +550,8 @@ struct FolderDetailView: View {
     let folder: CustomFolder
     @State private var searchText: String
     @Environment(\.modelContext) private var context
+    @AppStorage(LibrarySort.keyStorageKey) private var sortKeyRaw = LibrarySort.default.key.rawValue
+    @AppStorage(LibrarySort.ascendingStorageKey) private var sortAscending = LibrarySort.default.ascending
 
     @State private var editMode: EditMode = .inactive
     @State private var selectedWorkIds = Set<PersistentIdentifier>()
@@ -559,10 +564,21 @@ struct FolderDetailView: View {
     var body: some View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filteredWorks = query.isEmpty ? folder.works : folder.works.filter { $0.matches(query: query) }
-        let sortedWorks = filteredWorks.sorted { $0.savedAt > $1.savedAt }
+        let sortedWorks = LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(filteredWorks)
 
         VStack(spacing: 0) {
             List(selection: $selectedWorkIds) {
+                if editMode != .active && !sortedWorks.isEmpty {
+                    HStack {
+                        Text(sortedWorks.count == 1 ? "1 story" : "\(sortedWorks.count) stories")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        LibrarySortMenu()
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                }
                 ForEach(sortedWorks) { work in
                     if editMode == .active {
                         LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
