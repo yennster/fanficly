@@ -104,9 +104,14 @@ enum ReaderSpread {
     static let minimumAspect: CGFloat = 1.15
     /// The gutter between pages, also used around a fold thinner than this.
     static let minimumGutter: CGFloat = 56
-    /// Each page is half the window, where the single-column width setting
-    /// (70% by default) would leave wide empty margins on every page.
-    static let minimumWidthPercent: Double = 84
+    /// Two-page mode has its own text-width setting (`reader.spreadWidthPercent`):
+    /// each page is half the window, where the one-page setting (70% by
+    /// default) would leave wide empty margins on every page.
+    static let defaultWidthPercent: Double = 88
+    static let widthPercentRange: ClosedRange<Double> = 60...100
+    static let widthPresets: [(name: String, value: Double)] = [
+        ("Narrow (70%)", 70), ("Medium (80%)", 80), ("Wide (88%)", 88), ("Full (100%)", 100),
+    ]
 
     struct Layout: Equatable {
         /// Both pages share this width, so they paginate identically.

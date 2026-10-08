@@ -26,6 +26,9 @@ struct ReaderView: View {
     // unfolded, iPad landscape, Mac). Per device but not in reading profiles:
     // it's about the screen's shape, not typography.
     @AppStorage(ReaderProfile.deviceKey("reader.twoPageSpread")) private var twoPageSpread: Bool = true
+    // Text width inside each page of a two-page spread (one-page mode keeps
+    // widthPercent, the Margins setting).
+    @AppStorage(ReaderProfile.deviceKey("reader.spreadWidthPercent")) private var spreadWidthPercent: Double = ReaderSpread.defaultWidthPercent
     // Keep the display awake while reading (like a video player), so the screen
     // doesn't dim/lock mid-page when you go a while without touching it.
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
@@ -1165,7 +1168,7 @@ struct ReaderView: View {
                 chapter: selectedChapterIndex,
                 fontSize: fontSizePt / zoomScale,
                 fontFamily: fontFamilyRaw,
-                widthPercent: spread == nil ? widthPercent : max(widthPercent, ReaderSpread.minimumWidthPercent),
+                widthPercent: spread == nil ? widthPercent : spreadWidthPercent,
                 lineSpacing: lineSpacingPt / zoomScale,
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 kerning: kerningPt / zoomScale,
@@ -1290,6 +1293,7 @@ struct ReaderView: View {
 
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
         pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
+            .contentShape(Rectangle())
             .tag(page.id)
     }
 
@@ -1354,7 +1358,7 @@ struct ReaderView: View {
     }
 
     private func makeSpreadCell(_ spread: ReaderSpread.Spread, layout: ReaderSpread.Layout, fg: Color) -> some View {
-        let percent = max(widthPercent, ReaderSpread.minimumWidthPercent)
+        let percent = spreadWidthPercent
         return HStack(spacing: 0) {
             Color.clear.frame(width: max(0, layout.leftX))
             pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent)
@@ -1373,6 +1377,9 @@ struct ReaderView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // Blank areas (margins, gutter, below the text) take taps too, so the
+        // tap-to-turn and show/hide-controls zones work anywhere on the page.
+        .contentShape(Rectangle())
         .tag(spread.id)
     }
 
@@ -1385,7 +1392,11 @@ struct ReaderView: View {
     }
 
     @ViewBuilder
-    private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent percent: Double) -> some View {
+    private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent requested: Double) -> some View {
+        // The title page holds only the work header (no story text, so nothing
+        // is paginated against its width): keep it at least the standard width
+        // so narrow margins don't crush its metadata row.
+        let percent = page.paragraphIndices.isEmpty ? max(requested, ReaderSpread.defaultWidthPercent) : requested
         if let chapter = chapters.first(where: { $0.index == page.chapterIndex }),
            let atoms = parsedAtoms[page.chapterIndex] {
             
@@ -1713,6 +1724,15 @@ struct ReaderView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+            // On iPhone Duo the footer stays while the controls are hidden;
+            // tapping it brings them back (as does a tap mid-page).
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard isUIMinimized else { return }
+                withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized = false }
+            }
+            .accessibilityAddTraits(isUIMinimized ? .isButton : [])
+            .accessibilityHint(isUIMinimized ? "Shows the reader controls" : "")
         }
     }
 
@@ -2276,13 +2296,21 @@ struct ReaderView: View {
                         Label($0.displayName, systemImage: $0.symbol).tag($0.rawValue)
                     }
                 }
-                if mode == .pageByPage {
-                    Toggle(isOn: $twoPageSpread) {
-                        Label("Two-page spread", systemImage: "book.pages")
-                    }
-                }
+
             } label: {
                 Label("Reading mode · \(mode.displayName)", systemImage: "book.pages")
+            }
+
+            if mode == .pageByPage {
+                // One or two pages side by side (two only on a wide window:
+                // iPhone Duo unfolded, iPad in landscape, the Mac).
+                Picker(selection: $twoPageSpread) {
+                    Label("One page", systemImage: "rectangle.portrait").tag(false)
+                    Label("Two pages", systemImage: "book.pages").tag(true)
+                } label: {
+                    Label("Pages on screen · \(twoPageSpread ? "Two" : "One")", systemImage: "book.pages")
+                }
+                .pickerStyle(.menu)
             }
 
             Menu {
@@ -2314,12 +2342,19 @@ struct ReaderView: View {
             presetMenu("Character spacing", value: $kerningPt, presets: ReaderMetrics.kerningPresets,
                        icon: "character.textbox")
 
-            presetMenu("Margins", value: $widthPercent, presets: [
-                (name: "Narrow (50%)", value: 50.0),
-                (name: "Medium (70%)", value: 70.0),
-                (name: "Wide (85%)", value: 85.0),
-                (name: "Full (100%)", value: 100.0)
-            ], icon: "arrow.left.and.right.square")
+            // Margins adjust whichever layout is on screen: a two-page spread
+            // has its own width, so tuning one never disturbs the other.
+            if spreadLayout != nil {
+                presetMenu("Page margins", value: $spreadWidthPercent, presets: ReaderSpread.widthPresets,
+                           icon: "arrow.left.and.right.square")
+            } else {
+                presetMenu("Margins", value: $widthPercent, presets: [
+                    (name: "Narrow (50%)", value: 50.0),
+                    (name: "Medium (70%)", value: 70.0),
+                    (name: "Wide (85%)", value: 85.0),
+                    (name: "Full (100%)", value: 100.0)
+                ], icon: "arrow.left.and.right.square")
+            }
         } label: {
             Image(systemName: "textformat")
         }

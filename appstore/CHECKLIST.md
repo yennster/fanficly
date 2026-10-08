@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Current version: **1.10.0 (build 30)** in `project.yml`, iOS + Mac (both platforms take the same build number). Bump both for the next release (see *Releasing an update* below).
+- Current version: **1.10.0 (build 31)** in `project.yml`, iOS + Mac (both platforms take the same build number). Bump both for the next release (see *Releasing an update* below).
 
 ---
 
