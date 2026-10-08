@@ -112,10 +112,11 @@ final class ScreenshotTests: XCTestCase {
         // reference ("cannot request screenshot data because it does not exist").
         let window = app.windows.firstMatch
         var shot = window.exists ? window.screenshot() : app.screenshot()
-        // iPhone Duo: capture the whole display the app is on — the largest
-        // screen — at its exact App Store size (window snapshots came back a
-        // pixel short, or as a transient window's size).
-        if duoDisplay != nil,
+        // Unfolded iPhone Duo: capture the whole inner display, the largest
+        // screen (window snapshots sometimes came back as a transient
+        // window's size). Folded, that largest screen is the dark inner
+        // panel, so the folded Duo keeps the window snapshot above.
+        if isDuoInner,
            let screen = XCUIScreen.screens.max(by: {
                let a = $0.screenshot().image.size, b = $1.screenshot().image.size
                return a.width * a.height < b.width * b.height
@@ -432,11 +433,16 @@ final class ScreenshotTests: XCTestCase {
             usleep(900_000)
             if isDuoInner {
                 // Collapse the sidebar so the reader gets the whole display
-                // (and its two-page spread), then turn past the title page.
+                // (and its two-page spread).
                 let toggle = app.buttons.matching(NSPredicate(
                     format: "identifier == 'ToggleSidebar' OR label CONTAINS[c] 'sidebar'")).firstMatch
                 if toggle.exists && toggle.isHittable { toggle.tap(); usleep(1_200_000) }
-                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+            }
+            if duoDisplay != nil {
+                // The Duo reads page-by-page: turn past the title page to the
+                // story. 70% across is in the page's turn-forward third on
+                // both displays (further right is the vertical toolbar strip).
+                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
                 usleep(1_200_000)
             }
             snap("03-reader")
