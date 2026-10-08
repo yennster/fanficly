@@ -1540,7 +1540,12 @@ struct ReaderView: View {
         guard let targetChapter = chapter else { return }
         
         let pagesList = self.paginatedPages
-        if let page = pagesList.first(where: { $0.chapterIndex == targetChapter }) {
+        // Narration starting in the chapter on screen picks up from the page
+        // you're on (handleSpeechParagraphChange follows it from there).
+        if pagesList.first(where: { $0.id == selectedPageId })?.chapterIndex == targetChapter { return }
+        // Moving to another chapter: its first page with text, not the work's
+        // header-only title page.
+        if let page = pagesList.first(where: { $0.chapterIndex == targetChapter && !$0.paragraphIndices.isEmpty }) {
             if selectedPageId != page.id {
                 updatePageSelection(page.id)
             }
@@ -1613,17 +1618,25 @@ struct ReaderView: View {
         if let anchor = currentAnchor {
             let targetChapter: Int = anchor.chapter
             let targetParagraph: Int = anchor.paragraph
-            if let matchingPage = pagesList.first(where: { (page: ChapterPage) -> Bool in
-                guard page.chapterIndex == targetChapter else { return false }
-                guard let atoms = parsedAtoms[targetChapter] else { return false }
-                
-                for idx in page.paragraphIndices {
-                    if idx < atoms.count && atoms[idx].originalParagraphIndex == targetParagraph {
-                        return true
-                    }
-                }
-                return page.paragraphIndices.isEmpty && targetParagraph == 0
-            }) {
+            func holdsAnchor(_ page: ChapterPage) -> Bool {
+                guard page.chapterIndex == targetChapter, let atoms = parsedAtoms[targetChapter] else { return false }
+                return page.paragraphIndices.contains { $0 < atoms.count && atoms[$0].originalParagraphIndex == targetParagraph }
+            }
+            // The work's header-only title page also stands for paragraph 0.
+            func isTitlePageForAnchor(_ page: ChapterPage) -> Bool {
+                page.chapterIndex == targetChapter && page.paragraphIndices.isEmpty && targetParagraph == 0
+            }
+            // Re-paginating (a resize, the narration bar appearing) keeps the
+            // page you're on while it still holds the anchor. Otherwise prefer
+            // the page with the paragraph over the title page: matching the
+            // title page first sent a reader on the first page of text back to
+            // the cover every time the layout changed.
+            let current = pagesList.first { $0.id == selectedPageId }
+            if let current, holdsAnchor(current) || isTitlePageForAnchor(current) {
+                isRestoring = false
+                return
+            }
+            if let matchingPage = pagesList.first(where: holdsAnchor) ?? pagesList.first(where: isTitlePageForAnchor) {
                 selectedPageId = matchingPage.id
                 isRestoring = false
                 return
