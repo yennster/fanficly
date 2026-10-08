@@ -48,7 +48,9 @@ final class PreviewTourTests: XCTestCase {
     }
 
     private func launchTour(zoom: String, orientation: UIDeviceOrientation) throws {
-        app.launchArguments = ["-demoMode", "-app.zoomScale", zoom]
+        // US formatting ("48,213 words") whatever the simulator's region is.
+        app.launchArguments = ["-demoMode", "-app.zoomScale", zoom,
+                               "-AppleLocale", "en_US", "-AppleLanguages", "(en)"]
         app.launch()
         pause(1.5)
         #if !targetEnvironment(macCatalyst)

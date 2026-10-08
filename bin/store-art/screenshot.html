@@ -1,0 +1,88 @@
+<!doctype html>
+<!-- App Store screenshot template, filled in and rendered by
+     bin/frame-screenshots.py ($placeholders are string.Template fields). -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="$css">
+<style>
+  :root { --w: ${w}px; --h: ${h}px; }
+  .top {
+    position: absolute; left: 0; right: 0; top: var(--text-top); padding: 0 var(--side);
+    display: flex; flex-direction: column; align-items: center; gap: var(--gap); text-align: center;
+    z-index: 3;
+  }
+  h1 { font-size: var(--hs); line-height: 1.02; text-wrap: balance; }
+  .device {
+    position: absolute; left: 50%; top: var(--dev-top); width: var(--dev-w); transform: translateX(-50%);
+    filter: drop-shadow(0 calc(var(--dev-w) * .05) calc(var(--dev-w) * .07) rgba(10, 5, 45, .55))
+            drop-shadow(0 calc(var(--dev-w) * .012) calc(var(--dev-w) * .02) rgba(10, 5, 45, .3));
+    z-index: 2;
+  }
+  .device img { width: 100%; display: block; }
+  /* iPhone Duo: no genuine bezel exists to composite, so the app sits on a
+     frameless "screen card" (rounded display, hairline edge, deep shadow). */
+  .device.card img {
+    border-radius: calc(var(--dev-w) * .075);
+    outline: calc(var(--dev-w) * .006) solid rgba(255, 255, 255, .35);
+    outline-offset: calc(var(--dev-w) * -.003);
+  }
+  /* Soft light pooled behind the device so it lifts off the canvas. */
+  .halo {
+    position: absolute; left: 50%; top: calc(var(--dev-top) + var(--dev-w) * .25); width: calc(var(--dev-w) * 1.5);
+    aspect-ratio: 1; transform: translate(-50%, -20%);
+    background: radial-gradient(circle, rgba(150, 132, 255, .38), rgba(150, 132, 255, .12) 40%, transparent 66%);
+    z-index: 1;
+  }
+  .spark { position: absolute; z-index: 4; transform: translate(-50%, -50%); }
+
+  body.iphone { --text-top: 168px; --side: 70px;  --gap: 40px; --hs: 150px; --dev-top: 690px; --dev-w: 1090px; }
+  body.ipad   { --text-top: 176px; --side: 170px; --gap: 48px; --hs: 172px; --dev-top: 660px; --dev-w: 1640px; }
+  body.mac    { --text-top: 112px; --side: 240px; --gap: 32px; --hs: 116px; --dev-top: 440px; --dev-w: 1980px; }
+  /* The whole Duo card fits on the canvas (bottom bars stay visible). */
+  body.duo-outer { --text-top: 150px; --side: 80px;  --gap: 40px; --hs: 150px; --dev-top: 640px; --dev-w: 920px; }
+  /* Unfolded Duo: landscape, laid out like the Mac (one-line headline). */
+  body.duo-inner { --text-top: 120px; --side: 240px; --gap: 32px; --hs: 124px; --dev-top: 450px; --dev-w: 2040px; }
+  body.duo-inner .label { font-size: 44px; }
+  body.duo-inner .device.card img { border-radius: calc(var(--dev-w) * .045); }
+  body.ipad .label, body.mac .label { font-size: 44px; }
+  body.mac h1, body.duo-inner h1 { text-wrap: nowrap; }
+</style>
+</head>
+<body class="$device">
+$pages
+  <div class="halo"></div>
+  <div class="device $device_class"><img src="$device_png"></div>
+  <div class="top">
+    <div class="label">$label</div>
+    <h1>$headline</h1>
+  </div>
+  <div class="spark" id="s1"><svg viewBox="0 0 100 100"><path fill="#FFE2B8" d="M50 0 C54 34 66 46 100 50 C66 54 54 66 50 100 C46 66 34 54 0 50 C34 46 46 34 50 0Z"/></svg></div>
+  <div class="spark" id="s2"><svg viewBox="0 0 100 100"><path fill="#FFE2B8" d="M50 0 C54 34 66 46 100 50 C66 54 54 66 50 100 C46 66 34 54 0 50 C34 46 46 34 50 0Z"/></svg></div>
+<script>
+document.fonts.ready.then(() => {
+  // Shrink the headline until it fits in two lines without overflowing.
+  const h1 = document.querySelector("h1");
+  let size = parseFloat(getComputedStyle(h1).fontSize);
+  const oneLine = ["mac", "duo-inner"].some(c => document.body.classList.contains(c));
+  const maxLines = oneLine ? 1 : 2;
+  const fits = () => h1.getBoundingClientRect().height <= size * 1.02 * maxLines + 4
+                     && h1.scrollWidth <= h1.clientWidth + 1;
+  while (!fits() && size > 60) { size -= 4; h1.style.fontSize = size + "px"; }
+  // Two sparkles off the right of the gold accent word's (last) line.
+  const em = document.querySelector("h1 em");
+  const s = size;
+  const place = (el, dx, dy, d) => {
+    if (!em) { el.remove(); return; }
+    const rects = em.getClientRects();
+    const r = rects[rects.length - 1];
+    Object.assign(el.style, { left: (r.right + dx * s) + "px", top: (r.top + dy * s) + "px",
+                              width: d * s + "px", height: d * s + "px" });
+  };
+  place(document.getElementById("s1"), .2, .3, .36);
+  place(document.getElementById("s2"), .5, .64, .17);
+  document.querySelectorAll(".spark").forEach(el => el.style.filter = "drop-shadow(0 0 " + (s * .1) + "px rgba(255,216,163,.7))");
+});
+</script>
+</body>
+</html>

@@ -49,6 +49,8 @@ record() { # <name> <sim name> <test method>
     xcrun simctl shutdown "$udid" 2>/dev/null || true
     xcrun simctl boot "$udid" 2>/dev/null || true
     xcrun simctl bootstatus "$udid" -b
+    # US region + Apple's 9:41 status bar (restored at the end of the run).
+    bin/sim-marketing-mode.sh on "$udid" > /dev/null
 
     xcodebuild test -project Fanficly.xcodeproj -scheme Fanficly \
         -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO \
@@ -98,44 +100,31 @@ record() { # <name> <sim name> <test method>
     fi
 }
 
-# Caption pills matching the ASO screenshot branding (SF Pro Display Black on
-# the indigo canvas), rendered with Pillow (Homebrew's ffmpeg lacks drawtext)
-# and composited with the core overlay filter. Caption windows and content-end
-# times are in RAW capture seconds (the overlays run before the trim/speed-up,
-# where t is still raw time) and are TUNED TO THE CURRENT RECORDINGS — after
-# re-recording, re-tune them from a 1 fps contact sheet:
-#   ffmpeg -i build/previews-raw/<name>.mov -vf "fps=1,scale=110:-2,tile=8x6" \
+# Caption cards in the store-art style (bin/store-art/caption.html: indigo
+# glass card, letter-spaced label, New York headline with a gold italic
+# accent), rendered on transparency by bin/store_art.py and composited with
+# the core overlay filter (Homebrew's ffmpeg lacks drawtext). App previews may
+# only show the app's own screen capture plus text/design overlays: Apple
+# rejects device frames and "framing around the video screen capture"
+# (Guideline 2.3.4), so the brand look lives in these cards, not a frame.
+#
+# Caption windows and content-end times are in RAW capture seconds (the
+# overlays run before the trim/speed-up, where t is still raw time) and are
+# TUNED TO THE CURRENT RECORDINGS — after re-recording, re-tune them from a
+# 2 fps contact sheet:
+#   ffmpeg -i build/previews-raw/<name>.mov -vf "fps=2,scale=110:-2,tile=12x8" \
 #     -frames:v 1 sheet.png
 
-make_caption() { # <text> <max fontsize> <max pill width px> <out.png>
-    bin/.venv/bin/python - "$1" "$2" "$3" "$4" <<'PY'
-import sys
-from PIL import Image, ImageDraw, ImageFont
-text, size, max_w, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
-FONT = "/Library/Fonts/SF-Pro-Display-Black.otf"
-
-# Shrink until the pill fits the frame — a long caption at full size would
-# be wider than the video and get clipped by the centered overlay.
-while size > 24:
-    font = ImageFont.truetype(FONT, size)
-    l, t, r, b = font.getbbox(text)
-    px, py = int(size * 0.5), int(size * 0.32)
-    w, h = r - l + 2 * px, b - t + 2 * py
-    if w <= max_w:
-        break
-    size -= 4
-
-img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-d = ImageDraw.Draw(img)
-d.rounded_rectangle([0, 0, w - 1, h - 1], radius=h // 2, fill=(0x3B, 0x2E, 0x8C, 242))
-d.text((px - l, py - t), text, font=font, fill="white")
-img.save(out)
-PY
+make_caption() { # <label> <headline> <headline px> <max card width px> <out.png>
+    bin/.venv/bin/python bin/store_art.py caption --label "$1" --headline "$2" \
+        --size "$3" --width "$4" --out "$5" > /dev/null
 }
 
 post() { # <name> <geometry filter>
     # Uses per-video globals: PRE (filter before captions, e.g. transpose),
-    # CAPS ("TEXT|start|end" triplets), CAPSIZE, CAPY, and SEGMENTS
+    # CAPS ("LABEL;HEADLINE;start;end;anchor;y" — *word* is the gold accent,
+    # "|" a line break, anchor L/R/C, y in px from the top or "bNNN" from the
+    # bottom), CAPSIZE (headline px), CAPMAXW, CAPMARGIN, and SEGMENTS
     # ("start|end" in raw seconds) — the kept slices, concatenated in order.
     # Segment editing is what keeps the pacing snappy: dead time (long
     # sidebar dwells between beats, the recorder's home-screen tail after
@@ -154,20 +143,26 @@ print(sum(float(s.split('|')[1]) - float(s.split('|')[0]) for s in segs))")
     # during static stretches, so trim boundaries and caption windows would
     # snap to the next real frame and silently drop static seconds.
     local fc="[0:v]fps=30,${PRE}[v0]"
-    local idx=1 cur="v0" spec text start endt anchor y png x
+    local idx=1 cur="v0" spec label head start endt anchor y png x yexpr fo
     for spec in "${CAPS[@]}"; do
-        # "TEXT|start|end|anchor|y" — anchor L/R/C slides the pill in from
-        # that side over 0.25 s and parks it at the margin (or centered).
-        IFS='|' read -r text start endt anchor y <<< "$spec"
+        # The card fades in while rising 40 px into place over 0.35 s, and
+        # fades out over the last 0.3 s of its window.
+        IFS=';' read -r label head start endt anchor y <<< "$spec"
         png="$RAW/caps-$name-$idx.png"
-        make_caption "$text" "$CAPSIZE" "$CAPMAXW" "$png"
-        inputs+=(-i "$png")
+        make_caption "$label" "$head" "$CAPSIZE" "$CAPMAXW" "$png"
+        inputs+=(-loop 1 -i "$png")
         case "$anchor" in
-            L) x="-w+clip((t-$start)/0.25,0,1)*($CAPMARGIN+w)" ;;
-            R) x="W-clip((t-$start)/0.25,0,1)*($CAPMARGIN+w)" ;;
-            *) x="W-clip((t-$start)/0.25,0,1)*((W-w)/2+w)" ;;
+            L) x="$CAPMARGIN" ;;
+            R) x="W-w-$CAPMARGIN" ;;
+            *) x="(W-w)/2" ;;
         esac
-        fc="$fc;[$cur][$idx:v]overlay=x='$x':y=$y:enable='between(t,$start,$endt)'[v$idx]"
+        case "$y" in
+            b*) yexpr="H-h-${y#b}" ;;
+            *)  yexpr="$y" ;;
+        esac
+        fo=$(python3 -c "print(max($start, $endt - 0.3))")
+        fc="$fc;[$idx:v]format=rgba,fade=t=in:st=$start:d=0.35:alpha=1,fade=t=out:st=$fo:d=0.3:alpha=1[k$idx]"
+        fc="$fc;[$cur][k$idx]overlay=x='$x':y='$yexpr+40*(1-clip((t-$start)/0.35,0,1))':shortest=1:enable='between(t,$start,$endt)'[v$idx]"
         cur="v$idx"
         idx=$((idx + 1))
     done
@@ -194,36 +189,40 @@ if ! $POST_ONLY; then
     record iphone "$IPHONE_SIM" testPreviewTourPhone
     record ipad   "$IPAD_SIM"   testPreviewTourPad
     record mac    "$IPAD_SIM"   testPreviewTourMac
+    # Put both simulators' region and status bar back.
+    bin/sim-marketing-mode.sh off "$IPHONE_SIM" > /dev/null
+    bin/sim-marketing-mode.sh off "$IPAD_SIM" > /dev/null
 fi
 
-PRE="null" CAPSIZE=100 CAPMAXW=1230 CAPMARGIN=48
-CAPS=("NEVER MISS A CHAPTER|6.0|8.7|L|210"
-      "SEARCH IN PLAIN ENGLISH|17.9|24.7|L|2360"
-      "READ ANYWHERE, OFFLINE|25.3|30.5|L|2360"
-      "LISTEN ON THE GO|38.0|43.8|C|2300")
+PRE="null" CAPSIZE=104 CAPMAXW=1180 CAPMARGIN=56
+CAPS=("Chapter alerts;Never miss a *chapter.*;6.0;8.6;L;b240"
+      "Discover;See what's *popular.*;13.0;15.8;L;b240"
+      "Smart search;Find your next *fic.*;22.2;30.0;L;b240"
+      "Offline reading;Read anywhere,|*even offline.*;30.6;35.6;L;b240"
+      "Listen;Let the story|*read to you.*;43.4;48.6;C;b330")
 # Hard cuts: only a flash of the sidebar between beats, jump-cuts inside the
-# long reader stretch — the dwells read as dead air at full length. The
-# Popular beat is left out: simctl compresses its static frames to a blip.
-SEGMENTS=("6.0|8.7" "14.0|14.5" "17.9|24.7" "25.3|27.6" "28.5|30.5"
-          "34.6|35.8" "38.0|43.8")
+# long reader stretch — the dwells read as dead air at full length.
+SEGMENTS=("6.0|8.6" "11.8|12.3" "13.0|15.8" "19.6|20.2" "22.2|30.0"
+          "30.6|32.8" "33.6|35.6" "39.6|40.8" "43.4|48.6")
 post iphone "scale=886:1920:flags=lanczos"
 
-PRE="null" CAPSIZE=110 CAPMAXW=1920 CAPMARGIN=64
-CAPS=("SEARCH IN PLAIN ENGLISH|5.8|14.2|L|2320"
-      "READ ANYWHERE, OFFLINE|15.3|21.5|L|2320"
-      "LISTEN ON THE GO|28.0|33.0|R|2320")
-SEGMENTS=("5.8|14.2" "15.3|17.5" "19.0|21.5" "24.0|25.4" "28.0|33.0")
+PRE="null" CAPSIZE=132 CAPMAXW=1500 CAPMARGIN=72
+CAPS=("Smart search;Find your next *fic.*;5.6;14.2;L;b220"
+      "Offline reading;Read anywhere,|*even offline.*;14.6;21.0;L;b220"
+      "Listen;Let the story|*read to you.*;26.8;32.2;R;b300")
+SEGMENTS=("5.6|14.2" "14.6|17.4" "18.6|21.0" "23.6|24.8" "26.8|32.2")
 post ipad "scale=1200:1600:flags=lanczos"
 
 # simctl records a rotated simulator in its portrait buffer with sideways
 # content, so the mac chain rotates upright (landscapeRight → transpose=1)
 # BEFORE captioning, then pillarboxes the 4:3 capture onto the 16:9 canvas
-# in brand indigo (bin/frame-screenshots.py BG), matching the screenshot set.
-PRE="transpose=1" CAPSIZE=100 CAPMAXW=2500 CAPMARGIN=80
-CAPS=("SEARCH IN PLAIN ENGLISH|5.5|14.2|L|1720"
-      "READ ANYWHERE, OFFLINE|15.3|21.5|C|1720"
-      "LISTEN ON THE GO|27.6|32.6|R|1700")
-SEGMENTS=("5.5|14.2" "15.3|17.5" "19.0|21.5" "24.0|25.4" "27.6|32.6")
+# in brand indigo, matching the screenshot set. (A plain pillarbox only:
+# decorative "framing" around the capture gets previews rejected.)
+PRE="transpose=1" CAPSIZE=150 CAPMAXW=1900 CAPMARGIN=90
+CAPS=("Smart search;Find your next *fic.*;5.0;9.8;L;b160"
+      "Offline reading;Read anywhere,|*even offline.*;10.4;16.4;R;b160"
+      "Listen;Let the story|*read to you.*;22.4;27.8;R;b260")
+SEGMENTS=("5.0|9.8" "10.4|13.2" "14.0|16.4" "19.0|20.6" "22.4|27.8")
 post mac "scale=-2:1080:flags=lanczos,pad=1920:1080:(ow-iw)/2:0:color=0x3B2E8C"
 
 echo "Done. Previews in $OUT"
