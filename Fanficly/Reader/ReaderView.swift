@@ -1319,10 +1319,14 @@ struct ReaderView: View {
     /// Lying flat ("open") the fold is inactive — the display reads as one —
     /// but it's still where the gutter belongs, so inactive regions count too.
     private func foldFrame(_ geo: GeometryProxy) -> CGRect? {
+        // reservedRegions is new in the iOS 27.1 SDK (SwiftUICore 8.0.85):
+        // the #if keeps older Xcodes (CI) compiling, #available the older OSes.
+        #if canImport(SwiftUICore, _version: 8.0.85)
         if #available(iOS 27.1, *) {
             let regions = geo.reservedRegions(kind: .division, options: .includeInactive)
             return (regions.first(where: \.isActive) ?? regions.first)?.frame
         }
+        #endif
         return nil
     }
 
