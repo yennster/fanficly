@@ -1,0 +1,4 @@
+# Python dependencies used by the existing artwork and App Store upload scripts.
+Pillow
+PyJWT[crypto]
+requests

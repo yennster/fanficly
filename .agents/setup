@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+# The app needs Apple's SDKs. Linux setup prepares only the portable tooling;
+# installing Linux Swift would not make SwiftUI, SwiftData or XCTest work here.
+echo '==> Preparing Fanficly tooling for a Debian Linux orb'
+command -v uv >/dev/null # Provided by the Amp orb base image.
+
+echo '==> Checking system packages'
+missing=()
+for package in chromium ffmpeg shellcheck; do
+  if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != 'install ok installed' ]]; then
+    missing+=("$package")
+  fi
+done
+if ((${#missing[@]})); then
+  time sudo apt-get update -qq
+  time sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+fi
+
+echo '==> Preparing the Python environment used by bin/ scripts'
+if [[ ! -x bin/.venv/bin/python ]]; then
+  time uv venv --python python3 bin/.venv
+fi
+time uv pip sync --python bin/.venv/bin/python --require-hashes bin/requirements.txt
+
+echo "==> Tooling ready (${SECONDS}s). Native builds/tests still require macOS and Xcode."

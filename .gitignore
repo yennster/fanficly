@@ -67,6 +67,7 @@ cache/
 # Local agent/session tooling
 .entire/
 .claude/
+.amp/portals/*
 
 # Android machine-local files
 android/.gradle/

@@ -136,6 +136,34 @@ FanficlyWidget/                # WidgetKit extension target (embedded in app)
   FanficlyWidget.entitlements  # app group + iCloud KVS
 ```
 
+## Linux orbs
+
+`.agents/setup` prepares the portable developer tools: Chromium, ffmpeg,
+ShellCheck, and the existing `bin/.venv` Python environment (Pillow,
+PyJWT with crypto support, and requests, pinned in `bin/requirements.txt`).
+Run Python scripts with `bin/.venv/bin/python`; no shell activation is needed.
+Setup is safe to repeat and reuses installed packages. `.agents/resume` only
+checks the environment; it does not install dependencies or authenticate.
+
+**The native app cannot build or run on Linux.** Xcode, Apple SDKs, simulators,
+XcodeGen, and all app tests need a Mac. There is no Linux Swift package/test
+target. Use the macOS CI or a Mac runner for native validation; do not install
+Linux Swift as a substitute. Fastlane is intentionally not installed here:
+its release lanes and credentials live in the untracked `fastlane/` directory.
+No database, app server, signing credentials, or AO3 login is needed for setup.
+
+Chromium can render HTML artwork, but exact marketing assets still need the
+Mac's Apple fonts and downloaded frameit bezels. Do not overwrite tracked
+screenshots with Linux font fallbacks. Setup never downloads private assets,
+reads signing keys, or runs App Store upload scripts.
+
+To update Python dependencies, edit `bin/requirements.in`, then run:
+
+```bash
+uv pip compile bin/requirements.in --python-version 3.11 --generate-hashes --output-file bin/requirements.txt
+.agents/setup
+```
+
 ## Build & run
 
 The Xcode project is generated from `project.yml` — never edit `.xcodeproj/project.pbxproj` by hand. After adding/removing source files:
