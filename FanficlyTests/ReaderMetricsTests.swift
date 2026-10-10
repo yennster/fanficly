@@ -84,3 +84,74 @@ final class ReaderSpreadTests: XCTestCase {
     }
 }
 
+
+/// Page-by-page's page height: pages fit the area with the controls up, shrink
+/// at once and grow back only once the area settles. The heights are an
+/// iPhone's page area: 700 with the controls up, 784 with them hidden.
+final class PageAreaTrackerTests: XCTestCase {
+    func test_shrinksAtOnce() {
+        var tracker = PageAreaTracker()
+        tracker.reset(to: 700)
+        tracker.observe(650)
+        XCTAssertEqual(tracker.pageHeight, 650)
+    }
+
+    func test_aMomentsSmallerArea_growsBackOnceSettled() {
+        // A short first layout (a transition) used to stick for good, leaving
+        // blank space at the foot of every page.
+        var tracker = PageAreaTracker()
+        tracker.reset(to: 530)
+        tracker.observe(700)
+        XCTAssertEqual(tracker.pageHeight, 530, "growing waits for the area to settle")
+        tracker.settle(700, controlsUp: true)
+        XCTAssertEqual(tracker.pageHeight, 700)
+    }
+
+    func test_togglingTheControls_keepsThePageHeight() {
+        var tracker = PageAreaTracker()
+        tracker.reset(to: 700)
+        tracker.settle(700, controlsUp: true)
+        tracker.observe(784)
+        tracker.settle(784, controlsUp: false)
+        XCTAssertEqual(tracker.pageHeight, 700, "pages must still fit once the controls return")
+        tracker.observe(700)
+        tracker.settle(700, controlsUp: true)
+        XCTAssertEqual(tracker.pageHeight, 700)
+    }
+
+    func test_controlsHidden_growsBackToTheControlsUpArea() {
+        var tracker = PageAreaTracker()
+        tracker.reset(to: 700)
+        tracker.settle(700, controlsUp: true)
+        tracker.observe(400)  // e.g. a keyboard inset while reading
+        tracker.settle(784, controlsUp: false)
+        XCTAssertEqual(tracker.pageHeight, 700)
+    }
+
+    func test_narrationBar_shrinksPagesUntilItCloses() {
+        var tracker = PageAreaTracker()
+        tracker.reset(to: 700)
+        tracker.settle(700, controlsUp: true)
+        tracker.observe(660)
+        tracker.settle(660, controlsUp: true)
+        XCTAssertEqual(tracker.pageHeight, 660)
+        tracker.observe(700)
+        tracker.settle(700, controlsUp: true)
+        XCTAssertEqual(tracker.pageHeight, 700)
+    }
+
+    func test_newWindowSize_forgetsTheControlsUpArea() {
+        // Rotated with the controls hidden: there's no controls-up area for the
+        // new size yet, so pages don't grow until the controls show.
+        var tracker = PageAreaTracker()
+        tracker.reset(to: 700)
+        tracker.settle(700, controlsUp: true)
+        tracker.reset(to: 330)
+        XCTAssertEqual(tracker.controlsUpHeight, 0)
+        tracker.observe(300)
+        tracker.settle(330, controlsUp: false)
+        XCTAssertEqual(tracker.pageHeight, 300)
+        tracker.settle(310, controlsUp: true)
+        XCTAssertEqual(tracker.pageHeight, 310)
+    }
+}

@@ -71,13 +71,12 @@ struct ReaderView: View {
     @State private var parsedAtoms: [Int: [ParagraphAtom]] = [:]
     @State private var stableWidth: CGFloat = 0
     @State private var stableHeight: CGFloat = 0
-    /// The page area pages are measured for: the smallest height the page
-    /// container has had at the current window size, i.e. with the reader
-    /// controls (nav bar, page footer, narration bar) showing. Measuring for
-    /// the chrome-hidden height cut the last lines off whenever the controls
-    /// were up; this way a page always fits, and hiding the controls only
-    /// adds bottom margin — the page count doesn't change.
-    @State private var pageAreaHeight: CGFloat = 0
+    /// The page area pages are measured for: the page container's height with
+    /// the reader controls (nav bar, page footer, narration bar) showing.
+    /// Measuring for the chrome-hidden height cut the last lines off whenever
+    /// the controls were up; this way a page always fits, and hiding the
+    /// controls only adds bottom margin — the page count doesn't change.
+    @State private var pageArea = PageAreaTracker()
     /// True while page-by-page shows an open-book spread on iPhone Duo
     /// (bookTopShift): the pages sit at a fixed spot under a transparent top
     /// bar, and the running footer stays put even with the controls hidden.
@@ -1157,7 +1156,9 @@ struct ReaderView: View {
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
             let topShift = bookTopShift(geo)
-            let readingHeight = pageAreaHeight > 0 ? pageAreaHeight : geo.size.height + topShift
+            let area = geo.size.height + topShift
+            let areaSample = PageAreaSample(width: geo.size.width, height: area, controlsUp: !isUIMinimized)
+            let readingHeight = pageArea.pageHeight > 0 ? pageArea.pageHeight : area
             // Two pages side by side when the window is wide enough; both are
             // paginated at the spread's page width, gutter on iPhone Duo's fold.
             let spread = twoPageSpread
@@ -1250,14 +1251,15 @@ struct ReaderView: View {
                     duoBookLayout = book
                 }
                 .onChange(of: geo.size, initial: true) { _, newSize in
-                    // Pages are measured for the smallest page area seen at the
-                    // current window size: the controls (nav bar, page footer,
-                    // narration bar) only ever shrink it, so a page always fits
-                    // on screen and hiding them adds margin without changing
-                    // the page count. A genuine layout change — rotation, a
-                    // split-view resize (both move the width), or the window's
-                    // own height moving (iPhone Duo pins a picture-in-picture
-                    // video above the app) — starts the measurement over.
+                    // Pages are measured for the page area with the controls
+                    // (nav bar, page footer, narration bar) up, so a page always
+                    // fits on screen and hiding them adds margin without
+                    // changing the page count. Pages shrink here at once; they
+                    // grow back in the settle task below. A genuine layout
+                    // change — rotation, a split-view resize (both move the
+                    // width), or the window's own height moving (iPhone Duo
+                    // pins a picture-in-picture video above the app) — starts
+                    // the measurement over.
                     let immersive = immersiveReadingHeight(fallback: newSize.height)
                     let area = newSize.height + bookTopShift(geo)
                     let widthChanged = abs(stableWidth - newSize.width) > 1
@@ -1265,10 +1267,20 @@ struct ReaderView: View {
                     if widthChanged || windowHeightChanged || stableWidth == 0 {
                         stableWidth = newSize.width
                         stableHeight = immersive
-                        pageAreaHeight = area
-                    } else if area < pageAreaHeight - 1 {
-                        pageAreaHeight = area
+                        pageArea.reset(to: area)
+                    } else {
+                        pageArea.observe(area)
                     }
+                }
+                .task(id: areaSample) {
+                    // Pages grow back once the area has held still, so a
+                    // moment's smaller area can't leave every page short. The
+                    // wait also skips the in-between sizes while the bars
+                    // animate in or out: toggling the controls doesn't
+                    // repaginate.
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    guard !Task.isCancelled else { return }
+                    pageArea.settle(areaSample.height, controlsUp: areaSample.controlsUp)
                 }
                 .onAppear {
                     isRestoring = true
@@ -2435,6 +2447,13 @@ struct PaginationTrigger: Equatable {
     let boldText: Bool
     let showImages: Bool
     let size: CGSize
+}
+
+/// What page-by-page's settle task waits on: any change restarts the wait.
+private struct PageAreaSample: Equatable {
+    let width: CGFloat
+    let height: CGFloat
+    let controlsUp: Bool
 }
 
 struct PaginationResult {
