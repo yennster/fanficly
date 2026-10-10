@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-10, at 1.10.0 (build 31). Written from the code, not from wishes: every item below names the files it touches and what already exists.
 
-Agents: read [Autonomous roadmap work](../AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. This file is the backlog. Each item is also mirrored as a GitHub issue titled `RM-nnn: …` (#37–#56) for discussion; if they disagree, this file wins. Claims are PRs, never issue assignments.
+Agents: read [Autonomous roadmap work](../AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. This file is the backlog. Each item is also mirrored as a GitHub issue titled `RM-nnn: …` (#37–#56, and RM-021 onward as added) for discussion; if they disagree, this file wins. Claims are PRs, never issue assignments.
 
 ## Where the app is
 
@@ -167,6 +167,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ### RM-019 — Accessibility audit of non-reader screens
 - **Status:** open · **Size:** S per screen · **Validation:** mac
 - **Scope:** Walk Library, Stats, Subscriptions and Settings at the largest Dynamic Type size and with VoiceOver; fix truncation and unlabeled controls; add a UI test that asserts labels on a screen's icon-only buttons. One screen per PR.
+
+### RM-021 — Shift-⌘ +/− to change the Mac UI size
+- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Why:** Global UI zoom (`app.zoomScale` in `RootView`) is bound to hidden buttons for ⌘+, ⌘=, ⌘− and ⌘0 only. The request is to also change the interface size with ⇧⌘+ / ⇧⌘− (and ⇧⌘= for keyboards where + needs no shift), and to make the shortcuts discoverable.
+- **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. Keep the existing ⌘ bindings working unless the maintainer says to drop them. Extract the clamp/step into a pure function.
+- **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.
+- **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
+- **Touches:** `RootView.swift`, `FanficlyApp.swift`.
 
 ## Engineering health (any release)
 
