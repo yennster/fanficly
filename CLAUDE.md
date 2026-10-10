@@ -306,7 +306,7 @@ The Duo (5.4" outer, 7.6" inner, iOS 27.1, ships Oct 23 2026) is the **phone** i
 
 ## Mac Catalyst
 
-The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale`, bound to ⌘+/⌘=/⌘−/⌘0 — by counter-scaling the root view. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).
+The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale`, bound to ⌘+/⌘=/⌘−/⌘0 — by counter-scaling the root view. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. Page-by-page checks each packed page against SwiftUI's own layout on the Mac (`ReaderPaginator.measuresDrawnPages` → `fitPage`, which re-packs with a corrected budget): under Mac text metrics `boundingRect` doesn't match SwiftUI (New York lines draw 1 pt taller at 13 and 18 pt; 13 pt text fits more words per line), which ran default-font pages up to 14 pt past the footer and left small-text pages ~50 pt short. iOS still paginates by `boundingRect` alone, which matches SwiftUI there; `ReaderPaginationTests` holds both platforms to the drawn heights. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).
 
 
 ## Screenshots

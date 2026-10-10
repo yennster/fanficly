@@ -1797,6 +1797,12 @@ struct ReaderView: View {
         
         var allPages: [ChapterPage] = []
         var allAtoms: [Int: [ParagraphAtom]] = [:]
+        let drawnHeight = ReaderPaginator.measuresDrawnPages
+            ? ReaderPaginator.drawnHeightMeasure(width: w, fontSize: CGFloat(trigger.fontSize), fontFamily: fontFamily,
+                                                 lineSpacing: CGFloat(trigger.lineSpacing),
+                                                 paragraphSpacing: CGFloat(trigger.paragraphSpacing),
+                                                 kerning: CGFloat(trigger.kerning), boldText: trigger.boldText)
+            : nil
         
         for chIndex in targetChapters.sorted() {
             guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
@@ -1838,7 +1844,8 @@ struct ReaderView: View {
                 lineSpacing: CGFloat(trigger.lineSpacing),
                 paragraphSpacing: CGFloat(trigger.paragraphSpacing),
                 kerning: CGFloat(trigger.kerning),
-                boldText: trigger.boldText
+                boldText: trigger.boldText,
+                drawnHeight: drawnHeight
             )
 
             allAtoms[chIndex] = atoms
@@ -2311,12 +2318,20 @@ enum ReaderPaginator {
         lineSpacing: CGFloat,
         paragraphSpacing: CGFloat,
         kerning: CGFloat,
-        boldText: Bool
+        boldText: Bool,
+        drawnHeight: DrawnHeight? = nil
     ) -> [ChapterPage] {
         var pages: [ChapterPage] = []
         
         var startIndex = 0
         var pageIndex = 0
+
+        let measure: (AttributedString) -> CGFloat = { text in
+            calculateHeight(for: text, width: width, fontSize: fontSize, fontFamily: fontFamily,
+                            lineSpacing: lineSpacing, kerning: kerning, boldText: boldText)
+        }
+        // Two lines of body text: two line heights plus the gap between them.
+        let twoLines = 2 * fontFamily.uiFont(size: fontSize).lineHeight + lineSpacing
         
         if isFirstChapter {
             // Page 0 is a dedicated cover/metadata page with no story text.
@@ -2330,8 +2345,6 @@ enum ReaderPaginator {
         }
         
         while startIndex < atoms.count {
-            var endIndex = startIndex
-            
             var pageMaxHeight = viewportHeight
             
             // Check if this page should display the chapter header
@@ -2343,110 +2356,22 @@ enum ReaderPaginator {
                 pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
             }
 
-            // boundingRect and SwiftUI's Text layout disagree by fractions of
-            // a point per line (more under Mac Catalyst's Mac-idiom metrics);
-            // over a page of lines that drift can overpack the page. Pack
-            // against a slightly smaller budget so the rendered page keeps
-            // headroom and never needs its overflow fallback.
-            let packingBudget = pageMaxHeight - min(24, max(8, pageMaxHeight * 0.02))
-
-            var currentHeight: CGFloat = 0
+            // Pack against a slightly smaller budget than the page, so small
+            // differences between boundingRect and SwiftUI's Text layout
+            // leave headroom instead of running a page's last line under
+            // the footer.
+            let reserve = min(24, max(8, pageMaxHeight * 0.02))
+            var endIndex = startIndex
             var includedAny = false
-
-            let measure: (AttributedString) -> CGFloat = { text in
-                calculateHeight(for: text, width: width, fontSize: fontSize, fontFamily: fontFamily,
-                                lineSpacing: lineSpacing, kerning: kerning, boldText: boldText)
-            }
-            // Two lines of body text: two line heights plus the gap between them.
-            let twoLines = 2 * fontFamily.uiFont(size: fontSize).lineHeight + lineSpacing
-
-            if pageMaxHeight > 40 {
-                var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
-                var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
-                var currentBlockHeight = measure(ReaderPageCell.concatenateAtoms(currentBlockAtoms))
-                // A single sentence taller than the page: break it at a line
-                // end rather than letting the page overflow.
-                if currentBlockHeight > packingBudget,
-                   let (head, tail) = splitAtomToFit(atoms[startIndex], after: [], budget: packingBudget, measure: measure) {
-                    atoms[startIndex] = head
-                    atoms.insert(tail, at: startIndex + 1)
-                    currentBlockAtoms = [head]
-                    currentBlockHeight = measure(head.text)
-                }
-                
-                currentHeight = currentBlockHeight
+            if pageMaxHeight > 40, let drawnHeight {
+                endIndex = fitPage(&atoms, from: startIndex, pageHeight: pageMaxHeight, reserve: reserve,
+                                   paragraphSpacing: paragraphSpacing, twoLines: twoLines,
+                                   measure: measure, drawnHeight: drawnHeight)
                 includedAny = true
-                
-                var completedBlocksHeight: CGFloat = 0
-                
-                while endIndex + 1 < atoms.count {
-                    let nextAtom = atoms[endIndex + 1]
-                    
-                    if nextAtom.originalParagraphIndex == currentBlockParaIndex {
-                        let proposedBlockAtoms = currentBlockAtoms + [nextAtom]
-                        let proposedBlockHeight = calculateHeight(
-                            for: ReaderPageCell.concatenateAtoms(proposedBlockAtoms),
-                            width: width,
-                            fontSize: fontSize,
-                            fontFamily: fontFamily,
-                            lineSpacing: lineSpacing,
-                            kerning: kerning,
-                            boldText: boldText
-                        )
-                        
-                        let potentialHeight = completedBlocksHeight + proposedBlockHeight
-                        if potentialHeight <= packingBudget {
-                            endIndex += 1
-                            currentBlockAtoms = proposedBlockAtoms
-                            currentBlockHeight = proposedBlockHeight
-                            currentHeight = potentialHeight
-                        } else {
-                            // Fill the page to its last line, like a printed
-                            // book: the sentence continues on the next page.
-                            if let (head, tail) = splitAtomToFit(nextAtom, after: currentBlockAtoms,
-                                                                 budget: packingBudget - completedBlocksHeight,
-                                                                 measure: measure) {
-                                atoms[endIndex + 1] = head
-                                atoms.insert(tail, at: endIndex + 2)
-                                endIndex += 1
-                            }
-                            break
-                        }
-                    } else {
-                        let proposedBlockAtoms = [nextAtom]
-                        let proposedBlockHeight = calculateHeight(
-                            for: ReaderPageCell.concatenateAtoms(proposedBlockAtoms),
-                            width: width,
-                            fontSize: fontSize,
-                            fontFamily: fontFamily,
-                            lineSpacing: lineSpacing,
-                            kerning: kerning,
-                            boldText: boldText
-                        )
-                        
-                        let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
-                        if potentialHeight <= packingBudget {
-                            endIndex += 1
-                            completedBlocksHeight += currentBlockHeight + paragraphSpacing
-                            currentBlockParaIndex = nextAtom.originalParagraphIndex
-                            currentBlockAtoms = proposedBlockAtoms
-                            currentBlockHeight = proposedBlockHeight
-                            currentHeight = potentialHeight
-                        } else {
-                            // Start the paragraph here only if at least two of
-                            // its lines fit (no lone opening line at the foot
-                            // of a page); otherwise it opens the next page.
-                            let room = packingBudget - currentHeight - paragraphSpacing
-                            if room >= twoLines,
-                               let (head, tail) = splitAtomToFit(nextAtom, after: [], budget: room, measure: measure) {
-                                atoms[endIndex + 1] = head
-                                atoms.insert(tail, at: endIndex + 2)
-                                endIndex += 1
-                            }
-                            break
-                        }
-                    }
-                }
+            } else if pageMaxHeight > 40 {
+                endIndex = packPage(&atoms, from: startIndex, budget: pageMaxHeight - reserve,
+                                    paragraphSpacing: paragraphSpacing, twoLines: twoLines, measure: measure)
+                includedAny = true
             }
             
             let range: Range<Int>
@@ -2476,6 +2401,149 @@ enum ReaderPaginator {
         }
         
         return pages
+    }
+
+    /// A page's text as SwiftUI draws it: the height of atoms[range] laid out
+    /// in ReaderPageCell's own view.
+    typealias DrawnHeight = @MainActor (_ atoms: [ParagraphAtom], _ range: Range<Int>) -> CGFloat
+
+    /// Whether packed pages are checked against SwiftUI's layout. On iOS,
+    /// boundingRect measures text exactly as SwiftUI draws it; under the Mac's
+    /// text metrics it doesn't: New York lines draw a point taller at 13 and
+    /// 18 pt, and 13 pt text fits more words on a line. Measured on CI, those
+    /// ran default-font pages up to 14 pt past their area (the last line cut
+    /// off) and left small-text pages ~50 pt short.
+    static var measuresDrawnPages: Bool { UIDevice.current.userInterfaceIdiom == .mac }
+
+    /// Measures pages with ReaderPageCell's view, reusing one hosting controller.
+    static func drawnHeightMeasure(width: CGFloat, fontSize: CGFloat, fontFamily: ReaderFontFamily,
+                                   lineSpacing: CGFloat, paragraphSpacing: CGFloat, kerning: CGFloat,
+                                   boldText: Bool) -> DrawnHeight {
+        let host = UIHostingController(rootView: AnyView(EmptyView()))
+        let chapter = AO3ChapterPayload(index: 0, title: "", bodyHTML: "")
+        let font = fontFamily.font(size: fontSize)
+        return { atoms, range in
+            let cell = ReaderPageCell(
+                page: ChapterPage(id: "measure", chapterIndex: 0, pageIndex: 0, paragraphIndices: range),
+                chapter: chapter, atoms: atoms, showTitleHeader: false, showChapterHeader: false,
+                titleHeaderView: nil, chapterHeaderView: AnyView(EmptyView()),
+                font: font, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing,
+                kerning: kerning, boldText: boldText, foreground: .primary, highlightParagraph: nil)
+            host.rootView = AnyView(cell.pageContent
+                .frame(width: width)
+                .fixedSize(horizontal: false, vertical: true))
+            return host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        }
+    }
+
+    /// Packs a page with boundingRect, then checks it against SwiftUI's
+    /// layout and packs it again with a corrected budget: less when it runs
+    /// past the page as drawn, more when it leaves more room than a
+    /// paragraph that can't start on two lines explains. Keeps the fullest
+    /// packing that fits; a few tries, each one boundingRect pass plus one
+    /// SwiftUI measurement. Returns the page's last atom.
+    private static func fitPage(_ atoms: inout [ParagraphAtom], from start: Int, pageHeight: CGFloat, reserve: CGFloat,
+                                paragraphSpacing: CGFloat, twoLines: CGFloat,
+                                measure: (AttributedString) -> CGFloat, drawnHeight: DrawnHeight) -> Int {
+        let unpacked = atoms
+        var budget = pageHeight - reserve
+        var fullest: (atoms: [ParagraphAtom], end: Int, drawn: CGFloat)?
+        var latest: (atoms: [ParagraphAtom], end: Int) = (unpacked, start)
+        for _ in 0..<4 {
+            var trial = unpacked
+            let end = packPage(&trial, from: start, budget: budget, paragraphSpacing: paragraphSpacing,
+                               twoLines: twoLines, measure: measure)
+            latest = (trial, end)
+            let drawn = drawnHeight(trial, start..<(end + 1))
+            if drawn > pageHeight {
+                budget -= drawn - pageHeight + 1
+                continue
+            }
+            if drawn > (fullest?.drawn ?? -1) { fullest = (trial, end, drawn) }
+            let spare = pageHeight - reserve - drawn
+            guard end + 1 < trial.count, spare > paragraphSpacing + twoLines else { break }
+            budget += spare
+        }
+        // Nothing fit (a page of one unbreakable sentence): take the last try.
+        let chosen = fullest.map { (atoms: $0.atoms, end: $0.end) } ?? latest
+        atoms = chosen.atoms
+        return chosen.end
+    }
+
+    /// Fills a page from `startIndex` with as much as `budget` holds, by
+    /// boundingRect. May split a sentence at a line end (the rest becomes a
+    /// new atom right after it). Returns the page's last atom.
+    private static func packPage(_ atoms: inout [ParagraphAtom], from startIndex: Int, budget packingBudget: CGFloat,
+                                 paragraphSpacing: CGFloat, twoLines: CGFloat,
+                                 measure: (AttributedString) -> CGFloat) -> Int {
+        var endIndex = startIndex
+        var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
+        var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
+        var currentBlockHeight = measure(ReaderPageCell.concatenateAtoms(currentBlockAtoms))
+        // A single sentence taller than the page: break it at a line
+        // end rather than letting the page overflow.
+        if currentBlockHeight > packingBudget,
+           let (head, tail) = splitAtomToFit(atoms[startIndex], after: [], budget: packingBudget, measure: measure) {
+            atoms[startIndex] = head
+            atoms.insert(tail, at: startIndex + 1)
+            currentBlockAtoms = [head]
+            currentBlockHeight = measure(head.text)
+        }
+
+        var currentHeight = currentBlockHeight
+        var completedBlocksHeight: CGFloat = 0
+
+        while endIndex + 1 < atoms.count {
+            let nextAtom = atoms[endIndex + 1]
+
+            if nextAtom.originalParagraphIndex == currentBlockParaIndex {
+                let proposedBlockAtoms = currentBlockAtoms + [nextAtom]
+                let proposedBlockHeight = measure(ReaderPageCell.concatenateAtoms(proposedBlockAtoms))
+                let potentialHeight = completedBlocksHeight + proposedBlockHeight
+                if potentialHeight <= packingBudget {
+                    endIndex += 1
+                    currentBlockAtoms = proposedBlockAtoms
+                    currentBlockHeight = proposedBlockHeight
+                    currentHeight = potentialHeight
+                } else {
+                    // Fill the page to its last line, like a printed
+                    // book: the sentence continues on the next page.
+                    if let (head, tail) = splitAtomToFit(nextAtom, after: currentBlockAtoms,
+                                                         budget: packingBudget - completedBlocksHeight,
+                                                         measure: measure) {
+                        atoms[endIndex + 1] = head
+                        atoms.insert(tail, at: endIndex + 2)
+                        endIndex += 1
+                    }
+                    break
+                }
+            } else {
+                let proposedBlockAtoms = [nextAtom]
+                let proposedBlockHeight = measure(ReaderPageCell.concatenateAtoms(proposedBlockAtoms))
+                let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
+                if potentialHeight <= packingBudget {
+                    endIndex += 1
+                    completedBlocksHeight += currentBlockHeight + paragraphSpacing
+                    currentBlockParaIndex = nextAtom.originalParagraphIndex
+                    currentBlockAtoms = proposedBlockAtoms
+                    currentBlockHeight = proposedBlockHeight
+                    currentHeight = potentialHeight
+                } else {
+                    // Start the paragraph here only if at least two of
+                    // its lines fit (no lone opening line at the foot
+                    // of a page); otherwise it opens the next page.
+                    let room = packingBudget - currentHeight - paragraphSpacing
+                    if room >= twoLines,
+                       let (head, tail) = splitAtomToFit(nextAtom, after: [], budget: room, measure: measure) {
+                        atoms[endIndex + 1] = head
+                        atoms.insert(tail, at: endIndex + 2)
+                        endIndex += 1
+                    }
+                    break
+                }
+            }
+        }
+        return endIndex
     }
 }
 

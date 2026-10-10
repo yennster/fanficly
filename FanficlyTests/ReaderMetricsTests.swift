@@ -159,11 +159,10 @@ final class PageAreaTrackerTests: XCTestCase {
 
 /// Page-by-page pagination on every screen the app runs on, so a layout change
 /// made for one (iPhone Duo's spread, a Mac window) can't quietly break the
-/// others: no page runs past its page area, no page but a chapter's last
-/// leaves a band of blank space, every sentence lands on exactly one page, and
-/// SwiftUI draws each page within the height it was measured for. Runs on
-/// whichever simulator CI picks (iPhone and iPad), so text is measured with
-/// that platform's metrics.
+/// others: every sentence lands on exactly one page, and each page, as SwiftUI
+/// draws it, neither runs past its page area nor (but a chapter's last) leaves
+/// a band of blank space. CI runs it on an iPhone, an iPad and the Mac, so
+/// text is laid out with each platform's own metrics.
 @MainActor
 final class ReaderPaginationTests: XCTestCase {
     struct Device {
@@ -280,42 +279,32 @@ final class ReaderPaginationTests: XCTestCase {
             viewportHeight: layout.viewportHeight, titleHeaderHeight: titleHeader, chapterHeaderHeight: header,
             isFirstChapter: isFirstChapter, showChapterHeader: true, fontSize: type.fontSize,
             fontFamily: type.family, lineSpacing: type.lineSpacing, paragraphSpacing: type.paragraphSpacing,
-            kerning: type.kerning, boldText: type.bold)
+            kerning: type.kerning, boldText: type.bold,
+            // As ReaderView does: check pages against SwiftUI's layout on the Mac.
+            drawnHeight: ReaderPaginator.measuresDrawnPages ? drawn(type, layout) : nil)
         return Pagination(pages: pages, atoms: atoms, chapterHeaderHeight: header)
     }
 
-    /// The page's paragraphs, joined as ReaderPageCell draws them.
-    private func blocks(_ page: ChapterPage, _ atoms: [ParagraphAtom]) -> [AttributedString] {
-        var groups: [[ParagraphAtom]] = []
-        for index in page.paragraphIndices {
-            if let last = groups.last?.last, last.originalParagraphIndex == atoms[index].originalParagraphIndex {
-                groups[groups.count - 1].append(atoms[index])
-            } else {
-                groups.append([atoms[index]])
-            }
-        }
-        return groups.map(ReaderPageCell.concatenateAtoms)
+    /// SwiftUI's layout of a page's text, in ReaderPageCell's own view.
+    private func drawn(_ type: Typography, _ layout: Layout) -> ReaderPaginator.DrawnHeight {
+        ReaderPaginator.drawnHeightMeasure(width: layout.columnWidth, fontSize: type.fontSize,
+                                           fontFamily: type.family, lineSpacing: type.lineSpacing,
+                                           paragraphSpacing: type.paragraphSpacing, kerning: type.kerning,
+                                           boldText: type.bold)
     }
 
-    private func measure(_ text: AttributedString, _ type: Typography, _ layout: Layout) -> CGFloat {
-        ReaderPaginator.calculateHeight(for: text, width: layout.columnWidth, fontSize: type.fontSize,
-                                        fontFamily: type.family, lineSpacing: type.lineSpacing,
-                                        kerning: type.kerning, boldText: type.bold)
-    }
-
-    /// The page's height as the paginator measures it, header included.
-    private func measuredHeight(_ page: ChapterPage, in result: Pagination, _ type: Typography, _ layout: Layout) -> CGFloat {
-        let parts = blocks(page, result.atoms)
-        let text = parts.map { measure($0, type, layout) }.reduce(0, +)
-            + type.paragraphSpacing * CGFloat(max(0, parts.count - 1))
-        return text + (page.pageIndex == 0 ? result.chapterHeaderHeight : 0)
+    /// The page's height as SwiftUI draws it, with the chapter heading's
+    /// (estimated) height on the chapter's first page.
+    private func drawnHeight(_ page: ChapterPage, in result: Pagination, _ measure: ReaderPaginator.DrawnHeight) -> CGFloat {
+        measure(result.atoms, page.paragraphIndices) + (page.pageIndex == 0 ? result.chapterHeaderHeight : 0)
     }
 
     /// The most blank space a full page may leave: the paginator's safety
     /// margin, plus a paragraph that needs two lines to start on a page (a
     /// lone opening line moves to the next page), plus a line of slack.
     private func fillTolerance(_ type: Typography, _ layout: Layout) -> CGFloat {
-        let line = measure(AttributedString("Ag"), type, layout) + type.lineSpacing
+        let oneLine = ReaderPaginator.atoms(fromChapterHTML: "<p>Ag</p>", includeImages: false)
+        let line = drawn(type, layout)(oneLine, 0..<oneLine.count) + type.lineSpacing
         let reserve = min(24, max(8, layout.viewportHeight * 0.02))
         return reserve + type.paragraphSpacing + 3 * line
     }
@@ -357,12 +346,14 @@ final class ReaderPaginationTests: XCTestCase {
     }
 
     func test_pagesFitTheirPageArea() {
+        // Runs past it and the page's last lines sit under the footer.
         forEachLayout { _, type, layout, label in
             let result = paginate(type, layout)
+            let measure = drawn(type, layout)
             for page in result.pages {
-                let height = measuredHeight(page, in: result, type, layout)
+                let height = drawnHeight(page, in: result, measure)
                 XCTAssertLessThanOrEqual(height, layout.viewportHeight,
-                                         "\(label): page \(page.pageIndex) runs \(height - layout.viewportHeight) pt past its area")
+                                         "\(label): page \(page.pageIndex) draws \(height - layout.viewportHeight) pt past its area")
             }
         }
     }
@@ -371,92 +362,14 @@ final class ReaderPaginationTests: XCTestCase {
         // The blank-band regression: every page but a chapter's last is full.
         forEachLayout { _, type, layout, label in
             let result = paginate(type, layout)
+            let measure = drawn(type, layout)
             let tolerance = fillTolerance(type, layout)
             for page in result.pages.dropLast() {
-                let blank = layout.viewportHeight - measuredHeight(page, in: result, type, layout)
+                let blank = layout.viewportHeight - drawnHeight(page, in: result, measure)
                 XCTAssertLessThanOrEqual(blank, tolerance,
                                          "\(label): page \(page.pageIndex) leaves \(blank) pt blank (allowed \(tolerance))")
             }
         }
     }
-
-    func test_swiftUIDrawsEachPageWithinItsArea() {
-        // boundingRect (the paginator) and SwiftUI's Text layout disagree by
-        // fractions of a point per line, differently per platform; the
-        // paginator's safety margin has to absorb it, or a page's last lines
-        // run under the footer. Pages after the first carry no header.
-        forEachLayout { _, type, layout, label in
-            let result = paginate(type, layout)
-            let chapter = AO3ChapterPayload(index: 2, title: "The Long Way Round", bodyHTML: Self.chapterHTML)
-            let tolerance = fillTolerance(type, layout) + layout.viewportHeight * 0.03
-            for page in result.pages.dropFirst().prefix(3) {
-                let cell = ReaderPageCell(
-                    page: page, chapter: chapter, atoms: result.atoms,
-                    showTitleHeader: false, showChapterHeader: false,
-                    titleHeaderView: nil, chapterHeaderView: AnyView(EmptyView()),
-                    font: type.family.font(size: type.fontSize), lineSpacing: type.lineSpacing,
-                    paragraphSpacing: type.paragraphSpacing, kerning: type.kerning, boldText: type.bold,
-                    foreground: .primary, highlightParagraph: nil)
-                let host = UIHostingController(rootView: cell.pageContent
-                    .frame(width: layout.columnWidth)
-                    .fixedSize(horizontal: false, vertical: true))
-                let drawn = host.sizeThatFits(in: CGSize(width: layout.columnWidth,
-                                                         height: .greatestFiniteMagnitude)).height
-                XCTAssertLessThanOrEqual(drawn, layout.viewportHeight,
-                                         "\(label): page \(page.pageIndex) draws \(drawn - layout.viewportHeight) pt past its area")
-                if page.id != result.pages.last?.id {
-                    XCTAssertGreaterThanOrEqual(drawn, layout.viewportHeight - tolerance,
-                                                "\(label): page \(page.pageIndex) draws only \(drawn) of \(layout.viewportHeight) pt")
-                }
-            }
-        }
-    }
 }
 
-/// TEMPORARY diagnostic (remove before merge): prints how boundingRect and
-/// SwiftUI's Text measure the same text on this platform, so the paginator's
-/// measurement can be matched to what SwiftUI draws.
-@MainActor
-final class TextMetricsReport: XCTestCase {
-    private func drawn(_ text: AttributedString, _ family: ReaderFontFamily, _ size: CGFloat,
-                       lineSpacing: CGFloat, width: CGFloat) -> CGFloat {
-        let view = Text(text).font(family.font(size: size)).lineSpacing(lineSpacing)
-            .frame(width: width, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-        return UIHostingController(rootView: view)
-            .sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
-    }
-
-    private func lineCount(_ text: AttributedString, _ family: ReaderFontFamily, _ size: CGFloat, width: CGFloat) -> Int {
-        let storage = NSTextStorage(string: String(text.characters), attributes: [.font: family.uiFont(size: size)])
-        let manager = NSLayoutManager()
-        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        manager.addTextContainer(container)
-        storage.addLayoutManager(manager)
-        var lines = 0
-        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, _, _, _, _ in lines += 1 }
-        return lines
-    }
-
-    func test_report() {
-        let long = AttributedString(String(repeating: "The rain had not stopped since morning and she walked along the river. ", count: 4))
-        for family in ReaderFontFamily.allCases {
-            for size: CGFloat in [13, 18, 27] {
-                let font = family.uiFont(size: size)
-                var row = "METRICS \(family.rawValue) \(Int(size))pt lineHeight=\(font.lineHeight) asc=\(font.ascender) desc=\(font.descender) leading=\(font.leading)"
-                for ls: CGFloat in [0, 6] {
-                    for n in [1, 2, 10] {
-                        let text = AttributedString(Array(repeating: "Ag", count: n).joined(separator: "\n"))
-                        let measured = ReaderPaginator.calculateHeight(for: text, width: 300, fontSize: size, fontFamily: family,
-                                                                       lineSpacing: ls, kerning: 0, boldText: false)
-                        row += " | ls\(Int(ls)) n\(n) rect=\(measured) swiftui=\(drawn(text, family, size, lineSpacing: ls, width: 300))"
-                    }
-                    let measured = ReaderPaginator.calculateHeight(for: long, width: 300, fontSize: size, fontFamily: family,
-                                                                   lineSpacing: ls, kerning: 0, boldText: false)
-                    row += " | ls\(Int(ls)) wrapped lines=\(lineCount(long, family, size, width: 300)) rect=\(measured) swiftui=\(drawn(long, family, size, lineSpacing: ls, width: 300))"
-                }
-                print(row)
-            }
-        }
-    }
-}
