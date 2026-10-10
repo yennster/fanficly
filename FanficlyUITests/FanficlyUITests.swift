@@ -248,17 +248,21 @@ final class ReaderLayoutTests: XCTestCase {
     /// from one snapshot (querying each element's frame takes ~0.1 s). The
     /// pages either side of the one showing sit off screen and drop out.
     private func storyTextFrames(above bar: CGRect) throws -> [CGRect] {
-        var frames: [CGRect] = []
-        func collect(_ element: any XCUIElementSnapshot) {
-            let frame = element.frame
-            if element.elementType == .staticText, frame.height > 0, frame.minY < bar.minY,
-               frame.minX >= bar.minX - 1, frame.maxX <= bar.maxX + 1 {
-                frames.append(frame)
+        // The snapshot isn't Sendable, so walk it on the main actor (which UI
+        // tests run on) and hand back plain frames.
+        try MainActor.assumeIsolated {
+            var frames: [CGRect] = []
+            func collect(_ element: any XCUIElementSnapshot) {
+                let frame = element.frame
+                if element.elementType == .staticText, frame.height > 0, frame.minY < bar.minY,
+                   frame.minX >= bar.minX - 1, frame.maxX <= bar.maxX + 1 {
+                    frames.append(frame)
+                }
+                element.children.forEach(collect)
             }
-            element.children.forEach(collect)
+            collect(try app.snapshot())
+            return frames
         }
-        collect(try app.snapshot())
-        return frames
     }
 
     /// The bottom of the reader's nav bar (the top of its page area).
