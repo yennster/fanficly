@@ -112,7 +112,7 @@ final class ReaderLayoutTests: XCTestCase {
             app.alerts.buttons["Cancel"].firstMatch.tap()
             throw XCTSkip("No on-screen keyboard here (a hardware keyboard is connected).")
         }
-        if footer.exists && !isDuoUnfolded {
+        if footer.exists {
             let window = app.windows.firstMatch.frame
             XCTAssertGreaterThanOrEqual(footer.frame.maxY, window.maxY - 50,
                                         "the footer rode \(window.maxY - footer.frame.maxY) pt up on the keyboard")
@@ -174,6 +174,12 @@ final class ReaderLayoutTests: XCTestCase {
         cell.tap()
         let footer = app.descendants(matching: .any).matching(identifier: "reader.pageFooter").firstMatch
         XCTAssertTrue(footer.waitForExistence(timeout: 20), "the page-by-page footer", file: file, line: line)
+        if isDuoUnfolded {
+            // Unfolded, the Duo keeps the sidebar beside the reader, which
+            // leaves it too narrow for the two-page spread: hide it.
+            let hide = app.buttons["Hide Sidebar"].firstMatch
+            if hide.exists && hide.isHittable { hide.tap() }
+        }
         settle()
         return footer
     }
@@ -217,9 +223,6 @@ final class ReaderLayoutTests: XCTestCase {
     /// its text ends just above the footer, not short of it and not under it.
     private func assertPageLayout(_ footer: XCUIElement, _ context: String,
                                   file: StaticString = #filePath, line: UInt = #line) throws {
-        // Unfolded, XCUITest reports the Duo's frames in portrait while the
-        // UI is landscape, so only the page labels above can be checked there.
-        guard !isDuoUnfolded else { return }
         let window = app.windows.firstMatch.frame
         let bar = footer.frame
         XCTAssertLessThan(bar.height, 60, "\(context): the footer is \(bar.height) pt tall", file: file, line: line)
@@ -296,9 +299,13 @@ final class ReaderLayoutTests: XCTestCase {
         return UIDevice.current.userInterfaceIdiom == .phone && min(window.width, window.height) >= 600
     }
 
+    /// Taps a point in the frames' coordinates, measured from the window: the
+    /// unfolded Duo reports the app's own frame in portrait while the window
+    /// and everything in it are landscape.
     private func tap(_ point: CGPoint) {
-        let origin = app.frame.origin
-        app.coordinate(withNormalizedOffset: .zero)
+        let window = app.windows.firstMatch
+        let origin = window.frame.origin
+        window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: point.x - origin.x, dy: point.y - origin.y)).tap()
     }
 
