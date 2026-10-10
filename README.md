@@ -112,6 +112,8 @@ xcodebuild test \
   -only-testing:FanficlyTests
 ```
 
+`-only-testing:FanficlyUITests/ReaderLayoutTests` runs the reader's layout UI tests instead. They open a story in page-by-page and check what's drawn: full pages, the page footer on the bottom edge, and the two-page spread on wide screens. For the Mac, use `-destination 'platform=macOS,variant=Mac Catalyst'`, plus `MACOSX_DEPLOYMENT_TARGET=14.0` if your Mac runs an older macOS than the SDK. The Mac run drives the real app window, so leave the mouse alone until it finishes. Before it starts, macOS asks for an administrator password to allow UI automation.
+
 ## About AO3
 
 AO3 has no public JSON API; Fanficly works by parsing the same HTML pages the AO3 website serves. We're respectful guests:

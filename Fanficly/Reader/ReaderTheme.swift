@@ -167,6 +167,44 @@ enum ReaderSpread {
     }
 }
 
+/// The height page-by-page measures its pages for: the page area with the
+/// reader controls (nav bar, page footer, narration bar) showing, so a page
+/// always fits on screen and hiding the controls only adds bottom margin.
+///
+/// Pages shrink as soon as the area does, but grow back only once it has held
+/// still (`settle`). The area is briefly smaller now and then (a navigation
+/// transition, the narration bar, a keyboard inset); when pages could only
+/// ever shrink, one such moment left a band of blank space at the foot of
+/// every page until the window itself changed size. Pure, so it's unit-tested.
+struct PageAreaTracker {
+    /// The height pages are measured for (0 = nothing seen yet).
+    private(set) var pageHeight: CGFloat = 0
+    /// The settled page area with the controls up at this window size (0 =
+    /// not seen yet). With the controls hidden the area is taller than a page
+    /// may be, so pages grow no further than this.
+    private(set) var controlsUpHeight: CGFloat = 0
+
+    /// A new window size (rotation, a split-view resize, iPhone Duo pinning a
+    /// video above the app): start over from the area on screen.
+    mutating func reset(to area: CGFloat) {
+        pageHeight = area
+        controlsUpHeight = 0
+    }
+
+    /// The page area changed: shrink at once, so text never runs under the controls.
+    mutating func observe(_ area: CGFloat) {
+        if area < pageHeight - 1 { pageHeight = area }
+    }
+
+    /// The page area has held still at `area`: grow back to it, or with the
+    /// controls hidden, to the controls-up area at most.
+    mutating func settle(_ area: CGFloat, controlsUp: Bool) {
+        if controlsUp { controlsUpHeight = area }
+        let ceiling = controlsUp ? area : min(area, controlsUpHeight)
+        if ceiling > pageHeight + 1 { pageHeight = ceiling }
+    }
+}
+
 enum ReaderFontFamily: String, CaseIterable, Identifiable {
     case newYork  = "newYork"
     case serif    = "serif"
