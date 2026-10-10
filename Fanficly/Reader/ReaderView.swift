@@ -1856,12 +1856,12 @@ struct ReaderView: View {
         
         var allPages: [ChapterPage] = []
         var allAtoms: [Int: [ParagraphAtom]] = [:]
-        let drawnHeight = ReaderPaginator.measuresDrawnPages
-            ? ReaderPaginator.drawnHeightMeasure(width: w, fontSize: CGFloat(trigger.fontSize), fontFamily: fontFamily,
-                                                 lineSpacing: CGFloat(trigger.lineSpacing),
-                                                 paragraphSpacing: CGFloat(trigger.paragraphSpacing),
-                                                 kerning: CGFloat(trigger.kerning), boldText: trigger.boldText)
-            : nil
+        // The chapter being read is checked page by page against SwiftUI's
+        // own layout (see fitPage); see checksAdjacentChapters for the others.
+        let drawnHeight = ReaderPaginator.drawnHeightMeasure(
+            width: w, fontSize: CGFloat(trigger.fontSize), fontFamily: fontFamily,
+            lineSpacing: CGFloat(trigger.lineSpacing), paragraphSpacing: CGFloat(trigger.paragraphSpacing),
+            kerning: CGFloat(trigger.kerning), boldText: trigger.boldText)
         
         for chIndex in targetChapters.sorted() {
             guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
@@ -1904,7 +1904,7 @@ struct ReaderView: View {
                 paragraphSpacing: CGFloat(trigger.paragraphSpacing),
                 kerning: CGFloat(trigger.kerning),
                 boldText: trigger.boldText,
-                drawnHeight: drawnHeight,
+                drawnHeight: chIndex == trigger.chapter || ReaderPaginator.checksAdjacentChapters ? drawnHeight : nil,
                 startingAt: start?.chapter == chIndex ? start : nil
             )
 
@@ -2450,8 +2450,8 @@ enum ReaderPaginator {
             calculateHeight(for: text, width: width, fontSize: fontSize, fontFamily: fontFamily,
                             lineSpacing: lineSpacing, kerning: kerning, boldText: boldText)
         }
-        // Two lines of body text: two line heights plus the gap between them.
-        let twoLines = 2 * fontFamily.uiFont(size: fontSize).lineHeight + lineSpacing
+        // One line of body text.
+        let oneLine = fontFamily.uiFont(size: fontSize).lineHeight
         
         if isFirstChapter {
             // Page 0 is a dedicated cover/metadata page with no story text.
@@ -2476,12 +2476,7 @@ enum ReaderPaginator {
                 pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
             }
 
-            // Pack against a slightly smaller budget than the page, so small
-            // differences between boundingRect and SwiftUI's Text layout
-            // leave headroom instead of running a page's last line under
-            // the footer. Pages checked against SwiftUI's own layout (the
-            // Mac, see fitPage) need none: it only left a line or two blank.
-            let reserve = drawnHeight == nil ? min(24, max(8, pageMaxHeight * 0.02)) : 1
+            let reserve = drawnHeight == nil ? Self.uncheckedReserve(pageMaxHeight) : Self.reserve
             let isKept = atoms[startIndex].id == keptID
             if isKept { reachedKept = true }
             // Pages before the kept one stop short of it.
@@ -2490,12 +2485,12 @@ enum ReaderPaginator {
             var includedAny = false
             if pageMaxHeight > 40, let drawnHeight {
                 endIndex = fitPage(&atoms, from: startIndex, pageHeight: pageMaxHeight, reserve: reserve,
-                                   paragraphSpacing: paragraphSpacing, twoLines: twoLines,
+                                   paragraphSpacing: paragraphSpacing, oneLine: oneLine,
                                    measure: measure, drawnHeight: drawnHeight, stoppingBefore: stop)
                 includedAny = true
             } else if pageMaxHeight > 40 {
                 endIndex = packPage(&atoms, from: startIndex, budget: pageMaxHeight - reserve,
-                                    paragraphSpacing: paragraphSpacing, twoLines: twoLines, measure: measure,
+                                    paragraphSpacing: paragraphSpacing, oneLine: oneLine, measure: measure,
                                     stoppingBefore: stop)
                 includedAny = true
             }
@@ -2536,14 +2531,26 @@ enum ReaderPaginator {
     /// in ReaderPageCell's own view.
     typealias DrawnHeight = @MainActor (_ atoms: [ParagraphAtom], _ range: Range<Int>) -> CGFloat
 
-    /// Whether packed pages are checked against SwiftUI's layout. On iOS,
-    /// boundingRect measures text exactly as SwiftUI draws it; under the Mac's
-    /// text metrics it doesn't: New York lines draw a point taller at 13 and
-    /// 18 pt, and 13 pt text fits more words on a line. Measured on CI, those
-    /// ran default-font pages up to 14 pt past their area (the last line cut
-    /// off) and left small-text pages ~50 pt short. A build-time check, not
-    /// the idiom: the Mac app doesn't report the Mac idiom everywhere.
-    static var measuresDrawnPages: Bool {
+    /// What pages checked against SwiftUI's layout (fitPage) are packed short
+    /// of their area by: nothing. The check measures the page exactly as it's
+    /// drawn, and even a 2 pt margin cost the page a last line now and then.
+    static let reserve: CGFloat = 0
+
+    /// Pages not checked against SwiftUI's layout keep headroom for
+    /// boundingRect measuring differently (2% of the page, 8–24 pt). On every
+    /// page it left a line blank at the foot of many of them.
+    static func uncheckedReserve(_ pageHeight: CGFloat) -> CGFloat {
+        min(24, max(8, pageHeight * 0.02))
+    }
+
+    /// Whether the chapters either side of the one being read are checked
+    /// against SwiftUI's layout too. They're paginated so page turns run on
+    /// into them, and re-paginated, checked, as soon as one is reached;
+    /// checking them up front too cost ~1.5 ms a page on iOS (a 9,000-word
+    /// chapter: 250 ms instead of 100). On the Mac boundingRect runs short of
+    /// SwiftUI's layout, so an unchecked page could put a line under the
+    /// footer while you turn into it, and Macs are quick: it checks them all.
+    static var checksAdjacentChapters: Bool {
         #if targetEnvironment(macCatalyst)
         return true
         #else
@@ -2573,39 +2580,57 @@ enum ReaderPaginator {
     }
 
     /// Packs a page with boundingRect, then checks it against SwiftUI's
-    /// layout and packs it again with a corrected budget: less when it runs
-    /// past the page as drawn, more when it leaves more room than a
-    /// paragraph that can't start on two lines explains. Keeps the fullest
-    /// packing that fits; a few tries, each one boundingRect pass plus one
-    /// SwiftUI measurement. Returns the page's last atom.
+    /// layout, and when the two disagree packs it again with a corrected
+    /// budget until the page is as full as it can be without running past it.
+    /// boundingRect is close but not exact: under the Mac's text metrics New
+    /// York lines draw a point taller and small text fits more words a line,
+    /// and on iOS a long paragraph can wrap to one line fewer than boundingRect
+    /// counts. Either way pages came out a line or more short, or ran a line
+    /// past the footer. Most pages need one SwiftUI measurement; a misjudged
+    /// one bisects the budget between the fullest packing that fit and the
+    /// smallest that ran past. Returns the page's last atom.
     private static func fitPage(_ atoms: inout [ParagraphAtom], from start: Int, pageHeight: CGFloat, reserve: CGFloat,
-                                paragraphSpacing: CGFloat, twoLines: CGFloat,
+                                paragraphSpacing: CGFloat, oneLine: CGFloat,
                                 measure: (AttributedString) -> CGFloat, drawnHeight: DrawnHeight,
                                 stoppingBefore stop: UUID? = nil) -> Int {
         let unpacked = atoms
-        var budget = pageHeight - reserve
-        var fullest: (atoms: [ParagraphAtom], end: Int, drawn: CGFloat)?
+        let limit = pageHeight - reserve
+        var budget = limit
+        var fullest: (atoms: [ParagraphAtom], end: Int, budget: CGFloat)?
+        var overflowing: CGFloat?
         var latest: (atoms: [ParagraphAtom], end: Int) = (unpacked, start)
-        for _ in 0..<4 {
+        for _ in 0..<8 {
             var trial = unpacked
             let end = packPage(&trial, from: start, budget: budget, paragraphSpacing: paragraphSpacing,
-                               twoLines: twoLines, measure: measure, stoppingBefore: stop)
+                               oneLine: oneLine, measure: measure, stoppingBefore: stop)
             latest = (trial, end)
             let drawn = drawnHeight(trial, start..<(end + 1))
-            if drawn > pageHeight {
-                // Pack less: by the overflow, below what boundingRect measured
-                // this packing at. Lowering the budget by the overflow alone
-                // can leave the very same lines fitting (boundingRect left
-                // them slack under it), so every try overflowed alike.
+            if drawn > limit {
+                // Any budget down to what boundingRect measured this packing
+                // at packs the very same lines (it left them slack under the
+                // budget), so that's the bound to go below, not the budget.
                 let packed = packedHeight(trial, start...end, paragraphSpacing: paragraphSpacing, measure: measure)
-                budget = min(budget, packed) - (drawn - pageHeight) - 1
-                continue
+                overflowing = min(overflowing ?? budget, min(budget, packed))
+            } else {
+                if budget >= (fullest?.budget ?? -1) { fullest = (trial, end, budget) }
+                // Done when there's nothing left to add or no room for a line.
+                if end + 1 >= trial.count || trial[end + 1].id == stop || limit - drawn < oneLine { break }
             }
-            if drawn > (fullest?.drawn ?? -1) { fullest = (trial, end, drawn) }
-            let spare = pageHeight - reserve - drawn
-            guard end + 1 < trial.count, trial[end + 1].id != stop,
-                  spare > paragraphSpacing + twoLines else { break }
-            budget += spare
+            switch (fullest?.budget, overflowing) {
+            case let (fit?, over?):
+                guard over - fit > 1 else { break }
+                budget = (fit + over) / 2
+                continue
+            case let (fit?, nil):
+                budget = fit + (limit - drawn)
+                continue
+            case let (nil, over?):
+                budget = over - (drawn - limit) - 1
+                continue
+            case (nil, nil):
+                break
+            }
+            break
         }
         // Nothing fit (a page of one unbreakable sentence): take the last try.
         let chosen = fullest.map { (atoms: $0.atoms, end: $0.end) } ?? latest
@@ -2634,7 +2659,7 @@ enum ReaderPaginator {
     /// May split a sentence at a line end (the rest becomes a new atom right
     /// after it). Returns the page's last atom.
     private static func packPage(_ atoms: inout [ParagraphAtom], from startIndex: Int, budget packingBudget: CGFloat,
-                                 paragraphSpacing: CGFloat, twoLines: CGFloat,
+                                 paragraphSpacing: CGFloat, oneLine: CGFloat,
                                  measure: (AttributedString) -> CGFloat, stoppingBefore stop: UUID? = nil) -> Int {
         var endIndex = startIndex
         var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
@@ -2689,11 +2714,12 @@ enum ReaderPaginator {
                     currentBlockHeight = proposedBlockHeight
                     currentHeight = potentialHeight
                 } else {
-                    // Start the paragraph here only if at least two of
-                    // its lines fit (no lone opening line at the foot
-                    // of a page); otherwise it opens the next page.
+                    // Start the paragraph here with as many lines as fit,
+                    // even one, so the page fills to its last line. (Holding
+                    // back a lone opening line, as books do, left up to two
+                    // lines blank at the foot of a page.)
                     let room = packingBudget - currentHeight - paragraphSpacing
-                    if room >= twoLines,
+                    if room >= oneLine,
                        let (head, tail) = splitAtomToFit(nextAtom, after: [], budget: room, measure: measure) {
                         atoms[endIndex + 1] = head
                         atoms.insert(tail, at: endIndex + 2)

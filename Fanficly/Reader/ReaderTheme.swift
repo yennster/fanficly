@@ -56,11 +56,15 @@ enum ReaderMetrics {
     /// percentage stretches lines unreadably across a wide phone layout — a
     /// Pro Max in landscape, or iPhone Duo's 7.6" inner display, which stays
     /// the phone idiom (and phone settings) while unfolded.
+    /// Whole points: SwiftUI lays text out in a pixel-snapped frame while
+    /// page-by-page measures it at the width given, and at a fractional width
+    /// the two broke lines differently when a word only just fit, so pages
+    /// were cut a line early and left up to two lines blank.
     static func textColumnWidth(containerWidth: CGFloat, widthPercent: Double,
                                 fontSize: Double, limitLineLength: Bool) -> CGFloat {
         let column = containerWidth * CGFloat(widthPercent / 100.0)
-        guard limitLineLength else { return column }
-        return min(column, CGFloat(fontSize * maxLineLengthEm))
+        guard limitLineLength else { return floor(column) }
+        return floor(min(column, CGFloat(fontSize * maxLineLengthEm)))
     }
 
     static let maxLineLengthEm: Double = 40

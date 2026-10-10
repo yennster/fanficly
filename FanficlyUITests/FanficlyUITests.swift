@@ -25,10 +25,11 @@ final class ReaderLayoutTests: XCTestCase {
     private var app: XCUIApplication!
 
     /// The most blank space a full page may leave under its last line: the
-    /// page's bottom margin, the paginator's safety margin, and a paragraph
-    /// that needs two lines to start on a page (a lone opening line moves to
-    /// the next one), with slack. The bugs left a ~300 pt band.
-    private let maxBlankBelowText: CGFloat = 150
+    /// page's bottom margin (12 pt) and a paragraph gap plus a line that
+    /// didn't fit (16 + ~27 pt for the
+    /// typography these tests set), with slack for text frames. The bugs
+    /// left a 130–300 pt band.
+    private let maxBlankBelowText: CGFloat = 75
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -241,12 +242,16 @@ final class ReaderLayoutTests: XCTestCase {
         }
         XCTAssertEqual(twoPages(hidden), twoPages(shown), "\(context): full screen switched between one page and two",
                        file: file, line: line)
+        // Full screen's pages run to the bottom of the screen, where the
+        // footer's bottom edge was.
+        assertPagesFull(hidden, endingAt: bar.maxY, spread: twoPages(shown), across: bar,
+                        "\(context), full screen", file: file, line: line)
         // The room gained: the footer's, plus the nav bar's where the text
-        // moves up into it. Room for a new paragraph's first two lines (this
-        // typography: ~72 pt) must take more text; less may legitimately not.
+        // moves up into it. Room for a paragraph gap and a line (~45 pt here)
+        // must take more text; less may legitimately not.
         let top = { (texts: [(frame: CGRect, text: String)]) in texts.map(\.frame.minY).min() ?? 0 }
         let gained = bar.height + top(shown) - top(hidden)
-        if gained >= 80 {
+        if gained >= 60 {
             XCTAssertGreaterThan(characters(hidden), characters(shown),
                                  "\(context): full screen gained \(gained) pt but the page holds no more text: the room stayed blank",
                                  file: file, line: line)
@@ -273,20 +278,27 @@ final class ReaderLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(bar.maxY, window.maxY - 50,
                                     "\(context): the footer ends \(window.maxY - bar.maxY) pt above the bottom",
                                     file: file, line: line)
-        let texts = try storyTextFrames(above: bar)
-        let pages = page(footer)?.isSpread == true
-            ? [(bar.minX, bar.midX), (bar.midX, bar.maxX)] : [(bar.minX, bar.maxX)]
+        assertPagesFull(try storyTexts(above: bar), endingAt: bar.minY, spread: page(footer)?.isSpread == true,
+                        across: bar, "\(context) (\(footer.label))", file: file, line: line)
+    }
+
+    /// Each page on screen ends just above `edge` (the bottom of the page
+    /// area): never past it, and no more than `maxBlankBelowText` short.
+    private func assertPagesFull(_ texts: [(frame: CGRect, text: String)], endingAt edge: CGFloat, spread: Bool,
+                                 across bar: CGRect, _ context: String,
+                                 file: StaticString = #filePath, line: UInt = #line) {
+        let pages = spread ? [(bar.minX, bar.midX), (bar.midX, bar.maxX)] : [(bar.minX, bar.maxX)]
         for (index, (minX, maxX)) in pages.enumerated() {
             let which = pages.count > 1 ? (index == 0 ? "left page" : "right page") : "page"
-            guard let bottom = texts.filter({ $0.midX >= minX && $0.midX < maxX }).map(\.maxY).max() else {
-                XCTFail("\(context): no text on the \(which) (\(footer.label))", file: file, line: line)
+            guard let bottom = texts.filter({ $0.frame.midX >= minX && $0.frame.midX < maxX }).map(\.frame.maxY).max() else {
+                XCTFail("\(context): no text on the \(which)", file: file, line: line)
                 continue
             }
-            XCTAssertLessThanOrEqual(bottom, bar.minY + 1,
-                                     "\(context): the \(which)'s text runs \(bottom - bar.minY) pt under the footer",
+            XCTAssertLessThanOrEqual(bottom, edge + 1,
+                                     "\(context): the \(which)'s text runs \(bottom - edge) pt past the page area",
                                      file: file, line: line)
-            XCTAssertGreaterThanOrEqual(bottom, bar.minY - maxBlankBelowText,
-                                        "\(context): \(bar.minY - bottom) pt blank under the \(which)'s text (\(footer.label))",
+            XCTAssertGreaterThanOrEqual(bottom, edge - maxBlankBelowText,
+                                        "\(context): \(edge - bottom) pt blank under the \(which)'s text",
                                         file: file, line: line)
         }
     }

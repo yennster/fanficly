@@ -8,7 +8,7 @@ import SwiftUI
 final class ReaderMetricsTests: XCTestCase {
     func test_narrowPhone_usesThePercentage() {
         let w = ReaderMetrics.textColumnWidth(containerWidth: 402, widthPercent: 90, fontSize: 18, limitLineLength: true)
-        XCTAssertEqual(w, 361.8, accuracy: 0.01)
+        XCTAssertEqual(w, 361, "402 × 90%, in whole points")
     }
 
     func test_widePhoneLayout_capsAtAbout80Characters() {
@@ -23,7 +23,7 @@ final class ReaderMetricsTests: XCTestCase {
 
     func test_ipadAndMac_keepThePercentage() {
         let w = ReaderMetrics.textColumnWidth(containerWidth: 1366, widthPercent: 70, fontSize: 18, limitLineLength: false)
-        XCTAssertEqual(w, 956.2, accuracy: 0.01)
+        XCTAssertEqual(w, 956, "1366 × 70%, in whole points")
     }
 }
 
@@ -290,8 +290,10 @@ final class ReaderPaginationTests: XCTestCase {
     }
 
     /// A chapter after the first (chapter 1 adds the work's title page).
+    /// `checked: false` paginates as the chapters either side of the one
+    /// being read are on iOS: by boundingRect alone.
     private func paginate(_ type: Typography, _ layout: Layout, isFirstChapter: Bool = false,
-                          startingAt start: PageStart? = nil) -> Pagination {
+                          startingAt start: PageStart? = nil, checked: Bool = true) -> Pagination {
         var atoms = ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false)
         let header = ReaderPaginator.estimateChapterHeaderHeight(
             title: "The Long Way Round", width: layout.columnWidth, fontSize: type.fontSize, fontFamily: type.family)
@@ -304,8 +306,9 @@ final class ReaderPaginationTests: XCTestCase {
             isFirstChapter: isFirstChapter, showChapterHeader: true, fontSize: type.fontSize,
             fontFamily: type.family, lineSpacing: type.lineSpacing, paragraphSpacing: type.paragraphSpacing,
             kerning: type.kerning, boldText: type.bold,
-            // As ReaderView does: check pages against SwiftUI's layout on the Mac.
-            drawnHeight: ReaderPaginator.measuresDrawnPages ? drawn(type, layout) : nil,
+            // As ReaderView does for the chapter being read: check every
+            // page against SwiftUI's layout.
+            drawnHeight: checked ? drawn(type, layout) : nil,
             startingAt: start)
         return Pagination(pages: pages, atoms: atoms, chapterHeaderHeight: header)
     }
@@ -324,14 +327,13 @@ final class ReaderPaginationTests: XCTestCase {
         measure(result.atoms, page.paragraphIndices) + (page.pageIndex == 0 ? result.chapterHeaderHeight : 0)
     }
 
-    /// The most blank space a full page may leave: the paginator's safety
-    /// margin, plus a paragraph that needs two lines to start on a page (a
-    /// lone opening line moves to the next page), plus a line of slack.
+    /// The most blank space a full page may leave: the paginator's rounding
+    /// margin, plus a paragraph gap and a line that didn't fit (a paragraph
+    /// may start with a single line at the foot of a page, so nothing more).
     private func fillTolerance(_ type: Typography, _ layout: Layout) -> CGFloat {
         let oneLine = ReaderPaginator.atoms(fromChapterHTML: "<p>Ag</p>", includeImages: false)
         let line = drawn(type, layout)(oneLine, 0..<oneLine.count) + type.lineSpacing
-        let reserve = min(24, max(8, layout.viewportHeight * 0.02))
-        return reserve + type.paragraphSpacing + 3 * line
+        return ReaderPaginator.reserve + type.paragraphSpacing + line + 1
     }
 
 
@@ -406,6 +408,16 @@ final class ReaderPaginationTests: XCTestCase {
         // Runs past it and the page's last lines sit under the footer.
         forEachLayout { _, type, layout, label in
             assertPagesFit(paginate(type, layout), type, layout, label)
+        }
+    }
+
+    func test_uncheckedPages_stillFitTheirPageArea() throws {
+        // The chapters either side of the one being read skip the check
+        // against SwiftUI's layout on iOS (they're re-paginated, checked, once
+        // reached); boundingRect's headroom must keep them on screen meanwhile.
+        try XCTSkipIf(ReaderPaginator.checksAdjacentChapters, "this platform checks every chapter")
+        forEachLayout { _, type, layout, label in
+            assertPagesFit(paginate(type, layout, checked: false), type, layout, "\(label), unchecked")
         }
     }
 
