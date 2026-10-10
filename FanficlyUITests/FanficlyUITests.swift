@@ -146,7 +146,10 @@ final class ReaderLayoutTests: XCTestCase {
     private func openReader(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         let field = app.textFields.firstMatch
         // iPhone launches on the sidebar menu; iPad and the Mac show Search.
-        if !field.waitForExistence(timeout: 4) {
+        // Right after the simulator boots, the app can take ~30 s to launch
+        // and a tap on the menu can go nowhere while it settles, so tap
+        // again until Search opens.
+        for _ in 0..<3 where !field.waitForExistence(timeout: 5) {
             let row = app.staticTexts["Search"].firstMatch
             if row.waitForExistence(timeout: 4) { row.tap() }
         }
