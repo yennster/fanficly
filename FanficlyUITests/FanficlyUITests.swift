@@ -249,8 +249,10 @@ final class ReaderLayoutTests: XCTestCase {
     /// pages either side of the one showing sit off screen and drop out.
     private func storyTextFrames(above bar: CGRect) throws -> [CGRect] {
         // The snapshot isn't Sendable, so walk it on the main actor (which UI
-        // tests run on) and hand back plain frames.
-        try MainActor.assumeIsolated {
+        // tests run on) and hand back plain frames. Capture only the app: the
+        // test case itself can't cross into the main actor.
+        let app: XCUIApplication = self.app
+        return try MainActor.assumeIsolated {
             var frames: [CGRect] = []
             func collect(_ element: any XCUIElementSnapshot) {
                 let frame = element.frame
