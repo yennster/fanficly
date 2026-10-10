@@ -274,6 +274,31 @@ struct ReaderView: View {
         currentChapter?.wrappedValue = effectiveChapterIndex
     }
 
+    /// The Aa menu's New Profile prompt and its error, presented from the
+    /// reader itself rather than the menu's toolbar item: anchored there, the
+    /// prompt never appeared on iPhone Duo's vertical toolbar strip. Kept off
+    /// the main reader chain so the SwiftUI type-checker stays within budget.
+    private struct ProfileAlertsModifier: ViewModifier {
+        @Binding var showingNewProfile: Bool
+        @Binding var newProfileName: String
+        @Binding var showingError: Bool
+        let errorMessage: String
+        let save: (String) -> Void
+        func body(content: Content) -> some View {
+            content
+                .alert("New Profile", isPresented: $showingNewProfile) {
+                    TextField("Profile Name", text: $newProfileName)
+                    Button("Cancel", role: .cancel) { }
+                    Button("Save") { save(newProfileName) }
+                } message: {
+                    Text("Enter a name for this reader settings configuration profile.")
+                }
+                .alert(errorMessage, isPresented: $showingError) {
+                    Button("OK", role: .cancel) { }
+                }
+        }
+    }
+
     /// Reports the current chapter on change + first appearance, kept off the
     /// main reader chain so the SwiftUI type-checker stays within budget.
     private struct ChapterReportModifier: ViewModifier {
@@ -395,6 +420,14 @@ struct ReaderView: View {
         // action). A ViewModifier so its onChange/onAppear are type-checked
         // outside this already-long chain (which otherwise times out).
         .modifier(ChapterReportModifier(chapter: effectiveChapterIndex, report: reportCurrentChapter))
+        // The Aa menu's New Profile prompt, owned here rather than by the menu.
+        .modifier(ProfileAlertsModifier(
+            showingNewProfile: $showingNewProfileAlert,
+            newProfileName: $newProfileName,
+            showingError: $showingErrorAlert,
+            errorMessage: errorMessage,
+            save: { saveNewProfile(name: $0) }
+        ))
         // Screen-awake + speech teardown + the Stats active-reading timer, all
         // in one ViewModifier so this long body chain stays within the
         // type-checker's budget (see ChapterReportModifier for the same reason).
@@ -2045,18 +2078,6 @@ struct ReaderView: View {
         }
         .accessibilityLabel("Reader settings")
         .accessibilityIdentifier("reader_settings_button")
-        .alert("New Profile", isPresented: $showingNewProfileAlert) {
-            TextField("Profile Name", text: $newProfileName)
-            Button("Cancel", role: .cancel) { }
-            Button("Save") {
-                saveNewProfile(name: newProfileName)
-            }
-        } message: {
-            Text("Enter a name for this reader settings configuration profile.")
-        }
-        .alert(errorMessage, isPresented: $showingErrorAlert) {
-            Button("OK", role: .cancel) { }
-        }
     }
 
     /// Quick-pick submenu of named presets that set a numeric reader metric.
