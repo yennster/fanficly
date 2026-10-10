@@ -61,6 +61,7 @@ final class ReaderLayoutTests: XCTestCase {
     func test_pagesFillTheScreen() throws {
         let footer = openReader()
         turnToMiddlePage(footer)
+        capture("01-page")
         try assertPageLayout(footer, "on opening")
     }
 
@@ -76,6 +77,7 @@ final class ReaderLayoutTests: XCTestCase {
         app.activate()
         XCTAssertTrue(footer.waitForExistence(timeout: 8), "the reader came back")
         settle()
+        capture("02-after-backgrounding")
         XCTAssertEqual(footer.label, before, "backgrounding moved the page or repaginated")
         try assertPageLayout(footer, "after backgrounding")
         #endif
@@ -84,7 +86,7 @@ final class ReaderLayoutTests: XCTestCase {
     func test_togglingTheControls_fillsThePageAndKeepsItInPlace() throws {
         let footer = openReader()
         turnToMiddlePage(footer)
-        try assertFullScreenFillsThePage(footer, "one page")
+        try assertFullScreenFillsThePage(footer, "one page", screenshots: ("03-full-screen", "04-controls-back"))
     }
 
     func test_keyboard_leavesTheFooterAndPagesAlone() throws {
@@ -98,6 +100,7 @@ final class ReaderLayoutTests: XCTestCase {
             app.alerts.buttons["Cancel"].firstMatch.tap()
             throw XCTSkip("No on-screen keyboard here (a hardware keyboard is connected).")
         }
+        capture("05-keyboard-up")
         if footer.exists {
             let window = app.windows.firstMatch.frame
             XCTAssertGreaterThanOrEqual(footer.frame.maxY, window.maxY - 50,
@@ -106,6 +109,7 @@ final class ReaderLayoutTests: XCTestCase {
         app.alerts.buttons["Cancel"].firstMatch.tap()
         XCTAssertTrue(waitForAbsence(keyboard), "the keyboard went away")
         settle()
+        capture("06-after-keyboard")
         XCTAssertEqual(footer.label, before, "the keyboard repaginated the reader")
         try assertPageLayout(footer, "after the keyboard")
     }
@@ -135,8 +139,10 @@ final class ReaderLayoutTests: XCTestCase {
             XCTAssertEqual(page(footer)?.isSpread, true, "unfolded iPhone Duo shows \(footer.label)")
         }
         turnToMiddlePage(footer)
+        capture("07-wide-window")
         try assertPageLayout(footer, "in a wide window")
-        try assertFullScreenFillsThePage(footer, "in a wide window")
+        try assertFullScreenFillsThePage(footer, "in a wide window",
+                                         screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
     }
 
     // MARK: - Navigation
@@ -214,6 +220,7 @@ final class ReaderLayoutTests: XCTestCase {
     /// to fill the room they left (it used to leave it blank); both ways the
     /// page keeps its first line.
     private func assertFullScreenFillsThePage(_ footer: XCUIElement, _ context: String,
+                                              screenshots: (hidden: String, shown: String),
                                               file: StaticString = #filePath, line: UInt = #line) throws {
         let bar = footer.frame
         let shown = try storyTexts(above: bar)
@@ -223,6 +230,7 @@ final class ReaderLayoutTests: XCTestCase {
         tap(middle)
         XCTAssertTrue(waitForAbsence(footer), "\(context): the controls hid", file: file, line: line)
         settle()
+        capture(screenshots.hidden)
         // The footer's bottom edge is the page area's.
         let hidden = try storyTexts(above: CGRect(x: bar.minX, y: bar.maxY, width: bar.width, height: 0))
         XCTAssertEqual(openingWords(hidden), firstWords, "\(context): hiding the controls moved the page",
@@ -249,6 +257,7 @@ final class ReaderLayoutTests: XCTestCase {
         tap(middle)
         XCTAssertTrue(footer.waitForExistence(timeout: 5), "\(context): the controls came back", file: file, line: line)
         settle()
+        capture(screenshots.shown)
         XCTAssertEqual(openingWords(try storyTexts(above: footer.frame)), firstWords,
                        "\(context): showing the controls moved the page", file: file, line: line)
         try assertPageLayout(footer, "\(context), after toggling the controls", file: file, line: line)
@@ -363,6 +372,28 @@ final class ReaderLayoutTests: XCTestCase {
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
         return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed
+    }
+
+    /// Saves what's on screen to build/reader-layout-screenshots/<device>/
+    /// (CI uploads that folder as the reader-layout-screenshots artifact) and
+    /// attaches it to the test result. Taken before a step's checks, so a
+    /// failure still leaves a picture of it.
+    private func capture(_ name: String) {
+        #if targetEnvironment(macCatalyst)
+        let shot = app.windows.firstMatch.screenshot()
+        #else
+        // Unfolded, iPhone Duo's main screen is its dark outer display.
+        let shot = isDuoUnfolded ? app.windows.firstMatch.screenshot() : XCUIScreen.main.screenshot()
+        #endif
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let repoRoot = ((#filePath as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+        let device = UIDevice.current.name.replacingOccurrences(of: " ", with: "-")
+        let folder = (repoRoot as NSString).appendingPathComponent("build/reader-layout-screenshots/\(device)")
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? shot.pngRepresentation.write(to: URL(fileURLWithPath: (folder as NSString).appendingPathComponent("\(name).png")))
     }
 
     /// Pagination, the page-height settle (0.6 s) and the page turn's animation.

@@ -84,6 +84,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath build/ipad-ui.xcresult
 
+      # What the layout tests saw, step by step, on each simulator.
+      - name: Upload reader screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reader-layout-screenshots
+          path: build/reader-layout-screenshots
+          if-no-files-found: ignore
+
       - name: Upload result bundles on failure
         if: failure()
         uses: actions/upload-artifact@v4
