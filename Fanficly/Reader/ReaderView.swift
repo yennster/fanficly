@@ -2593,7 +2593,12 @@ enum ReaderPaginator {
             latest = (trial, end)
             let drawn = drawnHeight(trial, start..<(end + 1))
             if drawn > pageHeight {
-                budget -= drawn - pageHeight + 1
+                // Pack less: by the overflow, below what boundingRect measured
+                // this packing at. Lowering the budget by the overflow alone
+                // can leave the very same lines fitting (boundingRect left
+                // them slack under it), so every try overflowed alike.
+                let packed = packedHeight(trial, start...end, paragraphSpacing: paragraphSpacing, measure: measure)
+                budget = min(budget, packed) - (drawn - pageHeight) - 1
                 continue
             }
             if drawn > (fullest?.drawn ?? -1) { fullest = (trial, end, drawn) }
@@ -2606,6 +2611,22 @@ enum ReaderPaginator {
         let chosen = fullest.map { (atoms: $0.atoms, end: $0.end) } ?? latest
         atoms = chosen.atoms
         return chosen.end
+    }
+
+    /// The height boundingRect measures atoms[range] at, laid out as a page:
+    /// each paragraph's sentences joined, paragraphs spaced apart.
+    private static func packedHeight(_ atoms: [ParagraphAtom], _ range: ClosedRange<Int>, paragraphSpacing: CGFloat,
+                                     measure: (AttributedString) -> CGFloat) -> CGFloat {
+        var blocks: [[ParagraphAtom]] = []
+        for atom in atoms[range] {
+            if let last = blocks.last?.last, last.originalParagraphIndex == atom.originalParagraphIndex {
+                blocks[blocks.count - 1].append(atom)
+            } else {
+                blocks.append([atom])
+            }
+        }
+        return blocks.map { measure(ReaderPageCell.concatenateAtoms($0)) }.reduce(0, +)
+            + paragraphSpacing * CGFloat(max(0, blocks.count - 1))
     }
 
     /// Fills a page from `startIndex` with as much as `budget` holds, by
