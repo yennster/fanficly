@@ -20,6 +20,10 @@ open Fanficly.xcodeproj
 4. **Match AO3's terminology.** Use the same field names and category names AO3 uses (relationships, freeforms, categories, archive warnings).
 5. **Keep dependencies minimal.** Adding a new SPM package needs a justification in the PR description.
 
+## What to work on
+
+The backlog is [docs/ROADMAP.md](docs/ROADMAP.md): small, scoped items with IDs (`RM-nnn`) and a "Done when". Run `bin/roadmap.sh free` to see what's unclaimed. Claim an item by opening a draft PR from a `roadmap/RM-nnn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work); a human always does the merge.
+
 ## Pull requests
 
 - One feature/fix per PR.

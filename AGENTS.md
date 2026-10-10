@@ -5,6 +5,7 @@ in this repository. Read the overview first, then the detailed section for the
 subsystem you change. Keep this file current when ownership or behavior changes;
 verify implementation details against source rather than copying older notes from
 `CLAUDE.md` (a separate, overlapping document).
+Picking up roadmap work? Go straight to [Autonomous roadmap work](#autonomous-roadmap-work).
 
 ## What this is
 
@@ -128,7 +129,10 @@ pagination, saved anchors, and resume URLs.
 
 ```
 project.yml                    # xcodegen is the source of truth
-bin/                           # developer scripts (icon gen, screenshots)
+bin/                           # developer scripts (icon gen, screenshots,
+                               #   roadmap.sh = list/claim-check roadmap items)
+docs/ROADMAP.md                # the backlog (RM-nnn items); agents: see below
+.github/pull_request_template.md  # PR checklist
 Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
   RootView.swift               # NavigationSplitView sidebar (Search, Browse,
@@ -285,6 +289,37 @@ To update Python dependencies, edit `bin/requirements.in`, then run:
 uv pip compile bin/requirements.in --python-version 3.11 --generate-hashes --output-file bin/requirements.txt
 .agents/setup
 ```
+
+## Autonomous roadmap work
+
+The backlog is [`docs/ROADMAP.md`](docs/ROADMAP.md) (each item is mirrored by a GitHub issue titled `RM-nnn: …` for discussion; the file and PR claims are authoritative). This is the loop for an agent told to "pick a roadmap feature and ship a PR". It ends at an **open PR**. A human merges.
+
+**Hard rules**
+- Never merge a PR, enable auto-merge, approve your own PR, push to `main`, force-push a branch you didn't create, or edit CI to make it pass.
+- Never touch release housekeeping: version/build numbers, App Store metadata, `appstore/`, `screenshots/`, `docs/screenshots/`, signing files, `fastlane/`.
+- One roadmap item per PR, and one agent per item. Don't start an item that's `claimed`, even if its PR looks stale; mention it in your report instead.
+- Don't reformat or refactor code the item doesn't need. Don't add dependencies.
+- Don't create GitHub issues, labels or releases. (A PR may say `Refs #n` for its item's mirror issue, but don't use `Closes`: a human closes it after merging.) Anything outward-facing beyond the one PR needs the user's say-so.
+
+**The loop**
+1. **Orient.** `git fetch origin && git checkout -b tmp origin/main`, read this file's Conventions and "Things to know about AO3", and the roadmap's principles.
+2. **Pick.** Run `bin/roadmap.sh free` (open and unclaimed; needs `gh`). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
+3. **Verify it's real.** Read the files the item names. If the feature already exists, the premise is wrong, or the item is bigger than `M`, don't build it: open a PR that only edits the roadmap (fix or split the item, with new IDs) or report back.
+4. **Claim before coding.** Create the branch `roadmap/RM-nnn-short-slug` from `origin/main`, push it, and open a **draft PR** titled `RM-nnn: <title>` whose body is the filled-in PR template. The branch/PR is the claim `bin/roadmap.sh` sees; re-run `bin/roadmap.sh` first and if another claim appeared for the same ID in the meantime, abandon yours (close your draft) and pick again. (A draft PR needs at least one commit; push the roadmap's `claimed` note, or an empty commit `git commit --allow-empty -m "Claim RM-nnn"`.)
+5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file means `xcodegen generate` and a regenerated `.xcodeproj`, which you can only do on a Mac.
+6. **Test.** Add tests for every behavior change in `FanficlyTests/` (fixtures inline, no network), and add the feature's tests to the list in "Tests" below if it's a new area. A new `AO3ClientProtocol` method needs `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` updated.
+7. **Validate honestly** (see "Which machine you're on").
+8. **Update the roadmap** in the same PR: set that item's `Status` to `done`, and nothing else in the file. Update AGENTS.md (the canonical guide; leave CLAUDE.md alone) if you added a convention or a gotcha; keep it to what the next agent can't see from the code.
+9. **Commit, push, mark the PR ready** (`gh pr ready`) only when CI is green or the failure is explained. Then stop. Report: the item, the PR URL, what you tested, what you could not, and anything a human should look at on a device.
+
+**Which machine you're on**
+- **Mac with Xcode:** run the unit tests the way "Tests" shows; for reader changes also `bundle exec fastlane reader_layout_tests`. Run `xcodegen generate` only if you added or removed files.
+- **Linux orb (no Xcode):** you can't compile Swift or run any test, and you must not install Linux Swift as a substitute — SwiftUI, SwiftData and XCTest don't exist there. Write the code and tests carefully, mirror existing patterns closely, and let CI be the compiler: after pushing, check `gh pr checks <pr> --watch` (or the `github_repo_ci_status` tool), read the failing log, fix, push again. Keep the PR in draft until the build and `FanficlyTests` are green. Say plainly in the PR that nothing was built locally. For `Validation: mac` items, list exactly what a human needs to look at.
+- Either way: never claim a test passed that you didn't see pass.
+
+**If you get stuck:** three failed CI attempts at the same error, or an AO3 behavior you can't confirm without the live site (a form's field names, a redirect) → stop, leave the draft PR with what you learned, and say what you need. Don't guess at AO3's markup: scrape fixtures must come from real pages the user provides or that you can verify.
+
+**Adding to the roadmap:** append new items with the next free `RM-nnn`; never renumber or reuse an ID. Keep each item `S` or `M` with a concrete "Done when". A roadmap-only PR is fine and needs no test run.
 
 ## Build & run
 
