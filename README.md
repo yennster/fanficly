@@ -132,7 +132,7 @@ We collect nothing. The app talks directly to AO3 from your device. Your AO3 ses
 
 ## Contributing
 
-PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See the [roadmap](docs/ROADMAP.md) for what's planned. PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 
