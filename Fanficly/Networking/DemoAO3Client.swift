@@ -251,13 +251,18 @@ enum DemoCatalog {
         default:
             opening = "<p>Home, Ode decided, was not a place after all. It was the particular way the others laughed when they thought no one was keeping score — Reyes too loud, Wira not nearly loud enough, and somewhere underneath it the steady thrum of a ship that had decided, against all odds, to keep going.</p>"
         }
-        return """
-        \(opening)
+        // UI tests (ReaderLayoutTests) pass -demoLongChapters so a chapter
+        // runs to many pages and a page in its middle is always full. The
+        // screenshots keep the short chapters.
+        let repeats = ProcessInfo.processInfo.arguments.contains("-demoLongChapters") ? 10 : 1
+        return opening + "\n" + Array(repeating: body, count: repeats).joined(separator: "\n")
+    }
+
+    private static let body = """
         <p>“You're up early,” said Wira, who was already three cups of something vaguely coffee-shaped into the day. She slid a mug across the table without being asked, which was its own kind of language. “Couldn't sleep, or didn't want to?”</p>
         <p>“Both,” Reyes admitted. “Mostly I keep thinking about the long way round. Six months, maybe seven, if the slingshot holds. Everyone keeps asking me if it's worth it.”</p>
         <p>Wira considered this with the seriousness she reserved for genuinely important questions and absolutely nothing else. “And what do you tell them?”</p>
         <p>Outside the viewport the stars hung close and patient, the way they only ever did when you had nowhere to be and all the time in the world to get there. Reyes wrapped both hands around the warm mug and, for the first time in a long while, found that the answer came easily.</p>
         <p>“I tell them,” she said, “that the long way home is still the way home.”</p>
         """
-    }
 }

@@ -71,16 +71,18 @@ struct ReaderView: View {
     @State private var parsedAtoms: [Int: [ParagraphAtom]] = [:]
     @State private var stableWidth: CGFloat = 0
     @State private var stableHeight: CGFloat = 0
-    /// The page area pages are measured for: the smallest height the page
-    /// container has had at the current window size, i.e. with the reader
-    /// controls (nav bar, page footer, narration bar) showing. Measuring for
-    /// the chrome-hidden height cut the last lines off whenever the controls
-    /// were up; this way a page always fits, and hiding the controls only
-    /// adds bottom margin — the page count doesn't change.
-    @State private var pageAreaHeight: CGFloat = 0
+    /// The page area pages are measured for: the page container's height as
+    /// it is on screen, with the reader controls (nav bar, page footer,
+    /// narration bar) up or hidden, so pages fill it either way.
+    @State private var pageArea = PageAreaTracker()
+    /// Where the page on screen begins. Re-paginating (the page area or the
+    /// typography changing) starts a page exactly there, so the page keeps
+    /// its first line instead of jumping to wherever the new pages break.
+    @State private var pageStart: PageStart?
+    /// The controls' state the page area last settled with (see the settle task).
+    @State private var settledControlsUp = true
     /// True while page-by-page shows an open-book spread on iPhone Duo
-    /// (bookTopShift): the pages sit at a fixed spot under a transparent top
-    /// bar, and the running footer stays put even with the controls hidden.
+    /// (bookTopShift): the pages sit at a fixed spot under a transparent top bar.
     @State private var duoBookLayout = false
     private let scrollSpace = "readerScroll"
 
@@ -275,6 +277,31 @@ struct ReaderView: View {
         currentChapter?.wrappedValue = effectiveChapterIndex
     }
 
+    /// The Aa menu's New Profile prompt and its error, presented from the
+    /// reader itself rather than the menu's toolbar item: anchored there, the
+    /// prompt never appeared on iPhone Duo's vertical toolbar strip. Kept off
+    /// the main reader chain so the SwiftUI type-checker stays within budget.
+    private struct ProfileAlertsModifier: ViewModifier {
+        @Binding var showingNewProfile: Bool
+        @Binding var newProfileName: String
+        @Binding var showingError: Bool
+        let errorMessage: String
+        let save: (String) -> Void
+        func body(content: Content) -> some View {
+            content
+                .alert("New Profile", isPresented: $showingNewProfile) {
+                    TextField("Profile Name", text: $newProfileName)
+                    Button("Cancel", role: .cancel) { }
+                    Button("Save") { save(newProfileName) }
+                } message: {
+                    Text("Enter a name for this reader settings configuration profile.")
+                }
+                .alert(errorMessage, isPresented: $showingError) {
+                    Button("OK", role: .cancel) { }
+                }
+        }
+    }
+
     /// Reports the current chapter on change + first appearance, kept off the
     /// main reader chain so the SwiftUI type-checker stays within budget.
     private struct ChapterReportModifier: ViewModifier {
@@ -345,23 +372,27 @@ struct ReaderView: View {
             case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
-        // The reader has no text input, so it must never reserve room for the
-        // keyboard. Without this, returning from the background can restore
-        // focus to the page (it's `.focusable()` for hardware arrow-key turns,
-        // see ReaderKeyPressModifier) and leave iOS holding a phantom keyboard
-        // safe-area inset — collapsing the page and leaving a large blank band
-        // (~keyboard height) at the bottom. Ignoring the keyboard safe area
-        // keeps the page full-height; the home-indicator inset and the bottom
-        // narration/footer bars are unaffected.
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
                 narrationBar(fg: fg, bg: bg)
-            } else if mode == .pageByPage && (!isUIMinimized || duoBookLayout) {
+            } else if mode == .pageByPage && !isUIMinimized {
+                // Full screen (the controls hidden) drops the page footer
+                // too, on iPhone Duo as everywhere: the pages take its room.
                 pageFooterBar(fg: fg, bg: bg)
             }
         }
+        // The reader has no text input, so it must never reserve room for the
+        // keyboard. Without this, focus landing on the page (it's
+        // `.focusable()` for hardware arrow-key turns, see
+        // ReaderKeyPressModifier), e.g. on returning from the background,
+        // can leave iOS holding a phantom keyboard safe-area inset with no
+        // keyboard on screen. Applied outside the bottom bars, not just the
+        // page: inside, the page footer / narration bar still rode up on the
+        // phantom inset, with a keyboard-high blank band under it, and
+        // page-by-page measured its pages for the squashed area above it.
+        // The home-indicator inset is unaffected.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
@@ -394,6 +425,14 @@ struct ReaderView: View {
         // action). A ViewModifier so its onChange/onAppear are type-checked
         // outside this already-long chain (which otherwise times out).
         .modifier(ChapterReportModifier(chapter: effectiveChapterIndex, report: reportCurrentChapter))
+        // The Aa menu's New Profile prompt, owned here rather than by the menu.
+        .modifier(ProfileAlertsModifier(
+            showingNewProfile: $showingNewProfileAlert,
+            newProfileName: $newProfileName,
+            showingError: $showingErrorAlert,
+            errorMessage: errorMessage,
+            save: { saveNewProfile(name: $0) }
+        ))
         // Screen-awake + speech teardown + the Stats active-reading timer, all
         // in one ViewModifier so this long body chain stays within the
         // type-checker's budget (see ChapterReportModifier for the same reason).
@@ -1157,11 +1196,16 @@ struct ReaderView: View {
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
             let topShift = bookTopShift(geo)
-            let readingHeight = pageAreaHeight > 0 ? pageAreaHeight : geo.size.height + topShift
+            let area = geo.size.height + topShift
+            let areaSample = PageAreaSample(width: geo.size.width, height: area, controlsUp: !isUIMinimized)
+            let readingHeight = pageArea.pageHeight > 0 ? pageArea.pageHeight : area
             // Two pages side by side when the window is wide enough; both are
             // paginated at the spread's page width, gutter on iPhone Duo's fold.
+            // One page or two is decided on the controls-up height, so full
+            // screen keeps the layout (see PageAreaTracker.controlsUpHeight).
+            let decisionHeight = pageArea.spreadDecisionHeight > 0 ? pageArea.spreadDecisionHeight : area
             let spread = twoPageSpread
-                ? ReaderSpread.layout(containerSize: CGSize(width: geo.size.width, height: readingHeight),
+                ? ReaderSpread.layout(containerSize: CGSize(width: geo.size.width, height: decisionHeight),
                                       fold: foldFrame(geo))
                 : nil
             let trigger = PaginationTrigger(
@@ -1176,10 +1220,9 @@ struct ReaderView: View {
                 showImages: showImages,
                 size: CGSize(
                     width: spread?.pageWidth ?? geo.size.width,
-                    // The narration bar replaces the page footer as a bottom
-                    // inset, so its height is already out of the page area;
-                    // the change re-triggers pagination and
-                    // restoreOrValidatePageSelection re-lands on the anchor.
+                    // The page area on screen: the controls and the narration
+                    // bar (bottom insets) are already out of it. A change
+                    // re-paginates, keeping the page on screen in place.
                     height: readingHeight
                 )
             )
@@ -1250,14 +1293,15 @@ struct ReaderView: View {
                     duoBookLayout = book
                 }
                 .onChange(of: geo.size, initial: true) { _, newSize in
-                    // Pages are measured for the smallest page area seen at the
-                    // current window size: the controls (nav bar, page footer,
-                    // narration bar) only ever shrink it, so a page always fits
-                    // on screen and hiding them adds margin without changing
-                    // the page count. A genuine layout change — rotation, a
-                    // split-view resize (both move the width), or the window's
-                    // own height moving (iPhone Duo pins a picture-in-picture
-                    // video above the app) — starts the measurement over.
+                    // Pages are measured for the page area on screen, with
+                    // the controls (nav bar, page footer, narration bar) up or
+                    // hidden. They shrink here at once, so text never runs
+                    // under the controls; they grow in the settle task
+                    // below. A genuine layout
+                    // change — rotation, a split-view resize (both move the
+                    // width), or the window's own height moving (iPhone Duo
+                    // pins a picture-in-picture video above the app) — starts
+                    // the measurement over.
                     let immersive = immersiveReadingHeight(fallback: newSize.height)
                     let area = newSize.height + bookTopShift(geo)
                     let widthChanged = abs(stableWidth - newSize.width) > 1
@@ -1265,10 +1309,23 @@ struct ReaderView: View {
                     if widthChanged || windowHeightChanged || stableWidth == 0 {
                         stableWidth = newSize.width
                         stableHeight = immersive
-                        pageAreaHeight = area
-                    } else if area < pageAreaHeight - 1 {
-                        pageAreaHeight = area
+                        pageArea.reset(to: area, controlsUp: !isUIMinimized)
+                    } else {
+                        pageArea.observe(area, controlsUp: !isUIMinimized)
                     }
+                }
+                .task(id: areaSample) {
+                    // Pages grow to fill the area once it has held still: the
+                    // narration bar closing, or a moment's smaller area (a
+                    // transition) passing. Hiding the controls fills their room
+                    // at once, or the old pages sit over a blank band while the
+                    // bars slide away; the short wait only joins the Mac's two
+                    // steps (page footer, then toolbar).
+                    let toggled = areaSample.controlsUp != settledControlsUp
+                    try? await Task.sleep(nanoseconds: toggled ? 50_000_000 : 300_000_000)
+                    guard !Task.isCancelled else { return }
+                    settledControlsUp = areaSample.controlsUp
+                    pageArea.settle(areaSample.height)
                 }
                 .onAppear {
                     isRestoring = true
@@ -1438,7 +1495,10 @@ struct ReaderView: View {
             isRestoring = true
         }
 
-        let result = await performPagination(trigger: trigger)
+        // Keep the page on screen in place, when it's in this chapter (a
+        // chapter jump re-paginates from the new chapter's start).
+        let start = paginatedPages.isEmpty ? nil : pageStart.flatMap { $0.chapter == trigger.chapter ? $0 : nil }
+        let result = await performPagination(trigger: trigger, start: start)
         // A newer trigger (a resize mid-pagination, e.g. the sidebar
         // collapsing) cancels this task; applying its now-stale pages after
         // the newer ones produced pages taller than the screen.
@@ -1458,7 +1518,7 @@ struct ReaderView: View {
             self.parsedAtoms.merge(result.atoms) { _, new in new }
             self.paginatedPages = result.pages
             
-            restoreOrValidatePageSelection()
+            restoreOrValidatePageSelection(keeping: result.keptPageId)
         }
     }
 
@@ -1466,6 +1526,11 @@ struct ReaderView: View {
         guard mode == .pageByPage else { return }
         let pagesList = self.paginatedPages
         guard var page = pagesList.first(where: { $0.id == pageId }) else { return }
+        // What a re-pagination keeps in place: the page on screen, or in a
+        // spread its left page (restoring a position can select the right one).
+        let shown = spreadLayout == nil ? page
+            : ReaderSpread.spreads(from: pagesList).first(where: { $0.contains(pageId) })?.left ?? page
+        pageStart = start(of: shown)
         // A spread selects its left page; when its right page ends the work,
         // anchor there instead so reading to the last line still reads 100%.
         if spreadLayout != nil,
@@ -1626,9 +1691,23 @@ struct ReaderView: View {
         isUIMinimized ? "Show reader controls" : "Hide reader controls"
     }
 
-    private func restoreOrValidatePageSelection() {
+    /// Where `page`'s text begins (nil for the work's title page).
+    private func start(of page: ChapterPage) -> PageStart? {
+        parsedAtoms[page.chapterIndex].flatMap { ReaderPaginator.start(of: page, atoms: $0) }
+    }
+
+    /// Picks the page to show after (re-)paginating: `kept`, the page that
+    /// starts where the one on screen did, else the page holding the reading
+    /// anchor.
+    private func restoreOrValidatePageSelection(keeping kept: String? = nil) {
         let pagesList: [ChapterPage] = paginatedPages
         guard !pagesList.isEmpty else { return }
+
+        if let kept, pagesList.contains(where: { $0.id == kept }) {
+            selectedPageId = kept
+            isRestoring = false
+            return
+        }
         
         if let anchor = currentAnchor {
             let targetChapter: Int = anchor.chapter
@@ -1724,15 +1803,11 @@ struct ReaderView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(label), \(pageLabel.lowercased())")
-            // On iPhone Duo the footer stays while the controls are hidden;
-            // tapping it brings them back (as does a tap mid-page).
+            // ReaderLayoutTests finds the footer (and reads the page number) by
+            // this. The content shape keeps its frame to the bar itself; without
+            // it the frame takes in the background under the home indicator.
+            .accessibilityIdentifier("reader.pageFooter")
             .contentShape(Rectangle())
-            .onTapGesture {
-                guard isUIMinimized else { return }
-                withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized = false }
-            }
-            .accessibilityAddTraits(isUIMinimized ? .isButton : [])
-            .accessibilityHint(isUIMinimized ? "Shows the reader controls" : "")
         }
     }
 
@@ -1758,7 +1833,7 @@ struct ReaderView: View {
             .first { $0.isKeyWindow }
     }
 
-    private func performPagination(trigger: PaginationTrigger) async -> PaginationResult {
+    private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult {
         // Must match `makePageCell`'s column, or pages are measured at one
         // width and drawn at another.
         let w = ReaderMetrics.textColumnWidth(containerWidth: trigger.size.width,
@@ -1781,24 +1856,18 @@ struct ReaderView: View {
         
         var allPages: [ChapterPage] = []
         var allAtoms: [Int: [ParagraphAtom]] = [:]
+        // The chapter being read is checked page by page against SwiftUI's
+        // own layout (see fitPage); see checksAdjacentChapters for the others.
+        let drawnHeight = ReaderPaginator.drawnHeightMeasure(
+            width: w, fontSize: CGFloat(trigger.fontSize), fontFamily: fontFamily,
+            lineSpacing: CGFloat(trigger.lineSpacing), paragraphSpacing: CGFloat(trigger.paragraphSpacing),
+            kerning: CGFloat(trigger.kerning), boldText: trigger.boldText)
         
         for chIndex in targetChapters.sorted() {
             guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
             
-            let paragraphs = HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: trigger.showImages)
-            
-            var atoms: [ParagraphAtom] = []
-            for (pIndex, para) in paragraphs.enumerated() {
-                let sentences = HTMLToAttributed.splitIntoSentences(para)
-                for (sIndex, sentence) in sentences.enumerated() {
-                    atoms.append(ParagraphAtom(
-                        originalParagraphIndex: pIndex,
-                        text: sentence,
-                        isContinuation: sIndex > 0
-                    ))
-                }
-            }
-            let titleHeaderHeight = estimateTitleHeaderHeight(
+            var atoms = ReaderPaginator.atoms(fromChapterHTML: chapter.bodyHTML, includeImages: trigger.showImages)
+            let titleHeaderHeight = ReaderPaginator.estimateTitleHeaderHeight(
                 title: title,
                 author: author,
                 authorUsername: authorUsername,
@@ -1808,7 +1877,7 @@ struct ReaderView: View {
                 fontFamily: fontFamily
             )
             
-            let chapterHeaderHeight = estimateChapterHeaderHeight(
+            let chapterHeaderHeight = ReaderPaginator.estimateChapterHeaderHeight(
                 title: chapter.title,
                 width: w,
                 fontSize: CGFloat(trigger.fontSize),
@@ -1820,7 +1889,7 @@ struct ReaderView: View {
             
             // Pagination may split a sentence at a line end (see splitAtomToFit),
             // so the atoms are stored after it — pages index into the split list.
-            let chPages = paginateChapter(
+            let chPages = ReaderPaginator.paginateChapter(
                 chapterIndex: chIndex,
                 atoms: &atoms,
                 width: w,
@@ -1834,340 +1903,22 @@ struct ReaderView: View {
                 lineSpacing: CGFloat(trigger.lineSpacing),
                 paragraphSpacing: CGFloat(trigger.paragraphSpacing),
                 kerning: CGFloat(trigger.kerning),
-                boldText: trigger.boldText
+                boldText: trigger.boldText,
+                drawnHeight: chIndex == trigger.chapter || ReaderPaginator.checksAdjacentChapters ? drawnHeight : nil,
+                startingAt: start?.chapter == chIndex ? start : nil
             )
 
             allAtoms[chIndex] = atoms
             allPages.append(contentsOf: chPages)
         }
         
-        return PaginationResult(pages: allPages, atoms: allAtoms)
-    }
-
-    /// Splits `atom` (a sentence) so its first part, laid out after `leading`
-    /// (atoms of the same paragraph already on the page), fits in `budget`.
-    /// It keeps the longest run of whole words that fits, which is exactly
-    /// where a line ends, so the page fills to its last line and the sentence
-    /// carries on at the top of the next one, like a printed book. Returns nil
-    /// when not even one word fits, or for an image slot.
-    private func splitAtomToFit(_ atom: ParagraphAtom, after leading: [ParagraphAtom], budget: CGFloat,
-                                measure: (AttributedString) -> CGFloat) -> (ParagraphAtom, ParagraphAtom)? {
-        guard HTMLToAttributed.imageAttachmentURL(in: atom.text) == nil else { return nil }
-        let chars = Array(atom.text.characters)
-        // Candidate break points: just before each space (the space is dropped).
-        let breaks = chars.indices.filter { chars[$0] == " " && $0 > 0 }
-        guard !breaks.isEmpty else { return nil }
-        func head(_ k: Int) -> AttributedString {
-            let end = atom.text.characters.index(atom.text.startIndex, offsetBy: breaks[k])
-            return AttributedString(atom.text[atom.text.startIndex..<end])
+        let kept = start.flatMap { start in
+            allPages.first { page in
+                page.chapterIndex == start.chapter
+                    && allAtoms[page.chapterIndex].flatMap { ReaderPaginator.start(of: page, atoms: $0) } == start
+            }?.id
         }
-        func fits(_ k: Int) -> Bool {
-            let part = ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: head(k),
-                                     isContinuation: atom.isContinuation)
-            return measure(ReaderPageCell.concatenateAtoms(leading + [part])) <= budget
-        }
-        guard fits(0) else { return nil }
-        var lo = 0, hi = breaks.count - 1
-        while lo < hi {
-            let mid = (lo + hi + 1) / 2
-            if fits(mid) { lo = mid } else { hi = mid - 1 }
-        }
-        let start = atom.text.characters.index(atom.text.startIndex, offsetBy: breaks[lo] + 1)
-        let rest = AttributedString(atom.text[start...])
-        guard !rest.characters.isEmpty else { return nil }
-        return (ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: head(lo),
-                              isContinuation: atom.isContinuation),
-                ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: rest,
-                              isContinuation: true))
-    }
-
-    private func calculateHeight(
-        for attributedString: AttributedString,
-        width: CGFloat,
-        fontSize: CGFloat,
-        fontFamily: ReaderFontFamily,
-        lineSpacing: CGFloat,
-        kerning: CGFloat,
-        boldText: Bool
-    ) -> CGFloat {
-        // An image slot renders as a fixed-height image cell, not text, so its
-        // measured height is that fixed height — text measurement of the
-        // placeholder character would badly under-count it.
-        if HTMLToAttributed.imageAttachmentURL(in: attributedString) != nil {
-            return ReaderInlineImage.slotHeight
-        }
-        let ns = NSAttributedString(attributedString)
-        let mutableNs = NSMutableAttributedString(attributedString: ns)
-
-        mutableNs.enumerateAttribute(.font, in: NSRange(location: 0, length: mutableNs.length), options: []) { value, range, _ in
-            let originalFont = value as? UIFont ?? UIFont.systemFont(ofSize: fontSize)
-            // `boldText` forces every run bold; bold glyphs are wider, so the
-            // measurement must match the rendered `.bold()` or pages overflow.
-            let isBold = boldText || originalFont.fontDescriptor.symbolicTraits.contains(.traitBold)
-            let isItalic = originalFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
-            
-            var targetFont = fontFamily.uiFont(size: fontSize)
-            var traits = UIFontDescriptor.SymbolicTraits()
-            if isBold { traits.insert(.traitBold) }
-            if isItalic { traits.insert(.traitItalic) }
-            if !traits.isEmpty {
-                if let desc = targetFont.fontDescriptor.withSymbolicTraits(traits) {
-                    targetFont = UIFont(descriptor: desc, size: fontSize)
-                }
-            }
-            mutableNs.addAttribute(.font, value: targetFont, range: range)
-        }
-        
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineSpacing
-        mutableNs.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: mutableNs.length))
-
-        // Mirror the rendered `.tracking(kerning)`: wider tracking wraps sooner,
-        // so the height estimate has to include it too.
-        if kerning != 0 {
-            mutableNs.addAttribute(.kern, value: kerning, range: NSRange(location: 0, length: mutableNs.length))
-        }
-
-        let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
-        let rect = mutableNs.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-        return ceil(rect.height)
-    }
-
-    private func estimateChapterHeaderHeight(
-        title: String,
-        width: CGFloat,
-        fontSize: CGFloat,
-        fontFamily: ReaderFontFamily
-    ) -> CGFloat {
-        var height: CGFloat = 42 + 15
-        if !title.isEmpty {
-            let titleFont = fontFamily.uiFont(size: fontSize + 5)
-            let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
-            let attrString = NSAttributedString(string: title, attributes: [.font: titleFont])
-            let rect = attrString.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-            height += ceil(rect.height) + 10
-        }
-        return height
-    }
-
-    private func estimateTitleHeaderHeight(
-        title: String,
-        author: String,
-        authorUsername: String,
-        summary: AO3WorkSummary?,
-        width: CGFloat,
-        fontSize: CGFloat,
-        fontFamily: ReaderFontFamily
-    ) -> CGFloat {
-        var height: CGFloat = 0
-        
-        let titleFont = fontFamily.uiFont(size: fontSize + 14)
-        let titleRect = NSAttributedString(string: title, attributes: [.font: titleFont])
-            .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-        height += ceil(titleRect.height) + 14
-        
-        if !author.isEmpty {
-            let authorFont = UIFont.systemFont(ofSize: fontSize)
-            let authorRect = NSAttributedString(string: "by \(author)", attributes: [.font: authorFont])
-                .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-            height += ceil(authorRect.height) + 14
-        }
-        
-        height += 80
-        
-        if let summary, !summary.summary.isEmpty {
-            height += 15 + 4
-            let plainSummary = summary.summary.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            let summaryFont = fontFamily.uiFont(size: fontSize - 1)
-            let summaryRect = NSAttributedString(string: plainSummary, attributes: [.font: summaryFont])
-                .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
-            height += ceil(summaryRect.height) + 14
-        }
-        
-        height += 10
-        
-        return height
-    }
-
-    private func paginateChapter(
-        chapterIndex: Int,
-        atoms: inout [ParagraphAtom],
-        width: CGFloat,
-        viewportHeight: CGFloat,
-        titleHeaderHeight: CGFloat,
-        chapterHeaderHeight: CGFloat,
-        isFirstChapter: Bool,
-        showChapterHeader: Bool,
-        fontSize: CGFloat,
-        fontFamily: ReaderFontFamily,
-        lineSpacing: CGFloat,
-        paragraphSpacing: CGFloat,
-        kerning: CGFloat,
-        boldText: Bool
-    ) -> [ChapterPage] {
-        var pages: [ChapterPage] = []
-        
-        var startIndex = 0
-        var pageIndex = 0
-        
-        if isFirstChapter {
-            // Page 0 is a dedicated cover/metadata page with no story text.
-            pages.append(ChapterPage(
-                id: "c\(chapterIndex)-p0",
-                chapterIndex: chapterIndex,
-                pageIndex: 0,
-                paragraphIndices: 0..<0
-            ))
-            pageIndex = 1
-        }
-        
-        while startIndex < atoms.count {
-            var endIndex = startIndex
-            
-            var pageMaxHeight = viewportHeight
-            
-            // Check if this page should display the chapter header
-            let displaysChapterHeader = showChapterHeader && (
-                isFirstChapter ? (pageIndex == 1) : (pageIndex == 0)
-            )
-            
-            if displaysChapterHeader {
-                pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
-            }
-
-            // boundingRect and SwiftUI's Text layout disagree by fractions of
-            // a point per line (more under Mac Catalyst's Mac-idiom metrics);
-            // over a page of lines that drift can overpack the page. Pack
-            // against a slightly smaller budget so the rendered page keeps
-            // headroom and never needs its overflow fallback.
-            let packingBudget = pageMaxHeight - min(24, max(8, pageMaxHeight * 0.02))
-
-            var currentHeight: CGFloat = 0
-            var includedAny = false
-
-            let measure: (AttributedString) -> CGFloat = { text in
-                calculateHeight(for: text, width: width, fontSize: fontSize, fontFamily: fontFamily,
-                                lineSpacing: lineSpacing, kerning: kerning, boldText: boldText)
-            }
-            // Two lines of body text: two line heights plus the gap between them.
-            let twoLines = 2 * fontFamily.uiFont(size: fontSize).lineHeight + lineSpacing
-
-            if pageMaxHeight > 40 {
-                var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
-                var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
-                var currentBlockHeight = measure(ReaderPageCell.concatenateAtoms(currentBlockAtoms))
-                // A single sentence taller than the page: break it at a line
-                // end rather than letting the page overflow.
-                if currentBlockHeight > packingBudget,
-                   let (head, tail) = splitAtomToFit(atoms[startIndex], after: [], budget: packingBudget, measure: measure) {
-                    atoms[startIndex] = head
-                    atoms.insert(tail, at: startIndex + 1)
-                    currentBlockAtoms = [head]
-                    currentBlockHeight = measure(head.text)
-                }
-                
-                currentHeight = currentBlockHeight
-                includedAny = true
-                
-                var completedBlocksHeight: CGFloat = 0
-                
-                while endIndex + 1 < atoms.count {
-                    let nextAtom = atoms[endIndex + 1]
-                    
-                    if nextAtom.originalParagraphIndex == currentBlockParaIndex {
-                        let proposedBlockAtoms = currentBlockAtoms + [nextAtom]
-                        let proposedBlockHeight = calculateHeight(
-                            for: ReaderPageCell.concatenateAtoms(proposedBlockAtoms),
-                            width: width,
-                            fontSize: fontSize,
-                            fontFamily: fontFamily,
-                            lineSpacing: lineSpacing,
-                            kerning: kerning,
-                            boldText: boldText
-                        )
-                        
-                        let potentialHeight = completedBlocksHeight + proposedBlockHeight
-                        if potentialHeight <= packingBudget {
-                            endIndex += 1
-                            currentBlockAtoms = proposedBlockAtoms
-                            currentBlockHeight = proposedBlockHeight
-                            currentHeight = potentialHeight
-                        } else {
-                            // Fill the page to its last line, like a printed
-                            // book: the sentence continues on the next page.
-                            if let (head, tail) = splitAtomToFit(nextAtom, after: currentBlockAtoms,
-                                                                 budget: packingBudget - completedBlocksHeight,
-                                                                 measure: measure) {
-                                atoms[endIndex + 1] = head
-                                atoms.insert(tail, at: endIndex + 2)
-                                endIndex += 1
-                            }
-                            break
-                        }
-                    } else {
-                        let proposedBlockAtoms = [nextAtom]
-                        let proposedBlockHeight = calculateHeight(
-                            for: ReaderPageCell.concatenateAtoms(proposedBlockAtoms),
-                            width: width,
-                            fontSize: fontSize,
-                            fontFamily: fontFamily,
-                            lineSpacing: lineSpacing,
-                            kerning: kerning,
-                            boldText: boldText
-                        )
-                        
-                        let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
-                        if potentialHeight <= packingBudget {
-                            endIndex += 1
-                            completedBlocksHeight += currentBlockHeight + paragraphSpacing
-                            currentBlockParaIndex = nextAtom.originalParagraphIndex
-                            currentBlockAtoms = proposedBlockAtoms
-                            currentBlockHeight = proposedBlockHeight
-                            currentHeight = potentialHeight
-                        } else {
-                            // Start the paragraph here only if at least two of
-                            // its lines fit (no lone opening line at the foot
-                            // of a page); otherwise it opens the next page.
-                            let room = packingBudget - currentHeight - paragraphSpacing
-                            if room >= twoLines,
-                               let (head, tail) = splitAtomToFit(nextAtom, after: [], budget: room, measure: measure) {
-                                atoms[endIndex + 1] = head
-                                atoms.insert(tail, at: endIndex + 2)
-                                endIndex += 1
-                            }
-                            break
-                        }
-                    }
-                }
-            }
-            
-            let range: Range<Int>
-            if includedAny {
-                range = startIndex..<(endIndex + 1)
-                startIndex = endIndex + 1
-            } else {
-                range = startIndex..<startIndex
-            }
-            
-            pages.append(ChapterPage(
-                id: "c\(chapterIndex)-p\(pageIndex)",
-                chapterIndex: chapterIndex,
-                pageIndex: pageIndex,
-                paragraphIndices: range
-            ))
-            pageIndex += 1
-        }
-        
-        if pages.isEmpty {
-            pages.append(ChapterPage(
-                id: "c\(chapterIndex)-p0",
-                chapterIndex: chapterIndex,
-                pageIndex: 0,
-                paragraphIndices: 0..<0
-            ))
-        }
-        
-        return pages
+        return PaginationResult(pages: allPages, atoms: allAtoms, keptPageId: kept)
     }
 
     private func titleHeader(fg: Color) -> some View {
@@ -2360,18 +2111,6 @@ struct ReaderView: View {
         }
         .accessibilityLabel("Reader settings")
         .accessibilityIdentifier("reader_settings_button")
-        .alert("New Profile", isPresented: $showingNewProfileAlert) {
-            TextField("Profile Name", text: $newProfileName)
-            Button("Cancel", role: .cancel) { }
-            Button("Save") {
-                saveNewProfile(name: newProfileName)
-            }
-        } message: {
-            Text("Enter a name for this reader settings configuration profile.")
-        }
-        .alert(errorMessage, isPresented: $showingErrorAlert) {
-            Button("OK", role: .cancel) { }
-        }
     }
 
     /// Quick-pick submenu of named presets that set a numeric reader metric.
@@ -2407,6 +2146,21 @@ struct ChapterPage: Identifiable, Hashable {
     let chapterIndex: Int
     let pageIndex: Int
     let paragraphIndices: Range<Int>
+    /// A two-page spread opens on this page: the page a re-pagination kept
+    /// in place (see PageStart), when pairing from the chapter's start would
+    /// put it on the right.
+    var startsSpread = false
+}
+
+/// Where a page's text begins, in terms that survive re-paginating: the
+/// paragraph, the sentence in it, and the character offset into that
+/// sentence (a page can start mid-sentence). Re-paginating breaks a page
+/// exactly here, so the page on screen keeps its first line.
+struct PageStart: Equatable {
+    let chapter: Int
+    let paragraph: Int
+    let sentence: Int
+    let offset: Int
 }
 
 struct ParagraphAtom: Identifiable, Hashable {
@@ -2414,7 +2168,11 @@ struct ParagraphAtom: Identifiable, Hashable {
     let originalParagraphIndex: Int
     let text: AttributedString
     let isContinuation: Bool
-    
+    /// The sentence this atom comes from, and where in it the atom starts
+    /// (the rest of a sentence split across pages starts past 0). See PageStart.
+    var sentenceIndex = 0
+    var sentenceOffset = 0
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -2437,9 +2195,542 @@ struct PaginationTrigger: Equatable {
     let size: CGSize
 }
 
+/// What page-by-page's settle task waits on: any change restarts the wait.
+private struct PageAreaSample: Equatable {
+    let width: CGFloat
+    let height: CGFloat
+    let controlsUp: Bool
+}
+
 struct PaginationResult {
     let pages: [ChapterPage]
     let atoms: [Int: [ParagraphAtom]]
+    /// The page kept in place, when pagination started from a PageStart.
+    var keptPageId: String? = nil
+}
+
+/// Page-by-page's pagination: splits chapters into pages that fit a page
+/// area. Pure (no view state), so it's unit-tested across device sizes and
+/// reader settings (ReaderPaginationTests). Main-actor like the reader that
+/// runs it: it measures with ReaderPageCell's own helpers.
+@MainActor
+enum ReaderPaginator {
+    /// A chapter's paragraphs as sentence atoms, the unit pages are packed in.
+    /// `includeImages` must match the reader's images setting, or paragraph
+    /// indices drift between modes.
+    static func atoms(fromChapterHTML html: String, includeImages: Bool) -> [ParagraphAtom] {
+        let paragraphs = HTMLToAttributed.convertParagraphs(html, includeImages: includeImages)
+        var atoms: [ParagraphAtom] = []
+        for (pIndex, para) in paragraphs.enumerated() {
+            let sentences = HTMLToAttributed.splitIntoSentences(para)
+            for (sIndex, sentence) in sentences.enumerated() {
+                atoms.append(ParagraphAtom(
+                    originalParagraphIndex: pIndex,
+                    text: sentence,
+                    isContinuation: sIndex > 0,
+                    sentenceIndex: sIndex
+                ))
+            }
+        }
+        return atoms
+    }
+
+    /// Where `page`'s text begins, given its chapter's atoms (nil for the
+    /// work's title page).
+    static func start(of page: ChapterPage, atoms: [ParagraphAtom]) -> PageStart? {
+        guard !page.paragraphIndices.isEmpty, page.paragraphIndices.lowerBound < atoms.count else { return nil }
+        let atom = atoms[page.paragraphIndices.lowerBound]
+        return PageStart(chapter: page.chapterIndex, paragraph: atom.originalParagraphIndex,
+                         sentence: atom.sentenceIndex, offset: atom.sentenceOffset)
+    }
+
+    /// Splits `atom` (a sentence) so its first part, laid out after `leading`
+    /// (atoms of the same paragraph already on the page), fits in `budget`.
+    /// It keeps the longest run of whole words that fits, which is exactly
+    /// where a line ends, so the page fills to its last line and the sentence
+    /// carries on at the top of the next one, like a printed book. Returns nil
+    /// when not even one word fits, or for an image slot.
+    static func splitAtomToFit(_ atom: ParagraphAtom, after leading: [ParagraphAtom], budget: CGFloat,
+                                measure: (AttributedString) -> CGFloat) -> (ParagraphAtom, ParagraphAtom)? {
+        guard HTMLToAttributed.imageAttachmentURL(in: atom.text) == nil else { return nil }
+        let chars = Array(atom.text.characters)
+        // Candidate break points: just before each space (the space is dropped).
+        let breaks = chars.indices.filter { chars[$0] == " " && $0 > 0 }
+        guard !breaks.isEmpty else { return nil }
+        func head(_ k: Int) -> AttributedString {
+            let end = atom.text.characters.index(atom.text.startIndex, offsetBy: breaks[k])
+            return AttributedString(atom.text[atom.text.startIndex..<end])
+        }
+        func fits(_ k: Int) -> Bool {
+            let part = ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: head(k),
+                                     isContinuation: atom.isContinuation)
+            return measure(ReaderPageCell.concatenateAtoms(leading + [part])) <= budget
+        }
+        guard fits(0) else { return nil }
+        var lo = 0, hi = breaks.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if fits(mid) { lo = mid } else { hi = mid - 1 }
+        }
+        return splitAtom(atom, at: breaks[lo] + 1)
+    }
+
+    /// Splits `atom` so its second part starts at character `k`; a space
+    /// just before `k` is dropped, as at a line end. Nil when either part
+    /// would be empty.
+    static func splitAtom(_ atom: ParagraphAtom, at k: Int) -> (ParagraphAtom, ParagraphAtom)? {
+        let chars = Array(atom.text.characters)
+        guard k > 0, k < chars.count else { return nil }
+        let headEnd = chars[k - 1] == " " ? k - 1 : k
+        guard headEnd > 0 else { return nil }
+        let text = atom.text
+        let head = AttributedString(text[text.startIndex..<text.characters.index(text.startIndex, offsetBy: headEnd)])
+        let rest = AttributedString(text[text.characters.index(text.startIndex, offsetBy: k)...])
+        return (ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: head,
+                              isContinuation: atom.isContinuation,
+                              sentenceIndex: atom.sentenceIndex, sentenceOffset: atom.sentenceOffset),
+                ParagraphAtom(originalParagraphIndex: atom.originalParagraphIndex, text: rest,
+                              isContinuation: true,
+                              sentenceIndex: atom.sentenceIndex, sentenceOffset: atom.sentenceOffset + k))
+    }
+
+    static func calculateHeight(
+        for attributedString: AttributedString,
+        width: CGFloat,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily,
+        lineSpacing: CGFloat,
+        kerning: CGFloat,
+        boldText: Bool
+    ) -> CGFloat {
+        // An image slot renders as a fixed-height image cell, not text, so its
+        // measured height is that fixed height — text measurement of the
+        // placeholder character would badly under-count it.
+        if HTMLToAttributed.imageAttachmentURL(in: attributedString) != nil {
+            return ReaderInlineImage.slotHeight
+        }
+        let ns = NSAttributedString(attributedString)
+        let mutableNs = NSMutableAttributedString(attributedString: ns)
+
+        mutableNs.enumerateAttribute(.font, in: NSRange(location: 0, length: mutableNs.length), options: []) { value, range, _ in
+            let originalFont = value as? UIFont ?? UIFont.systemFont(ofSize: fontSize)
+            // `boldText` forces every run bold; bold glyphs are wider, so the
+            // measurement must match the rendered `.bold()` or pages overflow.
+            let isBold = boldText || originalFont.fontDescriptor.symbolicTraits.contains(.traitBold)
+            let isItalic = originalFont.fontDescriptor.symbolicTraits.contains(.traitItalic)
+            
+            var targetFont = fontFamily.uiFont(size: fontSize)
+            var traits = UIFontDescriptor.SymbolicTraits()
+            if isBold { traits.insert(.traitBold) }
+            if isItalic { traits.insert(.traitItalic) }
+            if !traits.isEmpty {
+                if let desc = targetFont.fontDescriptor.withSymbolicTraits(traits) {
+                    targetFont = UIFont(descriptor: desc, size: fontSize)
+                }
+            }
+            mutableNs.addAttribute(.font, value: targetFont, range: range)
+        }
+        
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = lineSpacing
+        mutableNs.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: mutableNs.length))
+
+        // Mirror the rendered `.tracking(kerning)`: wider tracking wraps sooner,
+        // so the height estimate has to include it too.
+        if kerning != 0 {
+            mutableNs.addAttribute(.kern, value: kerning, range: NSRange(location: 0, length: mutableNs.length))
+        }
+
+        let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+        let rect = mutableNs.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        return ceil(rect.height)
+    }
+
+    static func estimateChapterHeaderHeight(
+        title: String,
+        width: CGFloat,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily
+    ) -> CGFloat {
+        var height: CGFloat = 42 + 15
+        if !title.isEmpty {
+            let titleFont = fontFamily.uiFont(size: fontSize + 5)
+            let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)
+            let attrString = NSAttributedString(string: title, attributes: [.font: titleFont])
+            let rect = attrString.boundingRect(with: constraintSize, options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            height += ceil(rect.height) + 10
+        }
+        return height
+    }
+
+    static func estimateTitleHeaderHeight(
+        title: String,
+        author: String,
+        authorUsername: String,
+        summary: AO3WorkSummary?,
+        width: CGFloat,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily
+    ) -> CGFloat {
+        var height: CGFloat = 0
+        
+        let titleFont = fontFamily.uiFont(size: fontSize + 14)
+        let titleRect = NSAttributedString(string: title, attributes: [.font: titleFont])
+            .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+        height += ceil(titleRect.height) + 14
+        
+        if !author.isEmpty {
+            let authorFont = UIFont.systemFont(ofSize: fontSize)
+            let authorRect = NSAttributedString(string: "by \(author)", attributes: [.font: authorFont])
+                .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            height += ceil(authorRect.height) + 14
+        }
+        
+        height += 80
+        
+        if let summary, !summary.summary.isEmpty {
+            height += 15 + 4
+            let plainSummary = summary.summary.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            let summaryFont = fontFamily.uiFont(size: fontSize - 1)
+            let summaryRect = NSAttributedString(string: plainSummary, attributes: [.font: summaryFont])
+                .boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
+            height += ceil(summaryRect.height) + 14
+        }
+        
+        height += 10
+        
+        return height
+    }
+
+    static func paginateChapter(
+        chapterIndex: Int,
+        atoms: inout [ParagraphAtom],
+        width: CGFloat,
+        viewportHeight: CGFloat,
+        titleHeaderHeight: CGFloat,
+        chapterHeaderHeight: CGFloat,
+        isFirstChapter: Bool,
+        showChapterHeader: Bool,
+        fontSize: CGFloat,
+        fontFamily: ReaderFontFamily,
+        lineSpacing: CGFloat,
+        paragraphSpacing: CGFloat,
+        kerning: CGFloat,
+        boldText: Bool,
+        drawnHeight: DrawnHeight? = nil,
+        startingAt start: PageStart? = nil
+    ) -> [ChapterPage] {
+        var pages: [ChapterPage] = []
+
+        var startIndex = 0
+        var pageIndex = 0
+
+        // Re-paginating with a page on screen (the controls shown or hidden,
+        // the narration bar, a resize): a page starts exactly where that one
+        // did, so its first line stays put and the new room shows at its
+        // foot. The page before it may come out short.
+        var keptID: UUID?
+        if let start, let i = atoms.firstIndex(where: {
+            $0.originalParagraphIndex == start.paragraph && $0.sentenceIndex == start.sentence
+                && start.offset >= $0.sentenceOffset
+                && start.offset < $0.sentenceOffset + $0.text.characters.count
+        }) {
+            let k = start.offset - atoms[i].sentenceOffset
+            if k > 0, let (head, tail) = splitAtom(atoms[i], at: k) {
+                atoms[i] = head
+                atoms.insert(tail, at: i + 1)
+                keptID = tail.id
+            } else {
+                keptID = atoms[i].id
+            }
+        }
+        var reachedKept = keptID == nil
+
+        let measure: (AttributedString) -> CGFloat = { text in
+            calculateHeight(for: text, width: width, fontSize: fontSize, fontFamily: fontFamily,
+                            lineSpacing: lineSpacing, kerning: kerning, boldText: boldText)
+        }
+        // One line of body text.
+        let oneLine = fontFamily.uiFont(size: fontSize).lineHeight
+        
+        if isFirstChapter {
+            // Page 0 is a dedicated cover/metadata page with no story text.
+            pages.append(ChapterPage(
+                id: "c\(chapterIndex)-p0",
+                chapterIndex: chapterIndex,
+                pageIndex: 0,
+                paragraphIndices: 0..<0
+            ))
+            pageIndex = 1
+        }
+        
+        while startIndex < atoms.count {
+            var pageMaxHeight = viewportHeight
+            
+            // Check if this page should display the chapter header
+            let displaysChapterHeader = showChapterHeader && (
+                isFirstChapter ? (pageIndex == 1) : (pageIndex == 0)
+            )
+            
+            if displaysChapterHeader {
+                pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
+            }
+
+            let reserve = drawnHeight == nil ? Self.uncheckedReserve(pageMaxHeight) : Self.reserve
+            let isKept = atoms[startIndex].id == keptID
+            if isKept { reachedKept = true }
+            // Pages before the kept one stop short of it.
+            let stop = reachedKept ? nil : keptID
+            var endIndex = startIndex
+            var includedAny = false
+            if pageMaxHeight > 40, let drawnHeight {
+                endIndex = fitPage(&atoms, from: startIndex, pageHeight: pageMaxHeight, reserve: reserve,
+                                   paragraphSpacing: paragraphSpacing, oneLine: oneLine,
+                                   measure: measure, drawnHeight: drawnHeight, stoppingBefore: stop)
+                includedAny = true
+            } else if pageMaxHeight > 40 {
+                endIndex = packPage(&atoms, from: startIndex, budget: pageMaxHeight - reserve,
+                                    paragraphSpacing: paragraphSpacing, oneLine: oneLine, measure: measure,
+                                    stoppingBefore: stop)
+                includedAny = true
+            }
+
+            let range: Range<Int>
+            if includedAny {
+                range = startIndex..<(endIndex + 1)
+                startIndex = endIndex + 1
+            } else {
+                range = startIndex..<startIndex
+            }
+
+            pages.append(ChapterPage(
+                id: "c\(chapterIndex)-p\(pageIndex)",
+                chapterIndex: chapterIndex,
+                pageIndex: pageIndex,
+                paragraphIndices: range,
+                // Spreads pair pages from the chapter's first: an odd page sits
+                // on the right, so the kept page opens a spread of its own.
+                startsSpread: isKept && includedAny && pageIndex % 2 == 1
+            ))
+            pageIndex += 1
+        }
+        
+        if pages.isEmpty {
+            pages.append(ChapterPage(
+                id: "c\(chapterIndex)-p0",
+                chapterIndex: chapterIndex,
+                pageIndex: 0,
+                paragraphIndices: 0..<0
+            ))
+        }
+        
+        return pages
+    }
+
+    /// A page's text as SwiftUI draws it: the height of atoms[range] laid out
+    /// in ReaderPageCell's own view.
+    typealias DrawnHeight = @MainActor (_ atoms: [ParagraphAtom], _ range: Range<Int>) -> CGFloat
+
+    /// What pages checked against SwiftUI's layout (fitPage) are packed short
+    /// of their area by: nothing. The check measures the page exactly as it's
+    /// drawn, and even a 2 pt margin cost the page a last line now and then.
+    static let reserve: CGFloat = 0
+
+    /// Pages not checked against SwiftUI's layout keep headroom for
+    /// boundingRect measuring differently (2% of the page, 8–24 pt). On every
+    /// page it left a line blank at the foot of many of them.
+    static func uncheckedReserve(_ pageHeight: CGFloat) -> CGFloat {
+        min(24, max(8, pageHeight * 0.02))
+    }
+
+    /// Whether the chapters either side of the one being read are checked
+    /// against SwiftUI's layout too. They're paginated so page turns run on
+    /// into them, and re-paginated, checked, as soon as one is reached;
+    /// checking them up front too cost ~1.5 ms a page on iOS (a 9,000-word
+    /// chapter: 250 ms instead of 100). On the Mac boundingRect runs short of
+    /// SwiftUI's layout, so an unchecked page could put a line under the
+    /// footer while you turn into it, and Macs are quick: it checks them all.
+    static var checksAdjacentChapters: Bool {
+        #if targetEnvironment(macCatalyst)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// Measures pages with ReaderPageCell's view, reusing one hosting controller.
+    static func drawnHeightMeasure(width: CGFloat, fontSize: CGFloat, fontFamily: ReaderFontFamily,
+                                   lineSpacing: CGFloat, paragraphSpacing: CGFloat, kerning: CGFloat,
+                                   boldText: Bool) -> DrawnHeight {
+        let host = UIHostingController(rootView: AnyView(EmptyView()))
+        let chapter = AO3ChapterPayload(index: 0, title: "", bodyHTML: "")
+        let font = fontFamily.font(size: fontSize)
+        return { atoms, range in
+            let cell = ReaderPageCell(
+                page: ChapterPage(id: "measure", chapterIndex: 0, pageIndex: 0, paragraphIndices: range),
+                chapter: chapter, atoms: atoms, showTitleHeader: false, showChapterHeader: false,
+                titleHeaderView: nil, chapterHeaderView: AnyView(EmptyView()),
+                font: font, lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing,
+                kerning: kerning, boldText: boldText, foreground: .primary, highlightParagraph: nil)
+            host.rootView = AnyView(cell.pageContent
+                .frame(width: width)
+                .fixedSize(horizontal: false, vertical: true))
+            return host.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        }
+    }
+
+    /// Packs a page with boundingRect, then checks it against SwiftUI's
+    /// layout, and when the two disagree packs it again with a corrected
+    /// budget until the page is as full as it can be without running past it.
+    /// boundingRect is close but not exact: under the Mac's text metrics New
+    /// York lines draw a point taller and small text fits more words a line,
+    /// and on iOS a long paragraph can wrap to one line fewer than boundingRect
+    /// counts. Either way pages came out a line or more short, or ran a line
+    /// past the footer. Most pages need one SwiftUI measurement; a misjudged
+    /// one bisects the budget between the fullest packing that fit and the
+    /// smallest that ran past. Returns the page's last atom.
+    private static func fitPage(_ atoms: inout [ParagraphAtom], from start: Int, pageHeight: CGFloat, reserve: CGFloat,
+                                paragraphSpacing: CGFloat, oneLine: CGFloat,
+                                measure: (AttributedString) -> CGFloat, drawnHeight: DrawnHeight,
+                                stoppingBefore stop: UUID? = nil) -> Int {
+        let unpacked = atoms
+        let limit = pageHeight - reserve
+        var budget = limit
+        var fullest: (atoms: [ParagraphAtom], end: Int, budget: CGFloat)?
+        var overflowing: CGFloat?
+        var latest: (atoms: [ParagraphAtom], end: Int) = (unpacked, start)
+        for _ in 0..<8 {
+            var trial = unpacked
+            let end = packPage(&trial, from: start, budget: budget, paragraphSpacing: paragraphSpacing,
+                               oneLine: oneLine, measure: measure, stoppingBefore: stop)
+            latest = (trial, end)
+            let drawn = drawnHeight(trial, start..<(end + 1))
+            if drawn > limit {
+                // Any budget down to what boundingRect measured this packing
+                // at packs the very same lines (it left them slack under the
+                // budget), so that's the bound to go below, not the budget.
+                let packed = packedHeight(trial, start...end, paragraphSpacing: paragraphSpacing, measure: measure)
+                overflowing = min(overflowing ?? budget, min(budget, packed))
+            } else {
+                if budget >= (fullest?.budget ?? -1) { fullest = (trial, end, budget) }
+                // Done when there's nothing left to add or no room for a line.
+                if end + 1 >= trial.count || trial[end + 1].id == stop || limit - drawn < oneLine { break }
+            }
+            switch (fullest?.budget, overflowing) {
+            case let (fit?, over?):
+                guard over - fit > 1 else { break }
+                budget = (fit + over) / 2
+                continue
+            case let (fit?, nil):
+                budget = fit + (limit - drawn)
+                continue
+            case let (nil, over?):
+                budget = over - (drawn - limit) - 1
+                continue
+            case (nil, nil):
+                break
+            }
+            break
+        }
+        // Nothing fit (a page of one unbreakable sentence): take the last try.
+        let chosen = fullest.map { (atoms: $0.atoms, end: $0.end) } ?? latest
+        atoms = chosen.atoms
+        return chosen.end
+    }
+
+    /// The height boundingRect measures atoms[range] at, laid out as a page:
+    /// each paragraph's sentences joined, paragraphs spaced apart.
+    private static func packedHeight(_ atoms: [ParagraphAtom], _ range: ClosedRange<Int>, paragraphSpacing: CGFloat,
+                                     measure: (AttributedString) -> CGFloat) -> CGFloat {
+        var blocks: [[ParagraphAtom]] = []
+        for atom in atoms[range] {
+            if let last = blocks.last?.last, last.originalParagraphIndex == atom.originalParagraphIndex {
+                blocks[blocks.count - 1].append(atom)
+            } else {
+                blocks.append([atom])
+            }
+        }
+        return blocks.map { measure(ReaderPageCell.concatenateAtoms($0)) }.reduce(0, +)
+            + paragraphSpacing * CGFloat(max(0, blocks.count - 1))
+    }
+
+    /// Fills a page from `startIndex` with as much as `budget` holds, by
+    /// boundingRect, never taking the atom `stop` (where a kept page starts).
+    /// May split a sentence at a line end (the rest becomes a new atom right
+    /// after it). Returns the page's last atom.
+    private static func packPage(_ atoms: inout [ParagraphAtom], from startIndex: Int, budget packingBudget: CGFloat,
+                                 paragraphSpacing: CGFloat, oneLine: CGFloat,
+                                 measure: (AttributedString) -> CGFloat, stoppingBefore stop: UUID? = nil) -> Int {
+        var endIndex = startIndex
+        var currentBlockParaIndex = atoms[startIndex].originalParagraphIndex
+        var currentBlockAtoms: [ParagraphAtom] = [atoms[startIndex]]
+        var currentBlockHeight = measure(ReaderPageCell.concatenateAtoms(currentBlockAtoms))
+        // A single sentence taller than the page: break it at a line
+        // end rather than letting the page overflow.
+        if currentBlockHeight > packingBudget,
+           let (head, tail) = splitAtomToFit(atoms[startIndex], after: [], budget: packingBudget, measure: measure) {
+            atoms[startIndex] = head
+            atoms.insert(tail, at: startIndex + 1)
+            currentBlockAtoms = [head]
+            currentBlockHeight = measure(head.text)
+        }
+
+        var currentHeight = currentBlockHeight
+        var completedBlocksHeight: CGFloat = 0
+
+        while endIndex + 1 < atoms.count, atoms[endIndex + 1].id != stop {
+            let nextAtom = atoms[endIndex + 1]
+
+            if nextAtom.originalParagraphIndex == currentBlockParaIndex {
+                let proposedBlockAtoms = currentBlockAtoms + [nextAtom]
+                let proposedBlockHeight = measure(ReaderPageCell.concatenateAtoms(proposedBlockAtoms))
+                let potentialHeight = completedBlocksHeight + proposedBlockHeight
+                if potentialHeight <= packingBudget {
+                    endIndex += 1
+                    currentBlockAtoms = proposedBlockAtoms
+                    currentBlockHeight = proposedBlockHeight
+                    currentHeight = potentialHeight
+                } else {
+                    // Fill the page to its last line, like a printed
+                    // book: the sentence continues on the next page.
+                    if let (head, tail) = splitAtomToFit(nextAtom, after: currentBlockAtoms,
+                                                         budget: packingBudget - completedBlocksHeight,
+                                                         measure: measure) {
+                        atoms[endIndex + 1] = head
+                        atoms.insert(tail, at: endIndex + 2)
+                        endIndex += 1
+                    }
+                    break
+                }
+            } else {
+                let proposedBlockAtoms = [nextAtom]
+                let proposedBlockHeight = measure(ReaderPageCell.concatenateAtoms(proposedBlockAtoms))
+                let potentialHeight = currentHeight + paragraphSpacing + proposedBlockHeight
+                if potentialHeight <= packingBudget {
+                    endIndex += 1
+                    completedBlocksHeight += currentBlockHeight + paragraphSpacing
+                    currentBlockParaIndex = nextAtom.originalParagraphIndex
+                    currentBlockAtoms = proposedBlockAtoms
+                    currentBlockHeight = proposedBlockHeight
+                    currentHeight = potentialHeight
+                } else {
+                    // Start the paragraph here with as many lines as fit,
+                    // even one, so the page fills to its last line. (Holding
+                    // back a lone opening line, as books do, left up to two
+                    // lines blank at the foot of a page.)
+                    let room = packingBudget - currentHeight - paragraphSpacing
+                    if room >= oneLine,
+                       let (head, tail) = splitAtomToFit(nextAtom, after: [], budget: room, measure: measure) {
+                        atoms[endIndex + 1] = head
+                        atoms.insert(tail, at: endIndex + 2)
+                        endIndex += 1
+                    }
+                    break
+                }
+            }
+        }
+        return endIndex
+    }
 }
 
 struct ReaderPageCell: View {
@@ -2530,12 +2821,15 @@ struct ReaderPageCell: View {
         // mid-page paragraphs to "…". basedOnSize keeps an exact-fit page
         // inert — it only scrolls when the page genuinely overflows.
         ScrollView(.vertical, showsIndicators: false) {
-            content
+            pageContent
         }
         .scrollBounceBehavior(.basedOnSize)
     }
     
-    private var content: some View {
+    /// The page as laid out inside its scroll view. Internal so
+    /// ReaderPaginationTests can check SwiftUI draws pages within the height
+    /// the paginator measured them for.
+    var pageContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             if showTitleHeader, let titleHeaderView {
                 titleHeaderView

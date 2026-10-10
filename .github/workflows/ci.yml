@@ -60,9 +60,102 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath build/ipad.xcresult
 
+      # Page-by-page layout as drawn on each screen: the page footer on the
+      # bottom edge, full pages, across backgrounding, control toggles, the
+      # keyboard and wide (two-page) windows. The rest of FanficlyUITests
+      # (screenshots, app previews) runs from fastlane, not CI.
+      # The first launch of the app on a simulator is slow on CI: once ~30 s,
+      # once past XCUITest's launch timeout, failing whichever layout test
+      # ran first. Boot each simulator and launch the app once (demo mode,
+      # offline) so the tests start warm.
+      - name: Warm up the simulators for the UI tests
+        run: |
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -type d \
+            -path '*/Build/Products/Debug-iphonesimulator/Fanficly.app' -prune -print -quit)
+          echo "App: $APP"
+          for ID in "${{ steps.sim.outputs.iphone_id }}" "${{ steps.sim.outputs.ipad_id }}"; do
+            xcrun simctl bootstatus "$ID" -b
+            xcrun simctl install "$ID" "$APP"
+            xcrun simctl launch "$ID" io.github.yennster.fanficly -demoMode || true
+            sleep 20
+            xcrun simctl terminate "$ID" io.github.yennster.fanficly || true
+          done
+
+      - name: Reader layout UI tests on iPhone
+        run: |
+          xcodebuild test \
+            -project Fanficly.xcodeproj \
+            -scheme Fanficly \
+            -destination "id=${{ steps.sim.outputs.iphone_id }}" \
+            -only-testing:FanficlyUITests/ReaderLayoutTests \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath build/iphone-ui.xcresult
+
+      - name: Reader layout UI tests on iPad
+        run: |
+          xcodebuild test \
+            -project Fanficly.xcodeproj \
+            -scheme Fanficly \
+            -destination "id=${{ steps.sim.outputs.ipad_id }}" \
+            -only-testing:FanficlyUITests/ReaderLayoutTests \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath build/ipad-ui.xcresult
+
+      # What the layout tests saw, step by step, on each simulator.
+      - name: Upload reader screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reader-layout-screenshots
+          path: build/reader-layout-screenshots
+          if-no-files-found: ignore
+
       - name: Upload result bundles on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: xcresults
+          path: build/*.xcresult
+
+  mac:
+    # The unit tests again under Mac Catalyst: the Mac measures text with its
+    # own metrics, which is where page-by-page's measurements drift most.
+    name: Unit tests on Mac (Catalyst)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest installed Xcode
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # MACOSX_DEPLOYMENT_TARGET: the Catalyst build derives its macOS target
+      # from iOS 17 (= macOS 14), but xcodebuild's "can this Mac run the tests"
+      # check reads this unset setting, which defaults to the SDK's version and
+      # refused the runner's older macOS.
+      - name: Build & test on Mac Catalyst
+        run: |
+          xcodebuild test \
+            -project Fanficly.xcodeproj \
+            -scheme Fanficly \
+            -destination "platform=macOS,variant=Mac Catalyst,arch=arm64" \
+            -only-testing:FanficlyTests \
+            CODE_SIGNING_ALLOWED=NO \
+            MACOSX_DEPLOYMENT_TARGET=14.0 \
+            -resultBundlePath build/mac.xcresult
+
+      - name: Upload result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-mac
           path: build/*.xcresult

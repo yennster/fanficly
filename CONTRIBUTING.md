@@ -24,7 +24,8 @@ open Fanficly.xcodeproj
 
 - One feature/fix per PR.
 - Reference an issue if one exists.
-- Make sure `xcodebuild test` passes on both iPhone and iPad simulators.
+- Make sure the unit tests pass on iPhone and iPad simulators and under Mac Catalyst (CI runs all three).
+- If you change the reader, also run `FanficlyUITests/ReaderLayoutTests` (see the README's Tests section).
 - Don't reformat code you didn't touch.
 - Be kind in code review.
 
