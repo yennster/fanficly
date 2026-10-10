@@ -2416,9 +2416,9 @@ enum ReaderPaginator {
     /// the idiom: the Mac app doesn't report the Mac idiom everywhere.
     static var measuresDrawnPages: Bool {
         #if targetEnvironment(macCatalyst)
-        true
+        return true
         #else
-        false
+        return false
         #endif
     }
 
