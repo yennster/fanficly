@@ -81,24 +81,10 @@ final class ReaderLayoutTests: XCTestCase {
         #endif
     }
 
-    func test_togglingTheControls_keepsThePage() throws {
+    func test_togglingTheControls_fillsThePageAndKeepsItInPlace() throws {
         let footer = openReader()
         turnToMiddlePage(footer)
-        let before = footer.label
-        let bar = footer.frame
-        // The middle third of the page shows or hides the controls.
-        let middle = CGPoint(x: bar.midX, y: bar.minY - 200)
-        tap(middle)
-        // iPhone Duo's open-book spread keeps its footer with the controls hidden.
-        if !isDuoUnfolded {
-            XCTAssertTrue(waitForAbsence(footer), "the controls hid")
-        }
-        sleep(1)
-        tap(middle)
-        XCTAssertTrue(footer.waitForExistence(timeout: 5), "the controls came back")
-        settle()
-        XCTAssertEqual(footer.label, before, "toggling the controls repaginated")
-        try assertPageLayout(footer, "after toggling the controls")
+        try assertFullScreenFillsThePage(footer, "one page")
     }
 
     func test_keyboard_leavesTheFooterAndPagesAlone() throws {
@@ -150,6 +136,7 @@ final class ReaderLayoutTests: XCTestCase {
         }
         turnToMiddlePage(footer)
         try assertPageLayout(footer, "in a wide window")
+        try assertFullScreenFillsThePage(footer, "in a wide window")
     }
 
     // MARK: - Navigation
@@ -219,6 +206,51 @@ final class ReaderLayoutTests: XCTestCase {
 
     // MARK: - Layout checks
 
+    /// Hides the controls (full screen) and shows them again. Hidden, the
+    /// page footer goes too (iPhone Duo included) and the page re-paginates
+    /// to fill the room they left (it used to leave it blank); both ways the
+    /// page keeps its first line.
+    private func assertFullScreenFillsThePage(_ footer: XCUIElement, _ context: String,
+                                              file: StaticString = #filePath, line: UInt = #line) throws {
+        let bar = footer.frame
+        let shown = try storyTexts(above: bar)
+        let firstWords = try XCTUnwrap(openingWords(shown), "\(context): text on the page", file: file, line: line)
+        // The middle third of the page shows or hides the controls.
+        let middle = CGPoint(x: bar.midX, y: bar.minY - 200)
+        tap(middle)
+        XCTAssertTrue(waitForAbsence(footer), "\(context): the controls hid", file: file, line: line)
+        settle()
+        // The footer's bottom edge is the page area's.
+        let hidden = try storyTexts(above: CGRect(x: bar.minX, y: bar.maxY, width: bar.width, height: 0))
+        XCTAssertEqual(openingWords(hidden), firstWords, "\(context): hiding the controls moved the page",
+                       file: file, line: line)
+        // Text on both sides of the middle: a two-page spread.
+        let twoPages = { (texts: [(frame: CGRect, text: String)]) in
+            texts.contains { $0.frame.minX > bar.midX } && texts.contains { $0.frame.maxX < bar.midX }
+        }
+        XCTAssertEqual(twoPages(hidden), twoPages(shown), "\(context): full screen switched between one page and two",
+                       file: file, line: line)
+        // The room gained: the footer's, plus the nav bar's where the text
+        // moves up into it. Room for a new paragraph's first two lines (this
+        // typography: ~72 pt) must take more text; less may legitimately not.
+        let top = { (texts: [(frame: CGRect, text: String)]) in texts.map(\.frame.minY).min() ?? 0 }
+        let gained = bar.height + top(shown) - top(hidden)
+        if gained >= 80 {
+            XCTAssertGreaterThan(characters(hidden), characters(shown),
+                                 "\(context): full screen gained \(gained) pt but the page holds no more text: the room stayed blank",
+                                 file: file, line: line)
+        } else {
+            XCTAssertGreaterThanOrEqual(characters(hidden), characters(shown),
+                                        "\(context): full screen lost text", file: file, line: line)
+        }
+        tap(middle)
+        XCTAssertTrue(footer.waitForExistence(timeout: 5), "\(context): the controls came back", file: file, line: line)
+        settle()
+        XCTAssertEqual(openingWords(try storyTexts(above: footer.frame)), firstWords,
+                       "\(context): showing the controls moved the page", file: file, line: line)
+        try assertPageLayout(footer, "\(context), after toggling the controls", file: file, line: line)
+    }
+
     /// The footer sits on the bottom edge, and each page on screen is full:
     /// its text ends just above the footer, not short of it and not under it.
     private func assertPageLayout(_ footer: XCUIElement, _ context: String,
@@ -247,27 +279,43 @@ final class ReaderLayoutTests: XCTestCase {
         }
     }
 
-    /// Frames of the text across the reader's column(s) above the footer,
-    /// from one snapshot (querying each element's frame takes ~0.1 s). The
-    /// pages either side of the one showing sit off screen and drop out.
+    /// Frames of the text across the reader's column(s) above the footer.
     private func storyTextFrames(above bar: CGRect) throws -> [CGRect] {
+        try storyTexts(above: bar).map(\.frame)
+    }
+
+    /// The text across the reader's column(s) above `bar` (the footer), one
+    /// element per paragraph on the page, from one snapshot (querying each
+    /// element takes ~0.1 s). The pages either side of the one showing sit off
+    /// screen and drop out.
+    private func storyTexts(above bar: CGRect) throws -> [(frame: CGRect, text: String)] {
         // The snapshot isn't Sendable, so walk it on the main actor (which UI
-        // tests run on) and hand back plain frames. Capture only the app: the
+        // tests run on) and hand back plain values. Capture only the app: the
         // test case itself can't cross into the main actor.
         let app: XCUIApplication = self.app
         return try MainActor.assumeIsolated {
-            var frames: [CGRect] = []
+            var texts: [(frame: CGRect, text: String)] = []
             func collect(_ element: any XCUIElementSnapshot) {
                 let frame = element.frame
                 if element.elementType == .staticText, frame.height > 0, frame.minY < bar.minY,
                    frame.minX >= bar.minX - 1, frame.maxX <= bar.maxX + 1 {
-                    frames.append(frame)
+                    texts.append((frame, element.label))
                 }
                 element.children.forEach(collect)
             }
             collect(try app.snapshot())
-            return frames
+            return texts
         }
+    }
+
+    /// The first words on the page (on the left page of a spread).
+    private func openingWords(_ texts: [(frame: CGRect, text: String)]) -> String? {
+        texts.min { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
+            .map { String($0.text.prefix(40)) }
+    }
+
+    private func characters(_ texts: [(frame: CGRect, text: String)]) -> Int {
+        texts.reduce(0) { $0 + $1.text.count }
     }
 
     /// The bottom of the reader's nav bar (the top of its page area).

@@ -76,6 +76,16 @@ final class ReaderSpreadTests: XCTestCase {
         XCTAssertEqual(spreads.map { $0.right?.id }, ["c1-p1", nil, "c2-p1"])
     }
 
+    func test_aKeptPageOpensASpread() {
+        // Re-paginating keeps the page on screen in place; in a spread it has
+        // to stay on the left, so the page before it may stand alone.
+        var kept = page(1, 3)
+        kept.startsSpread = true
+        let spreads = ReaderSpread.spreads(from: [page(1, 0), page(1, 1), page(1, 2), kept, page(1, 4)])
+        XCTAssertEqual(spreads.map(\.left.id), ["c1-p0", "c1-p2", "c1-p3"])
+        XCTAssertEqual(spreads.map { $0.right?.id }, ["c1-p1", nil, "c1-p4"])
+    }
+
     func test_spreadFindsEitherOfItsPages() {
         let spread = ReaderSpread.spreads(from: [page(1, 0), page(1, 1)])[0]
         XCTAssertTrue(spread.contains("c1-p0"))
@@ -86,14 +96,14 @@ final class ReaderSpreadTests: XCTestCase {
 }
 
 
-/// Page-by-page's page height: pages fit the area with the controls up, shrink
-/// at once and grow back only once the area settles. The heights are an
-/// iPhone's page area: 700 with the controls up, 784 with them hidden.
+/// Page-by-page's page height: pages fill the page area on screen, shrink at
+/// once and grow only once the area settles. The heights are an iPhone's page
+/// area: 700 with the controls up, 784 with them hidden.
 final class PageAreaTrackerTests: XCTestCase {
     func test_shrinksAtOnce() {
         var tracker = PageAreaTracker()
-        tracker.reset(to: 700)
-        tracker.observe(650)
+        tracker.reset(to: 700, controlsUp: true)
+        tracker.observe(650, controlsUp: true)
         XCTAssertEqual(tracker.pageHeight, 650)
     }
 
@@ -101,59 +111,72 @@ final class PageAreaTrackerTests: XCTestCase {
         // A short first layout (a transition) used to stick for good, leaving
         // blank space at the foot of every page.
         var tracker = PageAreaTracker()
-        tracker.reset(to: 530)
-        tracker.observe(700)
+        tracker.reset(to: 530, controlsUp: true)
+        tracker.observe(700, controlsUp: true)
         XCTAssertEqual(tracker.pageHeight, 530, "growing waits for the area to settle")
-        tracker.settle(700, controlsUp: true)
+        tracker.settle(700)
         XCTAssertEqual(tracker.pageHeight, 700)
     }
 
-    func test_togglingTheControls_keepsThePageHeight() {
+    func test_hidingTheControls_growsPagesToFillTheScreen() {
+        // Pages used to stay at the controls-up height, leaving the controls'
+        // room blank at the foot of every page while they were hidden.
         var tracker = PageAreaTracker()
-        tracker.reset(to: 700)
-        tracker.settle(700, controlsUp: true)
-        tracker.observe(784)
-        tracker.settle(784, controlsUp: false)
-        XCTAssertEqual(tracker.pageHeight, 700, "pages must still fit once the controls return")
-        tracker.observe(700)
-        tracker.settle(700, controlsUp: true)
-        XCTAssertEqual(tracker.pageHeight, 700)
+        tracker.reset(to: 700, controlsUp: true)
+        tracker.observe(784, controlsUp: false)
+        XCTAssertEqual(tracker.pageHeight, 700, "growing waits for the bars to finish animating")
+        tracker.settle(784)
+        XCTAssertEqual(tracker.pageHeight, 784)
     }
 
-    func test_controlsHidden_growsBackToTheControlsUpArea() {
+    func test_showingTheControls_shrinksPagesAtOnce() {
+        // Or the page's last lines would sit under the page footer.
         var tracker = PageAreaTracker()
-        tracker.reset(to: 700)
-        tracker.settle(700, controlsUp: true)
-        tracker.observe(400)  // e.g. a keyboard inset while reading
-        tracker.settle(784, controlsUp: false)
+        tracker.reset(to: 784, controlsUp: false)
+        tracker.observe(700, controlsUp: true)
+        XCTAssertEqual(tracker.pageHeight, 700)
+        tracker.settle(700)
         XCTAssertEqual(tracker.pageHeight, 700)
     }
 
     func test_narrationBar_shrinksPagesUntilItCloses() {
         var tracker = PageAreaTracker()
-        tracker.reset(to: 700)
-        tracker.settle(700, controlsUp: true)
-        tracker.observe(660)
-        tracker.settle(660, controlsUp: true)
+        tracker.reset(to: 700, controlsUp: true)
+        tracker.observe(660, controlsUp: true)
+        tracker.settle(660)
         XCTAssertEqual(tracker.pageHeight, 660)
-        tracker.observe(700)
-        tracker.settle(700, controlsUp: true)
+        tracker.observe(700, controlsUp: true)
+        tracker.settle(700)
         XCTAssertEqual(tracker.pageHeight, 700)
     }
 
-    func test_newWindowSize_forgetsTheControlsUpArea() {
-        // Rotated with the controls hidden: there's no controls-up area for the
-        // new size yet, so pages don't grow until the controls show.
+    func test_fullScreen_keepsOnePageOrTwo() {
+        // An iPad in landscape beside the sidebar: a two-page spread with the
+        // controls up, but full screen's extra height made the area too square
+        // for two pages, so hiding the controls switched to one page.
+        let width: CGFloat = 1056
         var tracker = PageAreaTracker()
-        tracker.reset(to: 700)
-        tracker.settle(700, controlsUp: true)
-        tracker.reset(to: 330)
-        XCTAssertEqual(tracker.controlsUpHeight, 0)
-        tracker.observe(300)
-        tracker.settle(330, controlsUp: false)
+        tracker.reset(to: 910, controlsUp: true)
+        XCTAssertNotNil(ReaderSpread.layout(containerSize: CGSize(width: width, height: tracker.spreadDecisionHeight), fold: nil))
+        tracker.observe(988, controlsUp: false)
+        tracker.settle(988)
+        XCTAssertEqual(tracker.pageHeight, 988, "full screen fills the screen")
+        XCTAssertNil(ReaderSpread.layout(containerSize: CGSize(width: width, height: 988), fold: nil),
+                     "the full-screen area alone would mean one page")
+        XCTAssertEqual(tracker.spreadDecisionHeight, 910)
+        XCTAssertNotNil(ReaderSpread.layout(containerSize: CGSize(width: width, height: tracker.spreadDecisionHeight), fold: nil),
+                        "still two pages in full screen")
+    }
+
+    func test_newWindowSize_startsOver() {
+        var tracker = PageAreaTracker()
+        tracker.reset(to: 700, controlsUp: true)
+        tracker.reset(to: 330, controlsUp: true)
+        XCTAssertEqual(tracker.pageHeight, 330)
+        tracker.observe(300, controlsUp: true)
         XCTAssertEqual(tracker.pageHeight, 300)
-        tracker.settle(310, controlsUp: true)
-        XCTAssertEqual(tracker.pageHeight, 310)
+        tracker.settle(330)
+        XCTAssertEqual(tracker.pageHeight, 330)
     }
 }
 
@@ -267,7 +290,8 @@ final class ReaderPaginationTests: XCTestCase {
     }
 
     /// A chapter after the first (chapter 1 adds the work's title page).
-    private func paginate(_ type: Typography, _ layout: Layout, isFirstChapter: Bool = false) -> Pagination {
+    private func paginate(_ type: Typography, _ layout: Layout, isFirstChapter: Bool = false,
+                          startingAt start: PageStart? = nil) -> Pagination {
         var atoms = ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false)
         let header = ReaderPaginator.estimateChapterHeaderHeight(
             title: "The Long Way Round", width: layout.columnWidth, fontSize: type.fontSize, fontFamily: type.family)
@@ -281,7 +305,8 @@ final class ReaderPaginationTests: XCTestCase {
             fontFamily: type.family, lineSpacing: type.lineSpacing, paragraphSpacing: type.paragraphSpacing,
             kerning: type.kerning, boldText: type.bold,
             // As ReaderView does: check pages against SwiftUI's layout on the Mac.
-            drawnHeight: ReaderPaginator.measuresDrawnPages ? drawn(type, layout) : nil)
+            drawnHeight: ReaderPaginator.measuresDrawnPages ? drawn(type, layout) : nil,
+            startingAt: start)
         return Pagination(pages: pages, atoms: atoms, chapterHeaderHeight: header)
     }
 
@@ -309,6 +334,44 @@ final class ReaderPaginationTests: XCTestCase {
         return reserve + type.paragraphSpacing + 3 * line
     }
 
+
+    private func assertEverySentenceOnOnePage(_ result: Pagination, _ label: String,
+                                              file: StaticString = #filePath, line: UInt = #line) {
+        var next = 0
+        for page in result.pages {
+            XCTAssertEqual(page.paragraphIndices.lowerBound, next, "\(label): gap or overlap before page \(page.pageIndex)",
+                           file: file, line: line)
+            XCTAssertFalse(page.paragraphIndices.isEmpty, "\(label): empty page \(page.pageIndex)", file: file, line: line)
+            next = page.paragraphIndices.upperBound
+        }
+        XCTAssertEqual(next, result.atoms.count, "\(label): sentences missing from the last page", file: file, line: line)
+    }
+
+    private func assertPagesFit(_ result: Pagination, _ type: Typography, _ layout: Layout, _ label: String,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        let measure = drawn(type, layout)
+        for page in result.pages {
+            let height = drawnHeight(page, in: result, measure)
+            XCTAssertLessThanOrEqual(height, layout.viewportHeight,
+                                     "\(label): page \(page.pageIndex) draws \(height - layout.viewportHeight) pt past its area",
+                                     file: file, line: line)
+        }
+    }
+
+    private func assertPagesFull<Pages: Sequence<ChapterPage>>(
+        _ pages: Pages, in result: Pagination, _ type: Typography, _ layout: Layout, _ label: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let measure = drawn(type, layout)
+        let tolerance = fillTolerance(type, layout)
+        for page in pages {
+            let blank = layout.viewportHeight - drawnHeight(page, in: result, measure)
+            XCTAssertLessThanOrEqual(blank, tolerance,
+                                     "\(label): page \(page.pageIndex) leaves \(blank) pt blank (allowed \(tolerance))",
+                                     file: file, line: line)
+        }
+    }
+
     private func forEachLayout(_ body: (Device, Typography, Layout, String) throws -> Void) rethrows {
         for device in Self.devices {
             for type in Self.typographies {
@@ -327,13 +390,7 @@ final class ReaderPaginationTests: XCTestCase {
         forEachLayout { _, type, layout, label in
             let result = paginate(type, layout)
             XCTAssertGreaterThanOrEqual(result.pages.count, 3, "\(label): the fixture should span several pages")
-            var next = 0
-            for page in result.pages {
-                XCTAssertEqual(page.paragraphIndices.lowerBound, next, "\(label): gap or overlap before page \(page.pageIndex)")
-                XCTAssertFalse(page.paragraphIndices.isEmpty, "\(label): empty page \(page.pageIndex)")
-                next = page.paragraphIndices.upperBound
-            }
-            XCTAssertEqual(next, result.atoms.count, "\(label): sentences missing from the last page")
+            assertEverySentenceOnOnePage(result, label)
         }
     }
 
@@ -348,13 +405,7 @@ final class ReaderPaginationTests: XCTestCase {
     func test_pagesFitTheirPageArea() {
         // Runs past it and the page's last lines sit under the footer.
         forEachLayout { _, type, layout, label in
-            let result = paginate(type, layout)
-            let measure = drawn(type, layout)
-            for page in result.pages {
-                let height = drawnHeight(page, in: result, measure)
-                XCTAssertLessThanOrEqual(height, layout.viewportHeight,
-                                         "\(label): page \(page.pageIndex) draws \(height - layout.viewportHeight) pt past its area")
-            }
+            assertPagesFit(paginate(type, layout), type, layout, label)
         }
     }
 
@@ -362,12 +413,61 @@ final class ReaderPaginationTests: XCTestCase {
         // The blank-band regression: every page but a chapter's last is full.
         forEachLayout { _, type, layout, label in
             let result = paginate(type, layout)
-            let measure = drawn(type, layout)
-            let tolerance = fillTolerance(type, layout)
-            for page in result.pages.dropLast() {
-                let blank = layout.viewportHeight - drawnHeight(page, in: result, measure)
-                XCTAssertLessThanOrEqual(blank, tolerance,
-                                         "\(label): page \(page.pageIndex) leaves \(blank) pt blank (allowed \(tolerance))")
+            assertPagesFull(result.pages.dropLast(), in: result, type, layout, label)
+        }
+    }
+
+    func test_repaginatingFromOneOfItsOwnPageBreaks_changesNothing() {
+        // Re-opening on a page, or a re-pagination that doesn't change the page
+        // area: the same pages, paired into spreads as before (a kept page
+        // only opens a spread of its own when pairing would put it on the right).
+        forEachLayout { _, type, layout, label in
+            let before = paginate(type, layout, isFirstChapter: true)
+            let lefts = before.pages.filter { $0.pageIndex % 2 == 0 && !$0.paragraphIndices.isEmpty }
+            guard let start = ReaderPaginator.start(of: lefts[lefts.count / 2], atoms: before.atoms) else {
+                return XCTFail("\(label): no text on a mid-chapter page")
+            }
+            let after = paginate(type, layout, isFirstChapter: true, startingAt: start)
+            XCTAssertEqual(after.pages.map(\.paragraphIndices), before.pages.map(\.paragraphIndices), label)
+            XCTAssertFalse(after.pages.contains(where: \.startsSpread), "\(label): a spread re-paired")
+        }
+    }
+
+    /// The nav bar and page footer on an iPhone: what the page area gains when
+    /// the controls hide, and loses when they show.
+    static let controlsHeight: CGFloat = 84
+
+    func test_showingOrHidingTheControls_keepsThePageInPlace() throws {
+        // Pages fill the area on screen either way: hiding the controls used to
+        // leave their room blank at the foot of every page. Re-paginating starts
+        // a page where the one on screen did, so it keeps its first line.
+        try forEachLayout { _, type, layout, label in
+            let before = paginate(type, layout)
+            let page = before.pages[before.pages.count / 2]
+            let pageStart = try XCTUnwrap(ReaderPaginator.start(of: page, atoms: before.atoms))
+            let firstWords = String(before.atoms[page.paragraphIndices.lowerBound].text.characters)
+            for change in [Self.controlsHeight, -Self.controlsHeight] {
+                let context = "\(label), \(change > 0 ? "controls hidden" : "controls shown")"
+                let resized = Layout(columnWidth: layout.columnWidth, viewportHeight: layout.viewportHeight + change,
+                                     pagesOnScreen: layout.pagesOnScreen)
+                let after = paginate(type, resized, startingAt: pageStart)
+                // The page kept in place starts where it did.
+                let kept = after.pages.first { ReaderPaginator.start(of: $0, atoms: after.atoms) == pageStart }
+                guard let keptPage = kept else {
+                    XCTFail("\(context): no page starts where the one on screen did")
+                    continue
+                }
+                let keptWords = String(after.atoms[keptPage.paragraphIndices.lowerBound].text.characters)
+                let n = min(firstWords.count, keptWords.count)
+                XCTAssertEqual(keptWords.prefix(n), firstWords.prefix(n), "\(context): the kept page opens with the same words")
+                assertEverySentenceOnOnePage(after, context)
+                assertPagesFit(after, type, resized, context)
+                // From the kept page on, pages fill the new area (the one before it may be short).
+                assertPagesFull(after.pages.drop { $0.id != keptPage.id }.dropLast(), in: after, type, resized, context)
+                if layout.pagesOnScreen == 2 {
+                    XCTAssertTrue(ReaderSpread.spreads(from: after.pages).contains { $0.left.id == keptPage.id },
+                                  "\(context): the kept page stays on the left of its spread")
+                }
             }
         }
     }

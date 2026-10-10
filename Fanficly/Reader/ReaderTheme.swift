@@ -148,14 +148,17 @@ enum ReaderSpread {
 
     /// Pairs pages two by two within each chapter, so every chapter opens on
     /// a fresh spread (and the pairing doesn't shift as neighboring chapters
-    /// load); a chapter with an odd page count ends on a lone left page.
+    /// load); a chapter with an odd page count ends on a lone left page. A
+    /// page marked `startsSpread` opens a spread too: one a re-pagination kept
+    /// in place that pairing would put on the right, so the spread on screen
+    /// doesn't swap sides. The page before it then stands alone.
     static func spreads(from pages: [ChapterPage]) -> [Spread] {
         var out: [Spread] = []
         var i = 0
         while i < pages.count {
             let left = pages[i]
             let next = i + 1 < pages.count ? pages[i + 1] : nil
-            if let next, next.chapterIndex == left.chapterIndex {
+            if let next, next.chapterIndex == left.chapterIndex, !next.startsSpread {
                 out.append(Spread(left: left, right: next))
                 i += 2
             } else {
@@ -167,41 +170,45 @@ enum ReaderSpread {
     }
 }
 
-/// The height page-by-page measures its pages for: the page area with the
-/// reader controls (nav bar, page footer, narration bar) showing, so a page
-/// always fits on screen and hiding the controls only adds bottom margin.
+/// The height page-by-page measures its pages for: the page area on screen,
+/// with the reader controls (nav bar, page footer, narration bar) showing or
+/// not, so pages always fill it. Re-paginating keeps the page on screen in
+/// place (see PageStart): showing or hiding the controls takes lines off the
+/// foot of the page or adds them there.
 ///
-/// Pages shrink as soon as the area does, but grow back only once it has held
-/// still (`settle`). The area is briefly smaller now and then (a navigation
-/// transition, the narration bar, a keyboard inset); when pages could only
-/// ever shrink, one such moment left a band of blank space at the foot of
-/// every page until the window itself changed size. Pure, so it's unit-tested.
+/// Pages shrink as soon as the area does, so text never runs under the
+/// controls, but grow only once it has held still (`settle`): the area is
+/// briefly smaller now and then (a navigation transition, a keyboard inset),
+/// and growing at every in-between size would re-paginate for nothing. Pure,
+/// so it's unit-tested.
 struct PageAreaTracker {
     /// The height pages are measured for (0 = nothing seen yet).
     private(set) var pageHeight: CGFloat = 0
-    /// The settled page area with the controls up at this window size (0 =
-    /// not seen yet). With the controls hidden the area is taller than a page
-    /// may be, so pages grow no further than this.
+    /// The page area with the controls up at this window size (0 = not seen
+    /// yet). One page or two is decided on it: full screen's extra height
+    /// makes the area squarer, and on an iPad in landscape beside the sidebar
+    /// that turned the two-page spread into one page.
     private(set) var controlsUpHeight: CGFloat = 0
+
+    /// The height to decide one page or two on (see `controlsUpHeight`).
+    var spreadDecisionHeight: CGFloat { controlsUpHeight > 0 ? controlsUpHeight : pageHeight }
 
     /// A new window size (rotation, a split-view resize, iPhone Duo pinning a
     /// video above the app): start over from the area on screen.
-    mutating func reset(to area: CGFloat) {
+    mutating func reset(to area: CGFloat, controlsUp: Bool) {
         pageHeight = area
-        controlsUpHeight = 0
+        controlsUpHeight = controlsUp ? area : 0
     }
 
     /// The page area changed: shrink at once, so text never runs under the controls.
-    mutating func observe(_ area: CGFloat) {
+    mutating func observe(_ area: CGFloat, controlsUp: Bool) {
+        if controlsUp { controlsUpHeight = area }
         if area < pageHeight - 1 { pageHeight = area }
     }
 
-    /// The page area has held still at `area`: grow back to it, or with the
-    /// controls hidden, to the controls-up area at most.
-    mutating func settle(_ area: CGFloat, controlsUp: Bool) {
-        if controlsUp { controlsUpHeight = area }
-        let ceiling = controlsUp ? area : min(area, controlsUpHeight)
-        if ceiling > pageHeight + 1 { pageHeight = ceiling }
+    /// The page area has held still at `area`: grow to fill it.
+    mutating func settle(_ area: CGFloat) {
+        if area > pageHeight + 1 { pageHeight = area }
     }
 }
 
