@@ -263,7 +263,7 @@ final class ReaderLayoutTests: XCTestCase {
 
     /// The bottom of the reader's nav bar (the top of its page area).
     private func readerTopEdge(above bar: CGRect) -> CGFloat {
-        let bars = app.navigationBars.allElementsBoundByIndex.map(\.frame)
+        let bars = app.navigationBars.allElementsBoundByIndex.map { $0.frame }
             .filter { $0.minX <= bar.midX && $0.maxX >= bar.midX && $0.maxY <= bar.minY }
         return bars.map(\.maxY).max() ?? app.windows.firstMatch.frame.minY
     }
