@@ -64,6 +64,23 @@ jobs:
       # bottom edge, full pages, across backgrounding, control toggles, the
       # keyboard and wide (two-page) windows. The rest of FanficlyUITests
       # (screenshots, app previews) runs from fastlane, not CI.
+      # The first launch of the app on a simulator is slow on CI: once ~30 s,
+      # once past XCUITest's launch timeout, failing whichever layout test
+      # ran first. Boot each simulator and launch the app once (demo mode,
+      # offline) so the tests start warm.
+      - name: Warm up the simulators for the UI tests
+        run: |
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -type d \
+            -path '*/Build/Products/Debug-iphonesimulator/Fanficly.app' -prune -print -quit)
+          echo "App: $APP"
+          for ID in "${{ steps.sim.outputs.iphone_id }}" "${{ steps.sim.outputs.ipad_id }}"; do
+            xcrun simctl bootstatus "$ID" -b
+            xcrun simctl install "$ID" "$APP"
+            xcrun simctl launch "$ID" io.github.yennster.fanficly -demoMode || true
+            sleep 20
+            xcrun simctl terminate "$ID" io.github.yennster.fanficly || true
+          done
+
       - name: Reader layout UI tests on iPhone
         run: |
           xcodebuild test \
