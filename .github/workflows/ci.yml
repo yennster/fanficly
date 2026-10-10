@@ -60,9 +60,71 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath build/ipad.xcresult
 
+      # Page-by-page layout as drawn on each screen: the page footer on the
+      # bottom edge, full pages, across backgrounding, control toggles, the
+      # keyboard and wide (two-page) windows. The rest of FanficlyUITests
+      # (screenshots, app previews) runs from fastlane, not CI.
+      - name: Reader layout UI tests on iPhone
+        run: |
+          xcodebuild test \
+            -project Fanficly.xcodeproj \
+            -scheme Fanficly \
+            -destination "id=${{ steps.sim.outputs.iphone_id }}" \
+            -only-testing:FanficlyUITests/ReaderLayoutTests \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath build/iphone-ui.xcresult
+
+      - name: Reader layout UI tests on iPad
+        run: |
+          xcodebuild test \
+            -project Fanficly.xcodeproj \
+            -scheme Fanficly \
+            -destination "id=${{ steps.sim.outputs.ipad_id }}" \
+            -only-testing:FanficlyUITests/ReaderLayoutTests \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath build/ipad-ui.xcresult
+
       - name: Upload result bundles on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: xcresults
+          path: build/*.xcresult
+
+  mac:
+    # The unit tests again under Mac Catalyst: the Mac measures text with its
+    # own metrics, which is where page-by-page's measurements drift most.
+    name: Unit tests on Mac (Catalyst)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest installed Xcode
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build & test on Mac Catalyst
+        run: |
+          xcodebuild test \
+            -project Fanficly.xcodeproj \
+            -scheme Fanficly \
+            -destination "platform=macOS,variant=Mac Catalyst" \
+            -only-testing:FanficlyTests \
+            CODE_SIGNING_ALLOWED=NO \
+            -resultBundlePath build/mac.xcresult
+
+      - name: Upload result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-mac
           path: build/*.xcresult
