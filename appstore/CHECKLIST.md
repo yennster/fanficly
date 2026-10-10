@@ -9,7 +9,7 @@ Prepared assets already in the repo:
 - ASO copy → `fastlane/metadata/` (name, subtitle, keywords, description, etc.)
 - Framed marketing screenshots (6.9" + 13") → `fastlane/screenshots/en-US/`
 - Reviewer notes → `fastlane/metadata/review_information/notes.txt`
-- Current version: **1.10.0 (build 31)** in `project.yml`, iOS + Mac (both platforms take the same build number). Bump both for the next release (see *Releasing an update* below).
+- Current version: **1.10.1 (build 32)** in `project.yml`, iOS + Mac (both platforms take the same build number). Bump both for the next release (see *Releasing an update* below).
 
 ---
 
@@ -135,6 +135,14 @@ In App Store Connect → your **1.5.1** version:
 Bump `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` in `project.yml`, run
 `xcodegen generate`, update `release_notes.txt`, re-shoot if UI changed
 (`bundle exec fastlane screenshots`), then `bundle exec fastlane release`.
+
+If the reader changed, run `bundle exec fastlane reader_layout_tests` before
+releasing: the page-by-page layout UI tests on an iPhone, an iPad, the iPhone
+Duo and the Mac, which CI only covers on the iPhone and iPad. The Duo is tested
+in whatever pose Device Hub shows, so run it again with
+`devices:"iPhone Duo" mac:false` after folding or unfolding it.
+`bundle exec fastlane unit_tests` runs the unit tests as CI does (iPhone, iPad
+and Mac Catalyst).
 
 ## Mac App Store (Mac Catalyst)
 
