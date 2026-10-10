@@ -412,3 +412,51 @@ final class ReaderPaginationTests: XCTestCase {
         }
     }
 }
+
+/// TEMPORARY diagnostic (remove before merge): prints how boundingRect and
+/// SwiftUI's Text measure the same text on this platform, so the paginator's
+/// measurement can be matched to what SwiftUI draws.
+@MainActor
+final class TextMetricsReport: XCTestCase {
+    private func drawn(_ text: AttributedString, _ family: ReaderFontFamily, _ size: CGFloat,
+                       lineSpacing: CGFloat, width: CGFloat) -> CGFloat {
+        let view = Text(text).font(family.font(size: size)).lineSpacing(lineSpacing)
+            .frame(width: width, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+        return UIHostingController(rootView: view)
+            .sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+    }
+
+    private func lineCount(_ text: AttributedString, _ family: ReaderFontFamily, _ size: CGFloat, width: CGFloat) -> Int {
+        let storage = NSTextStorage(string: String(text.characters), attributes: [.font: family.uiFont(size: size)])
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        var lines = 0
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, _, _, _, _ in lines += 1 }
+        return lines
+    }
+
+    func test_report() {
+        let long = AttributedString(String(repeating: "The rain had not stopped since morning and she walked along the river. ", count: 4))
+        for family in ReaderFontFamily.allCases {
+            for size: CGFloat in [13, 18, 27] {
+                let font = family.uiFont(size: size)
+                var row = "METRICS \(family.rawValue) \(Int(size))pt lineHeight=\(font.lineHeight) asc=\(font.ascender) desc=\(font.descender) leading=\(font.leading)"
+                for ls: CGFloat in [0, 6] {
+                    for n in [1, 2, 10] {
+                        let text = AttributedString(Array(repeating: "Ag", count: n).joined(separator: "\n"))
+                        let measured = ReaderPaginator.calculateHeight(for: text, width: 300, fontSize: size, fontFamily: family,
+                                                                       lineSpacing: ls, kerning: 0, boldText: false)
+                        row += " | ls\(Int(ls)) n\(n) rect=\(measured) swiftui=\(drawn(text, family, size, lineSpacing: ls, width: 300))"
+                    }
+                    let measured = ReaderPaginator.calculateHeight(for: long, width: 300, fontSize: size, fontFamily: family,
+                                                                   lineSpacing: ls, kerning: 0, boldText: false)
+                    row += " | ls\(Int(ls)) wrapped lines=\(lineCount(long, family, size, width: 300)) rect=\(measured) swiftui=\(drawn(long, family, size, lineSpacing: ls, width: 300))"
+                }
+                print(row)
+            }
+        }
+    }
+}
