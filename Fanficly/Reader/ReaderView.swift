@@ -2412,8 +2412,15 @@ enum ReaderPaginator {
     /// text metrics it doesn't: New York lines draw a point taller at 13 and
     /// 18 pt, and 13 pt text fits more words on a line. Measured on CI, those
     /// ran default-font pages up to 14 pt past their area (the last line cut
-    /// off) and left small-text pages ~50 pt short.
-    static var measuresDrawnPages: Bool { UIDevice.current.userInterfaceIdiom == .mac }
+    /// off) and left small-text pages ~50 pt short. A build-time check, not
+    /// the idiom: the Mac app doesn't report the Mac idiom everywhere.
+    static var measuresDrawnPages: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
+    }
 
     /// Measures pages with ReaderPageCell's view, reusing one hosting controller.
     static func drawnHeightMeasure(width: CGFloat, fontSize: CGFloat, fontFamily: ReaderFontFamily,
