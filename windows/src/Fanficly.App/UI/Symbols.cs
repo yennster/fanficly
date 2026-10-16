@@ -162,6 +162,9 @@ public static class Symbols
 
     public static bool Has(string sfSymbol) => Map.ContainsKey(sfSymbol);
 
+    /// <summary>Every registered name and its glyph (the icon gallery).</summary>
+    public static IReadOnlyDictionary<string, string> All => Map;
+
     /// <summary>The Fluent glyph for an SF Symbol name (a neutral page glyph when unknown).</summary>
     public static string Glyph(string sfSymbol) => Map.TryGetValue(sfSymbol, out var g) ? g : "";
 

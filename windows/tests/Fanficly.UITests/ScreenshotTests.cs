@@ -19,6 +19,27 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
             ? dir
             : Path.Combine(AppSession.WindowsRoot, "artifacts", "screenshots");
 
+    /// <summary>Every icon the app uses, a page at a time, into <c>icons/</c>: an
+    /// icon missing from the installed font shows as an empty box.</summary>
+    [Fact]
+    public void CaptureIconGallery()
+    {
+        using var s = AppSession.Launch(FormFactor.Desktop, "-iconGallery");
+        Assert.True(s.WaitForHeader("Icons", 10), "The icon gallery didn't open.");
+        var folder = Path.Combine(OutputRoot, "icons");
+        var scroller = s.Window.FindAllDescendants()
+            .FirstOrDefault(e => e.Patterns.Scroll.PatternOrDefault?.VerticallyScrollable.ValueOrDefault == true);
+        var scroll = scroller?.Patterns.Scroll.PatternOrDefault;
+        var viewSize = scroll?.VerticalViewSize.ValueOrDefault ?? 100;
+        var pages = scroll is null ? 1 : (int)Math.Ceiling(100 / Math.Max(1, viewSize));
+        for (var page = 0; page < Math.Min(pages, 8); page++)
+        {
+            scroll?.SetScrollPercent(-1, Math.Min(100, page * viewSize * 0.95));
+            s.Settle(500);
+            s.Snap(folder, $"icons-{page + 1}");
+        }
+    }
+
     [Theory]
     [InlineData("desktop")]
     [InlineData("tablet")]

@@ -20,6 +20,9 @@ public static partial class AppHost
     /// <summary>"-demoLongChapters": demo chapters long enough for a full page mid-chapter.</summary>
     public static bool IsDemoLongChapters { get; } = Environment.GetCommandLineArgs().Contains("-demoLongChapters");
 
+    /// <summary>"-iconGallery" opens a page of every icon (UI tests check the icon font).</summary>
+    public static bool IsIconGallery { get; } = Environment.GetCommandLineArgs().Contains("-iconGallery");
+
     /// <summary>"-tab library" picks the starting tab (screenshot tests, jump list).</summary>
     public static SidebarItem? InitialTab { get; private set; }
 

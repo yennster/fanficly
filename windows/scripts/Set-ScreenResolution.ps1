@@ -6,6 +6,13 @@
 #>
 param([int] $Width = 1920, [int] $Height = 1200)
 $ErrorActionPreference = 'Continue'
+# Windows Server has a cmdlet for this; use it when present.
+if (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue) {
+  foreach ($size in @(@($Width, $Height), @(1920, 1080), @(1680, 1050), @(1600, 900), @(1440, 900), @(1366, 768))) {
+    try { Set-DisplayResolution -Width $size[0] -Height $size[1] -Force -ErrorAction Stop; Write-Host "Set-DisplayResolution $($size[0])x$($size[1])"; break }
+    catch { Write-Host "Set-DisplayResolution $($size[0])x$($size[1]) failed: $_" }
+  }
+}
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
