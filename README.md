@@ -1,138 +1,176 @@
-# Fanficly
+# Fanficly for Windows
 
-An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https://archiveofourown.org).
+An open-source, ad-free Windows reader for [Archive of Our Own](https://archiveofourown.org).
 
-<img src="screenshots/showcase.png" alt="Fanficly showcase">
+This is the `windows` branch: a native Windows app in C# on .NET 10 with WinUI 3 (Windows App SDK), compiled with Native AOT and shipped through the Microsoft Store as an MSIX bundle for x64 and ARM64. It runs on Windows 10 (version 2004, build 19041, and later) and Windows 11. The app lives in [`windows/`](windows/).
 
-_These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots`: the `ScreenshotTests` UI test captures the raw demo-mode screens to `docs/screenshots/{iphone,ipad,mac}/`, then `bin/frame-screenshots.py` lays each one out as a web page (`bin/store-art/`) with the app in a real Apple bezel and renders it with headless Chrome into `screenshots/final/` and `fastlane/screenshots/en-US/`._
+The iPhone, iPad and Mac app is on the [`main`](https://github.com/yennster/fanficly/tree/main) branch. Its Swift sources (`Fanficly/`, `FanficlyWidget/`, `FanficlyShare/`, the Xcode project) are still in this branch as the reference implementation the Windows port follows, but nothing here builds or ships them.
+
+| Home | Search results |
+| --- | --- |
+| <img src="docs/screenshots/windows/desktop/01-home.png" alt="Fanficly's Search tab on a desktop window"> | <img src="docs/screenshots/windows/desktop/02-search-results.png" alt="Search results for a tag and the word complete"> |
+| **Reader** | **Library** |
+| <img src="docs/screenshots/windows/desktop/03-reader.png" alt="A story open in the reader"> | <img src="docs/screenshots/windows/desktop/04-library.png" alt="The Library with reading progress on each story"> |
+
+The same screens at a tablet size and in a narrow window are in [`docs/screenshots/windows/tablet/`](docs/screenshots/windows/tablet/) and [`docs/screenshots/windows/compact/`](docs/screenshots/windows/compact/): `01-home`, `02-search-results`, `03-reader`, `04-library`, `05-browse`, `05-browse-fandoms`, `06-recently-viewed`, `07-reader-settings`, `08-privacy`, `09-tts`, `10-popular`, `11-comments` and `12-bookmarks`.
+
+_The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/ScreenshotTests.cs` launches the app in demo mode (offline, all-ages sample content) and photographs each screen at a desktop (1600 × 1000), tablet (834 × 1112) and compact (420 × 880) window size. To regenerate them, see [Screenshots](#screenshots) below._
 
 ## Features
 
-- **Search that does what you typed** — keywords go straight to AO3's own search, and as you type, live suggestions from AO3's tag list (fandoms, ships, characters, tropes) turn words into exact tag filters with one tap. Type `complete`, `wip`, `explicit`, `m/m`, `under 10k` or `in spanish` and they become filter chips; everything else stays a keyword — so `teen wolf` means Teen Wolf. A Filters panel covers ratings, warnings, categories, length, language and sort, and `title:`, `by:`, `tag:"…"` and `-tag:"…"` give precise control. Recent and saved searches are one tap away.
-- **Browse by fandom, with AO3's full filter set** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search. A fandom's works can be filtered exactly like on AO3 (rating, warnings, category, completion, crossovers, word count, relationships/characters/tags include & exclude) — and typed tags resolve to AO3's canonical names via autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`. Save a filter preset once and reapply it to any fandom — or straight from the Browse home.
-- **Popular** — popular fandoms, ships, and characters, ranked live from AO3's work counts (refreshed in the background) with a curated fallback; tap one to see its works sorted by kudos.
-- **Reader** — continuous scroll, swipe-by-chapter, or horizontal page-by-page mode. Six themes (light, sepia, dark, OLED black, Dracula navy, match-system), five font families, and continuously adjustable text size, line-spacing, paragraph-spacing, character-spacing (kerning), bold-text, and margin controls (with quick presets in the Aa menu) — all persisted and synced via iCloud. Arrow keys turn pages on a hardware keyboard. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
-- **Reader profiles** — save complete typography setups as named profiles and switch between them; iPhone, iPad, and Mac each remember their own settings and active profile (and deleting a profile now sticks across devices).
-- **Story images (opt-in)** — a "Show images in stories" toggle (off by default) renders authors' embedded artwork inline in every reading mode, sized so a slow-loading image can never shift your saved reading position. Off keeps the classic text-only reader; downloaded works stay text-only offline either way.
-- **Reading stats & yearly wrap** — the Stats tab totals your stories finished, time read, words read, and day-streak, with top fandoms / ships / categories / authors for any Week / Month / Year / All Time period — plus a shareable wrap-up card, all computed on-device.
-- **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story. Your library shows a reading-progress bar on every story you've started, and a "Finished" badge once you're done.
-- **Home-screen widget** — small and medium widgets show your last-read story with its progress; tapping jumps straight back to your paragraph, with progress synced across devices via iCloud.
-- **Follow, Star & Pin** — bookmark any story with one tap (right from the results list, no need to open it). Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop — tap one to open the story (or, for an author's new works, their page), even from a cold launch.
-- **Follow authors** — follow an author from their page and get a local notification when they post a new work; the Authors tab keeps everyone you follow in one place.
-- **Comments** — read a work's comment thread, and when you're logged into AO3, post a comment of your own.
-- **Folders** — group library stories into custom folders, included in iCloud library backups.
-- **Library sorting** — sort saved stories by date saved, last read, last updated, title, author, or length (pinned stories stay on top); the control sits in the filter row, not the toolbar, and folders follow the same order.
-- **Library Search** — search works in your library in real-time by title, author, or tags (fandoms, characters, relationships, freeforms, ratings, warnings, and categories). When on the Folders tab, search filters custom folders by name.
-- **Safari Share Sheet Integration** — add works to your library directly from mobile Safari or other browsers. Selecting the Fanficly action in the share sheet imports the work metadata and chapters instantly.
-- **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage, with options to manually backup/restore or purge backups.
-- **Export in any format** — share the work as EPUB, MOBI, AZW3, PDF, or HTML through the iOS share sheet (AirDrop, Books, Files, …).
-- **AO3 account (optional)** — log in to subscribe on AO3 and sync your subscriptions, browse your AO3 bookmarks (including private ones), and post comments. Credentials never stored; only the session cookie, in the Keychain.
-- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0). Resizing never loses your place: rotating, iPad multitasking, or unfolding iPhone Duo keeps the story and paragraph you were on, and lines stay a comfortable length on wide screens.
-- **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
+- **Search that does what you typed.** Keywords go straight to AO3's own search. As you type, live suggestions from AO3's tag list (fandoms, ships, characters, tropes) turn the words you're typing into exact tag filters with one click. Typing `complete`, `wip`, `explicit`, `m/m`, `under 10k` or `in spanish` makes a filter chip; everything else stays a keyword, so `teen wolf` means Teen Wolf. A Filters panel covers ratings, warnings, categories, length, language and sort, and `title:`, `by:`, `tag:"…"` and `-tag:"…"` give precise control. Recent and saved searches are one click away, and Search tips explains it all. Ctrl+F or F3 jumps back to the search box.
+- **Browse by fandom, with AO3's full filter set.** All 10 AO3 media categories, each loading the complete live fandom list with work counts and instant search (and a curated list when AO3 can't be reached). A fandom's works filter exactly like on AO3: rating, warnings, category, completion, crossovers, word count, and relationships, characters and tags to include or exclude. Typed tags resolve to AO3's canonical names through its autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`. Save a filter once and run it from the Browse home.
+- **Popular.** Popular fandoms, ships and characters, ranked from AO3's work counts (refreshed at most once a day, in the background), with a curated list whenever AO3 can't be reached. Pick one to see its works sorted by kudos.
+- **Library.** Every saved story, filtered by All, Starred, Downloaded or Folders, searchable by title, author or tag, and sorted by date saved, last read, last updated, title, author or length (pinned stories stay on top). Every started story shows a reading-progress bar and a "Finished" badge when you're done. Right-click (or Shift+F10) a story to star, pin, file it in folders, download it for offline reading, share it or delete it. Custom folders have their own sorted, searchable lists. Keys: Enter opens, Delete removes, F2 renames a folder, Ctrl+Shift+N makes one.
+- **Follow, star and pin.** Save any story with one click, right from the results list. Followed works are checked for new chapters in the background, and a Windows notification tells you when one is posted. Click the notification to open the story, even when it starts the app.
+- **Follow authors.** Follow an author from their works page and get a notification when they post a new work. The Authors tab keeps everyone you follow in one place.
+- **Recently Viewed.** The stories you've opened, newest first. Remove one with Delete, several with Edit, or clear the list.
+- **Comments.** Read a chapter's comment thread, with replies indented under the comment they answer. Signed in to AO3, post a comment of your own.
+- **AO3 account (optional).** Sign in to see your AO3 subscriptions (synced into the Subscriptions tab with your local follows), browse your AO3 bookmarks (private ones included) and post comments. Your password goes only to AO3 and is never stored; the session cookie is kept encrypted with Windows Data Protection, so only your Windows account can read it.
+- **Reading stats and a yearly wrap-up.** The Stats tab totals the stories you've finished, time read, words read and your day streak, with top fandoms, ships, categories and authors for any week, month, year or all time. Share the wrap-up card, save it as an image or copy it. Everything is computed on your PC.
+- **Widgets.** Six widgets for the Windows 11 Widgets board, each small or medium: Continue reading (your last story and how far you got), Reading Streak, Subscriptions, Folder Shortcuts, Saved Searches and Recommendation. Clicking one opens the story, folder or search it shows.
+- **Jump list.** Right-click Fanficly on the taskbar or in Start for "Continue" with your last story, and shortcuts to Search, Library, Popular and Subscriptions.
+- **Share → Fanficly.** Share an AO3 work page from Edge, Chrome or any app that shares links, and Fanficly fetches the work, saves it to your Library, downloads it for offline reading and opens it.
+- **`fanficly://` links.** `fanficly://resume/<id>?chapter=<n>&paragraph=<m>`, `fanficly://import?url=<AO3 link>`, `fanficly://library?folder=<name>` and `fanficly://search?query=<text>`. Fanficly is single-instance: a second launch (a link, a notification, a widget, a jump-list entry) hands its request to the window that's already open.
+- **Sync across devices, through a folder you already sync.** Fanficly has no servers, so it syncs through a folder you pick: OneDrive, iCloud Drive (with iCloud for Windows), Dropbox or any other. Your library (saved works, downloaded chapter text, folders, reading positions, stats, saved searches and filters) and your reader profiles, last-read story and streak are written there, and that service carries them to your other devices. The backup is the Apple app's format exactly, so a PC and an iPhone, iPad or Mac pointed at the same backup share one library. Backups merge with what's already there and restores only ever move things forward, so a device with less can never erase another's.
+- **Content and safety.** A 17+ confirmation on first launch, a "Filter mature & explicit works" switch (on by default), and a list of works you've hidden from results.
+- **Made for Windows.** A Windows 11 title bar and Mica backdrop (acrylic where Mica isn't available), the sidebar folding to icons and then to a menu button as the window narrows, light, dark or system app theme, and high-contrast themes. Keyboard: Ctrl+1…9 for the tabs and Ctrl+, for Settings, Ctrl+Plus / Ctrl+Minus / Ctrl+0 to zoom the whole interface, F11 for full screen, Alt+Left, Esc or the mouse's back button to go back; Settings → Keyboard shortcuts lists them all. Xbox and other XInput controllers work too (D-pad to move, A to select, B to go back, LB / RB to switch tabs). Narrator reads every control, and the app announces what changes on screen.
+- **Zero tracking.** No analytics, no crash reporters, no telemetry, no ads.
+
+<!-- reader: verify against windows/src/Fanficly.App/Views/Reader -->
+### The reader
+
+_The Windows reader (`windows/src/Fanficly.App/Views/Reader`) is being ported now. This section describes the Apple app's reader, which is the Windows reader's target behaviour; its pure layout logic (pagination, the two-page spread, position tracking, themes and fonts) is already in `windows/src/Fanficly.Core/Reader` and tested._
+
+- **Three reading modes.** Continuous scroll, swipe by chapter, or page by page. In a wide window, pages pair up into a two-page spread like an open book ("Pages on screen": one or two). Arrow keys and Page Up / Page Down turn pages, and so do the controller's D-pad and triggers.
+- **Typography.** Six themes (Match System, Light, Sepia, Dark, OLED Black, Dracula Navy), five font families (mapped to the closest fonts Windows ships: Sitka Text, Georgia, Segoe UI Variable, a rounded face where one is installed, and Cascadia Mono), and continuously adjustable text size, line spacing, paragraph spacing, character spacing, bold text and margins. Lines stay a comfortable length in a wide window.
+- **Reader profiles.** Save complete typography setups as named profiles and switch between them. They sync through your sync folder, deleting one sticks across devices, and each device (iPhone, iPad, Mac, Windows) keeps its own active profile and settings.
+- **Listen.** Any chapter read aloud with the voices built into Windows, entirely on your PC: the spoken paragraph is highlighted and kept in view, and narration moves on to the next chapter by itself. Voice and speaking rate are in Settings → Theme & typography, with a spoken sample.
+- **Story images (opt-in).** "Show images in stories" (off by default) shows authors' embedded artwork inline, in fixed-height slots so a slow image can never move your place. Downloaded works stay text-only offline.
+- **Resume where you left off.** Your position is saved down to the paragraph and restored when you reopen a story. Reading to the last line counts as finished.
+- **Work page.** Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header, the author's byline opening their works, and an options menu for comments, saving to the Library, downloading, subscribing on AO3 (signed in) and hiding the work.
+- **Export in any format.** Save the work as EPUB, MOBI, AZW3, PDF or HTML through Windows' Share sheet or a file.
+- **Keep screen awake** while reading (on by default in Settings).
+<!-- /reader -->
 
 ## Tech
 
-- Swift 6, SwiftUI, SwiftData
-- iOS 17+, plus macOS via Mac Catalyst.
-- [SwiftSoup](https://github.com/scinfu/SwiftSoup) for AO3 HTML parsing
-- [KeychainAccess](https://github.com/kishikawakatsumi/KeychainAccess) for credential storage
-- Project generated by [xcodegen](https://github.com/yonaskolb/XcodeGen) — `project.yml` is the source of truth
+- C# on .NET 10 (the SDK version is pinned in [`windows/global.json`](windows/global.json)), with nullable reference types on.
+- WinUI 3 through the [Windows App SDK](https://github.com/microsoft/WindowsAppSDK). The UI is built in C#, not XAML markup, so the whole app compiles and type-checks on any OS.
+- Native AOT in Release builds: machine code, no JIT, fast cold start. The code avoids reflection-based JSON and other trimming hazards.
+- MSIX packaging: one Store bundle with x64 and ARM64.
+- [AngleSharp](https://anglesharp.github.io/) parses AO3's HTML; [Microsoft.Data.Sqlite](https://learn.microsoft.com/dotnet/standard/data/sqlite/) holds the library database.
+- [xUnit](https://xunit.net/) for unit tests, [FlaUI](https://github.com/FlaUI/FlaUI) for UI automation tests.
+- Package versions are pinned centrally in [`windows/Directory.Packages.props`](windows/Directory.Packages.props). There are no other dependencies.
+
+The solution is [`windows/Fanficly.Windows.slnx`](windows/Fanficly.Windows.slnx):
+
+| Project | What it is |
+| --- | --- |
+| `src/Fanficly.Core` | Everything that isn't UI, platform-neutral (`net10.0`): the AO3 client and HTML parsers, search syntax, the library database, sync merging, stats, widgets' data, and the reader's layout logic. |
+| `src/Fanficly.App` | The WinUI app (`Fanficly.exe`): the window, the screens, and the Windows integrations (notifications, widgets, the background task, the jump list, the Share target, controllers). |
+| `tests/Fanficly.Core.Tests` | Unit tests for Core. Fixture-based, no network; they run on Windows, Linux and macOS. |
+| `tests/Fanficly.UITests` | UI automation tests that drive the built app in demo mode. Windows only. |
 
 ## Development
 
-Set up:
-```bash
-brew install xcodegen
-xcodegen generate
-open Fanficly.xcodeproj
-```
+You need the .NET 10 SDK. Everything below runs from the `windows/` folder.
 
-### Run locally in the simulator (no Xcode UI needed)
-
-**One-time setup.** Point the command-line tools at full Xcode (not the
-Command Line Tools shim — `simctl` only ships with full Xcode):
-```bash
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-xcode-select -p   # should print /Applications/Xcode.app/Contents/Developer
-```
-
-If you skip this you'll get `xcrun: error: unable to find utility "simctl"`.
-
-**Build and run:**
-```bash
-xcrun simctl boot "iPhone 17"
-open -a Simulator
-
-xcodebuild \
-  -project Fanficly.xcodeproj -scheme Fanficly \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
-
-xcrun simctl install booted \
-  build/Build/Products/Debug-iphonesimulator/Fanficly.app
-xcrun simctl launch booted io.github.yennster.fanficly
-```
-
-Rebuild after edits with the `xcodebuild build` + `simctl install` lines
-(the simulator stays booted). To swap to iPad, replace `iPhone 17` with
-`iPad Pro 13-inch (M5)` in both places.
-
-**One-shot without changing `xcode-select`** (if you can't sudo):
-```bash
-export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-# then run the four commands above as-is
-```
-`xcrun` honours `DEVELOPER_DIR`, so `xcrun simctl …` will resolve to the
-binary inside Xcode.app.
-
-### Running on a physical device (code signing)
-
-The simulator needs no signing. To run on a device, put your Apple
-Developer **Team ID** in `Signing.xcconfig` (the project reads
-`DEVELOPMENT_TEAM` from there), then keep that local edit out of git:
+### Build and test on any OS
 
 ```bash
-echo 'DEVELOPMENT_TEAM = ABCDE12345' > Signing.xcconfig   # your team ID
-git update-index --skip-worktree Signing.xcconfig          # don't commit it
-xcodegen generate
+cd windows
+dotnet test tests/Fanficly.Core.Tests          # the unit tests
+dotnet build src/Fanficly.App -p:Platform=x64  # compiles the app (Platform=ARM64 for Arm)
 ```
 
-Find your Team ID in Xcode ▸ Settings ▸ Accounts, or at
-developer.apple.com ▸ Membership. Make sure that Apple ID is signed into
-Xcode so automatic signing can create a provisioning profile.
+The app compiles on Linux and macOS too (`EnableWindowsTargeting` in `Directory.Build.props`), so you can check a change there. Packaging (MakePri and MSIX) is switched off off Windows, and running the app or its UI tests needs Windows.
 
-### Tests
+### Run it on Windows
 
-```bash
-xcodebuild test \
-  -project Fanficly.xcodeproj \
-  -scheme Fanficly \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  CODE_SIGNING_ALLOWED=NO \
-  -only-testing:FanficlyTests
+Build an unpackaged, self-contained copy and start it:
+
+```powershell
+cd windows
+dotnet build src/Fanficly.App -c Debug -p:Platform=x64 -p:WindowsPackageType=None `
+  -p:WindowsAppSDKSelfContained=true -p:RuntimeIdentifier=win-x64 -o ../artifacts/app-x64
+../artifacts/app-x64/Fanficly.exe -demoMode
 ```
 
-`-only-testing:FanficlyUITests/ReaderLayoutTests` runs the reader's layout UI tests instead. They open a story in page-by-page and check what's drawn: full pages, the page footer on the bottom edge, and the two-page spread on wide screens. For the Mac, use `-destination 'platform=macOS,variant=Mac Catalyst'`, plus `MACOSX_DEPLOYMENT_TARGET=14.0` if your Mac runs an older macOS than the SDK. The Mac run drives the real app window, so leave the mouse alone until it finishes. Before it starts, macOS asks for an administrator password to allow UI automation.
+- `-demoMode` runs fully offline with a curated, all-ages demo catalogue and in-memory storage, so nothing on your PC changes. It's what the UI tests and screenshots use.
+- Without it, the app talks to AO3 and keeps its data in `%LOCALAPPDATA%\Fanficly` (an installed MSIX uses its own package folder instead).
+- `-tab <name>` opens a tab at launch (`search`, `browse`, `popular`, `library`, `recentlyViewed`, `authors`, `bookmarks`, `subscriptions`, `stats`, `settings`).
+
+Some integrations come from the MSIX manifest (`windows/src/Fanficly.App/Package.appxmanifest`) and need package identity, so they only work from an installed package: the Widgets board, the background refresh task, the Share target, the `fanficly://` protocol and the Store rating dialog. Visual Studio (with the WinUI application development workload) can deploy the packaged app for debugging.
+
+### The Store package
+
+CI builds the Store upload with MSBuild on Windows, in Release (Native AOT), for both architectures at once:
+
+```powershell
+cd windows
+msbuild src/Fanficly.App/Fanficly.App.csproj /t:Restore /p:Configuration=Release
+msbuild src/Fanficly.App/Fanficly.App.csproj /p:Configuration=Release /p:Platform=x64 `
+  /p:AppxBundle=Always "/p:AppxBundlePlatforms=x64|arm64" /p:UapAppxPackageBuildMode=StoreUpload `
+  "/p:AppxPackageDir=$PWD\..\artifacts\AppPackages\" /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=false
+```
+
+That needs Visual Studio's MSBuild with the **WinUI application development** and **Desktop development with C++** workloads (the C++ tools are needed for Native AOT). Publishing to the Microsoft Store, the listing text in `windows/store/`, versioning and release tags are in [MICROSOFT_STORE.md](MICROSOFT_STORE.md).
+
+### UI tests
+
+`tests/Fanficly.UITests` launches the built app in demo mode and drives it through UI Automation: every tab opens from its shortcut in a laptop-sized and a narrow window, the sidebar works, back returns to the tab's root, zoom and full-screen keys, a second launch is handed to the running window, and a `fanficly://search` link opens Search.
+
+```powershell
+cd windows
+dotnet build tests/Fanficly.UITests
+dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~SmokeTests"
+```
+
+The tests use the app at `windows/artifacts/app-x64/Fanficly.exe` (the build above), or the one named by the `FANFICLY_EXE` environment variable. They move and click the real window, so leave the mouse and keyboard alone while they run.
+
+### Screenshots
+
+`ScreenshotTests` walks the demo app through the same screens as the Apple app's screenshot tests and saves each one at the desktop, tablet and compact sizes. It writes to the folder in `FANFICLY_SCREENSHOTS`, one subfolder per size. To refresh the screenshots in this README:
+
+```powershell
+cd windows
+$env:FANFICLY_SCREENSHOTS = (Resolve-Path ../docs/screenshots/windows).Path   # create the folder first
+dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests"
+```
+
+The test fails if any screen couldn't be reached, so a stale picture can't slip through. CI runs it on every push to `windows` and uploads the pictures as the `ui-screenshots` artifact; copying that artifact's `desktop/`, `tablet/` and `compact/` folders into `docs/screenshots/windows/` does the same. Until the reader lands, the reader, Listen and comments screens (`03-reader`, `09-tts`, `11-comments`) can't be reached.
+
+### CI
+
+[`.github/workflows/windows-ci.yml`](.github/workflows/windows-ci.yml) runs on every pull request to `windows`, and on pushes to `windows` that touch `windows/` or the Windows workflows:
+
+- **Core tests**: `dotnet test` on Windows.
+- **App**: builds the app for x64 and ARM64; the x64 build is launched in demo mode and photographed (the `launch-screenshot` artifact).
+- **UI tests and screenshots**: the smoke tests, then the screenshot tests, on a 1920 × 1200 display.
+- **MSIX bundle**: the Release (Native AOT) x64 + ARM64 Store upload, as the `msix-bundle` artifact.
+
+Store releases are [`.github/workflows/windows-store.yml`](.github/workflows/windows-store.yml), started by a `windows-vX.Y.Z` tag; see [MICROSOFT_STORE.md](MICROSOFT_STORE.md). The Apple workflow (`ci.yml`) only runs on `main`.
 
 ## About AO3
 
-AO3 has no public JSON API; Fanficly works by parsing the same HTML pages the AO3 website serves. We're respectful guests:
+AO3 has no public JSON API; Fanficly works by reading the same HTML pages the AO3 website serves. We're respectful guests:
 
 - Identify ourselves in `User-Agent` (`Fanficly/<version> (+github.com/yennster/fanficly)`)
-- Rate-limit ourselves to ≤1 request/second
-- Cache aggressively
-- Never parallelize scrapes
-- Use the official `/downloads/` EPUB endpoints — no need to re-render works ourselves
+- Rate-limit ourselves to at most 1 request a second, and never send requests in parallel
+- Cache what we can (popular lists for a day, tag lookups for the session)
+- Retry only safe reads, never a login, comment or subscribe
+- Use the official `/downloads/` EPUB endpoints rather than re-rendering works
 
 Fanficly is not affiliated with AO3 or the Organization for Transformative Works.
 
 ## Privacy
 
-We collect nothing. The app talks directly to AO3 from your device. Your AO3 session cookie lives in your iOS Keychain. Deleting the app erases everything. See [PRIVACY.md](PRIVACY.md).
+We collect nothing. The app talks directly to AO3 from your PC. Your AO3 session cookie is encrypted with Windows Data Protection for your Windows account. Uninstalling the app erases everything it stored on your PC; a backup in your sync folder stays until you delete it. See [PRIVACY.md](PRIVACY.md) and [ACCESSIBILITY.md](ACCESSIBILITY.md).
 
 ## Contributing
 
-See the [roadmap](docs/ROADMAP.md) for what's planned. PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See the [roadmap](docs/ROADMAP.md) for what's planned on Windows. PRs welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) first, and [AGENTS.md](AGENTS.md) for how the code is put together. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 
