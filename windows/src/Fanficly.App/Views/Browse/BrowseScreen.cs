@@ -21,7 +21,9 @@ internal sealed class BrowseScreen : Screen
     private const double CardGap = 12;
     private const double CardHeight = 84;
 
-    private GridView _grid = null!;
+    private Grid _grid = null!;
+    private readonly List<Button> _cards = [];
+    private int _columns;
     private StackPanel _savedFilters = null!;
     private TextBlock _categoriesHeader = null!;
     private LibraryChanges? _changes;
@@ -32,36 +34,31 @@ internal sealed class BrowseScreen : Screen
 
         _savedFilters = new StackPanel { Spacing = 2 };
         _categoriesHeader = UI.UI.SectionHeader("Categories");
-        var header = UI.UI.VStack(0, _savedFilters, _categoriesHeader);
-        header.Margin = new Thickness(0, 0, CardGap, 6);
 
-        _grid = new GridView
+        // A plain grid laid out here rather than a GridView: its wrap panel
+        // kept the card width from an earlier window size, so in a narrow
+        // window the one column of cards stopped short of the edge.
+        _grid = new Grid
         {
-            SelectionMode = ListViewSelectionMode.None,
-            IsItemClickEnabled = true,
-            Padding = new Thickness(24, 4, 24 - CardGap, 24),
-            Header = header,
-            IsSwipeEnabled = false,
+            ColumnSpacing = CardGap,
+            RowSpacing = CardGap,
             XYFocusKeyboardNavigation = XYFocusKeyboardNavigationMode.Enabled,
+            TabFocusNavigation = KeyboardNavigationMode.Once,
         };
         AutomationProperties.SetName(_grid, "Categories");
         AutomationProperties.SetAutomationId(_grid, "browse.categories");
-        foreach (var category in FandomCatalog.All) _grid.Items.Add(CategoryItem(category));
-        _grid.ItemClick += (_, e) =>
+        foreach (var category in FandomCatalog.All)
         {
-            var category = e.ClickedItem switch
-            {
-                FrameworkElement { Tag: FandomCategory c } => c,
-                _ => null,
-            };
-            if (category is not null) Navigator.Push(new CategoryFandomsScreen(category));
-        };
-        _grid.SizeChanged += (_, _) => LayoutCards();
-        _grid.Loaded += (_, _) => LayoutCards();
+            var card = CategoryCard(category);
+            _cards.Add(card);
+            _grid.Children.Add(card);
+        }
+        _grid.SizeChanged += (_, e) => LayoutCards(e.NewSize.Width);
 
         RefreshSavedFilters();
         _changes = new LibraryChanges(AppHost.Library, LibraryEntityKinds.SavedFilters, RefreshSavedFilters);
-        return _grid;
+        var content = UI.UI.VStack(0, _savedFilters, _categoriesHeader.Margin(0, 0, 0, 6), _grid);
+        return UI.UI.Scroll(content);
     }
 
     public override void OnAppearing()
@@ -73,7 +70,7 @@ internal sealed class BrowseScreen : Screen
 
     // MARK: - Categories
 
-    private static GridViewItem CategoryItem(FandomCategory category)
+    private Button CategoryCard(FandomCategory category)
     {
         var badge = new Border
         {
@@ -88,48 +85,53 @@ internal sealed class BrowseScreen : Screen
         name.VerticalAlignment = VerticalAlignment.Center;
 
         var row = UI.UI.Grid("Auto,*,Auto", columnSpacing: 12);
+        row.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(badge.Col(0));
         row.Children.Add(name.Col(1));
         row.Children.Add(UI.UI.Icon("chevron.right", 12, Theme.TextTertiary).Also(i => i.VerticalAlignment = VerticalAlignment.Center).Col(2));
 
-        var card = new Border
+        var card = new Button
         {
-            Child = row,
+            Content = row,
             Padding = new Thickness(14, 10, 14, 10),
             CornerRadius = new CornerRadius(8),
             Background = Theme.CardBackground,
             BorderBrush = Theme.CardStroke,
             BorderThickness = new Thickness(1),
-            Tag = category,
-        };
-
-        var item = new GridViewItem
-        {
-            Content = card,
-            Tag = category,
-            Margin = new Thickness(0, 0, CardGap, CardGap),
-            Padding = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            VerticalContentAlignment = VerticalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            MinHeight = CardHeight,
+            Tag = category,
         };
-        AutomationProperties.SetName(item, category.Name);
-        AutomationProperties.SetAutomationId(item, $"browse.category.{category.Id}");
-        ToolTipService.SetToolTip(item, category.Name);
-        return item;
+        card.Click += (_, _) => Navigator.Push(new CategoryFandomsScreen(category));
+        AutomationProperties.SetName(card, category.Name);
+        AutomationProperties.SetAutomationId(card, $"browse.category.{category.Id}");
+        ToolTipService.SetToolTip(card, category.Name);
+        return card;
     }
 
-    /// <summary>Sizes the cards so they fill the row: as many columns of at least
-    /// <see cref="MinCardWidth"/> as fit, recomputed on every resize.</summary>
-    private void LayoutCards()
+    /// <summary>Sizes the cards so they fill the row: as many equal columns of
+    /// at least <see cref="MinCardWidth"/> as fit, recomputed on every resize.</summary>
+    private void LayoutCards(double width)
     {
-        if (_grid.ItemsPanelRoot is not ItemsWrapGrid panel) return;
-        var available = _grid.ActualWidth - _grid.Padding.Left - _grid.Padding.Right;
-        if (available <= 0) return;
-        var columns = Math.Max(1, (int)Math.Floor(available / (MinCardWidth + CardGap)));
-        var width = Math.Floor(available / columns);
-        if (Math.Abs(panel.ItemWidth - width) > 0.5) panel.ItemWidth = width;
-        panel.ItemHeight = CardHeight + CardGap;
-        panel.Orientation = Orientation.Horizontal;
+        if (width <= 0) return;
+        var columns = Math.Max(1, (int)Math.Floor((width + CardGap) / (MinCardWidth + CardGap)));
+        if (columns == _columns) return;
+        _columns = columns;
+        _grid.ColumnDefinitions.Clear();
+        _grid.RowDefinitions.Clear();
+        for (var c = 0; c < columns; c++)
+            _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var rows = (_cards.Count + columns - 1) / columns;
+        for (var r = 0; r < rows; r++)
+            _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (var i = 0; i < _cards.Count; i++)
+        {
+            Grid.SetColumn(_cards[i], i % columns);
+            Grid.SetRow(_cards[i], i / columns);
+        }
     }
 
     // MARK: - Saved filters
@@ -169,6 +171,6 @@ internal sealed class BrowseScreen : Screen
         AppHost.Library.TrySave();
         RefreshSavedFilters();
         MainWindow.Current.Announce($"Deleted {saved.Name}");
-        _grid.Focus(FocusState.Programmatic);
+        _cards.FirstOrDefault()?.Focus(FocusState.Programmatic);
     }
 }

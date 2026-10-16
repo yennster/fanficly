@@ -215,7 +215,7 @@ public static class UI
         {
             Child = row,
             Background = background ?? Theme.AccentSubtle,
-            CornerRadius = new CornerRadius(999),
+            CornerRadius = new CornerRadius(4),
             Padding = new Thickness(9, 3, onRemove is null ? 9 : 4, 3),
         };
         if (onRemove is not null)
@@ -324,9 +324,34 @@ public static class UI
         {
             t.VerticalAlignment = VerticalAlignment.Center;
             grid.Children.Add(t.Col(2));
+            // Like Windows Settings' cards: in a narrow window a wide control
+            // (a picker, a slider) moves under its label instead of squeezing
+            // the label to a few letters. Switches and small buttons stay put.
+            if (t is not ToggleSwitch)
+            {
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var alignment = t.HorizontalAlignment;
+                var margin = t.Margin;
+                var stacked = false;
+                grid.SizeChanged += (_, e) =>
+                {
+                    var stack = e.NewSize.Width < StackedRowWidth && t.DesiredSize.Width > e.NewSize.Width * 0.4;
+                    if (stack == stacked) return;
+                    stacked = stack;
+                    Microsoft.UI.Xaml.Controls.Grid.SetRow(t, stack ? 1 : 0);
+                    Microsoft.UI.Xaml.Controls.Grid.SetColumn(t, stack ? 1 : 2);
+                    Microsoft.UI.Xaml.Controls.Grid.SetColumnSpan(t, stack ? 2 : 1);
+                    t.HorizontalAlignment = stack ? HorizontalAlignment.Stretch : alignment;
+                    t.Margin = stack ? new Thickness(margin.Left, 8, margin.Right, margin.Bottom) : margin;
+                };
+            }
         }
         return grid;
     }
+
+    /// <summary>Below this width a settings row puts a wide control under its label.</summary>
+    private const double StackedRowWidth = 440;
 
     /// <summary>A full-width tappable row (iOS NavigationLink row): content plus a chevron.</summary>
     public static Button NavRow(UIElement content, Action onClick, string? accessibleName = null, bool chevron = true)

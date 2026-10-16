@@ -4,8 +4,8 @@ Builds the Microsoft Store art from the UI tests' raw captures: the Windows
 counterpart of bin/frame-screenshots.py (fastlane screenshots) on main.
 
 The raws come from `ScreenshotTests.CaptureMainScreens("store" | "store-tablet")`,
-which draws the demo app at 2x ("-captureScale 2"), so a 1440x900 window is
-captured at 2880x1800 on any runner. Each image is a web page
+which draws the demo app enlarged ("-captureScale 2.4"), so a 1200x750 window
+is captured at 2880x1800 on any runner. Each image is a web page
 (windows/store-art/*.html + brand.css) rendered at the Store's exact size by
 headless Chrome: the brand canvas, a label, a serif headline with a gold
 accent, and the app in a Windows 11 window card.

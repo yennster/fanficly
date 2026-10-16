@@ -204,12 +204,50 @@ public static class Symbols
     /// <summary>Every drawn icon's name (the icon gallery).</summary>
     public static IEnumerable<string> DrawnNames => Drawn.Keys;
 
-    /// <summary>A new geometry each time (XAML geometries can't be shared),
-    /// scaled from the 16-unit grid to <paramref name="size"/>.</summary>
+    /// <summary>A new geometry each time, scaled from the 16-unit grid to
+    /// <paramref name="size"/>. Built by hand rather than with
+    /// XamlBindingHelper.ConvertValue, which hands back one shared geometry per
+    /// string, so only the last icon drawn with it showed. Reads the subset of
+    /// path markup used above: F, M, L, C, A and Z with absolute coordinates.</summary>
     private static Geometry Path(string data, double size)
     {
-        var geometry = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), data);
-        geometry.Transform = new ScaleTransform { ScaleX = size / 16, ScaleY = size / 16 };
+        var k = size / 16;
+        var geometry = new PathGeometry { FillRule = FillRule.Nonzero };
+        var tokens = data.Replace(',', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var i = 0;
+        double Num() => double.Parse(tokens[i++], System.Globalization.CultureInfo.InvariantCulture);
+        Windows.Foundation.Point Pt() { var x = Num(); var y = Num(); return new(x * k, y * k); }
+        PathFigure? figure = null;
+        while (i < tokens.Length)
+        {
+            switch (tokens[i++])
+            {
+                case "F0": geometry.FillRule = FillRule.EvenOdd; break;
+                case "F1": geometry.FillRule = FillRule.Nonzero; break;
+                case "M":
+                    figure = new PathFigure { StartPoint = Pt(), IsFilled = true };
+                    geometry.Figures.Add(figure);
+                    break;
+                case "L": figure!.Segments.Add(new LineSegment { Point = Pt() }); break;
+                case "C": figure!.Segments.Add(new BezierSegment { Point1 = Pt(), Point2 = Pt(), Point3 = Pt() }); break;
+                case "A":
+                    var radius = new Windows.Foundation.Size(Num() * k, Num() * k);
+                    var rotation = Num();
+                    var large = Num() != 0;
+                    var clockwise = Num() != 0;
+                    figure!.Segments.Add(new ArcSegment
+                    {
+                        Size = radius,
+                        RotationAngle = rotation,
+                        IsLargeArc = large,
+                        SweepDirection = clockwise ? SweepDirection.Clockwise : SweepDirection.Counterclockwise,
+                        Point = Pt(),
+                    });
+                    break;
+                case "Z": figure!.IsClosed = true; break;
+                default: throw new FormatException($"Unsupported path command in {data}");
+            }
+        }
         return geometry;
     }
 }

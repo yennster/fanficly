@@ -21,7 +21,7 @@ internal sealed class PopularScreen : Screen
     private PopularSnapshot? _snapshot = PopularStore.Cached();
     private bool _refreshing;
 
-    private SelectorBar _selector = null!;
+    private Segmented _selector = null!;
     private StackPanel _rows = null!;
     private ScrollViewer _scroll = null!;
 
@@ -29,27 +29,19 @@ internal sealed class PopularScreen : Screen
     {
         Title = "Popular";
 
-        _selector = new SelectorBar { Margin = new Thickness(20, 0, 20, 4) };
-        AutomationProperties.SetName(_selector, "Category");
-        foreach (var kind in PopularTagKinds.All)
+        // The Mac's segmented Picker("Category").
+        var kinds = PopularTagKinds.All.ToList();
+        _selector = new Segmented("Category",
+            kinds.Select(k => (k.Title(), (string?)k.Symbol(), $"popular.{k.Title().ToLowerInvariant()}")).ToList(),
+            kinds.IndexOf(_segment))
         {
-            var item = new SelectorBarItem
-            {
-                Text = kind.Title(),
-                Icon = Symbols.Icon(kind.Symbol()),
-                Tag = kind,
-                IsSelected = kind == _segment,
-            };
-            AutomationProperties.SetAutomationId(item, $"popular.{kind.Title().ToLowerInvariant()}");
-            _selector.Items.Add(item);
-        }
-        _selector.SelectionChanged += (_, _) =>
+            Margin = new Thickness(20, 0, 20, 12),
+            MaxWidth = 900,
+        };
+        _selector.SelectionChanged += index =>
         {
-            if (_selector.SelectedItem is { Tag: PopularTagKind kind } && kind != _segment)
-            {
-                _segment = kind;
-                RenderList(scrollToTop: true);
-            }
+            _segment = kinds[index];
+            RenderList(scrollToTop: true);
         };
 
         _rows = new StackPanel { XYFocusKeyboardNavigation = XYFocusKeyboardNavigationMode.Enabled };

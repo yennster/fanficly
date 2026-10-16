@@ -88,7 +88,9 @@ internal static class SearchChips
         _dangerSubtle.Color = Color.FromArgb(Theme.Current == ElementTheme.Dark ? (byte)0x40 : (byte)0x24, c.R, c.G, c.B);
     }
 
-    /// <summary>ChipView: a capsule with the label and, when removable, a small ✕.
+    /// <summary>ChipView: a token (Windows' tokenizing text box style: 4 px
+    /// corners and a hairline edge, rather than the Mac's capsule) with the
+    /// label and, when removable, a small ✕.
     /// The whole chip is the button (tapping it removes the filter).</summary>
     public static Button RemovableChip(ActiveChip chip, bool hasSearched, Action onRemove)
     {
@@ -109,12 +111,12 @@ internal static class SearchChips
         x.VerticalAlignment = VerticalAlignment.Center;
         var button = new Button
         {
-            Content = UI.UI.HStack(5, label, x),
+            Content = UI.UI.HStack(6, label, x),
             Background = background,
-            BorderBrush = Theme.Transparent,
-            BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(999),
-            Padding = new Thickness(10, 4, 8, 5),
+            BorderBrush = Theme.CardStroke,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8, 3, 7, 4),
             MinHeight = 0,
             MinWidth = 0,
         };
@@ -126,7 +128,7 @@ internal static class SearchChips
         return button;
     }
 
-    /// <summary>One suggestion in the row under the box: a tinted capsule with the
+    /// <summary>One suggestion in the row under the box: a tinted token with the
     /// suggestion's icon and label. Clicking it doesn't take focus from the box
     /// (typing carries on); the keyboard still reaches it (↓ from the box, ← →).</summary>
     public static Button SuggestionButton(SuggestionCandidate candidate, Action onApply)
@@ -137,10 +139,10 @@ internal static class SearchChips
         {
             Content = content,
             Background = Theme.AccentSubtle,
-            BorderBrush = Theme.Transparent,
-            BorderThickness = new Thickness(0),
-            CornerRadius = new CornerRadius(999),
-            Padding = new Thickness(10, 5, 10, 6),
+            BorderBrush = Theme.CardStroke,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8, 4, 9, 5),
             MinHeight = 0,
             MinWidth = 0,
             AllowFocusOnInteraction = false,

@@ -111,7 +111,7 @@ internal static class WorkHeaderMetadataView
             Padding = new Thickness(8, 4, 8, 4),
             MinHeight = 0,
             MinWidth = 0,
-            CornerRadius = new CornerRadius(12),
+            CornerRadius = new CornerRadius(4),
             BorderThickness = new Thickness(0),
             Background = background,
             Foreground = foreground,

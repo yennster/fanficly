@@ -441,9 +441,9 @@ rendered at the Store's exact size by headless Chrome.
 How it fits together:
 
 1. **Capture.** `ScreenshotTests` runs the demo app at a `store` size (a
-   1440 × 900 window) and a `store-tablet` size (834 × 1112), both launched with
-   `-captureScale 2`. Capture mode (demo only, `Platform/CaptureMode.cs`) draws
-   the whole window at 2×, title bar included, and lets the window be larger
+   1200 × 750 window, `-captureScale 2.4`) and a `store-tablet` size
+   (834 × 1112, `-captureScale 2`). Capture mode (demo only,
+   `Platform/CaptureMode.cs`) draws the whole window at that scale, title bar included, and lets the window be larger
    than the screen, so a 1024 × 768 CI runner still produces 2880 × 1800
    pictures. The system caption buttons can't scale, so they're hidden and
    drawn as plain glyphs. `CaptureReaderPages` opens the reader page by page

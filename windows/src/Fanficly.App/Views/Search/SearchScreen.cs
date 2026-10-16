@@ -224,7 +224,7 @@ public sealed class SearchScreen : Screen
             Width = 32,
             Height = 32,
             Padding = new Thickness(0),
-            CornerRadius = new CornerRadius(16),
+            CornerRadius = new CornerRadius(4),
             Background = Theme.AccentSubtle,
             BorderBrush = Theme.Transparent,
             VerticalAlignment = VerticalAlignment.Center,

@@ -24,10 +24,11 @@ public sealed record FormFactor(string Name, int Width, int Height, double Captu
     public static readonly FormFactor Tablet = new("tablet", 834, 1112);
     public static readonly FormFactor Compact = new("compact", 420, 880);
 
-    /// <summary>Store art: a 1440×900 window drawn at 2× ("-captureScale 2"),
-    /// so the capture is 2880×1800 whatever the screen's size. It isn't shrunk
+    /// <summary>Store art: a 1200×750 window drawn at 2.4× ("-captureScale 2.4"),
+    /// so the capture is 2880×1800 whatever the screen's size, with the app
+    /// large enough to read on a listing slide. It isn't shrunk
     /// to fit the screen; PrintWindow captures the off-screen part too.</summary>
-    public static readonly FormFactor Store = new("store", 2880, 1800, 2);
+    public static readonly FormFactor Store = new("store", 2880, 1800, 2.4);
 
     /// <summary>Store art for an upright tablet: 834×1112 at 2×.</summary>
     public static readonly FormFactor StoreTablet = new("store-tablet", 1668, 2224, 2);

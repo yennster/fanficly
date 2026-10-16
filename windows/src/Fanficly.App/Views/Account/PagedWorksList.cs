@@ -41,7 +41,8 @@ internal sealed class PagedWorksList
     {
         _fetch = fetch;
         _texts = texts;
-        _list = new VirtualList<AO3WorkSummary>((work, _) => WorkRow.Build(work), spacing: 2, maxWidth: 980)
+        // A hairline between stories, as in Search and Browse results.
+        _list = new VirtualList<AO3WorkSummary>((work, _) => UI.UI.VStack(0, WorkRow.Build(work), UI.UI.Divider(14)), maxWidth: 980)
         {
             LoadMore = LoadMoreAsync,
         };

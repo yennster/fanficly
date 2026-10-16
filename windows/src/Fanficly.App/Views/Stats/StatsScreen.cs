@@ -37,8 +37,7 @@ public sealed class StatsScreen : Screen
     private Grid _root = null!;
     private Canvas _renderHost = null!;
     private ScrollViewer _scroll = null!;
-    private SelectorBar _periodBar = null!;
-    private readonly List<SelectorBarItem> _periodItems = [];
+    private Segmented _periodBar = null!;
     private Grid _pager = null!;
     private Button _prev = null!;
     private Button _next = null!;
@@ -66,22 +65,18 @@ public sealed class StatsScreen : Screen
         _root.Children.Add(_renderHost);
 
         // Period picker + pager.
-        _periodBar = new SelectorBar();
-        AutomationProperties.SetName(_periodBar, "Period");
+        // The Mac's segmented Picker("Period").
+        _periodBar = new Segmented("Period",
+            StatsPeriodExtensions.All.Select(p => (p.Title(), (string?)null, $"stats.period.{p.RawValue()}")).ToList(),
+            (int)_period)
+        {
+            HorizontalAlignment = HorizontalAlignment.Center,
+            MinWidth = 320,
+        };
         AutomationProperties.SetAutomationId(_periodBar, "stats.period");
-        foreach (var period in StatsPeriodExtensions.All)
+        _periodBar.SelectionChanged += index =>
         {
-            var item = new SelectorBarItem { Text = period.Title() };
-            AutomationProperties.SetAutomationId(item, $"stats.period.{period.RawValue()}");
-            _periodItems.Add(item);
-            _periodBar.Items.Add(item);
-        }
-        _periodBar.SelectedItem = _periodItems[(int)_period];
-        _periodBar.HorizontalAlignment = HorizontalAlignment.Center;
-        _periodBar.SelectionChanged += (_, _) =>
-        {
-            if (_periodBar.SelectedItem is not SelectorBarItem selected) return;
-            var period = (StatsPeriod)_periodItems.IndexOf(selected);
+            var period = (StatsPeriod)index;
             if (period == _period) return;
             _period = period;
             // Reset to the current period when switching granularity.
