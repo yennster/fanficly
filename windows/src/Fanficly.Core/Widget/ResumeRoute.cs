@@ -1,8 +1,5 @@
 namespace Fanficly.Core;
 
-/// <summary>A reading position: 1-based chapter, 0-based paragraph.</summary>
-public readonly record struct ReadingAnchor(int Chapter, int Paragraph);
-
 /// <summary>Opens a work's reader at the widget's position:
 /// <c>fanficly://resume/&lt;workId&gt;?chapter=&lt;n&gt;&amp;paragraph=&lt;m&gt;</c>.</summary>
 public sealed record ResumeWorkRoute(int WorkId, ReadingAnchor? Anchor);
