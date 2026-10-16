@@ -56,14 +56,14 @@ The backlog is [docs/ROADMAP.md](docs/ROADMAP.md). Its items are small and scope
 - Reference an issue if there is one.
 - `dotnet test tests/Fanficly.Core.Tests` passes, with new tests for what you changed. They're fixture-based; never hit the network.
 - The app builds for x64 and ARM64.
-- If you changed the UI and you're on Windows, run the smoke tests (`dotnet test tests/Fanficly.UITests --filter "FullyQualifiedName~SmokeTests"`) and look at the change in demo mode. Leave the mouse alone while they run.
+- If you changed the UI and you're on Windows, run the smoke tests (`dotnet test tests/Fanficly.UITests --filter "FullyQualifiedName~SmokeTests"`) and look at the change in demo mode. If you changed the reader's layout, pagination or text measuring, run `ReaderLayoutTests` too (`--filter "FullyQualifiedName~ReaderLayoutTests"`). Leave the mouse alone while they run.
 - [Windows CI](.github/workflows/windows-ci.yml) runs on every PR to `windows`. It runs:
   - the unit tests
   - x64 and ARM64 builds
-  - the UI and screenshot tests
+  - the UI tests: smoke, screenshots and reader layout
   - the Native AOT Store bundle, which is the only place trimming and AOT problems show up
 
-  Check the `ui-screenshots` artifact for anything you changed on screen.
+  Check the `ui-screenshots` artifact for anything you changed on screen. Don't commit screenshots yourself: the maintainer refreshes `docs/screenshots/windows/` and the Store pictures with the **Windows screenshots** workflow.
 - Don't reformat code you didn't touch, and don't edit the Swift sources.
 - Be kind in code review.
 
