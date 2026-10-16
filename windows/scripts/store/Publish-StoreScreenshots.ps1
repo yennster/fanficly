@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Replaces the Store listing screenshots in the app's draft submission.
+  Replaces the Store listing screenshots and Store art in the app's draft submission.
 
 .DESCRIPTION
   The Microsoft Store Developer CLI (msstore) uploads packages and listing
@@ -13,7 +13,11 @@
        example with `msstore publish <package> -id <productId> --noCommit`.
     3. For each language folder in windows/store/screenshots/ that has PNGs,
        marks that language's current screenshots PendingDelete and adds the
-       new ones (in file-name order, with captions from captions.txt).
+       new ones (in file-name order, with captions from captions.txt). Store
+       art in windows/store/images/<language>/, one PNG per image type
+       (StoreLogoSquare.png, the 1:1 box art; StoreLogo9x16.png, the 2:3
+       poster art; PromotionalArt16x9.png, the 16:9 hero image), replaces
+       that type's image the same way.
     4. Updates the submission, zips the PNGs and uploads the zip to the
        submission's upload URL.
 
@@ -30,6 +34,9 @@
 
 .PARAMETER ScreenshotRoot
   The folder with one subfolder per language. Defaults to windows/store/screenshots.
+
+.PARAMETER ArtRoot
+  The Store art folder, one subfolder per language. Defaults to windows/store/images.
 
 .PARAMETER Locale
   Only these languages (folder names, e.g. en-us). Defaults to every folder with PNGs.
@@ -60,6 +67,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
   [string] $ScreenshotRoot = (Join-Path $PSScriptRoot '..' '..' 'store' 'screenshots'),
+  [string] $ArtRoot = (Join-Path $PSScriptRoot '..' '..' 'store' 'images'),
   [string[]] $Locale,
   [string] $PackagePath,
   [string] $ProductId = $env:STORE_PRODUCT_ID,
@@ -77,6 +85,12 @@ $MaxCaption = 200
 $MaxBytes = 50MB
 $MinLongSide = 1366
 $MinShortSide = 768
+# Store art: the submission API's image type, and the sizes Partner Center takes.
+$ArtTypes = [ordered]@{
+  StoreLogoSquare    = @('1080x1080', '2160x2160')   # 1:1 box art
+  StoreLogo9x16      = @('720x1080', '1440x2160')    # 2:3 poster art
+  PromotionalArt16x9 = @('1920x1080', '3840x2160')   # 16:9 hero image
+}
 
 function Get-JsonProperty($Object, [string] $Name) {
   if ($null -eq $Object) { return $null }
@@ -164,11 +178,32 @@ foreach ($dir in @(Get-ChildItem -LiteralPath $ScreenshotRoot -Directory | Sort-
   $sets[$lang] = $shots
 }
 
+$art = [ordered]@{}
+if (Test-Path -LiteralPath $ArtRoot -PathType Container) {
+  foreach ($dir in @(Get-ChildItem -LiteralPath $ArtRoot -Directory | Sort-Object Name)) {
+    $lang = $dir.Name.ToLowerInvariant()
+    if ($Locale -and ($Locale | ForEach-Object { $_.ToLowerInvariant() }) -notcontains $lang) { continue }
+    $items = [System.Collections.Generic.List[object]]::new()
+    foreach ($type in $ArtTypes.Keys) {
+      $file = Join-Path $dir.FullName "$type.png"
+      if (-not (Test-Path -LiteralPath $file)) { continue }
+      $size = Get-PngSize $file
+      $where = "images/$($dir.Name)/$type.png"
+      if ($null -eq $size) { $problems.Add("$where isn't a PNG file."); continue }
+      if ($ArtTypes[$type] -notcontains "$($size.Width)x$($size.Height)") {
+        $problems.Add("$where is $($size.Width) x $($size.Height); $type must be $($ArtTypes[$type] -join ' or ').")
+      }
+      $items.Add([pscustomobject]@{ Path = $file; EntryName = "images/$lang/$type.png"; Type = $type })
+    }
+    if ($items.Count -gt 0) { $art[$lang] = $items }
+  }
+}
+
 if ($problems.Count -gt 0) {
   $list = ($problems | ForEach-Object { "  - $_" }) -join [Environment]::NewLine
   throw "The screenshots aren't ready for the Store:$([Environment]::NewLine)$list"
 }
-if ($sets.Count -eq 0) {
+if ($sets.Count -eq 0 -and $art.Count -eq 0) {
   throw "No screenshots found. Put PNGs in $ScreenshotRoot/<language>/ (for example en-us/01-library.png)."
 }
 foreach ($lang in $sets.Keys) {
@@ -177,6 +212,10 @@ foreach ($lang in $sets.Keys) {
     $suffix = if ($shot.Caption) { " - $($shot.Caption)" } else { '' }
     Write-Host "  $(Split-Path -Leaf $shot.Path)$suffix"
   }
+}
+
+foreach ($lang in $art.Keys) {
+  Write-Host "$lang`: Store art $(($art[$lang] | ForEach-Object { $_.Type }) -join ', ')"
 }
 
 $credentials = [ordered]@{
@@ -222,18 +261,23 @@ if ($status -ne 'PendingCommit') {
 }
 Write-Host "Draft submission: $submissionId"
 
-# 3. Swap the screenshots in each language's listing.
+# 3. Swap the screenshots and art in each language's listing.
 $listings = Get-JsonProperty $submission 'listings'
-foreach ($lang in $sets.Keys) {
+$languages = @(@($sets.Keys) + @($art.Keys) | Select-Object -Unique)
+foreach ($lang in $languages) {
   $listing = Get-JsonProperty $listings $lang
   $baseListing = Get-JsonProperty $listing 'baseListing'
   if ($null -eq $baseListing) {
     throw "The draft has no '$lang' listing. Add that language in Partner Center (and to the package) first."
   }
+  $newShots = if ($sets.Contains($lang)) { $sets[$lang] } else { @() }
+  $newArt = if ($art.Contains($lang)) { $art[$lang] } else { @() }
+  # Image types this run replaces: screenshots when there are new ones, and each art type supplied.
+  $replacing = @(@($newArt | ForEach-Object { $_.Type }) + @(if ($newShots.Count -gt 0) { 'Screenshot' }))
   $images = [System.Collections.Generic.List[object]]::new()
   $removed = 0
   foreach ($image in @(Get-JsonProperty $baseListing 'images' | Where-Object { $null -ne $_ })) {
-    if ((Get-JsonProperty $image 'imageType') -eq 'Screenshot') {
+    if ($replacing -contains (Get-JsonProperty $image 'imageType')) {
       $removed++
       # Not uploaded yet (a retry within the same draft): just drop it.
       if ((Get-JsonProperty $image 'fileStatus') -eq 'PendingUpload') { continue }
@@ -241,7 +285,7 @@ foreach ($lang in $sets.Keys) {
     }
     $images.Add($image)
   }
-  foreach ($shot in $sets[$lang]) {
+  foreach ($shot in $newShots) {
     $image = [ordered]@{
       fileName   = $shot.EntryName
       fileStatus = 'PendingUpload'
@@ -250,13 +294,16 @@ foreach ($lang in $sets.Keys) {
     if ($shot.Caption) { $image['description'] = $shot.Caption }
     $images.Add([pscustomobject]$image)
   }
+  foreach ($item in $newArt) {
+    $images.Add([pscustomobject][ordered]@{ fileName = $item.EntryName; fileStatus = 'PendingUpload'; imageType = $item.Type })
+  }
   Set-JsonProperty $baseListing 'images' $images.ToArray()
-  Write-Host "$lang`: replacing $removed screenshot(s) with $($sets[$lang].Count)"
+  Write-Host "$lang`: replacing $removed image(s) with $($newShots.Count) screenshot(s) and $($newArt.Count) Store art image(s)"
 }
 
 # 4. A package waiting in the draft rides in the same zip.
 $zipEntries = [System.Collections.Generic.List[object]]::new()
-foreach ($set in $sets.Values) { foreach ($shot in $set) { $zipEntries.Add(@{ Path = $shot.Path; Name = $shot.EntryName }) } }
+foreach ($set in @($sets.Values) + @($art.Values)) { foreach ($shot in $set) { $zipEntries.Add(@{ Path = $shot.Path; Name = $shot.EntryName }) } }
 $pendingPackages = @(Get-JsonProperty $submission 'applicationPackages' |
     Where-Object { $null -ne $_ -and (Get-JsonProperty $_ 'fileStatus') -eq 'PendingUpload' })
 foreach ($package in $pendingPackages) {
@@ -278,7 +325,7 @@ foreach ($package in $pendingPackages) {
 }
 
 $target = "draft submission $submissionId of $ProductId"
-if (-not $PSCmdlet.ShouldProcess($target, "Replace the listing screenshots ($($sets.Keys -join ', '))")) {
+if (-not $PSCmdlet.ShouldProcess($target, "Replace the listing screenshots and Store art ($($languages -join ', '))")) {
   return
 }
 

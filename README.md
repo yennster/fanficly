@@ -12,7 +12,7 @@ The iPhone, iPad and Mac app is on the [`main`](https://github.com/yennster/fanf
 | **Reader** | **Library** |
 | <img src="docs/screenshots/windows/desktop/03-reader.png" alt="A story open in the reader"> | <img src="docs/screenshots/windows/desktop/04-library.png" alt="The Library with reading progress on each story"> |
 
-The same screens at a tablet size and in a narrow window are in [`docs/screenshots/windows/tablet/`](docs/screenshots/windows/tablet/) and [`docs/screenshots/windows/compact/`](docs/screenshots/windows/compact/): `01-home`, `02-search-results`, `03-reader`, `04-library`, `05-browse`, `05-browse-fandoms`, `06-recently-viewed`, `07-reader-settings`, `08-privacy`, `09-tts`, `10-popular`, `11-comments` and `12-bookmarks`.
+The same screens at a tablet size and in a narrow window are in [`docs/screenshots/windows/tablet/`](docs/screenshots/windows/tablet/) and [`docs/screenshots/windows/compact/`](docs/screenshots/windows/compact/): `01-home`, `02-search-results`, `03-reader`, `04-library`, `05-browse`, `05-browse-fandoms`, `06-recently-viewed`, `07-reader-settings`, `08-privacy`, `09-tts`, `10-popular`, `11-comments`, `12-bookmarks` and (desktop and tablet) `13-reader-spread`, the reader page by page.
 
 _The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/ScreenshotTests.cs` launches the app in demo mode (offline, all-ages sample content) and photographs each screen at a desktop (1600 × 1000), tablet (834 × 1112) and compact (420 × 880) window size. To regenerate them, see [Screenshots](#screenshots) below._
 
@@ -141,7 +141,7 @@ dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~Scree
 
 The test fails if any screen couldn't be reached, so a stale picture can't slip through. CI runs it on every push to `windows` and uploads the pictures as the `ui-screenshots` artifact, along with an `icons/` gallery (from `-iconGallery`) and the reader layout tests' `reader-layout/` steps.
 
-The usual way to refresh the committed pictures is the **Windows screenshots** workflow ([`.github/workflows/windows-screenshots.yml`](.github/workflows/windows-screenshots.yml)) run from the Actions tab. It captures every screen at the three sizes and commits them to `docs/screenshots/windows/{desktop,tablet,compact}/`, and the desktop set, in listing order with captions, to `windows/store/screenshots/en-us/` for the Store listing (`windows/scripts/Copy-Screenshots.ps1`).
+The usual way to refresh the committed pictures is the **Windows screenshots** workflow ([`.github/workflows/windows-screenshots.yml`](.github/workflows/windows-screenshots.yml)): push a commit to `windows` with `[screenshots]` in its message (or run it from the Actions tab once it's on the default branch). It captures every screen at the three sizes and commits them to `docs/screenshots/windows/{desktop,tablet,compact}/`. It also captures the app at 4K and builds the Microsoft Store art from those captures with `windows/scripts/make_store_art.py`: ten 3840 × 2160 listing screenshots with captions in `windows/store/screenshots/en-us/`, the hero, box and poster images in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`. See "Screenshots and Store art" in [MICROSOFT_STORE.md](MICROSOFT_STORE.md#screenshots-and-store-art).
 
 ### CI
 

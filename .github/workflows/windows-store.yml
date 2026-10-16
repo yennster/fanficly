@@ -30,7 +30,7 @@ on:
         type: boolean
         default: true
       upload_screenshots:
-        description: 'Replace the listing screenshots with windows/store/screenshots'
+        description: 'Replace the listing screenshots and Store art (windows/store/screenshots, windows/store/images)'
         type: boolean
         default: false
       flight_id:

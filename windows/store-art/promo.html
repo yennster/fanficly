@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Microsoft Store art beside the screenshots, rendered by
+     windows/scripts/make_store_art.py:
+       hero    3840x2160  16:9 hero image (PromotionalArt16x9): no words, since
+                          the Store sets the app's name over it
+       box     2160x2160  1:1 box art (StoreLogoSquare)
+       poster  1440x2160  2:3 poster art (StoreLogo9x16)
+     Same brand canvas as the screenshots. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="$css">
+<style>
+  :root { --w: ${w}px; --h: ${h}px; }
+  .icon {
+    position: absolute; z-index: 3; width: var(--is); aspect-ratio: 1;
+    border-radius: calc(var(--is) * .225); overflow: hidden;
+    box-shadow: 0 calc(var(--is) * .08) calc(var(--is) * .16) rgba(10, 5, 45, .55),
+                0 0 0 calc(var(--is) * .008) rgba(255, 255, 255, .35);
+  }
+  .icon img { width: 100%; height: 100%; display: block; }
+  .name { position: absolute; z-index: 3; font: 700 var(--ns) / 1 var(--serif); color: #fff;
+          letter-spacing: -.012em; text-shadow: 0 6px 40px rgba(20, 10, 70, .45); }
+  .tag { position: absolute; z-index: 3; font: 700 var(--ts) / 1.05 var(--serif); color: #fff; text-align: center; }
+  .tag em { font-style: italic; color: #FFD8A3; }
+  .win {
+    position: absolute; z-index: 2; width: var(--ww);
+    filter: drop-shadow(0 calc(var(--ww) * .035) calc(var(--ww) * .05) rgba(10, 5, 45, .55));
+  }
+  .win img { width: 100%; display: block; border-radius: calc(var(--ww) * .0055);
+             outline: 2px solid rgba(255, 255, 255, .28); outline-offset: -1px; }
+  .halo { position: absolute; z-index: 1; transform: translate(-50%, -50%); aspect-ratio: 1;
+          background: radial-gradient(circle, rgba(150, 132, 255, .42), rgba(150, 132, 255, .12) 42%, transparent 68%); }
+
+  /* Hero: the reader as an open book, tilted into the right two thirds;
+     the left third stays calm for the Store's own title. */
+  body.hero .win { --ww: 2900px; left: 1240px; top: 380px; transform: rotate(-4deg); }
+  body.hero .halo { left: 2500px; top: 1150px; width: 3000px; }
+  body.hero .icon { --is: 340px; left: 960px; top: 1640px; transform: rotate(-8deg); }
+
+  /* Box art: the icon and the name, centred. */
+  body.box .halo { left: 50%; top: 44%; width: 2000px; }
+  body.box .icon { --is: 900px; left: 50%; top: 300px; transform: translateX(-50%); }
+  body.box .name { --ns: 300px; left: 0; right: 0; top: 1420px; text-align: center; }
+
+  /* Poster: icon, name and line on top, the reader rising from the foot. */
+  body.poster .halo { left: 50%; top: 30%; width: 1500px; }
+  body.poster .icon { --is: 420px; left: 50%; top: 170px; transform: translateX(-50%); }
+  body.poster .name { --ns: 190px; left: 0; right: 0; top: 660px; text-align: center; }
+  body.poster .tag { --ts: 96px; left: 120px; right: 120px; top: 900px; }
+  body.poster .win { --ww: 1900px; left: 50%; top: 1220px; transform: translateX(-38%) rotate(-3deg); }
+</style>
+</head>
+<body class="$layout">
+$pages
+  <div class="halo"></div>
+  $window
+  <div class="icon"><img src="$icon_png"></div>
+  $name
+  $tag
+<script>document.fonts.ready.then(() => { document.body.dataset.ready = "1"; });</script>
+</body>
+</html>

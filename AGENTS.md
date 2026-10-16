@@ -87,13 +87,14 @@ Mutations go through `WorkPersistence` (Upsert, UpsertMetadata, ToggleFollow, Un
                                #   tests, x64/ARM64 builds, UI tests +
                                #   screenshots, MSIX bundle
   windows-store.yml            # windows-v* tag: build, WACK, Store submit, release
-  windows-screenshots.yml      # manual: capture every screen, commit the pictures
+  windows-screenshots.yml      # [screenshots] push or manual: capture every screen,
+                               #   build the Store art, commit the pictures
   ci.yml                       # the Apple app; runs on main only
 Fanficly/ … FanficlyWidget/    # the Swift app: reference implementation, not built here
 docs/
   ROADMAP.md                   # Windows backlog (RM-101 onward)
-  screenshots/windows/         # README shots from ScreenshotTests (desktop/tablet/compact),
-                               #   committed by windows-screenshots.yml
+  screenshots/windows/         # README shots from ScreenshotTests (desktop/tablet/compact)
+                               #   + showcase.jpg, committed by windows-screenshots.yml
 windows/
   Fanficly.Windows.slnx        # the solution (four projects)
   global.json                  # .NET SDK pin
@@ -101,15 +102,21 @@ windows/
   Directory.Packages.props     # every package version (central management)
   scripts/
     Capture-Screen.ps1         # launch the app in demo mode and save the window
-    Copy-Screenshots.ps1       # screenshots workflow: UI-test shots into docs/ and,
-                               #   in listing order with captions, the Store folder
+    Copy-Screenshots.ps1       # screenshots workflow: UI-test shots into docs/
+    Chart-IconFont.py          # CI: chart which glyphs the system icon fonts have
     Install-IconFont.ps1       # CI: install Segoe Fluent Icons on Server images
+    make_icon_font.py          # builds Assets/FanficlyIcons.ttf (fontTools)
+    make_store_art.py          # Store screenshots + hero/box/poster from the 4K
+                               #   captures (headless Chrome, Pillow)
     Set-ScreenResolution.ps1   # CI: enlarge the runner's display
     Write-Screenshots.ps1      # CI: print screenshots into the log as base64
     store/                     # Store version, identity, listing, WACK, screenshots
+  store-art/                   # HTML templates for the Store art (screenshot.html,
+                               #   promo.html, brand.css: the iOS store art's look)
   store/
     listing/en-us/             # Store listing text (privacy URL points at PRIVACY.md)
-    screenshots/               # Store screenshots (en-us/, from the screenshots workflow)
+    screenshots/               # Store screenshots (en-us/, 3840x2160, generated)
+    images/                    # Store art: hero, box, poster (en-us/, generated)
     version.txt                # the app version the release workflow stamps
   src/Fanficly.Core/
     Auth/                      # AuthState, ICookieVault, KeyedCookieVault,
@@ -173,7 +180,8 @@ windows/
     UI/
       Kit.cs                   # layout/control helpers (class UI) + ElementExtensions
       Theme.cs                 # brand accent, brushes, high contrast, type ramp
-      Symbols.cs               # SF Symbol name → Segoe Fluent glyph
+      Symbols.cs               # SF Symbol name → Segoe Fluent glyph (or the
+                               #   bundled Fanficly Icons font for bookmarks)
       Dialogs.cs               # one ContentDialog at a time
       VirtualList.cs           # virtualized list with infinite scroll
       RichText.cs, FlowPanel.cs # rich text blocks; wrapping chip layout
@@ -253,9 +261,9 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 Tests that touch the static stores (`KeyValueStores`, `AppGroupStore`, …) join `[Collection(GlobalStoreCollection.Name)]` so they don't run in parallel. Core's internals are visible to the test project, so make a helper `internal` (not `public`) when it needs direct testing.
 
-**UI tests** (`tests/Fanficly.UITests`, FlaUI over UI Automation, Windows only). `AppSession` launches `FANFICLY_EXE` (default `windows/artifacts/app-x64/Fanficly.exe`) with `-demoMode` at a form factor (Desktop 1600×1000, Tablet 834×1112, Compact 420×880) and finds elements by automation id.
+**UI tests** (`tests/Fanficly.UITests`, FlaUI over UI Automation, Windows only). `AppSession` launches `FANFICLY_EXE` (default `windows/artifacts/app-x64/Fanficly.exe`) with `-demoMode` at a form factor (Desktop 1600×1000, Tablet 834×1112, Compact 420×880, and for Store art Store 1440×900 and StoreTablet 834×1112, both at `-captureScale 2`) and finds elements by automation id.
 - `SmokeTests`: launch, every tab from its Ctrl shortcut (laptop and compact), sidebar selection, `-tab`, back, zoom and F11, a second launch handed to the running window, and a `fanficly://search` link.
-- `ScreenshotTests.CaptureMainScreens` (a theory over desktop, tablet, compact) saves `01-home`, `02-search-results`, `03-reader`, `04-library`, `05-browse`, `05-browse-fandoms`, `06-recently-viewed`, `07-reader-settings`, `08-privacy`, `09-tts`, `10-popular`, `11-comments`, `12-bookmarks` to `FANFICLY_SCREENSHOTS` (default `windows/artifacts/screenshots`), one folder per size, and fails if any screen couldn't be reached. The reader, comments and Listen shots come last, from a fresh launch: a search result, then `work.options` → `work.options.comments`, then `reader.aa` → `reader.listen`. `CaptureIconGallery` launches with `-iconGallery` and saves `icons/icons-<n>`.
+- `ScreenshotTests.CaptureMainScreens` (a theory over desktop, tablet, compact) saves `01-home`, `02-search-results`, `03-reader`, `04-library`, `05-browse`, `05-browse-fandoms`, `06-recently-viewed`, `07-reader-settings`, `08-privacy`, `09-tts`, `10-popular`, `11-comments`, `12-bookmarks` to `FANFICLY_SCREENSHOTS` (default `windows/artifacts/screenshots`), one folder per size, and fails if any screen couldn't be reached. It also runs at the `store` size. `CaptureReaderPages` (desktop, tablet, store, store-tablet) opens the reader page by page (`-demoLongChapters`, `fanficly://resume/90001`), presses Page Down once and saves `13-reader-spread`. The reader, comments and Listen shots come last, from a fresh launch: a search result, then `work.options` → `work.options.comments`, then `reader.aa` → `reader.listen`. `CaptureIconGallery` launches with `-iconGallery`, saves `icons/icons-<n>`, and fails naming any icon the PC's fonts can't draw (`IconFont.CanDraw`, GDI glyph lookup; code points from U+F0000 are checked against the bundled font).
 - `ReaderLayoutTests` (page by page in a 760×1000 window, widened to 1280×860 for the spread) launch with `-demoLongChapters`, `-set` presets for the mode and typography, and `fanficly://resume/90001`; turn to a full page mid-chapter by clicking its outer third; and read the page label from `reader.pageFooter`'s name ("…, pages 3–4 of 12"). They check that the footer is under 60 px tall and on the window's bottom edge; that each page's text (inside `reader.page.left` / `reader.page.right`) ends at most 75 px above it and never under it; that minimizing and restoring, and the New Profile dialog, leave the page label alone; that a middle-third click hides the controls (the footer goes) while the page keeps its first words and its one or two pages, and holds more text when it gained room, and a second click brings them back unchanged; and that a wider window shows a spread exactly when `ReaderSpread`'s rule says so. Each step saves `reader-layout/01-page` … `09-wide-controls-back` before its checks, so a failure still leaves a picture.
 - The open tab is read from the header title's `ItemStatus` (`tab:<raw>`), because the sidebar items leave the automation tree when the pane folds into its menu button.
 - They drive the real window: hands off while they run.
@@ -271,7 +279,7 @@ When you add a feature, add its Core tests, and a smoke step if it adds a tab or
 - **Settings go through `KeyValueStores.Default`** (or `.Synced` for the few synced channels), not custom files. Reader typography keys always go through `ReaderProfile.DeviceKey(...)`.
 - **Dependencies.** Only AngleSharp and Microsoft.Data.Sqlite at runtime (plus the Windows App SDK). Versions live in `Directory.Packages.props`. Don't add analytics, crash reporters or any SDK with a network side channel.
 - **Never show a dialog from menu content.** A `MenuFlyout` item's handler defers through the dispatcher (`AfterMenu` in `LibraryActions`, `Later` in `SearchScreen`/`StatsScreen`) so the flyout has closed before a `ContentDialog` opens. Open dialogs only through `Dialogs` (`AlertAsync`, `ConfirmAsync`, `PromptAsync`, `SheetAsync`, `ShowAsync`): WinUI allows one `ContentDialog` per window at a time, and `Dialogs` queues them.
-- **UI helpers.** Build screens with `UI.UI.*` (`VStack`, `HStack`, `Grid`, `Text`, `Secondary`, `Caption`, `SectionHeader`, `Icon`, `Button`, `IconButton`, `ToolbarButton`, `Card`, `Chip`, `EmptyState`, `Loading`, `Scroll`, `Section`, `SettingsRow`, `NavRow`, `Toggle`, `MenuItem`, `CheckItem`, `Menu`, `Flow`, `Banner`, …) and the `ElementExtensions` (`A11y`, `A11yHeading`, `A11yHidden`, `Tip`, `Shortcut`, `OnTapped`, `Margin`, …). Settings pages use `SettingsKit`. Icons are named by their SF Symbol name and mapped in `Symbols` (`Symbols.Add` for new ones).
+- **UI helpers.** Build screens with `UI.UI.*` (`VStack`, `HStack`, `Grid`, `Text`, `Secondary`, `Caption`, `SectionHeader`, `Icon`, `Button`, `IconButton`, `ToolbarButton`, `Card`, `Chip`, `EmptyState`, `Loading`, `Scroll`, `Section`, `SettingsRow`, `NavRow`, `Toggle`, `MenuItem`, `CheckItem`, `Menu`, `Flow`, `Banner`, …) and the `ElementExtensions` (`A11y`, `A11yHeading`, `A11yHidden`, `Tip`, `Shortcut`, `OnTapped`, `Margin`, …). Settings pages use `SettingsKit`. Icons are named by their SF Symbol name and mapped in `Symbols` (`Symbols.Add` for new ones). Pick glyphs Segoe Fluent Icons actually has: the icon gallery test fails on any it can't draw. For an icon it lacks (a bookmark ribbon), draw it in `windows/scripts/make_icon_font.py`, which builds `Assets/FanficlyIcons.ttf` at Supplementary Private Use Area code points (U+F0001…); `Symbols.Font` lists that font last, so it only supplies those.
 - **Colours come from `Theme`.** Brushes are swapped in place when the theme changes, and in high contrast they become the system colours. Don't hard-code colours in a screen.
 - **Automation ids** are lowercase, dotted `<area>.<thing>`: `sidebar.<raw>`, `header.title`, `header.commands`, `search.box`, `library.search`, `library.list`, `library.work.<id>`, `work.<id>`, `history.list`, `browse.fandom.<i>`, `settings.privacy`, and the reader's (listed in [the reader section](#the-reader-listen-export-and-reading-position)). UI tests depend on them; don't rename one without updating the tests.
 - **Narrator is a supported input.** Icon-only buttons get a name (`UI.IconButton`'s label is its tooltip and its Narrator name); headings get `A11yHeading`; decorative icons `A11yHidden`; rows that combine several texts use `AccessibleGroup` (in `LibraryHelpers`), but never wrap something that holds its own buttons. Slow, silent operations announce their result (`MainWindow.ShowMessage` announces; `MainWindow.Announce` for the rest).
@@ -400,6 +408,10 @@ The app is 17+. `ContentSafetyViews.EnsureAgeGateAsync` asks once at first launc
 - **Keep screen awake:** `reader.keepScreenAwake` (default on) holds a `DisplayRequest` while the reader is on top and releases it when it leaves.
 - **Layout UI tests:** `ReaderLayoutTests` (see [Tests](#tests)). Run them after any change to the reader's layout, the measurer or the paginator.
 
+## Store art capture mode
+
+`-captureScale N` (demo mode only, `Platform/CaptureMode.cs`) draws the whole window at N× through a `ScaleTransform` on the root, hides the system caption buttons (drawn instead as glyphs in the title bar, since they can't scale), and subclasses the window (`WM_GETMINMAXINFO`) so it may be larger than the screen. The UI tests' `store` sizes use it so a small CI screen still gives 4K pictures; `PrintWindow` draws the off-screen part. Keyboard and UI Automation patterns reach the whole window, mouse clicks only the on-screen part, so Store-size steps drive the app by keyboard and `Invoke`. It changes nothing outside demo mode.
+
 ## Privacy posture (do not regress)
 
 The app stores nothing off the PC except, when the user turns sync on, the backup and synced-settings files in a folder they choose (their own OneDrive, iCloud Drive or other synced folder). It talks only to archiveofourown.org, plus image hosts when the user opts into story images. No analytics, crash reporting or remote logging. The only secret is AO3's session cookie, DPAPI-encrypted. See `PRIVACY.md`; it's the Store listing's privacy policy, so update it with any change to what's stored or sent.
@@ -410,10 +422,10 @@ The app stores nothing off the PC except, when the user turns sync on, the backu
 
 - **Core tests:** `dotnet test` in Release on `windows-latest`, results as `core-test-results`.
 - **App (x64, ARM64):** unpackaged self-contained Debug builds; the x64 build is launched in demo mode and photographed (`launch-screenshot`).
-- **UI tests and screenshots:** builds the app and UI tests, sets a 1920×1200 display, installs the Windows 11 icon font, runs `SmokeTests`, then `ScreenshotTests` (the three sizes and the icon gallery), then `ReaderLayoutTests`, prints the pictures into the log and uploads `ui-screenshots` (including `icons/` and `reader-layout/`) and `ui-test-results`. The screenshot and reader layout steps run even when an earlier step failed.
+- **UI tests and screenshots:** builds the app and UI tests, sets a 1920×1200 display, installs the Windows 11 icon font, runs `SmokeTests`, then `ScreenshotTests` (the three sizes, the store sizes, the reader pages and the icon gallery), then `ReaderLayoutTests`, charts the icon fonts, builds the Store art into `ui-screenshots/store-art/` (not committed) with `make_store_art.py --out`, prints the pictures into the log and uploads `ui-screenshots` (including `icons/` and `reader-layout/`) and `ui-test-results`. The screenshot and reader layout steps run even when an earlier step failed.
 - **MSIX bundle:** after Core tests and App pass, MSBuild builds the Release (Native AOT) x64 + ARM64 Store upload (`msix-bundle`). This is the only job that compiles with AOT, so it's where trim and AOT problems surface.
 
-`windows-screenshots.yml` (manual only, `contents: write`) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `docs/screenshots/windows/{desktop,tablet,compact}/` and, the desktop set in listing order with `captions.txt`, to `windows/store/screenshots/en-us/`, and commits them to the branch it ran on. That's release housekeeping: a maintainer runs it, roadmap PRs don't.
+`windows-screenshots.yml` (`contents: write`; a push to `windows` whose message contains `[screenshots]`, or a manual run once it's on the default branch) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `docs/screenshots/windows/{desktop,tablet,compact}/`, builds the Store art with `windows/scripts/make_store_art.py` (ten 3840×2160 slides with `captions.txt` in `windows/store/screenshots/en-us/`, the hero, box and poster in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`), and commits them to the branch it ran on. That's release housekeeping: a maintainer runs it, roadmap PRs don't.
 
 `windows-store.yml` (a `windows-v*` tag or a manual run) builds, runs the Windows App Certification Kit, submits to the Store (environment `microsoft-store`) and makes a GitHub release; see `MICROSOFT_STORE.md`. CI picks the runner image's tools; don't hard-code machine-specific paths.
 

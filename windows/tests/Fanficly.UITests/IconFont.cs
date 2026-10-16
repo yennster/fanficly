@@ -10,10 +10,20 @@ internal static partial class IconFont
     /// <summary>The app draws icons with "Segoe Fluent Icons,Segoe MDL2 Assets".</summary>
     public static readonly string[] Families = ["Segoe Fluent Icons", "Segoe MDL2 Assets"];
 
+    /// <summary>The app's own font (Assets/FanficlyIcons.ttf), last in the app's
+    /// list, for the icons the system fonts lack, at code points they don't use.</summary>
+    public const string BundledFamily = "Fanficly Icons";
+
     /// <summary>True when the first installed family has a glyph for it (XAML
-    /// uses the first family in the list that's installed).</summary>
+    /// uses the first family in the list that's installed). Code points in the
+    /// Supplementary Private Use Area come from the bundled font.</summary>
     public static bool CanDraw(int codePoint, out string family)
     {
+        if (codePoint >= 0xF0000)
+        {
+            family = BundledFamily;
+            return LoadBundled() && HasGlyph(BundledFamily, codePoint) == true;
+        }
         foreach (var name in Families)
         {
             var has = HasGlyph(name, codePoint);
@@ -23,6 +33,17 @@ internal static partial class IconFont
         }
         family = "none";
         return false;
+    }
+
+    private static bool? _bundledLoaded;
+
+    /// <summary>Loads the app's bundled icon font for this process only.</summary>
+    private static bool LoadBundled()
+    {
+        if (_bundledLoaded is { } loaded) return loaded;
+        var path = Path.Combine(Path.GetDirectoryName(AppSession.ExePath)!, "Assets", "FanficlyIcons.ttf");
+        _bundledLoaded = File.Exists(path) && AddFontResourceExW(path, 0x10 /* FR_PRIVATE */, IntPtr.Zero) > 0;
+        return _bundledLoaded.Value;
     }
 
     /// <summary>Null when the family isn't installed.</summary>
@@ -50,6 +71,8 @@ internal static partial class IconFont
         }
     }
 
+    [LibraryImport("gdi32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int AddFontResourceExW(string name, uint flags, IntPtr reserved);
     [LibraryImport("gdi32.dll")] private static partial IntPtr CreateCompatibleDC(IntPtr hdc);
     [LibraryImport("gdi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool DeleteDC(IntPtr hdc);
     [LibraryImport("gdi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static partial bool DeleteObject(IntPtr obj);

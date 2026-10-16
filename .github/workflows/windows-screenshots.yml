@@ -2,10 +2,13 @@ name: Windows screenshots
 
 # The Windows counterpart of `fastlane screenshots`: drives the demo app through
 # every main screen with the UI tests (windows/tests/Fanficly.UITests,
-# ScreenshotTests) at a desktop, an upright tablet and a narrow window, then
-# commits the pictures to this branch:
+# ScreenshotTests) at a desktop, an upright tablet and a narrow window, plus
+# 4K "store" captures (the app drawn at 2x), builds the Store art from those
+# (windows/scripts/make_store_art.py), then commits the pictures to this branch:
 #   docs/screenshots/windows/{desktop,tablet,compact}/  README and docs
-#   windows/store/screenshots/en-us/                    the Store listing
+#   docs/screenshots/windows/showcase.jpg               README strip
+#   windows/store/screenshots/en-us/                    the Store listing (3840x2160)
+#   windows/store/images/en-us/                         hero, box and poster art
 # Run it after a visual change: push a commit to `windows` whose message
 # contains [screenshots], or run it from the Actions tab once this file is on
 # the default branch (GitHub only offers "Run workflow" for those).
@@ -56,18 +59,32 @@ jobs:
         shell: pwsh
         run: ./scripts/Install-IconFont.ps1
       - name: Capture
-        timeout-minutes: 20
+        timeout-minutes: 40
         run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests" --logger "console;verbosity=normal"
       - name: Copy into the repository
         shell: pwsh
         run: ./scripts/Copy-Screenshots.ps1 -From ../artifacts/ui-screenshots -Repo ..
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Build the Store art
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          python -m pip install --quiet pillow
+          python scripts/make_store_art.py --raw ../artifacts/ui-screenshots
+      - name: Print the Store art to the log
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./scripts/Write-Screenshots.ps1 -Dir store/screenshots -MaxWidth 1280 -Quality 80
+          ./scripts/Write-Screenshots.ps1 -Dir store/images -MaxWidth 1280 -Quality 80
       - name: Commit
         working-directory: .
         shell: pwsh
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/screenshots/windows windows/store/screenshots
+          git add docs/screenshots/windows windows/store/screenshots windows/store/images
           if (git diff --cached --quiet) { Write-Host 'Screenshots unchanged.'; exit 0 }
           git commit -m 'Windows: refresh screenshots' -m "Captured by the Windows screenshots workflow (run ${{ github.run_id }})."
           git push origin HEAD:${{ github.ref_name }}

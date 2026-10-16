@@ -18,13 +18,27 @@ namespace Fanficly.UITests;
 /// <summary>A window size the app is checked and photographed at: the desktop,
 /// a tablet held upright, and a narrow phone-like window (where the sidebar
 /// collapses to a menu button).</summary>
-public sealed record FormFactor(string Name, int Width, int Height)
+public sealed record FormFactor(string Name, int Width, int Height, double CaptureScale = 1)
 {
     public static readonly FormFactor Desktop = new("desktop", 1600, 1000);
     public static readonly FormFactor Tablet = new("tablet", 834, 1112);
     public static readonly FormFactor Compact = new("compact", 420, 880);
+
+    /// <summary>Store art: a 1440×900 window drawn at 2× ("-captureScale 2"),
+    /// so the capture is 2880×1800 whatever the screen's size. It isn't shrunk
+    /// to fit the screen; PrintWindow captures the off-screen part too.</summary>
+    public static readonly FormFactor Store = new("store", 2880, 1800, 2);
+
+    /// <summary>Store art for an upright tablet: 834×1112 at 2×.</summary>
+    public static readonly FormFactor StoreTablet = new("store-tablet", 1668, 2224, 2);
+
     public static FormFactor Named(string name) =>
-        new[] { Desktop, Tablet, Compact }.First(f => f.Name == name);
+        new[] { Desktop, Tablet, Compact, Store, StoreTablet }.First(f => f.Name == name);
+
+    /// <summary>Launch arguments this size needs.</summary>
+    public string[] Args => CaptureScale > 1
+        ? ["-captureScale", CaptureScale.ToString(System.Globalization.CultureInfo.InvariantCulture)]
+        : [];
 }
 
 /// <summary>
@@ -68,7 +82,7 @@ public sealed class AppSession : IDisposable
         KillStrays();
         var exe = ExePath;
         if (!File.Exists(exe)) throw new FileNotFoundException($"Build the app first, or set FANFICLY_EXE ({exe}).", exe);
-        var args = new[] { "-demoMode" }.Concat(extraArgs).Select(Quote);
+        var args = new[] { "-demoMode" }.Concat(size.Args).Concat(extraArgs).Select(Quote);
         var app = Application.Launch(new ProcessStartInfo(exe, string.Join(' ', args)) { UseShellExecute = false });
         var automation = new UIA3Automation();
         var window = app.GetMainWindow(automation, TimeSpan.FromSeconds(45))
@@ -95,7 +109,8 @@ public sealed class AppSession : IDisposable
     public void Resize(FormFactor size)
     {
         var area = Native.WorkArea();
-        var scale = Math.Min(1.0, Math.Min(area.Width / (double)size.Width, area.Height / (double)size.Height));
+        var scale = size.CaptureScale > 1 ? 1.0
+            : Math.Min(1.0, Math.Min(area.Width / (double)size.Width, area.Height / (double)size.Height));
         var w = (int)(size.Width * scale);
         var h = (int)(size.Height * scale);
         if (Window.Patterns.Window.PatternOrDefault is { } wp && wp.WindowVisualState.ValueOrDefault != WindowVisualState.Normal)

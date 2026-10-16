@@ -45,7 +45,7 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
         var checkedCount = 0;
         foreach (var text in s.Window.FindAllDescendants(cf => cf.ByControlType(FlaUI.Core.Definitions.ControlType.Text)))
         {
-            var m = System.Text.RegularExpressions.Regex.Match(text.Name ?? "", @"^(\S+)\s+U\+([0-9A-F]{4,5})$");
+            var m = System.Text.RegularExpressions.Regex.Match(text.Properties.Name.ValueOrDefault ?? "", @"^(\S+)\s+U\+([0-9A-F]{4,5})$");
             if (!m.Success) continue;
             checkedCount++;
             var cp = Convert.ToInt32(m.Groups[2].Value, 16);
@@ -61,6 +61,7 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
     [InlineData("desktop")]
     [InlineData("tablet")]
     [InlineData("compact")]
+    [InlineData("store")]
     public void CaptureMainScreens(string size)
     {
         var folder = Path.Combine(OutputRoot, size);
@@ -148,5 +149,32 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
 
         output.WriteLine($"{taken.Count} screenshots in {folder}");
         Assert.True(missing.Count == 0, $"Couldn't reach: {string.Join(", ", missing)}");
+    }
+
+    /// <summary>The reader page by page, a page into the chapter: a two-page
+    /// spread on a wide window, one page on an upright one. "store" and
+    /// "store-tablet" feed the Store art (windows/scripts/make_store_art.py).</summary>
+    [Theory]
+    [InlineData("desktop")]
+    [InlineData("tablet")]
+    [InlineData("store")]
+    [InlineData("store-tablet")]
+    public void CaptureReaderPages(string size)
+    {
+        var folder = Path.Combine(OutputRoot, size);
+        using var s = AppSession.Launch(FormFactor.Named(size),
+            "-demoLongChapters", "-set", "reader.mode.windows=pageByPage", "fanficly://resume/90001");
+        var footer = s.ById("reader.pageFooter", 25);
+        Assert.True(footer is not null, "The page-by-page reader didn't open.");
+        Retry.WhileTrue(() => s.ById("reader.pageFooter", 1)?.Name == "Laying out pages", TimeSpan.FromSeconds(10));
+        s.Settle(800);
+        // Past the chapter's title page, by keyboard: in a capture-scale window
+        // most of the page is off the screen, where a click can't reach.
+        var before = s.ById("reader.pageFooter", 2)?.Name;
+        s.Keys(VirtualKeyShort.NEXT);
+        Retry.WhileTrue(() => s.ById("reader.pageFooter", 1)?.Name == before, TimeSpan.FromSeconds(4));
+        s.Settle(1200);
+        output.WriteLine($"{size}: {s.ById("reader.pageFooter", 2)?.Name}");
+        s.Snap(folder, "13-reader-spread");
     }
 }

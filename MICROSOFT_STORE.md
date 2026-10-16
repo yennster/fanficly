@@ -18,7 +18,8 @@ certification.
 | Listing text and release notes in the repo | `fastlane/metadata/` | `windows/store/listing/<language>/*.txt`, turned into the CLI's JSON by `New-StoreListingJson.ps1` |
 | Version number | `increment_build_number` | `windows/store/version.txt` + `Set-AppVersion.ps1` |
 | Check the build before submitting | `precheck` | **Windows App Certification Kit** (WACK, `appcert.exe` from the Windows SDK), run by `Test-StorePackage.ps1` |
-| Screenshots | `deliver` | `Publish-StoreScreenshots.ps1` (home-baked, see below) |
+| Marketing screenshots and art | `fastlane screenshots` + `bin/frame-screenshots.py` | UI tests at 4K + `make_store_art.py` (see [Screenshots and Store art](#screenshots-and-store-art)) |
+| Upload screenshots and art | `deliver` | `Publish-StoreScreenshots.ps1` (home-baked, see below) |
 | Developer portal | App Store Connect | **Partner Center** (partner.microsoft.com/dashboard) |
 
 **msstore** is Microsoft's open-source command-line tool for the Store
@@ -37,11 +38,11 @@ does, you can also see and do there.
 package layout, binaries, launch, crash on suspend…) on your own machine or
 runner, before the package goes anywhere.
 
-**The one home-baked piece is screenshot upload.** The msstore CLI uploads
+**The one home-baked piece is image upload.** The msstore CLI uploads
 packages and listing text but not listing images. `Publish-StoreScreenshots.ps1`
-fills that gap with Microsoft's documented Store submission API
+fills that gap for the screenshots and the Store art with Microsoft's documented Store submission API
 (`manage.devcenter.microsoft.com`), the same API the CLI uses. It's opt-in:
-screenshots change rarely, so it runs only when you ask.
+images change rarely, so it runs only when you ask.
 
 All the scripts are in `windows/scripts/store/`, are PowerShell 7, and have
 built-in help (`Get-Help ./Set-AppVersion.ps1 -Full`):
@@ -52,7 +53,7 @@ built-in help (`Get-Help ./Set-AppVersion.ps1 -Full`):
 | `Set-StoreIdentity.ps1` | Writes the Partner Center package identity into `Package.appxmanifest`. |
 | `New-StoreListingJson.ps1` | Checks the listing files against the Store's limits and builds the JSON for `msstore submission updateMetadata`. |
 | `Test-StorePackage.ps1` | Runs WACK on the package and writes its report. |
-| `Publish-StoreScreenshots.ps1` | Replaces the listing screenshots in the draft submission. |
+| `Publish-StoreScreenshots.ps1` | Replaces the listing screenshots and Store art in the draft submission. |
 
 The workflow is `.github/workflows/windows-store.yml`.
 
@@ -236,7 +237,7 @@ made in Partner Center, and CI takes over once the app is live. Do this once.
   `description.txt`, `short_description.txt`, `release_notes.txt` (What's new),
   one line of `features.txt` per product feature, one line of `keywords.txt`
   per search term, `copyright.txt`. Add at least one screenshot (see
-  [Screenshots](#screenshots)).
+  [Screenshots and Store art](#screenshots-and-store-art)).
 - Check Pricing and availability, Properties, Age ratings and Submission options
   from step 4, then **Submit to the Store**.
 
@@ -305,7 +306,7 @@ The inputs (`-f name=value` with `gh`):
 |---|---|
 | `version` | e.g. `1.1.2`. Empty: `version.txt` + the run number, e.g. `1.1.57.0`. |
 | `submit` | On (default): submit for certification. Off: stop at a draft in Partner Center, to look it over and click Submit there yourself. |
-| `upload_screenshots` | Replace the listing screenshots with `windows/store/screenshots/`. |
+| `upload_screenshots` | Replace the listing screenshots and Store art with `windows/store/screenshots/` and `windows/store/images/`. |
 | `flight_id` | Publish to this package flight instead of to everyone. |
 | `rollout_percentage` | Gradual rollout: only this percentage of users get the update at first. |
 
@@ -421,20 +422,68 @@ refuses them). The description names Archive of Our Own only to say what the
 app reads, and carries the "not affiliated with AO3 or the Organization for
 Transformative Works" line.
 
-## Screenshots
+## Screenshots and Store art
 
-Screenshots go in `windows/store/screenshots/<language>/` as PNGs, uploaded in
-file-name order (`01-library.png`, `02-reader.png`, …), with optional captions
-in `captions.txt`, one line per screenshot. Desktop screenshots must be at
-least 1366 × 768 and under 50 MB; at most 10. The **Windows screenshots**
-workflow (`.github/workflows/windows-screenshots.yml`, run by hand from the
-Actions tab) captures every screen in demo mode with the UI tests and commits
-the desktop set here in listing order, with `en-us/captions.txt`, alongside the
-README's pictures in `docs/screenshots/windows/`; see
-`windows/store/screenshots/README.md`.
+The listing's pictures are built the way the iOS ones are (`fastlane
+screenshots`, then `bin/frame-screenshots.py`): the app is photographed in demo
+mode, then each picture is laid out as a web page on the brand canvas and
+rendered at the Store's exact size by headless Chrome.
 
-To upload them, run the workflow with **upload_screenshots** on, or locally
-after a `--noCommit` publish:
+| Output | Size | What it is |
+|---|---|---|
+| `windows/store/screenshots/en-us/NN-slug.png` | 3840 × 2160 | Ten listing screenshots: a label, a serif headline with a gold accent, and the app in a Windows 11 window (one slide adds an upright tablet beside the desktop) |
+| `windows/store/screenshots/en-us/captions.txt` | | One caption per screenshot |
+| `windows/store/images/en-us/PromotionalArt16x9.png` | 3840 × 2160 | Hero image: the reader as an open book, tilted, with the app icon; no text, since the Store sets the name over it |
+| `windows/store/images/en-us/StoreLogoSquare.png` | 2160 × 2160 | Box art: icon and name |
+| `windows/store/images/en-us/StoreLogo9x16.png` | 1440 × 2160 | Poster art: icon, name, "Your AO3 reader for Windows." and the reader |
+| `docs/screenshots/windows/showcase.jpg` | | The first three screenshots side by side, for the README |
+
+How it fits together:
+
+1. **Capture.** `ScreenshotTests` runs the demo app at a `store` size (a
+   1440 × 900 window) and a `store-tablet` size (834 × 1112), both launched with
+   `-captureScale 2`. Capture mode (demo only, `Platform/CaptureMode.cs`) draws
+   the whole window at 2×, title bar included, and lets the window be larger
+   than the screen, so a 1024 × 768 CI runner still produces 2880 × 1800
+   pictures. The system caption buttons can't scale, so they're hidden and
+   drawn as plain glyphs. `CaptureReaderPages` opens the reader page by page
+   on a mid-chapter spread (`13-reader-spread`).
+2. **Lay out.** `windows/scripts/make_store_art.py` (Python 3 with Pillow, and
+   Chrome, Edge or Chromium) fills `windows/store-art/screenshot.html` and
+   `promo.html` with each capture and renders them. The slides' order, labels,
+   headlines and captions are the `SLIDES` list at the top of the script
+   (`*word*` is the gold accent); the hero, box and poster are `PROMOS`.
+3. **Commit.** The **Windows screenshots** workflow
+   (`.github/workflows/windows-screenshots.yml`) does both steps on a Windows
+   runner and commits the results with the README pictures. Run it by pushing a
+   commit to `windows` with `[screenshots]` in its message, or from the Actions
+   tab once the workflow is on the default branch. CI also builds the art on
+   every push (without committing it) and prints it into the job log, so a
+   layout problem shows up early.
+
+To build them on your own PC (Windows, from `windows/`):
+
+```powershell
+dotnet build src/Fanficly.App -p:Platform=x64 -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:RuntimeIdentifier=win-x64 -o ../artifacts/app-x64
+dotnet build tests/Fanficly.UITests
+$env:FANFICLY_SCREENSHOTS = "$PWD\..\artifacts\ui-screenshots"
+dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests"
+python scripts/make_store_art.py --raw ../artifacts/ui-screenshots              # into the repository
+python scripts/make_store_art.py --raw ../artifacts/ui-screenshots --out art   # or somewhere to look first
+```
+
+`--only N` re-renders one slide while you tune its copy.
+
+The Store's rules, which the script follows: screenshots are PNG, at least
+1366 × 768, under 50 MB, at most 10 per language, uploaded in file-name order;
+captions are at most 200 characters. The hero image is 1920 × 1080 or
+3840 × 2160, the box art 1080 or 2160 square, the poster 720 × 1080 or
+1440 × 2160.
+
+### Uploading them
+
+Nothing is uploaded unless you ask: run the Store workflow with
+**upload_screenshots** on, or locally after a `--noCommit` publish:
 
 ```powershell
 $env:STORE_PRODUCT_ID = "<id>"; $env:AZURE_AD_TENANT_ID = "<tenant>"
@@ -443,10 +492,10 @@ $env:AZURE_AD_APPLICATION_CLIENT_ID = "<client>"; $env:AZURE_AD_APPLICATION_SECR
 ./windows/scripts/store/Publish-StoreScreenshots.ps1 -PackagePath artifacts/AppPackages
 ```
 
-It replaces that language's screenshots (logos and trailers are left alone).
-`-PackagePath` matters: a draft holds one upload, so the package that
-`msstore publish --noCommit` put there goes into the same upload as the
-screenshots.
+It replaces that language's screenshots, and each Store art type it has a file
+for (trailers and other image types are left alone). `-PackagePath` matters: a
+draft holds one upload, so the package that `msstore publish --noCommit` put
+there goes into the same upload as the images.
 
 ## Troubleshooting
 

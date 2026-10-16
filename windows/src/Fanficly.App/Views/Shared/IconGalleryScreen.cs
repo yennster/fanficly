@@ -20,7 +20,7 @@ internal sealed class IconGalleryScreen : Screen
         {
             var cell = new StackPanel { Width = 132, Padding = new Thickness(4), Spacing = 2 };
             cell.Children.Add(new FontIcon { Glyph = glyph, FontFamily = Symbols.Font, FontSize = 20, HorizontalAlignment = HorizontalAlignment.Left });
-            cell.Children.Add(UI.UI.Caption($"{name}  U+{(int)glyph[0]:X4}"));
+            cell.Children.Add(UI.UI.Caption($"{name}  U+{char.ConvertToUtf32(glyph, 0):X4}"));
             flow.Children.Add(cell);
         }
         return UI.UI.Scroll(flow);

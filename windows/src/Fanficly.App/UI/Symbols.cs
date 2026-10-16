@@ -13,8 +13,12 @@ namespace Fanficly.App.UI;
 public static class Symbols
 {
     /// <summary>Created on first use: feature modules register icons from
-    /// module initializers, which run before the XAML runtime is up.</summary>
-    public static FontFamily Font => _font ??= new FontFamily("Segoe Fluent Icons,Segoe MDL2 Assets");
+    /// module initializers, which run before the XAML runtime is up.
+    /// Fanficly Icons (Assets/FanficlyIcons.ttf, built by
+    /// windows/scripts/make_icon_font.py) comes last and only adds the few
+    /// icons the system fonts lack, at code points they don't use.</summary>
+    public static FontFamily Font => _font ??= new FontFamily(
+        "Segoe Fluent Icons,Segoe MDL2 Assets,ms-appx:///Assets/FanficlyIcons.ttf#Fanficly Icons");
     private static FontFamily? _font;
 
     private static readonly Dictionary<string, string> Map = new()
@@ -27,14 +31,14 @@ public static class Symbols
         ["chart.bar.xaxis"] = "",      // AreaChart
         ["clock.arrow.circlepath"] = "", // History
         ["person.2"] = "",             // People
-        ["bookmark"] = "",             // Bookmarks
+        ["bookmark"] = "\U000F0001",  // Fanficly Icons: a ribbon (Fluent has no bookmark)
         ["bell"] = "",                 // Ringer
         ["gearshape"] = "",            // Settings
 
         // Bookmarks / follow
-        ["bookmark.fill"] = "",
+        ["bookmark.fill"] = "\U000F0002",  // Fanficly Icons
         ["bookmark.circle"] = "",
-        ["bookmark.slash"] = "",
+        ["bookmark.slash"] = "\U000F0003",  // Fanficly Icons
         ["star"] = "",
         ["star.fill"] = "",
         ["star.slash"] = "",
@@ -87,7 +91,7 @@ public static class Symbols
         ["headphones"] = "",
         ["theatermasks"] = "",         // Emoji
         ["film"] = "",                 // Video
-        ["paintbrush.pointed"] = "",   // Brush
+        ["paintbrush.pointed"] = "",  // Brush
         ["tv"] = "",                   // TVMonitor
         ["person.fill"] = "",          // Contact
         ["person"] = "",
@@ -104,7 +108,7 @@ public static class Symbols
         ["arrow.down.circle"] = "",    // Download
         ["arrow.down.circle.fill"] = "",
         ["arrow.clockwise"] = "",      // Refresh
-        ["arrow.triangle.merge"] = "", // Merge
+        ["arrow.triangle.merge"] = "",  // Merge
         ["arrow.up.arrow.down"] = "",  // Sort
         ["arrow.up"] = "",
         ["arrow.down"] = "",

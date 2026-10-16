@@ -60,6 +60,7 @@
   <ItemGroup>
     <Content Include="Assets\**\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\**\*.ttf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Fanficly.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Public\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

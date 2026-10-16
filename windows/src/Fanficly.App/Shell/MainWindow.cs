@@ -196,8 +196,9 @@ public sealed partial class MainWindow : Window
         RootElement = UI.UI.Grid("*", "Auto,*");
         RootElement.Children.Add(_titleBar.Row(0));
         RootElement.Children.Add(_zoomHost.Row(1));
-        Content = RootElement;
+        Content = Platform.CaptureMode.Wrap(this, RootElement);
         SetTitleBar(_titleBar);
+        if (Platform.CaptureMode.IsOn) _titleBar.RightHeader = Platform.CaptureMode.CaptionGlyphs();
 
         RootElement.ActualThemeChanged += (_, _) => Theme.Apply(RootElement.ActualTheme);
         RootElement.Loaded += (_, _) => Theme.Apply(RootElement.ActualTheme);
