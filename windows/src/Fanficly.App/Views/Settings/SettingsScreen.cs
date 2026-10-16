@@ -54,7 +54,7 @@ public sealed class SettingsScreen : Screen
             SyncSection(),
             _notificationsHost,
             // The Content & Safety section (mature filter, hidden works, content policy):
-            // Views.Account.ContentSafetyViews.Section(), // wired at merge
+            Views.Account.ContentSafetyViews.Section(),
             InputSection(),
             UI.UI.Section("Privacy",
             [

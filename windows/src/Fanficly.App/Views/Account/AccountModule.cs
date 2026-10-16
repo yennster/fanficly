@@ -13,15 +13,17 @@ internal static class AccountModule
         Tabs.Register(SidebarItem.Subscriptions, () => new SubscriptionsScreen());
         Tabs.Register(SidebarItem.Bookmarks, () => new BookmarksScreen());
         Routes.Login = () => new LoginScreen();
-        Routes.Comments = (workId, chapterId, title) =>
+        Routes.Comments = (workId, chapterId, title, chapterNumber, totalChapters) =>
         {
-            var (number, total) = ChapterPosition(workId, chapterId);
-            return new CommentsScreen(workId, chapterId, title, number, total);
+            var (number, total) = chapterNumber is null || totalChapters is null
+                ? ChapterPosition(workId, chapterId)
+                : (chapterNumber, totalChapters);
+            return new CommentsScreen(workId, chapterId, title, chapterNumber ?? number, totalChapters ?? total);
         };
     }
 
     /// <summary>The chapter number and chapter count for a comments thread, read
-    /// from the library when the work is saved (Routes.Comments carries only the
+    /// from the library when the work is saved (when the caller didn't pass them;
     /// chapter's AO3 id). Unknown → the plain "Comments" title.</summary>
     internal static (int? Number, int? Total) ChapterPosition(int workId, int? chapterId)
     {

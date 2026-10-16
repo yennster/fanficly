@@ -26,8 +26,10 @@ public static class Routes
     /// <summary>Works matching filters under a title (FandomWorksView driven by filters).</summary>
     public static Func<AO3SearchFilters, string, Screen>? FilteredWorks { get; set; }
 
-    /// <summary>Comments on a work (CommentsView): work id, optional chapter id, title.</summary>
-    public static Func<int, int?, string, Screen>? Comments { get; set; }
+    /// <summary>Comments on a work (CommentsView): work id, optional chapter id,
+    /// work title, and the chapter's number and the chapter count when the
+    /// caller knows them (the reader does; null → looked up from the library).</summary>
+    public static Func<int, int?, string, int?, int?, Screen>? Comments { get; set; }
 
     /// <summary>The AO3 sign-in screen (LoginView).</summary>
     public static Func<Screen>? Login { get; set; }
@@ -60,8 +62,8 @@ public static class Routes
     public static void OpenFilteredWorks(AO3SearchFilters filters, string title) =>
         Nav.Push(FilteredWorks?.Invoke(filters, title) ?? Missing(title));
 
-    public static void OpenComments(int workId, int? chapterId, string title) =>
-        Nav.Push(Comments?.Invoke(workId, chapterId, title) ?? Missing("Comments"));
+    public static void OpenComments(int workId, int? chapterId, string title, int? chapterNumber = null, int? totalChapters = null) =>
+        Nav.Push(Comments?.Invoke(workId, chapterId, title, chapterNumber, totalChapters) ?? Missing("Comments"));
 
     public static void OpenLogin() => Nav.Push(Login?.Invoke() ?? Missing("Sign In"));
 }

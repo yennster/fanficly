@@ -41,6 +41,7 @@ public sealed partial class App : Application, IXamlMetadataProvider
         Views.Settings.AppearanceSettings.Apply();
         Window.Start(AppHost.InitialTab);
         Window.Activate();
+        _ = Views.Account.ContentSafetyViews.EnsureAgeGateAsync();
 
         AppHost.HandleActivation(AppInstance.GetCurrent().GetActivatedEventArgs(), isLaunch: true);
     }
