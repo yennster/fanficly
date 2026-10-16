@@ -8,9 +8,16 @@ name: Windows Store release
 #                                 plus a GitHub Release.
 #   Run it from the Actions tab -> version from the input, or
 #                                 windows/store/version.txt + the run number.
+#   Push to windows with [store-package] in the commit message
+#                               -> builds and checks the package (no publish),
+#                                 e.g. for the first submission by hand.
+# GitHub offers "Run workflow" only for workflows on the default branch; from
+# the windows branch alone, use a tag or `gh workflow run "Windows Store
+# release" --ref windows` (MICROSOFT_STORE.md).
 on:
   push:
     tags: ['windows-v*']
+    branches: [windows]
   workflow_dispatch:
     inputs:
       version:
@@ -52,6 +59,9 @@ env:
 jobs:
   build:
     name: Build the Store package
+    # A plain push to the branch only registers the workflow (so it can be run
+    # by name); [store-package] in the message builds the package.
+    if: ${{ github.event_name != 'push' || github.ref_type == 'tag' || contains(github.event.head_commit.message, '[store-package]') }}
     runs-on: windows-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -166,7 +176,7 @@ jobs:
     name: Publish to the Microsoft Store
     runs-on: windows-latest
     needs: [build, certify]
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name != 'push' || github.ref_type == 'tag') }}
     # Add required reviewers to this environment to approve each release.
     environment: microsoft-store
     timeout-minutes: 120

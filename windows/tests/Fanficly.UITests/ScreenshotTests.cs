@@ -19,8 +19,9 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
             ? dir
             : Path.Combine(AppSession.WindowsRoot, "artifacts", "screenshots");
 
-    /// <summary>Every icon the app uses, a page at a time, into <c>icons/</c>: an
-    /// icon missing from the installed font shows as an empty box.</summary>
+    /// <summary>Every icon the app uses, a page at a time, into <c>icons/</c>, and
+    /// fails naming any icon this PC's icon font can't draw (it would show as
+    /// an empty box).</summary>
     [Fact]
     public void CaptureIconGallery()
     {
@@ -30,14 +31,30 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
         var scroller = s.Window.FindAllDescendants()
             .FirstOrDefault(e => e.Patterns.Scroll.PatternOrDefault?.VerticallyScrollable.ValueOrDefault == true);
         var scroll = scroller?.Patterns.Scroll.PatternOrDefault;
-        var viewSize = scroll?.VerticalViewSize.ValueOrDefault ?? 100;
-        var pages = scroll is null ? 1 : (int)Math.Ceiling(100 / Math.Max(1, viewSize));
-        for (var page = 0; page < Math.Min(pages, 8); page++)
+        var viewSize = Math.Max(5, scroll?.VerticalViewSize.ValueOrDefault ?? 100);
+        for (var page = 0; page < 20; page++)
         {
-            scroll?.SetScrollPercent(-1, Math.Min(100, page * viewSize * 0.95));
+            var percent = Math.Min(100, page * viewSize * 0.95);
+            scroll?.SetScrollPercent(-1, percent);
             s.Settle(500);
             s.Snap(folder, $"icons-{page + 1}");
+            if (scroll is null || percent >= 100) break;
         }
+
+        var missing = new List<string>();
+        var checkedCount = 0;
+        foreach (var text in s.Window.FindAllDescendants(cf => cf.ByControlType(FlaUI.Core.Definitions.ControlType.Text)))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(text.Name ?? "", @"^(\S+)\s+U\+([0-9A-F]{4,5})$");
+            if (!m.Success) continue;
+            checkedCount++;
+            var cp = Convert.ToInt32(m.Groups[2].Value, 16);
+            if (!IconFont.CanDraw(cp, out var family)) missing.Add($"{m.Groups[1].Value} U+{cp:X4} ({family})");
+        }
+        output.WriteLine($"Checked {checkedCount} icons.");
+        foreach (var m in missing) output.WriteLine($"MISSING-ICON {m}");
+        Assert.True(checkedCount > 0, "No icons found in the gallery.");
+        Assert.True(missing.Count == 0, $"Icons the font can't draw: {string.Join(", ", missing)}");
     }
 
     [Theory]

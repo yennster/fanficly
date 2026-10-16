@@ -6,8 +6,12 @@ name: Windows screenshots
 # commits the pictures to this branch:
 #   docs/screenshots/windows/{desktop,tablet,compact}/  README and docs
 #   windows/store/screenshots/en-us/                    the Store listing
-# Run it from the Actions tab after a visual change.
+# Run it after a visual change: push a commit to `windows` whose message
+# contains [screenshots], or run it from the Actions tab once this file is on
+# the default branch (GitHub only offers "Run workflow" for those).
 on:
+  push:
+    branches: [windows]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +28,7 @@ env:
 jobs:
   capture:
     name: Capture and commit
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[screenshots]') }}
     runs-on: windows-latest
     defaults: { run: { working-directory: windows } }
     env:

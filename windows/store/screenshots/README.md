@@ -4,7 +4,9 @@ Screenshots for the Microsoft Store listing, one folder per listing language,
 named the same as the folders in `../listing/` (for example `en-us/`).
 
 They come from the **Windows screenshots** workflow
-(`.github/workflows/windows-screenshots.yml`, run it from the Actions tab). It
+(`.github/workflows/windows-screenshots.yml`; push a commit to `windows` with
+`[screenshots]` in its message, or run it from the Actions tab once the file is
+on the default branch). It
 drives the demo app through every screen with the UI tests, then commits the
 desktop set here in listing order (`en-us/01-reader.png`, …) with
 `en-us/captions.txt`, and every size to `docs/screenshots/windows/`. Look the

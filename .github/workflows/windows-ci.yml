@@ -101,6 +101,15 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 20
         run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ReaderLayoutTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=reader-layout.trx" --results-directory ../artifacts/test-results
+      - name: Chart the icon fonts
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          python -m pip install --quiet fonttools pillow
+          python scripts/Chart-IconFont.py ../artifacts/icon-font-charts
+          ./scripts/Write-Screenshots.ps1 -Dir ../artifacts/icon-font-charts -MaxWidth 1152 -Quality 80
       - name: Print the screenshots to the log
         if: ${{ !cancelled() }}
         shell: pwsh

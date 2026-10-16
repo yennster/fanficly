@@ -197,11 +197,12 @@ made in Partner Center, and CI takes over once the app is live. Do this once.
 
 **1. Get the package.** Either way gives the same `.msixupload`:
 
-- **From CI** (easiest): with the variables from step 7 set, run the workflow
-  from **Actions → Windows Store release → Run workflow** (leave the inputs as
-  they are). The build and WACK jobs run; when the publish job asks for
-  approval, **reject** it. Download the **store-package** artifact from the run
-  and unzip it. The WACK report is in the **wack-report** artifact.
+- **From CI** (easiest): with the variables from step 7 set, push a commit to
+  `windows` with `[store-package]` in its message (an empty commit is fine:
+  `git commit --allow-empty -m "Build the Store package [store-package]"`).
+  The build and WACK jobs run and nothing is published. Download the
+  **store-package** artifact from the run and unzip it. The WACK report is in
+  the **wack-report** artifact.
 - **Locally**, on Windows with Visual Studio (the **WinUI application
   development** and **Desktop development with C++** workloads; the C++ tools
   are needed for Native AOT), the .NET 10 SDK and PowerShell 7. In a
@@ -284,10 +285,21 @@ What the workflow does then:
 4. **GitHub Release** (tag runs only): creates a release for the tag with the
    release notes and the `.msixupload` attached.
 
-### Running it from the Actions tab instead
+### Running it by hand instead of with a tag
 
+GitHub shows the **Run workflow** button only for workflows that are on the
+repository's default branch. While the Windows app lives only on the
+`windows` branch, start a manual run from the GitHub CLI instead (any push to
+`windows` registers the workflow, so this works once the branch has been
+pushed):
+
+```sh
+gh workflow run "Windows Store release" --ref windows -f submit=false
+```
+
+Once the workflow file is also on the default branch, the same run is
 **Actions → Windows Store release → Run workflow**, on the `windows` branch.
-The inputs:
+The inputs (`-f name=value` with `gh`):
 
 | Input | Meaning |
 |---|---|
