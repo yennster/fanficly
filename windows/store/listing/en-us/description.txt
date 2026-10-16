@@ -1,0 +1,35 @@
+Fanficly is an ad-free reader for fanfiction. Read works from Archive of Our Own in a calm, comfortable reader that you can set up the way you like, keep a library that works offline, and pick up every story exactly where you left off. The same app is on iPhone, iPad and Mac.
+
+FIND YOUR NEXT STORY
+• Search the archive with keywords, and as you type, live tag suggestions for fandoms, ships, characters and tropes turn words into exact filters with one click.
+• Filter like you would on the website: rating, warnings, categories, completion, crossovers, word count, language, included and excluded tags, and sort order. Save a filter and use it again on any fandom.
+• Browse fandoms by media category (anime, books, movies, TV, video games and more), with the full live fandom list and instant search.
+• Popular shows the most-read fandoms, ships and characters at a glance.
+
+READ YOUR WAY
+• Three reading modes: continuous scroll, chapter by chapter, or page by page. On a wide window, pages pair up into a two-page book spread.
+• Themes, fonts, text size, line and paragraph spacing, and margins. Save complete setups as typography profiles and switch between them.
+• Listen: have any work read aloud with the voices built into Windows. Narration runs on your PC, follows along paragraph by paragraph and moves on to the next chapter by itself.
+• Your place is saved down to the paragraph and restored when you come back. Your library shows how far you've read in every story and a Finished badge when you're done.
+
+YOUR LIBRARY
+• Save works with one click, star the ones you love, pin the important ones to the top, and sort by date saved, last read, last updated, title, author or length.
+• Organize stories into your own folders, and search your library by title, author or tag.
+• Download works to read offline.
+• Export any work as EPUB, AZW3, MOBI, PDF or HTML.
+• Share → Fanficly from your browser saves the work you're looking at.
+• A Windows widget shows the story you're reading, with its progress; click it to jump back to your paragraph.
+
+STAY UP TO DATE
+• Follow works and authors right in the app, no account needed, and get a notification when a new chapter or a new work is posted.
+• Reading stats total the stories you've finished, time read, words read and your reading streak, with your top fandoms, ships and authors for any week, month or year, and a yearly wrap-up card to share.
+• Optionally sign in with your AO3 account to see your bookmarks and subscriptions and to read and post comments.
+
+MADE FOR WINDOWS
+• Keyboard shortcuts and arrow-key page turns, touch, pen and Xbox controller support.
+• Works with Narrator and other screen readers.
+
+PRIVATE BY DESIGN
+There is no Fanficly account and no Fanficly server. No analytics, no ads, no tracking. Your library, reading progress, stats and settings stay on your device. If you sign in to AO3, the only thing kept is AO3's own session cookie, stored securely on your PC. The source code is public on GitHub.
+
+Fanficly is an independent app. It is not affiliated with, endorsed by or sponsored by AO3 or the Organization for Transformative Works. All works are hosted on and moderated by Archive of Our Own; Fanficly hosts no content.

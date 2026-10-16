@@ -1,0 +1,340 @@
+name: Windows Store release
+
+# Builds the Windows app's Store package and publishes it to the Microsoft
+# Store with Microsoft's own Store Developer CLI (msstore). The setup, the
+# secrets and how to use it are in MICROSOFT_STORE.md.
+#
+#   Push a tag windows-vX.Y.Z  -> version X.Y.Z.0, submitted for certification,
+#                                 plus a GitHub Release.
+#   Run it from the Actions tab -> version from the input, or
+#                                 windows/store/version.txt + the run number.
+on:
+  push:
+    tags: ['windows-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.2.3). Empty: windows/store/version.txt + the run number.'
+        type: string
+        required: false
+        default: ''
+      submit:
+        description: 'Submit for certification (off: leave a draft in Partner Center)'
+        type: boolean
+        default: true
+      upload_screenshots:
+        description: 'Replace the listing screenshots with windows/store/screenshots'
+        type: boolean
+        default: false
+      flight_id:
+        description: 'Package flight ID (publish to that flight instead of everyone)'
+        type: string
+        required: false
+        default: ''
+      rollout_percentage:
+        description: 'Gradual rollout percentage, 0-100 (empty: everyone at once)'
+        type: string
+        required: false
+        default: ''
+
+# One Store release at a time, and never cancel one halfway through.
+concurrency:
+  group: windows-store
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    name: Build the Store package
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the package identity variables
+        shell: pwsh
+        env:
+          STORE_PACKAGE_IDENTITY_NAME: ${{ vars.STORE_PACKAGE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          $missing = @('STORE_PACKAGE_IDENTITY_NAME', 'STORE_PUBLISHER', 'STORE_PUBLISHER_DISPLAY_NAME') |
+            Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
+          if ($missing) {
+            Write-Host "::error::Missing repository variables: $($missing -join ', '). Copy them from Partner Center > Product identity; see MICROSOFT_STORE.md, 'GitHub secrets and variables'."
+            exit 1
+          }
+
+      - name: Set the package version
+        id: version
+        shell: pwsh
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          $script = './windows/scripts/store/Set-AppVersion.ps1'
+          if ($env:REF_TYPE -eq 'tag') {
+            $version = & $script -Version $env:REF_NAME
+            $base = (Get-Content windows/store/version.txt -Raw).Trim()
+            if (-not $version.StartsWith("$base.")) {
+              Write-Host "::warning::Tag $env:REF_NAME doesn't match windows/store/version.txt ($base). Bump version.txt so manual runs stay in step."
+            }
+          }
+          elseif ($env:INPUT_VERSION) {
+            & $script -Version $env:INPUT_VERSION | Out-Null
+          }
+          else {
+            & $script -BuildNumber ([int]$env:RUN_NUMBER) | Out-Null
+          }
+
+      - name: Set the package identity
+        shell: pwsh
+        env:
+          STORE_PACKAGE_IDENTITY_NAME: ${{ vars.STORE_PACKAGE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: >
+          ./windows/scripts/store/Set-StoreIdentity.ps1
+          -Name $env:STORE_PACKAGE_IDENTITY_NAME
+          -Publisher $env:STORE_PUBLISHER
+          -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME
+
+      - name: Check the Store listing
+        shell: pwsh
+        run: ./windows/scripts/store/New-StoreListingJson.ps1 -OutFile "$env:RUNNER_TEMP/listing.json"
+
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: windows/global.json }
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Restore
+        working-directory: windows
+        run: msbuild src/Fanficly.App/Fanficly.App.csproj /t:Restore /p:Configuration=Release
+
+      - name: Build the x64 + ARM64 bundle (Native AOT)
+        working-directory: windows
+        run: >
+          msbuild src/Fanficly.App/Fanficly.App.csproj /p:Configuration=Release /p:Platform=x64
+          /p:AppxBundle=Always "/p:AppxBundlePlatforms=x64|arm64"
+          /p:UapAppxPackageBuildMode=StoreUpload /p:AppxPackageDir=${{ github.workspace }}\artifacts\AppPackages\
+          /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=false
+
+      - name: Check the package
+        shell: pwsh
+        run: |
+          $upload = @(Get-ChildItem artifacts/AppPackages -Recurse -Filter *.msixupload)
+          if ($upload.Count -ne 1) {
+            Write-Host "::error::Expected one .msixupload in artifacts/AppPackages, found $($upload.Count)."
+            exit 1
+          }
+          Write-Host "Built $($upload[0].Name) ($([math]::Round($upload[0].Length / 1MB, 1)) MB)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-package
+          path: artifacts/AppPackages
+          if-no-files-found: error
+
+  certify:
+    # The Windows App Certification Kit: the checks Store certification runs,
+    # before anything is uploaded (fastlane's precheck, for Windows).
+    name: App Certification Kit
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: store-package, path: artifacts/AppPackages }
+      - name: Run WACK
+        continue-on-error: true
+        shell: pwsh
+        run: ./windows/scripts/store/Test-StorePackage.ps1 -Package artifacts/AppPackages -ReportPath artifacts/wack/wack-report.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: wack-report, path: artifacts/wack, if-no-files-found: ignore }
+
+  publish:
+    name: Publish to the Microsoft Store
+    runs-on: windows-latest
+    needs: [build, certify]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    # Add required reviewers to this environment to approve each release.
+    environment: microsoft-store
+    timeout-minutes: 120
+    env:
+      PRODUCT_ID: ${{ secrets.STORE_PRODUCT_ID }}
+      FLIGHT_ID: ${{ inputs.flight_id }}
+      ROLLOUT: ${{ inputs.rollout_percentage }}
+      SUBMIT: ${{ github.event_name == 'push' || inputs.submit }}
+      UPLOAD_SCREENSHOTS: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_screenshots }}
+    steps:
+      - name: Check the Store secrets
+        shell: pwsh
+        env:
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          if (-not $env:PRODUCT_ID) {
+            Write-Host "::error::The STORE_PRODUCT_ID secret isn't set, so there's nothing to publish to. Set up the Store app and the secrets first: see MICROSOFT_STORE.md, 'One-time setup'. The package was still built: download the store-package artifact from this run."
+            exit 1
+          }
+          $missing = @('AZURE_AD_TENANT_ID', 'SELLER_ID', 'AZURE_AD_APPLICATION_CLIENT_ID', 'AZURE_AD_APPLICATION_SECRET') |
+            Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
+          if ($missing) {
+            Write-Host "::error::Missing secrets: $($missing -join ', '). See MICROSOFT_STORE.md, 'GitHub secrets and variables'."
+            exit 1
+          }
+          if ($env:ROLLOUT) {
+            $pct = 0.0
+            if (-not [double]::TryParse($env:ROLLOUT, [ref] $pct) -or $pct -lt 0 -or $pct -gt 100) {
+              Write-Host "::error::rollout_percentage must be a number from 0 to 100 (got '$env:ROLLOUT')."
+              exit 1
+            }
+          }
+
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: store-package, path: artifacts/AppPackages }
+
+      - name: Find the package
+        id: package
+        shell: pwsh
+        run: |
+          $upload = Get-ChildItem artifacts/AppPackages -Recurse -Filter *.msixupload | Select-Object -First 1
+          "path=$($upload.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Install the Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Sign in to Partner Center
+        shell: pwsh
+        env:
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          # The CLI's own usage telemetry is on by default; Fanficly keeps it off.
+          msstore settings --enableTelemetry false
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          msstore reconfigure --tenantId $env:AZURE_AD_TENANT_ID --sellerId $env:SELLER_ID `
+            --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID --clientSecret $env:AZURE_AD_APPLICATION_SECRET
+          if ($LASTEXITCODE) {
+            Write-Host "::error::Partner Center sign-in failed. Check the four secrets, that the Entra app has the Manager role in Partner Center, and that its client secret hasn't expired."
+            exit $LASTEXITCODE
+          }
+
+      - name: Upload the package (draft)
+        shell: pwsh
+        env:
+          PACKAGE: ${{ steps.package.outputs.path }}
+        run: |
+          $publishArgs = @('publish', $env:PACKAGE, '--appId', $env:PRODUCT_ID, '--noCommit')
+          if ($env:FLIGHT_ID) { $publishArgs += @('--flightId', $env:FLIGHT_ID) }
+          if ($env:ROLLOUT) { $publishArgs += @('--packageRolloutPercentage', $env:ROLLOUT) }
+          msstore @publishArgs
+          if ($LASTEXITCODE) {
+            Write-Host "::error::msstore publish failed. If this is the app's first release, submit it by hand in Partner Center first (MICROSOFT_STORE.md, 'First submission')."
+            exit $LASTEXITCODE
+          }
+
+      - name: Update the Store listing
+        if: env.FLIGHT_ID == ''
+        shell: pwsh
+        run: |
+          # For MSIX apps updateMetadata replaces the whole draft, so merge the
+          # listing into the draft as it is now.
+          # Read the CLI's JSON as UTF-8 so non-ASCII listing text survives.
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+          $draft = Join-Path $env:RUNNER_TEMP 'submission.json'
+          $update = Join-Path $env:RUNNER_TEMP 'submission-update.json'
+          msstore submission get $env:PRODUCT_ID > $draft
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./windows/scripts/store/New-StoreListingJson.ps1 -BaseSubmission $draft -OutFile $update
+          msstore submission updateMetadata $env:PRODUCT_ID $update
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Upload the screenshots
+        if: env.FLIGHT_ID == '' && env.UPLOAD_SCREENSHOTS == 'true'
+        shell: pwsh
+        env:
+          STORE_PRODUCT_ID: ${{ secrets.STORE_PRODUCT_ID }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: ./windows/scripts/store/Publish-StoreScreenshots.ps1 -PackagePath artifacts/AppPackages
+
+      - name: Submit for certification
+        if: env.SUBMIT == 'true'
+        shell: pwsh
+        run: |
+          if ($env:FLIGHT_ID) {
+            msstore flights submission publish $env:PRODUCT_ID $env:FLIGHT_ID
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            msstore flights submission poll $env:PRODUCT_ID $env:FLIGHT_ID
+          }
+          else {
+            msstore submission publish $env:PRODUCT_ID
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            msstore submission poll $env:PRODUCT_ID
+          }
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Summary
+        if: always()
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $target = if ($env:FLIGHT_ID) { "package flight $env:FLIGHT_ID" } else { 'everyone' }
+          $state = if ($env:SUBMIT -eq 'true') { 'submitted for certification' } else { 'left as a draft in Partner Center' }
+          $rollout = if ($env:ROLLOUT) { ", rolling out to $env:ROLLOUT%" } else { '' }
+          @(
+            "### Microsoft Store: Fanficly $env:VERSION",
+            '',
+            "Package for $target, $state$rollout (job status: ${{ job.status }}).",
+            '',
+            'Check on it in Partner Center, or run `msstore submission status <productId>`.'
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, publish]
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: store-package, path: artifacts/AppPackages }
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            cat windows/store/listing/en-us/release_notes.txt
+            echo
+            echo "Fanficly for Windows $VERSION, submitted to the Microsoft Store. The attached .msixupload is the Store upload package (unsigned; install Fanficly from the Microsoft Store)."
+          } > "$notes"
+          upload=$(find artifacts/AppPackages -name '*.msixupload' | head -n 1)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$upload" --clobber
+          else
+            gh release create "$TAG" "$upload" --verify-tag --title "Fanficly for Windows $VERSION" --notes-file "$notes"
+          fi
