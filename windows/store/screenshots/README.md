@@ -3,10 +3,12 @@
 Screenshots for the Microsoft Store listing, one folder per listing language,
 named the same as the folders in `../listing/` (for example `en-us/`).
 
-They come from the CI screenshot job: the Windows CI workflow launches the app
-in demo mode and uploads the captures as the `launch-screenshot` artifact.
-Download them from the workflow run, check them, and commit the ones you want
-here, for example `en-us/01-library.png`, `en-us/02-reader.png`.
+They come from the **Windows screenshots** workflow
+(`.github/workflows/windows-screenshots.yml`, run it from the Actions tab). It
+drives the demo app through every screen with the UI tests, then commits the
+desktop set here in listing order (`en-us/01-reader.png`, …) with
+`en-us/captions.txt`, and every size to `docs/screenshots/windows/`. Look the
+new ones over before uploading them.
 
 - PNG only, at most 10 per language. They're uploaded in file-name order, so
   prefix the names with numbers.
