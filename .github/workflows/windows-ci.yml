@@ -79,15 +79,19 @@ jobs:
       - name: Build the UI tests
         run: dotnet build tests/Fanficly.UITests -c Debug
       - name: Enlarge the display
+        timeout-minutes: 2
+        continue-on-error: true
         shell: pwsh
         run: ./scripts/Set-ScreenResolution.ps1 -Width 1920 -Height 1200
       - name: Smoke tests
+        timeout-minutes: 20
         run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~SmokeTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=smoke.trx" --results-directory ../artifacts/test-results
       - name: Screenshots (desktop, tablet, compact)
-        if: always()
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
         run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=screens.trx" --results-directory ../artifacts/test-results
       - name: Print the screenshots to the log
-        if: always()
+        if: ${{ !cancelled() }}
         shell: pwsh
         run: ./scripts/Write-Screenshots.ps1 -Dir ../artifacts/ui-screenshots
       - uses: actions/upload-artifact@v4

@@ -26,17 +26,19 @@ public static class Display {
   public static DEVMODE New() { var d = new DEVMODE(); d.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE)); return d; }
 }
 '@
-$modes = @()
-for ($i = 0; ; $i++) {
+$modes = [System.Collections.Generic.List[object]]::new()
+for ($i = 0; $i -lt 400; $i++) {
   $dm = [Display]::New()
   if (-not [Display]::EnumDisplaySettings($null, $i, [ref]$dm)) { break }
-  $modes += [pscustomobject]@{ W = $dm.dmPelsWidth; H = $dm.dmPelsHeight; Mode = $dm }
+  $modes.Add([pscustomobject]@{ W = $dm.dmPelsWidth; H = $dm.dmPelsHeight; Mode = $dm })
 }
+Write-Host "$($modes.Count) display modes"
 $best = $modes | Where-Object { $_.W -le $Width -and $_.H -le $Height } |
   Sort-Object { $_.W * $_.H } -Descending | Select-Object -First 1
 if ($best) {
   $dm = $best.Mode
   $dm.dmFields = 0x80000 -bor 0x100000   # DM_PELSWIDTH | DM_PELSHEIGHT
+  Write-Host "Switching to $($best.W)x$($best.H)"
   $result = [Display]::ChangeDisplaySettings([ref]$dm, 0)
   Write-Host "Display mode $($best.W)x$($best.H): result $result (0 = changed)"
 } else {
