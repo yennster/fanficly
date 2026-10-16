@@ -123,7 +123,7 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
             Step("09-tts", () =>
             {
                 if (s.Tap(3, "reader.listen", "Listen to chapter", "Listen")) return true;
-                return s.Tap(3, "reader.typography", "Reader settings", "Text settings")
+                return s.Tap(3, "reader.aa", "Reader settings")
                        && s.Tap(4, "reader.listen", "Listen to chapter", "Listen");
             }, s, settle: 1500);
             s.Tap(1, "speech.stop", "Stop");

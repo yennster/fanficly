@@ -97,6 +97,10 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 20
         run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=screens.trx" --results-directory ../artifacts/test-results
+      - name: Reader layout tests
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ReaderLayoutTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=reader-layout.trx" --results-directory ../artifacts/test-results
       - name: Print the screenshots to the log
         if: ${{ !cancelled() }}
         shell: pwsh

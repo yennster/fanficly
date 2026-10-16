@@ -56,6 +56,12 @@ public static partial class AppHost
         {
             KeyValueStores.Default = new InMemoryKeyValueStore();
             KeyValueStores.Synced = new InMemoryKeyValueStore();
+            // "-set key=value" presets a setting for this demo run (UI tests pin
+            // the reading mode and typography; Apple's tests pass
+            // "-key value" to UserDefaults the same way).
+            for (var i = 0; i + 1 < args.Length; i++)
+                if (args[i] == "-set" && args[i + 1].IndexOf('=') is var eq and > 0)
+                    KeyValueStores.Default.SetString(args[i + 1][..eq], args[i + 1][(eq + 1)..]);
         }
         else
         {
