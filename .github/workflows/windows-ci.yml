@@ -1,0 +1,82 @@
+name: Windows CI
+
+# The Windows app (windows/): core unit tests, the WinUI app for x64 and
+# ARM64, a demo-mode launch with a screenshot, and the Store MSIX bundle.
+on:
+  push:
+    branches: [windows]
+    paths: ['windows/**', '.github/workflows/windows-*.yml']
+  pull_request:
+    branches: [windows]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  core-tests:
+    name: Core tests
+    runs-on: windows-latest
+    defaults: { run: { working-directory: windows } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: windows/global.json }
+      - name: Unit tests
+        run: dotnet test tests/Fanficly.Core.Tests -c Release --logger "trx;LogFileName=core.trx" --results-directory ../artifacts/test-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: core-test-results, path: artifacts/test-results }
+
+  app:
+    name: App (${{ matrix.platform }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x64, ARM64]
+    defaults: { run: { working-directory: windows } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: windows/global.json }
+      - name: Build (unpackaged, self-contained, for the launch test)
+        run: >
+          dotnet build src/Fanficly.App -c Debug -p:Platform=${{ matrix.platform }}
+          -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true
+          -p:RuntimeIdentifier=win-${{ matrix.platform == 'x64' && 'x64' || 'arm64' }}
+          -o ../artifacts/app-${{ matrix.platform }}
+      - name: Launch in demo mode and capture the window
+        if: matrix.platform == 'x64'
+        shell: pwsh
+        run: ./scripts/Capture-Screen.ps1 -Exe ../artifacts/app-x64/Fanficly.exe -Out ../artifacts/screenshots/launch.png
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.platform == 'x64'
+        with: { name: launch-screenshot, path: artifacts/screenshots, if-no-files-found: ignore }
+
+  package:
+    name: MSIX bundle (Store upload)
+    runs-on: windows-latest
+    needs: [core-tests, app]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: windows/global.json }
+      - uses: microsoft/setup-msbuild@v2
+      - name: Restore
+        working-directory: windows
+        run: msbuild src/Fanficly.App/Fanficly.App.csproj /t:Restore /p:Configuration=Release "/p:RuntimeIdentifiers=win-x64%3Bwin-arm64"
+      - name: Build the x64 + ARM64 bundle (Native AOT)
+        working-directory: windows
+        run: >
+          msbuild src/Fanficly.App/Fanficly.App.csproj /p:Configuration=Release /p:Platform=x64
+          /p:AppxBundle=Always "/p:AppxBundlePlatforms=x64|arm64"
+          /p:UapAppxPackageBuildMode=StoreUpload /p:AppxPackageDir=${{ github.workspace }}\artifacts\AppPackages\
+          /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=false
+      - uses: actions/upload-artifact@v4
+        with: { name: msix-bundle, path: artifacts/AppPackages }

@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The native Windows app: WinUI 3 (Windows App SDK), packaged as MSIX for
+       the Microsoft Store and compiled ahead of time (Native AOT) in Release.
+       The UI is built in C# rather than XAML markup, so the whole app compiles
+       (and is type-checked) on any OS; only packaging needs Windows. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <RootNamespace>Fanficly.App</RootNamespace>
+    <AssemblyName>Fanficly</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Fanficly.ico</ApplicationIcon>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Main lives in Program.cs (single-instance redirection + activation). -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <!-- Release builds are Native AOT: machine code, no JIT, fast cold start. -->
+    <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
+    <PublishTrimmed Condition="'$(Configuration)' == 'Release'">true</PublishTrimmed>
+    <IsAotCompatible>true</IsAotCompatible>
+    <CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>
+    <!-- Store packages: one bundle with x64 and ARM64. -->
+    <AppxBundle>Always</AppxBundle>
+    <AppxBundlePlatforms>x64|arm64</AppxBundlePlatforms>
+    <GenerateAppInstallerFile>false</GenerateAppInstallerFile>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+    <GenerateTestArtifacts>false</GenerateTestArtifacts>
+    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
+  </PropertyGroup>
+
+  <!-- Off Windows (Linux/macOS dev machines and agents) the app still
+       compiles; MakePri and MSIX packaging only run on Windows. -->
+  <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
+    <AppxGeneratePriEnabled>false</AppxGeneratePriEnabled>
+    <EnableMsixTooling>false</EnableMsixTooling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Fanficly.Core\Fanficly.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Fanficly.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

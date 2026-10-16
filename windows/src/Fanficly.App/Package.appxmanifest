@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The MSIX manifest. Identity Name/Publisher and PublisherDisplayName are
+     placeholders: the Store workflow (and scripts/store/Set-StoreIdentity.ps1)
+     writes the values Partner Center reserved for the app. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 uap5 com desktop rescap">
+
+  <Identity
+    Name="Fanficly.Fanficly"
+    Publisher="CN=Fanficly"
+    Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>Fanficly</DisplayName>
+    <PublisherDisplayName>Fanficly</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="x-generate"/>
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="$targetentrypoint$">
+      <uap:VisualElements
+        DisplayName="Fanficly"
+        Description="An ad-free, open-source reader for Archive of Our Own."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square71x71Logo="Assets\Square71x71Logo.png"
+          Square310x310Logo="Assets\Square310x310Logo.png"
+          ShortName="Fanficly">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo"/>
+            <uap:ShowOn Tile="wide310x150Logo"/>
+            <uap:ShowOn Tile="square310x310Logo"/>
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- fanficly://resume/<id>, fanficly://import?url=, fanficly://search?query= -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="fanficly">
+            <uap:DisplayName>Fanficly</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+
+        <!-- "Share → Fanficly" from Edge, Chrome or any app: imports the AO3 work. -->
+        <uap:Extension Category="windows.shareTarget">
+          <uap:ShareTarget Description="Add an AO3 work to your Fanficly library">
+            <uap:DataFormat>URI</uap:DataFormat>
+            <uap:DataFormat>WebLink</uap:DataFormat>
+            <uap:DataFormat>Text</uap:DataFormat>
+          </uap:ShareTarget>
+        </uap:Extension>
+
+        <!-- Tapping a new-chapter / new-work notification opens what it's about. -->
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="C19ED655-1F36-428B-9256-8562E4E0CF61" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Fanficly.exe" Arguments="----AppNotificationActivated:" DisplayName="Fanficly notifications">
+              <com:Class Id="C19ED655-1F36-428B-9256-8562E4E0CF61" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
