@@ -57,7 +57,7 @@ public static partial class AppHost
         else
         {
             KeyValueStores.Default = new JsonFileKeyValueStore(AppPaths.Settings);
-            KeyValueStores.Synced = new JsonFileKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json"));
+            KeyValueStores.Synced = new SyncFolderKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json"));
         }
         InitializeServices();
     }
@@ -69,9 +69,11 @@ public static partial class AppHost
     {
         window.AppWindow.Closing += (_, _) =>
         {
+            OnClosing();
             if (KeyValueStores.Default is JsonFileKeyValueStore s) s.Flush();
-            if (KeyValueStores.Synced is JsonFileKeyValueStore k) k.Flush();
+            if (KeyValueStores.Synced is SyncFolderKeyValueStore k) k.Flush();
         };
+        window.DispatcherQueue.TryEnqueue(() => _ = RunLaunchTasksAsync());
         OnWindowCreatedServices(window);
     }
 
