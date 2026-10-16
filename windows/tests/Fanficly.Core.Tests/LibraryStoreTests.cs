@@ -1,0 +1,348 @@
+using Fanficly.Core;
+
+namespace Fanficly.Core.Tests;
+
+/// <summary>The SQLite-backed store itself: persistence across reopen, lazy
+/// chapter bodies, relationships, unique keys, change notifications and the
+/// schema version.</summary>
+public sealed class LibraryStoreTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"fanficly_store_{Guid.NewGuid()}");
+
+    private string DbPath => Path.Combine(_dir, "library.sqlite");
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch (IOException) { }
+    }
+
+    [Fact]
+    public void EveryFieldSurvivesReopening()
+    {
+        var saved = new DateTimeOffset(2026, 5, 4, 3, 2, 1, 123, TimeSpan.FromHours(-7));
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var folder = new CustomFolder("Faves", saved);
+            var legacy = new CustomFolder("Legacy", saved);
+            var work = new Work(1, "Title", "Author", summary: "S", rating: "Teen", warnings: ["W"], categories: ["F/M"],
+                                fandoms: ["F"], characters: ["C"], relationships: ["R"], freeforms: ["Fluff", "Angst"],
+                                language: "English", wordCount: 1234, chapterCount: 3, totalChapters: 5, kudos: 7, hits: 8,
+                                bookmarksCount: 9, commentsCount: 10, isComplete: true, publishedAt: saved, updatedAt: saved,
+                                savedAt: saved)
+            {
+                AuthorUsername = "auth",
+                LastReadAt = saved,
+                LastReadChapter = 2,
+                LastReadProgress = 0.5,
+                EpubLocalPath = "library/1.epub",
+                IsFollowed = true,
+                FollowedAt = saved,
+                LastSeenChapterCount = 3,
+                LastCheckedAt = saved,
+                IsStarred = true,
+                IsPinned = true,
+                Folder = legacy,
+            };
+            store.Insert(work);
+            work.Folders.Add(folder);
+            store.Insert(new Chapter(work, 1, "One", "<p>first</p>", 900));
+            store.Insert(new Chapter(work, 2, "Two", "<p>second</p>"));
+            store.Insert(new TagRecord("Fluff", "freeform"));
+            store.Insert(new BookmarkRecord(5, 1, "note", ["t1"], saved));
+            store.Insert(new SavedFilter("F", "{}", saved));
+            store.Insert(new ReadingProgress(1, 2, 7, "Title", "Author", saved));
+            store.Insert(new RecentlyViewed(1, "Title", "Author", "Harry Potter - J. K. Rowling", saved));
+            store.Insert(new SavedSearch("S", "prompt", "kudos_count", "asc", saved));
+            store.Insert(new HiddenWork(6, "Hidden", saved));
+            store.Insert(new SubscriptionRecord("work:1", "work", "Title", "Author") { LastSeenChapterCount = 3, LastCheckedAt = saved });
+            store.Insert(new FollowedAuthor("auth", "Auth", saved, saved, [1, 2]));
+            store.Insert(new ReadingStat(1, "Title", "Author", ["F"], ["F/M"], ["R"], "Teen", 1234, saved, saved, 60,
+                                         new Dictionary<string, double> { ["2026-05-04"] = 60 }, 0.5, true));
+            store.Save();
+        }
+
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var work = Assert.Single(store.All<Work>());
+            Assert.Equal(("Title", "Author", "auth", "S", "Teen"), (work.Title, work.AuthorName, work.AuthorUsername, work.Summary, work.Rating));
+            Assert.Equal(["Fluff", "Angst"], work.Freeforms);
+            Assert.Equal(["W"], work.Warnings);
+            Assert.Equal((1234, 3, 5, 7, 8, 9, 10), (work.WordCount, work.ChapterCount, work.TotalChapters!.Value, work.Kudos, work.Hits, work.BookmarksCount, work.CommentsCount));
+            Assert.True(work.IsComplete && work.IsFollowed && work.IsStarred && work.IsPinned);
+            Assert.Equal(saved, work.SavedAt);
+            Assert.Equal(saved, work.PublishedAt);
+            Assert.Equal(saved, work.LastCheckedAt);
+            Assert.Equal(0.5, work.LastReadProgress);
+            Assert.Equal("library/1.epub", work.EpubLocalPath);
+            Assert.Equal("Legacy", work.Folder?.Name);
+            Assert.Equal(["Faves"], work.Folders.Select(f => f.Name));
+            Assert.Equal(["One", "Two"], store.ChaptersOf(work).Select(c => c.Title));
+            Assert.Equal(900, store.ChaptersOf(work)[0].AoId);
+            Assert.Equal("<p>second</p>", store.ChaptersOf(work)[1].BodyHtml);
+            Assert.Equal("freeform", store.GetTag("Fluff")?.Kind);
+            Assert.Equal(["t1"], store.GetBookmark(5)!.Tags);
+            Assert.Equal("{}", store.GetSavedFilter("F")?.FiltersJson);
+            Assert.Equal(7, store.GetReadingProgress(1)?.ParagraphIndex);
+            Assert.Equal("Harry Potter", store.GetRecentlyViewed(1)?.FandomShort);
+            Assert.Equal("asc", store.GetSavedSearch("S")?.SortDirection);
+            Assert.Equal("Hidden", store.GetHiddenWork(6)?.Title);
+            Assert.Equal(3, store.GetSubscription("work:1")?.LastSeenChapterCount);
+            Assert.Equal([1, 2], store.GetFollowedAuthor("auth")!.KnownWorkIds);
+            var stat = store.GetReadingStat(1)!;
+            Assert.Equal(60, stat.DaySeconds["2026-05-04"]);
+            Assert.True(stat.WorkIsComplete);
+            Assert.Equal(0.5, stat.MaxProgress);
+            Assert.False(store.HasChanges);
+        }
+    }
+
+    [Fact]
+    public void ChapterBodiesLoadLazilyAndUpdatesPersist()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var work = new Work(1, "T", "A");
+            store.Insert(work);
+            store.Insert(new Chapter(work, 1, "One", new string('x', 100_000)));
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var chapter = Assert.Single(store.All<Chapter>());
+            Assert.False(chapter.BodyLoaded);
+            Assert.Equal(100_000, chapter.BodyHtml.Length);
+            Assert.True(chapter.BodyLoaded);
+            Assert.False(store.HasChanges); // reading a body isn't a change
+            chapter.BodyHtml = "<p>edited</p>";
+            store.Save();
+            chapter.UnloadBody();
+            Assert.False(chapter.BodyLoaded);
+            Assert.Equal("<p>edited</p>", chapter.BodyHtml);
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal("<p>edited</p>", Assert.Single(store.All<Chapter>()).BodyHtml);
+    }
+
+    [Fact]
+    public void DeletingAWorkCascadesChaptersAndUnlinksFolders()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var folder = new CustomFolder("Faves");
+            var work = new Work(1, "T", "A");
+            store.Insert(work);
+            work.Folders.Add(folder); // the folder is inserted with the work on save
+            new Chapter(work, 1, "One", "<p>1</p>");
+            store.Save();
+            Assert.Equal(1, store.Count<CustomFolder>());
+            Assert.Equal(1, store.Count<Chapter>());
+
+            store.Delete(work);
+            Assert.Empty(folder.Works);
+            Assert.Equal(0, store.Count<Chapter>());
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            Assert.Equal(0, store.Count<Work>());
+            Assert.Equal(0, store.Count<Chapter>());
+            Assert.Empty(Assert.Single(store.All<CustomFolder>()).Works);
+        }
+    }
+
+    [Fact]
+    public void DeletingAFolderKeepsItsWorks()
+    {
+        using var store = LibraryStore.Open(DbPath);
+        var folder = new CustomFolder("Faves");
+        store.Insert(folder);
+        var work = new Work(1, "T", "A") { Folder = folder };
+        store.Insert(work);
+        work.Folders.Add(folder);
+        store.Save();
+
+        store.Delete(folder);
+        Assert.Empty(work.Folders);
+        Assert.Null(work.Folder);
+        store.Save();
+        Assert.Equal(1, store.Count<Work>());
+    }
+
+    [Fact]
+    public void InsertingADuplicateUniqueKeyReplacesTheRecord()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new HiddenWork(1, "first"));
+            store.Save();
+            store.Insert(new HiddenWork(1, "second"));
+            Assert.Equal("second", Assert.Single(store.All<HiddenWork>()).Title);
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal("second", Assert.Single(store.All<HiddenWork>()).Title);
+    }
+
+    [Fact]
+    public void QueriesSeeUnsavedInsertsAndDeletes()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var w = new Work(1, "T", "A") { IsStarred = true };
+        store.Insert(w);
+        Assert.Same(w, store.GetWork(1));
+        Assert.Single(store.StarredWorks());
+        store.Delete(w);
+        Assert.Null(store.GetWork(1));
+        Assert.False(w.IsInserted);
+        Assert.False(store.HasChanges); // inserted and deleted before any save
+    }
+
+    [Fact]
+    public void ChangedReportsTheKindsSaved()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var events = new List<LibraryEntityKinds>();
+        store.Changed += events.Add;
+
+        store.Insert(new Work(1, "T", "A"));
+        store.Insert(new ReadingProgress(1));
+        store.Save();
+        Assert.Equal(LibraryEntityKinds.Works | LibraryEntityKinds.ReadingProgress, events.Single());
+
+        store.Save(); // nothing to write → no event
+        Assert.Single(events);
+
+        store.GetReadingProgress(1)!.ParagraphIndex = 4;
+        store.Save();
+        Assert.Equal(LibraryEntityKinds.ReadingProgress, events[^1]);
+
+        var folder = new CustomFolder("F");
+        store.Insert(folder);
+        store.Save();
+        store.GetWork(1)!.Folders.Add(folder);
+        store.Save();
+        Assert.Equal(LibraryEntityKinds.Works | LibraryEntityKinds.Folders, events[^1]);
+    }
+
+    [Fact]
+    public void PropertyChangesAreObservable()
+    {
+        var work = new Work(1, "T", "A");
+        var changed = new List<string?>();
+        work.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+        work.IsStarred = true;
+        work.IsStarred = true; // unchanged → no event
+        work.Title = "New";
+        Assert.Equal([nameof(Work.IsStarred), nameof(Work.Title)], changed);
+    }
+
+    [Fact]
+    public void SchemaIsVersionedAndMigrationsAreAdditive()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal(LibrarySchema.CurrentVersion, store.SchemaVersion);
+
+        // A column a later version adds (with a default) doesn't disturb this one.
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath};Pooling=False"))
+        {
+            conn.Open();
+            LibrarySchema.AddColumnIfMissing(conn, "works", "future_field", "TEXT NOT NULL DEFAULT ''");
+            LibrarySchema.AddColumnIfMissing(conn, "works", "future_field", "TEXT NOT NULL DEFAULT ''"); // idempotent
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new Work(1, "T", "A"));
+            store.Save();
+            Assert.Equal(LibrarySchema.CurrentVersion, store.SchemaVersion);
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal("T", Assert.Single(store.All<Work>()).Title);
+    }
+
+    [Fact]
+    public async Task ConcurrentWritersDoNotCorruptTheStore()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(t => Task.Run(() =>
+        {
+            for (var i = 0; i < 50; i++)
+            {
+                store.Insert(new RecentlyViewed(t * 1000 + i, "T"));
+                store.Save();
+                _ = store.RecentlyViewedNewestFirst();
+            }
+        })));
+        Assert.Equal(400, store.Count<RecentlyViewed>());
+        Assert.False(store.HasChanges);
+    }
+
+    [Fact]
+    public void RecentlyViewedHelpersRemoveAndClear()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        WorkPersistence.RecordView(1, "One", "A", "F", store);
+        WorkPersistence.RecordView(2, "Two", "A", "F", store);
+        WorkPersistence.RemoveViews([store.GetRecentlyViewed(1)!], store);
+        Assert.Equal([2], store.All<RecentlyViewed>().Select(r => r.Ao3Id));
+        WorkPersistence.ClearRecentlyViewed(store);
+        Assert.Equal(0, store.Count<RecentlyViewed>());
+    }
+
+    [Fact]
+    public void FolderActions()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = new Work(1, "T", "A");
+        store.Insert(work);
+        Assert.Null(WorkPersistence.CreateFolder("   ", store));
+        var faves = WorkPersistence.CreateFolder("  Faves ", store, work)!;
+        Assert.Equal("Faves", faves.Name);
+        Assert.Null(WorkPersistence.CreateFolder("Faves", store)); // taken
+        Assert.Equal([work], faves.Works);
+
+        Assert.False(WorkPersistence.ToggleFolder(work, faves, store));
+        Assert.True(WorkPersistence.ToggleFolder(work, faves, store));
+        WorkPersistence.ClearFolders(work, store);
+        Assert.Empty(work.Folders);
+        Assert.True(WorkPersistence.ToggleStar(work, store));
+        Assert.True(WorkPersistence.TogglePin(work, store));
+        WorkPersistence.DeleteFolder(faves, store);
+        Assert.Null(store.GetFolder("Faves"));
+    }
+
+    [Fact]
+    public void DemoSeedIsDeterministicAndIdempotent()
+    {
+        AO3WorkSummary W(int id, string title) => new()
+        {
+            Id = id, Title = title, Author = "author", Fandoms = [$"Fandom {id}"], Categories = ["Gen"],
+            Rating = "General Audiences", WordCount = 10_000, ChapterCount = 3, IsComplete = id % 2 == 0,
+            UpdatedAt = DateTimeOffset.FromUnixTimeSeconds(1_779_000_000),
+        };
+        var catalog = new[] { 90001, 90002, 90003, 90004, 90005, 90006, 90007 }.Select(id => W(id, $"Work {id}")).ToList();
+        var oldFolder = WorkPersistence.LibraryFolder;
+        WorkPersistence.LibraryFolder = _dir;
+        try
+        {
+            using var store = LibraryStore.OpenInMemory();
+            DemoSeed.Seed(store, catalog);
+            Assert.Equal(7, store.Count<Work>());
+            Assert.Equal(3, store.FollowedWorks().Count);
+            Assert.Equal(5, store.Count<FollowedAuthor>());
+            Assert.Equal(90003, store.RecentlyViewedNewestFirst()[0].Ao3Id);
+            Assert.Equal(7, store.Count<ReadingStat>());
+            Assert.Equal(1.0, store.GetWork(90006)!.LastReadProgress);
+            Assert.NotNull(WorkPersistence.EpubPath(90001));
+            Assert.Equal(3, store.Count<SavedSearch>());
+            Assert.Equal(2, store.Count<SavedFilter>());
+            Assert.Equal(0.45, store.GetReadingStat(90001)!.MaxProgress);
+
+            DemoSeed.Seed(store, catalog); // already seeded → no-op
+            Assert.Equal(5, store.Count<FollowedAuthor>());
+        }
+        finally
+        {
+            WorkPersistence.LibraryFolder = oldFolder;
+        }
+    }
+}
