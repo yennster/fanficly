@@ -13,7 +13,9 @@ on:
 
 concurrency:
   group: windows-ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Let a running build finish (a newer push waits, and replaces any
+  # older waiting run), so frequent pushes still get a full result.
+  cancel-in-progress: false
 
 env:
   DOTNET_NOLOGO: true
