@@ -93,7 +93,7 @@ internal sealed class FilteredWorksScreen : Screen
 
     private async Task ShowFiltersAsync()
     {
-        if (await WorkFilterDialog.ShowAsync(_filters) is { } edited) await ApplyFiltersAsync(edited);
+        if (await Search.WorkFilterSheet.ShowAsync(_filters) is { } edited) await ApplyFiltersAsync(edited);
     }
 
     // MARK: - Visible works

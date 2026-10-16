@@ -12,7 +12,10 @@ namespace Fanficly.App.UI;
 /// </summary>
 public static class Symbols
 {
-    public static readonly FontFamily Font = new("Segoe Fluent Icons,Segoe MDL2 Assets");
+    /// <summary>Created on first use: feature modules register icons from
+    /// module initializers, which run before the XAML runtime is up.</summary>
+    public static FontFamily Font => _font ??= new FontFamily("Segoe Fluent Icons,Segoe MDL2 Assets");
+    private static FontFamily? _font;
 
     private static readonly Dictionary<string, string> Map = new()
     {
