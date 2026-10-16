@@ -24,12 +24,12 @@ public static class Symbols
         ["chart.bar.xaxis"] = "",      // AreaChart
         ["clock.arrow.circlepath"] = "", // History
         ["person.2"] = "",             // People
-        ["bookmark"] = "",             // Bookmarks
+        ["bookmark"] = "",             // Bookmarks
         ["bell"] = "",                 // Ringer
         ["gearshape"] = "",            // Settings
 
         // Bookmarks / follow
-        ["bookmark.fill"] = "",
+        ["bookmark.fill"] = "",
         ["bookmark.circle"] = "",
         ["bookmark.slash"] = "",
         ["star"] = "",
@@ -152,6 +152,12 @@ public static class Symbols
         ["gamecontroller.fill"] = "",
         ["sidebar.left"] = "",
     };
+
+    /// <summary>Adds (or overrides) a mapping. Features add the symbols only
+    /// they use from a module initializer in their own folder.</summary>
+    public static void Add(string sfSymbol, char glyph) => Map[sfSymbol] = glyph.ToString();
+
+    public static bool Has(string sfSymbol) => Map.ContainsKey(sfSymbol);
 
     /// <summary>The Fluent glyph for an SF Symbol name (a neutral page glyph when unknown).</summary>
     public static string Glyph(string sfSymbol) => Map.TryGetValue(sfSymbol, out var g) ? g : "";
