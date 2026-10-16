@@ -35,6 +35,7 @@ public sealed class ShortcutsScreen : Screen
                 ("Tab / Shift+Tab", "Move between controls"),
                 ("Enter or Space", "Activate the focused control"),
                 ("Shift+F10 or Menu key", "Open the focused item's context menu"),
+                ("Ctrl+V", "Open a copied AO3 link (outside a text box; or drop the link on the window)"),
             ]),
             Group("Reader",
             [

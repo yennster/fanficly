@@ -1092,7 +1092,7 @@ public sealed class SearchScreen : Screen
         var prompt = KeyValueStores.Default.GetString(DeepLink.PendingSearchQueryKey) ?? "";
         if (prompt.Length == 0) return;
         KeyValueStores.Default.SetString(DeepLink.PendingSearchQueryKey, "");
-        LoadPrompt(prompt);
+        LoadPrompt(DeepLink.SearchPrompt(prompt));
     }
 
     private string SuggestName()

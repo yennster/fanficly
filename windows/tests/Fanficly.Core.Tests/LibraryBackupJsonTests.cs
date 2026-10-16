@@ -88,6 +88,26 @@ public sealed class LibraryBackupJsonTests
     }
 
     [Fact]
+    public void CarriesWindowsReaderSettings()
+    {
+        // Windows' own per-device reader settings (reader.<name>.windows) ride
+        // along like the phone, pad and Mac ones; Swift ignores the extra keys.
+        var store = new InMemoryKeyValueStore();
+        store.SetString("reader.fontSizePt.windows", "19");
+        store.SetString("reader.mode.windows", "pageByPage");
+        store.SetString("reader.activeProfile.windows", "Night");
+        var captured = SettingsBackup.Capture(store);
+        Assert.Equal(19, captured.GetDouble("fontSizePtWindows"));
+        Assert.Equal("pageByPage", captured.GetString("modeWindows"));
+        Assert.Equal("Night", captured.GetString("activeProfileWindows"));
+
+        var json = SwiftFixture.Replace("\"fontSizePtMac\":18", "\"fontSizePtMac\":18,\"fontSizePtWindows\":19,\"activeProfileWindows\":\"Night\"");
+        var decoded = LibraryBackupJson.Decode(json).Settings!;
+        Assert.Equal(19, decoded.GetDouble("fontSizePtWindows"));
+        Assert.Equal("Night", decoded.GetString("activeProfileWindows"));
+    }
+
+    [Fact]
     public void ReencodingSwiftOutputGivesTheSameJson()
     {
         // Our encoding of a decoded Swift backup is the same JSON document

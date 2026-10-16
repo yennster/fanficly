@@ -73,7 +73,7 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
 
             Step("04-library", () => s.OpenTab("library"), s);
             Step("05-browse", () => s.OpenTab("browse"), s);
-            Step("05-browse-fandoms", () => s.Tap(6, "TV Shows") && s.ByIdPrefix("fandom.", 8) is not null || s.HeaderTitle == "TV Shows", s);
+            Step("05-browse-fandoms", () => s.Tap(6, "TV Shows") && s.ByIdPrefix("browse.fandom.", 8) is not null || s.HeaderTitle == "TV Shows", s);
             s.GoBack();
             Step("10-popular", () => s.OpenTab("popular"), s);
             Step("06-recently-viewed", () => s.OpenTab("recentlyViewed"), s);

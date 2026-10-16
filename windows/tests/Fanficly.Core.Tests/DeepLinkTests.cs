@@ -84,4 +84,15 @@ public class DeepLinkTests
         Assert.Null(DeepLink.WorkIdFromText("hello"));
         Assert.Null(DeepLink.WorkIdFromText("   "));
     }
+
+    [Fact]
+    public void SavedFilterJsonFromTheWidgetBecomesItsPrompt()
+    {
+        var filters = new AO3SearchFilters { FreeformNames = ["Fluff"] };
+        var prompt = DeepLink.SearchPrompt(filters.ToJson());
+        Assert.Equal(filters.PromptText(), prompt);
+        Assert.Contains("Fluff", prompt);
+        Assert.Equal("tag:\"Slow Burn\" complete", DeepLink.SearchPrompt("tag:\"Slow Burn\" complete"));
+        Assert.Equal("{not json", DeepLink.SearchPrompt("{not json"));
+    }
 }

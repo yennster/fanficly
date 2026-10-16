@@ -117,6 +117,18 @@ public abstract record DeepLink
 
     public static Uri SearchUri(string query) => new($"{Scheme}://search?query={Uri.EscapeDataString(query)}");
 
+    /// <summary>The search text for a fanficly://search query. The Saved
+    /// Searches widget sends a saved filter as its filters JSON (as the Swift
+    /// widget does); that becomes the filters' key:value prompt, which
+    /// SearchSyntax reads back exactly. Anything else is already prompt text.</summary>
+    public static string SearchPrompt(string query)
+    {
+        var trimmed = query.Trim();
+        if (trimmed.StartsWith('{') && AO3SearchFilters.FromSavedJson(trimmed) is { } filters)
+            return filters.PromptText();
+        return query;
+    }
+
     // MARK: - Helpers
 
     private static readonly Regex WorksPath = new(@"works/(\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);

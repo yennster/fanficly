@@ -202,7 +202,7 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
         WidgetCenter.ReloadRequested += _ => FanficlyWidgetProvider.UpdateAll();
 
         using var library = LibraryStore.Open(AppPaths.Database);
-        using var client = new AO3Client(AppPaths.LocalData, vault, AppHost.AppVersion);
+        using var client = new AO3Client(AppPaths.Downloads, vault, AppHost.AppVersion);
         var username = new AuthState(vault).Username;
         try
         {

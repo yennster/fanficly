@@ -39,7 +39,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
 - **Settings:**
   - Account, Reader (profiles, typography, preview, voice), Appearance, Library, Sync, Notifications;
   - Content & Safety (17+ gate, mature filter, hidden works), Input, Privacy and About.
-- **Tests:** 446 Core unit tests run on any OS. Windows CI also runs FlaUI smoke tests and screenshot tests, and builds the Store bundle.
+- **Tests:** 448 Core unit tests run on any OS. Windows CI also runs FlaUI smoke, screenshot and reader layout tests, and builds the Store bundle.
 
 <!-- reader: verify against windows/src/Fanficly.App/Views/Reader -->
 **In progress: the reader.** `Views/Reader` (the live work page, the saved-work reader and the resume route, which register `Routes.WorkDetail`, `SavedWork` and `Resume`) is being ported now, outside this roadmap. Its pure logic (pagination, anchors, spreads, profiles, speech paragraphs) is already in `Fanficly.Core` with tests. Until it lands, opening a work shows a placeholder, and several finished features have no way in yet:
@@ -77,7 +77,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 ## Now (small, self-contained)
 
 ### RM-101 — Downloaded EPUBs don't show as Downloaded
-- **Status:** open · **Size:** S · **Validation:** unit + windows
+- **Status:** done · **Size:** S · **Validation:** unit + windows
 - **Why:** `AppServices` and `FanficlyBackgroundTask` construct `AO3Client` with `AppPaths.LocalData`, so `DownloadEpubAsync` writes `LocalData\<id>.epub`. `WorkPersistence.EpubPath` looks in `AppPaths.Downloads` (`WorkPersistence.LibraryFolder`). The file is downloaded, but the Library's Downloaded filter, the "Remove Download" action and the restore re-download offer never see it.
 - **Scope:**
   - Give the client the same folder `WorkPersistence` uses (`AppPaths.Downloads`) in both places.
@@ -89,7 +89,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.App/Services/AppServices.cs`, `Platform/BackgroundRefreshTask.cs`, `tests/Fanficly.Core.Tests/AO3ClientTests.cs`.
 
 ### RM-102 — Make the saved-search widget run saved filters
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** The Saved Searches widget sends a saved filter's JSON in `fanficly://search?query=`, as the Swift widget does. `SearchScreen.ConsumePendingQuery` reads the query as prompt syntax (`SearchSyntax.Parse`), so a tapped saved filter runs as a keyword search for its JSON. Saved searches work, because they send prompt text. The Swift app has the same gap (RM-020 on `main`).
 - **Scope:** In the consumer, try `AO3SearchFilters.FromSavedJson` first when the query starts with `{`, else parse it as a prompt. Put the decision in a pure, tested helper in Core. Leave the widget's URL format alone, so links from the Swift widget's format keep working.
 - **Done when:**
@@ -98,7 +98,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.App/Views/Search/SearchScreen.cs`, `windows/src/Fanficly.Core/Search/SearchSyntax.cs` (or `AO3SearchFilters.cs`), tests.
 
 ### RM-103 — Back up the Windows reader settings
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** `SettingsBackup.Fields` (in `Sync/LibraryBackup.cs`) lists the per-device reader keys for phone, pad and Mac only, and the active profile for those three. This PC's `reader.*.windows` settings and `reader.activeProfile.windows` aren't in the backup, so a restore on a new PC loses them.
 - **Scope:**
   - Add `Windows` to the per-device loop and an `activeProfileWindows` field.
@@ -110,7 +110,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.Core/Sync/LibraryBackup.cs`, `tests/Fanficly.Core.Tests/LibraryBackupJsonTests.cs`.
 
 ### RM-104 — Screenshot test looks for the wrong fandom id
-- **Status:** open · **Size:** S · **Validation:** windows
+- **Status:** done · **Size:** S · **Validation:** windows
 - **Why:** `ScreenshotTests` waits for an automation id starting with `fandom.`, but `CategoryFandomsScreen` names its rows `browse.fandom.<i>`. The step passes only through its header-title fallback, so the `05-browse-fandoms` shot can be taken before the list has loaded.
 - **Scope:** Wait for `browse.fandom.` in the step.
 - **Done when:** CI's `ui-screenshots` artifact shows the fandom list populated at all three sizes.
@@ -119,7 +119,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 ## Next
 
 ### RM-105 — Paste or drop an AO3 link to open it
-- **Status:** open · **Size:** S · **Validation:** unit + windows
+- **Status:** done · **Size:** S · **Validation:** unit + windows
 - **Why:** The Swift app imports links dropped on the window or pasted. On Windows only the share target and `fanficly://import` reach `ImportOverlay`, although its doc comment already mentions pasted and dropped links.
 - **Scope:**
   - Accept a dropped link or text on the main window (`AllowDrop`, `DragOver`, `Drop`).
@@ -132,7 +132,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.App/Shell/MainWindow.cs`, `Services/AppRouting.cs`, `Views/Settings/ShortcutsScreen.cs`, `Views/Import/ImportOverlay.cs` (comment).
 
 ### RM-106 — Hide a work and subscribe from the work page
-- **Status:** open · **Size:** M · **Validation:** windows
+- **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Hidden works can be unhidden in Settings, and `AO3Client.SubscribeToWorkAsync` exists, but no screen hides a work or subscribes to one. In the Swift app both live in the work page's options menu.
 - **Scope:**
   - Add Hide and Subscribe to `WorkDetail`'s options menu. Hide uses `HiddenWorkStore.Hide` and goes back. Subscribe is login-gated.
@@ -146,7 +146,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.App/Views/Reader/*` (the work page), `Views/Shared/WorkRow.cs`, `Views/Search/SearchScreen.cs`.
 
 ### RM-107 — Reader layout UI tests
-- **Status:** open · **Size:** M · **Validation:** windows
+- **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** The Swift app's `ReaderLayoutTests` catch page-by-page layout regressions; Windows has only the Core paginator tests with a fake measurer.
 - **Scope:**
   - Add `ReaderLayoutTests` to `Fanficly.UITests`. Launch with `-demoMode` and `-demoLongChapters`, open a demo work in page-by-page, and check:

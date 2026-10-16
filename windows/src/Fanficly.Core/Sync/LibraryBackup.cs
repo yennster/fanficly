@@ -134,6 +134,8 @@ public sealed class SettingsBackup
             new("activeProfilePhone", "reader.activeProfile.phone", SettingKind.String),
             new("activeProfileMac", "reader.activeProfile.mac", SettingKind.String),
             new("activeProfilePad", "reader.activeProfile.pad", SettingKind.String),
+            // Windows-only keys; Swift's decoder ignores keys it doesn't know.
+            new("activeProfileWindows", "reader.activeProfile.windows", SettingKind.String),
             new(ProfilesJsonKey, ProfilesDefaultsKey, SettingKind.String),
         };
         // Device-specific settings: <name><Device> ↔ reader.<name>.<device>.
@@ -145,7 +147,7 @@ public sealed class SettingsBackup
             ("pageTurnAnimations", SettingKind.Bool), ("kerningPt", SettingKind.Double), ("boldText", SettingKind.Bool),
         ];
         foreach (var (name, kind) in perDevice)
-            foreach (var device in (string[])["Phone", "Mac", "Pad"])
+            foreach (var device in (string[])["Phone", "Mac", "Pad", "Windows"])
                 f.Add(new SettingField(name + device, $"reader.{name}.{device.ToLowerInvariant()}", kind));
         return f;
     }
