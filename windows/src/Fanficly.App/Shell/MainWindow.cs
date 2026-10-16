@@ -298,6 +298,12 @@ public sealed partial class MainWindow : Window
         _titleBar.Visibility = hidden ? Visibility.Collapsed : Visibility.Visible;
     }
 
+    public void ToggleSidebar()
+    {
+        if (_nav.DisplayMode == NavigationViewDisplayMode.Expanded) _nav.IsPaneOpen = !_nav.IsPaneOpen;
+        else _nav.IsPaneOpen = !_nav.IsPaneOpen;
+    }
+
     public bool IsFullScreen => AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
 
     public void ToggleFullScreen() =>
