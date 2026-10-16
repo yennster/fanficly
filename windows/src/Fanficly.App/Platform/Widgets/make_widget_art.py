@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Draws the Widgets-board art: the picker screenshots under Assets/Widgets/
+and the small glyph images the cards embed (WidgetGlyphs.g.cs).
+
+Run from anywhere (Pillow required):  python3 make_widget_art.py
+The screenshots use the brand look of Assets/WidgetScreenshot.png: a white
+card on a pale lavender ground, indigo (#3B2E8C) accents.
+"""
+import base64
+import io
+import os
+
+from PIL import Image, ImageDraw, ImageFont
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+APP = os.path.normpath(os.path.join(HERE, "..", ".."))
+OUT = os.path.join(APP, "Assets", "Widgets")
+
+GROUND = (245, 244, 250, 255)
+CARD = (255, 255, 255, 255)
+INDIGO = (59, 46, 140, 255)
+BAR = (75, 59, 192, 255)
+TRACK = (225, 222, 240, 255)
+TITLE = (22, 22, 29, 255)
+SUBTLE = (107, 107, 123, 255)
+CHIP = (240, 238, 248, 255)
+VIOLET = (124, 107, 245, 255)
+VIOLET_LIGHT = (189, 153, 255, 255)
+GLYPH_GREY = (139, 138, 153, 255)
+
+FONT_DIR = "/usr/share/fonts/truetype/dejavu"
+
+
+def font(size, bold=False):
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    return ImageFont.truetype(os.path.join(FONT_DIR, name), size)
+
+
+def canvas():
+    img = Image.new("RGBA", (600, 608), GROUND)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0, 0, 599, 607), radius=28, fill=CARD)
+    return img, d
+
+
+def label(d, text):
+    d.text((40, 50), text, font=font(24, True), fill=INDIGO)
+
+
+def chip(d, right, cy, text, size=20):
+    f = font(size, True)
+    w = d.textlength(text, font=f)
+    pad = 12
+    box = (right - w - 2 * pad, cy - 18, right, cy + 18)
+    d.rounded_rectangle(box, radius=18, fill=CHIP)
+    d.text((box[0] + pad, cy), text, font=f, fill=INDIGO, anchor="lm")
+
+
+def save(img, name):
+    os.makedirs(OUT, exist_ok=True)
+    img.save(os.path.join(OUT, name))
+
+
+# MARK: - Glyphs (drawn at 4x, then reduced for smooth edges)
+
+def glyph(size, draw_fn):
+    s = 4
+    big = Image.new("RGBA", (size * s, size * s), (0, 0, 0, 0))
+    draw_fn(ImageDraw.Draw(big), size * s)
+    return big.resize((size, size), Image.LANCZOS)
+
+
+def check(d, cx, cy, r, width, color):
+    pts = [(cx - r * 0.45, cy + r * 0.02), (cx - r * 0.1, cy + r * 0.38), (cx + r * 0.5, cy - r * 0.32)]
+    d.line(pts, fill=color, width=width, joint="curve")
+
+
+def dot(read, today):
+    def draw(d, n):
+        c = n / 2
+        inner = n * 0.36
+        if read:
+            # Top-to-bottom violet gradient, as the Swift dot.
+            for i in range(int(c - inner), int(c + inner) + 1):
+                t = (i - (c - inner)) / (2 * inner)
+                col = tuple(int(VIOLET_LIGHT[k] + (VIOLET[k] - VIOLET_LIGHT[k]) * t) for k in range(3)) + (255,)
+                half = (inner ** 2 - (i - c) ** 2) ** 0.5 if abs(i - c) <= inner else 0
+                d.line([(c - half, i), (c + half, i)], fill=col)
+            check(d, c, c, inner, max(2, int(n * 0.07)), (255, 255, 255, 255))
+        else:
+            d.ellipse((c - inner, c - inner, c + inner, c + inner), outline=GLYPH_GREY, width=max(2, int(n * 0.05)))
+        if today:
+            outer = n * 0.48
+            d.ellipse((c - outer, c - outer, c + outer, c + outer), outline=VIOLET, width=max(2, int(n * 0.06)))
+    return glyph(36, draw)
+
+
+def folder_icon(color=GLYPH_GREY, size=32):
+    def draw(d, n):
+        w = max(2, int(n * 0.08))
+        d.rounded_rectangle((n * 0.08, n * 0.28, n * 0.92, n * 0.84), radius=n * 0.08, outline=color, width=w)
+        d.line([(n * 0.08, n * 0.36), (n * 0.08, n * 0.2), (n * 0.38, n * 0.2), (n * 0.46, n * 0.3)], fill=color, width=w, joint="curve")
+    return glyph(size, draw)
+
+
+def magnifier_icon(color=GLYPH_GREY, size=32):
+    def draw(d, n):
+        w = max(2, int(n * 0.1))
+        d.ellipse((n * 0.12, n * 0.12, n * 0.64, n * 0.64), outline=color, width=w)
+        d.line([(n * 0.58, n * 0.58), (n * 0.88, n * 0.88)], fill=color, width=int(w * 1.2))
+    return glyph(size, draw)
+
+
+def book_icon(color=GLYPH_GREY, size=32):
+    def draw(d, n):
+        d.polygon([(n * 0.5, n * 0.26), (n * 0.1, n * 0.16), (n * 0.1, n * 0.8), (n * 0.5, n * 0.9)], fill=color)
+        d.polygon([(n * 0.54, n * 0.26), (n * 0.9, n * 0.16), (n * 0.9, n * 0.8), (n * 0.54, n * 0.9)], fill=color)
+    return glyph(size, draw)
+
+
+def data_uri(img):
+    buf = io.BytesIO()
+    # A small palette keeps each data URI short (the cards carry them inline).
+    img.quantize(colors=32, method=Image.Quantize.FASTOCTREE).save(buf, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def write_glyphs():
+    glyphs = {
+        "DotRead": dot(True, False),
+        "DotUnread": dot(False, False),
+        "DotReadToday": dot(True, True),
+        "DotUnreadToday": dot(False, True),
+        "Folder": folder_icon(),
+        "Magnifier": magnifier_icon(),
+        "Book": book_icon(),
+    }
+    lines = [
+        "// <auto-generated> by make_widget_art.py — re-run it rather than editing. </auto-generated>",
+        "namespace Fanficly.App.Platform.Widgets;",
+        "",
+        "/// <summary>Small PNGs the widget cards embed as data URIs (the Widgets",
+        "/// board can't draw shapes, and a data URI needs no network or file access).</summary>",
+        "internal static class WidgetGlyphs",
+        "{",
+    ]
+    for name, img in glyphs.items():
+        lines.append(f'    public const string {name} = "{data_uri(img)}";')
+    lines.append("}")
+    with open(os.path.join(HERE, "WidgetGlyphs.g.cs"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return glyphs
+
+
+# MARK: - Screenshots (each in its medium layout, with the Swift placeholder content)
+
+def streak_shot(glyphs):
+    img, d = canvas()
+    label(d, "STREAK")
+    d.text((40, 96), "5 Days", font=font(46, True), fill=TITLE)
+    d.text((40, 160), "Reading Streak", font=font(28), fill=SUBTLE)
+    d.text((40, 400), "Weekly progress", font=font(22, True), fill=TITLE)
+    f = font(20)
+    t = "Read 5 of last 7 days"
+    d.text((560 - d.textlength(t, font=f), 402), t, font=f, fill=SUBTLE)
+    d.rounded_rectangle((40, 440, 560, 560), radius=18, fill=CHIP)
+    names = ["M", "T", "W", "T", "F", "S", "S"]
+    reads = [True, True, True, False, True, True, False]
+    for i, n in enumerate(names):
+        cx = 40 + 520 * (i + 0.5) / 7
+        today = i == 5
+        d.text((cx, 472), n, font=font(20, True), fill=TITLE if today else SUBTLE, anchor="mm")
+        key = ("DotRead" if reads[i] else "DotUnread") + ("Today" if today else "")
+        g = glyphs[key].resize((48, 48), Image.LANCZOS)
+        img.alpha_composite(g, (int(cx - 24), 498))
+    save(img, "StreakScreenshot.png")
+
+
+def rows_shot(name, title, rows, icon=None):
+    img, d = canvas()
+    label(d, title)
+    top = 108
+    for i, (main, sub, badge) in enumerate(rows):
+        y = top + i * 150
+        x = 40
+        if icon is not None:
+            img.alpha_composite(icon.resize((36, 36), Image.LANCZOS), (40, y + 20))  # centred on y + 38
+            x = 92
+        if sub:
+            d.text((x, y + 10), main, font=font(30, True), fill=TITLE)
+        else:
+            d.text((x, y + 38), main, font=font(30, True), fill=TITLE, anchor="lm")
+        if sub:
+            d.text((x, y + 54), sub, font=font(24), fill=SUBTLE)
+        if badge:
+            chip(d, 560, y + 38, badge)
+        if i < len(rows) - 1:
+            d.line([(40, y + 118), (560, y + 118)], fill=TRACK, width=2)
+    save(img, name)
+
+
+def recommendation_shot():
+    img, d = canvas()
+    label(d, "FOR YOU")
+    d.text((40, 96), "A Magnificent Tale", font=font(40, True), fill=TITLE)
+    d.text((40, 146), "of Stars", font=font(40, True), fill=TITLE)
+    d.text((40, 206), "Acura", font=font(26), fill=SUBTLE)
+    summary = ["An epic adventure in a galaxy far away,", "exploring relationships and new", "worlds. Highly rated by the community."]
+    for i, line in enumerate(summary):
+        d.text((40, 300 + i * 36), line, font=font(24), fill=TITLE)
+    f = font(20, True)
+    w = d.textlength("Action", font=f)
+    d.rounded_rectangle((40, 450, 40 + w + 24, 486), radius=18, fill=CHIP)
+    d.text((52, 468), "Action", font=f, fill=INDIGO, anchor="lm")
+    save(img, "RecommendationScreenshot.png")
+
+
+if __name__ == "__main__":
+    g = write_glyphs()
+    streak_shot(g)
+    rows_shot("SubscriptionsScreenshot.png", "UPDATES", [
+        ("A Coffee Shop Story", "AuthorA", "Ch 15"),
+        ("Space Adventures", "AuthorB", "Ch 8"),
+        ("The Long Way Home", "quietlibrarian", "Ch 23"),
+    ])
+    rows_shot("FoldersScreenshot.png", "FOLDERS", [
+        ("To Read", None, "15 stories"),
+        ("Favorites", None, "8 stories"),
+        ("Completed", None, "42 stories"),
+    ], icon=folder_icon(INDIGO, 48))
+    rows_shot("SavedSearchesScreenshot.png", "SEARCHES", [
+        ("Hermione/Draco", None, "Search"),
+        ("MCU Stars", None, "Filter"),
+        ("Slow Burn, complete", None, "Search"),
+    ], icon=magnifier_icon(INDIGO, 48))
+    recommendation_shot()

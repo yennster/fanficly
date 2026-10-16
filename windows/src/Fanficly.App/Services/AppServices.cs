@@ -46,7 +46,9 @@ public static partial class AppHost
         }
         else
         {
-            AppGroupStore.Shared = new JsonFileKeyValueStore(WidgetStorage.SharedStorePath);
+            var shared = new JsonFileKeyValueStore(WidgetStorage.SharedStorePath);
+            WidgetStorage.MirrorStreak(KeyValueStores.Default, shared);
+            AppGroupStore.Shared = shared;
             CredentialStore.Shared = new ProtectedCookieVault(Path.Combine(AppPaths.LocalData, "Credentials"));
             Client = new AO3Client(AppPaths.LocalData, CredentialStore.Shared, AppVersion);
             Library = OpenLibrary();
@@ -73,6 +75,10 @@ public static partial class AppHost
             ReaderProfileSyncStore.InstallCloudSyncObserver();
             StreakStore.InstallCloudSyncObserver();
             Notifications.Register();
+            // The subscription poll: in-app while the window is open, and a
+            // Windows background task (registered once) while it's closed.
+            InAppPolling.Start();
+            _ = BackgroundTaskRegistrar.EnsureRegisteredAsync();
         }
     }
 
@@ -156,7 +162,7 @@ public static partial class AppHost
     }
 
     /// <summary>Notification payloads in <see cref="NotificationRoute"/>'s format.</summary>
-    private sealed class RoutePayloads : INotificationRoutePayloads
+    internal sealed class RoutePayloads : INotificationRoutePayloads
     {
         public IReadOnlyDictionary<string, string> NewChapters(int workId) => new NotificationRoute.NewChapters(workId).ToArguments();
         public IReadOnlyDictionary<string, string> NewWork(int workId) => new NotificationRoute.NewWork(workId).ToArguments();
