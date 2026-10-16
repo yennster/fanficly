@@ -51,9 +51,7 @@ public class ReviewPromptTests
     }
 
     // MARK: - The "just finished" cue
-    // test_record_flagsOnlyTheReadThatFinishesTheStory and
-    // test_record_firstReadThatAlreadyFinishes_counts exercise
-    // ReadingStatsStore.record (the persistence worker's area).
+    // test_record_* live in ReadingStatsRecordTests (they exercise ReadingStatsStore.Record).
 
     // MARK: - Windows-only: the prompter's bookkeeping
 

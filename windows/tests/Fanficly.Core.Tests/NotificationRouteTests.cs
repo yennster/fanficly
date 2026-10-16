@@ -100,8 +100,6 @@ public class NotificationRouteTests
     }
 
     // MARK: - What the poller actually posts
-    // test_newChapterNotification_opensTheWork, test_singleNewWorkNotification_opensTheWork
-    // and test_severalNewWorksNotification_opensTheAuthor exercise
-    // SubscriptionPoller.newChapterContent/newWorkContent (the subscriptions
-    // poller worker's area).
+    // The three "…Notification_opens…" cases live in CrossAreaTests (they
+    // exercise SubscriptionPoller.NewChapterContent/NewWorkContent).
 }

@@ -154,6 +154,5 @@ public class SearchSuggestionsTests
     }
 
     // MARK: - Results count
-    // test_searchPage_totalFound exercises SearchResultsParser (the parser
-    // worker's area) and is ported with the parser tests.
+    // test_searchPage_totalFound lives in CrossAreaTests (it exercises SearchResultsParser).
 }
