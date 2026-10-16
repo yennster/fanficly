@@ -1,186 +1,199 @@
-# Fanficly roadmap
+# Fanficly for Windows roadmap
 
-Last reviewed: 2026-10-10, at 1.10.0 (build 31). Written from the code, not from wishes: every item below names the files it touches and what already exists.
+Last reviewed: 2026-10-16, before the first Store release (`windows/store/version.txt`: 1.0). Written from the code: every item names the files it touches and what already exists.
 
-Agents: read [Autonomous roadmap work](../AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. This file is the backlog. Each item is also mirrored as a GitHub issue titled `RM-nnn: …` (#37–#56, and RM-021 onward as added) for discussion; if they disagree, this file wins. Claims are PRs, never issue assignments.
+This is the `windows` branch's backlog. The Apple app's roadmap is `docs/ROADMAP.md` on `main`. Windows items are numbered from **RM-101** so the two never share an ID, and their branches and PRs target `windows`. Agents: read [Autonomous roadmap work](../AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. Claims are PRs, never issue assignments.
 
 ## Where the app is
 
-Fanficly is a mature, local-first AO3 reader: search with typeahead and filters, Browse and Popular, a three-mode reader (continuous, chapter, page-by-page with a two-page spread), reader profiles, on-device TTS, a library with folders and sorting, local follows with background polling, reading stats, a last-read widget, iCloud backup merge, a Safari share extension, and iPhone, iPad, Mac Catalyst and iPhone Duo layouts. About 240 unit tests, plus reader layout UI tests in CI.
+Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Native AOT and packaged as an MSIX bundle for x64 and ARM64. What's in the tree and working:
 
-What's thin or missing, from reading the code:
+- **Shell:** the sidebar (`NavigationView`) with every tab, and a title bar with a back button. The back stack is kept per tab.
+- **Keyboard and input:**
+  - Ctrl+1–9 and Ctrl+, shortcuts, and keyboard shortcuts throughout, listed in Settings.
+  - Zoom from 50 to 200 %, and F11 full screen.
+  - Xbox controller navigation.
+- **Window:** Mica, light, dark and high-contrast themes, and remembered window placement.
+- **Search:**
+  - typeahead tag suggestions, filter chips and the full filter sheet;
+  - saved and recent searches, and search tips;
+  - Cancel for slow searches.
+- **Browse and Popular:** Browse by media category with live fandom lists, filtered works, and saved filters. Popular uses a daily snapshot with a curated fallback.
+- **Library:**
+  - All, Starred, Downloaded and Folders, with folders, sorting, pins and stars;
+  - offline EPUB downloads and sharing;
+  - a reading-stats strip that opens the Stats tab.
+- **History, authors and account:**
+  - Recently Viewed, followed authors, and an author's works page with a Follow button.
+  - AO3 sign-in, Bookmarks, and Subscriptions, which shows AO3 subscriptions alongside local follows.
+  - Per-chapter comments with a composer.
+- **Stats:** week, month, year and all-time totals, plus a shareable wrap-up card.
+- **Updates and notifications:** new-chapter and new-work checks, in the app and from a timer background task. Toasts open the work or author they're about.
+- **Sync:** library backup and restore through a user-chosen folder (OneDrive or iCloud Drive), in the Swift backup format, with merge-never-clobber backups, forward-only restores and EPUB re-download after a restore.
+- **Windows integrations:**
+  - six Widgets-board widgets;
+  - a jump list;
+  - the share target and the `fanficly://` links (resume, import, library folder, search);
+  - single-instance activation;
+  - the Store rating prompt.
+- **Settings:**
+  - Account, Reader (profiles, typography, preview, voice), Appearance, Library, Sync, Notifications;
+  - Content & Safety (17+ gate, mature filter, hidden works), Input, Privacy and About.
+- **Tests:** 446 Core unit tests run on any OS. Windows CI also runs FlaUI smoke tests and screenshot tests, and builds the Store bundle.
 
-- **Series.** Only the search parser and subscriptions know the word; there's no series page, no "part 2 of 5" in the reader, no next-in-series.
-- **Per-work memory.** No notes, no personal tags. Only one block mechanism: hiding a single work (`HiddenWork`). No tag or author blocklist.
-- **AO3 account actions.** Login, subscribe, bookmarks (read-only) and comments exist. Kudos, creating a bookmark, Marked for Later and history do not.
-- **Comments** are work-level, first page only (a documented follow-up in AGENTS.md).
-- **Offline.** Downloads are one work at a time. There's no bulk download for a folder or the followed list.
-- **System integration.** Six home-screen widgets exist (last read, streak, subscriptions, folders, saved searches, recommendations) but no lock-screen families and no App Shortcuts. Followed works are indexed in Core Spotlight (`WorkPersistence.indexWork`), but nothing handles a tap on a Spotlight result (no `CSSearchableItemActionType` handler). The saved-search widget's `fanficly://search?query=` route carries filter JSON the consumer can't read (documented limitation in AGENTS.md).
-- **iPhone Duo.** Vertical toolbars need `Label` items, and the ellipsis symbol clashes with the system overflow menu (AGENTS.md "Not done yet").
-- **Localization.** English only.
+<!-- reader: verify against windows/src/Fanficly.App/Views/Reader -->
+**In progress: the reader.** `Views/Reader` (the live work page, the saved-work reader and the resume route, which register `Routes.WorkDetail`, `SavedWork` and `Resume`) is being ported now, outside this roadmap. Its pure logic (pagination, anchors, spreads, profiles, speech paragraphs) is already in `Fanficly.Core` with tests. Until it lands, opening a work shows a placeholder, and several finished features have no way in yet:
+
+- recording progress and stats;
+- Listen;
+- export;
+- the review prompt's trigger;
+- hiding a work and subscribing.
+<!-- /reader -->
 
 ## Principles every item must respect
 
-1. **Privacy posture.** Nothing leaves the device except requests to AO3 and the user's own iCloud. No analytics, no SDKs, no off-device AI.
-2. **Good guest to AO3.** Everything goes through `AO3Client` and its 1 req/sec throttle. New features add as few requests as possible, never parallelize scrapes, and never retry a POST.
-3. **Never guess in search.** See "Search never silently reinterprets words".
-4. **Forward-only sync.** New persisted fields obey the restore rules (newer wins, OR for flags, never regress).
-5. **Plain, calm UI.** VoiceOver labels on every icon-only control; no new nav-bar clutter in the reader.
+1. **Privacy posture.** Nothing leaves the PC except requests to AO3 and files in the user's own sync folder. No analytics, no SDKs, no off-device AI. Update `PRIVACY.md` (the Store listing's privacy policy) with any change to what's stored or sent.
+2. **Good guest to AO3.** Everything goes through `IAO3Client` and its 1 request/second throttle. Add as few requests as possible, never scrape in parallel, never retry a POST.
+3. **Never guess in search.** See "Search never silently reinterprets words" in AGENTS.md.
+4. **Forward-only sync.** New persisted fields obey the restore rules (newer wins, OR for flags, never regress), and the backup stays readable by the Swift app.
+5. **Native AOT.** No reflection-based JSON or binding; the Release bundle must build without new trim or AOT warnings.
+6. **Parity with the Swift app.** Port behaviour faithfully; a deliberate Windows difference is noted in code.
 
 ## Non-goals
 
-Servers or accounts of our own, ads, telemetry, a "trending" feed we'd have to scrape heavily, posting or editing works, off-device recommendation, images on by default, and auto-hiding reader chrome (tried twice, left alone).
+Servers or accounts of our own, ads, telemetry, a "trending" feed we'd have to scrape heavily, posting or editing works, off-device recommendation, images on by default, auto-hiding reader chrome, and haptics (hidden on Windows on purpose).
 
 ## How items are written
 
-Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the tooling reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number.
+Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `bin/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
 
 - **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), or `done`.
-- **Size:** `S` is about one file plus tests, `M` is a few files plus tests. Anything bigger must be split into new `S`/`M` items before it's started.
-- **Validation:** `unit` = fully provable by XCTest on a Mac or in CI. `mac` = also needs a person to look at it in a simulator, so say so in the PR. Agents on a Linux orb can't compile Swift, so every item is validated by CI on the PR.
+- **Size:** `S` is about one file plus tests, `M` is a few files plus tests. Anything bigger is split into new `S`/`M` items before it's started.
+- **Validation:** `unit` = provable by `dotnet test tests/Fanficly.Core.Tests` on any OS. `windows` = also needs a person (or the UI tests) on Windows; say what to look at in the PR.
 
 ---
 
-## Now (1.11, small and self-contained)
+## Now (small, self-contained)
 
-### RM-001 — Parser fixture hardening
+### RM-101 — Downloaded EPUBs don't show as Downloaded
+- **Status:** open · **Size:** S · **Validation:** unit + windows
+- **Why:** `AppServices` and `FanficlyBackgroundTask` construct `AO3Client` with `AppPaths.LocalData`, so `DownloadEpubAsync` writes `LocalData\<id>.epub`. `WorkPersistence.EpubPath` looks in `AppPaths.Downloads` (`WorkPersistence.LibraryFolder`). The file is downloaded, but the Library's Downloaded filter, the "Remove Download" action and the restore re-download offer never see it.
+- **Scope:**
+  - Give the client the same folder `WorkPersistence` uses (`AppPaths.Downloads`) in both places.
+  - At launch, move any `LocalData\<digits>.epub` left by earlier builds into `Downloads`.
+  - Keep `AO3Client`'s constructor contract; don't make Core depend on `AppPaths`.
+- **Done when:**
+  - A Core test shows that a client built with `WorkPersistence.LibraryFolder` returns a path equal to `WorkPersistence.EpubTargetPath(id)` (through a fake handler).
+  - On Windows, Download for Offline marks the row Downloaded.
+- **Touches:** `windows/src/Fanficly.App/Services/AppServices.cs`, `Platform/BackgroundRefreshTask.cs`, `tests/Fanficly.Core.Tests/AO3ClientTests.cs`.
+
+### RM-102 — Make the saved-search widget run saved filters
 - **Status:** open · **Size:** S · **Validation:** unit
-- **Why:** Scraping is the app's only data source. `SubscriptionsParser` already fails closed (login page → `unauthorized`, no list and no shell → `parseFailed`); the other parsers silently return empty arrays on markup drift.
-- **Scope:** Give `SearchResultsParser`, `WorkPageParser`, `MediaCategoryParser` and `WorkFiltersParser` the same treatment: a login or error page throws `AO3Error.unauthorized` or `parseFailed` rather than returning `[]`, and callers that would delete or overwrite data on an empty result keep skipping on a throw. Genuine zero-result pages (AO3's "No results found") must still return `[]`.
-- **Done when:** each parser has tests for a genuine empty page, a login page and a garbage page; no caller regresses (search shows an error, not "No results", for a login page).
-- **Touches:** `Networking/HTMLParsers/*`, `FanficlyTests/*ParserTests.swift`.
+- **Why:** The Saved Searches widget sends a saved filter's JSON in `fanficly://search?query=`, as the Swift widget does. `SearchScreen.ConsumePendingQuery` reads the query as prompt syntax (`SearchSyntax.Parse`), so a tapped saved filter runs as a keyword search for its JSON. Saved searches work, because they send prompt text. The Swift app has the same gap (RM-020 on `main`).
+- **Scope:** In the consumer, try `AO3SearchFilters.FromSavedJson` first when the query starts with `{`, else parse it as a prompt. Put the decision in a pure, tested helper in Core. Leave the widget's URL format alone, so links from the Swift widget's format keep working.
+- **Done when:**
+  - A round-trip test covers saved filters → `DeepLink.SearchUri` → pending query → equal filters.
+  - A prompt query still parses as before, and malformed JSON degrades to a keyword search.
+- **Touches:** `windows/src/Fanficly.App/Views/Search/SearchScreen.cs`, `windows/src/Fanficly.Core/Search/SearchSyntax.cs` (or `AO3SearchFilters.cs`), tests.
 
-### RM-002 — "Read" and "In Library" badges on result rows
-- **Status:** open · **Size:** S · **Validation:** unit + mac
-- **Why:** Search and Browse can't tell you what you've already read or saved.
-- **Scope:** `WorkRow` shows a small badge ("In Library", "Finished", or a percent) using the existing `Work` and `ReadingProgress` rows. Compute the lookup once per result page as a `[Int: Badge]` from one fetch, not one fetch per row. Put the pure mapping in a testable function.
-- **Done when:** mapping tests cover saved, started, finished and unknown works; VoiceOver reads the badge as part of the row (`.accessibilityElement(children: .combine)` is only safe if the row holds no `Link` or button — it holds the bookmark button, so label the badge instead).
-- **Touches:** `Search/SearchView.swift` (`WorkRow`), `Library/WorkPersistence.swift`.
-
-### RM-003 — Reading-time estimate
+### RM-103 — Back up the Windows reader settings
 - **Status:** open · **Size:** S · **Validation:** unit
-- **Why:** Word counts alone are hard to judge. `ReadingStat` already records real active seconds and words read, so a personal words-per-minute exists.
-- **Scope:** A pure `ReadingSpeed` helper: personal WPM from `ReadingStat` (clamped to 120–600, falling back to 250 until there are ≥ 3 finished works), and a formatted "~45 min" string. Show it in `WorkRow` and `WorkHeaderMetadata` next to the word count.
-- **Done when:** tests cover the fallback, clamping, and formatting at 0, < 1 min, minutes, and hours. No new persisted data.
-- **Touches:** `Reader/WorkHeaderMetadata.swift`, `Search/SearchView.swift`, new helper in `Reader/ReadingProgressStore.swift` (don't add a file).
+- **Why:** `SettingsBackup.Fields` (in `Sync/LibraryBackup.cs`) lists the per-device reader keys for phone, pad and Mac only, and the active profile for those three. This PC's `reader.*.windows` settings and `reader.activeProfile.windows` aren't in the backup, so a restore on a new PC loses them.
+- **Scope:**
+  - Add `Windows` to the per-device loop and an `activeProfileWindows` field.
+  - Check that the Swift app's decoder ignores keys it doesn't know (Swift's `Codable` does by default) and say so in the PR.
+- **Done when:**
+  - `LibraryBackupJsonTests` round-trips the new fields.
+  - A backup written by the Swift app (no Windows fields) still restores.
+  - A restore never overwrites a local value with a missing one.
+- **Touches:** `windows/src/Fanficly.Core/Sync/LibraryBackup.cs`, `tests/Fanficly.Core.Tests/LibraryBackupJsonTests.cs`.
 
-### RM-004 — Lock-screen widget for last read
-- **Status:** open · **Size:** S · **Validation:** mac
-- **Why:** None of the six widgets support the lock screen.
-- **Scope:** Add `accessoryRectangular` and `accessoryCircular` families to `FanficlyWidget` showing title and progress, using the same `WidgetProgressStore` data and resume URL. No new data path.
-- **Done when:** previews exist for both families; the tap target is the existing `fanficly://resume/…` URL; the widget target still builds. State in the PR that it needs a look on a device or simulator.
-- **Touches:** `FanficlyWidget/FanficlyWidget.swift`.
+### RM-104 — Screenshot test looks for the wrong fandom id
+- **Status:** open · **Size:** S · **Validation:** windows
+- **Why:** `ScreenshotTests` waits for an automation id starting with `fandom.`, but `CategoryFandomsScreen` names its rows `browse.fandom.<i>`. The step passes only through its header-title fallback, so the `05-browse-fandoms` shot can be taken before the list has loaded.
+- **Scope:** Wait for `browse.fandom.` in the step.
+- **Done when:** CI's `ui-screenshots` artifact shows the fandom list populated at all three sizes.
+- **Touches:** `windows/tests/Fanficly.UITests/ScreenshotTests.cs`.
 
-### RM-020 — Make the saved-search widget route work
-- **Status:** open · **Size:** S · **Validation:** unit
-- **Why:** AGENTS.md ("Other widgets and shortcut routes") documents that the saved-search widget puts saved-filter JSON in `fanficly://search?query=`, but `SearchView.consumePendingQuery` expects prompt syntax, so tapping a saved search doesn't run it.
-- **Scope:** Have the widget write `AO3SearchFilters.promptText()` (the `key:value` rendering `SearchSyntax.parse` reads back exactly) instead of JSON, or decode JSON explicitly in the consumer; pick one and document the contract. Old widget URLs must not crash the consumer.
-- **Done when:** a round-trip test (saved filters → URL → pending query → parsed filters equal), plus a test that a legacy JSON query degrades to a plain keyword search. Update the "Current limitation" note in AGENTS.md.
-- **Touches:** `FanficlyWidget/FanficlyWidget.swift`, `WidgetDataStore.swift`, `Search/SearchView.swift`.
+## Next
 
-### RM-005 — Duo-ready toolbar labels
-- **Status:** open · **Size:** M · **Validation:** mac
-- **Why:** With the 27.1 SDK toolbars go vertical on the iPhone Duo and want a title plus symbol. The Duo ships Oct 23 2026.
-- **Scope:** Convert the reader's toolbar items (chapters, Aa, minimize, export, options) from `Image` to `Label`, with `.labelStyle(.iconOnly)` where the bar is horizontal. Replace the `ellipsis.circle` options symbol with a non-ellipsis one so it stops clashing with the system overflow. Keep the parent to ≤ 2 items.
-- **Done when:** `ReaderLayoutTests` pass on iPhone and iPad; the PR attaches the reader-layout screenshots artifact and says the Duo pose was not checked unless someone ran it.
-- **Touches:** `Reader/ReaderView.swift`, `Search/SearchView.swift` (`WorkDetailView`), `Library/SavedWorkReader.swift`.
+### RM-105 — Paste or drop an AO3 link to open it
+- **Status:** open · **Size:** S · **Validation:** unit + windows
+- **Why:** The Swift app imports links dropped on the window or pasted. On Windows only the share target and `fanficly://import` reach `ImportOverlay`, although its doc comment already mentions pasted and dropped links.
+- **Scope:**
+  - Accept a dropped link or text on the main window (`AllowDrop`, `DragOver`, `Drop`).
+  - Accept Ctrl+V when no text box has focus (through `MainWindow`'s key handling).
+  - Extract the work id with `DeepLink.WorkIdFromText`, then call `AppHost.OpenUri(DeepLink.ImportUri(...))`. A non-AO3 link shows the same warning as the share target.
+  - Add the shortcut to `ShortcutsScreen`.
+- **Done when:**
+  - `DeepLinkTests` cover the text shapes being handled (a work URL, a chapter URL, a URL inside other text, a non-AO3 link).
+  - On Windows, dropping a link from a browser opens the import.
+- **Touches:** `windows/src/Fanficly.App/Shell/MainWindow.cs`, `Services/AppRouting.cs`, `Views/Settings/ShortcutsScreen.cs`, `Views/Import/ImportOverlay.cs` (comment).
 
-## Next (1.12)
+### RM-106 — Hide a work and subscribe from the work page
+- **Status:** open · **Size:** M · **Validation:** windows
+- **Why:** Hidden works can be unhidden in Settings, and `AO3Client.SubscribeToWorkAsync` exists, but no screen hides a work or subscribes to one. In the Swift app both live in the work page's options menu.
+- **Scope:**
+  - Add Hide and Subscribe to `WorkDetail`'s options menu. Hide uses `HiddenWorkStore.Hide` and goes back. Subscribe is login-gated.
+  - Defer any dialog until the menu has closed.
+  - Add a Hide action to search and browse rows' context menus.
+  - **Start only after the reader port has merged.**
+- **Done when:**
+  - A hidden work disappears from Search, Browse and Bookmarks and appears in Settings → Content & Safety → Hidden works.
+  - Subscribe shows the result and the work appears in Subscriptions after a refresh.
+  - Narrator announces both.
+- **Touches:** `windows/src/Fanficly.App/Views/Reader/*` (the work page), `Views/Shared/WorkRow.cs`, `Views/Search/SearchScreen.cs`.
 
-### RM-006 — Tag and author blocklist
-- **Status:** open · **Size:** M · **Validation:** unit
-- **Why:** The only block today is one work at a time (`HiddenWork`).
-- **Scope:** A local blocklist of tags and author usernames, applied in `ContentFilter.apply` alongside hidden works and the Mature filter. Add it from a work's tag chip or byline and manage it in Settings → Content. New `@Model` `BlockedTerm` (kind, value, createdAt) registered in `FanficlyApp.sharedModelContainer` and the `PersistenceTests` schema, included in the iCloud backup as a union (deletions don't propagate, like the rest).
-- **Done when:** filter tests cover tag match (case-insensitive, AO3 canonical names), author match, no match, and an empty list; backup merge test shows two devices union their lists. A blocked tag never hides a work the user opened on purpose (direct links, library).
-- **Touches:** `Settings/ContentFilter.swift`, `Models/Work.swift`, `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
+### RM-107 — Reader layout UI tests
+- **Status:** open · **Size:** M · **Validation:** windows
+- **Why:** The Swift app's `ReaderLayoutTests` catch page-by-page layout regressions; Windows has only the Core paginator tests with a fake measurer.
+- **Scope:**
+  - Add `ReaderLayoutTests` to `Fanficly.UITests`. Launch with `-demoMode` and `-demoLongChapters`, open a demo work in page-by-page, and check:
+    - the page footer sits on the bottom edge;
+    - the text ends within a line of it;
+    - the page keeps its first words when the controls hide and show;
+    - a wide window shows a two-page spread exactly when `ReaderSpread` says so.
+  - Save a screenshot per step.
+  - **Start only after the reader port has merged.**
+- **Done when:** the tests pass in CI at the desktop and compact sizes, and CI uploads their screenshots.
+- **Touches:** `windows/tests/Fanficly.UITests/`, `.github/workflows/windows-ci.yml` (one new step; ask first).
 
-### RM-007 — Series page and "next in series"
-- **Status:** open · **Size:** M · **Validation:** unit
-- **Why:** Series are how many readers move between stories, and Fanficly can't follow one.
-- **Scope:** A `SeriesParser` for `/series/<id>` (title, author, works in order) and `AO3Endpoints.series`; `AO3Client.fetchSeries` through the throttle; a `SeriesView` reached from a series link in the work header. Parse "Part N of <series>" from the work page's `dd.series` into `AO3WorkMetadata` (optional fields, so saved data and backups still decode).
-- **Done when:** parser tests with inline HTML (series with 1 work, several, a work in two series, a deleted entry); endpoint test; `MockAO3Client` and `DemoAO3Client` implement the new method. Put `SeriesView` in an existing file.
-- **Touches:** `Networking/*`, `Networking/HTMLParsers/`, `Reader/WorkHeaderMetadata.swift`, `Browse/BrowseView.swift`.
+## Later (needs design, or a person on Windows)
 
-### RM-008 — Per-chapter comments
-- **Status:** open · **Size:** M · **Validation:** unit
-- **Why:** AGENTS.md lists this as a known follow-up: on multi-chapter works, comments are work-level and first-page only. `fetchComments`/`postComment` already take a `chapterId`.
-- **Scope:** Resolve the current chapter's AO3 chapter id (already scraped as `div.chapter[id^=chapter-]`) and pass it through `CommentsView`; add "Load more" for comment pagination (`page=`). Comment posting stays a single non-retried POST.
-- **Done when:** parser/endpoint tests for the chapter-scoped URL and page parameter; `CommentsView` still works for one-shot works with no chapter id.
-- **Touches:** `Search/SearchView.swift` (`CommentsView`), `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`.
+### RM-108 — Find followed works from Windows Search
+- **Status:** open · **Size:** M · **Validation:** windows
+- **Why:** Core calls `LibraryHooks.SearchIndexer` (`IWorkSearchIndexer`) when works are followed or removed, the way the Swift app feeds Spotlight, but Windows installs no indexer.
+- **Scope:**
+  - Pick a Windows API that a packaged, Native AOT app can use to index its own items, and open them with a `fanficly://resume/<id>` link.
+  - Write the choice in the PR before building.
+  - Index followed works only, and remove them on unfollow.
+- **Done when:** a followed work's title is findable in Windows Search on Windows 11 and opens the work; unfollowing removes it.
+- **Touches:** a new `windows/src/Fanficly.App/Platform/` file, `Services/AppServices.cs`.
 
-### RM-009 — Notes and personal tags on library works
-- **Status:** open · **Size:** M · **Validation:** unit
-- **Why:** AO3 tags describe the story; readers also want "for a bad day" or "reread at Christmas".
-- **Scope:** Optional `note: String?` and `personalTags: [String]` fields on `Work` (additive schema; defaults keep migration automatic). Edit them from the Library row's context menu; Library search matches them. Back up and restore with forward-only semantics: a non-empty value never gets overwritten by an empty one, and when both sides differ, local wins.
-- **Done when:** persistence tests, backup merge tests (old backup without the fields decodes), library search test.
-- **Touches:** `Models/Work.swift`, `Library/LibraryView.swift`, `Library/iCloudSyncManager.swift`.
+### RM-109 — Localization groundwork
+- **Status:** open · **Size:** M · **Validation:** windows
+- **Why:** Every string is English and inline in C#.
+- **Scope:**
+  - Add a `.resw` resource file and a small lookup helper.
+  - Move one screen's strings (Settings → About) to it as the pattern.
+  - Document the pattern in AGENTS.md.
+  - Check it under Native AOT and in the MSIX (MakePri runs only on Windows).
+- **Done when:** the About screen reads its strings from resources in the packaged Release build, with no change in English.
+- **Touches:** `windows/src/Fanficly.App/Views/Settings/AboutScreen.cs`, a new resource file, `Fanficly.App.csproj` if needed.
 
-### RM-010 — Bulk download for a folder
-- **Status:** open · **Size:** M · **Validation:** unit
-- **Why:** Offline reading before a flight means tapping download on each work.
-- **Scope:** "Download all" on a custom folder, reusing the sequential, cancellable queue pattern from `RestoreDownloadCenter` (candidates: works with no `WorkPersistence.epubURL`). Progress banner, cancel keeps what finished. The 1 req/sec throttle paces it; no parallelism.
-- **Done when:** the candidate selection and progress bookkeeping are pure and tested; cancelling mid-run keeps finished downloads.
-- **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/LibraryView.swift`.
+## Ideas from the Apple roadmap
 
-### RM-011 — Yearly reading goal
-- **Status:** open · **Size:** S · **Validation:** unit
-- **Why:** The Stats tab reports; it doesn't invite.
-- **Scope:** An optional goal (stories finished this year) stored in `@AppStorage`, shown as a progress ring on the Stats tab and in the wrap card. Pure progress/pace function in `ReadingStatsAggregator` ("on pace", "3 ahead").
-- **Done when:** tests for pace at year start, mid-year, past the goal, and a zero goal (hidden). The setting is per-device and not synced, so there's no sync risk.
-- **Touches:** `Library/LibraryView.swift` (`StatsView`, `WrapShareCard`), `Reader/ReadingProgressStore.swift`.
-
-### RM-012 — Library export and import as a file
-- **Status:** open · **Size:** S · **Validation:** unit
-- **Why:** iCloud backup is opt-in and tied to one Apple ID; a plain file is a safe fallback and a way to move between accounts.
-- **Scope:** Reuse the backup encoder: "Export library file…" writes the JSON to the share sheet; "Import…" runs it through the existing forward-only restore merge. No new merge rules.
-- **Done when:** a round-trip test (export → restore into an empty in-memory container) and a test that importing an older file never moves progress backwards.
-- **Touches:** `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
-
-## Later (needs design, or a person at a Mac)
-
-### RM-013 — Leave kudos
-- **Status:** open · **Size:** M · **Validation:** unit + mac
-- **Scope:** A POST to `/kudos` with the scraped token, from the work's options menu, login-gated, once per work and remembered locally so it doesn't invite a double-tap. Same CSRF flow as comments. Never retried.
-- **Open question:** AO3 returns guest-kudos differently from logged-in kudos; confirm against the live site by hand before shipping.
-
-### RM-014 — Create and edit AO3 bookmarks
-- **Status:** open · **Size:** M · **Validation:** unit + mac
-- **Scope:** The Bookmarks tab is read-only today. Add "Bookmark on AO3" (with notes, tags, rec, private) as a POST to `/works/<id>/bookmarks`. Needs the form scraped for field names; must be tested against the live site by hand.
-
-### RM-015 — Marked for Later and history import
-- **Status:** open · **Size:** M · **Validation:** unit
-- **Scope:** Login-gated list of `/users/<name>/readings?show=to-read`, parsed like the bookmarks page (reuse `SearchResultsParser` with a blurb selector). Read-only first.
-
-### RM-016 — Open Spotlight results, and App Shortcuts
-- **Status:** open · **Size:** M · **Validation:** mac
-- **Scope:** Handle `CSSearchableItemActionType` (`work-<id>` identifiers from `WorkPersistence.indexWork`) by routing through the existing resume route; index every saved library work, not only followed ones (deindex on delete); add a "Continue reading" App Shortcut. Index data stays on-device.
-
-### RM-017 — Localization groundwork
-- **Status:** open · **Size:** M (the groundwork only) · **Validation:** mac
-- **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
-
-### RM-018 — Split the big view files
-- **Status:** open · **Size:** M · **Validation:** unit
-- **Why:** `SearchView.swift` holds search, `WorkDetailView` and `CommentsView`.
-- **Scope:** Move types verbatim to their own files. This needs `xcodegen generate` and a committed `.xcodeproj`, which is why it isn't done in passing. Do it as the only change in the PR, with no behavior edits.
-
-### RM-019 — Accessibility audit of non-reader screens
-- **Status:** open · **Size:** S per screen · **Validation:** mac
-- **Scope:** Walk Library, Stats, Subscriptions and Settings at the largest Dynamic Type size and with VoiceOver; fix truncation and unlabeled controls; add a UI test that asserts labels on a screen's icon-only buttons. One screen per PR.
-
-### RM-021 — Shift-⌘ +/− to change the Mac UI size
-- **Status:** open · **Size:** S · **Validation:** unit + mac
-- **Why:** Global UI zoom (`app.zoomScale` in `RootView`) is bound to hidden buttons for ⌘+, ⌘=, ⌘− and ⌘0 only. The request is to also change the interface size with ⇧⌘+ / ⇧⌘− (and ⇧⌘= for keyboards where + needs no shift), and to make the shortcuts discoverable.
-- **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. Keep the existing ⌘ bindings working unless the maintainer says to drop them. Extract the clamp/step into a pure function.
-- **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.
-- **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
-- **Touches:** `RootView.swift`, `FanficlyApp.swift`.
+The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, notes and personal tags, kudos, and creating AO3 bookmarks. Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 
-Not features, but worth doing; add as items when started.
+Not features, but worth doing. Add them as items when started.
 
-- `AGENTS.md` is the canonical agent guide; `CLAUDE.md` is an older overlapping document. Update AGENTS.md.
-- Keep the unit-test count in AGENTS.md roughly honest when a PR adds a test file.
-- Every new `AO3ClientProtocol` method lands with `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` support in the same PR.
-- Release housekeeping (version bump, screenshots, App Store metadata) is done by the maintainer, never by a roadmap PR.
+- `AGENTS.md` is the canonical agent guide; `CLAUDE.md` only points at it.
+- Keep the unit-test count in AGENTS.md roughly honest when a PR adds a test class.
+- Every new `IAO3Client` method lands with `MockAO3Client`, `DemoAO3Client`, `StubAO3Client` and `PollerFakeClient` support in the same PR.
+- Release housekeeping is done by the maintainer through `MICROSOFT_STORE.md`, never by a roadmap PR. That covers:
+  - the version in `windows/store/version.txt`;
+  - Store listing text and screenshots in `windows/store/`;
+  - the README screenshots in `docs/screenshots/windows/`, taken from CI's `ui-screenshots` artifact once the reader lands.

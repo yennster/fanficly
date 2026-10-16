@@ -1,68 +1,113 @@
-# Privacy Policy
+# Privacy Policy: Fanficly for Windows
 
-Effective: 2026-10-07
+Effective: 2026-10-16
+
+This policy covers Fanficly for Windows, the app in the Microsoft Store. The iPhone, iPad and Mac app has its own policy, on the `main` branch of this repository.
 
 ## What we collect
 
 **Nothing.**
 
-Fanficly has no servers. There is no analytics, no crash reporting, no telemetry, no advertising SDKs, no device identifiers logged anywhere outside your device.
+Fanficly has no servers. It has no analytics, crash reporting, telemetry or advertising SDKs, and it logs no device identifiers anywhere off your PC.
 
-## What is stored on your device
+## What is stored on your PC
 
-- **Your AO3 session cookie** (`_otwarchive_session`), kept in the iOS Keychain so you stay logged in between sessions
-- **Works you've saved offline**, your reading position, custom folders, followed authors, and your bookmark/history/subscription cache, kept in your app's private SwiftData store and Documents directory
-- **Your preferences** (theme, font size, reader profiles, library sort order, etc.), kept in app storage
-- **Your searches** — recent searches stay on this device only (never synced or backed up; clear them from the Search screen); saved searches are kept in app storage and included in the optional iCloud library backup
-- **Your last-read story and its progress**, kept in a private app-group container shared only between the app and its home-screen widget
+Everything below lives in Fanficly's own app storage: the package's local data folder when installed from the Microsoft Store, or `%LOCALAPPDATA%\Fanficly` when run from a developer build.
 
-None of this is ever sent to us — there is no Fanficly server. The only place any of it can go off-device is your own iCloud account, described next.
+- **Your AO3 session.** If you sign in, your AO3 username and AO3's session cookies are stored encrypted with Windows Data Protection (DPAPI) for your Windows account only. Another Windows user on the same PC can't read them. Your password is sent once to AO3 when you sign in and is never stored. Signing out deletes the cookies and username.
+- **Your library.** In a database file (`library.sqlite`) on your PC:
+  - works you've saved, and their chapter text if you downloaded it
+  - EPUB files you downloaded for offline reading
+  - folders, stars and pins
+  - reading positions, recently viewed works and reading stats
+  - followed works and authors, and the list of your AO3 subscriptions
+  - saved searches and filters, and works you've hidden
+- **Your preferences** (theme, reader profiles and typography, sort order, voice and so on) are kept in a settings file. That file also holds:
+  - your last 10 searches, which are never synced or backed up;
+  - whether you confirmed you're 17 or older;
+  - the size and position of the window.
+- **Widget data.** The story you read last, your reading streak, your folders, saved searches, subscriptions and a recommendation are kept in a small file that Fanficly's own widgets read, so the Windows Widgets board can show them.
+- **A local diagnostic log** (`Logs\fanficly.log`). It records errors, which can include a work's title, a fandom name or a web address. It never records passwords or cookies. It's capped at 512 KB, and Fanficly never sends it anywhere.
+- **The taskbar jump list.** Right-clicking Fanficly on the taskbar shows "Continue “title”" for the story you read last. Windows keeps that list on your PC.
+- **A cached Popular list.** This is the daily snapshot of popular fandoms, ships and characters.
 
-## iCloud sync (your iCloud, not ours)
+None of this is sent to us. There is no Fanficly server. The only way any of it leaves your PC is the optional sync described next.
 
-If your device is signed into iCloud, Fanficly syncs some data between **your own devices** through Apple's iCloud:
+## Sync (your folder, not ours)
 
-- **Library backups** (saved works, folders, reading positions, preferences) — only if you turn on *Sync Library to iCloud* in Settings; the same screen lets you restore or delete the backup
-- **Reader settings profiles** and **last-read progress** (story, chapter, and paragraph — what the widget shows) — synced automatically via iCloud key-value storage
+Sync is **off** until you turn it on in Settings → Sync and choose a folder. That folder is usually one that a cloud service you already use keeps in sync, such as OneDrive, iCloud Drive (with iCloud for Windows) or Dropbox. While sync is on, Fanficly writes two files there:
 
-This data lives in your private iCloud account and is covered by Apple's iCloud terms. We cannot access, read, or delete it — Fanficly has no servers and no access to your Apple ID. Signing out of iCloud on the device stops all syncing, and the library backup can be deleted from Fanficly's settings at any time.
+- **`library_backup.json`.** It holds:
+  - your saved works, including downloaded chapter text
+  - folders, reading positions and reading stats
+  - your AO3 bookmarks and subscriptions lists
+  - saved searches and filters, and hidden works
+  - your reader settings, your content settings, and whether you confirmed you're 17 or older
+- **`fanficly-settings-sync.json`.** It holds:
+  - your reader profiles
+  - the story you read last and how far you got (its title, author, chapter and paragraph)
+  - your reading-streak days
 
-## What your device sends to AO3
+These files are as private as the folder you chose. They are governed by the terms of whichever service syncs that folder, which may be Microsoft for OneDrive or Apple for iCloud. We can't access, read or delete them. Turning sync off stops Fanficly from writing to the folder. **Clear Synced Data** in Settings → Sync deletes the library backup from the folder; delete `fanficly-settings-sync.json` yourself if you want that gone too. Uninstalling Fanficly doesn't touch the sync folder.
 
-The app makes HTTP requests directly to `archiveofourown.org` on your behalf, the same way a web browser would:
-- To read works, the app fetches `/works/<id>` and downloads `/downloads/<id>/...epub` files
-- To search, the app submits queries to `/works/search`. While you type in the search box, the last few words you've typed are sent to AO3's tag autocomplete (`/autocomplete/tag`) to suggest exact tags — the same lookup AO3's own search form makes
-- To log in, the app POSTs your username and password to `/users/login` and stores the resulting session cookie
-- To sync your account state, the app fetches your bookmarks, history, and subscriptions pages while logged in
-- To subscribe to a work or post a chapter comment — only when you're logged in and choose to (these are user-initiated and happen only when you tap the button) — the app POSTs that action to AO3 on your behalf; any comment text goes only to AO3, which hosts and moderates it
+## What your PC sends to AO3
 
-We never store your AO3 username or password. The session cookie is sufficient for authenticated requests.
+Fanficly makes requests directly to `archiveofourown.org` on your behalf, the way a web browser does. Every request identifies the app in its User-Agent (`Fanficly/<version>`, with a link to this repository), and the app never sends more than one request a second.
 
-## Embedded story images (optional)
+- **Reading:** the app fetches a work's pages, and downloads its EPUB when you choose to download it for offline reading.
+- **Search, Browse and Popular:** the app fetches AO3's search, fandom and tag pages. While you type in the search box, the last few words you typed are sent to AO3's tag autocomplete to suggest exact tags. AO3's own search form does the same lookup. Popular refreshes at most once a day.
+- **Signing in:** the app sends your username and password to AO3's login form and keeps the session cookie AO3 returns.
+- **Your account pages:** the app fetches your bookmarks and subscriptions pages, but only while you're signed in and only when you open them or the app checks for updates.
+- **New-chapter checks:** the app fetches the pages of works and authors you follow, and your subscriptions list if you're signed in, so it can tell you about new chapters and works. This happens while Fanficly is open, about every four hours. When installed from the Store it also happens from a Windows background task with the same interval, which needs an internet connection and skips its run while Fanficly is open.
+- **Comments and subscribing:** if you're signed in and choose to post a comment or subscribe to a work, the app sends that action to AO3. Comment text goes only to AO3, which hosts and moderates it.
 
-Some authors embed images in their works, hosted on third-party sites of their choosing (not AO3). If you turn on **Show images in stories** (Settings → Reader — it is **off** by default), the app fetches those images directly from the author's image host, exactly as a web browser would — which exposes your IP address to that host. The app only ever loads `https` image URLs, never sends your AO3 session cookie to image hosts, and adds no identifying headers. iOS may keep a temporary cache of loaded images on your device. Works you download for offline reading stay text-only regardless of this setting. Leave the toggle off and no third-party image request is ever made.
+Notifications about new chapters are created on your PC and shown by Windows. Nothing passes through a notification server of ours.
+
+## Microsoft and Windows
+
+- **The Store.** Fanficly is distributed through the Microsoft Store. The Store handles installs, updates and ratings under Microsoft's own privacy statement. When you choose to rate Fanficly, the rating dialog belongs to the Store.
+- **Crash reports.** Like any Windows app, Windows' own error reporting may send crash data to Microsoft, depending on your Windows diagnostic data settings. Microsoft can share aggregated crash reports with app publishers. Fanficly adds nothing to those reports and has no crash reporter of its own.
+- **Voices.** Listen uses the voices installed in Windows, and speech is generated on your PC.
+
+<!-- reader: verify against windows/src/Fanficly.App/Views/Reader -->
+## Reader features (as they reach the Windows app)
+
+The reader is still being brought over from the iPhone, iPad and Mac app. This section describes how it behaves there, and the Windows reader is built to match.
+
+- **Story images (optional).** Some authors embed images in their works. Those images are hosted on third-party sites the author chose, not on AO3.
+  - **Show images in stories** is **off** by default.
+  - When it's on, the app fetches those images directly from the image host, the way a web browser would, and that host sees your IP address.
+  - The app loads only `https` images, never sends your AO3 session cookie to an image host, and adds no identifying headers.
+  - Works you downloaded for offline reading stay text-only.
+  - With the setting off, the app never requests anything from a third-party image host.
+- **Export.** Exporting a work downloads AO3's own EPUB, AZW3, MOBI, PDF or HTML file into a temporary folder, then hands it to the Windows share sheet or a save location you pick. Where it goes from there is up to you.
+- **Listen.** Read-aloud uses Windows' on-device speech synthesis. No story text is sent anywhere to be spoken.
+- **Reading position and time.** Where you are in each story, and how long you've spent reading, are recorded on your PC as described above. They leave the PC only through the optional sync.
+<!-- /reader -->
 
 ## Cookies
 
-The only cookie stored is AO3's own session cookie, set by AO3's login response. Under GDPR/ePrivacy this falls under "strictly necessary for a service explicitly requested by the user" — no consent banner is required for these cookies.
+The only cookies Fanficly stores are AO3's own, set by AO3 when you sign in. Under GDPR and ePrivacy rules these are strictly necessary for a service you explicitly asked for, so no consent banner is needed. Fanficly sets no cookies of its own.
 
-We do not set any first-party cookies of our own.
+## Your rights under GDPR and CCPA
 
-## Your rights under GDPR / CCPA
+Fanficly has no servers and collects no data, so we hold no copy of your information to give you, correct or delete. Your data is only on your PC and, if you turned sync on, in the folder you chose.
 
-Because Fanficly has no servers and collects no data, there is no copy of your information held by us to provide, correct, or delete. Your data exists exclusively on your device and — if you use iCloud sync — in your own private iCloud account, which only you control.
+**To delete everything Fanficly stored on your PC,** uninstall it. Windows then removes the app's local data folder, which holds the library, settings, downloads, log and encrypted sign-in. If you turned sync on, use **Clear Synced Data** first, or delete the Fanficly files from your sync folder yourself. If you ran a developer build, also delete `%LOCALAPPDATA%\Fanficly`.
 
-**To delete all locally stored data:** delete the app. iOS removes all sandboxed app storage, including the Keychain entries created by the app. This is the erasure mechanism. If you enabled iCloud library sync, delete the backup from Fanficly's settings (or manage it in iOS Settings → iCloud storage) before removing the app.
+**To get or delete your AO3 account data,** ask AO3 directly. They are responsible for your account.
 
-**To export your AO3 account data:** request it directly from AO3 — they are the data controller for your account.
+## Age
 
-## Children's privacy
-
-AO3 itself requires users to be 13 or older. Fanficly's App Store age rating is 17+ because explicit-rated works are reachable through search.
+AO3 requires its users to be at least 13. Fanficly is rated for ages 17 and up, because explicit works can be found through search, and it asks you to confirm your age the first time it starts. "Filter mature & explicit works" is on by default.
 
 ## Changes
 
-If we ever begin collecting data (we don't intend to), we will publish a new version of this policy on this page, increment the version in the app, and surface the changes in the Settings screen before continuing.
+If Fanficly ever starts collecting data (we don't intend to), we will:
+
+1. publish a new version of this policy here;
+2. update the app;
+3. explain the change in the app before it takes effect.
 
 ## Contact
 
