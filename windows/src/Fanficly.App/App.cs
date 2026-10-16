@@ -38,6 +38,7 @@ public sealed partial class App : Application, IXamlMetadataProvider
 
         Window = new MainWindow { RootFactory = Views.Tabs.Root };
         AppHost.OnWindowCreated(Window);
+        Views.Settings.AppearanceSettings.Apply();
         Window.Start(AppHost.InitialTab);
         Window.Activate();
 
