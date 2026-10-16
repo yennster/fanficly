@@ -72,3 +72,12 @@ cache/
 # Android machine-local files
 android/.gradle/
 android/local.properties
+
+# .NET (Windows app)
+windows/**/bin/
+windows/**/obj/
+windows/**/AppPackages/
+windows/**/BundleArtifacts/
+windows/.vs/
+*.user
+windows/artifacts/
