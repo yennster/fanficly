@@ -39,8 +39,13 @@ public sealed class ShortcutsScreen : Screen
             ]),
             Group("Reader",
             [
-                ("Left / Right", "Previous / next page (page-by-page and swipe by chapter)"),
+                ("Left / Right", "Previous / next page (in swipe by chapter: previous / next chapter)"),
                 ("Page Up / Page Down", "Previous / next page"),
+                ("Space / Shift+Space", "Next / previous page"),
+                ("Ctrl+Left / Ctrl+Right", "Previous / next chapter"),
+                ("Home / End", "Start / end of the chapter"),
+                ("Ctrl+L", "Listen to the chapter, or stop"),
+                ("Esc", "Leave full screen, or show the reader controls"),
                 ("F11", "Full screen"),
             ]),
             Group("Xbox controller", SettingsScreen.ControllerMap));

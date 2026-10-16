@@ -111,7 +111,10 @@ public static partial class HTMLToAttributed
         else if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             absolute = "https://" + trimmed["http://".Length..];
         if (!IsHttpsWithHost(absolute, out var url)) return null;
-        return url.Host.Equals("archiveofourown.org", StringComparison.OrdinalIgnoreCase) ? null : url;
+        // AO3 and its subdomains (www.) would get the session cookie.
+        var host = url.Host;
+        return host.Equals("archiveofourown.org", StringComparison.OrdinalIgnoreCase)
+               || host.EndsWith(".archiveofourown.org", StringComparison.OrdinalIgnoreCase) ? null : url;
     }
 
     /// <summary>Resolves an <c>&lt;a href&gt;</c> to an openable URL: protocol-relative

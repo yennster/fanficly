@@ -16,7 +16,6 @@ public static class AppPaths
     public static string Database => Path.Combine(LocalData, "library.sqlite");
     public static string Settings => Path.Combine(LocalData, "settings.json");
     public static string Downloads => Ensure(Path.Combine(LocalData, "Downloads"));
-    public static string Exports => Ensure(Path.Combine(Path.GetTempPath(), "Fanficly", "Exports"));
     public static string Logs => Ensure(Path.Combine(LocalData, "Logs"));
 
     /// <summary>Shared with the widget provider and background task (same package).</summary>

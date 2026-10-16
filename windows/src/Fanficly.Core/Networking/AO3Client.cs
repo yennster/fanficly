@@ -88,8 +88,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// burns backoff time and throttle slots, so offline failures surface at once.</summary>
     internal Func<bool> IsNetworkAvailable { get; set; } = System.Net.NetworkInformation.NetworkInterface.GetIsNetworkAvailable;
 
-    /// <summary>Where <see cref="ExportWorkAsync"/> writes (a temp <c>exports</c> folder).</summary>
-    internal string ExportsDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "exports");
+    /// <summary>Where <see cref="ExportWorkAsync"/> writes: %TEMP%\Fanficly\Exports,
+    /// which Windows' storage cleanup empties.</summary>
+    internal string ExportsDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "Fanficly", "Exports");
 
     private static SocketsHttpHandler CreateDefaultHandler() => new()
     {

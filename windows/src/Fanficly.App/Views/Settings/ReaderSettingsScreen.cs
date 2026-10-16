@@ -519,7 +519,7 @@ public sealed class ReaderSettingsScreen : Screen
                 "exclamationmark.triangle", Theme.Warning));
 
         return UI.UI.Section("Listen", rows,
-            footer: "Use Listen (the headphones button) in the reader to have a chapter read aloud. For more natural-sounding voices, add them in Windows Settings → Time & language → Speech → Manage voices. Voices run entirely on this PC and are free.");
+            footer: "Choose Listen to Chapter in the reader's Aa menu (or press Ctrl+L) to have a chapter read aloud. For more natural-sounding voices, add them in Windows Settings → Time & language → Speech → Manage voices. Voices run entirely on this PC and are free.");
     }
 
     private void ToggleSample()

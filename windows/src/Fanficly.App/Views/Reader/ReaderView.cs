@@ -228,9 +228,6 @@ internal sealed partial class ReaderView
             ExitImmersive();
             if (MainWindow.Current.IsFullScreen) MainWindow.Current.ToggleFullScreen();
         }
-        ReviewPrompter.Shared.ReaderClosed(() => ReviewPromptStats.From(
-            ReadingStatsStore.Snapshots(AppHost.Library)
-                .Select(s => (s.IsFinished, (IEnumerable<string>)s.DaySeconds.Keys, s.FirstReadAt))));
     }
 
     /// <summary>The screen was popped for good.</summary>
@@ -238,6 +235,11 @@ internal sealed partial class ReaderView
     {
         if (_removed) return;
         _removed = true;
+        // Only when the reader closes, not when Comments or an author page
+        // opens over it: the prompt must never land on top of a story.
+        ReviewPrompter.Shared.ReaderClosed(() => ReviewPromptStats.From(
+            ReadingStatsStore.Snapshots(AppHost.Library)
+                .Select(s => (s.IsFinished, (IEnumerable<string>)s.DaySeconds.Keys, s.FirstReadAt))));
         _speech.Dispose();
         ApplyKeepScreenAwake(false);
         KeyValueStores.Default.Changed -= OnSettingChanged;
@@ -724,6 +726,9 @@ internal sealed partial class ReaderView
         if (focused is MenuFlyoutItemBase or Slider or ComboBox or ComboBoxItem or ListViewItem or RadioButton or PipsPager)
             return false;
         var activates = focused is ButtonBase or ToggleSwitch;
+        // The D-pad moves focus between buttons (the toolbar, the Listen bar);
+        // it turns pages only when the story itself has focus.
+        if (activates && key is VirtualKey.GamepadDPadLeft or VirtualKey.GamepadDPadRight) return false;
         var ctrl = modifiers == VirtualKeyModifiers.Control;
         var none = modifiers == VirtualKeyModifiers.None;
         var shift = modifiers == VirtualKeyModifiers.Shift;

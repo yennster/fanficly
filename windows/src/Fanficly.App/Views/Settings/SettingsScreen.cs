@@ -262,7 +262,7 @@ public sealed class SettingsScreen : Screen
         ("A", "Select the focused item"),
         ("B", "Go back"),
         ("D-pad / left stick", "Move between items; turn pages in the reader"),
-        ("LB / RB", "Previous / next sidebar tab"),
+        ("LB / RB", "Previous / next sidebar tab; in the reader, previous / next chapter"),
         ("LT / RT", "Previous / next page in the reader"),
         ("Right stick", "Scroll"),
         ("View", "Full screen"),

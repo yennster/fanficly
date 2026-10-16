@@ -80,7 +80,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Why:** `AppServices` and `FanficlyBackgroundTask` construct `AO3Client` with `AppPaths.LocalData`, so `DownloadEpubAsync` writes `LocalData\<id>.epub`. `WorkPersistence.EpubPath` looks in `AppPaths.Downloads` (`WorkPersistence.LibraryFolder`). The file is downloaded, but the Library's Downloaded filter, the "Remove Download" action and the restore re-download offer never see it.
 - **Scope:**
   - Give the client the same folder `WorkPersistence` uses (`AppPaths.Downloads`) in both places.
-  - At launch, move any `LocalData\<digits>.epub` left by earlier builds into `Downloads`.
+  - ~~At launch, move any `LocalData\<digits>.epub` left by earlier builds into `Downloads`.~~ Not needed: no build with the old location ever shipped.
   - Keep `AO3Client`'s constructor contract; don't make Core depend on `AppPaths`.
 - **Done when:**
   - A Core test shows that a client built with `WorkPersistence.LibraryFolder` returns a path equal to `WorkPersistence.EpubTargetPath(id)` (through a fake handler).
@@ -136,7 +136,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Scope:**
   - Add Hide and Subscribe to `WorkDetail`'s options menu. Hide uses `HiddenWorkStore.Hide` and goes back. Subscribe is login-gated.
   - Defer any dialog until the menu has closed.
-  - Add a Hide action to search and browse rows' context menus.
+  - ~~Add a Hide action to search and browse rows' context menus.~~ Dropped for parity: the Swift app's row menus have no Hide either.
   - **Start only after the reader port has merged.**
 - **Done when:**
   - A hidden work disappears from Search, Browse and Bookmarks and appears in Settings → Content & Safety → Hidden works.

@@ -203,6 +203,7 @@ public class HTMLToAttributedTests
         // root-relative paths and archiveofourown.org hosts are rejected.
         Assert.Null(HTMLToAttributed.ResolvedImageUrl("/attachments/a.png"));
         Assert.Null(HTMLToAttributed.ResolvedImageUrl("https://archiveofourown.org/a.png"));
+        Assert.Null(HTMLToAttributed.ResolvedImageUrl("https://www.archiveofourown.org/a.png"));
     }
 
     [Fact]
