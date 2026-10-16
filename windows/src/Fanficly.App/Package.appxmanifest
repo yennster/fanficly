@@ -83,6 +83,47 @@
             </com:ExeServer>
           </com:ComServer>
         </com:Extension>
+
+        <!-- The Widgets board: "Continue reading" (FanficlyWidget on iOS). -->
+        <uap3:Extension Category="windows.appExtension">
+          <uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="Fanficly" Id="FanficlyWidgets" PublicFolder="Public">
+            <uap3:Properties>
+              <WidgetProvider>
+                <ProviderIcons>
+                  <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                </ProviderIcons>
+                <Activation>
+                  <CreateInstance ClassId="B46F852C-289F-47B1-AB03-CC6793490B34" />
+                </Activation>
+                <Definitions>
+                  <Definition Id="LastRead" DisplayName="Continue reading" Description="The story you read last, and how far you got." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\WidgetScreenshot.png" DisplayAltText="Continue reading widget showing a story title, its author and a progress bar" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                </Definitions>
+              </WidgetProvider>
+            </uap3:Properties>
+          </uap3:AppExtension>
+        </uap3:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Fanficly.exe" Arguments="-RegisterProcessAsComServer" DisplayName="Fanficly widgets">
+              <com:Class Id="B46F852C-289F-47B1-AB03-CC6793490B34" DisplayName="Fanficly widget provider" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>

@@ -22,6 +22,7 @@
     <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
     <PublishTrimmed Condition="'$(Configuration)' == 'Release'">true</PublishTrimmed>
     <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>
     <!-- Store packages: one bundle with x64 and ARM64. -->
     <AppxBundle>Always</AppxBundle>
@@ -53,5 +54,6 @@
     <Content Include="Assets\**\*.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\**\*.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\Fanficly.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Public\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

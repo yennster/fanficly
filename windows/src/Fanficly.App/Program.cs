@@ -16,6 +16,13 @@ public static class Program
     {
         WinRT.ComWrappersSupport.InitializeComWrappers();
 
+        // Windows launched us to serve the Widgets board: no window, no redirect.
+        if (args.Contains("-RegisterProcessAsComServer"))
+        {
+            Platform.Widgets.WidgetComServer.Run();
+            return 0;
+        }
+
         if (!AppHost.IsBackgroundTaskLaunch(args) && RedirectToRunningInstance())
             return 0;
 
