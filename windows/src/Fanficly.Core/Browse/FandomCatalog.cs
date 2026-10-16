@@ -110,7 +110,10 @@ public static class FandomCatalog
         return "book.closed";
     }
 
-    private static readonly Dictionary<string, string> SymbolByFandom = BuildSymbolMap();
+    // Built on first use: a field initializer here would run before `All`
+    // (declared below) is assigned and throw from the type initializer.
+    private static Dictionary<string, string> SymbolByFandom => s_symbolByFandom ??= BuildSymbolMap();
+    private static Dictionary<string, string>? s_symbolByFandom;
 
     private static Dictionary<string, string> BuildSymbolMap()
     {
