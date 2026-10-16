@@ -45,6 +45,13 @@ public static class KeyValueStoreExtensions
 public static class KeyValueStores
 {
     public static IKeyValueStore Default { get; set; } = new InMemoryKeyValueStore();
+
+    /// <summary>The cross-device store (Swift's <c>NSUbiquitousKeyValueStore</c>,
+    /// iCloud key-value storage). On Windows the app backs it with a small JSON
+    /// file in the user's chosen sync folder (OneDrive, iCloud Drive, …);
+    /// <see cref="IKeyValueStore.Changed"/> also fires when another device's
+    /// change arrives. Tests get an in-memory one.</summary>
+    public static IKeyValueStore Synced { get; set; } = new InMemoryKeyValueStore();
 }
 
 public class InMemoryKeyValueStore : IKeyValueStore
