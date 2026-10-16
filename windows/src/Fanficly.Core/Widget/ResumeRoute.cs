@@ -1,0 +1,65 @@
+namespace Fanficly.Core;
+
+/// <summary>A reading position: 1-based chapter, 0-based paragraph.</summary>
+public readonly record struct ReadingAnchor(int Chapter, int Paragraph);
+
+/// <summary>Opens a work's reader at the widget's position:
+/// <c>fanficly://resume/&lt;workId&gt;?chapter=&lt;n&gt;&amp;paragraph=&lt;m&gt;</c>.</summary>
+public sealed record ResumeWorkRoute(int WorkId, ReadingAnchor? Anchor);
+
+/// <summary>
+/// Decides which anchor (if any) a widget-resume tap may install as reading
+/// progress. The rule: a resume tap must never move saved progress backwards.
+///
+/// The URL anchor is a snapshot baked into the widget, and widget refreshes are
+/// budget-throttled — the widget can lag hours behind the last save. The
+/// widget-store payload is rewritten on every progress save, so when both exist
+/// the store entry is at least as fresh as the URL. And because a progress save
+/// stamps the local record and the widget payload with the same date, a store
+/// entry only reads <i>strictly</i> fresher when it came from somewhere else
+/// (progress synced from another device) — exactly the one case that may
+/// override local progress.
+/// </summary>
+public static class ResumeProgressPolicy
+{
+    public static ReadingAnchor? AnchorToInstall(
+        ReadingAnchor? routeAnchor,
+        ReadingAnchor? widgetAnchor,
+        DateTimeOffset? widgetFreshness,
+        DateTimeOffset? existingUpdatedAt)
+    {
+        if (existingUpdatedAt is not { } existing)
+        {
+            // No local progress — seed from whatever we have, preferring the
+            // store payload over the possibly-stale URL snapshot.
+            return widgetAnchor ?? routeAnchor;
+        }
+        // Local progress exists. Only a strictly fresher widget-store entry may
+        // move it; the URL anchor carries no timestamp, so it never can. When the
+        // fresher store payload has no chapter there is nothing safe to install —
+        // navigate and let the local progress win.
+        if (widgetFreshness is not { } freshness || freshness <= existing) return null;
+        return widgetAnchor;
+    }
+
+    /// <summary>The widget-store entry if it is for <paramref name="workId"/>
+    /// (the store holds only the last-read work), else null.</summary>
+    public static WidgetStoryProgress? MatchingWidgetProgress(int workId, WidgetStoryProgress? widgetProgress) =>
+        widgetProgress?.Id == workId ? widgetProgress : null;
+
+    /// <summary>The store entry's position, clamped like the route's (chapter ≥ 1,
+    /// paragraph ≥ 0); null when it carries no chapter.</summary>
+    public static ReadingAnchor? WidgetAnchor(WidgetStoryProgress? progress) =>
+        progress?.Chapter is { } chapter ? new ReadingAnchor(Math.Max(chapter, 1), Math.Max(progress.Paragraph ?? 0, 0)) : null;
+
+    /// <summary>What RootView's <c>installResumeProgressIfAvailable</c> computes:
+    /// the anchor to install for a resume tap, given the widget store's current
+    /// entry (<see cref="WidgetProgressStore.Load"/>) and when the work's local
+    /// progress was last saved (null when it has none).</summary>
+    public static ReadingAnchor? AnchorToInstall(
+        ResumeWorkRoute route, WidgetStoryProgress? widgetProgress, DateTimeOffset? existingUpdatedAt)
+    {
+        var matching = MatchingWidgetProgress(route.WorkId, widgetProgress);
+        return AnchorToInstall(route.Anchor, WidgetAnchor(matching), matching?.FreshnessDate, existingUpdatedAt);
+    }
+}
