@@ -54,7 +54,7 @@ jobs:
       - name: Launch in demo mode and capture the window
         if: matrix.platform == 'x64'
         shell: pwsh
-        run: ./scripts/Capture-Screen.ps1 -Exe ../artifacts/app-x64/Fanficly.exe -Out ../artifacts/screenshots/launch.png
+        run: ./scripts/Capture-Screen.ps1 -Exe ../artifacts/app-x64/Fanficly.exe -Out ../artifacts/screenshots/launch.png -EmitBase64
       - uses: actions/upload-artifact@v4
         if: always() && matrix.platform == 'x64'
         with: { name: launch-screenshot, path: artifacts/screenshots, if-no-files-found: ignore }
