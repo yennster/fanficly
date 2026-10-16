@@ -282,13 +282,16 @@ internal sealed partial class ReaderView
 
         _narrationChapter = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap, Foreground = _brushes.Foreground };
         _narrationPosition = new TextBlock { FontSize = 11, Foreground = _brushes.Fg60 };
-        var chapterLine = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { _narrationChapter } };
+        // A grid, not a horizontal stack, so a long chapter title trims to the
+        // room left in a narrow window instead of pushing the bar's end off.
+        var chapterLine = UI.UI.Grid("*,Auto", "Auto", columnSpacing: 4);
+        chapterLine.Children.Add(_narrationChapter.Col(0));
         if (_chapters.Count > 1)
         {
             var chevron = Symbols.Icon("chevron.up.chevron.down", 8).A11yHidden();
             chevron.Foreground = _brushes.Fg60;
             chevron.VerticalAlignment = VerticalAlignment.Center;
-            chapterLine.Children.Add(chevron);
+            chapterLine.Children.Add(chevron.Col(1));
         }
         var status = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center, Children = { chapterLine, _narrationPosition } };
         _narrationStatus = _brushes.BarButton(status, "Now reading");
@@ -360,14 +363,18 @@ internal sealed partial class ReaderView
             BorderBrush = _brushes.Fg12,
             BorderThickness = new Thickness(0, 1, 0, 0),
         };
-        foreach (var width in new[] { "Auto", "Auto", "Auto", "Auto", "*", "Auto", "Auto" })
+        // The status takes the room between the transport buttons and the rate
+        // and stop buttons (left-aligned, up to its MaxWidth), so all of them
+        // fit at phone width.
+        foreach (var width in new[] { "Auto", "Auto", "Auto", "*", "Auto", "Auto" })
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = UI.UI.Length(width) });
+        _narrationStatus.HorizontalAlignment = HorizontalAlignment.Left;
         bar.Children.Add(back.Col(0));
         bar.Children.Add(_playButton.Col(1));
         bar.Children.Add(forward.Col(2));
         bar.Children.Add(_narrationStatus.Col(3));
-        bar.Children.Add(_rateButton.Col(5));
-        bar.Children.Add(stop.Col(6));
+        bar.Children.Add(_rateButton.Col(4));
+        bar.Children.Add(stop.Col(5));
         _narrationBar = bar;
         UpdateNarrationBar();
         return bar;

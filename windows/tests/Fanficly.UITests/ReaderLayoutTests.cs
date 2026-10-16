@@ -89,19 +89,23 @@ public sealed partial class ReaderLayoutTests(ITestOutputHelper output)
         TurnToMiddlePage(s, footer);
         var before = footer.Name;
         Assert.True(s.Tap(4, "reader.aa", "Reader settings"), "the Aa menu");
-        var newProfile = s.Window.FindAllDescendants()
-            .FirstOrDefault(e => e.Name.StartsWith("Save Current as New Profile", StringComparison.Ordinal)
-                                 || e.Name.StartsWith("New Profile", StringComparison.Ordinal));
+        // Menus open in their own popup windows; search every window of the app.
+        AutomationElement? Item(Func<string, bool> match) =>
+            s.App.GetAllTopLevelWindows(s.Automation).Prepend(s.Window)
+                .SelectMany(w => w.FindAllDescendants())
+                .FirstOrDefault(e => match(e.Properties.Name.ValueOrDefault ?? ""));
+        var newProfile = Item(n => n.StartsWith("Save Current as New Profile", StringComparison.Ordinal));
         if (newProfile is null)
         {
-            var profile = s.Window.FindAllDescendants().FirstOrDefault(e => e.Name.StartsWith("Profile", StringComparison.Ordinal));
-            if (profile is not null) s.Activate(profile);
-            newProfile = Retry.WhileNull(() => s.Window.FindAllDescendants()
-                .FirstOrDefault(e => e.Name.Contains("New Profile", StringComparison.Ordinal)), TimeSpan.FromSeconds(3)).Result;
+            if (Item(n => n.StartsWith("Profile", StringComparison.Ordinal)) is { } profile) s.Activate(profile);
+            newProfile = Retry.WhileNull(() => Item(n => n.StartsWith("Save Current as New Profile", StringComparison.Ordinal)),
+                TimeSpan.FromSeconds(3)).Result;
         }
         Assert.NotNull(newProfile);
         s.Activate(newProfile!);
-        var box = Retry.WhileNull(() => s.Window.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit)), TimeSpan.FromSeconds(4)).Result;
+        var box = Retry.WhileNull(() => s.App.GetAllTopLevelWindows(s.Automation).Prepend(s.Window)
+            .Select(w => w.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit))).FirstOrDefault(e => e is not null),
+            TimeSpan.FromSeconds(4)).Result;
         Assert.NotNull(box);
         box!.Focus();
         s.Type("Test");
