@@ -33,23 +33,22 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
 - **Windows integrations:**
   - six Widgets-board widgets;
   - a jump list;
-  - the share target and the `fanficly://` links (resume, import, library folder, search);
+  - the share target, dropping or pasting an AO3 link, and the `fanficly://` links (resume, import, library folder, search);
   - single-instance activation;
   - the Store rating prompt.
 - **Settings:**
   - Account, Reader (profiles, typography, preview, voice), Appearance, Library, Sync, Notifications;
   - Content & Safety (17+ gate, mature filter, hidden works), Input, Privacy and About.
-- **Tests:** 448 Core unit tests run on any OS. Windows CI also runs FlaUI smoke, screenshot and reader layout tests, and builds the Store bundle.
-
-<!-- reader: verify against windows/src/Fanficly.App/Views/Reader -->
-**In progress: the reader.** `Views/Reader` (the live work page, the saved-work reader and the resume route, which register `Routes.WorkDetail`, `SavedWork` and `Resume`) is being ported now, outside this roadmap. Its pure logic (pagination, anchors, spreads, profiles, speech paragraphs) is already in `Fanficly.Core` with tests. Until it lands, opening a work shows a placeholder, and several finished features have no way in yet:
-
-- recording progress and stats;
-- Listen;
-- export;
-- the review prompt's trigger;
-- hiding a work and subscribing.
-<!-- /reader -->
+- **Reader:** `Views/Reader` registers `Routes.WorkDetail`, `SavedWork` and `Resume`.
+  - The live work page and the saved-work reader, which reads offline from saved chapter text.
+  - Three reading modes: continuous scroll, swipe by chapter, and page by page with a two-page spread on wide windows. Pages fill the window and keep their place when re-paginated.
+  - Page turns by keyboard, mouse wheel, pen, touch and controller, with Narrator menu actions.
+  - Typography presets and profiles, full screen, and keep screen awake.
+  - Listen (on-device speech, highlighted, with media keys).
+  - Opt-in story images, and export in five formats to the share sheet or a file.
+  - Saved progress, resume, reading time and the review prompt's trigger.
+  - Comments, download, subscribe, report and hide from the work page.
+- **Tests:** 448 Core unit tests run on any OS. Windows CI also runs FlaUI smoke, screenshot and reader layout tests, and builds the Store bundle. A manual workflow captures and commits the screenshots.
 
 ## Principles every item must respect
 
@@ -196,4 +195,4 @@ Not features, but worth doing. Add them as items when started.
 - Release housekeeping is done by the maintainer through `MICROSOFT_STORE.md`, never by a roadmap PR. That covers:
   - the version in `windows/store/version.txt`;
   - Store listing text and screenshots in `windows/store/`;
-  - the README screenshots in `docs/screenshots/windows/`, taken from CI's `ui-screenshots` artifact once the reader lands.
+  - the README screenshots in `docs/screenshots/windows/` and the Store pictures, which the manual **Windows screenshots** workflow (`.github/workflows/windows-screenshots.yml`) captures and commits.

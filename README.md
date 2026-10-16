@@ -30,28 +30,25 @@ _The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/Screens
 - **Reading stats and a yearly wrap-up.** The Stats tab totals the stories you've finished, time read, words read and your day streak, with top fandoms, ships, categories and authors for any week, month, year or all time. Share the wrap-up card, save it as an image or copy it. Everything is computed on your PC.
 - **Widgets.** Six widgets for the Windows 11 Widgets board, each small or medium: Continue reading (your last story and how far you got), Reading Streak, Subscriptions, Folder Shortcuts, Saved Searches and Recommendation. Clicking one opens the story, folder or search it shows.
 - **Jump list.** Right-click Fanficly on the taskbar or in Start for "Continue" with your last story, and shortcuts to Search, Library, Popular and Subscriptions.
-- **Share → Fanficly.** Share an AO3 work page from Edge, Chrome or any app that shares links, and Fanficly fetches the work, saves it to your Library, downloads it for offline reading and opens it.
+- **Share → Fanficly, drop or paste.** Share an AO3 work page from Edge, Chrome or any app that shares links, drag a work link onto Fanficly's window, or copy one and press Ctrl+V (outside a text box), and Fanficly fetches the work, saves it to your Library, downloads it for offline reading and opens it.
 - **`fanficly://` links.** `fanficly://resume/<id>?chapter=<n>&paragraph=<m>`, `fanficly://import?url=<AO3 link>`, `fanficly://library?folder=<name>` and `fanficly://search?query=<text>`. Fanficly is single-instance: a second launch (a link, a notification, a widget, a jump-list entry) hands its request to the window that's already open.
-- **Sync across devices, through a folder you already sync.** Fanficly has no servers, so it syncs through a folder you pick: OneDrive, iCloud Drive (with iCloud for Windows), Dropbox or any other. Your library (saved works, downloaded chapter text, folders, reading positions, stats, saved searches and filters) and your reader profiles, last-read story and streak are written there, and that service carries them to your other devices. The backup is the Apple app's format exactly, so a PC and an iPhone, iPad or Mac pointed at the same backup share one library. Backups merge with what's already there and restores only ever move things forward, so a device with less can never erase another's.
+- **Sync across devices, through a folder you already sync.** Fanficly has no servers, so it syncs through a folder you pick: OneDrive, iCloud Drive (with iCloud for Windows), Dropbox or any other. Your library (saved works, downloaded chapter text, folders, reading positions, stats, saved searches and filters, and each device's reader settings) and your reader profiles, last-read story and streak are written there, and that service carries them to your other devices. The backup is the Apple app's format exactly, so a PC and an iPhone, iPad or Mac pointed at the same backup share one library. Backups merge with what's already there and restores only ever move things forward, so a device with less can never erase another's.
 - **Content and safety.** A 17+ confirmation on first launch, a "Filter mature & explicit works" switch (on by default), and a list of works you've hidden from results.
 - **Made for Windows.** A Windows 11 title bar and Mica backdrop (acrylic where Mica isn't available), the sidebar folding to icons and then to a menu button as the window narrows, light, dark or system app theme, and high-contrast themes. Keyboard: Ctrl+1…9 for the tabs and Ctrl+, for Settings, Ctrl+Plus / Ctrl+Minus / Ctrl+0 to zoom the whole interface, F11 for full screen, Alt+Left, Esc or the mouse's back button to go back; Settings → Keyboard shortcuts lists them all. Xbox and other XInput controllers work too (D-pad to move, A to select, B to go back, LB / RB to switch tabs). Narrator reads every control, and the app announces what changes on screen.
 - **Zero tracking.** No analytics, no crash reporters, no telemetry, no ads.
 
-<!-- reader: verify against windows/src/Fanficly.App/Views/Reader -->
 ### The reader
 
-_The Windows reader (`windows/src/Fanficly.App/Views/Reader`) is being ported now. This section describes the Apple app's reader, which is the Windows reader's target behaviour; its pure layout logic (pagination, the two-page spread, position tracking, themes and fonts) is already in `windows/src/Fanficly.Core/Reader` and tested._
-
-- **Three reading modes.** Continuous scroll, swipe by chapter, or page by page. In a wide window, pages pair up into a two-page spread like an open book ("Pages on screen": one or two). Arrow keys and Page Up / Page Down turn pages, and so do the controller's D-pad and triggers.
-- **Typography.** Six themes (Match System, Light, Sepia, Dark, OLED Black, Dracula Navy), five font families (mapped to the closest fonts Windows ships: Sitka Text, Georgia, Segoe UI Variable, a rounded face where one is installed, and Cascadia Mono), and continuously adjustable text size, line spacing, paragraph spacing, character spacing, bold text and margins. Lines stay a comfortable length in a wide window.
-- **Reader profiles.** Save complete typography setups as named profiles and switch between them. They sync through your sync folder, deleting one sticks across devices, and each device (iPhone, iPad, Mac, Windows) keeps its own active profile and settings.
-- **Listen.** Any chapter read aloud with the voices built into Windows, entirely on your PC: the spoken paragraph is highlighted and kept in view, and narration moves on to the next chapter by itself. Voice and speaking rate are in Settings → Theme & typography, with a spoken sample.
-- **Story images (opt-in).** "Show images in stories" (off by default) shows authors' embedded artwork inline, in fixed-height slots so a slow image can never move your place. Downloaded works stay text-only offline.
-- **Resume where you left off.** Your position is saved down to the paragraph and restored when you reopen a story. Reading to the last line counts as finished.
-- **Work page.** Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header, the author's byline opening their works, and an options menu for comments, saving to the Library, downloading, subscribing on AO3 (signed in) and hiding the work.
-- **Export in any format.** Save the work as EPUB, MOBI, AZW3, PDF or HTML through Windows' Share sheet or a file.
+- **Three reading modes.** Continuous scroll, swipe by chapter (one chapter per page, scrolling inside it), or page by page. In a window at least 700 pixels wide and clearly wider than tall (maximized, full screen, a tablet in landscape), page by page pairs pages into a two-page spread like an open book ("Pages on screen": one or two), with its own margins setting. Pages always fill the window to their last line, and resizing the window, changing the text or hiding the controls keeps the first words of the page you're on in place.
+- **Turning pages, your way.** In page by page, Left / Right, Page Up / Page Down and Space (Shift+Space back) turn pages; in the scrolling modes they move a screenful, and Left / Right change chapter in swipe by chapter. Ctrl+Left / Ctrl+Right jump a chapter, and Home / End go to the start or end of the chapter. Click or tap the outer third of a page, swipe, flick a pen or turn the mouse wheel. Tapping the middle of the page hides or shows the reader's controls. On a controller, the triggers and D-pad turn pages and the bumpers change chapter. F11 or the full-screen button hides the sidebar, title bar and controls; Esc brings them back.
+- **Typography.** Six themes (Match System, Light, Sepia, Dark, OLED Black, Dracula Navy), five font families (mapped to the closest fonts Windows ships: Sitka Text, Georgia, Segoe UI Variable, Arial Rounded where Office installed it, and Cascadia Mono), bold text, and text size, line spacing, paragraph spacing, character spacing and margins, as presets in the reader's Aa menu or as continuous sliders with a live preview in Settings → Theme & typography. Zooming the interface with Ctrl+Plus / Ctrl+Minus leaves the story's text size alone.
+- **Reader profiles.** Save complete typography setups as named profiles and switch, rename or delete them from the Aa menu or Settings. They sync through your sync folder, deleting one sticks across devices, and each device (iPhone, iPad, Mac, Windows) keeps its own active profile and settings.
+- **Listen.** Any chapter read aloud with the voices built into Windows, entirely on your PC (Listen in the Aa menu, or Ctrl+L). The spoken paragraph is highlighted and kept in view, a bar at the bottom has play / pause, previous and next paragraph, a chapter picker and a speed from 0.5× to 2×, and narration moves on to the next chapter by itself. Your keyboard's media keys, headset buttons and Windows' media flyout control it too. Voice and default speaking rate are in Settings → Theme & typography, with a spoken sample.
+- **Story images (opt-in).** "Show images in stories" (off by default) shows authors' embedded artwork inline, in fixed-height slots so a slow image can never move your place. Images load from the author's image host when you read and are never saved with a download.
+- **Resume where you left off.** Your position is saved down to the paragraph and restored when you reopen a story, in any reading mode. Reading to the last line counts as finished. The Continue reading widget and the jump list's "Continue" open the story where you were, and never move your saved place backwards.
+- **Work page.** Full work metadata (rating, warnings, categories and stats, with fandoms, relationships, characters and tags behind "Tags & relationships"; each tag opens its works), the author's byline opening their works, a Save to Library button, and an options menu for comments, share and export, downloading for offline reading, subscribing on AO3 (signed in), reporting the work to AO3 and hiding it.
+- **Export in any format.** Share the work as EPUB, MOBI, AZW3, PDF or HTML through Windows' Share sheet, or save a copy anywhere with "Save a copy as".
 - **Keep screen awake** while reading (on by default in Settings).
-<!-- /reader -->
 
 ## Tech
 
@@ -100,6 +97,8 @@ dotnet build src/Fanficly.App -c Debug -p:Platform=x64 -p:WindowsPackageType=Non
 - `-demoMode` runs fully offline with a curated, all-ages demo catalogue and in-memory storage, so nothing on your PC changes. It's what the UI tests and screenshots use.
 - Without it, the app talks to AO3 and keeps its data in `%LOCALAPPDATA%\Fanficly` (an installed MSIX uses its own package folder instead).
 - `-tab <name>` opens a tab at launch (`search`, `browse`, `popular`, `library`, `recentlyViewed`, `authors`, `bookmarks`, `subscriptions`, `stats`, `settings`).
+- With `-demoMode`, `-set key=value` presets a setting for that run (for example `-set reader.mode.windows=pageByPage`), and `-demoLongChapters` makes the demo chapters long enough for full pages mid-chapter. The UI tests use both.
+- `-iconGallery` opens a page showing every icon the app uses, to spot one missing from the installed icon font.
 
 Some integrations come from the MSIX manifest (`windows/src/Fanficly.App/Package.appxmanifest`) and need package identity, so they only work from an installed package: the Widgets board, the background refresh task, the Share target, the `fanficly://` protocol and the Store rating dialog. Visual Studio (with the WinUI application development workload) can deploy the packaged app for debugging.
 
@@ -119,19 +118,20 @@ That needs Visual Studio's MSBuild with the **WinUI application development** an
 
 ### UI tests
 
-`tests/Fanficly.UITests` launches the built app in demo mode and drives it through UI Automation: every tab opens from its shortcut in a laptop-sized and a narrow window, the sidebar works, back returns to the tab's root, zoom and full-screen keys, a second launch is handed to the running window, and a `fanficly://search` link opens Search.
+`tests/Fanficly.UITests` launches the built app in demo mode and drives it through UI Automation. `SmokeTests` check that every tab opens from its shortcut in a laptop-sized and a narrow window, the sidebar works, back returns to the tab's root, zoom and full-screen keys, a second launch is handed to the running window, and a `fanficly://search` link opens Search. `ReaderLayoutTests` open a long demo story in page by page and check what's drawn: the page footer sits on the bottom edge, each page's text ends just above it and never under it, minimizing the window, a dialog and hiding the controls leave the page in place (and hiding them fills the freed room with text), and a wider window shows a two-page spread exactly when the spread rule says so.
 
 ```powershell
 cd windows
 dotnet build tests/Fanficly.UITests
 dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~SmokeTests"
+dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ReaderLayoutTests"
 ```
 
 The tests use the app at `windows/artifacts/app-x64/Fanficly.exe` (the build above), or the one named by the `FANFICLY_EXE` environment variable. They move and click the real window, so leave the mouse and keyboard alone while they run.
 
 ### Screenshots
 
-`ScreenshotTests` walks the demo app through the same screens as the Apple app's screenshot tests and saves each one at the desktop, tablet and compact sizes. It writes to the folder in `FANFICLY_SCREENSHOTS`, one subfolder per size. To refresh the screenshots in this README:
+`ScreenshotTests` walks the demo app through the same screens as the Apple app's screenshot tests and saves each one at the desktop, tablet and compact sizes. It writes to the folder in `FANFICLY_SCREENSHOTS`, one subfolder per size. To capture them on your own PC, straight into this README's folder:
 
 ```powershell
 cd windows
@@ -139,7 +139,9 @@ $env:FANFICLY_SCREENSHOTS = (Resolve-Path ../docs/screenshots/windows).Path   # 
 dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests"
 ```
 
-The test fails if any screen couldn't be reached, so a stale picture can't slip through. CI runs it on every push to `windows` and uploads the pictures as the `ui-screenshots` artifact; copying that artifact's `desktop/`, `tablet/` and `compact/` folders into `docs/screenshots/windows/` does the same. Until the reader lands, the reader, Listen and comments screens (`03-reader`, `09-tts`, `11-comments`) can't be reached.
+The test fails if any screen couldn't be reached, so a stale picture can't slip through. CI runs it on every push to `windows` and uploads the pictures as the `ui-screenshots` artifact, along with an `icons/` gallery (from `-iconGallery`) and the reader layout tests' `reader-layout/` steps.
+
+The usual way to refresh the committed pictures is the **Windows screenshots** workflow ([`.github/workflows/windows-screenshots.yml`](.github/workflows/windows-screenshots.yml)) run from the Actions tab. It captures every screen at the three sizes and commits them to `docs/screenshots/windows/{desktop,tablet,compact}/`, and the desktop set, in listing order with captions, to `windows/store/screenshots/en-us/` for the Store listing (`windows/scripts/Copy-Screenshots.ps1`).
 
 ### CI
 
@@ -147,10 +149,10 @@ The test fails if any screen couldn't be reached, so a stale picture can't slip 
 
 - **Core tests**: `dotnet test` on Windows.
 - **App**: builds the app for x64 and ARM64; the x64 build is launched in demo mode and photographed (the `launch-screenshot` artifact).
-- **UI tests and screenshots**: the smoke tests, then the screenshot tests, on a 1920 × 1200 display.
+- **UI tests and screenshots**: the smoke tests, the screenshot tests, then the reader layout tests, on a 1920 × 1200 display.
 - **MSIX bundle**: the Release (Native AOT) x64 + ARM64 Store upload, as the `msix-bundle` artifact.
 
-Store releases are [`.github/workflows/windows-store.yml`](.github/workflows/windows-store.yml), started by a `windows-vX.Y.Z` tag; see [MICROSOFT_STORE.md](MICROSOFT_STORE.md). The Apple workflow (`ci.yml`) only runs on `main`.
+[`.github/workflows/windows-screenshots.yml`](.github/workflows/windows-screenshots.yml) is started by hand and commits fresh screenshots (see [Screenshots](#screenshots)). Store releases are [`.github/workflows/windows-store.yml`](.github/workflows/windows-store.yml), started by a `windows-vX.Y.Z` tag; see [MICROSOFT_STORE.md](MICROSOFT_STORE.md). The Apple workflow (`ci.yml`) only runs on `main`.
 
 ## About AO3
 

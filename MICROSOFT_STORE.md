@@ -414,8 +414,11 @@ Transformative Works" line.
 Screenshots go in `windows/store/screenshots/<language>/` as PNGs, uploaded in
 file-name order (`01-library.png`, `02-reader.png`, …), with optional captions
 in `captions.txt`, one line per screenshot. Desktop screenshots must be at
-least 1366 × 768 and under 50 MB; at most 10. The Windows CI's demo-mode launch
-uploads a capture as the **launch-screenshot** artifact; see
+least 1366 × 768 and under 50 MB; at most 10. The **Windows screenshots**
+workflow (`.github/workflows/windows-screenshots.yml`, run by hand from the
+Actions tab) captures every screen in demo mode with the UI tests and commits
+the desktop set here in listing order, with `en-us/captions.txt`, alongside the
+README's pictures in `docs/screenshots/windows/`; see
 `windows/store/screenshots/README.md`.
 
 To upload them, run the workflow with **upload_screenshots** on, or locally

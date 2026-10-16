@@ -14,6 +14,8 @@ Fanficly is built from standard WinUI controls, so Narrator and other UI Automat
   - a filter being added from a suggestion
   - switching tabs with a controller's bumpers
   - changing the zoom
+  - in the reader: changing chapter, showing or hiding the controls, stopping Listen, applying a profile, saving to the Library and hiding a work
+  - slow downloads and exports starting
   - messages such as "Downloaded for offline reading"
 - **Icons that only decorate** text are hidden from Narrator so they aren't read twice.
 - **Dialogs** are standard Windows dialogs and open one at a time.
@@ -31,6 +33,8 @@ Every screen can be used from the keyboard. Settings → Input → Keyboard shor
   - Tab and Shift+Tab move focus; Enter or Space activate.
   - Shift+F10 or the Menu key open a context menu.
 - **Search:** Ctrl+F or F3 jump to the search box.
+- **Open a link:** Ctrl+V outside a text box opens a copied AO3 work link (so does dropping one on the window).
+- **Reader:** see [Turning pages](#reading-comfort-the-reader) below, plus Ctrl+L to listen.
 - **Library:**
   - Enter opens a work, Delete removes it, F2 renames a folder.
   - Ctrl+F searches the library; Ctrl+Shift+N makes a new folder.
@@ -44,7 +48,7 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 - A selects, B goes back, and the right stick scrolls.
 - LB and RB switch tabs (Narrator announces the new tab).
 - Menu shows or hides the sidebar, and View toggles full screen.
-- LT and RT are passed to the screen you're on. The reader uses them to turn pages.
+- LT and RT are passed to the screen you're on. In the reader, LT and RT and the D-pad's left and right turn pages, and LB and RB change chapter instead of switching tabs.
 
 ## Seeing the screen
 
@@ -53,30 +57,36 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 - **High contrast.** When a Windows contrast theme is on, the app's colours switch to the system's contrast colours, and the brand colours step aside. Reader settings suggests the "Match System" or "Dracula Navy" reading theme so story text stays readable.
 - **Window sizes.** The layout works from a narrow 360-pixel window up to full screen. In a narrow window the sidebar folds into a menu button in the title bar.
 
-<!-- reader: verify against windows/src/Fanficly.App/Views/Reader -->
 ## Reading comfort (the reader)
 
-The reader is still being brought over from the iPhone, iPad and Mac app. Its settings are already in Settings → Reader. This section describes the reader as it works there, and the Windows reader is built to match.
+The reader's settings are in its Aa menu (quick presets) and in Settings → Theme & typography (sliders, with a live preview).
 
 - **Larger text:**
   - Story text goes from 12 to 30 points.
   - Line spacing, paragraph spacing, character spacing and margins each have their own control.
   - **Bold text** gives heavier strokes.
-- **Fonts:** a choice of serif, sans-serif, rounded and monospaced faces, including Sitka (designed for reading on screen), Segoe UI and Cascadia Mono.
+  - Zooming the interface with Ctrl+Plus doesn't change the story's text size, so you can set the two separately.
+- **Fonts:** a choice of serif, sans-serif, rounded and monospaced faces, including Sitka (designed for reading on screen), Georgia, Segoe UI and Cascadia Mono.
 - **Six reading themes:** Light, Sepia, Dark, OLED Black, Dracula Navy and Match System. They give you a low-glare or true-black page for reading in the dark.
 - **Profiles:** a complete typography setup can be saved under a name, for different readers or different lighting. Windows keeps its own settings, separate from your iPhone, iPad and Mac.
 - **Reading modes:**
   - continuous scroll, one chapter at a time, or page by page;
-  - on a wide window, page by page can show two pages side by side like a book.
-- **Turning pages:** use the arrow keys, Page Up and Page Down, a controller's triggers, or a click. Narrator gets named actions to turn the page or chapter and to show or hide the controls, and announces the result.
+  - on a wide window, page by page can show two pages side by side like a book;
+  - "Page-turn animation" can be turned off, and pages never slide when Windows' animation effects are off.
+- **Turning pages:**
+  - Keyboard: Left and Right, Page Up and Page Down, or Space and Shift+Space. Ctrl+Left and Ctrl+Right change chapter; Home and End go to the start or end of the chapter.
+  - Mouse, pen and touch: click or tap the outer third of the page, swipe, or use the mouse wheel. The middle of the page shows or hides the reader's controls.
+  - Controller: the triggers or the D-pad turn pages, and the bumpers change chapter.
+- **Narrator:** the story's context menu (Shift+F10, the Menu key, or right-click) has Next and Previous page, Next and Previous chapter, Show or Hide reader controls, and Listen. Narrator announces the new page ("Page 3 of 12, chapter 2"), chapter or controls state. The page footer, the chapter indicator and the Listen bar have spoken names, and headings mark the work title and each chapter.
+- **Full screen:** F11 or the full-screen button hides everything but the story. Esc brings the controls back.
 - **Listen:**
-  - The reader can read any chapter aloud with the voices installed in Windows, and moves on to the next chapter by itself.
+  - The reader can read any chapter aloud with the voices installed in Windows (Ctrl+L, or Listen in the Aa menu), and moves on to the next chapter by itself.
   - The paragraph being spoken is highlighted and kept in view.
-  - Voice and speed are in Reader settings, which also links to Windows Settings for adding voices.
+  - The Listen bar has play and pause, previous and next paragraph, a chapter picker, a speed from 0.5× to 2×, and stop. Your keyboard's media keys and Windows' media controls work too.
+  - Voice and speed are in Settings → Theme & typography, which also links to Windows Settings for adding voices.
   - Speech is generated on your PC.
 - **Keep screen awake** (on by default) stops the display from turning off while you read.
 - **Your place is kept:** your position is saved down to the paragraph and restored when you come back.
-<!-- /reader -->
 
 ## Feedback
 
