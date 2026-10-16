@@ -25,6 +25,7 @@
     <!-- Release builds are Native AOT: machine code, no JIT, fast cold start. -->
     <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
     <PublishTrimmed Condition="'$(Configuration)' == 'Release'">true</PublishTrimmed>
+    <SelfContained Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' != ''">true</SelfContained>
     <IsAotCompatible>true</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>
