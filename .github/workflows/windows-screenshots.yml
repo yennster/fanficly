@@ -87,6 +87,9 @@ jobs:
           git add docs/screenshots/windows windows/store/screenshots windows/store/images
           if (git diff --cached --quiet) { Write-Host 'Screenshots unchanged.'; exit 0 }
           git commit -m 'Windows: refresh screenshots' -m "Captured by the Windows screenshots workflow (run ${{ github.run_id }})."
+          # The branch may have moved on while the run captured; put the
+          # pictures on top of it (they only touch picture folders).
+          git pull --rebase origin ${{ github.ref_name }}
           git push origin HEAD:${{ github.ref_name }}
       - uses: actions/upload-artifact@v4
         if: always()
