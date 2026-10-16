@@ -115,7 +115,7 @@ public static class RestoreBanner
         AutomationProperties.SetLocalizedLandmarkType(container, "Downloads");
 
         var spinner = new ProgressRing { IsActive = true, Width = 20, Height = 20 }.A11yHidden();
-        var doneIcon = UI.UI.Icon("checkmark.circle.fill", 20);
+        var doneIcon = (FontIcon)UI.UI.Icon("checkmark.circle.fill", 20);
         var title = UI.UI.Text("", Theme.Style.Footnote, wrap: false);
         title.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, MinHeight = 4 };

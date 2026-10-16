@@ -134,7 +134,7 @@ public sealed class StatsScreen : Screen
         if (_snapshots.Count == 0) yield break;
         var share = new AppBarButton
         {
-            Icon = new FontIcon { Glyph = Symbols.Glyph("square.and.arrow.up"), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon("square.and.arrow.up"),
             Label = "Share",
             LabelPosition = CommandBarLabelPosition.Default,
         };

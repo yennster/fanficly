@@ -13,12 +13,8 @@ namespace Fanficly.App.UI;
 public static class Symbols
 {
     /// <summary>Created on first use: feature modules register icons from
-    /// module initializers, which run before the XAML runtime is up.
-    /// Fanficly Icons (Assets/FanficlyIcons.ttf, built by
-    /// windows/scripts/make_icon_font.py) comes last and only adds the few
-    /// icons the system fonts lack, at code points they don't use.</summary>
-    public static FontFamily Font => _font ??= new FontFamily(
-        "Segoe Fluent Icons,Segoe MDL2 Assets,ms-appx:///Assets/FanficlyIcons.ttf#Fanficly Icons");
+    /// module initializers, which run before the XAML runtime is up.</summary>
+    public static FontFamily Font => _font ??= new FontFamily("Segoe Fluent Icons,Segoe MDL2 Assets");
     private static FontFamily? _font;
 
     private static readonly Dictionary<string, string> Map = new()
@@ -31,14 +27,11 @@ public static class Symbols
         ["chart.bar.xaxis"] = "",      // AreaChart
         ["clock.arrow.circlepath"] = "", // History
         ["person.2"] = "",             // People
-        ["bookmark"] = "\U000F0001",  // Fanficly Icons: a ribbon (Fluent has no bookmark)
         ["bell"] = "",                 // Ringer
         ["gearshape"] = "",            // Settings
 
         // Bookmarks / follow
-        ["bookmark.fill"] = "\U000F0002",  // Fanficly Icons
         ["bookmark.circle"] = "",
-        ["bookmark.slash"] = "\U000F0003",  // Fanficly Icons
         ["star"] = "",
         ["star.fill"] = "",
         ["star.slash"] = "",
@@ -172,16 +165,51 @@ public static class Symbols
     /// <summary>The Fluent glyph for an SF Symbol name (a neutral page glyph when unknown).</summary>
     public static string Glyph(string sfSymbol) => Map.TryGetValue(sfSymbol, out var g) ? g : "";
 
-    public static FontIcon Icon(string sfSymbol, double size = 16) => new()
+    /// <summary>The icon at <paramref name="size"/>: a Fluent glyph, or a
+    /// drawn path for the few icons the icon fonts lack.</summary>
+    public static IconElement Icon(string sfSymbol, double size = 16)
     {
-        Glyph = Glyph(sfSymbol),
-        FontFamily = Font,
-        FontSize = size,
+        if (Drawn.TryGetValue(sfSymbol, out var data))
+            return new PathIcon { Data = Path(data, size), Width = size, Height = size };
+        return new FontIcon { Glyph = Glyph(sfSymbol), FontFamily = Font, FontSize = size };
+    }
+
+    public static IconSource IconSource(string sfSymbol) =>
+        Drawn.TryGetValue(sfSymbol, out var data)
+            ? new PathIconSource { Data = Path(data, 16) }
+            : new FontIconSource { Glyph = Glyph(sfSymbol), FontFamily = Font };
+
+    // MARK: - Drawn icons
+
+    /// <summary>Icons neither Segoe Fluent Icons nor Segoe MDL2 Assets has on
+    /// every PC (a bookmark ribbon; a filled bell), as path markup on a 16-unit
+    /// grid with Fluent's 1-unit stroke: outer contours clockwise, holes
+    /// counter-clockwise (nonzero fill), so they sit beside the font's glyphs.</summary>
+    private static readonly Dictionary<string, string> Drawn = new()
+    {
+        ["bookmark"] = Ribbon + " " + RibbonHole,
+        ["bookmark.fill"] = Ribbon,
+        ["bookmark.slash"] = Ribbon + " " + RibbonHole
+            + " M2.88,1.18 L13.88,14.18 L13.12,14.82 L2.12,1.82 Z",
+        ["bell.fill"] = "F1 M8,1.5 C10.5,1.5 12,3.5 12,6 L12,9.5 L13.5,11.5 L13.5,12.5 L2.5,12.5 L2.5,11.5 L4,9.5 L4,6 C4,3.5 5.5,1.5 8,1.5 Z"
+            + " M6.25,13.5 L9.75,13.5 A1.75,1.75 0 0 1 6.25,13.5 Z",
     };
 
-    public static FontIconSource IconSource(string sfSymbol) => new()
+    private const string Ribbon = "F1 M5,1.5 L11,1.5 A1.5,1.5 0 0 1 12.5,3 L12.5,14.5 L8,11 L3.5,14.5 L3.5,3 A1.5,1.5 0 0 1 5,1.5 Z";
+    private const string RibbonHole = "M5,2.5 A0.5,0.5 0 0 0 4.5,3 L4.5,12.45 L8,9.73 L11.5,12.45 L11.5,3 A0.5,0.5 0 0 0 11,2.5 Z";
+
+    /// <summary>Whether the icon is drawn rather than a font glyph.</summary>
+    public static bool IsDrawn(string sfSymbol) => Drawn.ContainsKey(sfSymbol);
+
+    /// <summary>Every drawn icon's name (the icon gallery).</summary>
+    public static IEnumerable<string> DrawnNames => Drawn.Keys;
+
+    /// <summary>A new geometry each time (XAML geometries can't be shared),
+    /// scaled from the 16-unit grid to <paramref name="size"/>.</summary>
+    private static Geometry Path(string data, double size)
     {
-        Glyph = Glyph(sfSymbol),
-        FontFamily = Font,
-    };
+        var geometry = (Geometry)Microsoft.UI.Xaml.Markup.XamlBindingHelper.ConvertValue(typeof(Geometry), data);
+        geometry.Transform = new ScaleTransform { ScaleX = size / 16, ScaleY = size / 16 };
+        return geometry;
+    }
 }

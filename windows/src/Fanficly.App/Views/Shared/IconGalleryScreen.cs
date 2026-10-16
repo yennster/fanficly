@@ -16,11 +16,16 @@ internal sealed class IconGalleryScreen : Screen
     protected override FrameworkElement Build()
     {
         var flow = new FlowPanel { Spacing = 6, LineSpacing = 6 };
-        foreach (var (name, glyph) in Symbols.All.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        // Font glyphs are captioned with their code point (the UI test checks
+        // each against the installed font); drawn icons say so.
+        foreach (var name in Symbols.All.Keys.Concat(Symbols.DrawnNames).Distinct().OrderBy(n => n, StringComparer.Ordinal))
         {
             var cell = new StackPanel { Width = 132, Padding = new Thickness(4), Spacing = 2 };
-            cell.Children.Add(new FontIcon { Glyph = glyph, FontFamily = Symbols.Font, FontSize = 20, HorizontalAlignment = HorizontalAlignment.Left });
-            cell.Children.Add(UI.UI.Caption($"{name}  U+{char.ConvertToUtf32(glyph, 0):X4}"));
+            var icon = Symbols.Icon(name, 20);
+            icon.HorizontalAlignment = HorizontalAlignment.Left;
+            cell.Children.Add(icon);
+            var glyph = Symbols.Glyph(name);
+            cell.Children.Add(UI.UI.Caption(Symbols.IsDrawn(name) ? $"{name}  (drawn)" : $"{name}  U+{char.ConvertToUtf32(glyph, 0):X4}"));
             flow.Children.Add(cell);
         }
         return UI.UI.Scroll(flow);

@@ -160,7 +160,7 @@ public sealed partial class MainWindow : Window
             var navItem = new NavigationViewItem
             {
                 Content = item.Title(),
-                Icon = new FontIcon { Glyph = Symbols.Glyph(item.Symbol()), FontFamily = Symbols.Font },
+                Icon = Symbols.Icon(item.Symbol()),
                 Tag = item.RawValue(),
             };
             ToolTipService.SetToolTip(navItem, $"{item.Title()} ({item.ShortcutText()})");

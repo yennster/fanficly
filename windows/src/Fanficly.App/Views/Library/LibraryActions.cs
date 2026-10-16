@@ -71,7 +71,7 @@ internal static class LibraryActions
                 flyout.Items.Add(Item("Folders...", "folder", () => AfterMenu(() => ShowFolderSheetAsync(work)), automationId: "library.row.folders"));
             }
             if (Downloading.Contains(work.Ao3Id))
-                flyout.Items.Add(new MenuFlyoutItem { Text = "Downloading…", IsEnabled = false, Icon = new FontIcon { Glyph = Symbols.Glyph("arrow.down.circle"), FontFamily = Symbols.Font } });
+                flyout.Items.Add(new MenuFlyoutItem { Text = "Downloading…", IsEnabled = false, Icon = Symbols.Icon("arrow.down.circle") });
             else if (WorkPersistence.EpubPath(work.Ao3Id) is not null)
                 flyout.Items.Add(Item("Remove Download", "xmark.circle", () => AfterMenu(() => RemoveDownloadAsync(work))));
             else

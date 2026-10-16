@@ -88,7 +88,7 @@ public sealed class LibraryScreen : Screen
             var item = new SelectorBarItem
             {
                 Text = info.Title,
-                Icon = new FontIcon { Glyph = Symbols.Glyph(info.Symbol), FontFamily = Symbols.Font },
+                Icon = Symbols.Icon(info.Symbol),
             };
             AutomationProperties.SetName(item, info.Title);
             AutomationProperties.SetAutomationId(item, info.Id);

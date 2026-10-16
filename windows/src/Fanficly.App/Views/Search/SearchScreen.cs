@@ -286,7 +286,7 @@ public sealed class SearchScreen : Screen
     {
         var button = new AppBarButton
         {
-            Icon = new FontIcon { Glyph = Symbols.Glyph("bookmark"), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon("bookmark"),
             Label = "Saved searches",
             LabelPosition = CommandBarLabelPosition.Collapsed,
         };

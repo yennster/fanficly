@@ -60,7 +60,7 @@ public static class LibrarySortMenu
                     Text = key.Title(),
                     GroupName = "library.sortKey",
                     IsChecked = key == sort.Key,
-                    Icon = new FontIcon { Glyph = Symbols.Glyph(key.SystemImage()), FontFamily = Symbols.Font },
+                    Icon = Symbols.Icon(key.SystemImage()),
                 };
                 AutomationProperties.SetAutomationId(item, $"library.sort.{key.RawValue()}");
                 var picked = key;

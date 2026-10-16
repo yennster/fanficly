@@ -36,7 +36,7 @@ internal sealed class PopularScreen : Screen
             var item = new SelectorBarItem
             {
                 Text = kind.Title(),
-                Icon = new FontIcon { Glyph = Symbols.Glyph(kind.Symbol()), FontFamily = Symbols.Font },
+                Icon = Symbols.Icon(kind.Symbol()),
                 Tag = kind,
                 IsSelected = kind == _segment,
             };

@@ -15,7 +15,6 @@ internal static class ReaderModule
     internal static void Register()
     {
         Symbols.Add("arrow.down.right.and.arrow.up.left", ''); // BackToWindow
-        Symbols.Add("bell.fill", '');                          // RingerSolid
         Symbols.Add("square.and.arrow.down", '');              // SaveAs
         Symbols.Add("pencil", '');                             // Edit
         Symbols.Add("plus", '');                               // Add

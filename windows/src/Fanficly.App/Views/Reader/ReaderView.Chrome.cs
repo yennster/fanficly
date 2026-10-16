@@ -275,7 +275,7 @@ internal sealed partial class ReaderView
         if (_narrationBar is not null) return _narrationBar;
 
         var back = _brushes.IconButton("backward.fill", "Previous paragraph", () => _speech.SkipBackward(), 14);
-        _playIcon = Symbols.Icon("pause.fill", 18).A11yHidden();
+        _playIcon = (FontIcon)Symbols.Icon("pause.fill", 18).A11yHidden();
         _playButton = _brushes.BarButton(_playIcon, "Pause", () => _speech.TogglePlayPause());
         AutomationProperties.SetAutomationId(_playButton, "speech.playPause");
         var forward = _brushes.IconButton("forward.fill", "Next paragraph", () => _speech.SkipForward(), 14);
@@ -465,7 +465,7 @@ internal sealed partial class ReaderView
         {
             Text = "Bold text",
             IsChecked = ReaderPrefs.BoldText,
-            Icon = new FontIcon { Glyph = Symbols.Glyph("bold"), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon("bold"),
         };
         bold.Click += (_, _) => ReaderPrefs.BoldText = bold.IsChecked;
         menu.Items.Add(bold);
@@ -488,11 +488,11 @@ internal sealed partial class ReaderView
                                             IEnumerable<(string Name, string Raw, string? Icon)> options,
                                             string current, Action<string> select)
     {
-        var sub = new MenuFlyoutSubItem { Text = title, Icon = new FontIcon { Glyph = Symbols.Glyph(icon), FontFamily = Symbols.Font } };
+        var sub = new MenuFlyoutSubItem { Text = title, Icon = Symbols.Icon(icon) };
         foreach (var (name, raw, optionIcon) in options)
         {
             var item = new RadioMenuFlyoutItem { Text = name, GroupName = group, IsChecked = raw == current };
-            if (optionIcon is not null) item.Icon = new FontIcon { Glyph = Symbols.Glyph(optionIcon), FontFamily = Symbols.Font };
+            if (optionIcon is not null) item.Icon = Symbols.Icon(optionIcon);
             item.Click += (_, _) => { if (raw != current) select(raw); };
             sub.Items.Add(item);
         }
@@ -508,7 +508,7 @@ internal sealed partial class ReaderView
         var sub = new MenuFlyoutSubItem
         {
             Text = $"{title} · {current ?? "Custom"}",
-            Icon = new FontIcon { Glyph = Symbols.Glyph(icon), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon(icon),
         };
         foreach (var preset in presets)
         {
@@ -530,13 +530,13 @@ internal sealed partial class ReaderView
         var sub = new MenuFlyoutSubItem
         {
             Text = $"Profile · {active}",
-            Icon = new FontIcon { Glyph = Symbols.Glyph("person.crop.circle"), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon("person.crop.circle"),
         };
         foreach (var profile in Profiles)
         {
             var p = profile;
             var item = new MenuFlyoutSubItem { Text = p.Name };
-            if (p.Name == active) item.Icon = new FontIcon { Glyph = Symbols.Glyph("checkmark"), FontFamily = Symbols.Font };
+            if (p.Name == active) item.Icon = Symbols.Icon("checkmark");
             AutomationProperties.SetName(item, p.Name == active ? $"{p.Name}, active" : p.Name);
             item.Items.Add(UI.UI.MenuItem("Select Profile", () => SelectProfile(p)));
             if (p.Name != DefaultProfileName)

@@ -88,7 +88,7 @@ public static class UI
         Margin = new Thickness(4, 12, 0, 4),
     }.A11yHeading();
 
-    public static FontIcon Icon(string sfSymbol, double size = 16, Brush? foreground = null)
+    public static IconElement Icon(string sfSymbol, double size = 16, Brush? foreground = null)
     {
         var icon = Symbols.Icon(sfSymbol, size);
         if (foreground is not null) icon.Foreground = foreground;
@@ -161,7 +161,7 @@ public static class UI
     {
         var b = new AppBarButton
         {
-            Icon = new FontIcon { Glyph = Symbols.Glyph(sfSymbol), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon(sfSymbol),
             Label = label,
             LabelPosition = showLabel ? CommandBarLabelPosition.Default : CommandBarLabelPosition.Collapsed,
         };
@@ -361,7 +361,7 @@ public static class UI
     public static MenuFlyoutItem MenuItem(string text, Action onClick, string? sfSymbol = null, bool isDestructive = false)
     {
         var item = new MenuFlyoutItem { Text = text };
-        if (sfSymbol is not null) item.Icon = new FontIcon { Glyph = Symbols.Glyph(sfSymbol), FontFamily = Symbols.Font };
+        if (sfSymbol is not null) item.Icon = Symbols.Icon(sfSymbol);
         if (isDestructive) item.Foreground = Theme.Danger;
         item.Click += (_, _) => onClick();
         return item;

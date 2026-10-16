@@ -45,7 +45,7 @@ internal static class WorkHeaderMetadataView
         if (summary.Freeforms.Count > 0) details.Children.Add(MetadataRow("Tags", summary.Freeforms, ChipKind.Tag, brushes));
 
         var toggleText = new TextBlock { FontSize = 12, FontWeight = FontWeights.Medium, Foreground = brushes.Accent, VerticalAlignment = VerticalAlignment.Center };
-        var chevron = Symbols.Icon("chevron.down", 9).A11yHidden();
+        var chevron = (FontIcon)Symbols.Icon("chevron.down", 9).A11yHidden();
         chevron.Foreground = brushes.Accent;
         chevron.VerticalAlignment = VerticalAlignment.Center;
         var toggle = new Button

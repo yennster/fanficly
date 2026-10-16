@@ -32,7 +32,7 @@ internal sealed class WorkExporter
         var share = new MenuFlyoutSubItem
         {
             Text = "Share & export…",
-            Icon = new FontIcon { Glyph = Symbols.Glyph("square.and.arrow.up"), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon("square.and.arrow.up"),
             IsEnabled = !IsExporting,
         };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(share, "Share and export");
@@ -43,7 +43,7 @@ internal sealed class WorkExporter
         var saveAs = new MenuFlyoutSubItem
         {
             Text = "Save a copy as",
-            Icon = new FontIcon { Glyph = Symbols.Glyph("square.and.arrow.down"), FontFamily = Symbols.Font },
+            Icon = Symbols.Icon("square.and.arrow.down"),
         };
         foreach (var format in WorkExportFormatExtensions.All)
             saveAs.Items.Add(UI.UI.MenuItem($"{format.DisplayName()}…", () => Start(workId, title(), format, saveAs: true), format.Icon()));

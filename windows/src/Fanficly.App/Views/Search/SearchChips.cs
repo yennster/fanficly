@@ -103,7 +103,7 @@ internal static class SearchChips
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 360,
         };
-        var x = UI.UI.Icon("xmark", 9, foreground);
+        var x = (FontIcon)UI.UI.Icon("xmark", 9, foreground);
         x.Opacity = 0.6;
         x.FontWeight = FontWeights.Bold;
         x.VerticalAlignment = VerticalAlignment.Center;
