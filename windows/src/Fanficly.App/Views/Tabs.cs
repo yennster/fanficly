@@ -1,3 +1,4 @@
+using Fanficly.Core;
 using Fanficly.App.Shell;
 
 namespace Fanficly.App.Views;
