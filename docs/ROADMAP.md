@@ -180,7 +180,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 
 Not features, but worth doing; add as items when started.
 
-- `AGENTS.md` is the canonical agent guide; `CLAUDE.md` is an older overlapping document. Update AGENTS.md.
+- `AGENTS.md` is the only agent guide; `CLAUDE.md` just imports it. Update AGENTS.md.
 - Keep the unit-test count in AGENTS.md roughly honest when a PR adds a test file.
 - Every new `AO3ClientProtocol` method lands with `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` support in the same PR.
 - Release housekeeping (version bump, screenshots, App Store metadata) is done by the maintainer, never by a roadmap PR.

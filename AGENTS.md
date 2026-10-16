@@ -2,9 +2,9 @@
 
 Architecture, development workflow, and regression constraints for agents working
 in this repository. Read the overview first, then the detailed section for the
-subsystem you change. Keep this file current when ownership or behavior changes;
-verify implementation details against source rather than copying older notes from
-`CLAUDE.md` (a separate, overlapping document).
+subsystem you change. Keep this file current when ownership or behavior changes,
+and verify implementation details against source. This is the only agent guide:
+`CLAUDE.md` just imports it, so edit this file, never that one.
 Picking up roadmap work? Go straight to [Autonomous roadmap work](#autonomous-roadmap-work).
 
 ## What this is
@@ -309,7 +309,7 @@ The backlog is [`docs/ROADMAP.md`](docs/ROADMAP.md) (each item is mirrored by a 
 5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file means `xcodegen generate` and a regenerated `.xcodeproj`, which you can only do on a Mac.
 6. **Test.** Add tests for every behavior change in `FanficlyTests/` (fixtures inline, no network), and add the feature's tests to the list in "Tests" below if it's a new area. A new `AO3ClientProtocol` method needs `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` updated.
 7. **Validate honestly** (see "Which machine you're on").
-8. **Update the roadmap** in the same PR: set that item's `Status` to `done`, and nothing else in the file. Update AGENTS.md (the canonical guide; leave CLAUDE.md alone) if you added a convention or a gotcha; keep it to what the next agent can't see from the code.
+8. **Update the roadmap** in the same PR: set that item's `Status` to `done`, and nothing else in the file. Update AGENTS.md (the only agent guide; CLAUDE.md just imports it) if you added a convention or a gotcha; keep it to what the next agent can't see from the code.
 9. **Commit, push, mark the PR ready** (`gh pr ready`) only when CI is green or the failure is explained. Then stop. Report: the item, the PR URL, what you tested, what you could not, and anything a human should look at on a device.
 
 **Which machine you're on**
@@ -375,6 +375,8 @@ Coverage map:
 
 Extend the existing test file for the behavior you change. Prefer observable
 contracts and regression cases over assertions about implementation details.
+Make a private helper `internal` if it needs direct testing (see
+`TagResolver.candidates/bestMatch`).
 Additional focused suites include `ContentSafetyTests`, `StreakStoreTests`,
 `WidgetDataStoreTests`, and `WorkExporterTests`.
 
