@@ -79,7 +79,14 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
             bool ok;
             try { ok = reach(); }
             catch (Exception e) { output.WriteLine($"{name}: {e.Message}"); ok = false; }
-            if (!ok) { missing.Add(name); return; }
+            if (!ok)
+            {
+                missing.Add(name);
+                // A picture of where it got stuck, outside the size folders so
+                // it never reaches docs/ or the Store art.
+                try { s.Snap(Path.Combine(OutputRoot, "failures"), $"{size}-{name}"); } catch (Exception) { }
+                return;
+            }
             s.Settle(settle);
             Snap(s, name);
         }
@@ -109,14 +116,24 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
             {
                 if (!s.OpenTab("search")) return false;
                 var box = s.Find(6, "search.box");
-                if (box is null) return false;
-                box.Focus();
-                s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                if (box is null) { output.WriteLine("02-search-results: no search box"); return false; }
                 // The end state of tapping the "Slow Burn" suggestion and typing
                 // "complete": two chips over a page of results.
-                s.Type("tag:\"Slow Burn\" complete");
+                const string query = "tag:\"Slow Burn\" complete";
+                box.Focus();
+                s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                s.Type(query);
+                if (box.Patterns.Value.PatternOrDefault is { } value && value.Value.ValueOrDefault != query)
+                {
+                    // Typing went elsewhere (focus moved): set the text directly.
+                    output.WriteLine($"02-search-results: typed text read back as \"{value.Value.ValueOrDefault}\"");
+                    value.SetValue(query);
+                    box.Focus();
+                }
                 s.Keys(VirtualKeyShort.ENTER);
-                return s.ByIdPrefix("work.", 10) is not null;
+                if (s.ByIdPrefix("work.", 10) is not null) return true;
+                output.WriteLine($"02-search-results: no results; header \"{s.HeaderTitle}\"");
+                return false;
             }, s);
 
             Step("03-reader", () =>

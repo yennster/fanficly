@@ -155,7 +155,7 @@ windows/
     Subscriptions/             # SubscriptionPoller, NotificationRouting,
                                #   BackgroundRefresh, NotificationsAuthorization
     Sync/                      # LibraryBackup (+JSON), LibrarySyncManager,
-                               #   RestoreDownloadCenter
+                               #   RestoreDownloadCenter, SyncFolderSuggestions
     Widget/                    # DeepLink, ResumeRoute, WidgetCenter,
                                #   WidgetDataStore, WidgetProgressStore
   src/Fanficly.App/
@@ -219,7 +219,7 @@ windows/
                                #   SpeechController (Listen), WorkExporter,
                                #   WorkHeaderMetadataView, ReaderPrefs, ReaderBrushes
   tests/
-    Fanficly.Core.Tests/       # xUnit, 448 cases, fixture-based, no network
+    Fanficly.Core.Tests/       # xUnit, 455 cases, fixture-based, no network
     Fanficly.UITests/          # FlaUI: SmokeTests, ScreenshotTests,
                                #   ReaderLayoutTests (Windows only)
 ```
@@ -250,11 +250,11 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 ## Tests
 
-**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 448 cases in 37 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
+**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 455 cases in 38 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
 - **Parsers:** `SearchResultsParserTests` (incl. the bookmarks page), `WorkPageParserTests` (incl. login and comments parsing), `SubscriptionsParserTests` (fails closed), `MediaCategoryParserTests`, `WorkMetadataParserTests`, `HtmlDomTests`.
 - **Networking:** `AO3ClientTests` (through a fake `HttpMessageHandler`: retries, cookies, redirects, timeouts, form posts), `AO3EndpointsTests`, `ThrottleTests` (spacing, and concurrent waiters serialized), `DemoAO3ClientTests`.
 - **Search:** `SearchSyntaxTests`, `SearchSuggestionsTests`, `AO3SearchFiltersTests`, `TagResolverTests` (with `StubAO3Client`), `FandomCatalogTests`, `BrowseModelsTests`, `PopularStoreTests`.
-- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `LibrarySortTests`, `ReadingStatsRecordTests`, `StreakStoreTests`, `CrossAreaTests`.
+- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `StreakStoreTests`, `CrossAreaTests`.
 - **Reader logic:** `HTMLToAttributedTests`, `ChapterTrackingTests`, `ReaderMetricsTests` (spread rule, page-area tracking, and `ReaderPaginator` across a device matrix with `FakeTextMeasurer`), `ReaderProfileTests` (merge, tombstones, per-device keys).
 - **Routing and widgets:** `DeepLinkTests`, `NotificationRouteTests`, `ResumeProgressPolicyTests`, `WidgetDataStoreTests`, `WidgetProgressStoreTests`.
 - **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`), `AuthStateTests`, `ContentSafetyTests`, `ReviewPromptTests`.
@@ -360,7 +360,7 @@ Toasts need no permission on Windows, but the user can turn them off in Windows 
 
 ## Sync folder backup (merge, never clobber)
 
-Windows has no iCloud API, so sync is a folder the user picks in Settings → Sync (`settings.iCloudSyncEnabled`, `settings.syncFolder`), usually in OneDrive or iCloud Drive for Windows; Settings suggests both, including the Apple app's iCloud container folder (`iCloud~io~github~yennster~fanficly/Documents`) so a Mac and a PC can share one backup.
+Windows has no iCloud API, so sync is a folder the user picks in Settings → Sync (`settings.iCloudSyncEnabled`, `settings.syncFolder`), any folder a sync app keeps up to date. `SyncFolderSuggestions` (Core, tested) finds the installed services and Settings offers a Fanficly folder in each: OneDrive personal and work (the `OneDrive*` variables), Google Drive for desktop (`My Drive` on a fixed drive or in the user folder), Dropbox (`info.json`, else `~/Dropbox`), Box and iCloud Drive, preferring the Apple app's container (`iCloud~io~github~yennster~fanficly/Documents`) so a Mac and a PC can share one backup. Turning sync on with no folder chosen uses the first one found (OneDrive when set up); with none, the folder picker opens.
 
 - **Backup unions, never overwrites.** `LibrarySyncManager.Backup` reads the existing `library_backup.json` and merges it with the local snapshot (`MergedBackup`, pure and tested) before writing: records only in the file are kept; on conflict the local record wins, except reading positions keep the newer `UpdatedAt`, chapters survive from whichever side has more, and stats merge conservatively (`MergedStat`: total seconds never below the sum of day buckets). A `.library_backup.json.icloud` placeholder means the file isn't downloaded, so the backup skips.
 - **Restore is strictly forward** and runs automatically at launch when the file changed since this PC last applied or wrote it (`CloudBackupHasUnappliedChanges`, stamp `icloud.lastRestoredBackupDate`). Positions apply only when newer, follow/star/pin are OR-ed, folders union, `LastSeenChapterCount` only advances, chapters replace only when the backup has more. Keep any new restore field forward-only or the second device to open will corrupt data.

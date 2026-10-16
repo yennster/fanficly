@@ -13,8 +13,9 @@ namespace Fanficly.App.Views.Settings;
 /// Settings → Sync across devices: the Windows form of SettingsView's "iCloud
 /// Sync" section. There's no iCloud container on Windows, so the library backup
 /// (<c>library_backup.json</c>, the Apple apps' format) and the synced settings
-/// file live in a folder the user picks — OneDrive, iCloud Drive (iCloud for
-/// Windows), Dropbox — and that folder's own app carries them to other devices.
+/// file live in a folder the user picks — OneDrive (the default), Google Drive,
+/// Dropbox, Box, iCloud Drive (iCloud for Windows) or any other synced folder —
+/// and that folder's own app carries them to other devices.
 /// Pointed at the same folder an iPhone or Mac uses, they share one backup.
 ///
 /// The toggle is the Apple key (<c>settings.iCloudSyncEnabled</c>). Backups
@@ -23,9 +24,6 @@ namespace Fanficly.App.Views.Settings;
 /// </summary>
 public sealed class SyncSettingsScreen : Screen
 {
-    /// <summary>The Apple apps' iCloud container as iCloud for Windows names it.</summary>
-    private const string AppleContainerFolder = "iCloud~io~github~yennster~fanficly";
-
     private readonly Grid _host = new();
     private bool _isRestoring;
 
@@ -86,7 +84,7 @@ public sealed class SyncSettingsScreen : Screen
         }
 
         return UI.UI.Section("Sync", rows,
-            footer: "Fanficly has no servers, so it syncs through a folder you already sync: OneDrive, iCloud Drive (with iCloud for Windows), Dropbox or any other. Your library — saved works, downloaded chapters, folders, reading positions and stats — and your reader profiles are written there, and that service's app carries them to your other devices. Point an iPhone, iPad or Mac and this PC at the same backup and they share one library. Backups merge with what's already in the folder and restores only ever move things forward, so a device with less can never erase another's.");
+            footer: "Fanficly has no servers, so it syncs through a folder you already sync: OneDrive, Google Drive, Dropbox, iCloud Drive or any other. Your library — saved works, downloaded chapters, folders, reading positions and stats — and your reader profiles are written there, and that service's app carries them to your other devices. Point an iPhone, iPad or Mac and this PC at the same backup and they share one library. Backups merge with what's already in the folder and restores only ever move things forward, so a device with less can never erase another's.");
     }
 
     private Button RestoreRow(string title, bool enableAfter)
@@ -115,10 +113,13 @@ public sealed class SyncSettingsScreen : Screen
         choose.IsEnabled = !_isRestoring;
         AutomationProperties.SetAutomationId(choose, "settings.sync.chooseFolder");
         AutomationProperties.SetName(choose, "Choose sync folder");
-        var folderRow = UI.UI.SettingsRow("Sync folder", choose, folder ?? "Not chosen", "folder");
+        var suggestions = SuggestedFolders();
+        var subtitle = folder
+            ?? (suggestions.Count > 0 ? $"Not chosen yet. Turning on sync uses {suggestions[0].Label}." : "Not chosen");
+        var folderRow = UI.UI.SettingsRow("Sync folder", choose, subtitle, "folder");
 
         var rows = new List<UIElement> { folderRow };
-        foreach (var (label, path) in SuggestedFolders())
+        foreach (var (label, path) in suggestions)
         {
             if (string.Equals(path, folder, StringComparison.OrdinalIgnoreCase)) continue;
             rows.Add(SettingsKit.ActionRow($"Use {label}", () => _ = UseFolderAsync(path, create: true), "folder.fill",
@@ -130,39 +131,21 @@ public sealed class SyncSettingsScreen : Screen
                 automationId: "settings.sync.openFolder"));
         }
         return UI.UI.Section("Sync folder", rows,
-            footer: "To share a library with an iPhone, iPad or Mac, install iCloud for Windows and choose the Fanficly folder in iCloud Drive, or use OneDrive on every device. The backup is library_backup.json; reader profiles and your last-read story go in fanficly-settings-sync.json beside it.");
+            footer: "Any folder that a sync app keeps up to date works: OneDrive, Google Drive, Dropbox, Box, iCloud Drive or another. Fanficly lists the ones it finds on this PC; Choose… picks any other. To share a library with an iPhone, iPad or Mac, use the same service on every device. The backup is library_backup.json; reader profiles and your last-read story go in fanficly-settings-sync.json beside it.");
     }
 
-    /// <summary>OneDrive's and iCloud Drive's folders, when this PC has them.</summary>
-    private static List<(string Label, string Path)> SuggestedFolders()
+    /// <summary>The cloud services this PC syncs (<see cref="SyncFolderSuggestions"/>).</summary>
+    private static IReadOnlyList<SyncFolderSuggestion> SuggestedFolders()
     {
-        var result = new List<(string, string)>();
         try
         {
-            foreach (var variable in (string[])["OneDrive", "OneDriveConsumer", "OneDriveCommercial"])
-            {
-                var root = Environment.GetEnvironmentVariable(variable);
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
-                var path = Path.Combine(root, "Fanficly");
-                if (!result.Any(r => string.Equals(r.Item2, path, StringComparison.OrdinalIgnoreCase)))
-                    result.Add((variable == "OneDriveCommercial" ? "OneDrive (work or school)" : "OneDrive", path));
-            }
-            var iCloud = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "iCloudDrive");
-            if (Directory.Exists(iCloud))
-            {
-                // The Apple apps' own container, when iCloud for Windows shows it,
-                // holds the iPhone's and Mac's backup — the one to share.
-                var container = Path.Combine(iCloud, AppleContainerFolder, "Documents");
-                result.Add(Directory.Exists(container)
-                    ? ("iCloud Drive (your iPhone and Mac's Fanficly folder)", container)
-                    : ("iCloud Drive", Path.Combine(iCloud, "Fanficly")));
-            }
+            return SyncFolderSuggestions.Find();
         }
         catch (Exception e)
         {
             AppHost.Log($"Sync folder suggestions failed: {e.Message}");
+            return [];
         }
-        return result;
     }
 
     // MARK: - Actions
@@ -199,7 +182,7 @@ public sealed class SyncSettingsScreen : Screen
             Render();
             return;
         }
-        if (Sync.SyncFolder is null && !await PickFolderAsync())
+        if (Sync.SyncFolder is null && !UseDefaultFolder() && !await PickFolderAsync())
         {
             Render(); // no folder chosen: the toggle goes back off
             return;
@@ -223,6 +206,25 @@ public sealed class SyncSettingsScreen : Screen
             Sync.QueueBackup(AppHost.Library);
             Render();
         }
+    }
+
+    /// <summary>With no folder chosen yet, sync goes to the first service found
+    /// (OneDrive when it's set up, as it is on most PCs). False when there's
+    /// none, or its folder can't be made.</summary>
+    private static bool UseDefaultFolder()
+    {
+        if (SuggestedFolders() is not [var first, ..]) return false;
+        try
+        {
+            Directory.CreateDirectory(first.Path);
+        }
+        catch (Exception e)
+        {
+            AppHost.Log($"Default sync folder failed: {e.Message}");
+            return false;
+        }
+        SetFolder(first.Path);
+        return true;
     }
 
     private async Task ChooseFolderAsync()

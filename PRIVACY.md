@@ -35,7 +35,7 @@ None of this is sent to us. There is no Fanficly server. The only way any of it 
 
 ## Sync (your folder, not ours)
 
-Sync is **off** until you turn it on in Settings → Sync and choose a folder. That folder is usually one that a cloud service you already use keeps in sync, such as OneDrive, iCloud Drive (with iCloud for Windows) or Dropbox. While sync is on, Fanficly writes two files there:
+Sync is **off** until you turn it on in Settings → Sync and choose a folder. That folder is usually one that a cloud service you already use keeps in sync, such as OneDrive, Google Drive, Dropbox, Box or iCloud Drive (with iCloud for Windows). If you turn sync on without choosing one, Fanficly uses a Fanficly folder in your OneDrive when OneDrive is set up on the PC. While sync is on, Fanficly writes two files there:
 
 - **`library_backup.json`.** It holds:
   - your saved works, including downloaded chapter text
@@ -48,7 +48,7 @@ Sync is **off** until you turn it on in Settings → Sync and choose a folder. T
   - the story you read last and how far you got (its title, author, chapter and paragraph)
   - your reading-streak days
 
-These files are as private as the folder you chose. They are governed by the terms of whichever service syncs that folder, which may be Microsoft for OneDrive or Apple for iCloud. We can't access, read or delete them. Turning sync off stops Fanficly from writing to the folder. **Clear Synced Data** in Settings → Sync deletes the library backup from the folder; delete `fanficly-settings-sync.json` yourself if you want that gone too. Uninstalling Fanficly doesn't touch the sync folder.
+These files are as private as the folder you chose. They are governed by the terms of whichever service syncs that folder, which may be Microsoft for OneDrive, Google for Google Drive, Dropbox, Box or Apple for iCloud. We can't access, read or delete them. Turning sync off stops Fanficly from writing to the folder. **Clear Synced Data** in Settings → Sync deletes the library backup from the folder; delete `fanficly-settings-sync.json` yourself if you want that gone too. Uninstalling Fanficly doesn't touch the sync folder.
 
 ## What your PC sends to AO3
 
