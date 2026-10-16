@@ -181,6 +181,18 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** the About screen reads its strings from resources in the packaged Release build, with no change in English.
 - **Touches:** `windows/src/Fanficly.App/Views/Settings/AboutScreen.cs`, a new resource file, `Fanficly.App.csproj` if needed.
 
+### RM-110 — Move the Windows app onto `main` (one branch, a folder per platform)
+- **Status:** open, maintainer only (agents don't pick this up) · **Size:** M · **Validation:** windows
+- **Why:** A long-lived `windows` branch drifts from `main`, and every shared fix (docs, assets, release notes, AGENTS.md) has to be copied by hand. One `main` with a folder per platform keeps the separation without that cost. Do this when the Windows app is ready to ship from `main`.
+- **Scope:**
+  - Merge `windows` into `main` (a merge, not a squash, so history stays) with the Windows app in `windows/` beside the Apple code; optionally move the Apple app into `apple/` in its own PR first.
+  - Keep one `main` branch; give each platform's CI path filters so a change only builds its own app (`windows/**` for the Windows workflows, the Apple folders for `ci.yml`), and point `windows-store.yml`'s tag trigger and checkouts at `main`.
+  - Keep shared docs and assets at the root: one README that links both apps, AGENTS.md with a section per platform (CLAUDE.md still only `@AGENTS.md`), PRIVACY.md, `docs/screenshots/{ios,mac,windows}`, the icon.
+  - Remove the Swift reference copy this branch carries only if it now duplicates `main`'s.
+  - Delete the `windows` branch once `main` builds, tests and publishes the Windows app.
+- **Done when:** `main` builds and tests both apps with path-filtered CI, a `windows-v*` tag on `main` runs the Store release, and the `windows` branch is gone.
+- **Touches:** the repository layout, `.github/workflows/*`, README.md, AGENTS.md, MICROSOFT_STORE.md.
+
 ## Ideas from the Apple roadmap
 
 The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, notes and personal tags, kudos, and creating AO3 bookmarks. Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.

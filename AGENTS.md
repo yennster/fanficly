@@ -7,7 +7,7 @@ Picking up roadmap work? Go straight to [Autonomous roadmap work](#autonomous-ro
 
 A native Windows app (WinUI 3 on the Windows App SDK, C# on .NET 10, Native AOT in Release, MSIX for the Microsoft Store, x64 and ARM64, Windows 10 2004 / build 19041 and later) that reads AO3 fanfiction. It is a port of the SwiftUI app on `main`. There is no AO3 JSON API, so the app scrapes AO3's HTML with AngleSharp, through one `HttpClient` with a custom `User-Agent` and a 1 request/second throttle. Everything runs on the PC: no servers, no analytics.
 
-The Swift sources (`Fanficly/`, `FanficlyTests/`, …) stay in this branch as the reference implementation. Most C# types name their Swift counterpart in a doc comment ("SwiftData's `@Query`", "the Mac's swipe action"); when behaviour is unclear, the Swift code is the specification. The Apple app's own guide is `AGENTS.md` on `main`.
+The Swift sources (`Fanficly/`, `FanficlyTests/`, …) stay in this branch as the reference implementation. Most C# types name their Swift counterpart in a doc comment ("SwiftData's `@Query`", "the Mac's swipe action"); when behaviour is unclear, the Swift code is the specification. The Apple app's own guide is `AGENTS.md` on `main`. This branch is temporary: the plan is to merge it into `main` as a `windows/` folder and delete it ([RM-110](docs/ROADMAP.md#rm-110--move-the-windows-app-onto-main-one-branch-a-folder-per-platform)).
 
 ## Start here
 
