@@ -85,6 +85,11 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: ./scripts/Set-ScreenResolution.ps1 -Width 1920 -Height 1200
+      - name: Install the Windows 11 icon font
+        timeout-minutes: 3
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/Install-IconFont.ps1
       - name: Smoke tests
         timeout-minutes: 20
         run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~SmokeTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=smoke.trx" --results-directory ../artifacts/test-results

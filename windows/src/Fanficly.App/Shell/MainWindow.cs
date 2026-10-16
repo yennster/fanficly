@@ -224,6 +224,9 @@ public sealed partial class MainWindow : Window
     public void Select(SidebarItem item)
     {
         SelectedItem = item;
+        // UI tests read the open tab here: the sidebar items aren't in the
+        // automation tree while the sidebar is folded into its menu button.
+        AutomationProperties.SetItemStatus(_headerTitle, $"tab:{item.RawValue()}");
         KeyValueStores.Default.SetString(SelectedTabKey, item.RawValue());
         _suppressSelection = true;
         _nav.SelectedItem = _navItems[item];

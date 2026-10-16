@@ -201,9 +201,12 @@ public sealed class AppSession : IDisposable
     public static readonly string[] TabOrder =
         ["search", "browse", "popular", "library", "recentlyViewed", "authors", "bookmarks", "subscriptions", "stats", "settings"];
 
+    /// <summary>Whether <paramref name="raw"/> is the open tab (the header
+    /// title's item status, which the shell keeps as <c>tab:&lt;raw&gt;</c> in every
+    /// window size, unlike the sidebar items, which are hidden when it folds).</summary>
     public bool IsTabSelected(string raw) =>
-        Window.FindFirstDescendant(cf => cf.ByAutomationId($"sidebar.{raw}")) is { } item
-        && item.Patterns.SelectionItem.PatternOrDefault?.IsSelected.ValueOrDefault == true;
+        Window.FindFirstDescendant(cf => cf.ByAutomationId("header.title")) is { } title
+        && title.Properties.ItemStatus.ValueOrDefault == $"tab:{raw}";
 
     public void GoBack() => Keys(VirtualKeyShort.ALT, VirtualKeyShort.LEFT);
 

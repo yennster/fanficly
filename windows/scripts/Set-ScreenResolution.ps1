@@ -23,13 +23,14 @@ public static class Display {
   }
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool EnumDisplaySettings(string device, int mode, ref DEVMODE dm);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int ChangeDisplaySettings(ref DEVMODE dm, int flags);
-  public static DEVMODE New() { var d = new DEVMODE(); d.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE)); return d; }
+  public static DEVMODE Create() { var d = new DEVMODE(); d.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE)); return d; }
 }
 '@
 $modes = [System.Collections.Generic.List[object]]::new()
 for ($i = 0; $i -lt 400; $i++) {
-  $dm = [Display]::New()
-  if (-not [Display]::EnumDisplaySettings($null, $i, [ref]$dm)) { break }
+  $dm = [Display]::Create()
+  try { if (-not [Display]::EnumDisplaySettings($null, $i, [ref]$dm)) { break } }
+  catch { Write-Host "Couldn't list display modes: $_"; break }
   $modes.Add([pscustomobject]@{ W = $dm.dmPelsWidth; H = $dm.dmPelsHeight; Mode = $dm })
 }
 Write-Host "$($modes.Count) display modes"
