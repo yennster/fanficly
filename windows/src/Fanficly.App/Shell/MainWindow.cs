@@ -54,6 +54,10 @@ public sealed partial class MainWindow : Window
     private readonly CommandBar _commandBar;
     private readonly ContentPresenter _body;
     private readonly StackPanel _messages;
+
+    /// <summary>The floating stack at the bottom of the detail column (in-app
+    /// messages, the restore progress card).</summary>
+    public Panel MessagesHost => _messages;
     private Screen? _shown;
     private bool _suppressSelection;
     private double _zoom = 1;
