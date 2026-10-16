@@ -23,6 +23,15 @@ public static class Program
             return 0;
         }
 
+        // Windows launched us for the 4-hour subscription refresh (a COM
+        // server for the background task): poll, post toasts, exit. It must
+        // never take over or redirect to the app's "main" instance.
+        if (args.Contains("-BackgroundTask"))
+        {
+            Platform.BackgroundTaskServer.Run();
+            return 0;
+        }
+
         if (!AppHost.IsBackgroundTaskLaunch(args) && RedirectToRunningInstance())
             return 0;
 

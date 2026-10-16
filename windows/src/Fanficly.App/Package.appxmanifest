@@ -84,7 +84,10 @@
           </com:ComServer>
         </com:Extension>
 
-        <!-- The Widgets board: "Continue reading" (FanficlyWidget on iOS). -->
+        <!-- The Widgets board: the iOS widget bundle's six widgets, each small and
+             medium: Continue reading (FanficlyWidget), Reading Streak, Subscriptions,
+             Folder Shortcuts, Saved Searches and Recommendation. -->
+
         <uap3:Extension Category="windows.appExtension">
           <uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="Fanficly" Id="FanficlyWidgets" PublicFolder="Public">
             <uap3:Properties>
@@ -112,6 +115,86 @@
                       <LightMode />
                     </ThemeResources>
                   </Definition>
+                  <Definition Id="ReadingStreak" DisplayName="Reading Streak" Description="Track your daily reading streak and recent history." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\StreakScreenshot.png" DisplayAltText="Reading Streak widget showing a five-day streak and this week's reading days as dots" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="Subscriptions" DisplayName="Subscriptions" Description="Track updates on your followed fanfics." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\SubscriptionsScreenshot.png" DisplayAltText="Subscriptions widget listing three followed stories with their latest chapter numbers" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="FolderShortcuts" DisplayName="Folder Shortcuts" Description="View and access your custom library folders." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\FoldersScreenshot.png" DisplayAltText="Folder Shortcuts widget listing three library folders and how many stories each holds" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="SavedSearches" DisplayName="Saved Searches" Description="Quickly run your saved search and filter terms." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\SavedSearchesScreenshot.png" DisplayAltText="Saved Searches widget listing three saved searches and filters" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="Recommendation" DisplayName="Recommendation" Description="Spotlights a starred or unread story from your library." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\RecommendationScreenshot.png" DisplayAltText="Recommendation widget showing a story's title, author, summary and a tag" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
                 </Definitions>
               </WidgetProvider>
             </uap3:Properties>
@@ -124,9 +207,36 @@
             </com:ExeServer>
           </com:ComServer>
         </com:Extension>
+
+        <!-- The 4-hour subscription refresh while the app is closed (BGAppRefreshTask on
+             iOS), registered with the Windows App SDK's BackgroundTaskBuilder: Windows runs
+             its UniversalBGTask entry point, which creates the COM class below
+             (Fanficly.exe -BackgroundTask) and hands it the task. -->
+        <Extension Category="windows.backgroundTasks" EntryPoint="Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.Task">
+          <BackgroundTasks>
+            <Task Type="timer" />
+          </BackgroundTasks>
+        </Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Fanficly.exe" Arguments="-BackgroundTask" DisplayName="Fanficly background refresh">
+              <com:Class Id="8090198F-1775-484C-B6CA-2D344B824590" DisplayName="Fanficly subscription refresh" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>
+
+  <!-- The Windows App SDK's background-task entry point (windows.backgroundTasks above). -->
+  <Extensions>
+    <Extension Category="windows.activatableClass.inProcessServer">
+      <InProcessServer>
+        <Path>Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.dll</Path>
+        <ActivatableClass ActivatableClassId="Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.Task" ThreadingModel="both" />
+      </InProcessServer>
+    </Extension>
+  </Extensions>
 
   <Capabilities>
     <Capability Name="internetClient" />
