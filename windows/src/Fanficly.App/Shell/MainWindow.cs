@@ -31,6 +31,13 @@ public sealed partial class MainWindow : Window
     public Navigator Navigator { get; } = new();
     public SidebarItem SelectedItem { get; private set; } = SidebarItem.Search;
 
+    private void UpdatePaneToggle(NavigationViewDisplayMode mode)
+    {
+        var minimal = mode == NavigationViewDisplayMode.Minimal;
+        _nav.IsPaneToggleButtonVisible = !minimal;
+        _titleBar.IsPaneToggleButtonVisible = minimal;
+    }
+
     /// <summary>The root element; dialogs and flyouts anchor to its XamlRoot.</summary>
     public Grid RootElement { get; }
     public XamlRoot XamlRoot => RootElement.XamlRoot;
@@ -163,6 +170,10 @@ public sealed partial class MainWindow : Window
             if (item == SidebarItem.Settings) _nav.FooterMenuItems.Add(navItem);
             else _nav.MenuItems.Add(navItem);
         }
+        // In a narrow window the sidebar folds away and its menu button moves
+        // into the title bar (as in Windows' own apps), so it never sits over
+        // the screen header.
+        _nav.DisplayModeChanged += (_, args) => UpdatePaneToggle(args.DisplayMode);
         _nav.SelectionChanged += (_, args) =>
         {
             if (_suppressSelection) return;
