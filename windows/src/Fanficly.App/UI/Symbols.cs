@@ -213,17 +213,16 @@ public static class Symbols
     {
         var k = size / 16;
         var geometry = new PathGeometry { FillRule = FillRule.Nonzero };
-        var tokens = data.Replace(',', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tokens = PathTokens(data);
         var i = 0;
         double Num() => double.Parse(tokens[i++], System.Globalization.CultureInfo.InvariantCulture);
         Windows.Foundation.Point Pt() { var x = Num(); var y = Num(); return new(x * k, y * k); }
         PathFigure? figure = null;
-        while (i < tokens.Length)
+        while (i < tokens.Count)
         {
             switch (tokens[i++])
             {
-                case "F0": geometry.FillRule = FillRule.EvenOdd; break;
-                case "F1": geometry.FillRule = FillRule.Nonzero; break;
+                case "F": geometry.FillRule = Num() == 0 ? FillRule.EvenOdd : FillRule.Nonzero; break;
                 case "M":
                     figure = new PathFigure { StartPoint = Pt(), IsFilled = true };
                     geometry.Figures.Add(figure);
@@ -249,5 +248,28 @@ public static class Symbols
             }
         }
         return geometry;
+    }
+
+    /// <summary>Splits path markup into command letters and numbers: a letter
+    /// can sit right against its first number ("M5,1.5"), and commas and
+    /// spaces both separate numbers.</summary>
+    private static List<string> PathTokens(string data)
+    {
+        var tokens = new List<string>();
+        var start = -1;
+        for (var j = 0; j <= data.Length; j++)
+        {
+            var c = j < data.Length ? data[j] : ' ';
+            var numeric = char.IsDigit(c) || c == '.' || (c == '-' && start < 0);
+            if (numeric)
+            {
+                if (start < 0) start = j;
+                continue;
+            }
+            if (start >= 0) { tokens.Add(data[start..j]); start = -1; }
+            if (char.IsLetter(c)) tokens.Add(c.ToString());
+            else if (c == '-') start = j; // a minus right after a number starts the next one
+        }
+        return tokens;
     }
 }
