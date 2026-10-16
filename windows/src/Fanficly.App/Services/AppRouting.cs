@@ -44,23 +44,82 @@ public static partial class AppHost
 
     static partial void HandleShare(ShareOperation operation) => _ = HandleShareAsync(operation);
 
+    /// <summary>The AO3 work a shared, dropped or pasted link points at, if any.</summary>
+    public static async Task<int?> WorkIdFromDataAsync(DataPackageView data)
+    {
+        string? text = null;
+        if (data.Contains(StandardDataFormats.WebLink)) text = (await data.GetWebLinkAsync()).ToString();
+        else if (data.Contains(StandardDataFormats.Uri)) text = (await data.GetUriAsync()).ToString();
+        else if (data.Contains(StandardDataFormats.Text)) text = await data.GetTextAsync();
+        return text is null ? null : DeepLink.WorkIdFromText(text.Trim());
+    }
+
+    /// <summary>Imports the work (the overlay, as for a shared link), or says why not.</summary>
+    public static void ImportOrWarn(int? workId, string hint)
+    {
+        if (workId is { } id) OpenUri(DeepLink.ImportUri($"https://archiveofourown.org/works/{id}"));
+        else MainWindow.Current?.ShowMessage("That isn't an AO3 work link", hint, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning);
+    }
+
+    /// <summary>An AO3 link dropped on the window or pasted with Ctrl+V outside
+    /// a text box imports that work, as on the Mac (RootView's onDrop and
+    /// paste command).</summary>
+    public static void InstallDropAndPaste(MainWindow window)
+    {
+        var root = window.RootElement;
+        root.AllowDrop = true;
+        root.DragOver += (_, e) =>
+        {
+            if (e.DataView.Contains(StandardDataFormats.WebLink) || e.DataView.Contains(StandardDataFormats.Uri)
+                || e.DataView.Contains(StandardDataFormats.Text))
+            {
+                e.AcceptedOperation = DataPackageOperation.Link;
+                e.DragUIOverride.Caption = "Import into Fanficly";
+            }
+        };
+        root.Drop += async (_, e) =>
+        {
+            var deferral = e.GetDeferral();
+            try { ImportOrWarn(await WorkIdFromDataAsync(e.DataView), "Drop a link to archiveofourown.org/works/…"); }
+            catch (Exception ex) { Log($"Drop failed: {ex.Message}"); }
+            finally { deferral.Complete(); }
+        };
+    }
+
+    /// <summary>Ctrl+V with no text box focused: imports a copied AO3 work link.
+    /// Anything else on the clipboard is left alone, so a stray paste says nothing.</summary>
+    public static bool PasteImport()
+    {
+        try
+        {
+            var data = Clipboard.GetContent();
+            if (!data.Contains(StandardDataFormats.Text) && !data.Contains(StandardDataFormats.WebLink)
+                && !data.Contains(StandardDataFormats.Uri)) return false;
+            _ = PasteImportAsync(data);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    private static async Task PasteImportAsync(DataPackageView data)
+    {
+        try
+        {
+            if (await WorkIdFromDataAsync(data) is { } id)
+                MainWindow.Current?.DispatcherQueue.TryEnqueue(() => ImportOrWarn(id, ""));
+        }
+        catch (Exception e) { Log($"Paste failed: {e.Message}"); }
+    }
+
     /// <summary>Share → Fanficly from a browser: import the AO3 work it points at.</summary>
     private static async Task HandleShareAsync(ShareOperation operation)
     {
         try
         {
             operation.ReportStarted();
-            string? text = null;
-            var data = operation.Data;
-            if (data.Contains(StandardDataFormats.WebLink)) text = (await data.GetWebLinkAsync()).ToString();
-            else if (data.Contains(StandardDataFormats.Uri)) text = (await data.GetUriAsync()).ToString();
-            else if (data.Contains(StandardDataFormats.Text)) text = await data.GetTextAsync();
+            var id = await WorkIdFromDataAsync(operation.Data);
             operation.ReportCompleted();
-            if (text is not null && DeepLink.WorkIdFromText(text) is { } id)
-                MainWindow.Current?.DispatcherQueue.TryEnqueue(() => OpenUri(DeepLink.ImportUri($"https://archiveofourown.org/works/{id}")));
-            else
-                MainWindow.Current?.DispatcherQueue.TryEnqueue(() =>
-                    MainWindow.Current.ShowMessage("That isn't an AO3 work link", "Share a page from archiveofourown.org/works/…", Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning));
+            MainWindow.Current?.DispatcherQueue.TryEnqueue(() => ImportOrWarn(id, "Share a page from archiveofourown.org/works/…"));
         }
         catch (Exception e)
         {

@@ -429,6 +429,7 @@ public sealed partial class MainWindow : Window
             if (FocusManager.GetFocusedElement(RootElement.XamlRoot) is TextBox or PasswordBox or AutoSuggestBox or RichEditBox) return;
             var mods = CurrentModifiers();
             if (Navigator.Current?.HandleKey(e.Key, mods) == true) { e.Handled = true; return; }
+            if (e.Key == VirtualKey.V && mods == VirtualKeyModifiers.Control) { e.Handled = AppHost.PasteImport(); return; }
             if (e.Key is VirtualKey.Escape or VirtualKey.GamepadB && mods == VirtualKeyModifiers.None && Navigator.CanGoBack)
             {
                 e.Handled = GoBack();

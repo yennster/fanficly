@@ -83,6 +83,7 @@ public static partial class AppHost
             if (KeyValueStores.Synced is SyncFolderKeyValueStore k) k.Flush();
         };
         window.DispatcherQueue.TryEnqueue(() => _ = RunLaunchTasksAsync());
+        InstallDropAndPaste(window);
         OnWindowCreatedServices(window);
     }
 
