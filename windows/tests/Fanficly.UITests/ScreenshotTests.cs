@@ -132,7 +132,12 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
                 }
                 s.Keys(VirtualKeyShort.ENTER);
                 if (s.ByIdPrefix("work.", 10) is not null) return true;
-                output.WriteLine($"02-search-results: no results; header \"{s.HeaderTitle}\"");
+                // Once more, in case Enter landed before the box had focus.
+                output.WriteLine($"02-search-results: no results after the first Enter; header \"{s.HeaderTitle}\"");
+                box.Focus();
+                s.Keys(VirtualKeyShort.ENTER);
+                if (s.ByIdPrefix("work.", 10) is not null) return true;
+                output.WriteLine("02-search-results: no results after the second Enter");
                 return false;
             }, s);
 

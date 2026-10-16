@@ -908,6 +908,9 @@ public sealed class SearchScreen : Screen
     /// become chips; the rest stays as keywords.</summary>
     private void Submit()
     {
+        // The box's own text: TextChanged can still be queued when Enter lands
+        // right after the last keystroke, so _text may be a step behind.
+        _text = _box.Text;
         var parsed = SearchSyntax.Parse(_text);
         _active = _active.Merging(parsed);
         SetText(parsed.Query);
