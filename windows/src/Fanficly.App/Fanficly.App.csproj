@@ -37,6 +37,8 @@
     <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
     <GenerateTestArtifacts>false</GenerateTestArtifacts>
     <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
+    <!-- Ships UniversalBGTask.dll at the package root for the timer background task. -->
+    <WindowsAppSDKBackgroundTask>true</WindowsAppSDKBackgroundTask>
   </PropertyGroup>
 
   <!-- Off Windows (Linux/macOS dev machines and agents) the app still
