@@ -95,7 +95,7 @@ public static class FandomCatalog
     /// suffixes ("(Video Game)", "(TV)", "(Movies)", …).</summary>
     public static string Symbol(string fandom)
     {
-        if (SymbolByFandom.TryGetValue(fandom, out var known)) return known;
+        if (SymbolByFandom.Value.TryGetValue(fandom, out var known)) return known;
         var lower = fandom.ToLowerInvariant();
         bool Has(params string[] subs) => subs.Any(lower.Contains);
         if (Has("(anime", "manga", "アニメ", "| my hero", "no kyojin")) return "sparkles";
@@ -110,7 +110,9 @@ public static class FandomCatalog
         return "book.closed";
     }
 
-    private static readonly Dictionary<string, string> SymbolByFandom = BuildSymbolMap();
+    /// <summary>Lazy: static fields initialize in textual order, and this one is
+    /// built from <see cref="All"/>, which is declared below it.</summary>
+    private static readonly Lazy<Dictionary<string, string>> SymbolByFandom = new(BuildSymbolMap);
 
     private static Dictionary<string, string> BuildSymbolMap()
     {
