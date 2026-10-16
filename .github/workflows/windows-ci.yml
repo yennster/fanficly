@@ -70,7 +70,7 @@ jobs:
       - uses: microsoft/setup-msbuild@v2
       - name: Restore
         working-directory: windows
-        run: msbuild src/Fanficly.App/Fanficly.App.csproj /t:Restore /p:Configuration=Release "/p:RuntimeIdentifiers=win-x64%3Bwin-arm64"
+        run: msbuild src/Fanficly.App/Fanficly.App.csproj /t:Restore /p:Configuration=Release
       - name: Build the x64 + ARM64 bundle (Native AOT)
         working-directory: windows
         run: >
