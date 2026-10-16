@@ -5,5 +5,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Fanficly.Core.Tests/Fanficly.Core.Tests.csproj" />
+    <Project Path="tests/Fanficly.UITests/Fanficly.UITests.csproj" />
   </Folder>
 </Solution>

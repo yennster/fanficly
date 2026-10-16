@@ -1,7 +1,8 @@
 name: Windows CI
 
 # The Windows app (windows/): core unit tests, the WinUI app for x64 and
-# ARM64, a demo-mode launch with a screenshot, and the Store MSIX bundle.
+# ARM64, a demo-mode launch with a screenshot, UI tests that drive the app
+# and photograph every screen, and the Store MSIX bundle.
 on:
   push:
     branches: [windows]
@@ -58,6 +59,43 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always() && matrix.platform == 'x64'
         with: { name: launch-screenshot, path: artifacts/screenshots, if-no-files-found: ignore }
+
+  ui-tests:
+    name: UI tests and screenshots
+    runs-on: windows-latest
+    defaults: { run: { working-directory: windows } }
+    env:
+      FANFICLY_EXE: ${{ github.workspace }}\artifacts\app-x64\Fanficly.exe
+      FANFICLY_SCREENSHOTS: ${{ github.workspace }}\artifacts\ui-screenshots
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: windows/global.json }
+      - name: Build the app (unpackaged, x64)
+        run: >
+          dotnet build src/Fanficly.App -c Debug -p:Platform=x64
+          -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:RuntimeIdentifier=win-x64
+          -o ../artifacts/app-x64
+      - name: Build the UI tests
+        run: dotnet build tests/Fanficly.UITests -c Debug
+      - name: Enlarge the display
+        shell: pwsh
+        run: ./scripts/Set-ScreenResolution.ps1 -Width 1920 -Height 1200
+      - name: Smoke tests
+        run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~SmokeTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=smoke.trx" --results-directory ../artifacts/test-results
+      - name: Screenshots (desktop, tablet, compact)
+        if: always()
+        run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests" --logger "console;verbosity=normal" --logger "trx;LogFileName=screens.trx" --results-directory ../artifacts/test-results
+      - name: Print the screenshots to the log
+        if: always()
+        shell: pwsh
+        run: ./scripts/Write-Screenshots.ps1 -Dir ../artifacts/ui-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: ui-screenshots, path: artifacts/ui-screenshots, if-no-files-found: ignore }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: ui-test-results, path: artifacts/test-results, if-no-files-found: ignore }
 
   package:
     name: MSIX bundle (Store upload)

@@ -80,6 +80,7 @@ public sealed partial class MainWindow : Window
             IsPaneToggleButtonVisible = false,
             IconSource = new ImageIconSource { ImageSource = new BitmapImage(new Uri("ms-appx:///Assets/Square44x44Logo.targetsize-32.png")) },
         };
+        AutomationProperties.SetAutomationId(_titleBar, "titleBar");
         _titleBar.BackRequested += (_, _) => GoBack();
         _titleBar.PaneToggleRequested += (_, _) => _nav!.IsPaneOpen = !_nav.IsPaneOpen;
 
@@ -93,6 +94,7 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.NoWrap,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        AutomationProperties.SetAutomationId(_headerTitle, "header.title");
         AutomationProperties.SetHeadingLevel(_headerTitle, Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel.Level1);
         _headerSubtitle = new TextBlock { FontSize = 12.5, Foreground = Theme.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis };
         _commandBar = new CommandBar
@@ -103,6 +105,7 @@ public sealed partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
         };
+        AutomationProperties.SetAutomationId(_commandBar, "header.commands");
         _header = UI.UI.Grid("*,Auto", columnSpacing: 12);
         _header.Padding = new Thickness(24, 6, 12, 6);
         _header.MinHeight = 52;
