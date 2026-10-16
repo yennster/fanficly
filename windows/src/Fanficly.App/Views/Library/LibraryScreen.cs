@@ -140,8 +140,13 @@ public sealed class LibraryScreen : Screen
         _root.SizeChanged += (_, e) =>
         {
             var compact = e.NewSize.Width < 560;
+            // Phone-width windows drop the icons so all four filters fit.
+            var tight = e.NewSize.Width < 440;
             for (var i = 0; i < FilterInfo.Length; i++)
+            {
                 _filterItems[i].Text = compact ? FilterInfo[i].Compact : FilterInfo[i].Title;
+                if (_filterItems[i].Icon is { } icon) icon.Visibility = tight ? Visibility.Collapsed : Visibility.Visible;
+            }
         };
 
         _debounce = MainWindow.Current.DispatcherQueue.CreateTimer();

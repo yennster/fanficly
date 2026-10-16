@@ -17,7 +17,8 @@ public static class WorkRow
 {
     public static FrameworkElement Build(AO3WorkSummary work, Action? onOpen = null)
     {
-        var stats = UI.UI.HStack(8);
+        // Wraps onto a second line in a narrow window instead of clipping.
+        var stats = new FlowPanel { Spacing = 8, LineSpacing = 2 };
         void Stat(string text) => stats.Children.Add(UI.UI.Caption(text));
         if (work.Rating.Length > 0) Stat(work.Rating);
         if (work.WordCount > 0) Stat($"{work.WordCount.ToString("N0", CultureInfo.CurrentCulture)} words");
