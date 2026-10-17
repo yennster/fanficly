@@ -61,9 +61,20 @@ The workflow is `.github/workflows/windows-store.yml`.
 
 ### 1. Partner Center account
 
-Sign up for a Microsoft Store developer account (an individual account is
-fine) at partner.microsoft.com, from **Windows & Xbox → Get started**. Sign in
-with the Microsoft account you want to own the app.
+Start at **storedeveloper.microsoft.com → Get started for free** and pick
+**Individual developer**. Sign in with the personal Microsoft account
+(outlook.com, hotmail.com, live.com or a personal account on another address)
+you want to own the app, then verify your identity with a government ID and a
+selfie. Registration is free for individuals. When it's done, **Go to Partner
+Center dashboard** and pick the same account; you land on Apps & Games (if not,
+wait a few minutes and open aka.ms/submitwindowsapp).
+
+Don't sign up from partner.microsoft.com itself: that's the older flow, and its
+"become a partner" path can enroll you in the Microsoft AI Cloud Partner Program,
+which asks for a work account and doesn't include the Windows & Xbox (Store)
+program, so an account made that way can't publish apps. Pick **Company** only if
+the app is published by a registered business; an individual account can't be
+converted to a company one later.
 
 ### 2. Reserve the names
 
@@ -132,6 +143,11 @@ CI signs in to Partner Center as an Entra ID (Azure AD) application with the
 1. In Partner Center, **Account settings → Organization profile → Tenants**:
    associate a Microsoft Entra tenant, or create one there if you don't have
    one.
+   This is the one place a work account belongs: a tenant's admin is a work
+   account (name@yourtenant.onmicrosoft.com), separate from the personal
+   Microsoft account that owns the developer account. If you already made a
+   work account somewhere else, its tenant can be associated here instead of
+   creating a new one.
 2. **Account settings → User management → Microsoft Entra applications → Add
    Microsoft Entra application**. Create a new one (name it e.g.
    "Fanficly GitHub Actions") and give it the **Manager** role.
