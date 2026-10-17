@@ -176,6 +176,21 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
 - **Touches:** `RootView.swift`, `FanficlyApp.swift`.
 
+### RM-022 — Automated Microsoft Store trailer for the Windows app
+- **Status:** open · **Size:** M · **Validation:** mac (a person watches the video)
+- **Why:** The Windows listing's "Trailers" slot is empty: the first Store submission (2026-10-17) went out without one because nothing records the Windows app. The maintainer wants the trailer made by automation, the way the iOS app previews are, not by hand.
+- **Scope:** A Windows counterpart of `bin/record-app-previews.sh` + `PreviewTourTests`, on the `windows` branch: a scripted tour UI test (demo mode, `CaptureMode` at the Store's 16:9 size, like `ScreenshotTests`) that drives search, the reader's two-page spread, Listen and the Library; a PowerShell script that records it to MP4 and burns in caption cards reusing the iOS caption look (`bin/store-art/caption.html` rendered by headless Chrome, faded in by ffmpeg); output to `windows/store/trailers/en-us/` with a matching 1920×1080 thumbnail. Check Microsoft's current trailer rules (format, resolution, length, size) when starting and note them in `MICROSOFT_STORE.md`. No device frames, no prices, no AO3 logo.
+- **Done when:** one command produces the MP4 and thumbnail from a clean checkout on a Windows machine; `MICROSOFT_STORE.md` documents it next to "Screenshots and Store art"; the PR links a sample video.
+- **Touches:** `windows/tests/` (new tour test), `windows/scripts/` (record script), `MICROSOFT_STORE.md`.
+
+### RM-023 — Upload the Windows trailer from CI
+- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Why:** Once RM-022 makes the video, releases should carry it without a manual Partner Center upload.
+- **Scope:** Extend `Publish-StoreScreenshots.ps1` (or a sibling script) to upload `windows/store/trailers/` through the Store submission API, opt-in like `upload_screenshots` (a new `upload_trailer` input on the "Windows Store release" workflow). The 16:9 Super hero art is already in `windows/store/images/`; Microsoft shows it after a trailer plays.
+- **Done when:** a `-WhatIf` dry run lists the trailer and thumbnail it would upload; a draft submission shows the trailer in Partner Center.
+- **Depends on:** RM-022.
+- **Touches:** `windows/scripts/store/`, `.github/workflows/windows-store.yml`, `MICROSOFT_STORE.md`.
+
 ## Engineering health (any release)
 
 Not features, but worth doing; add as items when started.
