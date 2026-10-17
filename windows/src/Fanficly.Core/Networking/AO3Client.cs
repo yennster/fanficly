@@ -565,7 +565,14 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var body = spec.FormBody;
         for (var hop = 0; ; hop++)
         {
-            using var request = new HttpRequestMessage(method, uri);
+            // HTTP/2 when AO3's edge offers it, as URLSession does on the Apple app;
+            // HttpClient would otherwise stay on HTTP/1.1, which opens more
+            // connections (each a TLS handshake) and is slower to first byte.
+            using var request = new HttpRequestMessage(method, uri)
+            {
+                Version = HttpVersion.Version20,
+                VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
+            };
             request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
             request.Headers.TryAddWithoutValidation("Accept", spec.Accept);
             request.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");

@@ -52,6 +52,17 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal("en-US,en;q=0.9", req.Header("Accept-Language"));
     }
 
+    [Fact]
+    public async Task AsksForHttp2WithFallback()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkHtml));
+        await MakeClient().FetchWorkMetadataAsync(7);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal(HttpVersion.Version20, req.Version);
+        Assert.Equal(HttpVersionPolicy.RequestVersionOrLower, req.VersionPolicy);
+    }
+
     [Theory]
     [InlineData(401, AO3ErrorKind.Unauthorized)]
     [InlineData(403, AO3ErrorKind.Unauthorized)]
@@ -535,7 +546,7 @@ internal sealed class FakeHandler : HttpMessageHandler
         Func<HttpRequestMessage, HttpResponseMessage> responder;
         lock (_gate)
         {
-            Requests.Add(new RecordedRequest(request.Method.Method, request.RequestUri!,
+            Requests.Add(new RecordedRequest(request.Method.Method, request.RequestUri!, request.Version, request.VersionPolicy,
                 // The raw values, as written (reading the parsed ones re-formats them).
                 request.Headers.NonValidated.Select(h => (h.Key, Value: string.Join(", ", h.Value)))
                     .Concat(request.Content is null ? [] : request.Content.Headers.NonValidated.Select(h => (h.Key, Value: string.Join(", ", h.Value))))
@@ -564,7 +575,7 @@ internal sealed class FakeHandler : HttpMessageHandler
     }
 }
 
-internal sealed record RecordedRequest(string Method, Uri Uri, IReadOnlyDictionary<string, string> Headers, string? Body)
+internal sealed record RecordedRequest(string Method, Uri Uri, Version Version, HttpVersionPolicy VersionPolicy, IReadOnlyDictionary<string, string> Headers, string? Body)
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var v) ? v : null;
 }
