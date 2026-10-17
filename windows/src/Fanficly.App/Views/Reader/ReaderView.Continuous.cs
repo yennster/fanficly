@@ -59,7 +59,7 @@ internal sealed partial class ReaderView
         root.SizeChanged += OnContinuousSizeChanged;
 
         // Converting a long work's chapters takes a moment: off the UI thread.
-        var images = ReaderPrefs.ShowImages;
+        var images = ShowImages;
         var chapters = _chapterOrder;
         _ = Task.Run(() =>
         {

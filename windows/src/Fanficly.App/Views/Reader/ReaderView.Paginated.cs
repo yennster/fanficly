@@ -91,7 +91,7 @@ internal sealed partial class ReaderView
         ReportCurrentChapter();
 
         // Warm the paragraph conversions for the other chapters in the background.
-        var images = ReaderPrefs.ShowImages;
+        var images = ShowImages;
         var order = _chapterOrder;
         _ = Task.Run(() => { foreach (var index in order) Paragraphs(index, images); });
         _ = FinishPaginatedRestoreAsync(generation);

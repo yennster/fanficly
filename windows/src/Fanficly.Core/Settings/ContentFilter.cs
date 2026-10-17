@@ -24,6 +24,18 @@ public static class ContentFilter
             if (filterMature && MatureRatings.Contains(work.Rating)) return false;
             return true;
         }).ToList();
+
+    /// <summary>Ratings whose works may load the images authors embed, with
+    /// "Show images in stories" on. Windows only: the Microsoft Store forbids an app
+    /// that displays pornographic content (policy 11.7), and an image embedded in a
+    /// Mature, Explicit or unrated work can be anything, so those works and works of
+    /// unknown rating stay text-only. Their text is unaffected.</summary>
+    public static IReadOnlySet<string> ImageSafeRatings { get; } =
+        new HashSet<string> { "General Audiences", "Teen And Up Audiences" };
+
+    /// <summary>Whether the reader may show embedded images for a work with this rating.</summary>
+    public static bool AllowsStoryImages(string? rating) =>
+        rating is not null && ImageSafeRatings.Contains(rating.Trim());
 }
 
 /// <summary>Local "block" mechanism — the user can hide a work so it never

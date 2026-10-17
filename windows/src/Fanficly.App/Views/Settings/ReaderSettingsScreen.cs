@@ -448,7 +448,7 @@ public sealed class ReaderSettingsScreen : Screen
     private static StackPanel ImagesSection() => UI.UI.Section("Story images",
     [
         SettingsKit.ToggleRow("Show images in stories", Store.GetBool(ShowImagesKey, false), on => Store.SetBool(ShowImagesKey, on),
-            "photo", tooltip: "Render images that authors embed in chapters.", automationId: "settings.reader.showImages"),
+            "photo", tooltip: "Render images that authors embed in chapters of General and Teen rated works.", automationId: "settings.reader.showImages"),
     ], footer: "Off by default: chapters render as text only. When on, images embedded in a story are fetched from the author's original image host as you read — like opening that site in a browser, it can see your IP address. Images aren't saved with downloaded works, so offline reading stays text-only, though Windows may keep a temporary cache of recently viewed images on this PC.");
 
     // MARK: - Listen

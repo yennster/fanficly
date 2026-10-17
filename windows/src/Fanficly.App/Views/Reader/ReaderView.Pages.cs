@@ -205,7 +205,7 @@ internal sealed partial class ReaderView
             ReaderPrefs.ParagraphSpacingPt / zoom,
             ReaderPrefs.KerningPt / zoom,
             ReaderPrefs.BoldText,
-            ReaderPrefs.ShowImages,
+            ShowImages,
             new ReaderSize(spread?.PageWidth ?? width, area));
         if (_pages.Count > 0 && trigger == _lastTrigger && Equals(spread, _spreadLayout)) return;
         _lastTrigger = trigger;
