@@ -516,6 +516,13 @@ public sealed class AO3Client : IAO3Client, IDisposable
                         continue;
                     }
                     throw AO3Exception.RateLimited();
+                case var status when AO3Exception.IsServerUnavailable(status) && canRetry:
+                    // AO3 overloaded or restarting (503), or Cloudflare unable to
+                    // reach it (502/504, 520–526). These come and go, so a page load
+                    // tries again after a longer, polite pause than a network blip.
+                    await Sleep(ServerBackoff(attempt), ct).ConfigureAwait(false);
+                    await _throttle.WaitAsync(ct).ConfigureAwait(false);
+                    continue;
                 default:
                     throw AO3Exception.Http(response.Status);
             }
@@ -524,6 +531,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     /// <summary>Exponential backoff before a retry: ~0.5 s, then ~1 s.</summary>
     internal static TimeSpan Backoff(int attempt) => TimeSpan.FromSeconds(0.5 * Math.Pow(2, attempt));
+
+    /// <summary>Backoff before retrying a page AO3 couldn't serve: 2 s, then 5 s.</summary>
+    internal static TimeSpan ServerBackoff(int attempt) => TimeSpan.FromSeconds(attempt == 0 ? 2 : 5);
 
     private static bool IsCallerCancellation(Exception e, CancellationToken ct) =>
         e is OperationCanceledException && ct.IsCancellationRequested;

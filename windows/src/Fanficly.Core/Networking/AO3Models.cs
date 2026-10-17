@@ -174,6 +174,10 @@ public sealed class AO3Exception : Exception
     public static AO3Exception RateLimited() => new(AO3ErrorKind.RateLimited);
     public static AO3Exception Unauthorized() => new(AO3ErrorKind.Unauthorized);
     public static AO3Exception ParseFailed(string reason) => new(AO3ErrorKind.ParseFailed, reason);
+    /// <summary>Statuses meaning AO3 couldn't serve the page for now: 502, 503 and
+    /// 504, and Cloudflare's 520–526 (its edge couldn't reach AO3's servers).</summary>
+    public static bool IsServerUnavailable(int status) => status is 502 or 503 or 504 or (>= 520 and <= 526);
+
     public static AO3Exception Http(int status) => new(AO3ErrorKind.Http, status: status);
     public static AO3Exception Network(string underlying, Exception? inner = null) => new(AO3ErrorKind.Network, underlying, inner: inner);
 
@@ -183,6 +187,8 @@ public sealed class AO3Exception : Exception
         AO3ErrorKind.RateLimited => "AO3 is rate-limiting requests. Try again in a minute.",
         AO3ErrorKind.Unauthorized => "You need to log in to AO3 for this.",
         AO3ErrorKind.ParseFailed => $"Couldn't read AO3's page ({reason}).",
+        AO3ErrorKind.Http when status is { } code && IsServerUnavailable(code) =>
+            $"AO3 isn't responding right now (HTTP {code}). This is on AO3's side; try again in a minute.",
         AO3ErrorKind.Http => $"AO3 returned an error (HTTP {status}).",
         _ => $"Network error: {reason}",
     };

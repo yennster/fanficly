@@ -68,7 +68,6 @@ public sealed class AO3ClientTests : IDisposable
     [InlineData(403, AO3ErrorKind.Unauthorized)]
     [InlineData(404, AO3ErrorKind.Http)]
     [InlineData(500, AO3ErrorKind.Http)]
-    [InlineData(503, AO3ErrorKind.Http)]
     public async Task MapsErrorStatusesWithoutRetrying(int status, AO3ErrorKind kind)
     {
         _handler.Respond(_ => new HttpResponseMessage((HttpStatusCode)status));
@@ -103,6 +102,49 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal(3, meta.ChapterCount);
         Assert.Equal(3, _handler.Requests.Count);
         Assert.Equal([TimeSpan.FromSeconds(0.5), TimeSpan.FromSeconds(1)], _sleeps);
+    }
+
+    [Theory]
+    [InlineData(502)]
+    [InlineData(503)]
+    [InlineData(504)]
+    [InlineData(520)]
+    [InlineData(525)]
+    [InlineData(526)]
+    public async Task ServerUnavailableGetsRetryPolitely(int status)
+    {
+        _handler.Respond(
+            _ => new HttpResponseMessage((HttpStatusCode)status),
+            _ => new HttpResponseMessage((HttpStatusCode)status),
+            _ => FakeHandler.Html(WorkHtml));
+
+        var meta = await MakeClient().FetchWorkMetadataAsync(1);
+
+        Assert.Equal(3, meta.ChapterCount);
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.Equal([TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5)], _sleeps);
+    }
+
+    [Fact]
+    public async Task ServerUnavailableSurfacesAPlainMessageAfterRetries()
+    {
+        _handler.Respond(_ => new HttpResponseMessage((HttpStatusCode)525));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.Http, e.Kind);
+        Assert.Equal(525, e.Status);
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.Equal("AO3 isn't responding right now (HTTP 525). This is on AO3's side; try again in a minute.", e.Message);
+    }
+
+    [Fact]
+    public async Task ServerUnavailablePostIsNeverRetried()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LoginAsync("user", "pw"));
+        Assert.Equal(["GET", "POST"], _handler.Requests.Select(r => r.Method));
+        Assert.Empty(_sleeps);
     }
 
     [Fact]
