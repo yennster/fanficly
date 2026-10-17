@@ -84,6 +84,11 @@ internal sealed partial class ReaderView
 
     public string WorkTitle => _title;
 
+    /// <summary>"Show images in stories", and only for works rated General or Teen:
+    /// Mature, Explicit and unrated works stay text-only on Windows (see
+    /// <see cref="ContentFilter.AllowsStoryImages"/>).</summary>
+    private bool ShowImages => ReaderPrefs.ShowImages && ContentFilter.AllowsStoryImages(_summary?.Rating);
+
     public ReaderView(string title, string author, string authorUsername, IReadOnlyList<AO3ChapterPayload> chapters, AO3WorkSummary? summary)
     {
         ReaderProfile.MigrateLegacySettingsIfNeeded();
@@ -504,7 +509,7 @@ internal sealed partial class ReaderView
     /// <summary>The final paragraph's anchor once the end of the work is on screen
     /// (so a finished work reads 100%), else null.</summary>
     private ReadingAnchor? EndOfContent(IReadOnlyDictionary<string, double> offsets, double viewportHeight) =>
-        ChapterTracking.EndOfContentAnchor(offsets, _chapters, viewportHeight, ReaderPrefs.ShowImages);
+        ChapterTracking.EndOfContentAnchor(offsets, _chapters, viewportHeight, ShowImages);
 
     // MARK: - Reading-time stats
 
@@ -589,7 +594,7 @@ internal sealed partial class ReaderView
         var label = chapter.Title.Length == 0 ? $"Chapter {chapterIndex}" : $"Chapter {chapterIndex}: {chapter.Title}";
         var previous = _listeningChapter;
         _listeningChapter = chapterIndex;
-        _speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ReaderPrefs.ShowImages), _title, _author, label, paragraph);
+        _speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph);
         if (previous != chapterIndex) OnListeningChapterChanged();
     }
 

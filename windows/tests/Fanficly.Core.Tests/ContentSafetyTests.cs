@@ -32,6 +32,19 @@ public sealed class ContentSafetyTests
         Assert.False(HiddenWorkStore.IsHidden(42, ctx));
     }
 
+    // MARK: Story images
+
+    [Theory]
+    [InlineData("General Audiences", true)]
+    [InlineData("Teen And Up Audiences", true)]
+    [InlineData("Mature", false)]
+    [InlineData("Explicit", false)]
+    [InlineData("Not Rated", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void StoryImagesOnlyForGeneralAndTeenWorks(string? rating, bool allowed) =>
+        Assert.Equal(allowed, ContentFilter.AllowsStoryImages(rating));
+
     // MARK: ContentFilter
 
     [Fact]

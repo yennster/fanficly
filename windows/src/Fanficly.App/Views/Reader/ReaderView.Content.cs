@@ -18,7 +18,7 @@ internal sealed partial class ReaderView
     /// <c>convertParagraphs</c>) with the current images setting. Index-aligned
     /// with anchors, narration and page atoms. Kept per reader, so a long work
     /// never thrashes Core's shared conversion cache. Thread-safe.</summary>
-    private IReadOnlyList<ReaderRichText> Paragraphs(int chapterIndex) => Paragraphs(chapterIndex, ReaderPrefs.ShowImages);
+    private IReadOnlyList<ReaderRichText> Paragraphs(int chapterIndex) => Paragraphs(chapterIndex, ShowImages);
 
     private IReadOnlyList<ReaderRichText> Paragraphs(int chapterIndex, bool includeImages)
     {
