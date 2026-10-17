@@ -115,7 +115,11 @@ internal sealed class PopularScreen : Screen
         icon.VerticalAlignment = VerticalAlignment.Center;
         var name = UI.UI.Text(tag.DisplayName);
         name.VerticalAlignment = VerticalAlignment.Center;
-        var content = UI.UI.HStack(12, icon, name);
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
+        // A grid, not a stack, so a long name gets the row's width and an ellipsis.
+        var content = UI.UI.Grid("Auto,*", columnSpacing: 12);
+        content.Children.Add(icon.Col(0));
+        content.Children.Add(name.Col(1));
         var row = UI.UI.NavRow(content, () => Routes.OpenFilteredWorks(tag.Filters(), tag.Name), tag.DisplayName);
         AutomationProperties.SetAutomationId(row, $"popular.tag.{index}");
         if (tag.DisplayName != tag.Name) ToolTipService.SetToolTip(row, tag.Name);

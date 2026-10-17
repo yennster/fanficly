@@ -2,6 +2,8 @@
 
 An open-source, ad-free Windows reader for [Archive of Our Own](https://archiveofourown.org).
 
+<img src="docs/screenshots/windows/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
+
 This is the `windows` branch: a native Windows app in C# on .NET 10 with WinUI 3 (Windows App SDK), compiled with Native AOT and shipped through the Microsoft Store as an MSIX bundle for x64 and ARM64. It runs on Windows 10 (version 2004, build 19041, and later) and Windows 11. The app lives in [`windows/`](windows/).
 
 The iPhone, iPad and Mac app is on the [`main`](https://github.com/yennster/fanficly/tree/main) branch. Its Swift sources (`Fanficly/`, `FanficlyWidget/`, `FanficlyShare/`, the Xcode project) are still in this branch as the reference implementation the Windows port follows, but nothing here builds or ships them.

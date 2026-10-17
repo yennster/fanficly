@@ -18,6 +18,7 @@ internal sealed partial class Segmented : Grid
 {
     private readonly List<Button> _segments = [];
     private readonly List<string> _titles = [];
+    private readonly List<UIElement> _icons = [];
     private int _selectedIndex = -1;
 
     /// <summary>Raised with the new index when the user picks a segment
@@ -40,7 +41,13 @@ internal sealed partial class Segmented : Grid
             var (title, symbol, id) = items[i];
             ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             var label = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-            var content = symbol is null ? (UIElement)label : UI.HStack(6, UI.Icon(symbol, 14), label);
+            UIElement content = label;
+            if (symbol is not null)
+            {
+                var icon = UI.Icon(symbol, 14);
+                _icons.Add(icon);
+                content = UI.HStack(6, icon, label);
+            }
             var button = new Button
             {
                 Content = content,
@@ -68,7 +75,18 @@ internal sealed partial class Segmented : Grid
             _titles.Add(title);
         }
         SelectedIndex = selectedIndex;
+
+        // In a narrow window the icons go, so every label fits ("Characters"
+        // on a phone-width window), as the Mac's segmented picker drops them.
+        SizeChanged += (_, e) =>
+        {
+            var compact = items.Count > 0 && e.NewSize.Width / items.Count < IconlessSegmentWidth;
+            foreach (var icon in _icons) icon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        };
     }
+
+    /// <summary>Below this width per segment, segments show their title only.</summary>
+    private const double IconlessSegmentWidth = 130;
 
     public int SelectedIndex
     {
