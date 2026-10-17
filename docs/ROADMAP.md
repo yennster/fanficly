@@ -193,6 +193,17 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** `main` builds and tests both apps with path-filtered CI, a `windows-v*` tag on `main` runs the Store release, and the `windows` branch is gone.
 - **Touches:** the repository layout, `.github/workflows/*`, README.md, AGENTS.md, MICROSOFT_STORE.md.
 
+### RM-111 — Scripted Store trailer video
+- **Status:** open · **Size:** M · **Validation:** windows
+- **Why:** The Store listing can show a trailer, and the first submission went out without one. The Apple app records its App Store previews automatically (`bin/record-app-previews.sh` driving the `PreviewTourTests` UI test); nothing records the Windows app yet.
+- **Scope:**
+  - Add a demo-mode tour to `Fanficly.UITests` (search, open a work, read page by page, Listen, Library, Stats), in the spirit of the Swift `PreviewTourTests`.
+  - Record the window while the tour runs and post-process with ffmpeg to the Store's trailer spec: MP4, H.264, 16:9 at 1920×1080 or 3840×2160, under 60 seconds, with captions in the Store art's look (`windows/store-art/`).
+  - Run it from `windows-screenshots.yml` (or a sibling manual workflow) so the video is built with the screenshots; uploading it to Partner Center stays manual, with the 16:9 Super hero art as its thumbnail.
+  - Document the steps in `MICROSOFT_STORE.md`.
+- **Done when:** one manual workflow run produces a Store-ready trailer MP4 as an artifact, with no hand editing.
+- **Touches:** `windows/tests/Fanficly.UITests/`, `windows/scripts/`, `.github/workflows/windows-screenshots.yml` (ask first), `MICROSOFT_STORE.md`.
+
 ## Ideas from the Apple roadmap
 
 The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, notes and personal tags, kudos, and creating AO3 bookmarks. Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
