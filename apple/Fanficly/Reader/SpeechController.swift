@@ -80,6 +80,9 @@ final class SpeechController: NSObject {
     /// app once its window is minimized or hidden: the synthesizer's callbacks
     /// (paragraph tracking, the next chapter) would otherwise stall.
     private var narrationActivity: NSObjectProtocol?
+    /// An interruption paused narration that was playing; only then does its
+    /// end resume it (narration you paused yourself stays paused).
+    private var pausedByInterruption = false
 
     override init() {
         super.init()
@@ -213,6 +216,7 @@ final class SpeechController: NSObject {
         spokenPosition = 0
         chapterLabel = ""
         onChapterFinished = nil
+        pausedByInterruption = false
         if let narrationActivity {
             ProcessInfo.processInfo.endActivity(narrationActivity)
             self.narrationActivity = nil
@@ -282,10 +286,12 @@ final class SpeechController: NSObject {
                 if isPlaying {
                     synthesizer.pauseSpeaking(at: .word)
                     isPlaying = false
+                    pausedByInterruption = true
                     updateNowPlaying()
                 }
             case .ended:
-                if shouldResume { resume() }
+                if pausedByInterruption && shouldResume { resume() }
+                pausedByInterruption = false
             @unknown default:
                 break
             }
