@@ -34,6 +34,9 @@ public sealed class CommentsScreen : Screen
     private int _totalPages = 1;
     private bool _isLoadingMore;
     private string? _loadMoreError;
+    private StackPanel? _loadMoreFooter;
+    private Button? _loadMoreButton;
+    private TextBlock? _loadMoreErrorText;
     private CancellationTokenSource? _loadCts;
     private CancellationTokenSource? _postCts;
     private bool _isLoading;
@@ -126,6 +129,7 @@ public sealed class CommentsScreen : Screen
         var cts = _loadCts = new CancellationTokenSource();
         _isLoading = true;
         _errorMessage = null;
+        _loadMoreError = null;
         if (_refresh is not null) _refresh.IsEnabled = false;
         RenderContent();
         try
@@ -135,9 +139,7 @@ public sealed class CommentsScreen : Screen
             _comments = page.Comments;
             _currentPage = page.CurrentPage;
             _totalPages = page.TotalPages;
-            _loadMoreError = null;
             _list.Reset(_comments);
-            RenderLoadMore();
         }
         catch (Exception) when (cts.IsCancellationRequested)
         {
@@ -156,6 +158,8 @@ public sealed class CommentsScreen : Screen
             }
         }
         RenderContent();
+        // Also after a failed reload: a Load more it cancelled must not leave its spinner.
+        RenderLoadMore();
         if (_errorMessage is not null && _comments.Count == 0)
             MainWindow.Current.Announce($"Couldn't load comments. {_errorMessage}");
     }
@@ -198,32 +202,36 @@ public sealed class CommentsScreen : Screen
         RenderLoadMore();
     }
 
-    /// <summary>The list's footer: "Load more comments" while AO3 has more pages.</summary>
+    /// <summary>The list's footer: "Load more comments" while AO3 has more pages. The
+    /// button is built once and only its content changes, so keyboard and Narrator
+    /// focus stay on it while a page loads (like <see cref="UpdatePostButton"/>).</summary>
     private void RenderLoadMore()
     {
         if (_currentPage >= _totalPages)
         {
             _list.Footer = null;
+            _loadMoreFooter = null;
             return;
         }
-        var stack = UI.UI.VStack(6);
-        stack.HorizontalAlignment = HorizontalAlignment.Center;
-        stack.Padding = new Thickness(14, 10, 14, 14);
-        if (_loadMoreError is not null)
-            stack.Children.Add(UI.UI.Text(_loadMoreError, Theme.Style.Caption, Theme.Danger, selectable: true));
-        if (_isLoadingMore)
+        if (_loadMoreFooter is null || _loadMoreButton is null || _loadMoreErrorText is null)
         {
-            stack.Children.Add(new ProgressRing { IsActive = true, Width = 20, Height = 20 }
-                .Also(r => AutomationProperties.SetName(r, "Loading more comments")));
+            _loadMoreErrorText = UI.UI.Text("", Theme.Style.Caption, Theme.Danger, selectable: true);
+            AutomationProperties.SetLiveSetting(_loadMoreErrorText, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Assertive);
+            _loadMoreButton = UI.UI.Button("Load more comments", () => _ = LoadMoreAsync()).Id("comments.loadMore");
+            _loadMoreButton.HorizontalAlignment = HorizontalAlignment.Center;
+            _loadMoreFooter = UI.UI.VStack(6, _loadMoreErrorText, _loadMoreButton);
+            _loadMoreFooter.HorizontalAlignment = HorizontalAlignment.Center;
+            _loadMoreFooter.Padding = new Thickness(14, 10, 14, 14);
+            _list.Footer = _loadMoreFooter;
         }
-        else
-        {
-            var button = UI.UI.Button("Load more comments", () => _ = LoadMoreAsync()).Id("comments.loadMore");
-            button.HorizontalAlignment = HorizontalAlignment.Center;
-            AutomationProperties.SetHelpText(button, $"Page {_currentPage} of {_totalPages}");
-            stack.Children.Add(button);
-        }
-        _list.Footer = stack;
+        _loadMoreErrorText.Text = _loadMoreError ?? "";
+        _loadMoreErrorText.Visibility = _loadMoreError is null ? Visibility.Collapsed : Visibility.Visible;
+        _loadMoreButton.Content = _isLoadingMore
+            ? new ProgressRing { IsActive = true, Width = 20, Height = 20 }
+            : "Load more comments";
+        // Never disabled: that would drop focus. LoadMoreAsync ignores a press while busy.
+        AutomationProperties.SetHelpText(_loadMoreButton,
+            _isLoadingMore ? "Loading more comments" : $"Page {_currentPage} of {_totalPages}");
     }
 
     private void RenderContent()
