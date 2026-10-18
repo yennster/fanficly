@@ -44,6 +44,7 @@ public static class Symbols
         // Books, reading
         ["book"] = "",                 // ReadingMode
         ["book.fill"] = "",
+        ["book.circle"] = "",          // Work options, More (as the Apple app)
         ["book.closed"] = "",          // Dictionary (a closed book)
         ["book.closed.fill"] = "",
         ["book.pages"] = "",           // Page
