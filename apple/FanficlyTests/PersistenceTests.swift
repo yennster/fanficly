@@ -1056,12 +1056,23 @@ final class ReadingSpeedTests: XCTestCase {
         XCTAssertEqual(ReadingSpeed.wordsPerMinute(three), 300, accuracy: 0.001)
     }
 
-    func test_wordsPerMinute_poolsWordsOverTime() {
-        // 2,000 + 4,000 + 6,000 words in 4 + 8 + 12 minutes = 500 wpm, and an
-        // unfinished work's time doesn't drag it down.
-        let snaps = [snap(1, words: 2_000, seconds: 240), snap(2, words: 4_000, seconds: 480),
-                     snap(3, words: 6_000, seconds: 720), snap(4, words: 50_000, seconds: 36_000, progress: 0.1)]
-        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps), 500, accuracy: 0.001)
+    func test_wordsPerMinute_isTheMedianWorksPace() {
+        // 400, 500 and 200 wpm → 400; an unfinished work's time doesn't count.
+        let snaps = [snap(1, words: 2_000, seconds: 300), snap(2, words: 4_000, seconds: 480),
+                     snap(3, words: 6_000, seconds: 1_800), snap(4, words: 50_000, seconds: 36_000, progress: 0.1)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps), 400, accuracy: 0.001)
+        // An even count averages the middle two: 200, 400, 500, 600 → 450.
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps + [snap(5, words: 6_000, seconds: 600)]), 450, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_ignoresASkimAndARereadSwing() {
+        let honest = (1...3).map { snap($0, words: 5_000, seconds: 1_200) }   // 250 wpm each
+        // A 150k-word work jumped to the end in 5 minutes, and a re-read
+        // that doubled a work's time, leave the pace where it was.
+        let skimmed = snap(4, words: 150_000, seconds: 300)
+        let reread = snap(5, words: 5_000, seconds: 4_800)
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(honest + [skimmed]), 250, accuracy: 0.001)
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(honest + [skimmed, reread]), 250, accuracy: 0.001)
     }
 
     func test_wordsPerMinute_isClamped() {

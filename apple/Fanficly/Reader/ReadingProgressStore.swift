@@ -304,16 +304,21 @@ enum ReadingSpeed {
     /// Finished works with recorded time needed before the personal pace is used.
     static let minimumFinishedWorks = 3
 
-    /// Personal words per minute: words read over active minutes across
-    /// finished works with recorded time (backfilled reads have none), clamped
-    /// to `wordsPerMinuteRange`. `defaultWordsPerMinute` until there are
+    /// Personal words per minute: the median of each finished work's own pace
+    /// (words read over active minutes, clamped to `wordsPerMinuteRange`),
+    /// counting only works with recorded time (backfilled reads have none).
+    /// Per work, so one long work skimmed to the end or a re-read can't swing
+    /// every estimate. `defaultWordsPerMinute` until there are
     /// `minimumFinishedWorks` such works.
     static func wordsPerMinute(_ snapshots: [ReadingStatSnapshot]) -> Double {
-        let timed = snapshots.filter { $0.isFinished && $0.totalSeconds > 0 && $0.wordsRead > 0 }
-        guard timed.count >= minimumFinishedWorks else { return defaultWordsPerMinute }
-        let words = timed.reduce(0.0) { $0 + Double($1.wordsRead) }
-        let minutes = timed.reduce(0.0) { $0 + $1.totalSeconds } / 60
-        return min(max(words / minutes, wordsPerMinuteRange.lowerBound), wordsPerMinuteRange.upperBound)
+        let paces = snapshots
+            .filter { $0.isFinished && $0.totalSeconds > 0 && $0.wordsRead > 0 }
+            .map { min(max(Double($0.wordsRead) / ($0.totalSeconds / 60), wordsPerMinuteRange.lowerBound),
+                       wordsPerMinuteRange.upperBound) }
+            .sorted()
+        guard paces.count >= minimumFinishedWorks else { return defaultWordsPerMinute }
+        let mid = paces.count / 2
+        return paces.count.isMultiple(of: 2) ? (paces[mid - 1] + paces[mid]) / 2 : paces[mid]
     }
 
     /// Whole minutes to read `words` at `wordsPerMinute` (rounded), nil for no words.
