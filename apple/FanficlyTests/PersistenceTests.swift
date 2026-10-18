@@ -938,6 +938,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(iCloudSyncManager.mergedNote(local: "  ", other: "cloud"), "cloud")
         XCTAssertEqual(iCloudSyncManager.mergedNote(local: "local", other: nil), "local")
         XCTAssertEqual(iCloudSyncManager.mergedNote(local: "local", other: "cloud"), "local")
+        XCTAssertNil(iCloudSyncManager.mergedNote(local: " ", other: nil))
         XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: ["x"]), ["x"])
         XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: nil), [])
         XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: ["y"], other: ["x"]), ["y"])

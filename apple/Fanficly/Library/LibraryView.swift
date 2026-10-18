@@ -897,11 +897,14 @@ struct WorkNotesSheet: View {
                 } header: {
                     Text("Your Tags")
                 } footer: {
-                    Text("Separate tags with commas. They stay on your devices and Library search finds them.")
+                    Text("Separate tags with commas. Library search finds your note and tags. They're saved in your library, and in your iCloud backup if library sync is on.")
                 }
             }
             .navigationTitle(work.title)
             .navigationBarTitleDisplayMode(.inline)
+            // Swiping down would silently drop typed edits; Cancel is explicit.
+            .interactiveDismissDisabled(noteText != (work.note ?? "")
+                                        || tagsText != work.personalTags.joined(separator: ", "))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

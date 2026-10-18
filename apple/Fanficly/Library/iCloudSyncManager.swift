@@ -366,12 +366,13 @@ final class iCloudSyncManager {
     }
 
     /// A work's note merges forward-only: a non-empty note is never replaced
-    /// by an empty one, and when both sides have one, local wins. So clearing
-    /// a note doesn't propagate to other devices (like un-starring).
+    /// by an empty one, and when both sides have one, local wins. Like
+    /// un-starring, clearing a note doesn't stick: the backup keeps the old
+    /// one, and a later restore brings it back.
     nonisolated static func mergedNote(local: String?, other: String?) -> String? {
         if let local, !local.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return local }
         if let other, !other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return other }
-        return local
+        return nil
     }
 
     /// Personal tags merge as one list, the same way as the note: local wins
