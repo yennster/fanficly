@@ -304,7 +304,7 @@ When you add a feature, add its Core tests, and a smoke step if it adds a tab or
 
 ## Things to know about AO3
 
-- No JSON API. We are a respectful guest. The `User-Agent` is `Fanficly/<version> (Windows; https://github.com/yennster/fanficly)` so AO3's operators can find us, without the "(+url)" form web crawlers use; the Apple app uses `(iOS; …)` and `(macOS; …)`.
+- No JSON API. We are a respectful guest. The `User-Agent` is `Fanficly/<version> (Windows; https://github.com/yennster/fanficly)` so AO3's operators can find us, without the "(+url)" form web crawlers use; the Apple app's matching `(iOS; …)` and `(macOS; …)` is proposed in #66.
 - Work URLs carry `view_adult=true` (skip the age-gate page) and `view_full_work=true` (all chapters on one page).
 - **A chapter at a time.** The whole-work page is AO3's heaviest and the one that times out or 503s first, so the readers open on one chapter: `FetchWorkChapterAsync(id, chapter)` loads `/works/<id>?view_adult=true` (AO3 redirects a chaptered work to its first chapter and remembers the consent in a `view_adult` cookie), and for a later chapter follows that page's `select#selected_id` to `/works/<id>/chapters/<chapterId>`. `WorkPageParser.ParseChapterPage` numbers the chapter by its place in that menu, so it matches the whole-work numbering, and sets `IsWholeWork` only when every chapter is there (never from a missing menu). An unreadable page falls back to the whole work. `IAO3Client` gives it a default implementation that returns the whole work, so fakes and the demo client need nothing.
 - Chapters are `div.chapter[id^='chapter-']`; the canonical tags are in `dl.work.meta.group`.
