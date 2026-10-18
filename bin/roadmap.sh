@@ -12,6 +12,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-all}"
 platform="${2:-all}"
+case "$mode" in all|free) ;; *) echo "usage: bin/roadmap.sh [all|free] [apple|windows|all]" >&2; exit 2 ;; esac
 case "$platform" in
   apple)   roadmaps=("apple:$repo_root/docs/ROADMAP.md") ;;
   windows) roadmaps=("windows:$repo_root/windows/ROADMAP.md") ;;

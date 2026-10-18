@@ -9,9 +9,9 @@ name: Windows screenshots
 #   docs/screenshots/windows/showcase.jpg               README strip
 #   windows/store/screenshots/en-us/                    the Store listing (3840x2160)
 #   windows/store/images/en-us/                         hero, box and poster art
-# Run it after a visual change: push a commit to `main` whose message
-# contains [screenshots], or run it from the Actions tab (on `main`, or on a
-# PR branch to commit the pictures there).
+# Run it after a visual change from the Actions tab (on a PR branch to commit
+# the pictures there, or on `main`), or push to `main` with [screenshots] in
+# the last commit's message; that push must touch the paths below.
 on:
   push:
     branches: [main]

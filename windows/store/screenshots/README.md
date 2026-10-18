@@ -6,8 +6,8 @@ Store art (hero, box and poster images) is in `../images/`, laid out the same wa
 
 Don't edit these by hand: they're built by `windows/scripts/make_store_art.py`
 from the UI tests' 4K captures, and the **Windows screenshots** workflow
-(`.github/workflows/windows-screenshots.yml`; push a commit to `main` with
-`[screenshots]` in its message, or run it from the Actions tab) commits them here: `en-us/01-read-like-a-book.png` …
+(`.github/workflows/windows-screenshots.yml`; run it from the Actions tab, or
+push to `main` with `[screenshots]` in a commit that touches `windows/`) commits them here: `en-us/01-read-like-a-book.png` …
 `en-us/10-your-bookmarks.png` at 3840 × 2160, with `en-us/captions.txt`. To
 change a slide's headline, caption or order, edit `SLIDES` in that script.
 Look the new ones over before uploading them.

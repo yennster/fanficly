@@ -214,10 +214,13 @@ made in Partner Center, and CI takes over once the app is live. Do this once.
 
 **1. Get the package.** Either way gives the same `.msixupload`:
 
-- **From CI** (easiest): with the variables from step 7 set, push a commit to
-  `windows` with `[store-package]` in its message (an empty commit is fine:
-  `git commit --allow-empty -m "Build the Store package [store-package]"`).
-  The build and WACK jobs run and nothing is published. Download the
+- **From CI** (easiest): with the variables from step 7 set, run the workflow
+  by hand without submitting: **Actions → Windows Store release → Run
+  workflow** on `main` with **Submit** unticked, or
+  `gh workflow run "Windows Store release" --ref main -f submit=false`.
+  (A push to `main` with `[store-package]` in its message also builds without
+  publishing, but only when the push touches `windows/` or the Windows
+  workflows; an empty commit doesn't run anything.) Download the
   **store-package** artifact from the run and unzip it. The WACK report is in
   the **wack-report** artifact.
 - **Locally**, on Windows with Visual Studio (the **WinUI application
@@ -466,9 +469,12 @@ How it fits together:
    (`*word*` is the gold accent); the hero, box and poster are `PROMOS`.
 3. **Commit.** The **Windows screenshots** workflow
    (`.github/workflows/windows-screenshots.yml`) does both steps on a Windows
-   runner and commits the results with the README pictures. Run it by pushing a
-   commit to `main` with `[screenshots]` in its message, or from the Actions
-   tab. CI also builds the art on
+   runner and commits the results with the README pictures. Run it from the
+   Actions tab (on a PR branch to commit the pictures to that PR, or on
+   `main`), or push to `main` with `[screenshots]` in the last commit's
+   message; that push must touch `windows/` or the Windows workflows. A
+   commit the workflow pushes doesn't start CI, so push again to re-check a
+   PR. CI also builds the art on
    every push (without committing it) and prints it into the job log, so a
    layout problem shows up early.
 

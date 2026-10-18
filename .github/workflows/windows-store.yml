@@ -8,7 +8,8 @@ name: Windows Store release
 #                                 plus a GitHub Release.
 #   Run it from the Actions tab -> version from the input, or
 #                                 windows/store/version.txt + the run number.
-#   Push to main with [store-package] in the commit message
+#   Push to main with [store-package] in the commit message (the push must
+#   touch the Windows paths below; an empty commit runs nothing)
 #                               -> builds and checks the package (no publish),
 #                                 e.g. for the first submission by hand.
 # Tags are always built (GitHub doesn't apply path filters to tag pushes);
