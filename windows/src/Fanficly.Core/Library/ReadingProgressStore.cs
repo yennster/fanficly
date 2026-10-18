@@ -170,6 +170,32 @@ public sealed record ReadingStatsSummary(
     public override int GetHashCode() => HashCode.Combine(StoriesRead, TotalSeconds, TotalWords, TopFandoms.Count);
 }
 
+/// <summary>Where the reader stands against their yearly goal (RM-011,
+/// ReadingGoalProgress), from <see cref="ReadingStatsAggregator.GoalProgress"/>.
+/// The goal is per-device (<see cref="ReadingGoal.StorageKey"/>) and never synced.</summary>
+public sealed record ReadingGoalProgress(int Goal, int Finished, int Expected)
+{
+    /// <summary>0…1 for the progress ring; stays full once the goal is passed.</summary>
+    public double Fraction => Goal > 0 ? Math.Min((double)Finished / Goal, 1) : 0;
+    public bool IsComplete => Finished >= Goal;
+    /// <summary>Stories ahead of an even pace (negative when behind).</summary>
+    public int Ahead => Finished - Expected;
+
+    /// <summary>"Goal reached", "On pace", "3 ahead", "2 behind".</summary>
+    public string PaceLabel =>
+        IsComplete ? "Goal reached"
+        : Ahead == 0 ? "On pace"
+        : Ahead > 0 ? $"{Ahead} ahead"
+        : $"{-Ahead} behind";
+}
+
+public static class ReadingGoal
+{
+    /// <summary>Stories to finish this year; 0 means no goal. Per-device, not
+    /// synced or backed up. The Swift <c>@AppStorage</c> key.</summary>
+    public const string StorageKey = "reading.yearlyGoal";
+}
+
 /// <summary>Pure aggregation over <see cref="ReadingStatSnapshot"/>s. Time is
 /// bucketed per calendar day, so any <see cref="DateSpan"/> (a week, month,
 /// year, or null for all-time) rolls up from the same data.</summary>
@@ -269,6 +295,21 @@ public static class ReadingStatsAggregator
             TopCategories: Rank(works.SelectMany(w => w.Categories), topCount),
             TopRelationships: Rank(works.SelectMany(w => w.Relationships), topCount),
             TopAuthors: Rank(works.Where(w => w.Author.Length > 0).Select(w => w.Author), topCount));
+    }
+
+    /// <summary>Progress toward a yearly goal of <paramref name="goal"/> finished
+    /// stories, given how many the reader has finished so far in the year
+    /// containing <paramref name="now"/>. Null when there's no goal (zero or
+    /// negative), which hides the ring. Pace compares against an even spread
+    /// across the year, rounded down so nobody starts January 1st already behind.</summary>
+    public static ReadingGoalProgress? GoalProgress(int finished, int goal, DateTimeOffset now, TimeZoneInfo? timeZone = null)
+    {
+        if (goal <= 0) return null;
+        var year = DateSpan.Of(StatsCalendarUnit.Year, now, timeZone);
+        var length = (year.End - year.Start).TotalSeconds;
+        var elapsed = length > 0 ? Math.Clamp((now - year.Start).TotalSeconds / length, 0, 1) : 0;
+        var expected = (int)Math.Floor(goal * elapsed);
+        return new ReadingGoalProgress(goal, Math.Max(finished, 0), expected);
     }
 
     /// <summary>Tally occurrences of each name, most common first. Ties break
