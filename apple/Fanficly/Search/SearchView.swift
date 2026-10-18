@@ -1066,16 +1066,16 @@ final class KudosGiver {
     }
 
     func refresh(workId: Int, username: String?) {
-        hasLeft = username.map { KudosStore.hasLeft(workId: workId, username: $0, defaults: defaults) } ?? false
+        hasLeft = username != nil && KudosStore.hasLeft(workId: workId, defaults: defaults)
     }
 
     func leave(workId: Int, username: String?, client: any AO3ClientProtocol) async {
-        guard let username, !isSending, !hasLeft else { return }
+        guard username != nil, !isSending, !hasLeft else { return }
         isSending = true
         defer { isSending = false }
         do {
             let outcome = try await client.leaveKudos(workId: workId)
-            KudosStore.markLeft(workId: workId, username: username, defaults: defaults)
+            KudosStore.markLeft(workId: workId, defaults: defaults)
             hasLeft = true
             result = outcome == .left
                 ? (title: "Kudos left", message: "Thank you for leaving kudos!")
@@ -1089,7 +1089,7 @@ final class KudosGiver {
         } catch AO3Error.http(let status) {
             result = (title: "Couldn't leave kudos", message: "AO3 returned HTTP \(status). Try again later.")
         } catch AO3Error.network(let underlying) {
-            result = (title: "Couldn't leave kudos", message: "Network: \(underlying). The kudos may still have landed; trying again is safe.")
+            result = (title: "Couldn't leave kudos", message: "Network: \(underlying). If the request reached AO3, the kudos may have landed; trying again is safe.")
         } catch {
             result = (title: "Couldn't leave kudos", message: "\(error)")
         }

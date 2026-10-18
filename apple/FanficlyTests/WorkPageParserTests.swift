@@ -431,6 +431,30 @@ final class KudosParserTests: XCTestCase {
         XCTAssertNil(KudosParser.errorMessage(json: Data(#"{"error_message":"  "}"#.utf8)))
     }
 
+    func test_isSignedIn_onlyWithTheGreeting() {
+        let signedIn = """
+        <html><body><header id="header">
+          <nav id="greeting"><ul class="user navigation actions"><li class="dropdown">
+            <a href="/users/reader">Hi, reader!</a></li></ul></nav>
+        </header></body></html>
+        """
+        XCTAssertTrue(KudosParser.isSignedIn(html: signedIn))
+        // AO3's signed-out header: the login dropdown and its small login form.
+        let signedOut = """
+        <html><body><header id="header">
+          <div id="login" class="dropdown">
+            <p class="user actions"><a id="login-dropdown" href="/users/login?return_to=%2Fworks%2F42">Log In</a></p>
+            <div id="small_login" class="simple login"><form id="new_user" action="/users/login" method="post">
+              <input type="text" name="user[login]" id="user_login" />
+              <a href="/users/password/new">Forgot password?</a>
+            </form></div>
+          </div>
+        </header></body></html>
+        """
+        XCTAssertFalse(KudosParser.isSignedIn(html: signedOut))
+        XCTAssertFalse(KudosParser.isSignedIn(html: "<html><body></body></html>"))
+    }
+
     func test_isAuthError_forARefusedToken() {
         let refused = Data(#"{"errors":{"auth_error":"Your current session has expired and we can't authenticate your request."}}"#.utf8)
         XCTAssertTrue(KudosParser.isAuthError(json: refused))

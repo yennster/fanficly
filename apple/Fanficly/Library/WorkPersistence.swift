@@ -199,25 +199,30 @@ enum WorkPersistence {
     }
 }
 
-/// Works an AO3 account has left kudos on, remembered on this device so the
-/// kudos button reads "Kudos Left" instead of inviting a second tap. Keyed by
-/// username because AO3 counts one kudo per account. Not in the iCloud library
+/// Works you've left kudos on, remembered on this device so the kudos button
+/// reads "Kudos Left" instead of inviting a second tap. Cleared on logout, so
+/// it always belongs to the signed-in account (AO3 counts one kudo per
+/// account) and no username is kept beside it. Not in the iCloud library
 /// backup: AO3 itself still refuses a duplicate, which reads as already left.
 enum KudosStore {
-    static func key(username: String) -> String { "kudos.left.\(username.lowercased())" }
+    static let key = "kudos.leftWorkIds"
 
-    static func hasLeft(workId: Int, username: String, defaults: UserDefaults = .standard) -> Bool {
-        workIds(username: username, defaults: defaults).contains(workId)
+    static func hasLeft(workId: Int, defaults: UserDefaults = .standard) -> Bool {
+        workIds(defaults).contains(workId)
     }
 
-    static func markLeft(workId: Int, username: String, defaults: UserDefaults = .standard) {
-        var ids = workIds(username: username, defaults: defaults)
+    static func markLeft(workId: Int, defaults: UserDefaults = .standard) {
+        var ids = workIds(defaults)
         guard !ids.contains(workId) else { return }
         ids.append(workId)
-        defaults.set(ids, forKey: key(username: username))
+        defaults.set(ids, forKey: key)
     }
 
-    private static func workIds(username: String, defaults: UserDefaults) -> [Int] {
-        defaults.array(forKey: key(username: username)) as? [Int] ?? []
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
+    }
+
+    private static func workIds(_ defaults: UserDefaults) -> [Int] {
+        defaults.array(forKey: key) as? [Int] ?? []
     }
 }

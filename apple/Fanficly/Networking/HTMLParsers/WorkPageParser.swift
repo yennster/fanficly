@@ -360,6 +360,17 @@ enum KudosParser {
         return fields
     }
 
+    /// Whether the page was served to a signed-in reader: AO3's `nav#greeting`
+    /// links to `/users/<login>` only then, and a signed-out header carries the
+    /// login form. Stricter than `LoginParser.currentUsername`, whose `#header`
+    /// fallback also matches the signed-out `/users/login?return_to=…` link.
+    static func isSignedIn(html: String) -> Bool {
+        guard (try? LoginParser.hasLoginForm(html: html)) == false,
+              let doc = try? SwiftSoup.parse(html),
+              let links = try? doc.select("#greeting a[href^=/users/]") else { return false }
+        return !links.isEmpty()
+    }
+
     /// The reason in a refused `/kudos.js` POST's `{"error_message": "…"}`.
     static func errorMessage(json: Data) -> String? {
         guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],

@@ -106,6 +106,7 @@ final class AuthState {
     func logout(using client: any AO3ClientProtocol) async {
         await client.logout()
         CredentialStore.shared.setUsername(nil)
+        KudosStore.clear()
         username = nil
     }
 

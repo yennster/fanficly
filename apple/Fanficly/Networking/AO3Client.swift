@@ -622,7 +622,7 @@ public actor AO3Client: AO3ClientProtocol {
         guard let pageHTML = String(data: pageData, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Work page not UTF-8")
         }
-        guard (try? LoginParser.currentUsername(html: pageHTML)) != nil else {
+        guard KudosParser.isSignedIn(html: pageHTML) else {
             throw AO3Error.unauthorized
         }
         guard var fields = KudosParser.formFields(html: pageHTML) else {

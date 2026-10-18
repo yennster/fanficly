@@ -28,14 +28,14 @@ final class WorkExporterTests: XCTestCase {
     }
 }
 
-/// `KudosGiver` sends one kudo per tap, remembers it per account on this
-/// device so the menu item reads "Kudos Left", and turns AO3's refusals into
+/// `KudosGiver` sends one kudo per tap, remembers it on this device (until
+/// logout) so the menu item reads "Kudos Left", and turns AO3's refusals into
 /// the alert. Each test gets its own defaults suite so nothing leaks.
 @MainActor
 final class KudosGiverTests: XCTestCase {
     private let defaults = UserDefaults(suiteName: "test.kudos.\(UUID().uuidString)")!
 
-    func testLeavingKudosRemembersTheWorkForThatAccount() async {
+    func testLeavingKudosRemembersTheWork() async {
         let client = StubAO3Client()
         let giver = KudosGiver(defaults: defaults)
         await giver.leave(workId: 7, username: "reader", client: client)
@@ -43,9 +43,14 @@ final class KudosGiverTests: XCTestCase {
         XCTAssertEqual(client.kudosCalls, [7])
         XCTAssertTrue(giver.hasLeft)
         XCTAssertEqual(giver.result?.title, "Kudos left")
-        XCTAssertTrue(KudosStore.hasLeft(workId: 7, username: "Reader", defaults: defaults))
-        XCTAssertFalse(KudosStore.hasLeft(workId: 7, username: "someone-else", defaults: defaults))
-        XCTAssertFalse(KudosStore.hasLeft(workId: 8, username: "reader", defaults: defaults))
+        XCTAssertTrue(KudosStore.hasLeft(workId: 7, defaults: defaults))
+        XCTAssertFalse(KudosStore.hasLeft(workId: 8, defaults: defaults))
+    }
+
+    func testLoggingOutForgetsKudos() {
+        KudosStore.markLeft(workId: 7, defaults: defaults)
+        KudosStore.clear(defaults: defaults)
+        XCTAssertFalse(KudosStore.hasLeft(workId: 7, defaults: defaults))
     }
 
     func testASecondTapSendsNothing() async {
@@ -58,7 +63,7 @@ final class KudosGiverTests: XCTestCase {
     }
 
     func testRememberedKudosShowOnTheNextScreen() {
-        KudosStore.markLeft(workId: 7, username: "reader", defaults: defaults)
+        KudosStore.markLeft(workId: 7, defaults: defaults)
         let giver = KudosGiver(defaults: defaults)
         giver.refresh(workId: 7, username: "reader")
         XCTAssertTrue(giver.hasLeft)
@@ -83,7 +88,7 @@ final class KudosGiverTests: XCTestCase {
 
         XCTAssertTrue(giver.hasLeft)
         XCTAssertEqual(giver.result?.title, "Kudos already left")
-        XCTAssertTrue(KudosStore.hasLeft(workId: 7, username: "reader", defaults: defaults))
+        XCTAssertTrue(KudosStore.hasLeft(workId: 7, defaults: defaults))
     }
 
     func testRefusalShowsAO3sReasonAndRemembersNothing() async {
@@ -94,7 +99,7 @@ final class KudosGiverTests: XCTestCase {
 
         XCTAssertFalse(giver.hasLeft)
         XCTAssertEqual(giver.result?.message, "You can't leave kudos on your own work.")
-        XCTAssertFalse(KudosStore.hasLeft(workId: 7, username: "reader", defaults: defaults))
+        XCTAssertFalse(KudosStore.hasLeft(workId: 7, defaults: defaults))
         XCTAssertFalse(giver.isSending)
     }
 
