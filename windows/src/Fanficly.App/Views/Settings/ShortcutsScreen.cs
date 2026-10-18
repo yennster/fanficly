@@ -22,8 +22,8 @@ public sealed class ShortcutsScreen : Screen
             Group("Go", go),
             Group("View",
             [
-                ("Ctrl+Plus", "Zoom in"),
-                ("Ctrl+Minus", "Zoom out"),
+                ("Ctrl+Plus or Ctrl+Shift+Plus", "Zoom in"),
+                ("Ctrl+Minus or Ctrl+Shift+Minus", "Zoom out"),
                 ("Ctrl+0", "Actual size"),
                 ("F11", "Full screen"),
             ]),
