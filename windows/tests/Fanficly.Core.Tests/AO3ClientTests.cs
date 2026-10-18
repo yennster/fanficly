@@ -353,6 +353,58 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal("typed_name", await client.CurrentUsernameAsync());
     }
 
+    // MARK: - A chapter at a time
+
+    [Fact]
+    public async Task FirstChapterIsOneLightPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)));
+        var page = await MakeClient().FetchWorkChapterAsync(55);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal("https://archiveofourown.org/works/55?view_adult=true", req.Uri.AbsoluteUri);
+        Assert.Equal(1, Assert.Single(page.Payload.Chapters).Index);
+        Assert.False(page.IsWholeWork);
+    }
+
+    [Fact]
+    public async Task ALaterChapterFollowsTheFirstPagesMenu()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)),
+            _ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(3)));
+        var page = await MakeClient().FetchWorkChapterAsync(55, chapter: 3);
+
+        Assert.Equal(
+            ["https://archiveofourown.org/works/55?view_adult=true", "https://archiveofourown.org/works/55/chapters/703?view_adult=true"],
+            _handler.Requests.Select(r => r.Uri.AbsoluteUri));
+        var chapter = Assert.Single(page.Payload.Chapters);
+        Assert.Equal(3, chapter.Index);
+        Assert.Equal(703, chapter.AoId);
+    }
+
+    [Fact]
+    public async Task AChapterPastTheEndStaysOnTheFirst()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)));
+        var page = await MakeClient().FetchWorkChapterAsync(55, chapter: 9);
+
+        Assert.Single(_handler.Requests);
+        Assert.Equal(1, Assert.Single(page.Payload.Chapters).Index);
+    }
+
+    [Fact]
+    public async Task UnreadableChapterPageFallsBackToTheWholeWork()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("<html><body>Something else</body></html>"),
+            _ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)));
+        var page = await MakeClient().FetchWorkChapterAsync(55);
+
+        Assert.Equal("https://archiveofourown.org/works/55?view_full_work=true&view_adult=true", _handler.Requests[1].Uri.AbsoluteUri);
+        Assert.True(page.IsWholeWork);
+    }
+
     [Fact]
     public async Task SavedCookiesAreLoadedBeforeTheFirstRequest()
     {

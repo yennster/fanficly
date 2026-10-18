@@ -59,6 +59,14 @@ public sealed record AO3WorkPayload(AO3WorkSummary Summary, IReadOnlyList<AO3Cha
 /// work-level comments.</param>
 public sealed record AO3ChapterPayload(int Index, string Title, string BodyHtml, int? AoId = null);
 
+/// <summary>A work as AO3 shows it by default, one chapter to a page: the work's
+/// metadata and that chapter, plus every chapter's AO3 id in reading order (the
+/// page's chapter menu). Much lighter than the whole work on one page, so a
+/// reader can open on it while the rest loads.</summary>
+/// <param name="IsWholeWork">Every chapter is already here: a one-shot, an
+/// account set to show whole works, or a fallback to the full work page.</param>
+public sealed record AO3WorkChapterPage(AO3WorkPayload Payload, IReadOnlyList<int> ChapterIds, bool IsWholeWork);
+
 /// <summary>A live snapshot of popular fandoms, ships, and characters, derived
 /// from AO3 HTML (media-page fandom counts + works-filter facet counts). Cached
 /// on-device and refreshed about daily.</summary>

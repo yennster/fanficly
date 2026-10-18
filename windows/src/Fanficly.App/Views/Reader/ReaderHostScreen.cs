@@ -21,6 +21,7 @@ internal abstract class ReaderHostScreen : Screen
     private readonly ReaderBrushes _brushes = new();
     private bool _onTop;
     private bool _removed;
+    private readonly CancellationTokenSource _lifetime = new();
 
     protected Grid Host { get; } = new();
 
@@ -59,6 +60,49 @@ internal abstract class ReaderHostScreen : Screen
         Host.Children.Add(reader.Root);
         InvalidateChrome();
         if (_onTop) reader.Appearing();
+    }
+
+    /// <summary>Replaces the reader with one holding more of the same work, opened
+    /// where the current one is (its chapters arrived after the first).</summary>
+    protected void SwapReader(ReaderView next)
+    {
+        if (_removed) { next.Retire(); return; }
+        if (Reader is not { } old) { ShowReader(next); return; }
+        next.ContinueFrom(old);
+        old.Retire();
+        Reader = next;
+        Host.Children.Clear();
+        Host.Children.Add(next.Root);
+        InvalidateChrome();
+        if (_onTop) next.Appearing();
+    }
+
+    /// <summary>Fetches the whole work behind a reader that opened on one chapter,
+    /// retrying while AO3 is struggling, and waits for narration to stop before
+    /// handing it over, so Listen isn't cut off. Null when the screen closed or
+    /// AO3 never answered (the open chapter stays readable).</summary>
+    protected async Task<AO3WorkPayload?> FetchRestAsync(int workId)
+    {
+        var ct = _lifetime.Token;
+        AO3WorkPayload? full = null;
+        for (var attempt = 0; full is null; attempt++)
+        {
+            try { full = await AppHost.Client.FetchWorkAsync(workId, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return null; }
+            catch (Exception e)
+            {
+                AppHost.Log($"Loading the rest of work {workId} failed: {e.Message}");
+                if (attempt >= 2) return null;
+                try { await Task.Delay(TimeSpan.FromSeconds(30), ct); }
+                catch (OperationCanceledException) { return null; }
+            }
+        }
+        while (Reader is { IsListening: true } && !_removed)
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
+            catch (OperationCanceledException) { return null; }
+        }
+        return _removed ? null : full;
     }
 
     protected void ShowLoading(string message)
@@ -131,6 +175,7 @@ internal abstract class ReaderHostScreen : Screen
     public override void OnRemoved()
     {
         _removed = true;
+        _lifetime.Cancel();
         Theme.Changed -= ApplyBackground;
         Reader?.Removed();
     }

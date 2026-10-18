@@ -198,6 +198,28 @@ public sealed class AO3Client : IAO3Client, IDisposable
         return WorkPageParser.Parse(Decode(response.Body, "Work response"), id);
     }
 
+    public async Task<AO3WorkChapterPage> FetchWorkChapterAsync(int id, int chapter = 1, CancellationToken ct = default)
+    {
+        var page = await FetchChapterPageAsync(id, null, ct).ConfigureAwait(false);
+        // Markup we can't read: the whole work, as before.
+        if (page.Payload.Chapters.Count == 0)
+            return new(await FetchWorkAsync(id, ct).ConfigureAwait(false), [], IsWholeWork: true);
+        // The first page names every chapter's id, so a later chapter is one
+        // more small page.
+        if (chapter <= 1 || page.IsWholeWork || chapter > page.ChapterIds.Count
+            || page.Payload.Chapters.Any(c => c.Index == chapter))
+            return page;
+        var later = await FetchChapterPageAsync(id, page.ChapterIds[chapter - 1], ct).ConfigureAwait(false);
+        return later.Payload.Chapters.Count > 0 ? later : page;
+    }
+
+    private async Task<AO3WorkChapterPage> FetchChapterPageAsync(int id, int? chapterId, CancellationToken ct)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.WorkChapter(id, chapterId, _baseUri)), ct: ct).ConfigureAwait(false);
+        return WorkPageParser.ParseChapterPage(Decode(response.Body, "Work response"), id);
+    }
+
     public async Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);

@@ -16,6 +16,12 @@ public static class AO3Endpoints
     public static Uri Work(int id, Uri baseUri) =>
         Build(baseUri, $"/works/{id}", [new("view_full_work", "true"), new("view_adult", "true")]);
 
+    /// <summary>A work one chapter to a page: its first chapter, or the chapter with
+    /// that AO3 id. AO3 redirects <c>/works/&lt;id&gt;</c> of a chaptered work to its
+    /// first chapter, keeping the adult-content consent in a cookie.</summary>
+    public static Uri WorkChapter(int id, int? chapterId, Uri baseUri) =>
+        Build(baseUri, chapterId is { } chapter ? $"/works/{id}/chapters/{chapter}" : $"/works/{id}", [new("view_adult", "true")]);
+
     public static Uri Epub(int workId, Uri baseUri) => Build(baseUri, $"/downloads/{workId}/work.epub");
 
     public static Uri Download(int workId, WorkExportFormat format, Uri baseUri) =>
