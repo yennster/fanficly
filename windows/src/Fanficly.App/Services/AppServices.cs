@@ -99,6 +99,7 @@ public static partial class AppHost
 
     private static void InstallLibraryHooks()
     {
+        LibraryHooks.Log = Log;
         LibraryHooks.RecordReadingEvent = () => StreakStore.RecordReadingEvent();
         LibraryHooks.SaveWidgetProgress = u =>
         {

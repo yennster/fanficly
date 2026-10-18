@@ -421,6 +421,9 @@ public sealed class LibraryStore : IDisposable
         }
         catch (Exception e) when (e is SqliteException or InvalidOperationException)
         {
+            // Every later save retries the same rows, so one bad write keeps
+            // failing silently; say what it was.
+            LibraryHooks.Log?.Invoke($"Saving the library failed: {e.Message}");
             return false;
         }
     }

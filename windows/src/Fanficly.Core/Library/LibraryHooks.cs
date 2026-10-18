@@ -37,4 +37,8 @@ public static class LibraryHooks
 
     /// <summary>CoreSpotlight indexing of followed works.</summary>
     public static IWorkSearchIndexer? SearchIndexer { get; set; }
+
+    /// <summary>The app's local log, for failures the library otherwise only
+    /// reports as a false return (<see cref="LibraryStore.TrySave"/>).</summary>
+    public static Action<string>? Log { get; set; }
 }
