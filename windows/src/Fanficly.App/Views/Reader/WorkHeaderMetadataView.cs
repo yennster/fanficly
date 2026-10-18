@@ -189,6 +189,8 @@ internal static class WorkHeaderMetadataView
             });
         }
         Stat("text.alignleft", $"{summary.WordCount.ToString("N0", culture)} words");
+        var wordsPerMinute = ReadingSpeed.WordsPerMinute(AppHost.Library);
+        if (ReadingSpeed.Estimate(summary.WordCount, wordsPerMinute) is { } estimate) Stat("clock", estimate);
         Stat("book.closed", ChapterText(summary));
         if (summary.Kudos > 0) Stat("heart", summary.Kudos.ToString("N0", culture));
         if (summary.Hits > 0) Stat("eye", summary.Hits.ToString("N0", culture));
