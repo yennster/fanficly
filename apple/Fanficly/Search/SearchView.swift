@@ -1069,6 +1069,9 @@ struct CommentsView: View {
     @State private var totalPages = 1
     @State private var isLoadingMore = false
     @State private var loadMoreError: String?
+    /// Bumped by every page-1 load, so a "Load more" that finishes after a
+    /// refresh or post can't append onto the reloaded list.
+    @State private var loadGeneration = 0
     @State private var draft = ""
     @State private var isPosting = false
     @State private var postError: String?
@@ -1149,6 +1152,7 @@ struct CommentsView: View {
             } label: {
                 if isLoadingMore {
                     ProgressView()
+                        .accessibilityLabel("Loading more comments")
                 } else {
                     Text("Load more comments")
                 }
@@ -1211,6 +1215,7 @@ struct CommentsView: View {
         isLoading = true
         errorMessage = nil
         loadMoreError = nil
+        loadGeneration += 1
         defer { isLoading = false }
         do {
             let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: 1)
@@ -1225,18 +1230,26 @@ struct CommentsView: View {
     /// Appends the next comment page. Ids already shown are skipped, since a
     /// comment posted meanwhile can shift a thread onto the next page.
     private func loadMore() async {
-        guard !isLoadingMore, currentPage < totalPages else { return }
+        guard !isLoadingMore, !isLoading, currentPage < totalPages else { return }
+        let generation = loadGeneration
         isLoadingMore = true
         loadMoreError = nil
         defer { isLoadingMore = false }
         do {
             let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: currentPage + 1)
+            guard generation == loadGeneration else { return }
             let seen = Set(comments.map(\.id))
-            comments += page.comments.filter { !seen.contains($0.id) }
+            let added = page.comments.filter { !seen.contains($0.id) }
+            comments += added
             currentPage = max(currentPage + 1, page.currentPage)
             totalPages = page.totalPages
+            AccessibilityNotification.Announcement(
+                added.count == 1 ? "Loaded 1 more comment" : "Loaded \(added.count) more comments"
+            ).post()
         } catch {
+            guard generation == loadGeneration else { return }
             loadMoreError = "Couldn't load more comments: \(error.localizedDescription)"
+            AccessibilityNotification.Announcement(loadMoreError ?? "").post()
         }
     }
 
