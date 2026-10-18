@@ -34,16 +34,9 @@ internal static partial class PowerThrottling
             ControlMask = optedOut ? ExecutionSpeed : 0,
             StateMask = 0,
         };
-        try
-        {
-            if (!SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, ref state,
-                    (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>()))
-                AppHost.Log($"Power throttling opt-out failed: {Marshal.GetLastPInvokeError()}");
-        }
-        catch (EntryPointNotFoundException)
-        {
-            // Older Windows 10 builds have no power throttling to opt out of.
-        }
+        if (!SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, ref state,
+                (uint)Marshal.SizeOf<PROCESS_POWER_THROTTLING_STATE>()))
+            AppHost.Log($"Power throttling opt-out failed: {Marshal.GetLastPInvokeError()}");
     }
 
     [LibraryImport("kernel32.dll")]
