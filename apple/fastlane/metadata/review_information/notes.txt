@@ -1,0 +1,15 @@
+Fanficly is a privacy-first reader for fiction published on Archive of Our Own (AO3), a large public fanfiction website. No login is required to browse, search, read, follow, or download — you can review the entire app without an account or demo credentials. A few optional features sign in to AO3 (subscribing on AO3, viewing your own AO3 bookmarks, and posting a chapter comment), but none are required to review the app.
+
+USER-GENERATED CONTENT SAFEGUARDS (Guideline 1.2)
+- Age gate: a 17+ confirmation is shown on first launch.
+- Content filter: Settings > Content & Safety > "Filter mature & explicit works" (ON by default) hides Mature- and Explicit-rated works from all results.
+- Hide: the "…" menu on any work hides it from search/browse results (manage under Settings > Hidden works).
+- Report: the "…" menu > "Report this work" opens AO3's official abuse-report form. AO3 hosts and moderates all works; Fanficly does not host content.
+- Comments: logged-in users can read and post comments on a chapter. Comments are submitted to, hosted by, and moderated by AO3 (Fanficly stores none); AO3's own moderation and the Report flow above apply.
+- Content policy: Settings > Content & Safety > Content policy. We review reports about the app within 24 hours.
+- Embedded images: works render text-only by default. Settings > Reader > "Show images in stories" (OFF by default) optionally renders images embedded by authors; images are fetched over https only, the same works-level Hide/Report safeguards apply, and the age gate + mature filter above are unchanged.
+
+PRIVACY
+No servers, no analytics, no tracking, no ads. Nothing about the user leaves the device except requests to archiveofourown.org needed to read/search/log in (and, only if the user enables "Show images in stories", https image fetches from the hosts where authors embedded them), plus optional iCloud sync (library backup, reader settings, reading progress) stored in the user's own private iCloud account — Apple infrastructure; the developer operates no servers and cannot access it. The optional AO3 session cookie is stored only in the iOS Keychain.
+
+Fanficly is independent and not affiliated with AO3 or the Organization for Transformative Works.

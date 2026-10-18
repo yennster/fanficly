@@ -1,0 +1,8 @@
+What's new in 1.10.1
+
+• Pages fill the screen. In 1.10.0, page-by-page pages could stop well short of the bottom of the screen, leaving a band of blank space under the text. Now every page runs to its last line, on iPhone, iPad and Mac.
+• Hide the controls and the page fills the whole screen. Show them, start or stop Listen, rotate, or change the text size, and the page keeps its first line while lines come and go at the bottom.
+• The page footer stays at the bottom of the screen. After switching back to Fanficly, it could float about a keyboard's height up the page.
+• On the Mac, a page's last line no longer hides under the page footer.
+
+Everything still runs on your device — no ads, no tracking, no account required.
