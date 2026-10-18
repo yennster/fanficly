@@ -514,6 +514,26 @@ final class BookmarkFormParserTests: XCTestCase {
         XCTAssertNil(BookmarkFormParser.parse(html: html, base: base))
     }
 
+    func test_missingCollectionsField_isNotSent() throws {
+        let html = newForm.replacingOccurrences(
+            of: #"<input type="text" name="bookmark[collection_names]" id="bookmark_collection_names">"#, with: "")
+        let form = try XCTUnwrap(BookmarkFormParser.parse(html: html, base: base))
+        XCTAssertNil(form.collections)
+        XCTAssertNil(form.postFields["bookmark[collection_names]"])
+    }
+
+    func test_isBookmarkPage_onlyForASavedBookmark() {
+        XCTAssertTrue(BookmarkFormParser.isBookmarkPage(path: "/bookmarks/999"))
+        XCTAssertFalse(BookmarkFormParser.isBookmarkPage(path: "/works/12345/bookmarks"))
+        XCTAssertFalse(BookmarkFormParser.isBookmarkPage(path: "/"))
+        XCTAssertFalse(BookmarkFormParser.isBookmarkPage(path: "/bookmarks/999/edit"))
+    }
+
+    func test_saveErrors_readsErrorFlash() {
+        let html = #"<html><body><div class="flash error">You can't bookmark with that pseud.</div></body></html>"#
+        XCTAssertEqual(BookmarkFormParser.saveErrors(html: html), ["You can't bookmark with that pseud."])
+    }
+
     func test_saveErrors_readsAO3ErrorList() {
         let html = """
         <html><body>

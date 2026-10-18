@@ -1336,7 +1336,20 @@ struct AO3BookmarkSheet: View {
             dismiss()
         } catch {
             saveError = "Couldn't save: \(Self.message(for: error))"
+            await refreshForm(keeping: form)
         }
+    }
+
+    /// After a failed save, reload AO3's form but keep the user's edits, so a
+    /// second Save posts with a fresh token and, if the first one did land
+    /// (a lost response), updates that bookmark instead of creating another.
+    private func refreshForm(keeping edited: AO3BookmarkForm) async {
+        guard var fresh = try? await client.fetchBookmarkForm(workId: workId) else { return }
+        fresh.notes = edited.notes
+        fresh.tags = edited.tags
+        fresh.isPrivate = edited.isPrivate
+        fresh.isRec = edited.isRec
+        form = fresh
     }
 
     private static func message(for error: Error) -> String {

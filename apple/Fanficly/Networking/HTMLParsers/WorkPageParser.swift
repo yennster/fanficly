@@ -381,17 +381,24 @@ enum BookmarkFormParser {
             isExisting: method == "put" || method == "patch",
             notes: textareaValue(form, name: "bookmark[bookmarker_notes]"),
             tags: inputValue(form, name: "bookmark[tag_string]"),
-            collections: inputValue(form, name: "bookmark[collection_names]"),
+            collections: optionalInputValue(form, name: "bookmark[collection_names]"),
             isPrivate: isChecked(form, name: "bookmark[private]"),
             isRec: isChecked(form, name: "bookmark[rec]")
         )
     }
 
-    /// The messages in AO3's `div#error` list after a rejected save.
+    /// The messages in AO3's `div#error` list after a rejected save, or an
+    /// error flash (a refused pseud or account redirects with one).
     static func saveErrors(html: String) -> [String] {
         guard let doc = try? SwiftSoup.parse(html),
-              let items = try? doc.select("div#error li") else { return [] }
+              let items = try? doc.select("div#error li, div.flash.error") else { return [] }
         return items.array().compactMap { try? $0.text() }.filter { !$0.isEmpty }
+    }
+
+    /// True for `/bookmarks/<id>`, where AO3 redirects a saved bookmark.
+    static func isBookmarkPage(path: String) -> Bool {
+        let parts = path.split(separator: "/")
+        return parts.count == 2 && parts[0] == "bookmarks" && Int(parts[1]) != nil
     }
 
     private static func isInsidePlacement(_ el: Element) -> Bool {
@@ -413,7 +420,11 @@ enum BookmarkFormParser {
     }
 
     private static func inputValue(_ form: Element, name: String) -> String {
-        guard let input = try? form.select("input[name='\(name)']:not([type=hidden])").first() else { return "" }
+        optionalInputValue(form, name: name) ?? ""
+    }
+
+    private static func optionalInputValue(_ form: Element, name: String) -> String? {
+        guard let input = try? form.select("input[name='\(name)']:not([type=hidden])").first() else { return nil }
         return (try? input.attr("value")) ?? ""
     }
 
