@@ -1,0 +1,42 @@
+Fanficly is a calm, private, and unofficial home for the Archive of Our Own (AO3) fanfiction you love. Free on iPhone, iPad, and Mac, with automatic iCloud sync.
+
+READ WITHOUT BORDERS
+Fanficly is completely private. You can use the app to browse, search, and read without ever logging in. Your library, reading history, and bookmarks are stored locally on your device and synced securely via iCloud. No tracking, no ads, and no analytical servers.
+
+SEARCH THAT FINDS IT
+Type what you're after — a fandom, ship, trope, title, or author. As you type, tap suggestions straight from AO3's tag list to filter by the exact tag, then narrow by rating, length, or completion. Recent and saved searches are one tap away.
+
+SEAMLESS IMPORT & DRAG-AND-DROP
+Bring your favorite stories with you. Queue and import AO3 links directly from Safari using the system share sheet, or drag and drop EPUB files directly into the app. Export your library or individual works back to EPUB, PDF, or HTML anytime.
+
+A READER CUSTOMIZED FOR EVERY DEVICE
+Enjoy a reading layout tailored to your environment. Adjust fonts, font size, line spacing, paragraph spacing, character spacing, bold text, and margins. Fanficly remembers your settings per device, so your iPhone opens your compact layout while your MacBook uses your wide desktop preset. Read in continuous scroll, swipe by chapter, or horizontal page-by-page. Your place is saved down to the exact paragraph — and the Home Screen widget shows your last-read story with its progress, so you can jump straight back in on any device.
+
+LISTEN ON THE GO
+Tap the headphones icon to have any chapter read aloud. Fanficly uses your device's high-quality local text-to-speech engine, allowing you to listen in the background, from the lock screen, or using your own cloned Personal Voice. Zero data usage, 100% free.
+
+ACCESSIBLE BY DESIGN
+Built to be read with VoiceOver as comfortably as with your eyes: labeled controls everywhere, page turns and chapter jumps as VoiceOver actions, and a fully accessible narration player and widgets.
+
+YOUR LIBRARY, YOUR WAY
+Create custom folders, pin important stories, and star your favorites. Follow works to be notified when new chapters drop — tap the alert to jump straight in — no account needed. Sort by date saved, last read, last updated, title, author, or length. A progress bar on every started story shows exactly how far you've read.
+
+DISCOVER & CONNECT
+See what's trending in the Popular tab — the most-loved fandoms, ships, and characters. Follow your favorite authors and be notified when they post something new, no account required. Log in to open your AO3 bookmarks in their own tab, and read or post chapter comments in the app.
+
+FEATURES
+• Unofficial reader for Archive of Our Own (AO3) — native on iPhone, iPad, and Mac
+• 100% private — read without an account; no tracking, no ads, no analytics
+• Automatic iCloud sync for your library, progress, and settings
+• Smart search with live AO3 tag suggestions and filter chips
+• Customizable reader — six themes (Sepia, OLED Black, Dracula Navy…) and per-device layouts
+• Offline reading and multi-format export (EPUB, PDF, HTML)
+• Follow works and authors for new-chapter and new-work alerts — no login needed
+• Popular tab — discover trending fandoms, ships, and characters
+• Log in for your AO3 bookmarks and to read & post chapter comments
+• Organize with custom folders, sorting, stars, and pins
+• Reading stats — stories finished, time and words read, streaks, top fandoms & ships, and a shareable yearly wrap
+• Optional inline story images — off by default; the text-only reader stays the default
+• Home Screen widgets — last-read, reading streak, subscriptions, and more
+
+Disclaimer: Fanficly is an independent, unofficial reader for works published on Archive of Our Own (AO3). It is not affiliated with, endorsed by, or sponsored by the Organization for Transformative Works or AO3. All works belong to their respective authors.
