@@ -185,7 +185,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 
 ### RM-021 — Shift-⌘ +/− to change the Mac UI size
 - **Status:** done · **Size:** S · **Validation:** unit + mac
-- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows got Ctrl+Shift +/− in its own PR.
+- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows gets Ctrl+Shift +/− in its own PR.
 - **Why:** Global UI zoom (`app.zoomScale` in `RootView`) is bound to hidden buttons for ⌘+, ⌘=, ⌘− and ⌘0 only. The request is to also change the interface size with ⇧⌘+ / ⇧⌘− (and ⇧⌘= for keyboards where + needs no shift), and to make the shortcuts discoverable.
 - **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. Keep the existing ⌘ bindings working unless the maintainer says to drop them. Extract the clamp/step into a pure function.
 - **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.

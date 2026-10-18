@@ -150,5 +150,10 @@ final class UIZoomTests: XCTestCase {
         XCTAssertEqual(UIZoom.stepped(0.0, in: false), UIZoom.minScale)
         XCTAssertEqual(UIZoom.stepped(.nan, in: true), 1.1)
         XCTAssertEqual(UIZoom.stepped(.infinity, in: false), 0.9)
+
+        XCTAssertEqual(UIZoom.clamped(3.0), UIZoom.maxScale)
+        XCTAssertEqual(UIZoom.clamped(0.0), UIZoom.minScale)
+        XCTAssertEqual(UIZoom.clamped(1.3), 1.3)
+        XCTAssertEqual(UIZoom.clamped(.nan), UIZoom.actualSize)
     }
 }

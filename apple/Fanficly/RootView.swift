@@ -47,10 +47,11 @@ struct RootView: View {
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
     var body: some View {
+        let scale = CGFloat(UIZoom.clamped(zoomScale))
         GeometryReader { geo in
             innerBody
-                .frame(width: geo.size.width / CGFloat(zoomScale), height: geo.size.height / CGFloat(zoomScale))
-                .scaleEffect(CGFloat(zoomScale), anchor: .topLeading)
+                .frame(width: geo.size.width / scale, height: geo.size.height / scale)
+                .scaleEffect(scale, anchor: .topLeading)
         }
         .background {
             // The View menu (FanficlyApp) shows ⇧⌘+, ⇧⌘− and ⌘0. A menu item
@@ -502,6 +503,12 @@ enum UIZoom {
         let current = scale.isFinite ? scale : actualSize
         let next = ((current + (forward ? step : -step)) * 10).rounded() / 10
         return min(maxScale, max(minScale, next))
+    }
+
+    /// A stored value as drawn: inside the range, `actualSize` if not a number,
+    /// so a hand-edited 0 can't divide the root view by zero.
+    static func clamped(_ scale: Double) -> Double {
+        scale.isFinite ? min(maxScale, max(minScale, scale)) : actualSize
     }
 }
 
