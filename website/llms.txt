@@ -22,7 +22,7 @@
 
 ## Links
 
-- [Website](https://fanficly.jennyspeelman.dev/)
+- [Website](https://fanficly.app/)
 - [Source code](https://github.com/yennster/fanficly)
 - [Privacy policy](https://github.com/yennster/fanficly/blob/main/PRIVACY.md)
 - [Support](https://github.com/yennster/fanficly/issues)

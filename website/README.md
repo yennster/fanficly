@@ -1,6 +1,6 @@
 # Fanficly website
 
-The marketing site at <https://fanficly.jennyspeelman.dev>: one static page
+The marketing site at <https://fanficly.app>: one static page
 (`index.html` + `styles.css`) with no build step, hosted on Vercel.
 
 ## Preview locally
