@@ -167,7 +167,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Login-gated list of `/users/<name>/readings` (AO3's history), parsed like the bookmarks page (reuse `SearchResultsParser` with a blurb selector). Read-only first. The Marked for Later list moved to RM-023; build on its fetch and parser.
 
 ### RM-016 — Open Spotlight results, and App Shortcuts
-- **Status:** open · **Size:** M · **Validation:** mac
+- **Status:** done · **Size:** M · **Validation:** mac
 - **Scope:** Handle `CSSearchableItemActionType` (`work-<id>` identifiers from `WorkPersistence.indexWork`) by routing through the existing resume route; index every saved library work, not only followed ones (deindex on delete); add a "Continue reading" App Shortcut. Index data stays on-device.
 
 ### RM-017 — Localization groundwork
