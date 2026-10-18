@@ -1014,6 +1014,7 @@ public sealed class SearchScreen : Screen
     private static string Message(Exception error) => error switch
     {
         AO3Exception { Kind: AO3ErrorKind.LoginFailed } e => e.Reason ?? e.Message,
+        AO3Exception { Kind: AO3ErrorKind.Http, Status: { } status } e when AO3Exception.IsServerUnavailable(status) => e.Message,
         AO3Exception { Kind: AO3ErrorKind.Http } e => $"AO3 returned HTTP {e.Status}.",
         AO3Exception { Kind: AO3ErrorKind.ParseFailed } e => $"Couldn't read AO3's response: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.Network } e => $"Network: {e.Reason}",
