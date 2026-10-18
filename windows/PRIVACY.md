@@ -2,7 +2,7 @@
 
 Effective: 2026-10-16
 
-This policy covers Fanficly for Windows, the app in the Microsoft Store. The iPhone, iPad and Mac app has its own policy, on the `main` branch of this repository.
+This policy covers Fanficly for Windows, the app in the Microsoft Store. The iPhone, iPad and Mac app has its own policy, [`PRIVACY.md`](../PRIVACY.md) at the root of this repository.
 
 ## What we collect
 

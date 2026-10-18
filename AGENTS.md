@@ -3,8 +3,10 @@
 Architecture, development workflow, and regression constraints for agents working
 in this repository. Read the overview first, then the detailed section for the
 subsystem you change. Keep this file current when ownership or behavior changes,
-and verify implementation details against source. This is the only agent guide:
-`CLAUDE.md` just imports it, so edit this file, never that one.
+and verify implementation details against source. This is the only agent guide
+for the Apple app: `CLAUDE.md` just imports it, so edit this file, never that one.
+The Windows app in `windows/` has its own guide, [`windows/AGENTS.md`](windows/AGENTS.md)
+(imported by `windows/CLAUDE.md`); read it before changing anything under `windows/`.
 Picking up roadmap work? Go straight to [Autonomous roadmap work](#autonomous-roadmap-work).
 
 ## What this is
@@ -13,6 +15,12 @@ A SwiftUI app (iPhone + iPad, plus Mac via Catalyst; iOS 17+, Swift 6) that read
 
 ## Start here
 
+- **Two apps, one branch:** the Apple app is the repository root (everything
+  below); the Windows app is `windows/`, with its own README, AGENTS.md,
+  PRIVACY.md, ACCESSIBILITY.md, CONTRIBUTING.md and ROADMAP.md there. Both ship
+  from `main`. CI is path-filtered: `ci.yml` skips a change that only touches
+  `windows/`, `docs/screenshots/windows/` or the `windows-*.yml` workflows, and
+  the Windows workflows run only for those paths. Keep a PR to one app.
 - **Project/build truth:** `project.yml` defines all five targets, Swift 6 strict
   concurrency, dependencies, generated Info.plists, entitlements, and schemes.
   Regenerate with XcodeGen; do not hand-edit the generated project. Keep the iOS
@@ -132,6 +140,8 @@ project.yml                    # xcodegen is the source of truth
 bin/                           # developer scripts (icon gen, screenshots,
                                #   roadmap.sh = list/claim-check roadmap items)
 docs/ROADMAP.md                # the backlog (RM-nnn items); agents: see below
+windows/                       # the Windows app (its own AGENTS.md, ROADMAP.md
+                               #   from RM-101, workflows windows-*.yml)
 .github/pull_request_template.md  # PR checklist
 Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
@@ -303,7 +313,7 @@ The backlog is [`docs/ROADMAP.md`](docs/ROADMAP.md) (each item is mirrored by a 
 
 **The loop**
 1. **Orient.** `git fetch origin && git checkout -b tmp origin/main`, read this file's Conventions and "Things to know about AO3", and the roadmap's principles.
-2. **Pick.** Run `bin/roadmap.sh free` (open and unclaimed; needs `gh`). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
+2. **Pick.** Run `bin/roadmap.sh free apple` (open and unclaimed; needs `gh`; `windows` lists the Windows roadmap instead). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
 3. **Verify it's real.** Read the files the item names. If the feature already exists, the premise is wrong, or the item is bigger than `M`, don't build it: open a PR that only edits the roadmap (fix or split the item, with new IDs) or report back.
 4. **Claim before coding.** Create the branch `roadmap/RM-nnn-short-slug` from `origin/main`, push it, and open a **draft PR** titled `RM-nnn: <title>` whose body is the filled-in PR template. The branch/PR is the claim `bin/roadmap.sh` sees; re-run `bin/roadmap.sh` first and if another claim appeared for the same ID in the meantime, abandon yours (close your draft) and pick again. (A draft PR needs at least one commit; push the roadmap's `claimed` note, or an empty commit `git commit --allow-empty -m "Claim RM-nnn"`.)
 5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file means `xcodegen generate` and a regenerated `.xcodeproj`, which you can only do on a Mac.

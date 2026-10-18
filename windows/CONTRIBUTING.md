@@ -1,6 +1,6 @@
 # Contributing to Fanficly for Windows
 
-Thanks for wanting to help. This branch (`windows`) is the native Windows app. The iPhone, iPad and Mac app lives on `main` and has its own contributing guide. Pull requests for the Windows app go against `windows`.
+Thanks for wanting to help. This folder (`windows/`) is the native Windows app. The iPhone, iPad and Mac app lives at the repository root and has its own [contributing guide](../CONTRIBUTING.md). Pull requests for either app go against `main`.
 
 ## Setup
 
@@ -9,7 +9,6 @@ You need the [.NET 10 SDK](https://dotnet.microsoft.com/download). The unit test
 ```bash
 git clone https://github.com/yennster/fanficly.git
 cd fanficly
-git checkout windows
 cd windows
 dotnet test tests/Fanficly.Core.Tests
 dotnet build src/Fanficly.App -p:Platform=x64
@@ -48,23 +47,23 @@ A current Visual Studio with the **WinUI application development** workload can 
 
 ## What to work on
 
-The backlog is [docs/ROADMAP.md](docs/ROADMAP.md). Its items are small and scoped, with IDs from `RM-101` and a "Done when". Run `bin/roadmap.sh free` to see what's unclaimed. To claim an item, open a draft PR against `windows` from a `roadmap/RM-1nn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work), and a person always does the merge.
+The backlog is [windows/ROADMAP.md](ROADMAP.md). Its items are small and scoped, with IDs from `RM-101` and a "Done when". Run `bin/roadmap.sh free windows` to see what's unclaimed. To claim an item, open a draft PR against `main` from a `roadmap/RM-1nn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work), and a person always does the merge.
 
 ## Pull requests
 
-- One feature or fix per PR, against `windows`.
+- One feature or fix per PR, against `main`. Keep Windows changes inside `windows/` (and the Windows workflows), so the PR builds only the Windows app.
 - Reference an issue if there is one.
 - `dotnet test tests/Fanficly.Core.Tests` passes, with new tests for what you changed. They're fixture-based; never hit the network.
 - The app builds for x64 and ARM64.
 - If you changed the UI and you're on Windows, run the smoke tests (`dotnet test tests/Fanficly.UITests --filter "FullyQualifiedName~SmokeTests"`) and look at the change in demo mode. If you changed the reader's layout, pagination or text measuring, run `ReaderLayoutTests` too (`--filter "FullyQualifiedName~ReaderLayoutTests"`). Leave the mouse alone while they run.
-- [Windows CI](.github/workflows/windows-ci.yml) runs on every PR to `windows`. It runs:
+- [Windows CI](../.github/workflows/windows-ci.yml) runs on every PR to `main` that touches `windows/`. It runs:
   - the unit tests
   - x64 and ARM64 builds
   - the UI tests: smoke, screenshots and reader layout
   - the Native AOT Store bundle, which is the only place trimming and AOT problems show up
 
   Check the `ui-screenshots` artifact for anything you changed on screen. Don't commit screenshots yourself: the maintainer refreshes `docs/screenshots/windows/` and the Store pictures with the **Windows screenshots** workflow.
-- Don't reformat code you didn't touch, and don't edit the Swift sources.
+- Don't reformat code you didn't touch, and don't edit the Apple app's sources in a Windows PR.
 - Be kind in code review.
 
 ## Reporting bugs
@@ -87,4 +86,4 @@ The log never holds passwords or cookies, but it can name works you opened. Read
 
 ## Code of Conduct
 
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md).

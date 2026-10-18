@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-16, before the first Store release (`windows/store/version.txt`: 1.0). Written from the code: every item names the files it touches and what already exists.
 
-This is the `windows` branch's backlog. The Apple app's roadmap is `docs/ROADMAP.md` on `main`. Windows items are numbered from **RM-101** so the two never share an ID, and their branches and PRs target `windows`. Agents: read [Autonomous roadmap work](../AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. Claims are PRs, never issue assignments.
+This is the Windows app's backlog. The Apple app's roadmap is [`docs/ROADMAP.md`](../docs/ROADMAP.md). Windows items are numbered from **RM-101** so the two never share an ID; their branches and PRs target `main`, like the Apple app's. Agents: read [Autonomous roadmap work](AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. Claims are PRs, never issue assignments.
 
 ## Where the app is
 
@@ -182,7 +182,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.App/Views/Settings/AboutScreen.cs`, a new resource file, `Fanficly.App.csproj` if needed.
 
 ### RM-110 — Move the Windows app onto `main` (one branch, a folder per platform)
-- **Status:** open, maintainer only (agents don't pick this up) · **Size:** M · **Validation:** windows
+- **Status:** done · maintainer only · **Size:** M · **Validation:** windows
 - **Why:** A long-lived `windows` branch drifts from `main`, and every shared fix (docs, assets, release notes, AGENTS.md) has to be copied by hand. One `main` with a folder per platform keeps the separation without that cost. Do this when the Windows app is ready to ship from `main`.
 - **Scope:**
   - Merge `windows` into `main` (a merge, not a squash, so history stays) with the Windows app in `windows/` beside the Apple code; optionally move the Apple app into `apple/` in its own PR first.
@@ -192,6 +192,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - Delete the `windows` branch once `main` builds, tests and publishes the Windows app.
 - **Done when:** `main` builds and tests both apps with path-filtered CI, a `windows-v*` tag on `main` runs the Store release, and the `windows` branch is gone.
 - **Touches:** the repository layout, `.github/workflows/*`, README.md, AGENTS.md, MICROSOFT_STORE.md.
+- **Result:** `windows` is merged into `main`. Each app keeps its own README, AGENTS.md, PRIVACY.md, ACCESSIBILITY.md, CONTRIBUTING.md and roadmap: the Apple ones at the root, the Windows ones in `windows/` (the two privacy policies are separate store listings' policies). The root README and AGENTS.md link the Windows ones, and `windows/CLAUDE.md` imports `windows/AGENTS.md`. CI is path-filtered and the Store workflow runs from `main`. **Left for the maintainer:** the first `windows-v*` tag on `main`, then deleting the `windows` branch. Until that Store submission goes out, the live listing's privacy policy and website links still point at the `windows` branch.
 
 ### RM-111 — Scripted Store trailer video
 - **Status:** open · **Size:** M · **Validation:** windows

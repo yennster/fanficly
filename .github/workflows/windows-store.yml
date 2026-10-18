@@ -2,22 +2,22 @@ name: Windows Store release
 
 # Builds the Windows app's Store package and publishes it to the Microsoft
 # Store with Microsoft's own Store Developer CLI (msstore). The setup, the
-# secrets and how to use it are in MICROSOFT_STORE.md.
+# secrets and how to use it are in windows/MICROSOFT_STORE.md.
 #
 #   Push a tag windows-vX.Y.Z  -> version X.Y.Z.0, submitted for certification,
 #                                 plus a GitHub Release.
 #   Run it from the Actions tab -> version from the input, or
 #                                 windows/store/version.txt + the run number.
-#   Push to windows with [store-package] in the commit message
+#   Push to main with [store-package] in the commit message
 #                               -> builds and checks the package (no publish),
 #                                 e.g. for the first submission by hand.
-# GitHub offers "Run workflow" only for workflows on the default branch; from
-# the windows branch alone, use a tag or `gh workflow run "Windows Store
-# release" --ref windows` (MICROSOFT_STORE.md).
+# Tags are always built (GitHub doesn't apply path filters to tag pushes);
+# branch pushes only when they touch the Windows app.
 on:
   push:
     tags: ['windows-v*']
-    branches: [windows]
+    branches: [main]
+    paths: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
   workflow_dispatch:
     inputs:
       version:
@@ -78,7 +78,7 @@ jobs:
           $missing = @('STORE_PACKAGE_IDENTITY_NAME', 'STORE_PUBLISHER', 'STORE_PUBLISHER_DISPLAY_NAME') |
             Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
           if ($missing) {
-            Write-Host "::error::Missing repository variables: $($missing -join ', '). Copy them from Partner Center > Product identity; see MICROSOFT_STORE.md, 'GitHub secrets and variables'."
+            Write-Host "::error::Missing repository variables: $($missing -join ', '). Copy them from Partner Center > Product identity; see windows/MICROSOFT_STORE.md, 'GitHub secrets and variables'."
             exit 1
           }
 
@@ -196,13 +196,13 @@ jobs:
           AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
         run: |
           if (-not $env:PRODUCT_ID) {
-            Write-Host "::error::The STORE_PRODUCT_ID secret isn't set, so there's nothing to publish to. Set up the Store app and the secrets first: see MICROSOFT_STORE.md, 'One-time setup'. The package was still built: download the store-package artifact from this run."
+            Write-Host "::error::The STORE_PRODUCT_ID secret isn't set, so there's nothing to publish to. Set up the Store app and the secrets first: see windows/MICROSOFT_STORE.md, 'One-time setup'. The package was still built: download the store-package artifact from this run."
             exit 1
           }
           $missing = @('AZURE_AD_TENANT_ID', 'SELLER_ID', 'AZURE_AD_APPLICATION_CLIENT_ID', 'AZURE_AD_APPLICATION_SECRET') |
             Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
           if ($missing) {
-            Write-Host "::error::Missing secrets: $($missing -join ', '). See MICROSOFT_STORE.md, 'GitHub secrets and variables'."
+            Write-Host "::error::Missing secrets: $($missing -join ', '). See windows/MICROSOFT_STORE.md, 'GitHub secrets and variables'."
             exit 1
           }
           if ($env:ROLLOUT) {
@@ -255,7 +255,7 @@ jobs:
           if ($env:ROLLOUT) { $publishArgs += @('--packageRolloutPercentage', $env:ROLLOUT) }
           msstore @publishArgs
           if ($LASTEXITCODE) {
-            Write-Host "::error::msstore publish failed. If this is the app's first release, submit it by hand in Partner Center first (MICROSOFT_STORE.md, 'First submission')."
+            Write-Host "::error::msstore publish failed. If this is the app's first release, submit it by hand in Partner Center first (windows/MICROSOFT_STORE.md, 'First submission')."
             exit $LASTEXITCODE
           }
 

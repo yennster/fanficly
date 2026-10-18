@@ -109,7 +109,7 @@ These are set once in Partner Center and kept from one submission to the next.
   public visibility. Keep the app free: Microsoft documents CI updates for free
   apps.
 - **Properties**: category **Books + reference**. Privacy policy URL:
-  `https://github.com/yennster/fanficly/blob/windows/PRIVACY.md` (the Store
+  `https://github.com/yennster/fanficly/blob/main/windows/PRIVACY.md` (the Store
   requires one because the app uses the internet). Website and support contact
   info are on the same pages; the values are in
   `windows/store/listing/en-us/website.txt` and `support_contact.txt`. The
@@ -173,7 +173,7 @@ In the repository: **Settings → Environments → New environment**, name it
 - Under **Deployment protection rules**, tick **Required reviewers** and add
   yourself. Every publish then waits for your click in the Actions tab, so a
   stray tag can't ship anything. (Optionally also limit **Deployment branches
-  and tags** to `windows` and `windows-v*`.)
+  and tags** to `main` and `windows-v*`.)
 - Under **Environment secrets**, add the five secrets above. As environment
   secrets, only the publish job can read them, and only after approval.
 
@@ -304,18 +304,13 @@ What the workflow does then:
 
 ### Running it by hand instead of with a tag
 
-GitHub shows the **Run workflow** button only for workflows that are on the
-repository's default branch. While the Windows app lives only on the
-`windows` branch, start a manual run from the GitHub CLI instead (any push to
-`windows` registers the workflow, so this works once the branch has been
-pushed):
+Run it from **Actions → Windows Store release → Run workflow**, on `main`, or
+from the GitHub CLI:
 
 ```sh
-gh workflow run "Windows Store release" --ref windows -f submit=false
+gh workflow run "Windows Store release" --ref main -f submit=false
 ```
 
-Once the workflow file is also on the default branch, the same run is
-**Actions → Windows Store release → Run workflow**, on the `windows` branch.
 The inputs (`-f name=value` with `gh`):
 
 | Input | Meaning |
@@ -472,8 +467,8 @@ How it fits together:
 3. **Commit.** The **Windows screenshots** workflow
    (`.github/workflows/windows-screenshots.yml`) does both steps on a Windows
    runner and commits the results with the README pictures. Run it by pushing a
-   commit to `windows` with `[screenshots]` in its message, or from the Actions
-   tab once the workflow is on the default branch. CI also builds the art on
+   commit to `main` with `[screenshots]` in its message, or from the Actions
+   tab. CI also builds the art on
    every push (without committing it) and prints it into the job log, so a
    layout problem shows up early.
 

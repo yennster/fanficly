@@ -4,17 +4,18 @@ name: Windows screenshots
 # every main screen with the UI tests (windows/tests/Fanficly.UITests,
 # ScreenshotTests) at a desktop, an upright tablet and a narrow window, plus
 # 4K "store" captures (the app drawn at 2x), builds the Store art from those
-# (windows/scripts/make_store_art.py), then commits the pictures to this branch:
+# (windows/scripts/make_store_art.py), then commits the pictures to the branch it ran on:
 #   docs/screenshots/windows/{desktop,tablet,compact}/  README and docs
 #   docs/screenshots/windows/showcase.jpg               README strip
 #   windows/store/screenshots/en-us/                    the Store listing (3840x2160)
 #   windows/store/images/en-us/                         hero, box and poster art
-# Run it after a visual change: push a commit to `windows` whose message
-# contains [screenshots], or run it from the Actions tab once this file is on
-# the default branch (GitHub only offers "Run workflow" for those).
+# Run it after a visual change: push a commit to `main` whose message
+# contains [screenshots], or run it from the Actions tab (on `main`, or on a
+# PR branch to commit the pictures there).
 on:
   push:
-    branches: [windows]
+    branches: [main]
+    paths: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
   workflow_dispatch:
 
 permissions:

@@ -6,9 +6,8 @@ Store art (hero, box and poster images) is in `../images/`, laid out the same wa
 
 Don't edit these by hand: they're built by `windows/scripts/make_store_art.py`
 from the UI tests' 4K captures, and the **Windows screenshots** workflow
-(`.github/workflows/windows-screenshots.yml`; push a commit to `windows` with
-`[screenshots]` in its message, or run it from the Actions tab once the file is
-on the default branch) commits them here: `en-us/01-read-like-a-book.png` …
+(`.github/workflows/windows-screenshots.yml`; push a commit to `main` with
+`[screenshots]` in its message, or run it from the Actions tab) commits them here: `en-us/01-read-like-a-book.png` …
 `en-us/10-your-bookmarks.png` at 3840 × 2160, with `en-us/captions.txt`. To
 change a slide's headline, caption or order, edit `SLIDES` in that script.
 Look the new ones over before uploading them.
@@ -23,4 +22,4 @@ Look the new ones over before uploading them.
 Nothing here is uploaded unless you ask: run the Store workflow with
 **Upload screenshots** ticked, or run
 `windows/scripts/store/Publish-StoreScreenshots.ps1` yourself. See
-"Screenshots and Store art" in `MICROSOFT_STORE.md` at the repository root.
+"Screenshots and Store art" in `windows/MICROSOFT_STORE.md`.

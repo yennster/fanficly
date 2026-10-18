@@ -1,6 +1,11 @@
 # Fanficly
 
-An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https://archiveofourown.org).
+An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https://archiveofourown.org), with a native Windows app too.
+
+This repository holds both apps on one `main` branch:
+
+- **iPhone, iPad and Mac** (SwiftUI): at the repository root. This README covers it.
+- **Windows** (C# and WinUI 3, in the Microsoft Store): in [`windows/`](windows/). See [its README](windows/README.md).
 
 <img src="screenshots/showcase.png" alt="Fanficly showcase">
 
@@ -132,7 +137,7 @@ We collect nothing. The app talks directly to AO3 from your device. Your AO3 ses
 
 ## Contributing
 
-See the [roadmap](docs/ROADMAP.md) for what's planned. PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See the [roadmap](docs/ROADMAP.md) for what's planned (the Windows app's is [windows/ROADMAP.md](windows/ROADMAP.md)). PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 

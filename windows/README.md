@@ -2,19 +2,19 @@
 
 An open-source, ad-free Windows reader for [Archive of Our Own](https://archiveofourown.org).
 
-<img src="docs/screenshots/windows/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
+<img src="../docs/screenshots/windows/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
 
-This is the `windows` branch: a native Windows app in C# on .NET 10 with WinUI 3 (Windows App SDK), compiled with Native AOT and shipped through the Microsoft Store as an MSIX bundle for x64 and ARM64. It runs on Windows 10 (version 2004, build 19041, and later) and Windows 11. The app lives in [`windows/`](windows/).
+This is Fanficly for Windows: a native Windows app in C# on .NET 10 with WinUI 3 (Windows App SDK), compiled with Native AOT and shipped through the Microsoft Store as an MSIX bundle for x64 and ARM64. It runs on Windows 10 (version 2004, build 19041, and later) and Windows 11. The app lives in this folder, [`windows/`](./).
 
-The iPhone, iPad and Mac app is on the [`main`](https://github.com/yennster/fanficly/tree/main) branch. Its Swift sources (`Fanficly/`, `FanficlyWidget/`, `FanficlyShare/`, the Xcode project) are still in this branch as the reference implementation the Windows port follows, but nothing here builds or ships them.
+The iPhone, iPad and Mac app is at the [repository root](../README.md), on the same `main` branch. Its Swift sources (`Fanficly/`, `FanficlyWidget/`, `FanficlyShare/`, the Xcode project) are the reference implementation the Windows port follows; the Windows workflows don't build them.
 
 | Home | Search results |
 | --- | --- |
-| <img src="docs/screenshots/windows/desktop/01-home.png" alt="Fanficly's Search tab on a desktop window"> | <img src="docs/screenshots/windows/desktop/02-search-results.png" alt="Search results for a tag and the word complete"> |
+| <img src="../docs/screenshots/windows/desktop/01-home.png" alt="Fanficly's Search tab on a desktop window"> | <img src="../docs/screenshots/windows/desktop/02-search-results.png" alt="Search results for a tag and the word complete"> |
 | **Reader** | **Library** |
-| <img src="docs/screenshots/windows/desktop/03-reader.png" alt="A story open in the reader"> | <img src="docs/screenshots/windows/desktop/04-library.png" alt="The Library with reading progress on each story"> |
+| <img src="../docs/screenshots/windows/desktop/03-reader.png" alt="A story open in the reader"> | <img src="../docs/screenshots/windows/desktop/04-library.png" alt="The Library with reading progress on each story"> |
 
-The same screens at a tablet size and in a narrow window are in [`docs/screenshots/windows/tablet/`](docs/screenshots/windows/tablet/) and [`docs/screenshots/windows/compact/`](docs/screenshots/windows/compact/): `01-home`, `02-search-results`, `03-reader`, `04-library`, `05-browse`, `05-browse-fandoms`, `06-recently-viewed`, `07-reader-settings`, `08-privacy`, `09-tts`, `10-popular`, `11-comments`, `12-bookmarks` and (desktop and tablet) `13-reader-spread`, the reader page by page.
+The same screens at a tablet size and in a narrow window are in [`docs/screenshots/windows/tablet/`](../docs/screenshots/windows/tablet/) and [`docs/screenshots/windows/compact/`](../docs/screenshots/windows/compact/): `01-home`, `02-search-results`, `03-reader`, `04-library`, `05-browse`, `05-browse-fandoms`, `06-recently-viewed`, `07-reader-settings`, `08-privacy`, `09-tts`, `10-popular`, `11-comments`, `12-bookmarks` and (desktop and tablet) `13-reader-spread`, the reader page by page.
 
 _The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/ScreenshotTests.cs` launches the app in demo mode (offline, all-ages sample content) and photographs each screen at a desktop (1600 × 1000), tablet (834 × 1112) and compact (420 × 880) window size. To regenerate them, see [Screenshots](#screenshots) below._
 
@@ -54,15 +54,15 @@ _The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/Screens
 
 ## Tech
 
-- C# on .NET 10 (the SDK version is pinned in [`windows/global.json`](windows/global.json)), with nullable reference types on.
+- C# on .NET 10 (the SDK version is pinned in [`windows/global.json`](global.json)), with nullable reference types on.
 - WinUI 3 through the [Windows App SDK](https://github.com/microsoft/WindowsAppSDK). The UI is built in C#, not XAML markup, so the whole app compiles and type-checks on any OS.
 - Native AOT in Release builds: machine code, no JIT, fast cold start. The code avoids reflection-based JSON and other trimming hazards.
 - MSIX packaging: one Store bundle with x64 and ARM64.
 - [AngleSharp](https://anglesharp.github.io/) parses AO3's HTML; [Microsoft.Data.Sqlite](https://learn.microsoft.com/dotnet/standard/data/sqlite/) holds the library database.
 - [xUnit](https://xunit.net/) for unit tests, [FlaUI](https://github.com/FlaUI/FlaUI) for UI automation tests.
-- Package versions are pinned centrally in [`windows/Directory.Packages.props`](windows/Directory.Packages.props). There are no other dependencies.
+- Package versions are pinned centrally in [`windows/Directory.Packages.props`](Directory.Packages.props). There are no other dependencies.
 
-The solution is [`windows/Fanficly.Windows.slnx`](windows/Fanficly.Windows.slnx):
+The solution is [`windows/Fanficly.Windows.slnx`](Fanficly.Windows.slnx):
 
 | Project | What it is |
 | --- | --- |
@@ -141,20 +141,20 @@ $env:FANFICLY_SCREENSHOTS = (Resolve-Path ../docs/screenshots/windows).Path   # 
 dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests"
 ```
 
-The test fails if any screen couldn't be reached, so a stale picture can't slip through. CI runs it on every push to `windows` and uploads the pictures as the `ui-screenshots` artifact, along with an `icons/` gallery (from `-iconGallery`) and the reader layout tests' `reader-layout/` steps.
+The test fails if any screen couldn't be reached, so a stale picture can't slip through. CI runs it on every Windows push and pull request and uploads the pictures as the `ui-screenshots` artifact, along with an `icons/` gallery (from `-iconGallery`) and the reader layout tests' `reader-layout/` steps.
 
-The usual way to refresh the committed pictures is the **Windows screenshots** workflow ([`.github/workflows/windows-screenshots.yml`](.github/workflows/windows-screenshots.yml)): push a commit to `windows` with `[screenshots]` in its message (or run it from the Actions tab once it's on the default branch). It captures every screen at the three sizes and commits them to `docs/screenshots/windows/{desktop,tablet,compact}/`. It also captures the app at 4K and builds the Microsoft Store art from those captures with `windows/scripts/make_store_art.py`: ten 3840 × 2160 listing screenshots with captions in `windows/store/screenshots/en-us/`, the hero, box and poster images in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`. See "Screenshots and Store art" in [MICROSOFT_STORE.md](MICROSOFT_STORE.md#screenshots-and-store-art).
+The usual way to refresh the committed pictures is the **Windows screenshots** workflow ([`.github/workflows/windows-screenshots.yml`](../.github/workflows/windows-screenshots.yml)): push a commit to `main` with `[screenshots]` in its message, or run it from the Actions tab. It captures every screen at the three sizes and commits them to `docs/screenshots/windows/{desktop,tablet,compact}/`. It also captures the app at 4K and builds the Microsoft Store art from those captures with `windows/scripts/make_store_art.py`: ten 3840 × 2160 listing screenshots with captions in `windows/store/screenshots/en-us/`, the hero, box and poster images in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`. See "Screenshots and Store art" in [MICROSOFT_STORE.md](MICROSOFT_STORE.md#screenshots-and-store-art).
 
 ### CI
 
-[`.github/workflows/windows-ci.yml`](.github/workflows/windows-ci.yml) runs on every pull request to `windows`, and on pushes to `windows` that touch `windows/` or the Windows workflows:
+[`.github/workflows/windows-ci.yml`](../.github/workflows/windows-ci.yml) runs on pull requests and pushes to `main` that touch `windows/`, `docs/screenshots/windows/` or the Windows workflows:
 
 - **Core tests**: `dotnet test` on Windows.
 - **App**: builds the app for x64 and ARM64; the x64 build is launched in demo mode and photographed (the `launch-screenshot` artifact).
 - **UI tests and screenshots**: the smoke tests, the screenshot tests, then the reader layout tests, on a 1920 × 1200 display.
 - **MSIX bundle**: the Release (Native AOT) x64 + ARM64 Store upload, as the `msix-bundle` artifact.
 
-[`.github/workflows/windows-screenshots.yml`](.github/workflows/windows-screenshots.yml) is started by hand and commits fresh screenshots (see [Screenshots](#screenshots)). Store releases are [`.github/workflows/windows-store.yml`](.github/workflows/windows-store.yml), started by a `windows-vX.Y.Z` tag; see [MICROSOFT_STORE.md](MICROSOFT_STORE.md). The Apple workflow (`ci.yml`) only runs on `main`.
+[`.github/workflows/windows-screenshots.yml`](../.github/workflows/windows-screenshots.yml) is started by hand and commits fresh screenshots (see [Screenshots](#screenshots)). Store releases are [`.github/workflows/windows-store.yml`](../.github/workflows/windows-store.yml), started by a `windows-vX.Y.Z` tag; see [MICROSOFT_STORE.md](MICROSOFT_STORE.md). The Apple workflow (`ci.yml`) skips changes that touch only those Windows paths.
 
 ## About AO3
 
@@ -174,8 +174,8 @@ We collect nothing. The app talks directly to AO3 from your PC. Your AO3 session
 
 ## Contributing
 
-See the [roadmap](docs/ROADMAP.md) for what's planned on Windows. PRs welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) first, and [AGENTS.md](AGENTS.md) for how the code is put together. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See the [roadmap](ROADMAP.md) for what's planned on Windows. PRs welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) first, and [AGENTS.md](AGENTS.md) for how the code is put together. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md).
 
 ## License
 
-[PolyForm Noncommercial License 1.0.0](LICENSE).
+[PolyForm Noncommercial License 1.0.0](../LICENSE).

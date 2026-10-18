@@ -2,6 +2,8 @@
 
 Effective: 2026-10-07
 
+This policy covers Fanficly for iPhone, iPad and Mac. Fanficly for Windows has its own policy: [windows/PRIVACY.md](windows/PRIVACY.md).
+
 ## What we collect
 
 **Nothing.**

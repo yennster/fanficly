@@ -2,6 +2,8 @@
 
 Thanks for wanting to help. A few quick guidelines.
 
+This guide is for the iPhone, iPad and Mac app at the repository root. The Windows app lives in [`windows/`](windows/) and has [its own guide](windows/CONTRIBUTING.md). Both apps take pull requests against `main`.
+
 ## Setup
 
 ```bash

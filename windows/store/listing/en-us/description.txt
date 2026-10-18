@@ -30,6 +30,6 @@ MADE FOR WINDOWS
 • Works with Narrator and other screen readers.
 
 PRIVATE BY DESIGN
-There is no Fanficly account and no Fanficly server. No analytics, no ads, no tracking. Your library, reading progress, stats and settings stay on your device. If you sign in to AO3, the only thing kept is AO3's own session cookie, stored securely on your PC. The source code is public on GitHub. Privacy policy: https://github.com/yennster/fanficly/blob/windows/PRIVACY.md
+There is no Fanficly account and no Fanficly server. No analytics, no ads, no tracking. Your library, reading progress, stats and settings stay on your device. If you sign in to AO3, the only thing kept is AO3's own session cookie, stored securely on your PC. The source code is public on GitHub. Privacy policy: https://github.com/yennster/fanficly/blob/main/windows/PRIVACY.md
 
 Fanficly is an independent app. It is not affiliated with, endorsed by or sponsored by AO3 or the Organization for Transformative Works. All works are hosted on and moderated by Archive of Our Own; Fanficly hosts no content.

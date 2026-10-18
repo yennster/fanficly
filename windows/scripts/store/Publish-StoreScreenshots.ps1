@@ -230,7 +230,7 @@ if ($missing.Count -gt 0) {
     Write-Host "What if: the screenshots above would replace the Store listing's screenshots. (Partner Center credentials not set, so the draft submission wasn't checked.)"
     return
   }
-  throw "Missing Partner Center credentials: $($missing -join ', '). See MICROSOFT_STORE.md."
+  throw "Missing Partner Center credentials: $($missing -join ', '). See windows/MICROSOFT_STORE.md."
 }
 
 # 2. Sign in and find the draft submission.

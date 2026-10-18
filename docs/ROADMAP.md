@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-10, at 1.10.0 (build 31). Written from the code, not from wishes: every item below names the files it touches and what already exists.
 
-Agents: read [Autonomous roadmap work](../AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. This file is the backlog. Each item is also mirrored as a GitHub issue titled `RM-nnn: …` (#37–#56, and RM-021 onward as added) for discussion; if they disagree, this file wins. Claims are PRs, never issue assignments.
+This is the iPhone, iPad and Mac backlog; the Windows app's is [`windows/ROADMAP.md`](../windows/ROADMAP.md) (IDs from RM-101). Agents: read [Autonomous roadmap work](../AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. This file is the backlog. Each item is also mirrored as a GitHub issue titled `RM-nnn: …` (#37–#56, and RM-021 onward as added) for discussion; if they disagree, this file wins. Claims are PRs, never issue assignments.
 
 ## Where the app is
 

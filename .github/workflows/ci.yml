@@ -1,10 +1,14 @@
 name: CI
 
+# The Apple app. The Windows app (windows/) has its own workflows,
+# windows-*.yml, so a change that touches only Windows paths skips this one.
 on:
   push:
     branches: [main]
+    paths-ignore: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
   pull_request:
     branches: [main]
+    paths-ignore: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
 
 jobs:
   test:

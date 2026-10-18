@@ -5,10 +5,11 @@ name: Windows CI
 # and photograph every screen, and the Store MSIX bundle.
 on:
   push:
-    branches: [windows]
-    paths: ['windows/**', '.github/workflows/windows-*.yml']
+    branches: [main]
+    paths: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
   pull_request:
-    branches: [windows]
+    branches: [main]
+    paths: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
   workflow_dispatch:
 
 concurrency:

@@ -1,13 +1,13 @@
 # AGENTS.md — working in Fanficly for Windows
 
-Architecture, workflow and regression rules for agents working on the `windows` branch. Read "What this is" and "Start here" first, then the section for the part you're changing. Keep this file current when behaviour or ownership changes, and check details against the source rather than trusting older notes.
+Architecture, workflow and regression rules for agents working on the Windows app in `windows/`. Claude Code loads this file through `windows/CLAUDE.md` when you work in this folder; the repository-wide rules and the Apple app's guide are in the root [`AGENTS.md`](../AGENTS.md). Read "What this is" and "Start here" first, then the section for the part you're changing. Keep this file current when behaviour or ownership changes, and check details against the source rather than trusting older notes.
 Picking up roadmap work? Go straight to [Autonomous roadmap work](#autonomous-roadmap-work).
 
 ## What this is
 
 A native Windows app (WinUI 3 on the Windows App SDK, C# on .NET 10, Native AOT in Release, MSIX for the Microsoft Store, x64 and ARM64, Windows 10 2004 / build 19041 and later) that reads AO3 fanfiction. It is a port of the SwiftUI app on `main`. There is no AO3 JSON API, so the app scrapes AO3's HTML with AngleSharp, through one `HttpClient` with a custom `User-Agent` and a 1 request/second throttle. Everything runs on the PC: no servers, no analytics.
 
-The Swift sources (`Fanficly/`, `FanficlyTests/`, …) stay in this branch as the reference implementation. Most C# types name their Swift counterpart in a doc comment ("SwiftData's `@Query`", "the Mac's swipe action"); when behaviour is unclear, the Swift code is the specification. The Apple app's own guide is `AGENTS.md` on `main`. This branch is temporary: the plan is to merge it into `main` as a `windows/` folder and delete it ([RM-110](docs/ROADMAP.md#rm-110--move-the-windows-app-onto-main-one-branch-a-folder-per-platform)).
+Both apps live on `main`: the Apple app at the repository root (`Fanficly/`, `FanficlyTests/`, …) and this one in `windows/`. The Swift sources are the reference implementation. Most C# types name their Swift counterpart in a doc comment ("SwiftData's `@Query`", "the Mac's swipe action"); when behaviour is unclear, the Swift code is the specification. The Apple app's own guide is the root `AGENTS.md`.
 
 ## Start here
 
@@ -16,7 +16,7 @@ The Swift sources (`Fanficly/`, `FanficlyTests/`, …) stay in this branch as th
 - **Data safety:** keep offline chapter text, timestamped progress, subscription notification baselines and forward-only backup merges intact. The library is a local SQLite file, not a cloud database; sync is an opt-in file in a folder the user picks.
 - **Network and privacy:** every AO3 request goes through `IAO3Client` and its throttle. No telemetry, no backend. Never log passwords, cookies or keys (`AppHost.Log` writes a local file).
 - **Validation:** `dotnet test` on the Core tests runs anywhere. The app compiles on Linux and macOS, but running it and the UI tests needs Windows (or CI). See [Tests](#tests) and [Which machine you're on](#which-machine-youre-on).
-- **Related docs:** `README.md` (features and setup), `CONTRIBUTING.md`, `ACCESSIBILITY.md`, `PRIVACY.md` (linked from the Store listing, so keep it accurate), `MICROSOFT_STORE.md` (packaging, listing, release tags), `docs/ROADMAP.md`, `.github/workflows/windows-ci.yml` and `windows-store.yml`.
+- **Related docs** (all in `windows/`): `README.md` (features and setup), `CONTRIBUTING.md`, `ACCESSIBILITY.md`, `PRIVACY.md` (linked from the Store listing, so keep it accurate), `MICROSOFT_STORE.md` (packaging, listing, release tags), `ROADMAP.md`; plus `.github/workflows/windows-ci.yml` and `windows-store.yml`.
 
 ## Architecture
 
@@ -83,19 +83,23 @@ Mutations go through `WorkPersistence` (Upsert, UpsertMetadata, ToggleFollow, Un
 
 ```
 .github/workflows/
-  windows-ci.yml               # PRs to windows + pushes touching windows/: core
+  windows-ci.yml               # PRs and main pushes touching windows/: core
                                #   tests, x64/ARM64 builds, UI tests +
                                #   screenshots, MSIX bundle
   windows-store.yml            # windows-v* tag: build, WACK, Store submit, release
   windows-screenshots.yml      # [screenshots] push or manual: capture every screen,
                                #   build the Store art, commit the pictures
-  ci.yml                       # the Apple app; runs on main only
-Fanficly/ … FanficlyWidget/    # the Swift app: reference implementation, not built here
+  ci.yml                       # the Apple app; skips changes only under windows/
+Fanficly/ … FanficlyWidget/    # the Swift app: reference implementation, not built
+                               #   by the Windows workflows
 docs/
-  ROADMAP.md                   # Windows backlog (RM-101 onward)
+  ROADMAP.md                   # the Apple backlog (the Windows one is windows/ROADMAP.md)
   screenshots/windows/         # README shots from ScreenshotTests (desktop/tablet/compact)
                                #   + showcase.jpg, committed by windows-screenshots.yml
 windows/
+  README.md, AGENTS.md, …      # the Windows app's docs (CLAUDE.md imports AGENTS.md)
+  ROADMAP.md                   # Windows backlog (RM-101 onward)
+  MICROSOFT_STORE.md           # packaging, listing, release tags
   Fanficly.Windows.slnx        # the solution (four projects)
   global.json                  # .NET SDK pin
   Directory.Build.props        # nullable, implicit usings, EnableWindowsTargeting
@@ -421,33 +425,33 @@ The app stores nothing off the PC except, when the user turns sync on, the backu
 
 ## CI
 
-`.github/workflows/windows-ci.yml` runs on every pull request to `windows` and on pushes to `windows` that touch `windows/` or the Windows workflows. A newer push waits for the running build rather than cancelling it.
+`.github/workflows/windows-ci.yml` runs on pull requests to `main` and pushes to `main` that touch `windows/`, `docs/screenshots/windows/` or the Windows workflows. The Apple `ci.yml` skips changes that touch only those paths, so a PR builds just the app it changes. A newer push waits for the running build rather than cancelling it.
 
 - **Core tests:** `dotnet test` in Release on `windows-latest`, results as `core-test-results`.
 - **App (x64, ARM64):** unpackaged self-contained Debug builds; the x64 build is launched in demo mode and photographed (`launch-screenshot`).
 - **UI tests and screenshots:** builds the app and UI tests, sets a 1920×1200 display, installs the Windows 11 icon font, runs `SmokeTests`, then `ScreenshotTests` (the three sizes, the store sizes, the reader pages and the icon gallery), then `ReaderLayoutTests`, charts the icon fonts, builds the Store art into `ui-screenshots/store-art/` (not committed) with `make_store_art.py --out`, prints the pictures into the log and uploads `ui-screenshots` (including `icons/` and `reader-layout/`) and `ui-test-results`. The screenshot and reader layout steps run even when an earlier step failed.
 - **MSIX bundle:** after Core tests and App pass, MSBuild builds the Release (Native AOT) x64 + ARM64 Store upload (`msix-bundle`). This is the only job that compiles with AOT, so it's where trim and AOT problems surface.
 
-`windows-screenshots.yml` (`contents: write`; a push to `windows` whose message contains `[screenshots]`, or a manual run once it's on the default branch) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `docs/screenshots/windows/{desktop,tablet,compact}/`, builds the Store art with `windows/scripts/make_store_art.py` (ten 3840×2160 slides with `captions.txt` in `windows/store/screenshots/en-us/`, the hero, box and poster in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`), and commits them to the branch it ran on. That's release housekeeping: a maintainer runs it, roadmap PRs don't.
+`windows-screenshots.yml` (`contents: write`; a push to `main` whose message contains `[screenshots]`, or a manual run from the Actions tab) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `docs/screenshots/windows/{desktop,tablet,compact}/`, builds the Store art with `windows/scripts/make_store_art.py` (ten 3840×2160 slides with `captions.txt` in `windows/store/screenshots/en-us/`, the hero, box and poster in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`), and commits them to the branch it ran on (a manual run on a PR branch commits there; on `main` it pushes straight to `main`, so branch protection on `main` must let the workflow push). That's release housekeeping: a maintainer runs it, roadmap PRs don't.
 
 `windows-store.yml` (a `windows-v*` tag or a manual run) builds, runs the Windows App Certification Kit, submits to the Store (environment `microsoft-store`) and makes a GitHub release; see `MICROSOFT_STORE.md`. CI picks the runner image's tools; don't hard-code machine-specific paths.
 
 ## Autonomous roadmap work
 
-The backlog is [`docs/ROADMAP.md`](docs/ROADMAP.md). Windows items are numbered from **RM-101** so they never collide with the Apple roadmap's IDs on `main`. This loop is for an agent told to "pick a roadmap item and ship a PR". It ends at an **open PR against `windows`**. A human merges.
+The backlog is [`windows/ROADMAP.md`](ROADMAP.md). Windows items are numbered from **RM-101** so they never collide with the Apple roadmap's IDs (`docs/ROADMAP.md`). This loop is for an agent told to "pick a roadmap item and ship a PR". It ends at an **open PR against `main`**. A human merges.
 
 **Hard rules**
-- Never merge a PR, enable auto-merge, approve your own PR, push to `windows` or `main`, force-push a branch you didn't create, or edit CI to make it pass.
+- Never merge a PR, enable auto-merge, approve your own PR, push to `main`, force-push a branch you didn't create, or edit CI to make it pass.
 - Never touch release housekeeping: `windows/store/` (version, listing, screenshots), the manifest's `Identity` and version, `docs/screenshots/`, signing settings, the Store workflow.
-- Don't change the Swift sources; they are the reference. One roadmap item per PR, one agent per item; don't start an item that's claimed.
+- Don't change the Apple app's sources in a Windows PR; they are the reference. One roadmap item per PR, one agent per item; don't start an item that's claimed.
 - Don't reformat or refactor what the item doesn't need. Don't add dependencies.
 - Don't create GitHub issues, labels or releases. Anything outward-facing beyond the one PR needs the user's say-so.
 
 **The loop**
-1. **Orient.** `git fetch origin && git checkout -b tmp origin/windows`; read Conventions, "Things to know about AO3" and the roadmap's principles.
-2. **Pick.** `bin/roadmap.sh free` (needs `gh`) lists open, unclaimed items from this branch's roadmap. Take the lowest-numbered `S` or `M` item unless the user named one; prefer `Validation: unit` when you can't run Windows. If nothing is free, stop and say so.
+1. **Orient.** `git fetch origin && git checkout -b tmp origin/main`; read Conventions, "Things to know about AO3" and the roadmap's principles.
+2. **Pick.** `bin/roadmap.sh free windows` (needs `gh`) lists open, unclaimed items from the Windows roadmap. Take the lowest-numbered `S` or `M` item unless the user named one; prefer `Validation: unit` when you can't run Windows. If nothing is free, stop and say so.
 3. **Verify it's real.** Read the files the item names. If it's already done, wrong, or bigger than `M`, open a roadmap-only PR that fixes or splits it, or report back.
-4. **Claim before coding.** Branch `roadmap/RM-1nn-short-slug` from `origin/windows`, push, and open a **draft PR with base `windows`** (`gh pr create --draft --base windows`) titled `RM-1nn: <title>`. Re-run `bin/roadmap.sh`; if another claim for the same ID appeared, close yours and pick again.
+4. **Claim before coding.** Branch `roadmap/RM-1nn-short-slug` from `origin/main`, push, and open a **draft PR against `main`** (`gh pr create --draft`) titled `RM-1nn: <title>`. Re-run `bin/roadmap.sh`; if another claim for the same ID appeared, close yours and pick again.
 5. **Implement the smallest slice** that meets "Done when", following the Conventions (the client seam, pure parsers, `KeyValueStores`, Narrator names, AOT rules).
 6. **Test.** Core tests for every behaviour change; a smoke step for a new tab or route.
 7. **Validate honestly** (below).
