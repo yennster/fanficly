@@ -21,8 +21,9 @@ public interface IAO3Client
     Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
     /// <summary>Comments for a specific chapter (AO3 threads comments per chapter).
     /// <paramref name="chapterId"/> null fetches the work-level page (the first
-    /// chapter's thread), the fallback when the id is unknown.</summary>
-    Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default);
+    /// chapter's thread), the fallback when the id is unknown. <paramref name="page"/>
+    /// is the 1-based comment page.</summary>
+    Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default);
     Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default);
     Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default);
     Task<PopularSnapshot> FetchPopularSnapshotAsync(CancellationToken ct = default);

@@ -16,7 +16,8 @@ namespace Fanficly.App.Views.Account;
 /// are indented with a thread guide line; guest comments get the "unknown
 /// person" symbol. Logged in, a composer at the bottom posts through the
 /// client and then re-fetches, since AO3 may hold the new comment for
-/// moderation.
+/// moderation. A thread longer than one AO3 page ends in "Load more comments",
+/// which appends the next page (a button, as on the Mac, not infinite scroll).
 /// </summary>
 public sealed class CommentsScreen : Screen
 {
@@ -28,6 +29,11 @@ public sealed class CommentsScreen : Screen
     private readonly Border _composerHost = new();
     private readonly VirtualList<AO3Comment> _list;
     private IReadOnlyList<AO3Comment> _comments = [];
+    /// <summary>The last comment page loaded and how many AO3 has.</summary>
+    private int _currentPage = 1;
+    private int _totalPages = 1;
+    private bool _isLoadingMore;
+    private string? _loadMoreError;
     private CancellationTokenSource? _loadCts;
     private CancellationTokenSource? _postCts;
     private bool _isLoading;
@@ -124,10 +130,14 @@ public sealed class CommentsScreen : Screen
         RenderContent();
         try
         {
-            var comments = await AppHost.Client.FetchCommentsAsync(_workId, _chapterId, cts.Token);
+            var page = await AppHost.Client.FetchCommentsAsync(_workId, _chapterId, 1, cts.Token);
             if (cts.IsCancellationRequested) return;
-            _comments = comments;
+            _comments = page.Comments;
+            _currentPage = page.CurrentPage;
+            _totalPages = page.TotalPages;
+            _loadMoreError = null;
             _list.Reset(_comments);
+            RenderLoadMore();
         }
         catch (Exception) when (cts.IsCancellationRequested)
         {
@@ -148,6 +158,72 @@ public sealed class CommentsScreen : Screen
         RenderContent();
         if (_errorMessage is not null && _comments.Count == 0)
             MainWindow.Current.Announce($"Couldn't load comments. {_errorMessage}");
+    }
+
+    /// <summary>Appends the next comment page. Ids already shown are skipped, since
+    /// a comment posted meanwhile can shift a thread onto the next page. Shares
+    /// <see cref="_loadCts"/> with <see cref="LoadAsync"/>, so a refresh cancels it.</summary>
+    private async Task LoadMoreAsync()
+    {
+        if (_isLoadingMore || _isLoading || _currentPage >= _totalPages) return;
+        var cts = _loadCts ??= new CancellationTokenSource();
+        _isLoadingMore = true;
+        _loadMoreError = null;
+        RenderLoadMore();
+        try
+        {
+            var page = await AppHost.Client.FetchCommentsAsync(_workId, _chapterId, _currentPage + 1, cts.Token);
+            if (cts.IsCancellationRequested) return;
+            var seen = _comments.Select(c => c.Id).ToHashSet();
+            var added = page.Comments.Where(c => !seen.Contains(c.Id)).ToList();
+            _comments = [.. _comments, .. added];
+            _list.Append(added);
+            _currentPage = Math.Max(_currentPage + 1, page.CurrentPage);
+            _totalPages = page.TotalPages;
+            MainWindow.Current.Announce(added.Count == 1 ? "Loaded 1 more comment" : $"Loaded {added.Count} more comments");
+        }
+        catch (Exception) when (cts.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception e)
+        {
+            _loadMoreError = $"Couldn't load more comments: {e.Message}";
+            MainWindow.Current.Announce(_loadMoreError);
+        }
+        finally
+        {
+            _isLoadingMore = false;
+        }
+        RenderLoadMore();
+    }
+
+    /// <summary>The list's footer: "Load more comments" while AO3 has more pages.</summary>
+    private void RenderLoadMore()
+    {
+        if (_currentPage >= _totalPages)
+        {
+            _list.Footer = null;
+            return;
+        }
+        var stack = UI.UI.VStack(6);
+        stack.HorizontalAlignment = HorizontalAlignment.Center;
+        stack.Padding = new Thickness(14, 10, 14, 14);
+        if (_loadMoreError is not null)
+            stack.Children.Add(UI.UI.Text(_loadMoreError, Theme.Style.Caption, Theme.Danger, selectable: true));
+        if (_isLoadingMore)
+        {
+            stack.Children.Add(new ProgressRing { IsActive = true, Width = 20, Height = 20 }
+                .Also(r => AutomationProperties.SetName(r, "Loading more comments")));
+        }
+        else
+        {
+            var button = UI.UI.Button("Load more comments", () => _ = LoadMoreAsync()).Id("comments.loadMore");
+            button.HorizontalAlignment = HorizontalAlignment.Center;
+            AutomationProperties.SetHelpText(button, $"Page {_currentPage} of {_totalPages}");
+            stack.Children.Add(button);
+        }
+        _list.Footer = stack;
     }
 
     private void RenderContent()

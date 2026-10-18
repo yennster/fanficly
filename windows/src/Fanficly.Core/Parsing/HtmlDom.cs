@@ -179,11 +179,11 @@ public static class HtmlDom
     /// (<c>&lt;li&gt;&lt;span class="current"&gt;2&lt;/span&gt;&lt;/li&gt;</c>, where the
     /// <c>&lt;li&gt;</c> has no class). Both are checked, or the current page sticks at 1
     /// and "Load more" keeps re-requesting the same page.</summary>
-    internal static (int Current, int Total) Pagination(IDocument doc)
+    internal static (int Current, int Total) Pagination(IDocument doc, string itemSelector = "ol.pagination li")
     {
         var current = 1;
         var total = 1;
-        foreach (var li in doc.Select("ol.pagination li"))
+        foreach (var li in doc.Select(itemSelector))
         {
             if (ParseSwiftInt(li.Text().TrimSwiftWhitespaces()) is not { } num) continue;
             total = Math.Max(total, num);

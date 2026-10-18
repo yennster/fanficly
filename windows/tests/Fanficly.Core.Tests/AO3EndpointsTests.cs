@@ -136,4 +136,15 @@ public class AO3EndpointsTests
         var uri = AO3Endpoints.ChapterComments(9, 42, _base);
         Assert.Equal("https://archiveofourown.org/works/9/chapters/42?view_adult=true&show_comments=true#comments", uri.AbsoluteUri);
     }
+
+    [Fact]
+    public void CommentsURLs_Paginate()
+    {
+        Assert.Equal("https://archiveofourown.org/works/9/chapters/42?view_adult=true&show_comments=true&page=3#comments",
+            AO3Endpoints.ChapterComments(9, 42, _base, page: 3).AbsoluteUri);
+        // A one-shot has no chapter id; its work-level thread paginates the same way.
+        Assert.Equal("https://archiveofourown.org/works/9?view_adult=true&show_comments=true&page=2#comments",
+            AO3Endpoints.WorkComments(9, _base, page: 2).AbsoluteUri);
+        Assert.DoesNotContain("page=", AO3Endpoints.WorkComments(9, _base, page: 1).AbsoluteUri);
+    }
 }
