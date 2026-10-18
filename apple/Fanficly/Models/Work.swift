@@ -47,6 +47,12 @@ final class Work {
     var isStarred: Bool = false
     var isPinned: Bool = false
 
+    /// The reader's own note and tags ("for a bad day", "reread at
+    /// Christmas"), separate from AO3's tags. Additive (defaulted) so
+    /// SwiftData migrates existing stores automatically.
+    var note: String?
+    var personalTags: [String] = []
+
     @Relationship(deleteRule: .cascade, inverse: \Chapter.work)
     var chapters: [Chapter] = []
 
@@ -102,6 +108,28 @@ final class Work {
         self.publishedAt = publishedAt
         self.updatedAt = updatedAt
         self.savedAt = savedAt
+    }
+}
+
+extension Work {
+    /// Splits the notes sheet's comma-separated tag field into tags: trimmed,
+    /// empties dropped, duplicates (ignoring case) dropped, first spelling kept.
+    static func personalTags(from text: String) -> [String] {
+        var seen = Set<String>()
+        var tags: [String] = []
+        for part in text.split(separator: ",") {
+            let tag = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tag.isEmpty, seen.insert(tag.lowercased()).inserted else { continue }
+            tags.append(tag)
+        }
+        return tags
+    }
+
+    /// Stores what the notes sheet edited. A blank note is stored as nil.
+    func setNotes(note text: String, tagsText: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        note = trimmed.isEmpty ? nil : trimmed
+        personalTags = Work.personalTags(from: tagsText)
     }
 }
 

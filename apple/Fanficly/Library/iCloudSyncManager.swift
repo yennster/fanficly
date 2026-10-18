@@ -125,6 +125,8 @@ final class iCloudSyncManager {
                     lastSeenChapterCount: work.lastSeenChapterCount,
                     isStarred: work.isStarred,
                     isPinned: work.isPinned,
+                    note: work.note,
+                    personalTags: work.personalTags,
                     chapters: work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
                         ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
                     },
@@ -305,8 +307,12 @@ final class iCloudSyncManager {
     nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup) -> LibraryBackup {
         var worksById = Dictionary(cloud.works.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for var w in local.works {
-            if let cloudWork = worksById[w.ao3Id], cloudWork.chapters.count > w.chapters.count {
-                w.chapters = cloudWork.chapters
+            if let cloudWork = worksById[w.ao3Id] {
+                if cloudWork.chapters.count > w.chapters.count {
+                    w.chapters = cloudWork.chapters
+                }
+                w.note = mergedNote(local: w.note, other: cloudWork.note)
+                w.personalTags = mergedPersonalTags(local: w.personalTags ?? [], other: cloudWork.personalTags)
             }
             worksById[w.ao3Id] = w
         }
@@ -357,6 +363,21 @@ final class iCloudSyncManager {
             stats: statsById.values.sorted { $0.ao3Id < $1.ao3Id },
             timestamp: local.timestamp
         )
+    }
+
+    /// A work's note merges forward-only: a non-empty note is never replaced
+    /// by an empty one, and when both sides have one, local wins. So clearing
+    /// a note doesn't propagate to other devices (like un-starring).
+    nonisolated static func mergedNote(local: String?, other: String?) -> String? {
+        if let local, !local.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return local }
+        if let other, !other.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return other }
+        return local
+    }
+
+    /// Personal tags merge as one list, the same way as the note: local wins
+    /// unless it's empty.
+    nonisolated static func mergedPersonalTags(local: [String], other: [String]?) -> [String] {
+        local.isEmpty ? (other ?? []) : local
     }
 
     /// The same conservative per-stat merge `restoreFromiCloud` applies: max of
@@ -572,6 +593,10 @@ final class iCloudSyncManager {
                 }
                 work.isStarred = work.isStarred || (w.isStarred ?? false)
                 work.isPinned = work.isPinned || (w.isPinned ?? false)
+                // Note and personal tags only move forward: an empty backup
+                // value never clears this device's, and this device's wins.
+                work.note = Self.mergedNote(local: work.note, other: w.note)
+                work.personalTags = Self.mergedPersonalTags(local: work.personalTags, other: w.personalTags)
 
                 work.folder = nil // clear legacy single folder reference
                 // Folders union, not replace: a launch sync must not drop an
@@ -889,6 +914,10 @@ struct WorkBackup: Codable {
     let lastSeenChapterCount: Int?
     let isStarred: Bool?
     let isPinned: Bool?
+    /// Optional so backups from before notes and personal tags still decode;
+    /// `var` so the backup merge can keep the cloud copy's when local is empty.
+    var note: String?
+    var personalTags: [String]?
     /// `var` so the backup merge can graft the cloud copy's chapters onto a
     /// local metadata-only record.
     var chapters: [ChapterBackup]

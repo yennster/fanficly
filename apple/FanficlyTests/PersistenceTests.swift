@@ -896,6 +896,166 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(work.matches(query: "Snape"))
     }
 
+    // MARK: - Notes and personal tags (RM-009)
+
+    func test_personalTagsParseTrimAndDedupe() {
+        XCTAssertEqual(Work.personalTags(from: " for a bad day, reread at Christmas ,,For a Bad Day, "),
+                       ["for a bad day", "reread at Christmas"])
+        XCTAssertEqual(Work.personalTags(from: "   "), [])
+    }
+
+    func test_notesAndPersonalTagsPersist() throws {
+        let ctx = try makeContext()
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        ctx.insert(work)
+        XCTAssertNil(work.note)
+        XCTAssertEqual(work.personalTags, [])
+
+        work.setNotes(note: "  Comfort read  ", tagsText: "for a bad day, reread at Christmas")
+        try ctx.save()
+        let saved = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(saved.note, "Comfort read")
+        XCTAssertEqual(saved.personalTags, ["for a bad day", "reread at Christmas"])
+
+        // A blank note is stored as nil, not "".
+        saved.setNotes(note: "   ", tagsText: "")
+        try ctx.save()
+        XCTAssertNil(saved.note)
+        XCTAssertEqual(saved.personalTags, [])
+    }
+
+    func test_librarySearchMatchesNoteAndPersonalTags() {
+        let work = Work(ao3Id: 1, title: "Golden Snitch", authorName: "A")
+        work.setNotes(note: "Recommended by Sam", tagsText: "reread at Christmas")
+        XCTAssertTrue(work.matches(query: "sam"))
+        XCTAssertTrue(work.matches(query: "Christmas"))
+        XCTAssertFalse(work.matches(query: "birthday"))
+        XCTAssertFalse(Work(ao3Id: 2, title: "Other", authorName: "B").matches(query: "christmas"))
+    }
+
+    func test_noteAndTagMergeIsForwardOnlyAndLocalWins() {
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: nil, other: "cloud"), "cloud")
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: "  ", other: "cloud"), "cloud")
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: "local", other: nil), "local")
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: "local", other: "cloud"), "local")
+        XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: ["x"]), ["x"])
+        XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: nil), [])
+        XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: ["y"], other: ["x"]), ["y"])
+    }
+
+    /// A device without a note must not erase another device's note in the
+    /// backup file, and a device with its own note keeps it.
+    func test_backupMergeKeepsNotesForwardOnly() throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let phone = try makeContext()
+        let noted = Work(ao3Id: 1, title: "T", authorName: "A")
+        noted.setNotes(note: "phone note", tagsText: "comfort")
+        phone.insert(noted)
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let pad = try makeContext()
+        pad.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try pad.save()
+        iCloudSyncManager.shared.backupToiCloud(context: pad)
+
+        var work = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertEqual(work.note, "phone note")
+        XCTAssertEqual(work.personalTags, ["comfort"])
+
+        let mac = try makeContext()
+        let macWork = Work(ao3Id: 1, title: "T", authorName: "A")
+        macWork.setNotes(note: "mac note", tagsText: "angst")
+        mac.insert(macWork)
+        try mac.save()
+        iCloudSyncManager.shared.backupToiCloud(context: mac)
+
+        work = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertEqual(work.note, "mac note")
+        XCTAssertEqual(work.personalTags, ["angst"])
+    }
+
+    /// Restore fills an empty note and tags from the backup but never
+    /// overwrites this device's own.
+    func test_restoreKeepsLocalNotesAndFillsEmptyOnes() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let cloudDevice = try makeContext()
+        for id in 1...2 {
+            let w = Work(ao3Id: id, title: "T\(id)", authorName: "A")
+            w.setNotes(note: "cloud note", tagsText: "cloud tag")
+            cloudDevice.insert(w)
+        }
+        try cloudDevice.save()
+        iCloudSyncManager.shared.backupToiCloud(context: cloudDevice)
+
+        let device = try makeContext()
+        let own = Work(ao3Id: 1, title: "T1", authorName: "A")
+        own.setNotes(note: "my note", tagsText: "my tag")
+        device.insert(own)
+        device.insert(Work(ao3Id: 2, title: "T2", authorName: "A"))
+        try device.save()
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let all = try device.fetch(FetchDescriptor<Work>())
+        let first = try XCTUnwrap(all.first(where: { $0.ao3Id == 1 }))
+        let second = try XCTUnwrap(all.first(where: { $0.ao3Id == 2 }))
+        XCTAssertEqual(first.note, "my note")
+        XCTAssertEqual(first.personalTags, ["my tag"])
+        XCTAssertEqual(second.note, "cloud note")
+        XCTAssertEqual(second.personalTags, ["cloud tag"])
+    }
+
+    /// Backups written before notes and personal tags existed have neither
+    /// key; they must still decode and restore without touching local notes.
+    func test_oldBackupWithoutNoteFieldsDecodesAndRestores() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let old = try makeContext()
+        old.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try old.save()
+        iCloudSyncManager.shared.backupToiCloud(context: old)
+
+        // Strip the new keys, as an older app version would have written it.
+        var json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var works = try XCTUnwrap(json["works"] as? [[String: Any]])
+        works = works.map { var w = $0; w.removeValue(forKey: "note"); w.removeValue(forKey: "personalTags"); return w }
+        json["works"] = works
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let decoded = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertNil(decoded.note)
+        XCTAssertNil(decoded.personalTags)
+
+        let device = try makeContext()
+        let local = Work(ao3Id: 1, title: "T", authorName: "A")
+        local.setNotes(note: "keep me", tagsText: "keep")
+        device.insert(local)
+        try device.save()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(work.note, "keep me")
+        XCTAssertEqual(work.personalTags, ["keep"])
+    }
+
     func test_workMultiFolderPersistence() throws {
         let ctx = try makeContext()
         let work = Work(ao3Id: 999, title: "Multi Folder Story", authorName: "author")
