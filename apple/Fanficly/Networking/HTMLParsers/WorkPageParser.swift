@@ -89,7 +89,8 @@ enum WorkPageParser {
             kudos: kudos,
             hits: hits,
             isComplete: isComplete,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            series: SeriesParser.parts(in: doc)
         )
 
         _ = (bookmarksCount, commentsCount)

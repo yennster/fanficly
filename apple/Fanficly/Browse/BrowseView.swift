@@ -520,6 +520,149 @@ struct FandomWorksView: View {
     }
 }
 
+/// Navigation value for a series, pushed from the "Part N of …" link in a
+/// work's header (`WorkHeaderMetadata`).
+struct SeriesRef: Hashable {
+    let id: Int
+    let title: String
+}
+
+/// Navigation value for the work after this one in a series. Only its id is
+/// known from the work page, so it opens the live reader by id.
+struct SeriesWorkRef: Hashable {
+    let workId: Int
+}
+
+/// A series page: title, creator, description and its works in series order
+/// (paginated, infinite-scroll), from `AO3Client.fetchSeries`.
+struct SeriesView: View {
+    @Environment(\.ao3Client) private var client
+    @Query private var hiddenWorks: [HiddenWork]
+    @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
+    let series: SeriesRef
+
+    @State private var info: AO3Series?
+    @State private var works: [AO3WorkSummary] = []
+    @State private var currentPage = 1
+    @State private var totalPages = 1
+    @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var errorMessage: String?
+
+    private var visibleWorks: [AO3WorkSummary] {
+        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+    }
+
+    var body: some View {
+        Group {
+            if isLoading && info == nil {
+                VStack { Spacer(); ProgressView("Loading…"); Spacer() }
+            } else if let errorMessage, info == nil {
+                ContentUnavailableView("Couldn't load series", systemImage: "exclamationmark.triangle",
+                    description: Text(errorMessage))
+            } else {
+                List {
+                    if let info { header(info) }
+                    Section {
+                        if works.isEmpty {
+                            Text("This series has no works you can open.")
+                                .foregroundStyle(.secondary)
+                        } else if visibleWorks.isEmpty {
+                            Text("Every work in this series is filtered out by your content settings.")
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(visibleWorks) { work in
+                            NavigationLink(value: work) { WorkRow(work: work) }
+                                .onAppear {
+                                    if work.id == visibleWorks.last?.id {
+                                        Task { await loadMore() }
+                                    }
+                                }
+                        }
+                        if isLoadingMore {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                                .padding(.vertical, 8)
+                                .listRowSeparator(.hidden)
+                        }
+                    } header: {
+                        Text("Works in order")
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle(info.map { $0.title.isEmpty ? series.title : $0.title } ?? series.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await loadFirst() }
+    }
+
+    @ViewBuilder
+    private func header(_ info: AO3Series) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(info.title.isEmpty ? series.title : info.title)
+                    .font(.title3.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                if !info.creator.isEmpty {
+                    if info.creatorUsername.isEmpty {
+                        Text("by \(info.creator)").foregroundStyle(.secondary)
+                    } else {
+                        NavigationLink(value: AuthorRef(username: info.creatorUsername, displayName: info.creator)) {
+                            Text("by \(info.creator)").foregroundStyle(Color.accentColor)
+                        }
+                        .accessibilityHint("Shows this author's other works.")
+                    }
+                }
+                Text(statsText(info))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !info.descriptionHTML.isEmpty {
+                    HTMLText(html: info.descriptionHTML)
+                        .font(.callout)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func statsText(_ info: AO3Series) -> String {
+        let count = info.workCount ?? works.count
+        let worksText = "\(count) work\(count == 1 ? "" : "s")"
+        return info.isComplete ? "\(worksText) · complete" : "\(worksText) · in progress"
+    }
+
+    private func loadFirst() async {
+        guard info == nil else { return }  // don't refetch when returning from a work
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            let result = try await client.fetchSeries(id: series.id, page: 1)
+            info = result
+            works = result.works
+            currentPage = result.currentPage
+            totalPages = result.totalPages
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+
+    private func loadMore() async {
+        guard !isLoadingMore, currentPage < totalPages else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let result = try await client.fetchSeries(id: series.id, page: currentPage + 1)
+            let existing = Set(works.map(\.id))
+            works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
+            currentPage = result.currentPage
+            totalPages = result.totalPages
+        } catch {
+            errorMessage = "\(error)"
+        }
+    }
+}
+
 #Preview {
     NavigationStack { BrowseView() }
         .environment(\.ao3Client, MockAO3Client())

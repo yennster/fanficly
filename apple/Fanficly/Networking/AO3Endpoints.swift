@@ -36,6 +36,15 @@ enum AO3Endpoints {
         return url
     }
 
+    /// A series page (`/series/<id>`), which lists its works in order, 20 a page.
+    static func series(id: Int, page: Int = 1, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/series/\(id)"),
+                                       resolvingAgainstBaseURL: false)
+        if page > 1 { components?.queryItems = [URLQueryItem(name: "page", value: String(page))] }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad series URL") }
+        return url
+    }
+
     static func userBookmarks(name: String, page: Int = 1, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/users/\(name)/bookmarks"),
                                        resolvingAgainstBaseURL: false)

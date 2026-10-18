@@ -2387,6 +2387,9 @@ enum ReaderPaginator {
         }
         
         height += 80
+
+        // One "Part N of <series>" line (caption) per series, with its 10 pt gap.
+        height += CGFloat(summary?.series.count ?? 0) * 26
         
         if let summary, !summary.summary.isEmpty {
             height += 15 + 4

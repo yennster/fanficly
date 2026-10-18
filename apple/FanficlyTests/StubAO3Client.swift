@@ -41,6 +41,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
+    func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        AO3Series(id: id, title: "x", creator: "x", works: [], currentPage: page)
+    }
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
     func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
     func postComment(workId: Int, chapterId: Int?, text: String) async throws {}

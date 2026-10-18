@@ -25,6 +25,10 @@ struct WorkHeaderMetadata: View {
 
             StatsRow(summary: summary, foreground: foreground)
 
+            ForEach(summary.series, id: \.seriesId) { part in
+                SeriesPartRow(part: part)
+            }
+
             // Collapsible: fandoms, relationships, characters, tags.
             if hasDetails {
                 Button {
@@ -66,6 +70,43 @@ struct WorkHeaderMetadata: View {
                 }
             }
         }
+    }
+}
+
+/// "Part 2 of <series> ›" (opens the series page) and, when there is one,
+/// "Next in series" (opens the following work).
+private struct SeriesPartRow: View {
+    let part: AO3SeriesPart
+
+    var body: some View {
+        FlowLayout(spacing: 12, lineSpacing: 6) {
+            NavigationLink(value: SeriesRef(id: part.seriesId, title: part.title)) {
+                HStack(spacing: 4) {
+                    Image(systemName: "books.vertical").font(.caption2)
+                        .accessibilityHidden(true)
+                    Text("Part \(part.position) of \(part.title)")
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Image(systemName: "chevron.right").font(.caption2)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityHint("Shows every work in this series.")
+            if let next = part.nextWorkId {
+                NavigationLink(value: SeriesWorkRef(workId: next)) {
+                    HStack(spacing: 4) {
+                        Text("Next in series")
+                        Image(systemName: "arrow.right").font(.caption2)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .accessibilityLabel("Next in \(part.title)")
+                .accessibilityHint("Opens part \(part.position + 1) of this series.")
+            }
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(Color.accentColor)
+        .buttonStyle(.plain)
     }
 }
 
