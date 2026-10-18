@@ -15,7 +15,7 @@ public struct WidgetSavedSearch: Codable, Equatable, Sendable {
 extension WidgetSavedSearch {
     /// The `fanficly://search?query=` link the widget opens. `query` is a saved
     /// search's prompt or a saved filter's `savedJSON()`; the app reads either
-    /// back with `AO3SearchFilters.searchPrompt(fromRouteQuery:)`. `&`, `=`,
+    /// back with `AO3SearchFilters.savedFilter(fromRouteQuery:)`. `&`, `=`,
     /// `+` and `#` are escaped too, so a tag like "Harry & Hermione" stays
     /// inside the value.
     public var searchURL: URL? {

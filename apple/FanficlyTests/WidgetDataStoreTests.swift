@@ -93,16 +93,16 @@ final class WidgetDataStoreTests: XCTestCase {
     // MARK: - Saved Searches widget route (fanficly://search?query=)
 
     /// What tapping the widget does: its link → RootView's query value →
-    /// SearchView's prompt → the filters the search runs with.
+    /// SearchView's pending query → the filters the search runs with.
     private func filtersAfterTapping(_ item: WidgetSavedSearch) throws -> AO3SearchFilters {
         let url = try XCTUnwrap(item.searchURL)
         let query = try XCTUnwrap(WidgetSavedSearch.routeQuery(from: url))
-        return SearchSyntax.parse(AO3SearchFilters.searchPrompt(fromRouteQuery: query))
+        return AO3SearchFilters.savedFilter(fromRouteQuery: query) ?? SearchSyntax.parse(query)
     }
 
     func test_savedFilter_roundTripsThroughSearchRoute() throws {
         var f = AO3SearchFilters()
-        f.query = "drarry"
+        f.query = "complete idiots"                        // a filter phrase stays a keyword
         f.fandomNames = ["Harry Potter - J. K. Rowling"]   // saved filters drop the fandom
         f.relationshipNames = ["Hermione Granger & Harry Potter"]
         f.freeformNames = ["Slow Burn"]
@@ -111,6 +111,8 @@ final class WidgetDataStoreTests: XCTestCase {
         f.complete = .yes
         f.wordCount = "1000-5000"
         f.kudosCount = ">100"
+        f.sortColumn = .kudosCount
+        f.sortDirection = .asc
 
         let item = WidgetSavedSearch(name: "Drarry", query: f.savedJSON(), isFilter: true)
         var expected = f
@@ -124,13 +126,13 @@ final class WidgetDataStoreTests: XCTestCase {
         let url = try XCTUnwrap(item.searchURL)
         XCTAssertTrue(url.absoluteString.contains("%26"), "& must stay inside the query value")
         XCTAssertEqual(WidgetSavedSearch.routeQuery(from: url), prompt)
-        XCTAssertEqual(AO3SearchFilters.searchPrompt(fromRouteQuery: prompt), prompt)
+        XCTAssertNil(AO3SearchFilters.savedFilter(fromRouteQuery: prompt))
         XCTAssertEqual(try filtersAfterTapping(item), SearchSyntax.parse(prompt))
     }
 
     func test_malformedJSONQuery_degradesToKeywordSearch() throws {
         let broken = #"{"relationshipNames":["Draco"#
-        XCTAssertEqual(AO3SearchFilters.searchPrompt(fromRouteQuery: broken), broken)
+        XCTAssertNil(AO3SearchFilters.savedFilter(fromRouteQuery: broken))
         let item = WidgetSavedSearch(name: "Broken", query: broken, isFilter: true)
         let filters = try filtersAfterTapping(item)
         XCTAssertFalse(filters.query.isEmpty)

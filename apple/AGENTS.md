@@ -547,12 +547,13 @@ Keep those shared files free of app-only models/UI dependencies;
 - `fanficly://search?query=<value>` selects Search and writes
   `search.pendingQuery`; `SearchView.consumePendingQuery` consumes/clears it
   and loads it via `SearchSyntax`. **Contract:** the value is a saved search's
-  prompt or a saved filter's `savedJSON()`. `AO3SearchFilters.searchPrompt(fromRouteQuery:)`
-  turns JSON (a value starting with `{` that decodes) into `promptText()`;
-  anything else, malformed JSON included, runs as prompt text. Build the link
+  prompt or a saved filter's `savedJSON()`. `AO3SearchFilters.savedFilter(fromRouteQuery:)`
+  decodes JSON (a value starting with `{`), which runs as saved, sort included,
+  without going through the prompt parser (so a keyword like "complete" stays a
+  keyword); anything else, malformed JSON included, runs as prompt text. Build the link
   with `WidgetSavedSearch.searchURL`, which also escapes `&`, `=`, `+` and `#`
   (a ship like "A & B" was cut off at the `&`), and read it with
-  `WidgetSavedSearch.routeQuery(from:)`. The Windows app's `DeepLink.SearchPrompt`
+  `WidgetSavedSearch.routeQuery(from:)`. The Windows app's `DeepLink.SavedFilter`
   makes the same call, so keep the widget's JSON format. `WidgetDataStoreTests`
   holds the round trip.
 - Subscription/recommendation widgets use `fanficly://resume/<id>`; unlike
