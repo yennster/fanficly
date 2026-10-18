@@ -1,10 +1,18 @@
 name: CI
 
+# The Apple app, in apple/. The Windows app (windows/) has its own workflows,
+# windows-*.yml; each runs only for its own app's paths.
 on:
   push:
     branches: [main]
+    paths: ['apple/**', '.github/workflows/ci.yml']
   pull_request:
     branches: [main]
+    paths: ['apple/**', '.github/workflows/ci.yml']
+
+defaults:
+  run:
+    working-directory: apple
 
 jobs:
   test:
@@ -107,7 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: reader-layout-screenshots
-          path: build/reader-layout-screenshots
+          path: apple/build/reader-layout-screenshots
           if-no-files-found: ignore
 
       - name: Upload result bundles on failure
@@ -115,7 +123,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xcresults
-          path: build/*.xcresult
+          path: apple/build/*.xcresult
 
   mac:
     # The unit tests again under Mac Catalyst: the Mac measures text with its
@@ -158,4 +166,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xcresult-mac
-          path: build/*.xcresult
+          path: apple/build/*.xcresult

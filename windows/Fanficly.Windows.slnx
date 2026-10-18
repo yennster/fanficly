@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Fanficly.App/Fanficly.App.csproj" />
+    <Project Path="src/Fanficly.Core/Fanficly.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Fanficly.Core.Tests/Fanficly.Core.Tests.csproj" />
+    <Project Path="tests/Fanficly.UITests/Fanficly.UITests.csproj" />
+  </Folder>
+</Solution>

@@ -1,138 +1,43 @@
 # Fanficly
 
-An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https://archiveofourown.org).
+An open-source, ad-free reader for [Archive of Our Own](https://archiveofourown.org), with native apps for iPhone, iPad and Mac, and for Windows. There are no servers, accounts, ads or analytics: everything runs on your device and talks directly to AO3. Website: [fanficly.app](https://fanficly.app).
 
-<img src="screenshots/showcase.png" alt="Fanficly showcase">
+<img src="apple/screenshots/showcase.png" alt="Fanficly on iPhone, iPad and Mac">
 
-_These are the App Store marketing screenshots. Regenerate with `bundle exec fastlane screenshots`: the `ScreenshotTests` UI test captures the raw demo-mode screens to `docs/screenshots/{iphone,ipad,mac}/`, then `bin/frame-screenshots.py` lays each one out as a web page (`bin/store-art/`) with the app in a real Apple bezel and renders it with headless Chrome into `screenshots/final/` and `fastlane/screenshots/en-US/`._
+<img src="docs/screenshots/windows/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
 
-## Features
+## The apps
 
-- **Search that does what you typed** — keywords go straight to AO3's own search, and as you type, live suggestions from AO3's tag list (fandoms, ships, characters, tropes) turn words into exact tag filters with one tap. Type `complete`, `wip`, `explicit`, `m/m`, `under 10k` or `in spanish` and they become filter chips; everything else stays a keyword — so `teen wolf` means Teen Wolf. A Filters panel covers ratings, warnings, categories, length, language and sort, and `title:`, `by:`, `tag:"…"` and `-tag:"…"` give precise control. Recent and saved searches are one tap away.
-- **Browse by fandom, with AO3's full filter set** — all 10 AO3 media categories, each fetching the complete live fandom list (thousands per category) with instant substring search. A fandom's works can be filtered exactly like on AO3 (rating, warnings, category, completion, crossovers, word count, relationships/characters/tags include & exclude) — and typed tags resolve to AO3's canonical names via autocomplete, so `Hermione/Draco` finds `Hermione Granger/Draco Malfoy`. Save a filter preset once and reapply it to any fandom — or straight from the Browse home.
-- **Popular** — popular fandoms, ships, and characters, ranked live from AO3's work counts (refreshed in the background) with a curated fallback; tap one to see its works sorted by kudos.
-- **Reader** — continuous scroll, swipe-by-chapter, or horizontal page-by-page mode. Six themes (light, sepia, dark, OLED black, Dracula navy, match-system), five font families, and continuously adjustable text size, line-spacing, paragraph-spacing, character-spacing (kerning), bold-text, and margin controls (with quick presets in the Aa menu) — all persisted and synced via iCloud. Arrow keys turn pages on a hardware keyboard. Full work metadata (rating, warnings, relationships, characters, tags, stats) in a collapsible header.
-- **Reader profiles** — save complete typography setups as named profiles and switch between them; iPhone, iPad, and Mac each remember their own settings and active profile (and deleting a profile now sticks across devices).
-- **Story images (opt-in)** — a "Show images in stories" toggle (off by default) renders authors' embedded artwork inline in every reading mode, sized so a slow-loading image can never shift your saved reading position. Off keeps the classic text-only reader; downloaded works stay text-only offline either way.
-- **Reading stats & yearly wrap** — the Stats tab totals your stories finished, time read, words read, and day-streak, with top fandoms / ships / categories / authors for any Week / Month / Year / All Time period — plus a shareable wrap-up card, all computed on-device.
-- **Resume where you left off** — your reading position (down to the paragraph) is saved automatically and restored when you reopen a story. Your library shows a reading-progress bar on every story you've started, and a "Finished" badge once you're done.
-- **Home-screen widget** — small and medium widgets show your last-read story with its progress; tapping jumps straight back to your paragraph, with progress synced across devices via iCloud.
-- **Follow, Star & Pin** — bookmark any story with one tap (right from the results list, no need to open it). Star stories you love, and pin important ones to the top of your library. Followed works are checked in the background with local notifications when new chapters drop — tap one to open the story (or, for an author's new works, their page), even from a cold launch.
-- **Follow authors** — follow an author from their page and get a local notification when they post a new work; the Authors tab keeps everyone you follow in one place.
-- **Comments** — read a work's comment thread, and when you're logged into AO3, post a comment of your own.
-- **Folders** — group library stories into custom folders, included in iCloud library backups.
-- **Library sorting** — sort saved stories by date saved, last read, last updated, title, author, or length (pinned stories stay on top); the control sits in the filter row, not the toolbar, and folders follow the same order.
-- **Library Search** — search works in your library in real-time by title, author, or tags (fandoms, characters, relationships, freeforms, ratings, warnings, and categories). When on the Folders tab, search filters custom folders by name.
-- **Safari Share Sheet Integration** — add works to your library directly from mobile Safari or other browsers. Selecting the Fanficly action in the share sheet imports the work metadata and chapters instantly.
-- **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage, with options to manually backup/restore or purge backups.
-- **Export in any format** — share the work as EPUB, MOBI, AZW3, PDF, or HTML through the iOS share sheet (AirDrop, Books, Files, …).
-- **AO3 account (optional)** — log in to subscribe on AO3 and sync your subscriptions, browse your AO3 bookmarks (including private ones), and post comments. Credentials never stored; only the session cookie, in the Keychain.
-- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0). Resizing never loses your place: rotating, iPad multitasking, or unfolding iPhone Duo keeps the story and paragraph you were on, and lines stay a comfortable length on wide screens.
-- **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
+| App | Where | Built with | Ships through | Docs |
+| --- | --- | --- | --- | --- |
+| iPhone, iPad and Mac | [`apple/`](apple/) | SwiftUI, Swift 6, iOS 17+ (Mac via Catalyst) | App Store | [README](apple/README.md) · [contributing](apple/CONTRIBUTING.md) · [roadmap](apple/docs/ROADMAP.md) · [accessibility](apple/ACCESSIBILITY.md) |
+| Windows | [`windows/`](windows/) | C#, .NET 10, WinUI 3, Native AOT | Microsoft Store | [README](windows/README.md) · [contributing](windows/CONTRIBUTING.md) · [roadmap](windows/ROADMAP.md) · [accessibility](windows/ACCESSIBILITY.md) |
 
-## Tech
+The two apps share behavior, not code: the Windows app is a port of the Swift app, which stays the reference implementation. Both are developed on `main`.
 
-- Swift 6, SwiftUI, SwiftData
-- iOS 17+, plus macOS via Mac Catalyst.
-- [SwiftSoup](https://github.com/scinfu/SwiftSoup) for AO3 HTML parsing
-- [KeychainAccess](https://github.com/kishikawakatsumi/KeychainAccess) for credential storage
-- Project generated by [xcodegen](https://github.com/yonaskolb/XcodeGen) — `project.yml` is the source of truth
+## Repository layout
 
-## Development
-
-Set up:
-```bash
-brew install xcodegen
-xcodegen generate
-open Fanficly.xcodeproj
+```text
+apple/        the iPhone, iPad and Mac app (Xcode project from project.yml)
+windows/      the Windows app (Fanficly.Windows.slnx)
+website/      fanficly.app (static site, deployed by Vercel)
+docs/         shared pictures (docs/screenshots/windows/)
+bin/          repo-wide scripts (roadmap.sh lists both roadmaps)
+.github/      CI: ci.yml for apple/, windows-*.yml for windows/; release.yml and
+              store-assets.yml release the Apple app (apple/docs/RELEASING.md)
 ```
 
-### Run locally in the simulator (no Xcode UI needed)
-
-**One-time setup.** Point the command-line tools at full Xcode (not the
-Command Line Tools shim — `simctl` only ships with full Xcode):
-```bash
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-xcode-select -p   # should print /Applications/Xcode.app/Contents/Developer
-```
-
-If you skip this you'll get `xcrun: error: unable to find utility "simctl"`.
-
-**Build and run:**
-```bash
-xcrun simctl boot "iPhone 17"
-open -a Simulator
-
-xcodebuild \
-  -project Fanficly.xcodeproj -scheme Fanficly \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
-
-xcrun simctl install booted \
-  build/Build/Products/Debug-iphonesimulator/Fanficly.app
-xcrun simctl launch booted io.github.yennster.fanficly
-```
-
-Rebuild after edits with the `xcodebuild build` + `simctl install` lines
-(the simulator stays booted). To swap to iPad, replace `iPhone 17` with
-`iPad Pro 13-inch (M5)` in both places.
-
-**One-shot without changing `xcode-select`** (if you can't sudo):
-```bash
-export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-# then run the four commands above as-is
-```
-`xcrun` honours `DEVELOPER_DIR`, so `xcrun simctl …` will resolve to the
-binary inside Xcode.app.
-
-### Running on a physical device (code signing)
-
-The simulator needs no signing. To run on a device, put your Apple
-Developer **Team ID** in `Signing.xcconfig` (the project reads
-`DEVELOPMENT_TEAM` from there), then keep that local edit out of git:
-
-```bash
-echo 'DEVELOPMENT_TEAM = ABCDE12345' > Signing.xcconfig   # your team ID
-git update-index --skip-worktree Signing.xcconfig          # don't commit it
-xcodegen generate
-```
-
-Find your Team ID in Xcode ▸ Settings ▸ Accounts, or at
-developer.apple.com ▸ Membership. Make sure that Apple ID is signed into
-Xcode so automatic signing can create a provisioning profile.
-
-### Tests
-
-```bash
-xcodebuild test \
-  -project Fanficly.xcodeproj \
-  -scheme Fanficly \
-  -destination 'platform=iOS Simulator,name=iPhone 17' \
-  CODE_SIGNING_ALLOWED=NO \
-  -only-testing:FanficlyTests
-```
-
-`-only-testing:FanficlyUITests/ReaderLayoutTests` runs the reader's layout UI tests instead. They open a story in page-by-page and check what's drawn: full pages, the page footer on the bottom edge, and the two-page spread on wide screens. For the Mac, use `-destination 'platform=macOS,variant=Mac Catalyst'`, plus `MACOSX_DEPLOYMENT_TARGET=14.0` if your Mac runs an older macOS than the SDK. The Mac run drives the real app window, so leave the mouse alone until it finishes. Before it starts, macOS asks for an administrator password to allow UI automation.
-
-## About AO3
-
-AO3 has no public JSON API; Fanficly works by parsing the same HTML pages the AO3 website serves. We're respectful guests:
-
-- Identify ourselves in `User-Agent` (`Fanficly/<version> (iOS; https://github.com/yennster/fanficly)`, `(macOS; …)` on the Mac)
-- Rate-limit ourselves to ≤1 request/second
-- Cache aggressively
-- Never parallelize scrapes
-- Use the official `/downloads/` EPUB endpoints — no need to re-render works ourselves
-
-Fanficly is not affiliated with AO3 or the Organization for Transformative Works.
+CI is split by app: a change under `apple/` runs the Apple workflow, a change under `windows/` runs the Windows ones, and a pull request that touches both runs both.
 
 ## Privacy
 
-We collect nothing. The app talks directly to AO3 from your device. Your AO3 session cookie lives in your iOS Keychain. Deleting the app erases everything. See [PRIVACY.md](PRIVACY.md).
+We collect nothing. Each store listing links its own policy: [PRIVACY.md](PRIVACY.md) for iPhone, iPad and Mac, and [windows/PRIVACY.md](windows/PRIVACY.md) for Windows.
 
 ## Contributing
 
-See the [roadmap](docs/ROADMAP.md) for what's planned. PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+PRs welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), then the guide for the app you're changing. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+Fanficly is not affiliated with AO3 or the Organization for Transformative Works.
 
 ## License
 

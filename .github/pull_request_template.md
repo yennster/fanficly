@@ -18,5 +18,5 @@ Roadmap item: RM-nnn (or "none")
 - [ ] No new dependencies, analytics or off-device data
 - [ ] Search still never reinterprets typed words
 - [ ] New persisted fields are forward-only for restore/merge
-- [ ] `docs/ROADMAP.md`: this item's Status set to `done`, nothing else changed
+- [ ] `apple/docs/ROADMAP.md` (or `windows/ROADMAP.md`): this item's Status set to `done`, nothing else changed
 - [ ] AGENTS.md updated if a convention or gotcha changed

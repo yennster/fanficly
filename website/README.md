@@ -27,11 +27,11 @@ saved as JPEG so the page stays light:
 
 | File | Source |
 | --- | --- |
-| `iphone-*.jpg`, `ipad-reader.jpg` | `docs/screenshots/{iphone,ipad}/` (demo-mode captures) |
-| `mac-reader.jpg` | `docs/screenshots/mac/03-reader.png`, rotated upright and cropped below the status bar to 16:10 |
+| `iphone-*.jpg`, `ipad-reader.jpg` | `apple/docs/screenshots/{iphone,ipad}/` (demo-mode captures) |
+| `mac-reader.jpg` | `apple/docs/screenshots/mac/03-reader.png`, rotated upright and cropped below the status bar to 16:10 |
 | `windows-*.jpg` | The app window cropped out of the Microsoft Store screenshots (`windows/store/screenshots/en-us/`, 3840×2160) |
 | `og.jpg` | Microsoft Store screenshot `01-read-like-a-book.png` at 1200×675 |
-| `icon.png`, `apple-touch-icon.png`, `favicon-64.png` | `Fanficly/Assets.xcassets/AppIcon.appiconset/icon-1024.png` |
+| `icon.png`, `apple-touch-icon.png`, `favicon-64.png` | `apple/Fanficly/Assets.xcassets/AppIcon.appiconset/icon-1024.png` |
 
 When the app's screenshots change, regenerate these rather than linking the
 full-size PNGs.

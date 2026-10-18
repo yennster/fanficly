@@ -5,5 +5,5 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # No services or authentication to restore. Fail clearly if the snapshot's
 # Python environment is missing; dependency installation belongs in setup.
-"$repo_root/bin/.venv/bin/python" -c 'import PIL, jwt, requests; from jwt.algorithms import ECAlgorithm'
+"$repo_root/apple/bin/.venv/bin/python" -c 'import PIL, jwt, requests; from jwt.algorithms import ECAlgorithm'
 echo 'Fanficly Python tooling ready. Native builds/tests require macOS and Xcode.'

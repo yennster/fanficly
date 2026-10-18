@@ -1,46 +1,20 @@
 # Contributing to Fanficly
 
-Thanks for wanting to help. A few quick guidelines.
+Thanks for wanting to help. This repository holds two apps, each with its own guide:
 
-## Setup
+- **iPhone, iPad and Mac** (`apple/`): [apple/CONTRIBUTING.md](apple/CONTRIBUTING.md)
+- **Windows** (`windows/`): [windows/CONTRIBUTING.md](windows/CONTRIBUTING.md)
 
-```bash
-brew install xcodegen
-git clone https://github.com/yennster/fanficly.git
-cd fanficly
-xcodegen generate
-open Fanficly.xcodeproj
-```
+What applies to both:
 
-## Principles
-
-1. **Be a good guest to AO3.** Don't increase request volume, don't parallelize scrapes per user, don't bypass our throttle. If you're adding a feature that needs more requests, profile it first and discuss in an issue.
-2. **No telemetry, no analytics, no third-party SDKs.** Period. The privacy story is the headline feature.
-3. **Never make search guess.** Typed words stay keywords for AO3's own search; tags become filters only when the user taps a suggestion. A new `key:value` token in `SearchSyntax` needs a round-trip test. Add a phrase to its filter-only list only if it can never mean anything but that filter, with tests for both the conversion and everyday text that must stay a keyword.
-4. **Match AO3's terminology.** Use the same field names and category names AO3 uses (relationships, freeforms, categories, archive warnings).
-5. **Keep dependencies minimal.** Adding a new SPM package needs a justification in the PR description.
+1. **Be a good guest to AO3.** Every request goes through the app's AO3 client and its one-request-a-second throttle. Never scrape in parallel or retry a POST.
+2. **No telemetry, no analytics, no third-party SDKs.** If you change what's stored or sent, update that app's privacy policy ([PRIVACY.md](PRIVACY.md) or [windows/PRIVACY.md](windows/PRIVACY.md)).
+3. **Never make search guess.** Typed words stay keywords; tags become filters only when the user picks a suggestion.
+4. **One app per pull request**, against `main`. CI builds only the app whose folder you changed.
 
 ## What to work on
 
-The backlog is [docs/ROADMAP.md](docs/ROADMAP.md): small, scoped items with IDs (`RM-nnn`) and a "Done when". Run `bin/roadmap.sh free` to see what's unclaimed. Claim an item by opening a draft PR from a `roadmap/RM-nnn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work); a human always does the merge.
-
-## Pull requests
-
-- One feature/fix per PR.
-- Reference an issue if one exists.
-- Make sure the unit tests pass on iPhone and iPad simulators and under Mac Catalyst (CI runs all three).
-- If you change the reader, also run `FanficlyUITests/ReaderLayoutTests` (see the README's Tests section).
-- Don't reformat code you didn't touch.
-- Be kind in code review.
-
-## Reporting bugs
-
-Open an issue with:
-- iOS version
-- Device or simulator
-- Steps to reproduce
-- What you expected vs. what happened
-- A redacted log (`os_log` output) if you have one
+Each app has a roadmap of small items with permanent IDs: [apple/docs/ROADMAP.md](apple/docs/ROADMAP.md) (`RM-001` up) and [windows/ROADMAP.md](windows/ROADMAP.md) (`RM-101` up). `bin/roadmap.sh free apple` or `bin/roadmap.sh free windows` lists what's unclaimed. Claim an item by opening a draft PR from a `roadmap/RM-nnn-slug` branch. AI agents follow [AGENTS.md](AGENTS.md); a person always does the merge.
 
 ## Code of Conduct
 

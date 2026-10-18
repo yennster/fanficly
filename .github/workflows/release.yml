@@ -4,7 +4,8 @@ name: Release
 # maintainer starts it: never on a push, a merge to main or a pull request, so
 # nothing reaches the App Store by accident and forks can't reach the secrets.
 # The job waits for approval in the protected `app-store` environment, which
-# holds the secrets. See docs/RELEASING.md.
+# holds the secrets. See apple/docs/RELEASING.md. It releases the Apple app
+# (apple/), so every run step starts there.
 
 on:
   workflow_dispatch:
@@ -35,6 +36,10 @@ concurrency:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: apple
 
 jobs:
   release:
@@ -90,6 +95,7 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
+          working-directory: apple
 
       - name: Generate Xcode project
         run: |
@@ -147,8 +153,8 @@ jobs:
         with:
           name: release-notes
           path: |
-            build/release/*.md
-            build/release/*.txt
+            apple/build/release/*.md
+            apple/build/release/*.txt
           if-no-files-found: ignore
 
       - name: Upload the downloaded store copy
@@ -157,8 +163,8 @@ jobs:
         with:
           name: metadata
           path: |
-            fastlane/metadata
-            fastlane/metadata-mac
+            apple/fastlane/metadata
+            apple/fastlane/metadata-mac
 
       - name: Remove the keys
         if: always()

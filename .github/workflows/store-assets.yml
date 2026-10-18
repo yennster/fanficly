@@ -5,7 +5,8 @@ name: Store assets
 # and search-results art. Generating needs no secrets. Uploading to App Store
 # Connect is a second job in the protected `app-store` environment, and
 # committing the refreshed tracked screenshots pushes a branch to open a PR
-# from. See docs/RELEASING.md.
+# from. See apple/docs/RELEASING.md. Everything here is the Apple app's
+# (apple/), so every run step starts there.
 
 on:
   workflow_dispatch:
@@ -34,6 +35,10 @@ concurrency:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: apple
 
 jobs:
   generate:
@@ -64,6 +69,7 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
+          working-directory: apple
 
       - uses: actions/setup-python@v5
         with:
@@ -93,21 +99,22 @@ jobs:
       - name: fastlane ${{ inputs.what }}
         run: bundle exec fastlane ios "${{ inputs.what }}"
 
-      # project.yml (a file at the repo root) keeps the artifact rooted there, so
-      # the upload job gets fastlane/... back whichever folders were made.
+      # apple/project.yml (a file directly in apple/) keeps the artifact rooted
+      # there, so the upload job gets fastlane/... back under apple/ whichever
+      # folders were made.
       - name: Upload the store art
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: store-art
           path: |
-            fastlane/screenshots
-            fastlane/screenshots-mac
-            fastlane/screenshots-duo
-            fastlane/previews
-            fastlane/creative
-            build/preview-contact-sheets
-            project.yml
+            apple/fastlane/screenshots
+            apple/fastlane/screenshots-mac
+            apple/fastlane/screenshots-duo
+            apple/fastlane/previews
+            apple/fastlane/creative
+            apple/build/preview-contact-sheets
+            apple/project.yml
           if-no-files-found: ignore
 
       - name: Upload the logs
@@ -116,7 +123,7 @@ jobs:
         with:
           name: logs
           path: |
-            build/previews-raw/*.log
+            apple/build/previews-raw/*.log
             ~/Library/Logs/scan
           if-no-files-found: ignore
 
@@ -150,6 +157,7 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
+          working-directory: apple
 
       - uses: actions/setup-python@v5
         with:
@@ -163,7 +171,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: store-art
-          path: .
+          path: apple
 
       - name: fastlane upload_store_art
         env:

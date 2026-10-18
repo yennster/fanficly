@@ -1,0 +1,14 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <Version Condition="'$(Version)' == ''">1.0.0</Version>
+    <Company>Fanficly</Company>
+    <Product>Fanficly</Product>
+    <Copyright>Fanficly contributors</Copyright>
+    <!-- Linux/macOS machines can compile the Windows app (but not package it). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>
