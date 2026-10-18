@@ -28,6 +28,10 @@ on:
         description: Push the refreshed tracked screenshots to a store-assets/ branch
         type: boolean
         default: true
+      branch:
+        description: Branch to push them to (blank = store-assets/run-N; the Release workflow passes its release-docs/ branch)
+        type: string
+        required: false
 
 concurrency:
   group: store-assets
@@ -43,7 +47,8 @@ defaults:
 jobs:
   generate:
     name: Generate (${{ inputs.what }})
-    if: github.repository == 'yennster/fanficly' && github.actor == 'yennster'
+    # github-actions[bot] is the Release workflow starting a release's refresh.
+    if: github.repository == 'yennster/fanficly' && (github.actor == 'yennster' || github.actor == 'github-actions[bot]')
     runs-on: macos-26
     timeout-minutes: 180
     permissions:
@@ -129,13 +134,27 @@ jobs:
 
       - name: Push the refreshed tracked screenshots
         if: inputs.push_branch
+        env:
+          BRANCH: ${{ inputs.branch }}
         run: |
           git add docs/screenshots screenshots
           if git diff --cached --quiet; then echo "No tracked screenshots changed"; exit 0; fi
-          branch="store-assets/run-${{ github.run_number }}"
+          branch="${BRANCH:-store-assets/run-${{ github.run_number }}}"
+          case "$branch" in main|refs/*|*..*) echo "::error::Refusing to push to '$branch'"; exit 1 ;; esac
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -m "Refresh the App Store screenshots (store-assets run ${{ github.run_number }})"
-          git push origin "HEAD:refs/heads/$branch"
+          # The branch may already exist with other commits (the Release
+          # workflow's Windows screenshots push to it too): rebase onto it.
+          pushed=0
+          for attempt in 1 2 3; do
+            if git fetch -q origin "refs/heads/$branch" 2>/dev/null; then
+              git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                rebase -q FETCH_HEAD
+            fi
+            git push origin "HEAD:refs/heads/$branch" && { pushed=1; break; }
+            sleep $((attempt * 10))
+          done
+          [ "$pushed" = 1 ] || { echo "::error::Couldn't push to $branch"; exit 1; }
           echo "Pushed $branch: open a PR from it to merge the new screenshots." >> "$GITHUB_STEP_SUMMARY"
 
   upload:
