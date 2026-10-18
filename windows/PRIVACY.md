@@ -59,7 +59,7 @@ Fanficly makes requests directly to `archiveofourown.org` on your behalf, the wa
 - **Signing in:** the app sends your username and password to AO3's login form and keeps the session cookie AO3 returns.
 - **Your account pages:** the app fetches your bookmarks and subscriptions pages, but only while you're signed in and only when you open them or the app checks for updates.
 - **New-chapter checks:** the app fetches the pages of works and authors you follow, and your subscriptions list if you're signed in, so it can tell you about new chapters and works. This happens while Fanficly is open, about every four hours. When installed from the Store it also happens from a Windows background task with the same interval, which needs an internet connection and skips its run while Fanficly is open.
-- **Comments and subscribing:** if you're signed in and choose to post a comment or subscribe to a work, the app sends that action to AO3. Comment text goes only to AO3, which hosts and moderates it.
+- **Comments, kudos and subscribing:** if you're signed in and choose to post a comment, leave kudos or subscribe to a work, the app sends that action to AO3. Comment text goes only to AO3, which hosts and moderates it.
 
 Notifications about new chapters are created on your PC and shown by Windows. Nothing passes through a notification server of ours.
 

@@ -531,6 +531,47 @@ public sealed class AO3Client : IAO3Client, IDisposable
             throw AO3Exception.Rejected(error);
     }
 
+    // MARK: - Kudos
+
+    public async Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default)
+    {
+        // Read the work page first: it carries the kudos form (absent on your own
+        // work or one whose creator blocked you) and shows whether the session is
+        // still signed in. AO3 takes guest kudos too, so posting with an expired
+        // cookie would silently leave one as a guest.
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var pageUri = AO3Endpoints.Work(workId, _baseUri);
+        var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(page)) throw AO3Exception.Unauthorized();
+        var pageHtml = Decode(page.Body, "Work page");
+        if (LoginParser.CurrentUsername(pageHtml) is null) throw AO3Exception.Unauthorized();
+        var fields = KudosParser.FormFields(pageHtml)
+            ?? throw AO3Exception.Rejected("AO3 doesn't offer kudos on this work. It may be your own, or its creator may have blocked you.");
+        if (!fields.TryGetValue("authenticity_token", out var token) || token.Length == 0)
+        {
+            token = LoginParser.AuthenticityToken(pageHtml) ?? "";
+            if (token.Length > 0) fields["authenticity_token"] = token;
+        }
+
+        // Post the form the way AO3's own script does (/kudos.js): it answers 201
+        // on success and 422 with {"error_message": …} otherwise, instead of a
+        // redirect whose flash we'd have to scrape.
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("Referer", pageUri.AbsoluteUri),
+            new("Origin", _origin),
+            new("X-Requested-With", "XMLHttpRequest"),
+        };
+        if (token.Length > 0) headers.Add(new("X-CSRF-Token", token));
+        var response = await PerformRequestAsync(Post(AO3Endpoints.Kudos(_baseUri), fields.ToList(), headers),
+            ct: ct, passing: [422]).ConfigureAwait(false);
+        if (response.Status != 422) return KudosOutcome.Left;
+        var message = KudosParser.ErrorMessage(TryDecode(response.Body) ?? "") ?? "";
+        if (KudosParser.IsAlreadyLeft(message)) return KudosOutcome.AlreadyLeft;
+        throw AO3Exception.Rejected(message);
+    }
+
     // MARK: - Transport
 
     /// <summary>One request, described so it can be re-sent on a retry or a redirect.</summary>
@@ -558,7 +599,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// reads are retried: replaying a POST (login, comment, subscribe) after a
     /// timeout could double-submit — a comment that actually landed but whose
     /// response was lost — so those surface the error instead.</summary>
-    internal async Task<Response> PerformRequestAsync(RequestSpec spec, int maxRetries = MaxRetries, CancellationToken ct = default)
+    /// <remarks><paramref name="passing"/> lists error statuses the caller reads itself
+    /// (the kudos POST's 422 carries AO3's reason) instead of having them thrown.</remarks>
+    internal async Task<Response> PerformRequestAsync(RequestSpec spec, int maxRetries = MaxRetries, CancellationToken ct = default,
+        IReadOnlyCollection<int>? passing = null)
     {
         EnsureCookiesLoaded();
         for (var attempt = 0; ; attempt++)
@@ -580,6 +624,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 continue;
             }
 
+            if (passing?.Contains(response.Status) == true) return response;
             switch (response.Status)
             {
                 case >= 200 and < 300 or 302:

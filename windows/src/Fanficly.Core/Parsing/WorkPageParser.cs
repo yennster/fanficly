@@ -340,3 +340,48 @@ public static class CommentsParser
         return false;
     }
 }
+
+/// <summary>The work page's kudos button and AO3's answer to it (Swift's
+/// <c>KudosParser</c>). AO3 renders the button as <c>form#new_kudo</c> (hidden
+/// <c>authenticity_token</c>, <c>kudo[commentable_id]</c>,
+/// <c>kudo[commentable_type]</c>) for everyone except the work's own creators,
+/// readers they blocked, and admins.</summary>
+public static class KudosParser
+{
+    /// <summary>The form's hidden fields, or null when the page has no kudos button.</summary>
+    public static Dictionary<string, string>? FormFields(string html)
+    {
+        if (HtmlDom.Parse(html).SelectFirst("form#new_kudo") is not { } form) return null;
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var input in form.Select("input[type='hidden']"))
+        {
+            var name = input.Attr("name");
+            if (name.Length == 0) continue;
+            fields[name] = input.Attr("value");
+        }
+        return fields.TryGetValue("kudo[commentable_id]", out var id) && id.Length > 0 ? fields : null;
+    }
+
+    /// <summary>The reason in a refused <c>/kudos.js</c> POST's <c>{"error_message": "…"}</c>.</summary>
+    public static string? ErrorMessage(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("error_message", out var message)
+                || message.ValueKind != System.Text.Json.JsonValueKind.String) return null;
+            var trimmed = message.GetString()!.TrimSwiftWhitespaces();
+            return trimmed.Length > 0 ? trimmed : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>AO3's duplicate-kudos answer, "You have already left kudos here. :)",
+    /// the same for a signed-in user (one per account) and a guest (one per IP).</summary>
+    public static bool IsAlreadyLeft(string message) =>
+        message.Contains("already left kudos", StringComparison.OrdinalIgnoreCase);
+}

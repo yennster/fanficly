@@ -38,6 +38,7 @@ public static class Symbols
         ["pin.fill"] = "",
         ["pin.slash"] = "",
         ["heart"] = "",
+        ["heart.fill"] = "",
         ["flag"] = "",
         ["tag.fill"] = "",
 

@@ -50,6 +50,9 @@ public static class AO3Endpoints
 
     public static Uri WorkSubscriptions(int id, Uri baseUri) => Build(baseUri, $"/works/{id}/subscriptions");
 
+    /// <summary>The kudos POST, at the <c>.js</c> format AO3's own kudos button uses.</summary>
+    public static Uri Kudos(Uri baseUri) => Build(baseUri, "/kudos.js");
+
     public static Uri WorkCommentsPost(int id, Uri baseUri) => Build(baseUri, $"/works/{id}/comments");
 
     /// <summary>Tag autocomplete. The term is percent-encoded here, including "/":
