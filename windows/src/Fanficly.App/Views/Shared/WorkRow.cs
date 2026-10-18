@@ -64,6 +64,9 @@ public static class WorkRow
         {
             var followed = WorkPersistence.IsFollowed(work.Id, AppHost.Library);
             // The badge is part of the row's Narrator name; its pill is hidden.
+            // Swift looks up a page at once (one SwiftData fetch per model);
+            // here the store is an in-memory identity map, so a per-row lookup
+            // costs the same and stays current on Loaded.
             var badge = WorkPersistence.ResultBadgeFor(work, AppHost.Library);
             badgeHost.Content = badge is { } b ? Badge(b) : null;
             if (row is not null)
@@ -73,7 +76,6 @@ public static class WorkRow
             AutomationProperties.SetName(bookmark, label);
             ToolTipService.SetToolTip(bookmark, followed ? "Remove from Library" : "Save to Library");
         }
-        Refresh();
         bookmark.Click += (_, _) =>
         {
             var saved = WorkPersistence.ToggleFollow(work, AppHost.Library);
@@ -95,7 +97,7 @@ public static class WorkRow
             Padding = new Thickness(14, 10, 8, 10),
             CornerRadius = new CornerRadius(6),
         };
-        AutomationProperties.SetName(row, RowName(work, WorkPersistence.ResultBadgeFor(work, AppHost.Library)));
+        Refresh();
         AutomationProperties.SetAutomationId(row, $"work.{work.Id}");
         row.Click += (_, _) => { if (onOpen is not null) onOpen(); else Views.Routes.OpenWork(work.Id, work); };
         row.Loaded += (_, _) => Refresh(); // follow state and reading may change elsewhere
