@@ -159,7 +159,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Open question:** AO3 returns guest-kudos differently from logged-in kudos; confirm against the live site by hand before shipping.
 
 ### RM-014 — Create and edit AO3 bookmarks
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Scope:** The Bookmarks tab is read-only today. Add "Bookmark on AO3" (with notes, tags, rec, private) as a POST to `/works/<id>/bookmarks`. Needs the form scraped for field names; must be tested against the live site by hand.
 
 ### RM-015 — Reading history import

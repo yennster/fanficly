@@ -17,6 +17,7 @@ struct SavedWorkReader: View {
     @State private var isSavingOffline = false
     @State private var isDownloaded = false
     @State private var showingComments = false
+    @State private var showingBookmark = false
     @State private var currentChapterIndex = 1
     @State private var isResolvingComments = false
     @State private var exporter = WorkExporter()
@@ -96,6 +97,11 @@ struct SavedWorkReader: View {
                 // ~5 trailing icons the iPhone nav bar fits before it spills
                 // into its own overflow (a confusing second ellipsis).
                 Menu {
+                    Button {
+                        showingBookmark = true
+                    } label: {
+                        Label("Bookmark on AO3", systemImage: "bookmark.square")
+                    }
                     WorkExportButton(workId: work.ao3Id, title: work.title,
                                      exporter: exporter, useTextLabel: true)
                     Button {
@@ -120,6 +126,9 @@ struct SavedWorkReader: View {
                          chapterId: currentChapterAoId,
                          chapterNumber: currentChapterIndex,
                          totalChapters: totalChapterCount)
+        }
+        .sheet(isPresented: $showingBookmark) {
+            AO3BookmarkSheet(workId: work.ao3Id, workTitle: work.title)
         }
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)

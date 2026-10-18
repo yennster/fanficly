@@ -56,4 +56,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
     func subscribeToWork(workId: Int) async throws {}
+    func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+    func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }
