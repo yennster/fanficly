@@ -106,11 +106,21 @@ h1 em, h2 em { font-style: italic; font-weight: 400; }
 @keyframes drift-a { from { transform: translate(10%, 6%) scale(.9); } to { transform: translate(-45%, -28%) scale(1.25); } }
 @keyframes drift-b { from { transform: translate(0, 0) scale(1); } to { transform: translate(55%, 35%) scale(1.3); } }
 @keyframes drift-c { from { transform: translate(0, 0) scale(1.15); } to { transform: translate(-45%, 40%) scale(.9); } }
-.sheet { animation: float 9s ease-in-out infinite alternate; }
-.s2 { animation-duration: 11s; animation-delay: -4s; }
-.s3 { animation-duration: 13s; animation-delay: -7s; }
-.s4 { animation-duration: 10s; animation-delay: -2s; }
-@keyframes float { from { transform: translateY(12px) rotate(var(--r)); } to { transform: translateY(-36px) rotate(calc(var(--r) + 6deg)); } }
+/* Each page drifts on its own path, speed and direction so they never move in step. */
+.s5 { --w: 120px; --o: .06; --r: 24deg; right: 22%; top: 46%; --b: 2px; }
+.s6 { --w: 190px; --o: .045; --r: -22deg; left: 24%; top: 34%; --b: 4px; }
+.s1 { animation: path-1 11s ease-in-out infinite alternate; }
+.s2 { animation: path-2 7s ease-in-out -3s infinite alternate; }
+.s3 { animation: path-3 15s ease-in-out -9s infinite alternate-reverse; }
+.s4 { animation: path-4 9s ease-in-out -5s infinite alternate; }
+.s5 { animation: path-5 6s ease-in-out -2s infinite alternate-reverse; }
+.s6 { animation: path-6 13s ease-in-out -7s infinite alternate; }
+@keyframes path-1 { 0% { transform: translate(0, 0) rotate(var(--r)); } 50% { transform: translate(22px, -30px) rotate(calc(var(--r) + 5deg)); } 100% { transform: translate(-10px, -52px) rotate(calc(var(--r) - 3deg)); } }
+@keyframes path-2 { 0% { transform: translate(0, 0) rotate(var(--r)); } 100% { transform: translate(-26px, 34px) rotate(calc(var(--r) - 9deg)); } }
+@keyframes path-3 { 0% { transform: translate(0, 0) rotate(var(--r)); } 40% { transform: translate(-30px, 20px) rotate(calc(var(--r) + 4deg)); } 100% { transform: translate(18px, 60px) rotate(calc(var(--r) + 10deg)); } }
+@keyframes path-4 { 0% { transform: translate(0, 0) rotate(var(--r)); } 100% { transform: translate(34px, -40px) rotate(calc(var(--r) + 7deg)); } }
+@keyframes path-5 { 0% { transform: translate(0, 0) rotate(var(--r)); } 60% { transform: translate(16px, 22px) rotate(calc(var(--r) - 6deg)); } 100% { transform: translate(-20px, 36px) rotate(calc(var(--r) - 12deg)); } }
+@keyframes path-6 { 0% { transform: translate(0, 0) rotate(var(--r)); } 100% { transform: translate(-40px, -24px) rotate(calc(var(--r) + 8deg)); } }
 @media (prefers-reduced-motion: reduce) { .glow, .sheet { animation: none; } }
 
 .hero-copy { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; text-align: center; }
