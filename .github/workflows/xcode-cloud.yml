@@ -1,0 +1,62 @@
+name: Xcode Cloud project path
+
+# Xcode Cloud keeps each workflow's project path in App Store Connect, not in
+# the repo. After the Apple app moved into apple/, its workflows still looked
+# for Fanficly.xcodeproj at the root. This points them at
+# apple/Fanficly.xcodeproj through the App Store Connect API, so it can be
+# fixed without a Mac. Started by hand only; without "apply" it just reports.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Change the outdated workflows (unchecked = only report them)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apple
+
+jobs:
+  project-path:
+    name: Point Xcode Cloud at apple/
+    if: github.repository == 'yennster/fanficly' && github.actor == 'yennster'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: app-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the API client's Python packages
+        run: |
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+
+      - name: Update the workflows
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          if [ "$APPLY" = "true" ]; then
+            bin/.venv/bin/python bin/xcode-cloud-project-path.py --apply
+          else
+            bin/.venv/bin/python bin/xcode-cloud-project-path.py
+          fi
+
+      - name: Remove the keys
+        if: always()
+        run: rm -f fastlane/api_key.json fastlane/AuthKey_*.p8
