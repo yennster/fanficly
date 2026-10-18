@@ -1,0 +1,96 @@
+name: Windows screenshots
+
+# The Windows counterpart of `fastlane screenshots`: drives the demo app through
+# every main screen with the UI tests (windows/tests/Fanficly.UITests,
+# ScreenshotTests) at a desktop, an upright tablet and a narrow window, plus
+# 4K "store" captures (the app drawn at 2x), builds the Store art from those
+# (windows/scripts/make_store_art.py), then commits the pictures to this branch:
+#   docs/screenshots/windows/{desktop,tablet,compact}/  README and docs
+#   docs/screenshots/windows/showcase.jpg               README strip
+#   windows/store/screenshots/en-us/                    the Store listing (3840x2160)
+#   windows/store/images/en-us/                         hero, box and poster art
+# Run it after a visual change: push a commit to `windows` whose message
+# contains [screenshots], or run it from the Actions tab once this file is on
+# the default branch (GitHub only offers "Run workflow" for those).
+on:
+  push:
+    branches: [windows]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-screenshots-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  capture:
+    name: Capture and commit
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[screenshots]') }}
+    runs-on: windows-latest
+    defaults: { run: { working-directory: windows } }
+    env:
+      FANFICLY_EXE: ${{ github.workspace }}\artifacts\app-x64\Fanficly.exe
+      FANFICLY_SCREENSHOTS: ${{ github.workspace }}\artifacts\ui-screenshots
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { global-json-file: windows/global.json }
+      - name: Build the app (unpackaged, x64)
+        run: >
+          dotnet build src/Fanficly.App -c Debug -p:Platform=x64
+          -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:RuntimeIdentifier=win-x64
+          -o ../artifacts/app-x64
+      - name: Build the UI tests
+        run: dotnet build tests/Fanficly.UITests -c Debug
+      - name: Enlarge the display
+        timeout-minutes: 2
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/Set-ScreenResolution.ps1 -Width 1920 -Height 1200
+      - name: Install the Windows 11 icon font
+        timeout-minutes: 3
+        continue-on-error: true
+        shell: pwsh
+        run: ./scripts/Install-IconFont.ps1
+      - name: Capture
+        timeout-minutes: 40
+        run: dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~ScreenshotTests" --logger "console;verbosity=normal"
+      - name: Copy into the repository
+        shell: pwsh
+        run: ./scripts/Copy-Screenshots.ps1 -From ../artifacts/ui-screenshots -Repo ..
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Build the Store art
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          python -m pip install --quiet pillow
+          python scripts/make_store_art.py --raw ../artifacts/ui-screenshots
+      - name: Print the Store art to the log
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          ./scripts/Write-Screenshots.ps1 -Dir store/screenshots -MaxWidth 1280 -Quality 80
+          ./scripts/Write-Screenshots.ps1 -Dir store/images -MaxWidth 1280 -Quality 80
+      - name: Commit
+        working-directory: .
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/screenshots/windows windows/store/screenshots windows/store/images
+          if (git diff --cached --quiet) { Write-Host 'Screenshots unchanged.'; exit 0 }
+          git commit -m 'Windows: refresh screenshots' -m "Captured by the Windows screenshots workflow (run ${{ github.run_id }})."
+          # The branch may have moved on while the run captured; put the
+          # pictures on top of it (they only touch picture folders).
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: ui-screenshots, path: artifacts/ui-screenshots, if-no-files-found: ignore }

@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- Microsoft Store screenshot template (16:9), filled in and rendered by
+     windows/scripts/make_store_art.py ($placeholders are string.Template
+     fields). The app sits in a Windows 11 window card, as it does on screen:
+     8 px corners, a hairline edge and a deep, soft shadow. -->
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="$css">
+<style>
+  :root { --w: ${w}px; --h: ${h}px; }
+  .top {
+    position: absolute; left: 0; right: 0; top: var(--text-top); padding: 0 var(--side);
+    display: flex; flex-direction: column; align-items: center; gap: var(--gap); text-align: center;
+    z-index: 3;
+  }
+  h1 { font-size: var(--hs); line-height: 1.02; white-space: nowrap; }
+  .label { font-size: 56px; gap: 44px; }
+  .label::before, .label::after { width: 200px; height: 4px; }
+
+  /* A window: the capture with Windows 11's rounded corners and shadow. */
+  .win {
+    position: absolute; width: var(--ww); z-index: 2;
+    filter: drop-shadow(0 calc(var(--ww) * .035) calc(var(--ww) * .05) rgba(10, 5, 45, .55))
+            drop-shadow(0 calc(var(--ww) * .008) calc(var(--ww) * .014) rgba(10, 5, 45, .35));
+  }
+  .win img {
+    width: 100%; display: block; border-radius: calc(var(--ww) * var(--radius, .0055));
+    outline: 2px solid rgba(255, 255, 255, .28); outline-offset: -1px;
+  }
+  .halo {
+    position: absolute; left: 50%; top: 58%; width: 2600px; aspect-ratio: 1.6;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse, rgba(150, 132, 255, .40), rgba(150, 132, 255, .12) 42%, transparent 68%);
+    z-index: 1;
+  }
+  .spark { position: absolute; z-index: 4; transform: translate(-50%, -50%); }
+
+  /* One desktop window, centred under the headline. */
+  body.single { --text-top: 150px; --side: 240px; --gap: 44px; --hs: 200px; }
+  body.single .win.main { --ww: 2440px; left: 50%; top: 600px; transform: translateX(-50%); }
+
+  /* A desktop window with an upright tablet in front of it, to the right. */
+  body.pair { --text-top: 150px; --side: 240px; --gap: 44px; --hs: 200px; }
+  body.pair .win.main { --ww: 2280px; left: 330px; top: 610px; }
+  body.pair .win.side { --ww: 1060px; --radius: .012; right: 330px; top: 540px; z-index: 3; }
+</style>
+</head>
+<body class="$layout">
+$pages
+  <div class="halo"></div>
+  <div class="win main"><img src="$main_png"></div>
+  $side
+  <div class="top">
+    <div class="label">$label</div>
+    <h1>$headline</h1>
+  </div>
+  <div class="spark" id="s1"><svg viewBox="0 0 100 100"><path fill="#FFE2B8" d="M50 0 C54 34 66 46 100 50 C66 54 54 66 50 100 C46 66 34 54 0 50 C34 46 46 34 50 0Z"/></svg></div>
+  <div class="spark" id="s2"><svg viewBox="0 0 100 100"><path fill="#FFE2B8" d="M50 0 C54 34 66 46 100 50 C66 54 54 66 50 100 C46 66 34 54 0 50 C34 46 46 34 50 0Z"/></svg></div>
+<script>
+// Wait for the web fonts, lay out, then flag that the page is ready to capture.
+document.fonts.ready.then(() => {
+  // Shrink the headline until it fits on one line.
+  const h1 = document.querySelector("h1");
+  let size = parseFloat(getComputedStyle(h1).fontSize);
+  const room = document.querySelector(".top").clientWidth;
+  while (h1.scrollWidth > room && size > 80) { size -= 4; h1.style.fontSize = size + "px"; }
+  // Two sparkles off the right of the gold accent word.
+  const em = document.querySelector("h1 em");
+  const place = (el, dx, dy, d) => {
+    if (!em) { el.remove(); return; }
+    const rects = em.getClientRects();
+    const r = rects[rects.length - 1];
+    Object.assign(el.style, { left: (r.right + dx * size) + "px", top: (r.top + dy * size) + "px",
+                              width: d * size + "px", height: d * size + "px" });
+  };
+  place(document.getElementById("s1"), .2, .3, .36);
+  place(document.getElementById("s2"), .5, .64, .17);
+  document.querySelectorAll(".spark").forEach(el => el.style.filter = "drop-shadow(0 0 " + (size * .1) + "px rgba(255,216,163,.7))");
+  document.body.dataset.ready = "1";
+});
+</script>
+</body>
+</html>

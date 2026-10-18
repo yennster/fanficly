@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The MSIX manifest. Identity Name/Publisher and PublisherDisplayName are
+     placeholders: the Store workflow (and scripts/store/Set-StoreIdentity.ps1)
+     writes the values Partner Center reserved for the app. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 uap5 com desktop rescap">
+
+  <Identity
+    Name="Fanficly.Fanficly"
+    Publisher="CN=Fanficly"
+    Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>Fanficly</DisplayName>
+    <PublisherDisplayName>Fanficly</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="x-generate"/>
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="$targetentrypoint$">
+      <uap:VisualElements
+        DisplayName="Fanficly"
+        Description="An ad-free, open-source reader for Archive of Our Own."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square71x71Logo="Assets\Square71x71Logo.png"
+          Square310x310Logo="Assets\Square310x310Logo.png"
+          ShortName="Fanficly">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo"/>
+            <uap:ShowOn Tile="wide310x150Logo"/>
+            <uap:ShowOn Tile="square310x310Logo"/>
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- fanficly://resume/<id>, fanficly://import?url=, fanficly://search?query= -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="fanficly">
+            <uap:DisplayName>Fanficly</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+
+        <!-- "Share → Fanficly" from Edge, Chrome or any app: imports the AO3 work. -->
+        <uap:Extension Category="windows.shareTarget">
+          <uap:ShareTarget Description="Add an AO3 work to your Fanficly library">
+            <uap:DataFormat>URI</uap:DataFormat>
+            <uap:DataFormat>WebLink</uap:DataFormat>
+            <uap:DataFormat>Text</uap:DataFormat>
+          </uap:ShareTarget>
+        </uap:Extension>
+
+        <!-- Tapping a new-chapter / new-work notification opens what it's about. -->
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="C19ED655-1F36-428B-9256-8562E4E0CF61" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Fanficly.exe" Arguments="----AppNotificationActivated:" DisplayName="Fanficly notifications">
+              <com:Class Id="C19ED655-1F36-428B-9256-8562E4E0CF61" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+
+        <!-- The Widgets board: the iOS widget bundle's six widgets, each small and
+             medium: Continue reading (FanficlyWidget), Reading Streak, Subscriptions,
+             Folder Shortcuts, Saved Searches and Recommendation. -->
+
+        <uap3:Extension Category="windows.appExtension">
+          <uap3:AppExtension Name="com.microsoft.windows.widgets" DisplayName="Fanficly" Id="FanficlyWidgets" PublicFolder="Public">
+            <uap3:Properties>
+              <WidgetProvider>
+                <ProviderIcons>
+                  <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                </ProviderIcons>
+                <Activation>
+                  <CreateInstance ClassId="B46F852C-289F-47B1-AB03-CC6793490B34" />
+                </Activation>
+                <Definitions>
+                  <Definition Id="LastRead" DisplayName="Continue reading" Description="The story you read last, and how far you got." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\WidgetScreenshot.png" DisplayAltText="Continue reading widget showing a story title, its author and a progress bar" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="ReadingStreak" DisplayName="Reading Streak" Description="Track your daily reading streak and recent history." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\StreakScreenshot.png" DisplayAltText="Reading Streak widget showing a five-day streak and this week's reading days as dots" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="Subscriptions" DisplayName="Subscriptions" Description="Track updates on your followed fanfics." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\SubscriptionsScreenshot.png" DisplayAltText="Subscriptions widget listing three followed stories with their latest chapter numbers" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="FolderShortcuts" DisplayName="Folder Shortcuts" Description="View and access your custom library folders." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\FoldersScreenshot.png" DisplayAltText="Folder Shortcuts widget listing three library folders and how many stories each holds" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="SavedSearches" DisplayName="Saved Searches" Description="Quickly run your saved search and filter terms." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\SavedSearchesScreenshot.png" DisplayAltText="Saved Searches widget listing three saved searches and filters" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                  <Definition Id="Recommendation" DisplayName="Recommendation" Description="Spotlights a starred or unread story from your library." IsCustomizable="false">
+                    <Capabilities>
+                      <Capability><Size Name="small" /></Capability>
+                      <Capability><Size Name="medium" /></Capability>
+                    </Capabilities>
+                    <ThemeResources>
+                      <Icons>
+                        <Icon Path="Assets\Square44x44Logo.targetsize-32.png" />
+                      </Icons>
+                      <Screenshots>
+                        <Screenshot Path="Assets\Widgets\RecommendationScreenshot.png" DisplayAltText="Recommendation widget showing a story's title, author, summary and a tag" />
+                      </Screenshots>
+                      <DarkMode />
+                      <LightMode />
+                    </ThemeResources>
+                  </Definition>
+                </Definitions>
+              </WidgetProvider>
+            </uap3:Properties>
+          </uap3:AppExtension>
+        </uap3:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Fanficly.exe" Arguments="-RegisterProcessAsComServer" DisplayName="Fanficly widgets">
+              <com:Class Id="B46F852C-289F-47B1-AB03-CC6793490B34" DisplayName="Fanficly widget provider" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+
+        <!-- The 4-hour subscription refresh while the app is closed (BGAppRefreshTask on
+             iOS), registered with the Windows App SDK's BackgroundTaskBuilder: Windows runs
+             its UniversalBGTask entry point, which creates the COM class below
+             (Fanficly.exe -BackgroundTask) and hands it the task. -->
+        <Extension Category="windows.backgroundTasks" EntryPoint="Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.Task">
+          <BackgroundTasks>
+            <Task Type="timer" />
+          </BackgroundTasks>
+        </Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Fanficly.exe" Arguments="-BackgroundTask" DisplayName="Fanficly background refresh">
+              <com:Class Id="8090198F-1775-484C-B6CA-2D344B824590" DisplayName="Fanficly subscription refresh" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <!-- The Windows App SDK's background-task entry point (windows.backgroundTasks above). -->
+  <Extensions>
+    <Extension Category="windows.activatableClass.inProcessServer">
+      <InProcessServer>
+        <Path>Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.dll</Path>
+        <ActivatableClass ActivatableClassId="Microsoft.Windows.ApplicationModel.Background.UniversalBGTask.Task" ThreadingModel="both" />
+      </InProcessServer>
+    </Extension>
+  </Extensions>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
