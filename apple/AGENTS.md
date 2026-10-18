@@ -554,9 +554,12 @@ Keep those shared files free of app-only models/UI dependencies;
   notification work routes, this can open the saved copy.
 - **Spotlight** indexes **every** library `Work` (followed or not) as
   `work-<id>` in the `WorkPersistence.spotlightDomain` domain, on-device only:
-  `upsertMetadata` indexes, `LibraryView.delete` deindexes, and
-  `reindexLibrary` rebuilds the domain at launch and after an iCloud restore
-  (restore inserts works without `upsertMetadata`). A tapped result arrives as
+  `upsertMetadata` indexes (not in demo mode: the index is the device's
+  own), `LibraryView.delete` deindexes, and `reindexLibrary` rebuilds the
+  domain once at launch (`spotlight.reindexed.v1`, for works saved when only
+  followed ones were indexed) and after an iCloud restore (restore inserts
+  works without `upsertMetadata`). Don't rebuild every launch: it empties the
+  app's Spotlight results while it runs. A tapped result arrives as
   `CSSearchableItemActionType` in `RootView.onContinueUserActivity` and opens
   through `openResumeRoute` with no anchor, like a widget tap. CoreSpotlight
   completion handlers run off the main actor: mark them `@Sendable` and capture

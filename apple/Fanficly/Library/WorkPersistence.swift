@@ -69,6 +69,9 @@ enum WorkPersistence {
     /// which opens the work through the resume route.
     static let spotlightDomain = "io.github.yennster.fanficly.works"
 
+    /// Set once the launch task has rebuilt the index from the whole library.
+    static let spotlightReindexedKey = "spotlight.reindexed.v1"
+
     /// What Spotlight shows for one library work. A Sendable value so items
     /// can be built off the main actor, in the index's completion handler.
     struct SpotlightEntry: Sendable, Equatable {
@@ -117,6 +120,8 @@ enum WorkPersistence {
 
     @MainActor
     static func indexWork(_ work: Work) {
+        // Demo mode's library is in memory, but the index is the device's own.
+        guard !FanficlyApp.isDemoMode else { return }
         CSSearchableIndex.default().indexSearchableItems(
             [searchableItem(for: spotlightEntry(for: work))], completionHandler: nil)
     }
@@ -128,10 +133,9 @@ enum WorkPersistence {
     }
 
     /// Rebuilds the Spotlight index from the whole library: clears the domain,
-    /// then indexes every saved work. Run at launch and after an iCloud restore,
-    /// so works saved before every library work was indexed (only followed ones
-    /// were) and works a restore inserted become findable, and anything deleted
-    /// while the index was out of step drops out.
+    /// then indexes every saved work. Run once at launch (works saved before
+    /// every library work was indexed, when only followed ones were) and after
+    /// an iCloud restore (restored works skip `upsertMetadata`).
     @MainActor
     static func reindexLibrary(context: ModelContext) {
         let entries = ((try? context.fetch(FetchDescriptor<Work>())) ?? []).map { spotlightEntry(for: $0) }
