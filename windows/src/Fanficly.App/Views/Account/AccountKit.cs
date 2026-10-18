@@ -53,13 +53,18 @@ internal static class AccountKit
     public static string CheckedAgo(DateTimeOffset checkedAt) => $"checked {RelativeSpan(checkedAt)} ago";
 
     /// <summary>A caption with a decorative leading symbol ("person  Author").</summary>
-    public static StackPanel KindLabel(string sfSymbol, string text)
+    public static Grid KindLabel(string sfSymbol, string text)
     {
         var icon = UI.UI.Icon(sfSymbol, 10, Theme.TextSecondary);
         icon.VerticalAlignment = VerticalAlignment.Center;
         var label = UI.UI.Caption(text);
         label.VerticalAlignment = VerticalAlignment.Center;
-        return UI.UI.HStack(4, icon, label);
+        // A grid, not a horizontal stack, so a long caption (a fandom) wraps
+        // at large text sizes instead of running past the row's edge.
+        var grid = UI.UI.Grid("Auto,*", columnSpacing: 4);
+        grid.Children.Add(icon.Col(0));
+        grid.Children.Add(label.Col(1));
+        return grid;
     }
 
     /// <summary>Opens an AO3 page in the default browser (SafariView on iOS).</summary>

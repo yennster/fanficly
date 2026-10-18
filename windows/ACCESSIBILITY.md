@@ -55,6 +55,7 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 - **Zoom.** The whole interface zooms from 50 % to 200 % in 10 % steps with Ctrl+Plus and Ctrl+Minus. The zoom is remembered between sessions.
 - **Light and dark.** Settings → Appearance follows Windows or forces Light or Dark, and the title bar follows suit.
 - **High contrast.** When a Windows contrast theme is on, the app's colours switch to the system's contrast colours, and the brand colours step aside. Reader settings suggests the "Match System" or "Dracula Navy" reading theme so story text stays readable.
+- **Larger text.** Settings → Accessibility → Text size in Windows enlarges the app's text up to 225 %. From 150 % up, titles, authors and other lines that are otherwise cut to one or two lines wrap in full, settings controls move under their labels sooner, and the Library, Stats, Subscriptions and Settings screens keep their text from running off the edge.
 - **Window sizes.** The layout works from a narrow 360-pixel window up to full screen. In a narrow window the sidebar folds into a menu button in the title bar.
 
 ## Reading comfort (the reader)

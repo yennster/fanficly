@@ -40,13 +40,27 @@ internal sealed partial class Segmented : Grid
         {
             var (title, symbol, id) = items[i];
             ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var label = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            // One line with "…" normally; at large Windows text sizes the title
+            // wraps instead, so it's never cut short.
+            var label = new TextBlock
+            {
+                Text = title,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.WrapWholeWords,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = UI.LineLimit(1),
+            };
             UIElement content = label;
             if (symbol is not null)
             {
                 var icon = UI.Icon(symbol, 14);
+                icon.VerticalAlignment = VerticalAlignment.Center;
                 _icons.Add(icon);
-                content = UI.HStack(6, icon, label);
+                var row = UI.Grid("Auto,*", columnSpacing: 6);
+                row.Children.Add(icon.Col(0));
+                row.Children.Add(label.Col(1));
+                content = row;
             }
             var button = new Button
             {

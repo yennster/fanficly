@@ -6,7 +6,7 @@ namespace Fanficly.UITests;
 
 /// <summary>Launch, navigation and window-level behaviour, at a laptop-sized
 /// window (the sidebar expanded) and a narrow one (the sidebar folded away).</summary>
-public sealed class SmokeTests
+public sealed partial class SmokeTests
 {
     private static readonly FormFactor Laptop = new("laptop", 1280, 800);
 
