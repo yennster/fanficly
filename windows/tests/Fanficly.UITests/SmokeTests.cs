@@ -74,6 +74,8 @@ public sealed class SmokeTests
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.OEM_PLUS);
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.OEM_PLUS);
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.OEM_MINUS);
+        s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.SHIFT, VirtualKeyShort.OEM_PLUS);
+        s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.SHIFT, VirtualKeyShort.OEM_MINUS);
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_0);
         s.Keys(VirtualKeyShort.F11);
         s.Keys(VirtualKeyShort.F11);
