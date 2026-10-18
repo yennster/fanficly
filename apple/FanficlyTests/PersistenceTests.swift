@@ -1028,3 +1028,68 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
     }
 }
+
+/// RM-003: the reading-time estimate's pace (fallback and clamping) and its
+/// formatting at no words, under a minute, minutes and hours.
+@MainActor
+final class ReadingSpeedTests: XCTestCase {
+    private func snap(_ id: Int, words: Int, seconds: Double, progress: Double = 1.0) -> ReadingStatSnapshot {
+        ReadingStatSnapshot(ao3Id: id, title: "", author: "A",
+                            fandoms: [], categories: [], relationships: [],
+                            rating: "", wordCount: words,
+                            firstReadAt: .now, lastReadAt: .now,
+                            totalSeconds: seconds, daySeconds: [:],
+                            maxProgress: progress, workIsComplete: false)
+    }
+
+    func test_wordsPerMinute_fallsBackUntilThreeFinishedTimedWorks() {
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute([]), 250)
+        // Two finished works at 300 wpm aren't enough yet.
+        let two = [snap(1, words: 3_000, seconds: 600), snap(2, words: 3_000, seconds: 600)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(two), 250)
+        // Unfinished and zero-time (backfilled) works don't count toward the three.
+        let padded = two + [snap(3, words: 3_000, seconds: 600, progress: 0.5),
+                            snap(4, words: 3_000, seconds: 0)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(padded), 250)
+        // A third finished, timed work switches to the personal pace.
+        let three = two + [snap(5, words: 3_000, seconds: 600)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(three), 300, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_poolsWordsOverTime() {
+        // 2,000 + 4,000 + 6,000 words in 4 + 8 + 12 minutes = 500 wpm, and an
+        // unfinished work's time doesn't drag it down.
+        let snaps = [snap(1, words: 2_000, seconds: 240), snap(2, words: 4_000, seconds: 480),
+                     snap(3, words: 6_000, seconds: 720), snap(4, words: 50_000, seconds: 36_000, progress: 0.1)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps), 500, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_isClamped() {
+        let fast = (1...3).map { snap($0, words: 10_000, seconds: 60) }      // 10,000 wpm
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(fast), 600)
+        let slow = (1...3).map { snap($0, words: 1_000, seconds: 3_600) }    // ~17 wpm
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(slow), 120)
+    }
+
+    func test_estimate_formatting() {
+        XCTAssertNil(ReadingSpeed.estimate(words: 0))
+        XCTAssertNil(ReadingSpeed.estimate(words: -5))
+        XCTAssertEqual(ReadingSpeed.estimate(words: 100), "<1 min")          // 0.4 min
+        XCTAssertEqual(ReadingSpeed.estimate(words: 250), "~1 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 11_250), "~45 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 14_900), "~1 hr")        // 59.6 rounds up
+        XCTAssertEqual(ReadingSpeed.estimate(words: 15_000), "~1 hr")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 31_250), "~2 hr 5 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 200_000), "~13 hr")      // 13 hr 20 min, minutes dropped
+        // The pace changes the estimate.
+        XCTAssertEqual(ReadingSpeed.estimate(words: 12_000, wordsPerMinute: 400), "~30 min")
+    }
+
+    func test_spokenEstimate() {
+        XCTAssertNil(ReadingSpeed.spokenEstimate(words: 0))
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 100), "Under a minute to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 250), "About 1 minute to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 15_000), "About 1 hour to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 31_250), "About 2 hours 5 minutes to read")
+    }
+}
