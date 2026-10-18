@@ -276,6 +276,75 @@ final class CommentsParserTests: XCTestCase {
         XCTAssertTrue(comments[0].bodyHTML.contains("Great chapter"))
     }
 
+    /// AO3's comment pagination (will_paginate's list renderer): an
+    /// `ol.pagination.actions` above and below the thread in
+    /// `#comments_placeholder`, the current page as `<span class="current">`.
+    private func pagedHTML(current: Int, total: Int) -> String {
+        let pages = (1...total).map { n in
+            n == current
+                ? "<li><span class=\"current\">\(n)</span></li>"
+                : "<li><a href=\"/works/1/chapters/2?page=\(n)&amp;show_comments=true#comments\">\(n)</a></li>"
+        }.joined()
+        let nav = """
+        <h4 class="landmark heading">Pages Navigation</h4>
+        <ol class="pagination actions" role="navigation" title="pagination">
+          <li class="previous" title="previous"><span class="disabled">← Previous</span></li>
+          \(pages)
+          <li class="next" title="next"><a rel="next" href="/works/1/chapters/2?page=2&amp;show_comments=true#comments">Next →</a></li>
+        </ol>
+        """
+        return """
+        <html><body>
+        <div id="comments" class="comments"></div>
+        <div id="comments_placeholder">
+          \(nav)
+          <ol class="thread">
+            <li class="odd comment group" id="comment_\(current)00" role="article">
+              <h4 class="heading byline"><a href="/users/zed/pseuds/zed">zed</a></h4>
+              <blockquote class="userstuff"><p>Page \(current).</p></blockquote>
+            </li>
+          </ol>
+          \(nav)
+        </div>
+        </body></html>
+        """
+    }
+
+    func test_parsePage_readsCommentPagination() throws {
+        let page = try CommentsParser.parsePage(html: pagedHTML(current: 2, total: 4))
+        XCTAssertEqual(page.currentPage, 2)
+        XCTAssertEqual(page.totalPages, 4)
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.comments.map(\.id), ["200"])
+
+        let last = try CommentsParser.parsePage(html: pagedHTML(current: 4, total: 4))
+        XCTAssertEqual(last.currentPage, 4)
+        XCTAssertFalse(last.hasMore)
+    }
+
+    func test_parsePage_singlePageHasNoMore() throws {
+        // A one-shot (or a short thread) has no pagination list at all.
+        let page = try CommentsParser.parsePage(html: html)
+        XCTAssertEqual(page.comments.count, 3)
+        XCTAssertEqual(page.currentPage, 1)
+        XCTAssertEqual(page.totalPages, 1)
+        XCTAssertFalse(page.hasMore)
+    }
+
+    func test_parsePage_ignoresPaginationOutsideTheThread() throws {
+        let html = """
+        <html><body>
+        <ol class="pagination actions"><li><span class="current">1</span></li><li><a href="#">9</a></li></ol>
+        <div id="comments_placeholder"><ol class="thread">
+          <li class="comment group" id="comment_1"><blockquote class="userstuff"><p>Hi</p></blockquote></li>
+        </ol></div>
+        </body></html>
+        """
+        let page = try CommentsParser.parsePage(html: html)
+        XCTAssertEqual(page.totalPages, 1)
+        XCTAssertFalse(page.hasMore)
+    }
+
     func test_defaultPseudId() {
         let formHTML = """
         <form><select name="comment[pseud_id]">

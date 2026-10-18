@@ -1064,6 +1064,11 @@ struct CommentsView: View {
     @State private var comments: [AO3Comment] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    /// The last comment page loaded and how many AO3 has, for "Load more".
+    @State private var currentPage = 1
+    @State private var totalPages = 1
+    @State private var isLoadingMore = false
+    @State private var loadMoreError: String?
     @State private var draft = ""
     @State private var isPosting = false
     @State private var postError: String?
@@ -1106,6 +1111,9 @@ struct CommentsView: View {
                         ForEach(comments) { comment in
                             CommentRow(comment: comment)
                         }
+                        if currentPage < totalPages {
+                            loadMoreRow
+                        }
                     }
                     .listStyle(.plain)
                 }
@@ -1129,6 +1137,27 @@ struct CommentsView: View {
             .safeAreaInset(edge: .bottom) { composer }
             .task { await load() }
         }
+    }
+
+    private var loadMoreRow: some View {
+        VStack(spacing: 6) {
+            if let loadMoreError {
+                Text(loadMoreError).font(.caption).foregroundStyle(.red)
+            }
+            Button {
+                Task { await loadMore() }
+            } label: {
+                if isLoadingMore {
+                    ProgressView()
+                } else {
+                    Text("Load more comments")
+                }
+            }
+            .disabled(isLoadingMore || isLoading)
+            .accessibilityHint("Page \(currentPage) of \(totalPages)")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 
     private var composer: some View {
@@ -1177,14 +1206,37 @@ struct CommentsView: View {
         }
     }
 
+    /// Loads (or reloads) the first comment page, dropping any later pages.
     private func load() async {
         isLoading = true
         errorMessage = nil
+        loadMoreError = nil
         defer { isLoading = false }
         do {
-            comments = try await client.fetchComments(workId: workId, chapterId: chapterId)
+            let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: 1)
+            comments = page.comments
+            currentPage = page.currentPage
+            totalPages = page.totalPages
         } catch {
             errorMessage = "\(error)"
+        }
+    }
+
+    /// Appends the next comment page. Ids already shown are skipped, since a
+    /// comment posted meanwhile can shift a thread onto the next page.
+    private func loadMore() async {
+        guard !isLoadingMore, currentPage < totalPages else { return }
+        isLoadingMore = true
+        loadMoreError = nil
+        defer { isLoadingMore = false }
+        do {
+            let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: currentPage + 1)
+            let seen = Set(comments.map(\.id))
+            comments += page.comments.filter { !seen.contains($0.id) }
+            currentPage = max(currentPage + 1, page.currentPage)
+            totalPages = page.totalPages
+        } catch {
+            loadMoreError = "Couldn't load more comments: \(error.localizedDescription)"
         }
     }
 
