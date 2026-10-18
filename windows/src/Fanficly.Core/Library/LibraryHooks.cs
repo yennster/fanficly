@@ -14,7 +14,9 @@ public sealed record WidgetProgressUpdate(
 
 /// <summary>The system search index the Swift app feeds through CoreSpotlight
 /// (every library work is searchable from the OS). Windows installs none:
-/// Windows Search has no public API for an app's own items (RM-108).</summary>
+/// Windows Search has no public API for an app's own items (RM-108). Swift also
+/// rebuilds its index after a library restore; an indexer added here would need
+/// the same after <c>LibrarySyncManager</c>'s restore.</summary>
 public interface IWorkSearchIndexer
 {
     void Index(Work work);
