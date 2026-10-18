@@ -886,7 +886,10 @@ struct StatsView: View {
         }
     }
 
-    /// This year's goal progress; nil when there's no goal.
+    /// This year's goal progress; nil when there's no goal. "Finished this
+    /// year" uses the yearly wrap's rule (finished, and read on a day this
+    /// year): `ReadingStat` keeps no finish date, so a story finished last
+    /// year and reopened this year counts too.
     private var goalProgress: ReadingGoalProgress? {
         guard yearlyGoal > 0 else { return nil }
         let now = Date()
@@ -943,11 +946,14 @@ struct StatsView: View {
     var body: some View {
         Group {
             if stats.isEmpty {
-                ContentUnavailableView(
-                    "No Reading Stats Yet",
-                    systemImage: "chart.bar.xaxis",
-                    description: Text("Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.")
-                )
+                ContentUnavailableView {
+                    Label("No Reading Stats Yet", systemImage: "chart.bar.xaxis")
+                } description: {
+                    Text("Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.")
+                } actions: {
+                    // A new reader can set a goal before their first read.
+                    goalSection
+                }
             } else {
                 let summary = summary
                 ScrollView {
@@ -1005,7 +1011,7 @@ struct StatsView: View {
     /// Render the wrap-up card to an image and present the share sheet.
     @MainActor private func shareWrap() {
         let card = WrapShareCard(scopeTitle: scopeTitle, summary: summary,
-                                 goal: showsGoal ? goalProgress : nil)
+                                 goal: showsGoal ? goalProgress : nil, year: currentYear)
         let renderer = ImageRenderer(content: card)
         renderer.scale = max(displayScale, 2)
         if let image = renderer.uiImage {
@@ -1151,7 +1157,7 @@ private struct ReadingGoalCard: View {
                             track: Color.secondary.opacity(0.15), fill: .accentColor)
                 .frame(width: 64, height: 64)
                 .overlay {
-                    Text("\(Int((progress.fraction * 100).rounded()))%")
+                    Text("\(Int((progress.fraction * 100).rounded(.down)))%")
                         .font(.caption.weight(.bold).monospacedDigit())
                 }
             VStack(alignment: .leading, spacing: Spacing.xxs) {
@@ -1174,7 +1180,7 @@ private struct ReadingGoalCard: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(String(year)) reading goal: \(progress.finished) of \(progress.goal) stories finished, \(progress.paceLabel)")
+        .accessibilityLabel("\(String(year)) reading goal: \(progress.finished) of \(progress.goal) \(progress.goal == 1 ? "story" : "stories") finished, \(progress.paceLabel)")
     }
 }
 
@@ -1344,6 +1350,8 @@ struct WrapShareCard: View {
     let summary: ReadingStatsSummary
     /// This year's goal, shown as a ring when set and the card covers this year.
     var goal: ReadingGoalProgress? = nil
+    /// The goal's year, named on the card since the All Time card shows it too.
+    var year: Int = Calendar.current.component(.year, from: Date())
 
     /// Fanficly brand indigo (#3B2E8C), matching the App Store marketing canvas.
     private let brand = Color(red: 0x3B / 255, green: 0x2E / 255, blue: 0x8C / 255)
@@ -1414,7 +1422,7 @@ struct WrapShareCard: View {
                             track: .white.opacity(0.2), fill: .white)
                 .frame(width: 36, height: 36)
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(goal.finished) of \(goal.goal) \(goal.goal == 1 ? "story" : "stories") goal")
+                Text("\(goal.finished) of \(goal.goal) \(goal.goal == 1 ? "story" : "stories") · \(String(year)) goal")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                 Text(goal.paceLabel)

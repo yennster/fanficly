@@ -658,9 +658,11 @@ wrap-up image for the selected period on the indigo brand canvas) via
 **Yearly reading goal** (RM-011): an optional count of stories to finish this
 year in `@AppStorage(ReadingGoal.storageKey)` (`reading.yearlyGoal`, 0 = no
 goal), per-device and deliberately not in the iCloud backup. The Stats tab shows
-a `ReadingGoalCard` ring (or a "Set a Reading Goal" button) on All Time and the
-current year only, and `WrapShareCard` adds a goal row for those scopes. "This
-year's finished" is `summarize(…, interval: <this year>).storiesRead`; pace is
+a `ReadingGoalCard` ring (or a "Set a 2026 Reading Goal" button, also on the
+empty state) on All Time and the current year only, and `WrapShareCard` adds a
+goal row for those scopes. "This year's finished" is `summarize(…, interval:
+<this year>).storiesRead`, the wrap's rule; with no finish date stored, a story
+finished last year and reopened this year counts too. Pace is
 the pure `ReadingStatsAggregator.goalProgress` (an even spread across the year,
 rounded down, so January 1st is "On pace"), tested in `PersistenceTests`.
 

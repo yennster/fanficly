@@ -145,7 +145,7 @@ struct ReadingGoalProgress: Equatable, Sendable {
     var expected: Int
 
     /// 0…1 for the progress ring; stays full once the goal is passed.
-    var fraction: Double { min(Double(finished) / Double(goal), 1) }
+    var fraction: Double { goal > 0 ? min(Double(finished) / Double(goal), 1) : 0 }
     var isComplete: Bool { finished >= goal }
     /// Stories ahead of an even pace (negative when behind).
     var ahead: Int { finished - expected }
