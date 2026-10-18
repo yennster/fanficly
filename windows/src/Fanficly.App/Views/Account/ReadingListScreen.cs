@@ -115,7 +115,18 @@ public sealed class ReadingListScreen : Screen
     private PagedWorksList CreateList(string username)
     {
         var list = new PagedWorksList(
-            (page, ct) => _spec.Fetch(AppHost.Client, username, page, ct),
+            async (page, ct) =>
+            {
+                try
+                {
+                    return await _spec.Fetch(AppHost.Client, username, page, ct);
+                }
+                catch (AO3Exception e) when (e.Reason is SearchResultsParser.HistoryOffReason or SearchResultsParser.NotReadingsReason)
+                {
+                    // Shown as written (as in the Swift app), not as "Couldn't read AO3's page (…)".
+                    throw new InvalidOperationException(e.Reason, e);
+                }
+            },
             _spec.Texts,
             automationId: $"{Raw}.list",
             listName: Title);

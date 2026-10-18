@@ -43,6 +43,13 @@ public static partial class SearchResultsParser
     /// their preferences) is never read as an empty list.</summary>
     /// <exception cref="AO3Exception">Unauthorized for a login page; ParseFailed for
     /// any page that isn't the readings page.</exception>
+    /// <summary>ParseReadings' reasons, written to be shown as they are (the
+    /// Swift app's wording); see <c>ReadingListScreen</c>.</summary>
+    public const string HistoryOffReason =
+        "Your AO3 reading history is turned off. Check \"Turn on History\" in your AO3 preferences to see this list.";
+    public const string NotReadingsReason =
+        "AO3 sent a page that isn't your readings list. Try again, or check the list on the AO3 website.";
+
     public static AO3SearchResults ParseReadings(string html)
     {
         if (LoginParser.HasLoginForm(html)) throw AO3Exception.Unauthorized();
@@ -50,8 +57,8 @@ public static partial class SearchResultsParser
         if (doc.Select("div.readings-index").Count == 0)
         {
             if (doc.Select("div.preferences-index").Count > 0)
-                throw AO3Exception.ParseFailed("History is turned off in your AO3 preferences; check \"Turn on History\" there to see this list");
-            throw AO3Exception.ParseFailed("not your readings page");
+                throw AO3Exception.ParseFailed(HistoryOffReason);
+            throw AO3Exception.ParseFailed(NotReadingsReason);
         }
         return Parse(html, "li.reading.work.blurb");
     }

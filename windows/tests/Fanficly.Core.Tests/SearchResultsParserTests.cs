@@ -338,7 +338,7 @@ public class SearchResultsParserTests
         var prefs = Assert.Throws<AO3Exception>(() => SearchResultsParser.ParseReadings(
             "<html><body><div id=\"main\" class=\"preferences-index dashboard region\"></div></body></html>"));
         Assert.Equal(AO3ErrorKind.ParseFailed, prefs.Kind);
-        Assert.Contains("Turn on History", prefs.Reason);
+        Assert.Equal(SearchResultsParser.HistoryOffReason, prefs.Reason);
         // Anything else (markup drift, an error page) is never an empty list.
         var other = Assert.Throws<AO3Exception>(() => SearchResultsParser.ParseReadings("<html><body><p>Oops</p></body></html>"));
         Assert.Equal(AO3ErrorKind.ParseFailed, other.Kind);
