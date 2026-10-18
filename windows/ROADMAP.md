@@ -201,11 +201,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.App/Views/Settings/AboutScreen.cs`, a new resource file, `Fanficly.App.csproj` if needed.
 
 ### RM-113 — Move the remaining screens' strings to the resource table
-- **Status:** open · **Size:** S per screen · **Validation:** unit + windows
+- **Status:** open · **Size:** M (one screen per PR) · **Validation:** unit + windows
 - **Why:** RM-109 added `Strings/en-US/Resources.resw` and `Strings.Get`, and moved Settings → About. Every other screen's text is still inline C#.
 - **Scope:** One screen (or screen family) per PR, following the convention in AGENTS.md: the rest of Settings, Search and its filters, Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, sign-in, dialogs, toasts and the widget. Do not translate. AO3 tag and category names stay verbatim.
 - **Done when:** each screen's user-facing literals are `Strings.Get` keys with entries in the table, `ResourceStringsTests` passes, and English reads the same.
-- **Apple counterpart:** RM-024.
+- **Touches:** the screen's file under `src/Fanficly.App/Views/`, `Strings/en-US/Resources.resw`.
+- **Apple counterpart:** RM-024 (after RM-017).
 
 ### RM-110 — Move the Windows app onto `main` (one branch, a folder per platform)
 - **Status:** done · maintainer only · **Size:** M · **Validation:** windows

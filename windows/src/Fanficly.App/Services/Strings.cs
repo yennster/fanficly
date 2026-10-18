@@ -15,7 +15,7 @@ public static class Strings
         try { return new ResourceLoader(); }
         catch (Exception e)
         {
-            // No resources.pri next to the exe (a build off Windows, where MakePri doesn't run).
+            // No resources.pri next to the exe (missing or stale; MakePri runs only on Windows).
             AppHost.Log($"Strings: no resource table ({e.GetType().Name})");
             return null;
         }
