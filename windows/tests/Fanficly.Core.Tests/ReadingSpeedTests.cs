@@ -25,12 +25,26 @@ public sealed class ReadingSpeedTests
     }
 
     [Fact]
-    public void WordsPerMinute_PoolsWordsOverTime()
+    public void WordsPerMinute_IsTheMedianWorksPace()
     {
-        // 12,000 words in 24 minutes = 500 wpm; an unfinished work's time doesn't count.
-        ReadingStatSnapshot[] snaps = [Snap(1, 2_000, 240), Snap(2, 4_000, 480), Snap(3, 6_000, 720),
+        // 400, 500 and 200 wpm → 400; an unfinished work's time doesn't count.
+        ReadingStatSnapshot[] snaps = [Snap(1, 2_000, 300), Snap(2, 4_000, 480), Snap(3, 6_000, 1_800),
                                        Snap(4, 50_000, 36_000, progress: 0.1)];
-        Assert.Equal(500.0, ReadingSpeed.WordsPerMinute(snaps), 3);
+        Assert.Equal(400.0, ReadingSpeed.WordsPerMinute(snaps), 3);
+        // An even count averages the middle two: 200, 400, 500, 600 → 450.
+        Assert.Equal(450.0, ReadingSpeed.WordsPerMinute([.. snaps, Snap(5, 6_000, 600)]), 3);
+    }
+
+    [Fact]
+    public void WordsPerMinute_IgnoresASkimAndARereadSwing()
+    {
+        var honest = Enumerable.Range(1, 3).Select(i => Snap(i, 5_000, 1_200)).ToList();   // 250 wpm each
+        // A 150k-word work jumped to the end in 5 minutes, and a re-read that
+        // doubled a work's time, leave the pace where it was.
+        var skimmed = Snap(4, 150_000, 300);
+        var reread = Snap(5, 5_000, 4_800);
+        Assert.Equal(250.0, ReadingSpeed.WordsPerMinute([.. honest, skimmed]), 3);
+        Assert.Equal(250.0, ReadingSpeed.WordsPerMinute([.. honest, skimmed, reread]), 3);
     }
 
     [Fact]

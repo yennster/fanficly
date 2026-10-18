@@ -538,17 +538,22 @@ public static class ReadingSpeed
     /// <summary>Finished works with recorded time needed before the personal pace is used.</summary>
     public const int MinimumFinishedWorks = 3;
 
-    /// <summary>Personal words per minute: words read over active minutes across
-    /// finished works with recorded time (backfilled reads have none), clamped;
+    /// <summary>Personal words per minute: the median of each finished work's own
+    /// pace (words read over active minutes, clamped to 120–600), counting only
+    /// works with recorded time (backfilled reads have none). Per work, so one
+    /// long work skimmed to the end or a re-read can't swing every estimate.
     /// <see cref="DefaultWordsPerMinute"/> until there are
     /// <see cref="MinimumFinishedWorks"/> such works.</summary>
     public static double WordsPerMinute(IEnumerable<ReadingStatSnapshot> snapshots)
     {
-        var timed = snapshots.Where(s => s.IsFinished && s.TotalSeconds > 0 && s.WordsRead > 0).ToList();
-        if (timed.Count < MinimumFinishedWorks) return DefaultWordsPerMinute;
-        var words = timed.Sum(s => (double)s.WordsRead);
-        var minutes = timed.Sum(s => s.TotalSeconds) / 60;
-        return Math.Clamp(words / minutes, MinWordsPerMinute, MaxWordsPerMinute);
+        var paces = snapshots
+            .Where(s => s.IsFinished && s.TotalSeconds > 0 && s.WordsRead > 0)
+            .Select(s => Math.Clamp(s.WordsRead / (s.TotalSeconds / 60), MinWordsPerMinute, MaxWordsPerMinute))
+            .Order()
+            .ToList();
+        if (paces.Count < MinimumFinishedWorks) return DefaultWordsPerMinute;
+        var mid = paces.Count / 2;
+        return paces.Count % 2 == 0 ? (paces[mid - 1] + paces[mid]) / 2 : paces[mid];
     }
 
     private sealed record CachedPace(LibraryStore Store, int Version, double Pace);
