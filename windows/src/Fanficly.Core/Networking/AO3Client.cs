@@ -72,6 +72,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
         _throttle = throttle ?? new Throttle(TimeSpan.FromSeconds(1));
         UserAgent = UserAgentFor(appVersion);
         _realTransport = handler is null;
+        PreferHttp3 = _realTransport;
         _http = handler is null
             ? new HttpClient(CreateDefaultHandler(), disposeHandler: true)
             : new HttpClient(handler, disposeHandler: false);
@@ -655,8 +656,15 @@ public sealed class AO3Client : IAO3Client, IDisposable
     private readonly bool _realTransport;
     private int _transportLogged;
     private int _altSvcLogged;
-    private int _sawH3AltSvc;
-    private int _h3Probed;
+    private long _http3OffUntil;
+    private int _http3Confirmed;
+    private int _http3Misses;
+
+    /// <summary>Ask for HTTP/3 from the first request instead of waiting for AO3's
+    /// Alt-Svc: AO3's edge answers HTTP/2 slowly or with 503/525s, so even the one
+    /// request .NET would send before upgrading lands in the slow lane. On by
+    /// default for the real transport; tests turn it on to cover the fallback.</summary>
+    internal bool PreferHttp3 { get; set; }
 
     /// <summary>Says once per run what can keep HTTP/3 away: .NET never uses
     /// it through a proxy (the system's, or HTTPS_PROXY), nor where QUIC is
@@ -680,11 +688,29 @@ public sealed class AO3Client : IAO3Client, IDisposable
         log($"Connecting to {uri.Host} {proxy}; QUIC (HTTP/3) {(quic ? "available" : "not available")}");
     }
 
-    private static readonly TimeSpan Http3ProbeTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>Until HTTP/3 has answered once, a GET waits this long for it, so a
+    /// network that silently drops UDP costs seconds rather than the full timeout.</summary>
+    private static readonly TimeSpan Http3FirstAnswerCap = TimeSpan.FromSeconds(5);
+    private const int Http3MissesBeforeGivingUp = 2;
 
-    private bool ShouldProbeHttp3(HttpMethod method) =>
-        _realTransport && method == HttpMethod.Get && Volatile.Read(ref _sawH3AltSvc) == 1
-        && Interlocked.Exchange(ref _h3Probed, 1) == 0;
+    /// <summary>How long HTTP/2 is used after HTTP/3 fails, before HTTP/3 is tried
+    /// again: the failure may have been the network dropping, not UDP being blocked.</summary>
+    private static readonly TimeSpan Http3RetryAfter = TimeSpan.FromMinutes(10);
+
+    private bool Http3Off => Environment.TickCount64 < Volatile.Read(ref _http3OffUntil);
+
+    private void TurnHttp3Off()
+    {
+        Volatile.Write(ref _http3OffUntil, Environment.TickCount64 + (long)Http3RetryAfter.TotalMilliseconds);
+        Volatile.Write(ref _http3Misses, 0);
+    }
+
+    /// <summary>HTTP/3 couldn't even start: QUIC missing or blocked, a proxy, or
+    /// HTTP/3 off in the runtime. No request went out, so even a POST can go
+    /// again over HTTP/2.</summary>
+    private static bool IsHttp3ConnectFailure(HttpRequestException e) =>
+        e.HttpRequestError is HttpRequestError.ConnectionError or HttpRequestError.SecureConnectionError
+            or HttpRequestError.VersionNegotiationError;
 
     /// <summary>Logs once what AO3 advertised on the first answer that wasn't
     /// HTTP/3, since .NET only tries HTTP/3 after an Alt-Svc offering h3.</summary>
@@ -692,7 +718,6 @@ public sealed class AO3Client : IAO3Client, IDisposable
     {
         if (!_realTransport || response.Version.Major >= 3) return;
         var altSvc = response.Headers.TryGetValues("Alt-Svc", out var values) ? string.Join(", ", values) : null;
-        if (altSvc is not null && altSvc.Contains("h3", StringComparison.Ordinal)) Volatile.Write(ref _sawH3AltSvc, 1);
         if (Interlocked.Exchange(ref _altSvcLogged, 1) != 0) return;
         Log?.Invoke(altSvc is null ? $"{uri.Host} sent no Alt-Svc header" : $"{uri.Host} advertises Alt-Svc: {altSvc}");
     }
@@ -712,13 +737,15 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var uri = spec.Uri;
         var body = spec.FormBody;
         LogTransportOnce(uri);
+        var useHttp2 = false;
         for (var hop = 0; ; hop++)
         {
-            // HTTP/3 once AO3's edge advertises it (Alt-Svc), as URLSession and
-            // browsers use: AO3's Cloudflare edge answered HTTP/1.1 and HTTP/2
-            // clients far slower, or with 503/525s, while HTTP/3 browsers got the
-            // same pages in under a second. Falls back to HTTP/2, then HTTP/1.1,
-            // where QUIC isn't available (Windows 10, a proxy, UDP blocked).
+            // HTTP/3, as URLSession and browsers use: AO3's Cloudflare edge answered
+            // HTTP/1.1 and HTTP/2 clients far slower, or with 503/525s, while HTTP/3
+            // got the same pages in under a second. With PreferHttp3 it's asked for
+            // outright from the first request; where it can't connect (Windows 10,
+            // a proxy, UDP blocked) the request goes again over HTTP/2, and so do
+            // the next 10 minutes of requests.
             using var request = new HttpRequestMessage(method, uri)
             {
                 Version = HttpVersion.Version30,
@@ -736,23 +763,39 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
             }
 
-            // Once a run, after AO3 has advertised HTTP/3, ask for it outright so a
-            // failure says why: the usual fallback to HTTP/2 is silent.
-            var probing = ShouldProbeHttp3(method);
-            if (probing) request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+            var http3Only = PreferHttp3 && !useHttp2 && !Http3Off;
+            var capped = http3Only && method == HttpMethod.Get && Volatile.Read(ref _http3Confirmed) == 0;
+            if (http3Only)
+            {
+                request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+            }
+            else if (PreferHttp3)
+            {
+                request.Version = HttpVersion.Version20;
+            }
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(resourceCts.Token);
-            timeoutCts.CancelAfter(probing ? Http3ProbeTimeout : spec.Timeout);
+            timeoutCts.CancelAfter(capped ? Http3FirstAnswerCap : spec.Timeout);
             HttpResponseMessage response;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
             }
-            catch (Exception e) when (probing && !ct.IsCancellationRequested && !resourceCts.IsCancellationRequested
-                                      && e is HttpRequestException or OperationCanceledException)
+            catch (HttpRequestException e) when (http3Only && !ct.IsCancellationRequested && IsHttp3ConnectFailure(e))
             {
-                Log?.Invoke($"HTTP/3 to {uri.Host} failed after {Elapsed(started)}: {ExceptionChain(e)}");
+                TurnHttp3Off();
+                Log?.Invoke($"HTTP/3 to {uri.Host} failed after {Elapsed(started)}, so HTTP/2 for the next 10 minutes: {ExceptionChain(e)}");
+                useHttp2 = true;
+                hop--;
+                continue;
+            }
+            catch (OperationCanceledException) when (capped && !ct.IsCancellationRequested && !resourceCts.IsCancellationRequested)
+            {
+                var givingUp = Interlocked.Increment(ref _http3Misses) >= Http3MissesBeforeGivingUp;
+                if (givingUp) TurnHttp3Off();
+                Log?.Invoke($"HTTP/3 to {uri.Host} didn't answer in {Elapsed(started)}; sending it over HTTP/2{(givingUp ? " for the next 10 minutes" : "")}");
+                useHttp2 = true;
                 hop--;
                 continue;
             }
@@ -769,6 +812,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
             // Path only: queries can hold search terms, and nothing here is a secret.
             Log?.Invoke($"{method} {uri.AbsolutePath} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
             NoteAltSvc(uri, response);
+            if (response.Version.Major >= 3) Volatile.Write(ref _http3Confirmed, 1);
 
             using (response)
             {

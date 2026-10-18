@@ -64,6 +64,50 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task AsksForHttp3OutrightWhenPreferred()
+    {
+        _handler.Respond(_ => { var r = FakeHandler.Html(WorkHtml); r.Version = HttpVersion.Version30; return r; });
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+        await client.FetchWorkMetadataAsync(7);
+        await client.FetchWorkMetadataAsync(8);
+
+        Assert.All(_handler.Requests, req =>
+        {
+            Assert.Equal(HttpVersion.Version30, req.Version);
+            Assert.Equal(HttpVersionPolicy.RequestVersionExact, req.VersionPolicy);
+        });
+    }
+
+    /// <summary>Where QUIC can't connect (UDP blocked, a proxy) the same request
+    /// goes again over HTTP/2 at once, and later ones skip HTTP/3.</summary>
+    [Fact]
+    public async Task FallsBackToHttp2WhenHttp3CantConnect()
+    {
+        _handler.Respond(req => req.Version.Major == 3
+            ? throw new HttpRequestException(HttpRequestError.ConnectionError, "QUIC handshake failed")
+            : FakeHandler.Html(WorkHtml));
+        var lines = new List<string>();
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+        client.Log = lines.Add;
+
+        Assert.Equal(3, (await client.FetchWorkMetadataAsync(7)).ChapterCount);
+        await client.FetchWorkMetadataAsync(8);
+
+        Assert.Equal(
+            new (Version, HttpVersionPolicy)[]
+            {
+                (HttpVersion.Version30, HttpVersionPolicy.RequestVersionExact),
+                (HttpVersion.Version20, HttpVersionPolicy.RequestVersionOrLower),
+                (HttpVersion.Version20, HttpVersionPolicy.RequestVersionOrLower),
+            },
+            _handler.Requests.Select(r => (r.Version, r.VersionPolicy)));
+        Assert.Contains(lines, l => l.StartsWith("HTTP/3 to archiveofourown.org failed", StringComparison.Ordinal)
+                                    && l.Contains("QUIC handshake failed", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task LogsEachRequestWithoutItsQuery()
     {
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
