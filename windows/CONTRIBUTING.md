@@ -62,7 +62,7 @@ The backlog is [windows/ROADMAP.md](ROADMAP.md). Its items are small and scoped,
   - the UI tests: smoke, screenshots and reader layout
   - the Native AOT Store bundle, which is the only place trimming and AOT problems show up
 
-  Check the `ui-screenshots` artifact for anything you changed on screen. Don't commit screenshots yourself: the maintainer refreshes `docs/screenshots/` and the Store pictures with the **Windows screenshots** workflow.
+  Check the `ui-screenshots` artifact for anything you changed on screen. Don't commit screenshots yourself: the maintainer refreshes `windows/docs/screenshots/` and the Store pictures with the **Windows screenshots** workflow.
 - Don't reformat code you didn't touch, and don't edit the Apple app's sources in a Windows PR.
 - Be kind in code review.
 

@@ -236,4 +236,4 @@ Not features, but worth doing. Add them as items when started.
 - Release housekeeping is done by the maintainer through `MICROSOFT_STORE.md`, never by a roadmap PR. That covers:
   - the version in `windows/store/version.txt`;
   - Store listing text and screenshots in `windows/store/`;
-  - the README screenshots in `docs/screenshots/` and the Store pictures, which the manual **Windows screenshots** workflow (`.github/workflows/windows-screenshots.yml`) captures and commits.
+  - the README screenshots in `windows/docs/screenshots/` and the Store pictures, which the manual **Windows screenshots** workflow (`.github/workflows/windows-screenshots.yml`) captures and commits.

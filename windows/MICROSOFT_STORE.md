@@ -450,7 +450,7 @@ rendered at the Store's exact size by headless Chrome.
 | `windows/store/images/en-us/PromotionalArt16x9.png` | 3840 × 2160 | Hero image: the reader as an open book, tilted, with the app icon; no text, since the Store sets the name over it |
 | `windows/store/images/en-us/StoreLogoSquare.png` | 2160 × 2160 | Box art: icon and name |
 | `windows/store/images/en-us/StoreLogo9x16.png` | 1440 × 2160 | Poster art: icon, name, "Your AO3 reader for Windows." and the reader |
-| `docs/screenshots/showcase.jpg` | | The first three screenshots side by side, for the README |
+| `windows/docs/screenshots/showcase.jpg` | | The first three screenshots side by side, for the README |
 
 How it fits together:
 

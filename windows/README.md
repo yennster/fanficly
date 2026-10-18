@@ -143,11 +143,11 @@ dotnet test tests/Fanficly.UITests --no-build --filter "FullyQualifiedName~Scree
 
 The test fails if any screen couldn't be reached, so a stale picture can't slip through. CI runs it on every Windows push and pull request and uploads the pictures as the `ui-screenshots` artifact, along with an `icons/` gallery (from `-iconGallery`) and the reader layout tests' `reader-layout/` steps.
 
-The usual way to refresh the committed pictures is the **Windows screenshots** workflow ([`.github/workflows/windows-screenshots.yml`](../.github/workflows/windows-screenshots.yml)): push a commit to `main` with `[screenshots]` in its message, or run it from the Actions tab. It captures every screen at the three sizes and commits them to `docs/screenshots/{desktop,tablet,compact}/`. It also captures the app at 4K and builds the Microsoft Store art from those captures with `windows/scripts/make_store_art.py`: ten 3840 × 2160 listing screenshots with captions in `windows/store/screenshots/en-us/`, the hero, box and poster images in `windows/store/images/en-us/`, and `docs/screenshots/showcase.jpg`. See "Screenshots and Store art" in [MICROSOFT_STORE.md](MICROSOFT_STORE.md#screenshots-and-store-art).
+The usual way to refresh the committed pictures is the **Windows screenshots** workflow ([`.github/workflows/windows-screenshots.yml`](../.github/workflows/windows-screenshots.yml)): push a commit to `main` with `[screenshots]` in its message, or run it from the Actions tab. It captures every screen at the three sizes and commits them to `windows/docs/screenshots/{desktop,tablet,compact}/`. It also captures the app at 4K and builds the Microsoft Store art from those captures with `windows/scripts/make_store_art.py`: ten 3840 × 2160 listing screenshots with captions in `windows/store/screenshots/en-us/`, the hero, box and poster images in `windows/store/images/en-us/`, and `windows/docs/screenshots/showcase.jpg`. See "Screenshots and Store art" in [MICROSOFT_STORE.md](MICROSOFT_STORE.md#screenshots-and-store-art).
 
 ### CI
 
-[`.github/workflows/windows-ci.yml`](../.github/workflows/windows-ci.yml) runs on pull requests and pushes to `main` that touch `windows/`, `docs/screenshots/` or the Windows workflows:
+[`.github/workflows/windows-ci.yml`](../.github/workflows/windows-ci.yml) runs on pull requests and pushes to `main` that touch `windows/` or the Windows workflows:
 
 - **Core tests**: `dotnet test` on Windows.
 - **App**: builds the app for x64 and ARM64; the x64 build is launched in demo mode and photographed (the `launch-screenshot` artifact).
