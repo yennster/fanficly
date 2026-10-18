@@ -219,7 +219,7 @@ public sealed class AppSession : IDisposable
         ["search", "browse", "popular", "library", "recentlyViewed", "authors", "bookmarks", "subscriptions", "stats", "settings"];
 
     /// <summary>Tabs past the nine Ctrl+number shortcuts (none, as on the Mac).</summary>
-    public static readonly string[] TabsWithoutShortcut = ["markedForLater"];
+    public static readonly string[] TabsWithoutShortcut = ["markedForLater", "ao3History"];
 
     /// <summary>Whether <paramref name="raw"/> is the open tab (the header
     /// title's item status, which the shell keeps as <c>tab:&lt;raw&gt;</c> in every

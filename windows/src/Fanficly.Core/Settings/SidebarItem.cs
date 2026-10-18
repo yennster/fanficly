@@ -2,15 +2,15 @@ namespace Fanficly.Core;
 
 /// <summary>The app's top-level tabs, in sidebar order (Swift's <c>SidebarItem</c>).
 /// The raw value is what <c>app.selectedTabRaw</c> stores.</summary>
-public enum SidebarItem { Search, Browse, Popular, Library, RecentlyViewed, Authors, Bookmarks, MarkedForLater, Subscriptions, Stats, Settings }
+public enum SidebarItem { Search, Browse, Popular, Library, RecentlyViewed, Authors, Bookmarks, MarkedForLater, AO3History, Subscriptions, Stats, Settings }
 
 public static class SidebarItemExtensions
 {
     public static IReadOnlyList<SidebarItem> All { get; } =
     [
         SidebarItem.Search, SidebarItem.Browse, SidebarItem.Popular, SidebarItem.Library, SidebarItem.RecentlyViewed,
-        SidebarItem.Authors, SidebarItem.Bookmarks, SidebarItem.MarkedForLater, SidebarItem.Subscriptions, SidebarItem.Stats,
-        SidebarItem.Settings,
+        SidebarItem.Authors, SidebarItem.Bookmarks, SidebarItem.MarkedForLater, SidebarItem.AO3History, SidebarItem.Subscriptions,
+        SidebarItem.Stats, SidebarItem.Settings,
     ];
 
     /// <summary>"search", "recentlyViewed", … — the Swift raw values.</summary>
@@ -24,6 +24,7 @@ public static class SidebarItemExtensions
         SidebarItem.Authors => "authors",
         SidebarItem.Bookmarks => "bookmarks",
         SidebarItem.MarkedForLater => "markedForLater",
+        SidebarItem.AO3History => "ao3History",
         SidebarItem.Subscriptions => "subscriptions",
         SidebarItem.Stats => "stats",
         _ => "settings",
@@ -43,6 +44,7 @@ public static class SidebarItemExtensions
         SidebarItem.Authors => "Followed Authors",
         SidebarItem.Bookmarks => "Bookmarks",
         SidebarItem.MarkedForLater => "Marked for Later",
+        SidebarItem.AO3History => "AO3 History",
         SidebarItem.Subscriptions => "Subscriptions",
         _ => "Settings",
     };
@@ -59,6 +61,7 @@ public static class SidebarItemExtensions
         SidebarItem.Authors => "person.2",
         SidebarItem.Bookmarks => "bookmark",
         SidebarItem.MarkedForLater => "clock",
+        SidebarItem.AO3History => "calendar.badge.clock",
         SidebarItem.Subscriptions => "bell",
         _ => "gearshape",
     };

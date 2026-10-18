@@ -16,6 +16,11 @@ public interface IAO3Client
     /// empty list; test fakes that never open the tab need nothing.</summary>
     Task<AO3SearchResults> FetchMarkedForLaterAsync(string username, int page, CancellationToken ct = default) =>
         throw new NotSupportedException(nameof(FetchMarkedForLaterAsync));
+    /// <summary>One page of the user's AO3 reading history, most recently visited
+    /// first. Needs login and History turned on in AO3's preferences. The default
+    /// throws, as <see cref="FetchMarkedForLaterAsync"/> does.</summary>
+    Task<AO3SearchResults> FetchReadingHistoryAsync(string username, int page, CancellationToken ct = default) =>
+        throw new NotSupportedException(nameof(FetchReadingHistoryAsync));
     Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default);
     /// <summary>One chapter of a work, as AO3 pages it by default: chapter
     /// <paramref name="chapter"/> (one-based) when it exists, else the first.

@@ -109,6 +109,15 @@ public class AO3EndpointsTests
     }
 
     [Fact]
+    public void UserReadingHistoryURL_Paginates()
+    {
+        Assert.Equal("https://archiveofourown.org/users/reader/readings",
+            AO3Endpoints.UserReadingHistory("reader", 1, _base).AbsoluteUri);
+        Assert.Equal("https://archiveofourown.org/users/reader/readings?page=4",
+            AO3Endpoints.UserReadingHistory("reader", 4, _base).AbsoluteUri);
+    }
+
+    [Fact]
     public void WorkSubscriptionsURL()
     {
         Assert.Equal("https://archiveofourown.org/works/42/subscriptions", AO3Endpoints.WorkSubscriptions(42, _base).AbsoluteUri);

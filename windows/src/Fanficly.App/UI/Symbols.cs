@@ -135,6 +135,7 @@ public static class Symbols
         ["chevron.up.chevron.down"] = "",
         ["chevron.left.forwardslash.chevron.right"] = "", // Code
         ["clock"] = "",                // Recent
+        ["calendar.badge.clock"] = "", // Calendar (AO3 History)
         ["bolt.fill"] = "",
 
         // Status

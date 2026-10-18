@@ -38,6 +38,10 @@ public static class AO3Endpoints
     public static Uri UserMarkedForLater(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/readings", [new("show", "to-read"), .. PageItems(page)]);
 
+    /// <summary>The user's AO3 reading history: the unfiltered readings page.</summary>
+    public static Uri UserReadingHistory(string name, int page, Uri baseUri) =>
+        Build(baseUri, $"/users/{EscapePathSegment(name)}/readings", PageItems(page));
+
     public static Uri UserSubscriptions(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/subscriptions", PageItems(page));
 

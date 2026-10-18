@@ -9,10 +9,10 @@ namespace Fanficly.App.Views.Account;
 
 /// <summary>A list on AO3's readings page that <see cref="ReadingListScreen"/> shows
 /// (Swift's <c>AO3ReadingList</c>).</summary>
-internal enum AO3ReadingList { MarkedForLater }
+internal enum AO3ReadingList { MarkedForLater, History }
 
 /// <summary>
-/// The Marked for Later tab (Swift's <c>ReadingListView</c>): a list from the
+/// The Marked for Later and AO3 History tabs (Swift's <c>ReadingListView</c>): a list from the
 /// signed-in account's AO3 readings page, fetched live with infinite scroll.
 /// Built like <see cref="BookmarksScreen"/>, and read-only: marks are added and
 /// removed on AO3.
@@ -40,6 +40,17 @@ public sealed class ReadingListScreen : Screen
                 EmptyMessage: "Use \"Mark for Later\" on a work on AO3 and it will appear here.",
                 FilteredMessage: "Every work here is hidden or filtered out by your content settings."),
             (client, username, page, ct) => client.FetchMarkedForLaterAsync(username, page, ct)),
+        AO3ReadingList.History => new(
+            SidebarItem.AO3History,
+            "The works AO3 remembers you reading show here once you log in, newest first.",
+            new PagedWorksTexts(
+                Loading: "Loading AO3 History…",
+                ErrorTitle: "Couldn't load AO3 History",
+                EmptySymbol: SidebarItem.AO3History.SystemImage(),
+                EmptyTitle: "No AO3 history yet",
+                EmptyMessage: "Works you open on the AO3 website while logged in will appear here.",
+                FilteredMessage: "Every work here is hidden or filtered out by your content settings."),
+            (client, username, page, ct) => client.FetchReadingHistoryAsync(username, page, ct)),
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 

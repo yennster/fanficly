@@ -14,7 +14,7 @@ public static class SidebarItems
     public static string Symbol(this SidebarItem item) => item.SystemImage();
 
     /// <summary>The "Go" menu shortcuts: Ctrl+1…9 in the Mac app's ⌘1…9 order, Ctrl+, for Settings.
-    /// Null for tabs past the nine (Marked for Later), which the Mac app also leaves without one.</summary>
+    /// Null for tabs past the nine (Marked for Later, AO3 History), which the Mac app also leaves without one.</summary>
     public static (VirtualKey Key, VirtualKeyModifiers Modifiers)? Shortcut(this SidebarItem item) => item switch
     {
         SidebarItem.Search => (VirtualKey.Number1, VirtualKeyModifiers.Control),

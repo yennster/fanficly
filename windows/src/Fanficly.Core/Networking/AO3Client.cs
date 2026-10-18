@@ -209,6 +209,14 @@ public sealed class AO3Client : IAO3Client, IDisposable
         return SearchResultsParser.ParseReadings(Decode(response.Body, "Marked for Later response"));
     }
 
+    public async Task<AO3SearchResults> FetchReadingHistoryAsync(string username, int page, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.UserReadingHistory(username, page, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        return SearchResultsParser.ParseReadings(Decode(response.Body, "History response"));
+    }
+
     public async Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
