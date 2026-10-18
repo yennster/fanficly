@@ -259,3 +259,24 @@ h1 em, h2 em { font-style: italic; font-weight: 400; }
 /* ---------- Motion ---------- */
 .rise { opacity: 0; transform: translateY(24px); transition: opacity .9s cubic-bezier(.2, .7, .2, 1), transform .9s cubic-bezier(.2, .7, .2, 1); }
 .rise.in { opacity: 1; transform: none; }
+
+/* ---------- FAQ ---------- */
+.faq { max-width: 880px; margin: 0 auto; padding: clamp(90px, 12vw, 150px) var(--gutter) 0; }
+.faq h2 { font-size: clamp(38px, 5.4vw, 68px); line-height: 1.04; text-align: center; margin-bottom: clamp(36px, 5vw, 56px); }
+.faq h2 em { color: var(--indigo); }
+.faq-list { border-bottom: 1px solid var(--rule); }
+.faq details { border-top: 1px solid var(--rule); }
+.faq summary {
+  list-style: none; cursor: pointer; position: relative;
+  padding: 24px 48px 24px 0; font: 500 clamp(20px, 2.1vw, 24px)/1.25 var(--serif); letter-spacing: -.01em; color: var(--ink);
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after {
+  content: ""; position: absolute; right: 6px; top: 50%; width: 12px; height: 12px; margin-top: -9px;
+  border-right: 1.5px solid var(--gold-ink); border-bottom: 1.5px solid var(--gold-ink);
+  transform: rotate(45deg); transition: transform .25s;
+}
+.faq details[open] summary::after { transform: rotate(225deg); margin-top: -3px; }
+.faq summary:hover { color: var(--indigo); }
+.faq summary:focus-visible { outline: 2px solid var(--indigo); outline-offset: 4px; border-radius: 4px; }
+.faq details p { margin: -6px 0 26px; max-width: 700px; color: var(--ink-soft); }

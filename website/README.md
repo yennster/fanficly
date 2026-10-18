@@ -36,3 +36,11 @@ full-size PNGs.
 
 Copy on the page follows the App Store and Microsoft Store listings. Don't add
 features the apps don't have.
+
+## Search and answer engines
+
+`index.html` carries the title, description, Open Graph tags and JSON-LD
+(`SoftwareApplication` plus an `FAQPage` that mirrors the FAQ section word for
+word; keep the two in sync). `robots.txt`, `sitemap.xml` and `llms.txt` (a plain
+summary for AI assistants) sit next to it. Update `llms.txt` and the JSON-LD
+`featureList` when the apps gain or lose a feature.

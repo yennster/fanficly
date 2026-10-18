@@ -1,0 +1,28 @@
+# Fanficly
+
+> Fanficly is a free, ad-free app for reading fanfiction from Archive of Our Own (AO3) on iPhone, iPad, Mac and Windows. It has no Fanficly account or server, no analytics and no ads. It is an independent app, not affiliated with AO3 or the Organization for Transformative Works.
+
+## Download
+
+- [App Store (iPhone, iPad and Mac)](https://apps.apple.com/app/id6775897153): iOS 17 or later, macOS 14 Sonoma or later
+- [Microsoft Store (Windows)](https://apps.microsoft.com/detail/9PH24K7ZCZTX): Windows 10 version 2004 or later, Windows 11
+
+## What it does
+
+- Search AO3 with keywords; live tag suggestions turn fandoms, ships, characters and tropes into exact filters. Every AO3 filter is available (rating, warnings, categories, completion, crossovers, word count, language, included and excluded tags, sort). Typed words are never silently reinterpreted.
+- Browse fandoms by media category, and see the fandoms, ships and characters with the most works.
+- Three reading modes: continuous scroll, chapter by chapter, and page by page, with a two-page spread on wide screens. Themes, fonts, text size, spacing and margins, saved as typography profiles.
+- Reading position saved to the paragraph; the library shows progress and a Finished badge.
+- Read aloud with the device's own voices, entirely on-device.
+- Library with folders, stars, pins, sorting and search; download works for offline reading; export as EPUB, MOBI, AZW3, PDF or HTML.
+- Follow works and authors without an account and get notifications for new chapters and new works.
+- Reading stats (stories finished, time and words read, streak, top fandoms, ships and authors) with a yearly wrap-up card.
+- Optional AO3 sign-in for bookmarks, subscriptions and comments. The password goes only to AO3; only AO3's session cookie is kept, in the device's secure keychain.
+- Widgets for the story you're reading on the iPhone and iPad home screen and on Windows.
+
+## Links
+
+- [Website](https://fanficly.jennyspeelman.dev/)
+- [Source code](https://github.com/yennster/fanficly)
+- [Privacy policy](https://github.com/yennster/fanficly/blob/main/PRIVACY.md)
+- [Support](https://github.com/yennster/fanficly/issues)
