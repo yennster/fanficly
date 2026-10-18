@@ -93,6 +93,8 @@ jobs:
       - name: fastlane ${{ inputs.what }}
         run: bundle exec fastlane ios "${{ inputs.what }}"
 
+      # project.yml (a file at the repo root) keeps the artifact rooted there, so
+      # the upload job gets fastlane/... back whichever folders were made.
       - name: Upload the store art
         if: always()
         uses: actions/upload-artifact@v4
@@ -105,6 +107,7 @@ jobs:
             fastlane/previews
             fastlane/creative
             build/preview-contact-sheets
+            project.yml
           if-no-files-found: ignore
 
       - name: Upload the logs
@@ -136,10 +139,6 @@ jobs:
     timeout-minutes: 60
     environment: app-store
     env:
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       FASTLANE_SKIP_UPDATE_CHECK: "1"
       FASTLANE_HIDE_CHANGELOG: "1"
       LC_ALL: en_US.UTF-8
@@ -167,6 +166,10 @@ jobs:
           path: .
 
       - name: fastlane upload_store_art
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: bundle exec fastlane ios upload_store_art
 
       - name: Remove the keys

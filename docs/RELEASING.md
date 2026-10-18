@@ -19,7 +19,7 @@ anyone but the owner.
 
 - **Lanes:** `fastlane/Fastfile` (tracked; nothing secret in it).
 - **Store copy:** `fastlane/metadata/` (iOS) and `fastlane/metadata-mac/`
-  (Mac), tracked. The App Review contact details are not: they come from
+  (Mac), tracked. The App Review contact details and demo login are not: they come from
   secrets at upload time.
 - **Certificates and profiles:** fastlane match, encrypted with
   `MATCH_PASSWORD`, in the private repo `yennster/fanficly-certificates`.

@@ -47,17 +47,9 @@ jobs:
       contents: write        # the release lane tags vX.Y.Z and publishes the GitHub release
       pull-requests: read    # the PRs merged since the last release
       issues: read
+    # Secrets are given only to the steps that need them (the fastlane step and
+    # the deploy-key step), not to the tool installs.
     env:
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      MATCH_GIT_URL: ${{ vars.MATCH_GIT_URL }}
-      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
-      REVIEW_FIRST_NAME: ${{ secrets.REVIEW_FIRST_NAME }}
-      REVIEW_LAST_NAME: ${{ secrets.REVIEW_LAST_NAME }}
-      REVIEW_EMAIL: ${{ secrets.REVIEW_EMAIL }}
-      REVIEW_PHONE: ${{ secrets.REVIEW_PHONE }}
       GH_TOKEN: ${{ github.token }}
       FASTLANE_SKIP_UPDATE_CHECK: "1"
       FASTLANE_HIDE_CHANGELOG: "1"
@@ -116,6 +108,19 @@ jobs:
           echo "GIT_SSH_COMMAND=ssh -i ~/.ssh/match_deploy_key -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
 
       - name: fastlane ${{ inputs.lane }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MATCH_GIT_URL: ${{ vars.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          REVIEW_FIRST_NAME: ${{ secrets.REVIEW_FIRST_NAME }}
+          REVIEW_LAST_NAME: ${{ secrets.REVIEW_LAST_NAME }}
+          REVIEW_EMAIL: ${{ secrets.REVIEW_EMAIL }}
+          REVIEW_PHONE: ${{ secrets.REVIEW_PHONE }}
+          REVIEW_DEMO_USER: ${{ secrets.REVIEW_DEMO_USER }}
+          REVIEW_DEMO_PASSWORD: ${{ secrets.REVIEW_DEMO_PASSWORD }}
         run: bundle exec fastlane ios "${{ inputs.lane }}" platform:"${{ inputs.platform }}"
 
       - name: Tag and publish the GitHub release
@@ -134,15 +139,14 @@ jobs:
           gh release create "v$VERSION" --target "$GITHUB_SHA" \
             --title "Fanficly v$VERSION" --notes-file build/release/github-release.md
 
-      - name: Upload the builds
+      # Only the notes: artifacts on a public repo can be downloaded by anyone,
+      # so the signed .ipa/.pkg stay off GitHub (they're on TestFlight).
+      - name: Upload the release notes
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: builds
+          name: release-notes
           path: |
-            build/release/*.ipa
-            build/release/*.pkg
-            build/release/*.dSYM.zip
             build/release/*.md
             build/release/*.txt
           if-no-files-found: ignore

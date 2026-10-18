@@ -54,7 +54,8 @@ platform :ios do
     platforms(options).each do |p|
       path = build_signed(platform: p)
       upload_to_testflight(**binary_option(p, path), app_platform: p, changelog: release_notes,
-                           skip_waiting_for_build_processing: true)
+                           # Waiting lets pilot set the changelog ("What to Test") once processed.
+                           skip_waiting_for_build_processing: false, wait_processing_timeout_duration: 3600)
     end
   end
 
@@ -84,8 +85,8 @@ platform :ios do
          "--app_identifier", TARGETS["Fanficly"],
          "--platform", p,
          "--metadata_path", METADATA[p],
-         "--force", "true")
-      Dir.glob(File.join(METADATA[p], "review_information", "{first_name,last_name,email_address,phone_number}.txt"))
+         "--force")
+      Dir.glob(File.join(METADATA[p], "review_information", "{first_name,last_name,email_address,phone_number,demo_user,demo_password}.txt"))
          .each { |f| File.delete(f) }
     end
   end
@@ -329,7 +330,9 @@ platform :ios do
       first_name: ENV["REVIEW_FIRST_NAME"],
       last_name: ENV["REVIEW_LAST_NAME"],
       email_address: ENV["REVIEW_EMAIL"],
-      phone_number: ENV["REVIEW_PHONE"]
+      phone_number: ENV["REVIEW_PHONE"],
+      demo_user: ENV["REVIEW_DEMO_USER"],
+      demo_password: ENV["REVIEW_DEMO_PASSWORD"]
     }.reject { |_, v| v.to_s.empty? }
     info.empty? ? nil : info
   end
