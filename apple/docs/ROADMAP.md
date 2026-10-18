@@ -79,7 +79,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`, `WidgetDataStore.swift`, `Search/SearchView.swift`.
 
 ### RM-005 — Duo-ready toolbar labels
-- **Status:** open · **Size:** M · **Validation:** mac
+- **Status:** done · **Size:** M · **Validation:** mac
 - **Why:** With the 27.1 SDK toolbars go vertical on the iPhone Duo and want a title plus symbol. The Duo ships Oct 23 2026.
 - **Scope:** Convert the reader's toolbar items (chapters, Aa, minimize, export, options) from `Image` to `Label`, with `.labelStyle(.iconOnly)` where the bar is horizontal. Replace the `ellipsis.circle` options symbol with a non-ellipsis one so it stops clashing with the system overflow. Keep the parent to ≤ 2 items.
 - **Done when:** `ReaderLayoutTests` pass on iPhone and iPad; the PR attaches the reader-layout screenshots artifact and says the Duo pose was not checked unless someone ran it.
