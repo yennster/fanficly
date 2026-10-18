@@ -158,6 +158,22 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** the tests pass in CI at the desktop and compact sizes, and CI uploads their screenshots.
 - **Touches:** `windows/tests/Fanficly.UITests/`, `.github/workflows/windows-ci.yml` (one new step; ask first).
 
+### RM-112 — Marked for Later section
+- **Status:** open · **Size:** M · **Validation:** unit + windows
+- **Why:** On the AO3 website a signed-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app. The Apple app's item is RM-023 on `main`; keep the two the same in name and behavior.
+- **Scope:**
+  - Add `FetchMarkedForLaterAsync(username, page)` to `IAO3Client` for `/users/<name>/readings?show=to-read`, with an endpoint builder next to `UserBookmarks`. Reuse `SearchResultsParser` with the readings page's blurb selector, as `FetchBookmarksAsync` does.
+  - Add a sign-in-gated "Marked for Later" tab built like `BookmarksScreen`: paginated, content filter applied, rows open the live work page.
+  - Add the tab per "Add a tab" in AGENTS.md: the `SidebarItem` case after Bookmarks with raw value `markedForLater` (the Swift app's, since `app.selectedTabRaw` is shared), its title and icon (in `Symbols` if new), and its `Tabs.Register` from `AccountModule`. Ctrl+1–9 are all taken, so it gets no Ctrl+number shortcut and nothing is renumbered (the Swift app does the same); make `ShortcutLabel` show none for it rather than "Ctrl+10". Add `markedForLater` to the `-tab` values in AGENTS.md.
+  - Read-only: adding or removing a mark is a later item.
+- **Open question:** confirm the readings page's markup (blurb class, where the work id lives) from a real saved page before writing the fixture; don't guess it. If RM-023 lands first, use its fixture.
+- **Done when:**
+  - `SearchResultsParserTests` cover a real-page fixture (works listed, empty list, sign-in page fails closed) and `AO3EndpointsTests` cover the URL and paging.
+  - Every `IAO3Client` implementation supports the new method (`MockAO3Client`, `DemoAO3Client`, `StubAO3Client`, `PollerFakeClient` and the tests' other doubles), or it gets a default interface implementation as `FetchWorkChapterAsync` has.
+  - `SmokeTests` cover the new tab (its tab list and `-tab markedForLater`).
+  - The PR lists what to check on Windows: the tab signed out (sign-in prompt) and signed in.
+- **Touches:** `windows/src/Fanficly.Core/Networking/{IAO3Client,AO3Client,AO3Endpoints,MockAO3Client}.cs`, `Demo/DemoAO3Client.cs`, `Settings/SidebarItem.cs`, `windows/src/Fanficly.App/Shell/SidebarItem.cs`, `Views/Account/BookmarksScreen.cs` (pattern), `Views/Account/AccountModule.cs`, `Views/Settings/ShortcutsScreen.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`, `windows/tests/Fanficly.UITests/SmokeTests.cs`, AGENTS.md.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find followed works from Windows Search
@@ -185,6 +201,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Status:** open, maintainer only (agents don't pick this up) · **Size:** M · **Validation:** windows
 - **Why:** A long-lived `windows` branch drifts from `main`, and every shared fix (docs, assets, release notes, AGENTS.md) has to be copied by hand. One `main` with a folder per platform keeps the separation without that cost. Do this when the Windows app is ready to ship from `main`.
 - **Scope:**
+  - First `git rm -r website` on `windows`: it's only a placeholder so Vercel (Root Directory `website`) skips builds of `windows` PRs. With it gone, the merge brings in `main`'s real `website/` without an add/add conflict; resolving that conflict for the windows side would quietly replace the site's `vercel.json` with `ignoreCommand: "exit 0"` and stop production deploys.
   - Merge `windows` into `main` (a merge, not a squash, so history stays) with the Windows app in `windows/` beside the Apple code; optionally move the Apple app into `apple/` in its own PR first.
   - Keep one `main` branch; give each platform's CI path filters so a change only builds its own app (`windows/**` for the Windows workflows, the Apple folders for `ci.yml`), and point `windows-store.yml`'s tag trigger and checkouts at `main`.
   - Keep shared docs and assets at the root: one README that links both apps, AGENTS.md with a section per platform (CLAUDE.md still only `@AGENTS.md`), PRIVACY.md, `docs/screenshots/{ios,mac,windows}`, the icon.
