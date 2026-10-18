@@ -47,7 +47,7 @@ A current Visual Studio with the **WinUI application development** workload can 
 
 ## What to work on
 
-The backlog is [windows/ROADMAP.md](ROADMAP.md). Its items are small and scoped, with IDs from `RM-101` and a "Done when". Run `bin/roadmap.sh free windows` to see what's unclaimed. To claim an item, open a draft PR against `main` from a `roadmap/RM-1nn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work), and a person always does the merge.
+The backlog is [windows/ROADMAP.md](ROADMAP.md). Its items are small and scoped, with IDs from `RM-101` and a "Done when". Run `.github/scripts/roadmap.sh free windows` to see what's unclaimed. To claim an item, open a draft PR against `main` from a `roadmap/RM-1nn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work), and a person always does the merge.
 
 ## Pull requests
 
@@ -62,7 +62,7 @@ The backlog is [windows/ROADMAP.md](ROADMAP.md). Its items are small and scoped,
   - the UI tests: smoke, screenshots and reader layout
   - the Native AOT Store bundle, which is the only place trimming and AOT problems show up
 
-  Check the `ui-screenshots` artifact for anything you changed on screen. Don't commit screenshots yourself: the maintainer refreshes `docs/screenshots/windows/` and the Store pictures with the **Windows screenshots** workflow.
+  Check the `ui-screenshots` artifact for anything you changed on screen. Don't commit screenshots yourself: the maintainer refreshes `docs/screenshots/` and the Store pictures with the **Windows screenshots** workflow.
 - Don't reformat code you didn't touch, and don't edit the Apple app's sources in a Windows PR.
 - Be kind in code review.
 

@@ -14,7 +14,7 @@ What applies to both:
 
 ## What to work on
 
-Each app has a roadmap of small items with permanent IDs: [apple/docs/ROADMAP.md](apple/docs/ROADMAP.md) (`RM-001` up) and [windows/ROADMAP.md](windows/ROADMAP.md) (`RM-101` up). `bin/roadmap.sh free apple` or `bin/roadmap.sh free windows` lists what's unclaimed. Claim an item by opening a draft PR from a `roadmap/RM-nnn-slug` branch. AI agents follow [AGENTS.md](AGENTS.md); a person always does the merge.
+Each app has a roadmap of small items with permanent IDs: [apple/docs/ROADMAP.md](apple/docs/ROADMAP.md) (`RM-001` up) and [windows/ROADMAP.md](windows/ROADMAP.md) (`RM-101` up). `.github/scripts/roadmap.sh free apple` or `.github/scripts/roadmap.sh free windows` lists what's unclaimed. Claim an item by opening a draft PR from a `roadmap/RM-nnn-slug` branch. AI agents follow [AGENTS.md](AGENTS.md); a person always does the merge.
 
 ## Code of Conduct
 

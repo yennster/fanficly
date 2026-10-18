@@ -82,11 +82,11 @@ A resizable window, ⌘1–9 for the tabs, interface zoom (⌘+ / ⌘− / ⌘0)
 <summary><b>Windows</b>: WinUI 3, Windows 10 and 11, x64 and ARM64</summary>
 <br>
 
-<img src="docs/screenshots/windows/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
+<img src="windows/docs/screenshots/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
 
 Widgets on Windows 11, taskbar jump lists, sync through OneDrive or any folder you already sync, keyboard, controller and Narrator support. The backup format matches the Apple app, so a PC and an iPhone can share one library.
 
-**Docs:** [features and setup](windows/README.md) · [build and run](windows/README.md#development) · [accessibility](windows/ACCESSIBILITY.md) · [roadmap](windows/ROADMAP.md) · [privacy](windows/PRIVACY.md) · screenshots: [desktop](docs/screenshots/windows/desktop/), [tablet](docs/screenshots/windows/tablet/), [narrow window](docs/screenshots/windows/compact/)
+**Docs:** [features and setup](windows/README.md) · [build and run](windows/README.md#development) · [accessibility](windows/ACCESSIBILITY.md) · [roadmap](windows/ROADMAP.md) · [privacy](windows/PRIVACY.md) · screenshots: [desktop](windows/docs/screenshots/desktop/), [tablet](windows/docs/screenshots/tablet/), [narrow window](windows/docs/screenshots/compact/)
 
 </details>
 
@@ -109,10 +109,9 @@ apple/        the iPhone, iPad and Mac app (Xcode project from project.yml)
 windows/      the Windows app (Fanficly.Windows.slnx)
 website/      fanficly.app (static site, deployed by Vercel)
 CITATION.cff  machine-readable summary of the app (GitHub's "Cite this repository")
-docs/         shared pictures (docs/screenshots/windows/)
-bin/          repo-wide scripts (roadmap.sh lists both roadmaps)
 .github/      CI: ci.yml for apple/, windows-*.yml for windows/; release.yml and
-              store-assets.yml release the Apple app (apple/docs/RELEASING.md)
+              store-assets.yml release the Apple app (apple/docs/RELEASING.md);
+              scripts/roadmap.sh lists both roadmaps
 ```
 
 CI is split by app: a change under `apple/` runs the Apple workflow, a change under `windows/` runs the Windows ones, and a pull request that touches both runs both.
