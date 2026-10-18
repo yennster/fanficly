@@ -116,7 +116,7 @@ public static class WorkFilterSheet
             {
                 var open = new Button
                 {
-                    Content = UI.UI.Label("line.3.horizontal.decrease.circle", saved.Name),
+                    Content = UI.UI.Label("line.3.horizontal.decrease.circle", saved.Name, maxLines: UI.UI.LineLimit(1)),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     HorizontalContentAlignment = HorizontalAlignment.Left,
                     Background = Theme.Transparent,
@@ -145,7 +145,7 @@ public static class WorkFilterSheet
 
             var save = new Button
             {
-                Content = UI.UI.Label("plus.circle", "Save current filters…", foreground: Theme.Accent),
+                Content = UI.UI.Label("plus.circle", "Save current filters…", foreground: Theme.Accent, maxLines: UI.UI.LineLimit(1)),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Background = Theme.Transparent,

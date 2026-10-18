@@ -40,16 +40,17 @@ internal sealed partial class Segmented : Grid
         {
             var (title, symbol, id) = items[i];
             ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            // One line with "…" normally; at large Windows text sizes the title
-            // wraps instead, so it's never cut short.
+            // One line with "…" below 150 % Windows text size, as before; from
+            // 150 % the title wraps (breaking inside a long word if it must)
+            // rather than ending in "…".
+            var large = UI.IsLargeText;
             var label = new TextBlock
             {
                 Text = title,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextAlignment = TextAlignment.Center,
-                TextWrapping = TextWrapping.WrapWholeWords,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                MaxLines = UI.LineLimit(1),
+                TextWrapping = large ? TextWrapping.Wrap : TextWrapping.NoWrap,
+                TextTrimming = large ? TextTrimming.None : TextTrimming.CharacterEllipsis,
             };
             UIElement content = label;
             if (symbol is not null)
@@ -94,7 +95,8 @@ internal sealed partial class Segmented : Grid
         // on a phone-width window), as the Mac's segmented picker drops them.
         SizeChanged += (_, e) =>
         {
-            var compact = items.Count > 0 && e.NewSize.Width / items.Count < IconlessSegmentWidth;
+            // Larger text needs more room per title, so the icons go sooner.
+            var compact = items.Count > 0 && e.NewSize.Width / items.Count < IconlessSegmentWidth * UI.TextScale;
             foreach (var icon in _icons) icon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         };
     }

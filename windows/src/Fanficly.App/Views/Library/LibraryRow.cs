@@ -46,7 +46,8 @@ public static class LibraryRow
         {
             var label = FandomLabel(work.Fandoms);
             var fandom = UI.UI.Grid("Auto,*", columnSpacing: 4);
-            fandom.Children.Add(UI.UI.Icon(FandomCatalog.Symbol(work.Fandoms[0]), 10, Theme.TextSecondary).Also(i => i.VerticalAlignment = VerticalAlignment.Center).Col(0));
+            fandom.Children.Add(UI.UI.Icon(FandomCatalog.Symbol(work.Fandoms[0]), 10, Theme.TextSecondary)
+                .Also(i => { i.VerticalAlignment = VerticalAlignment.Top; i.Margin = new Thickness(0, 2, 0, 0); }).Col(0));
             fandom.Children.Add(UI.UI.Text(label, Theme.Style.Caption, Theme.TextSecondary, maxLines: UI.UI.LineLimit(1)).Col(1));
             stack.Children.Add(fandom);
             spoken.Add(label);
@@ -226,8 +227,9 @@ public static class LibraryStatsStrip
     private static Border Divider() => new()
     {
         Width = 1,
-        Height = 26 * UI.UI.TextScale,
+        // As tall as the metrics beside it, however their Viewbox scaled them.
         Background = Theme.Divider,
-        VerticalAlignment = VerticalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Stretch,
+        Margin = new Thickness(0, 4, 0, 4),
     };
 }

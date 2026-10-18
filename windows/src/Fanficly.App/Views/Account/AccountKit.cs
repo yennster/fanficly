@@ -56,7 +56,9 @@ internal static class AccountKit
     public static Grid KindLabel(string sfSymbol, string text)
     {
         var icon = UI.UI.Icon(sfSymbol, 10, Theme.TextSecondary);
-        icon.VerticalAlignment = VerticalAlignment.Center;
+        // By the first line when the caption wraps.
+        icon.VerticalAlignment = VerticalAlignment.Top;
+        icon.Margin = new Thickness(0, 2, 0, 0);
         var label = UI.UI.Caption(text);
         label.VerticalAlignment = VerticalAlignment.Center;
         // A grid, not a horizontal stack, so a long caption (a fandom) wraps

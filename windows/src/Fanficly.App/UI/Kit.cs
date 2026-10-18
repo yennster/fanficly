@@ -98,13 +98,17 @@ public static class UI
 
     /// <summary>Icon + text, like SwiftUI's Label. The text wraps when the row
     /// is too narrow for it (a large Windows text size, a narrow window) rather
-    /// than running past the edge.</summary>
-    public static Grid Label(string sfSymbol, string text, Theme.Style style = Theme.Style.Body, Brush? foreground = null, double spacing = 8)
+    /// than running past the edge; <paramref name="maxLines"/> caps it (pass
+    /// <see cref="LineLimit"/> for list rows, chips and menus, 0 for no cap).</summary>
+    public static Grid Label(string sfSymbol, string text, Theme.Style style = Theme.Style.Body, Brush? foreground = null, double spacing = 8,
+                             int maxLines = 0)
     {
         var (size, _, _) = Theme.Metrics(style);
         var icon = Icon(sfSymbol, size, foreground);
-        icon.VerticalAlignment = VerticalAlignment.Center;
-        var tb = Text(text, style, foreground);
+        // By the first line when the text wraps.
+        icon.VerticalAlignment = VerticalAlignment.Top;
+        icon.Margin = new Thickness(0, 2, 0, 0);
+        var tb = Text(text, style, foreground, maxLines: maxLines);
         tb.VerticalAlignment = VerticalAlignment.Center;
         var grid = Grid("Auto,*", columnSpacing: spacing);
         grid.Children.Add(icon.Col(0));
@@ -115,16 +119,36 @@ public static class UI
     // MARK: - Text size
 
     private static Windows.UI.ViewManagement.UISettings? _uiSettings;
+    private static double _textScale;
+    private static readonly object TextScaleLock = new();
 
     /// <summary>Windows' Settings → Accessibility → Text size, 1.0 to 2.25
     /// (SwiftUI's dynamicTypeSize). XAML text scales by it on its own; layouts
-    /// that budget space for text read it here.</summary>
+    /// that budget space for text read it here. Read once, then kept current by
+    /// <c>TextScaleFactorChanged</c> (raised off the UI thread, so it only
+    /// updates the cached number); screens pick a change up when they next rebuild.</summary>
     public static double TextScale
     {
         get
         {
-            try { return Math.Max(1, (_uiSettings ??= new Windows.UI.ViewManagement.UISettings()).TextScaleFactor); }
-            catch (Exception) { return 1; }
+            var cached = Volatile.Read(ref _textScale);
+            if (cached > 0) return cached;
+            lock (TextScaleLock)
+            {
+                if (_textScale > 0) return _textScale;
+                try
+                {
+                    _uiSettings = new Windows.UI.ViewManagement.UISettings();
+                    _uiSettings.TextScaleFactorChanged += (sender, _) =>
+                    {
+                        try { Volatile.Write(ref _textScale, Math.Max(1, sender.TextScaleFactor)); }
+                        catch (Exception) { }
+                    };
+                    Volatile.Write(ref _textScale, Math.Max(1, _uiSettings.TextScaleFactor));
+                }
+                catch (Exception) { Volatile.Write(ref _textScale, 1); }
+                return _textScale;
+            }
         }
     }
 
