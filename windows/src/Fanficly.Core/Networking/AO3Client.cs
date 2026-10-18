@@ -90,6 +90,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     /// <summary>Where <see cref="ExportWorkAsync"/> writes: %TEMP%\Fanficly\Exports,
     /// which Windows' storage cleanup empties.</summary>
+    /// <summary>A line per request for the app's local log: method, path, status,
+    /// HTTP version and time to headers. Never the query, cookies or body.</summary>
+    public Action<string>? Log { get; set; }
+
     internal string ExportsDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "Fanficly", "Exports");
 
     private static SocketsHttpHandler CreateDefaultHandler() => new()
@@ -581,6 +585,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
         };
     }
 
+    private static string Elapsed(long started) =>
+        $"{System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds:0.00} s";
+
     private static SocketError? FindSocketError(Exception? e)
     {
         for (; e is not null; e = e.InnerException)
@@ -597,12 +604,14 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var body = spec.FormBody;
         for (var hop = 0; ; hop++)
         {
-            // HTTP/2 when AO3's edge offers it, as URLSession does on the Apple app;
-            // HttpClient would otherwise stay on HTTP/1.1, which opens more
-            // connections (each a TLS handshake) and is slower to first byte.
+            // HTTP/3 once AO3's edge advertises it (Alt-Svc), as URLSession and
+            // browsers use: AO3's Cloudflare edge answered HTTP/1.1 and HTTP/2
+            // clients far slower, or with 503/525s, while HTTP/3 browsers got the
+            // same pages in under a second. Falls back to HTTP/2, then HTTP/1.1,
+            // where QUIC isn't available (Windows 10, a proxy, UDP blocked).
             using var request = new HttpRequestMessage(method, uri)
             {
-                Version = HttpVersion.Version20,
+                Version = HttpVersion.Version30,
                 VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
             };
             request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
@@ -620,14 +629,23 @@ public sealed class AO3Client : IAO3Client, IDisposable
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(resourceCts.Token);
             timeoutCts.CancelAfter(spec.Timeout);
             HttpResponseMessage response;
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
             {
+                Log?.Invoke($"{method} {uri.AbsolutePath} timed out after {Elapsed(started)}");
                 throw new TimeoutException("The request timed out.", e);
             }
+            catch (HttpRequestException e)
+            {
+                Log?.Invoke($"{method} {uri.AbsolutePath} failed after {Elapsed(started)}: {e.Message}");
+                throw;
+            }
+            // Path only: queries can hold search terms, and nothing here is a secret.
+            Log?.Invoke($"{method} {uri.AbsolutePath} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
 
             using (response)
             {

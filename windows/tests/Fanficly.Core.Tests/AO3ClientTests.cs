@@ -53,14 +53,28 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task AsksForHttp2WithFallback()
+    public async Task AsksForHttp3WithFallback()
     {
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
         await MakeClient().FetchWorkMetadataAsync(7);
 
         var req = Assert.Single(_handler.Requests);
-        Assert.Equal(HttpVersion.Version20, req.Version);
+        Assert.Equal(HttpVersion.Version30, req.Version);
         Assert.Equal(HttpVersionPolicy.RequestVersionOrLower, req.VersionPolicy);
+    }
+
+    [Fact]
+    public async Task LogsEachRequestWithoutItsQuery()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkHtml));
+        var lines = new List<string>();
+        var client = MakeClient();
+        client.Log = lines.Add;
+        await client.FetchWorkMetadataAsync(7);
+
+        var line = Assert.Single(lines);
+        Assert.StartsWith("GET /works/7 → 200 over HTTP/", line);
+        Assert.DoesNotContain("view_adult", line);
     }
 
     [Theory]

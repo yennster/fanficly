@@ -50,7 +50,7 @@ public static partial class AppHost
             WidgetStorage.MirrorStreak(KeyValueStores.Default, shared);
             AppGroupStore.Shared = shared;
             CredentialStore.Shared = new ProtectedCookieVault(Path.Combine(AppPaths.LocalData, "Credentials"));
-            Client = new AO3Client(AppPaths.Downloads, CredentialStore.Shared, AppVersion);
+            Client = new AO3Client(AppPaths.Downloads, CredentialStore.Shared, AppVersion) { Log = Log };
             Library = OpenLibrary();
             Auth = new AuthState(CredentialStore.Shared);
         }
