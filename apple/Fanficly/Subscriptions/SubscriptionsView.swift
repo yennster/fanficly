@@ -359,3 +359,180 @@ extension AO3WorkSummary {
         .environment(\.ao3Client, MockAO3Client())
         .environment(AuthState())
 }
+
+/// A list on AO3's readings page that `ReadingListView` shows.
+enum AO3ReadingList: Sendable {
+    case markedForLater
+
+    var title: String {
+        switch self {
+        case .markedForLater: "Marked for Later"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .markedForLater: SidebarItem.markedForLater.systemImage
+        }
+    }
+
+    var loginPrompt: String {
+        switch self {
+        case .markedForLater: "Works you mark for later on AO3 show here once you log in."
+        }
+    }
+
+    var emptyTitle: String {
+        switch self {
+        case .markedForLater: "Nothing marked for later"
+        }
+    }
+
+    var emptyDescription: String {
+        switch self {
+        case .markedForLater: "Use \"Mark for Later\" on a work on AO3 and it will appear here."
+        }
+    }
+
+    func fetch(_ client: any AO3ClientProtocol, username: String, page: Int) async throws -> AO3SearchResults {
+        switch self {
+        case .markedForLater:
+            return try await client.fetchMarkedForLater(username: username, page: page)
+        }
+    }
+}
+
+/// The "Marked for Later" tab: a list from the logged-in user's AO3 readings
+/// page, fetched live with infinite scroll. Built like `BookmarksView`;
+/// read-only (marks are added and removed on AO3).
+struct ReadingListView: View {
+    let list: AO3ReadingList
+
+    @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
+    @Query private var hiddenWorks: [HiddenWork]
+    @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
+
+    @State private var works: [AO3WorkSummary] = []
+    @State private var currentPage = 1
+    @State private var totalPages = 1
+    @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var errorMessage: String?
+
+    private var visibleWorks: [AO3WorkSummary] {
+        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+    }
+
+    var body: some View {
+        Group {
+            if auth.username == nil {
+                ContentUnavailableView {
+                    Label("Log in to AO3", systemImage: list.systemImage)
+                } description: {
+                    Text(list.loginPrompt)
+                } actions: {
+                    NavigationLink { LoginView() } label: {
+                        Text("Open Settings → AO3 Login").font(.callout)
+                    }
+                }
+            } else if isLoading && works.isEmpty {
+                VStack { Spacer(); ProgressView("Loading \(list.title)…"); Spacer() }
+            } else if let errorMessage, works.isEmpty {
+                ContentUnavailableView("Couldn't load \(list.title)", systemImage: "exclamationmark.triangle",
+                    description: Text(errorMessage))
+            } else if works.isEmpty {
+                ContentUnavailableView(list.emptyTitle, systemImage: list.systemImage,
+                    description: Text(list.emptyDescription))
+            } else if visibleWorks.isEmpty {
+                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
+                    description: Text("Every work here is hidden or filtered out by your content settings."))
+            } else {
+                List {
+                    ForEach(visibleWorks) { work in
+                        NavigationLink(value: work) { WorkRow(work: work) }
+                            .onAppear {
+                                if work.id == visibleWorks.last?.id {
+                                    Task { await loadMore() }
+                                }
+                            }
+                    }
+                    if isLoadingMore {
+                        HStack { Spacer(); ProgressView(); Spacer() }
+                            .padding(.vertical, 8)
+                            .listRowSeparator(.hidden)
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle(list.title)
+        .navigationBarTitleDisplayMode(.large)
+        .workAndAuthorDestinations()
+        .toolbar {
+            if auth.username != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await refresh() }
+                    } label: {
+                        if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                    }
+                    .disabled(isLoading)
+                    .accessibilityLabel("Refresh \(list.title)")
+                }
+            }
+        }
+        .task { await loadFirst() }
+        .onChange(of: auth.username) { _, name in
+            if name != nil, works.isEmpty { Task { await loadFirst() } }
+        }
+    }
+
+    private func loadFirst() async {
+        guard let username = auth.username, works.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            let result = try await list.fetch(client, username: username, page: 1)
+            works = result.works
+            currentPage = result.currentPage
+            totalPages = result.totalPages
+        } catch {
+            guard !Task.isCancelled else { return }   // benign cancellation — see BookmarksView
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    private func refresh() async {
+        works = []
+        currentPage = 1
+        totalPages = 1
+        await loadFirst()
+    }
+
+    private func loadMore() async {
+        guard let username = auth.username, !isLoadingMore, currentPage < totalPages else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let result = try await list.fetch(client, username: username, page: currentPage + 1)
+            let existing = Set(works.map(\.id))
+            works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
+            currentPage = result.currentPage
+            totalPages = result.totalPages
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    private static func message(for error: Error) -> String {
+        switch error {
+        case AO3Error.unauthorized: "Your AO3 login has expired. Log in again in Settings → AO3 Login."
+        case AO3Error.parseFailed(let reason): reason
+        case AO3Error.rateLimited: "AO3 is asking us to slow down. Try again in a minute."
+        default: "\(error)"
+        }
+    }
+}
