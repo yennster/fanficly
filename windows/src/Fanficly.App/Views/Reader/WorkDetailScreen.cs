@@ -92,7 +92,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         reader.ChapterChanged += chapter => _currentChapter = chapter;
         _saveButton = reader.ToolbarButton("bookmark", "Save to Library", ToggleFollow);
         AutomationProperties.SetAutomationId(_saveButton, "work.save");
-        _optionsButton = reader.ToolbarButton("ellipsis.circle", "Work options");
+        _optionsButton = reader.ToolbarButton("book.circle", "Work options");
         AutomationProperties.SetAutomationId(_optionsButton, "work.options");
         var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight };
         menu.Opening += (_, _) => FillOptions(menu);
@@ -137,7 +137,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         var busy = _exporter.IsExporting || _isSavingOffline || _isSubscribing;
         _optionsButton.Content = busy
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
-            : Symbols.Icon("ellipsis.circle", 16).A11yHidden();
+            : Symbols.Icon("book.circle", 16).A11yHidden();
     }
 
     /// <summary>Overflow menu: comments, export, offline download, subscribe, plus
