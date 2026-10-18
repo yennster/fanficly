@@ -23,7 +23,8 @@ windows/      the Windows app (Fanficly.Windows.slnx)
 website/      fanficly.app (static site, deployed by Vercel)
 docs/         shared pictures (docs/screenshots/windows/)
 bin/          repo-wide scripts (roadmap.sh lists both roadmaps)
-.github/      CI: ci.yml for apple/, windows-*.yml for windows/
+.github/      CI: ci.yml for apple/, windows-*.yml for windows/; release.yml and
+              store-assets.yml release the Apple app (apple/docs/RELEASING.md)
 ```
 
 CI is split by app: a change under `apple/` runs the Apple workflow, a change under `windows/` runs the Windows ones, and a pull request that touches both runs both.

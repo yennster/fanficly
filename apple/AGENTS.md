@@ -41,8 +41,10 @@ A SwiftUI app (iPhone + iPad, plus Mac via Catalyst; iOS 17+, Swift 6) that read
   See [Tests](#tests) and [Linux orbs](#linux-orbs).
 - **Related docs:** `README.md` (user features/setup), `CONTRIBUTING.md` (change
   policy), `ACCESSIBILITY.md`, `../PRIVACY.md`, `../.github/workflows/ci.yml` (actual CI).
-  Release lanes under ignored `fastlane/` are maintainer-local, not available in
-  a fresh checkout. Never upload assets or release as part of ordinary testing.
+  Releases run in GitHub Actions (`../.github/workflows/release.yml`,
+  `store-assets.yml`; lanes in `fastlane/Fastfile`), described in
+  `docs/RELEASING.md`. Never run them, cut a release, or upload assets unless
+  the maintainer asks for that release.
 
 ## Architecture and runtime ownership
 
@@ -142,8 +144,12 @@ bin/                           # developer scripts (icon gen, screenshots,
                                #   store art); ../bin/roadmap.sh = list and
                                #   claim-check roadmap items (repo root)
 docs/ROADMAP.md                # the backlog (RM-nnn items); agents: see below
+docs/RELEASING.md              # cloud release + store-art workflows, secrets
 docs/screenshots/              # demo-mode captures (iphone, ipad, mac, duo-*)
-../.github/                    # workflows (ci.yml = this app) + PR template
+fastlane/                      # Fastfile (lanes) + store copy; generated art
+                               #   and keys are git-ignored
+../.github/                    # workflows (ci.yml = this app; release.yml and
+                               #   store-assets.yml run fastlane) + PR template
 ../PRIVACY.md                  # this app's privacy policy (the App Store links it)
 Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
@@ -287,7 +293,8 @@ checks the environment; it does not install dependencies or authenticate.
 XcodeGen, and all app tests need a Mac. There is no Linux Swift package/test
 target. Use the macOS CI or a Mac runner for native validation; do not install
 Linux Swift as a substitute. Fastlane is intentionally not installed here:
-its release lanes and credentials live in the untracked `fastlane/` directory.
+its lanes run on GitHub's macOS runners, and their credentials live only in
+the `app-store` environment's secrets (`docs/RELEASING.md`).
 No database, app server, signing credentials, or AO3 login is needed for setup.
 
 Chromium can render HTML artwork, but exact marketing assets still need the
@@ -564,7 +571,7 @@ The Duo (5.4" outer, 7.6" inner, iOS 27.1, ships Oct 23 2026) is the **phone** i
 
 **Testing on the Duo simulator:** the repo builds with **Xcode 27.1** (iOS 27.1 SDK and runtime), which has an "iPhone Duo" device type. Set its pose in Device Hub (`Xcode.app/Contents/Applications/DeviceHub.app`, which replaced Simulator.app): the Closed / Partially Open / Open buttons under the device. Pose can't be scripted, and `simctl io … screenConfig power` crashed SpringBoard, so don't use it. Under XCUITest: `XCUIScreen.main` is the **outer** display (black while unfolded), the unfolded app's own frame (`app.frame`) is reported in portrait while the UI is landscape, but the window's and elements' frames are right, so aim coordinates from `app.windows.firstMatch` or an element, never from `app`. No screen exposes a titled navigation bar, because the bars are vertical. While unfolded, `simctl io … screenshot` still captures the dark outer display. An **iPhone Pro Max rotated** still makes the same compact ↔ regular transition for quick checks.
 
-**App Store screenshots for the Duo** (required from April 2027): `fastlane duo_screenshots` runs `ScreenshotTests/testCaptureDuoScreens` on the Duo in whatever pose it's in: folded → `docs/screenshots/duo-outer` (portrait, 1398×2034 slides), unfolded → `duo-inner` (landscape like an open book, 2853×2007 slides, the reader shown as a two-page spread). Run it once per pose. `fastlane duo_assets` uploads them, with the iPhone preview, which the Duo slot accepts at 886×1920, through the App Asset Library API (`bin/upload-duo-assets.py`), because deliver doesn't know the Duo sizes.
+**App Store screenshots for the Duo** (required from April 2027): the `screenshots` lane runs `ScreenshotTests/testCaptureDuoScreens` on the Duo (when the Xcode has one) in whatever pose it's in: folded → `docs/screenshots/duo-outer` (portrait, 1398×2034 slides), unfolded → `duo-inner` (landscape like an open book, 2853×2007 slides, the reader shown as a two-page spread). CI captures the pose the simulator boots in and reframes the committed captures of the other; refresh that one by hand on a Mac. `upload_store_art` uploads them, with the iPhone preview, which the Duo slot accepts at 886×1920, through the App Asset Library API (`bin/upload-duo-assets.py`), because deliver doesn't know the Duo sizes.
 
 **Not done yet:**
 - With the 27.1 SDK, toolbars and tab bars go **vertical** on the Duo. The reader's items render as icons in the strip, but toolbar items should carry a title + symbol (`Label`, not `Image`), and Apple reserves the ellipsis symbol for the system overflow menu, which conflicts with the reader's `ellipsis.circle` options menu.
@@ -583,11 +590,11 @@ The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`,
 - **Landscape split view navigates by ⌘1–9** (the "Go" menu, mirrored in `openSidebarItem`'s map). It falls back to tapping the sidebar row when the keypresses never land, which happens on a freshly booted simulator; otherwise the shot captured the wrong tab.
 - The search shot types explicit `tag:"Slow Burn" complete` (the same chips a tapped suggestion makes, and a full page of results), because waiting on live typeahead timed out mid-run on iPhone.
 
-**App Store marketing screenshots** are built by `bin/frame-screenshots.py` (run by the `fastlane screenshots` lane after capture). Each one is a web page — `bin/store-art/screenshot.html` + `brand.css` — rendered at the exact App Store size by headless Chrome through `bin/store_art.py`. That's the same look as the product-page header and search-results art: indigo mesh gradient with paper grain and faint floating pages (the icon's motif), a letter-spaced label, a New York serif headline with a gold italic accent and sparkles, and the app in a genuine Apple bezel (frameit's downloaded Silver iPhone 17 Pro Max / iPad Pro 12.9" / MacBook Pro 16 frames, composited directly, not via `fastlane frameit`). Copy and order live in `SLIDES` (`*word*` = gold accent, `|` = line break, joined on the one-line Mac layout). Outputs: `screenshots/final/` (tracked, plus the README `showcase.png`), `fastlane/screenshots/en-US/` (iPhone 6.9" `1320×2868`, iPad 13" `2064×2752`) and `fastlane/screenshots-mac/en-US/` (`2560×1600`; a separate tree because deliver matches shots to slots by pixel size and the iOS listing rejects Mac sizes). Mac raws are cropped below the iPad status bar to a top-anchored 16:10 window first. Chrome needs `--run-all-compositor-stages-before-draw` or large drop-shadow layers occasionally leave an unpainted white tile. `fastlane release`/`metadata_only` upload the iOS set, `fastlane mac_screenshots` (or `release_mac`) the Mac set.
+**App Store marketing screenshots** are built by `bin/frame-screenshots.py` (run by the `fastlane screenshots` lane after capture). Each one is a web page — `bin/store-art/screenshot.html` + `brand.css` — rendered at the exact App Store size by headless Chrome through `bin/store_art.py`. That's the same look as the product-page header and search-results art: indigo mesh gradient with paper grain and faint floating pages (the icon's motif), a letter-spaced label, a New York serif headline with a gold italic accent and sparkles, and the app in a genuine Apple bezel (frameit's downloaded Silver iPhone 17 Pro Max / iPad Pro 12.9" / MacBook Pro 16 frames, composited directly, not via `fastlane frameit`). Copy and order live in `SLIDES` (`*word*` = gold accent, `|` = line break, joined on the one-line Mac layout). Outputs: `screenshots/final/` (tracked, plus the README `showcase.png`), `fastlane/screenshots/en-US/` (iPhone 6.9" `1320×2868`, iPad 13" `2064×2752`) and `fastlane/screenshots-mac/en-US/` (`2560×1600`; a separate tree because deliver matches shots to slots by pixel size and the iOS listing rejects Mac sizes). Mac raws are cropped below the iPad status bar to a top-anchored 16:10 window first. Chrome needs `--run-all-compositor-stages-before-draw` or large drop-shadow layers occasionally leave an unpainted white tile. `release`/`metadata_only` upload both sets (`platform:` ios, mac or both), and `upload_store_art` uploads the latest generated ones.
 
-**App preview videos** (`bin/record-app-previews.sh`, or `fastlane previews`) record `PreviewTourTests` in marketing mode and caption each beat with a card rendered from `bin/store-art/caption.html` (indigo glass card, label, New York headline with the gold accent), faded and risen in by ffmpeg. **No device frames or decorative framing around the capture**: Apple rejects previews under Guideline 2.3.4 for "framing around the video screen capture", so the brand look lives only in the overlay cards, and the Mac's 4:3 capture gets a plain indigo pillarbox. Caption specs are `LABEL;HEADLINE;start;end;anchor;y` (`y` = `bNNN` for a bottom margin) in raw seconds, re-tuned from a contact sheet after every re-record. simctl drops frames while the screen is static and squeezes that time out, so a beat needs motion to survive. Upload with `fastlane upload_previews` (deliver can't upload previews).
+**App preview videos** (`bin/record-app-previews.sh`, or `fastlane previews`) record `PreviewTourTests` in marketing mode and caption each beat with a card rendered from `bin/store-art/caption.html` (indigo glass card, label, New York headline with the gold accent), faded and risen in by ffmpeg. **No device frames or decorative framing around the capture**: Apple rejects previews under Guideline 2.3.4 for "framing around the video screen capture", so the brand look lives only in the overlay cards, and the Mac's 4:3 capture gets a plain indigo pillarbox. Caption specs are `LABEL;HEADLINE;start;end;anchor;y` (`y` = `bNNN` for a bottom margin) in raw seconds, re-tuned from a contact sheet after every re-record. simctl drops frames while the screen is static and squeezes that time out, so a beat needs motion to survive. `upload_store_art` uploads them with `bin/upload-app-previews.py` (deliver can't upload previews).
 
-**Creative assets** — the product-page header (`3840×1646`) and search-results (`3840×2560`) images — live in git-ignored `fastlane/creative/en-US/` with their HTML source in `fastlane/creative/src/`. `fastlane creative_assets` (`bin/upload-creative-assets.py`) uploads them through the App Store Connect **App Asset Library** API (reserve → PUT → commit → `PRODUCT_PAGE_HEADER_ASSET` / `APP_STORE_SEARCH_RESULTS_ASSET` placements on the editable iOS version), since deliver doesn't support them. Key content must sit in Apple's centered safe areas (header 1646×661, search 2168×1030), with no prices, URLs or other platforms' logos, and everything 4+.
+**Creative assets** — the product-page header (`3840×1646`) and search-results (`3840×2560`) images — are rendered into git-ignored `fastlane/creative/en-US/` by the `creative_assets` lane (`bin/make-creative-assets.py`, layout in `bin/store-art/creative.html`, from the demo-mode captures). `upload_store_art` (`bin/upload-creative-assets.py`) uploads them through the App Store Connect **App Asset Library** API (reserve → PUT → commit → `PRODUCT_PAGE_HEADER_ASSET` / `APP_STORE_SEARCH_RESULTS_ASSET` placements on the editable iOS version), since deliver doesn't support them. Key content must sit in Apple's centered safe areas (header 1646×661, search 2168×1030), with no prices, URLs or other platforms' logos, and everything 4+.
 
 ## Reading stats & yearly wrap
 
