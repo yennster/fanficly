@@ -829,3 +829,57 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(new HashSet<string> { "work:1", "user:carol" }, ctx.All<SubscriptionRecord>().Select(r => r.Key).ToHashSet());
     }
 }
+
+/// <summary>The Spotlight hook follows the library, not the follow flag, as in
+/// Swift's WorkPersistence (RM-016): saving indexes, unfollowing keeps the work
+/// indexed, deleting removes it.</summary>
+[Collection(GlobalStoreCollection.Name)]
+public sealed class SearchIndexHookTests : IDisposable
+{
+    private sealed class RecordingIndexer : IWorkSearchIndexer
+    {
+        public readonly List<string> Calls = [];
+        public void Index(Work work) { lock (Calls) Calls.Add($"index {work.Ao3Id}"); }
+        public void Remove(int ao3Id) { lock (Calls) Calls.Add($"remove {ao3Id}"); }
+        public List<string> For(int id) { lock (Calls) return Calls.Where(c => c.EndsWith($" {id}")).ToList(); }
+    }
+
+    private readonly RecordingIndexer _indexer = new();
+
+    public SearchIndexHookTests() => LibraryHooks.SearchIndexer = _indexer;
+
+    public void Dispose() => LibraryHooks.SearchIndexer = null;
+
+    private static AO3WorkSummary Summary(int id) => new()
+    {
+        Id = id, Title = $"Work {id}", Author = "tester", ChapterCount = 1, TotalChapters = 1,
+    };
+
+    [Fact]
+    public void SavingAnUnfollowedWorkIndexesIt()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.UpsertMetadata(Summary(81001), store);
+        Assert.False(work.IsFollowed);
+        Assert.Equal(["index 81001"], _indexer.For(81001));
+    }
+
+    [Fact]
+    public void UnfollowingKeepsTheWorkIndexed()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        Assert.True(WorkPersistence.ToggleFollow(Summary(81002), store));
+        Assert.False(WorkPersistence.ToggleFollow(Summary(81002), store));
+        WorkPersistence.Unfollow(store.GetWork(81002)!, store);
+        Assert.DoesNotContain("remove 81002", _indexer.For(81002));
+    }
+
+    [Fact]
+    public void DeletingAWorkRemovesItFromTheIndex()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.UpsertMetadata(Summary(81003), store);
+        WorkPersistence.DeleteWork(work, store);
+        Assert.Equal(["index 81003", "remove 81003"], _indexer.For(81003));
+    }
+}

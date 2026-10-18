@@ -13,7 +13,8 @@ public sealed record WidgetProgressUpdate(
     bool SyncImmediately);
 
 /// <summary>The system search index the Swift app feeds through CoreSpotlight
-/// (followed works are searchable from the OS). Optional on Windows.</summary>
+/// (every library work is searchable from the OS). Windows installs none:
+/// Windows Search has no public API for an app's own items (RM-108).</summary>
 public interface IWorkSearchIndexer
 {
     void Index(Work work);
@@ -35,7 +36,7 @@ public static class LibraryHooks
     /// (app-group defaults + the synced key/value mirror).</summary>
     public static Action<WidgetProgressUpdate>? SaveWidgetProgress { get; set; }
 
-    /// <summary>CoreSpotlight indexing of followed works.</summary>
+    /// <summary>CoreSpotlight indexing of library works.</summary>
     public static IWorkSearchIndexer? SearchIndexer { get; set; }
 
     /// <summary>The app's local log, for failures the library otherwise only

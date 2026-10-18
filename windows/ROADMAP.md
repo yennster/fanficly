@@ -67,7 +67,7 @@ Servers or accounts of our own, ads, telemetry, a "trending" feed we'd have to s
 
 Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `bin/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
 
-- **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), or `done`.
+- **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), `done`, or `exception` (an Apple feature Windows can't support; the item says why, and it isn't built).
 - **Size:** `S` is about one file plus tests, `M` is a few files plus tests. Anything bigger is split into new `S`/`M` items before it's started.
 - **Validation:** `unit` = provable by `dotnet test tests/Fanficly.Core.Tests` on any OS. `windows` = also needs a person (or the UI tests) on Windows; say what to look at in the PR.
 
@@ -176,15 +176,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 
 ## Later (needs design, or a person on Windows)
 
-### RM-108 — Find followed works from Windows Search
-- **Status:** open · **Size:** M · **Validation:** windows
-- **Why:** Core calls `LibraryHooks.SearchIndexer` (`IWorkSearchIndexer`) when works are followed or removed, the way the Swift app feeds Spotlight, but Windows installs no indexer.
-- **Scope:**
-  - Pick a Windows API that a packaged, Native AOT app can use to index its own items, and open them with a `fanficly://resume/<id>` link.
-  - Write the choice in the PR before building.
-  - Index followed works only, and remove them on unfollow.
-- **Done when:** a followed work's title is findable in Windows Search on Windows 11 and opens the work; unfollowing removes it.
-- **Touches:** a new `windows/src/Fanficly.App/Platform/` file, `Services/AppServices.cs`.
+### RM-108 — Find library works from Windows Search
+- **Status:** exception · **Size:** M · **Validation:** windows
+- **Why:** The Swift app puts every library work in Spotlight and opens a tapped result (RM-016 in `apple/docs/ROADMAP.md`). Core calls `LibraryHooks.SearchIndexer` (`IWorkSearchIndexer`) for this, but Windows installs no indexer.
+- **Why it's an exception:** Windows 11 has no public API for an app to add its own items to Windows Search. The taskbar and Start search show apps, settings, files in indexed folders and web results only. The Windows App SDK's `AppContentIndex` is a limited-access feature (it needs a token from Microsoft) and is queried by the app itself, not shown in Windows Search. The only workaround is to write a shortcut file per work into an indexed folder such as Documents, which clutters a folder the user sees and, when OneDrive backs up Documents, uploads the library's titles, against principle 1.
+- **Already covered:** the App Shortcut half of RM-016 ("Continue Reading") is the jump list's "Continue “<title>”" entry and the Continue reading widget, both opening `fanficly://resume/<id>`.
+- **Revisit when:** Windows offers a public search-provider API for packaged apps, or `AppContentIndex` leaves limited access and its results reach Windows Search.
 
 ### RM-109 — Localization groundwork
 - **Status:** open · **Size:** M · **Validation:** windows
