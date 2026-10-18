@@ -676,7 +676,7 @@ public actor AO3Client: AO3ClientProtocol {
         // AO3 redirects a saved bookmark to its page; a rejected one re-renders
         // the form with an `#error` list, and an expired session lands on the
         // login form. URLSession follows the redirect, so read the final page.
-        let (data, _) = try await performRequest(request)
+        let (data, response) = try await performRequest(request)
         let html = String(data: data, encoding: .utf8) ?? ""
         if (try? LoginParser.hasLoginForm(html: html)) == true {
             throw AO3Error.unauthorized
@@ -684,6 +684,12 @@ public actor AO3Client: AO3ClientProtocol {
         let errors = BookmarkFormParser.saveErrors(html: html)
         if !errors.isEmpty {
             throw AO3Error.parseFailed(reason: errors.joined(separator: " "))
+        }
+        // A created bookmark always moves to `/bookmarks/<id>`; staying on the
+        // create URL means AO3 re-rendered the form without saving. (An update
+        // posts to its own page, so the URL can't tell there.)
+        if !form.isExisting, response.url?.path == form.action.path {
+            throw AO3Error.parseFailed(reason: "AO3 didn't save the bookmark.")
         }
     }
 
