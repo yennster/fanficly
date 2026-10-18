@@ -26,11 +26,19 @@ internal sealed class FilteredWorksScreen : Screen
     private string? _errorMessage;
     private string? _loadMoreError;
     private CancellationTokenSource _cts = new();
+    private bool _slowNoteVisible;
+    private Search.DispatcherQueueTimerHolder? _slowTimer;
+
+    /// <summary>When the slow note and its Cancel button appear.</summary>
+    private static readonly TimeSpan SlowNoteDelay = TimeSpan.FromSeconds(10);
+    /// <summary>The most a first page may take, retries included, before the
+    /// screen stops waiting and says AO3 isn't answering (Windows only: a
+    /// struggling AO3 can otherwise keep the spinner up for minutes).</summary>
+    private static readonly TimeSpan FirstPageDeadline = TimeSpan.FromSeconds(90);
 
     private Grid _content = null!;
     private VirtualList<AO3WorkSummary> _list = null!;
     private FrameworkElement _applyingOverlay = null!;
-    private FrameworkElement? _loadingView;
 
     public FilteredWorksScreen(AO3SearchFilters filters, string title)
     {
@@ -122,7 +130,7 @@ internal sealed class FilteredWorksScreen : Screen
         var hasWorks = _works.Count > 0;
         UIElement view;
         if (_isLoading && !hasWorks)
-            view = _loadingView ??= UI.UI.Loading("Loading…");
+            view = LoadingView();
         else if (_errorMessage is not null && !hasWorks)
             view = UI.UI.EmptyState("exclamationmark.triangle", "Couldn't load works", _errorMessage,
                 "Try Again", () => _ = ReloadAsync());
@@ -149,6 +157,34 @@ internal sealed class FilteredWorksScreen : Screen
         _list.Element.Opacity = applying ? 0.35 : 1;
         _list.Element.IsHitTestVisible = !applying;
         RenderFooter();
+    }
+
+    /// <summary>The spinner, plus a note and a way out once AO3 is clearly slow.</summary>
+    private FrameworkElement LoadingView()
+    {
+        var stack = (StackPanel)UI.UI.Loading("Loading…");
+        if (_slowNoteVisible)
+        {
+            var cancel = UI.UI.Button("Cancel", StopLoading);
+            cancel.HorizontalAlignment = HorizontalAlignment.Center;
+            AutomationProperties.SetAutomationId(cancel, "filtered.cancel");
+            AutomationProperties.SetHelpText(cancel, "Stops loading these works");
+            stack.Children.Add(UI.UI.VStack(10,
+                UI.UI.Secondary("AO3 is slow right now. Big fandoms can take a minute.", Theme.Style.Footnote)
+                    .Also(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.TextAlignment = TextAlignment.Center; }),
+                cancel));
+        }
+        stack.Padding = new Thickness(16);
+        return stack;
+    }
+
+    private void StopLoading()
+    {
+        NewGeneration();
+        _isLoading = false;
+        _errorMessage = "Stopped. AO3 is slow right now; try again in a minute.";
+        MainWindow.Current.Announce("Stopped loading");
+        Render();
     }
 
     private void RenderFooter()
@@ -227,6 +263,8 @@ internal sealed class FilteredWorksScreen : Screen
     {
         _cts.Cancel();
         _cts = new CancellationTokenSource();
+        _slowTimer?.Stop();
+        _slowNoteVisible = false;
         return _cts.Token;
     }
 
@@ -239,9 +277,17 @@ internal sealed class FilteredWorksScreen : Screen
         _isLoadingMore = false;
         _errorMessage = null;
         Render();
+        _slowTimer = new Search.DispatcherQueueTimerHolder(SlowNoteDelay, () =>
+        {
+            if (token.IsCancellationRequested || !_isLoading) return;
+            _slowNoteVisible = true;
+            Render();
+        });
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(FirstPageDeadline);
         try
         {
-            var result = await AppHost.Client.SearchAsync(_filters, 1, token);
+            var result = await AppHost.Client.SearchAsync(_filters, 1, deadline.Token);
             if (token.IsCancellationRequested) return;
             _works.Clear();
             _works.AddRange(result.Works);
@@ -258,10 +304,14 @@ internal sealed class FilteredWorksScreen : Screen
         }
         catch (Exception e)
         {
-            _errorMessage = e.Message;
+            _errorMessage = deadline.IsCancellationRequested
+                ? "AO3 isn't responding right now. This is on AO3's side; try again in a minute."
+                : e.Message;
             AppHost.Log($"Browse: works for {Title} failed: {e.Message}");
-            if (announce) MainWindow.Current.Announce($"Couldn't load works. {e.Message}");
+            if (announce) MainWindow.Current.Announce($"Couldn't load works. {_errorMessage}");
         }
+        _slowTimer?.Stop();
+        _slowNoteVisible = false;
         _isLoading = false;
         Render();
     }
