@@ -53,15 +53,21 @@ struct RootView: View {
                 .scaleEffect(CGFloat(zoomScale), anchor: .topLeading)
         }
         .background {
+            // The View menu (FanficlyApp) shows ⇧⌘+, ⇧⌘− and ⌘0. A menu item
+            // takes one shortcut, so the other spellings of the same keys stay
+            // here: ⌘+ / ⌘= / ⌘− as before, ⇧⌘= for layouts where + needs no
+            // shift, and ⇧⌘_ for shift held on the minus key.
             Group {
                 Button(action: { zoom(in: true) }) { EmptyView() }
                     .keyboardShortcut("+", modifiers: [.command])
                 Button(action: { zoom(in: true) }) { EmptyView() }
                     .keyboardShortcut("=", modifiers: [.command])
+                Button(action: { zoom(in: true) }) { EmptyView() }
+                    .keyboardShortcut("=", modifiers: [.command, .shift])
                 Button(action: { zoom(in: false) }) { EmptyView() }
                     .keyboardShortcut("-", modifiers: [.command])
-                Button(action: { resetZoom() }) { EmptyView() }
-                    .keyboardShortcut("0", modifiers: [.command])
+                Button(action: { zoom(in: false) }) { EmptyView() }
+                    .keyboardShortcut("_", modifiers: [.command, .shift])
             }
             .opacity(0)
             .accessibilityHidden(true)
@@ -274,18 +280,7 @@ struct RootView: View {
     }
 
     private func zoom(in forward: Bool) {
-        let step = 0.1
-        let minScale = 0.5
-        let maxScale = 2.0
-        if forward {
-            zoomScale = min(maxScale, zoomScale + step)
-        } else {
-            zoomScale = max(minScale, zoomScale - step)
-        }
-    }
-
-    private func resetZoom() {
-        zoomScale = 1.0
+        zoomScale = UIZoom.stepped(zoomScale, in: forward)
     }
 
     private func handleIncomingURL(_ url: URL) {
@@ -489,6 +484,25 @@ struct RootView: View {
 private struct ResumeWorkRoute: Hashable {
     let workId: Int
     let anchor: ReadingAnchor?
+}
+
+/// The global UI zoom (`app.zoomScale`): ⌘/⇧⌘ +/− step it, ⌘0 resets it.
+/// The root view is counter-scaled by it; the reader divides its text sizes by
+/// it so story text keeps its own size. Values snap to tenths so repeated steps
+/// can't drift (1.0 + 0.1 + 0.1 + 0.1 isn't 1.3 in floating point).
+enum UIZoom {
+    static let step = 0.1
+    static let minScale = 0.5
+    static let maxScale = 2.0
+    static let actualSize = 1.0
+
+    /// One step bigger (`forward`) or smaller, clamped to `minScale…maxScale`.
+    /// A stored value outside the range (or not a number) comes back inside it.
+    static func stepped(_ scale: Double, in forward: Bool) -> Double {
+        let current = scale.isFinite ? scale : actualSize
+        let next = ((current + (forward ? step : -step)) * 10).rounded() / 10
+        return min(maxScale, max(minScale, next))
+    }
 }
 
 /// Decides which anchor (if any) a widget-resume tap may install as reading

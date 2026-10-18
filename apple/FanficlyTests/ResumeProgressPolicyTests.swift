@@ -106,3 +106,49 @@ final class ResumeProgressPolicyTests: XCTestCase {
         XCTAssertNil(anchor)
     }
 }
+
+/// The global UI zoom's step and clamp (`UIZoom`, in RootView.swift beside
+/// `ResumeProgressPolicy`): ⌘/⇧⌘ +/− and the View menu all go through it.
+final class UIZoomTests: XCTestCase {
+    func test_stepsByATenthEachWay() {
+        XCTAssertEqual(UIZoom.stepped(1.0, in: true), 1.1)
+        XCTAssertEqual(UIZoom.stepped(1.0, in: false), 0.9)
+    }
+
+    func test_upAtMaxStaysAtMax() {
+        XCTAssertEqual(UIZoom.stepped(UIZoom.maxScale, in: true), UIZoom.maxScale)
+        XCTAssertEqual(UIZoom.stepped(1.95, in: true), UIZoom.maxScale)
+    }
+
+    func test_downAtMinStaysAtMin() {
+        XCTAssertEqual(UIZoom.stepped(UIZoom.minScale, in: false), UIZoom.minScale)
+        XCTAssertEqual(UIZoom.stepped(0.55, in: false), UIZoom.minScale)
+    }
+
+    func test_actualSizeIsOne() {
+        XCTAssertEqual(UIZoom.actualSize, 1.0)
+    }
+
+    /// Ten steps up and ten back land exactly on 1.0, not 0.9999999999999998.
+    func test_repeatedStepsDontDrift() {
+        var scale = UIZoom.actualSize
+        for _ in 0..<5 { scale = UIZoom.stepped(scale, in: true) }
+        XCTAssertEqual(scale, 1.5)
+        for _ in 0..<5 { scale = UIZoom.stepped(scale, in: false) }
+        XCTAssertEqual(scale, 1.0)
+        for _ in 0..<20 { scale = UIZoom.stepped(scale, in: false) }
+        XCTAssertEqual(scale, UIZoom.minScale)
+        for _ in 0..<20 { scale = UIZoom.stepped(scale, in: true) }
+        XCTAssertEqual(scale, UIZoom.maxScale)
+    }
+
+    /// A stored value outside the range (an older build, a hand-edited
+    /// default) comes back inside it on the next step.
+    func test_outOfRangeOrInvalidStoredValueIsClamped() {
+        XCTAssertEqual(UIZoom.stepped(5.0, in: true), UIZoom.maxScale)
+        XCTAssertEqual(UIZoom.stepped(5.0, in: false), UIZoom.maxScale)
+        XCTAssertEqual(UIZoom.stepped(0.0, in: false), UIZoom.minScale)
+        XCTAssertEqual(UIZoom.stepped(.nan, in: true), 1.1)
+        XCTAssertEqual(UIZoom.stepped(.infinity, in: false), 0.9)
+    }
+}
