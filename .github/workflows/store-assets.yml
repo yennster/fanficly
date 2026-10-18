@@ -1,0 +1,174 @@
+name: Store assets
+
+# Regenerates everything the App Store listing shows: the screenshots (iPhone,
+# iPad, Mac, iPhone Duo), the app-preview videos, and the product-page header
+# and search-results art. Generating needs no secrets. Uploading to App Store
+# Connect is a second job in the protected `app-store` environment, and
+# committing the refreshed tracked screenshots pushes a branch to open a PR
+# from. See docs/RELEASING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      what:
+        description: What to regenerate
+        type: choice
+        default: store_art
+        options:
+          - store_art        # screenshots + previews + creative assets
+          - screenshots
+          - previews
+          - creative_assets  # from the committed captures
+      upload:
+        description: Upload to the editable App Store versions
+        type: boolean
+        default: false
+      push_branch:
+        description: Push the refreshed tracked screenshots to a store-assets/ branch
+        type: boolean
+        default: true
+
+concurrency:
+  group: store-assets
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate (${{ inputs.what }})
+    if: github.repository == 'yennster/fanficly' && github.actor == 'yennster'
+    runs-on: macos-26
+    timeout-minutes: 180
+    permissions:
+      contents: write   # only for the optional store-assets/ branch push
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+      LC_ALL: en_US.UTF-8
+      LANG: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest installed Xcode
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
+          xcodebuild -version
+          xcrun simctl list devicetypes | grep -E "iPhone 17 Pro Max|iPad Pro 13|iPhone Duo" || true
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tools
+        run: |
+          brew install xcodegen ffmpeg
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+          xcodegen generate
+
+      # The art uses Apple's New York and SF Pro (developer.apple.com/fonts),
+      # which macOS doesn't ship in /Library/Fonts, and frameit's device bezels.
+      - name: Install Apple fonts and device frames
+        run: |
+          for font in SF-Pro NY; do
+            curl -fsSL -o "$RUNNER_TEMP/$font.dmg" "https://devimages-cdn.apple.com/design/resources/download/$font.dmg"
+            mnt="$RUNNER_TEMP/$font-mnt"
+            hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$RUNNER_TEMP/$font.dmg"
+            for pkg in "$mnt"/*.pkg; do sudo installer -pkg "$pkg" -target /; done
+            hdiutil detach "$mnt"
+          done
+          ls /Library/Fonts | grep -E "NewYorkExtraLarge|SF-Pro-(Display|Text)" | head
+          bundle exec fastlane frameit download_frames
+
+      - name: fastlane ${{ inputs.what }}
+        run: bundle exec fastlane ios "${{ inputs.what }}"
+
+      - name: Upload the store art
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-art
+          path: |
+            fastlane/screenshots
+            fastlane/screenshots-mac
+            fastlane/screenshots-duo
+            fastlane/previews
+            fastlane/creative
+            build/preview-contact-sheets
+          if-no-files-found: ignore
+
+      - name: Upload the logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: |
+            build/previews-raw/*.log
+            ~/Library/Logs/scan
+          if-no-files-found: ignore
+
+      - name: Push the refreshed tracked screenshots
+        if: inputs.push_branch
+        run: |
+          git add docs/screenshots screenshots
+          if git diff --cached --quiet; then echo "No tracked screenshots changed"; exit 0; fi
+          branch="store-assets/run-${{ github.run_number }}"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Refresh the App Store screenshots (store-assets run ${{ github.run_number }})"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "Pushed $branch: open a PR from it to merge the new screenshots." >> "$GITHUB_STEP_SUMMARY"
+
+  upload:
+    name: Upload to App Store Connect
+    needs: generate
+    if: inputs.upload
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment: app-store
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+      LC_ALL: en_US.UTF-8
+      LANG: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the uploaders' Python packages
+        run: |
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: store-art
+          path: .
+
+      - name: fastlane upload_store_art
+        run: bundle exec fastlane ios upload_store_art
+
+      - name: Remove the keys
+        if: always()
+        run: rm -f fastlane/api_key.json fastlane/AuthKey_*.p8

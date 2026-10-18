@@ -1,0 +1,161 @@
+name: Release
+
+# Signed builds and App Store Connect uploads. It only ever runs when the
+# maintainer starts it: never on a push, a merge to main or a pull request, so
+# nothing reaches the App Store by accident and forks can't reach the secrets.
+# The job waits for approval in the protected `app-store` environment, which
+# holds the secrets. See docs/RELEASING.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: What to run
+        type: choice
+        default: beta
+        options:
+          - beta            # build + upload to TestFlight
+          - release         # build + upload + metadata/screenshots, then tag + GitHub release (no submit)
+          - metadata_only   # metadata + screenshots, no build
+          - pull_metadata   # download the live store copy (artifact)
+          - signing_setup   # create certificates/profiles in the match repo
+      platform:
+        description: Platform
+        type: choice
+        default: both
+        options: [both, ios, mac]
+      notes:
+        description: What's New text (blank = the titles of the PRs merged since the last release)
+        type: string
+        required: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: ${{ inputs.lane }} (${{ inputs.platform }})
+    if: github.repository == 'yennster/fanficly' && github.actor == 'yennster'
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: app-store
+    permissions:
+      contents: write        # the release lane tags vX.Y.Z and publishes the GitHub release
+      pull-requests: read    # the PRs merged since the last release
+      issues: read
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      MATCH_GIT_URL: ${{ vars.MATCH_GIT_URL }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      REVIEW_FIRST_NAME: ${{ secrets.REVIEW_FIRST_NAME }}
+      REVIEW_LAST_NAME: ${{ secrets.REVIEW_LAST_NAME }}
+      REVIEW_EMAIL: ${{ secrets.REVIEW_EMAIL }}
+      REVIEW_PHONE: ${{ secrets.REVIEW_PHONE }}
+      GH_TOKEN: ${{ github.token }}
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+      LC_ALL: en_US.UTF-8
+      LANG: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the tags, to find the previous release
+
+      - name: Check the version is new
+        if: inputs.lane == 'release'
+        run: |
+          version=$(sed -nE 's/^ *MARKETING_VERSION: "([^"]+)"/\1/p' project.yml)
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::error::v$version is already released. Bump MARKETING_VERSION in project.yml first."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Collect what changed since the last release
+        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: |
+          bin/release-notes.sh
+          echo "RELEASE_NOTES_FILE=$PWD/build/release/notes.txt" >> "$GITHUB_ENV"
+          { echo "## What's New"; echo; cat build/release/notes.txt; echo; cat build/release/changes.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Select newest installed Xcode
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      # match clones the private certificates repo over SSH with a deploy key.
+      - name: Give match its deploy key
+        env:
+          MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$MATCH_DEPLOY_KEY" > ~/.ssh/match_deploy_key
+          chmod 600 ~/.ssh/match_deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          echo "GIT_SSH_COMMAND=ssh -i ~/.ssh/match_deploy_key -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
+
+      - name: fastlane ${{ inputs.lane }}
+        run: bundle exec fastlane ios "${{ inputs.lane }}" platform:"${{ inputs.platform }}"
+
+      - name: Tag and publish the GitHub release
+        if: inputs.lane == 'release'
+        run: |
+          build=$(cat build/release/build-number.txt)
+          case "${{ inputs.platform }}" in ios) where="iOS" ;; mac) where="Mac" ;; *) where="iOS + Mac" ;; esac
+          {
+            echo "## What's new in $VERSION"
+            echo
+            cat build/release/notes.txt
+            echo
+            cat build/release/changes.md
+            echo "App Store: version $VERSION, build $build ($where). Submit for review in App Store Connect."
+          } > build/release/github-release.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" \
+            --title "Fanficly v$VERSION" --notes-file build/release/github-release.md
+
+      - name: Upload the builds
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: builds
+          path: |
+            build/release/*.ipa
+            build/release/*.pkg
+            build/release/*.dSYM.zip
+            build/release/*.md
+            build/release/*.txt
+          if-no-files-found: ignore
+
+      - name: Upload the downloaded store copy
+        if: inputs.lane == 'pull_metadata'
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata
+          path: |
+            fastlane/metadata
+            fastlane/metadata-mac
+
+      - name: Remove the keys
+        if: always()
+        run: rm -f ~/.ssh/match_deploy_key fastlane/api_key.json fastlane/AuthKey_*.p8
