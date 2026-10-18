@@ -23,6 +23,7 @@ struct SearchView: View {
     /// The filters the current results came from (for loading more pages).
     @State private var searched: AO3SearchFilters?
     @State private var results: [AO3WorkSummary] = []
+    @State private var badges: [Int: ResultBadge] = [:]
     @State private var totalFound: Int?
     @State private var currentPage = 1
     @State private var totalPages = 1
@@ -353,7 +354,7 @@ struct SearchView: View {
         List {
             ForEach(visibleResults) { work in
                 NavigationLink(value: work) {
-                    WorkRow(work: work)
+                    WorkRow(work: work, badge: badges[work.id])
                         .hoverEffect(.highlight)
                         .help("Read \(work.title)")
                         .contextMenu {
@@ -397,6 +398,7 @@ struct SearchView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
+        .resultBadges(for: visibleResults, into: $badges)
     }
 
     /// Before the first search: recent and saved searches, or a short intro.
@@ -794,15 +796,30 @@ struct SearchView: View {
 
 struct WorkRow: View {
     let work: AO3WorkSummary
+    /// "In Library", "Finished" or a percent, from the list's one lookup per
+    /// page (`.resultBadges(for:into:)`).
+    var badge: ResultBadge? = nil
     @Environment(\.modelContext) private var context
     // Reflects the local follow ("bookmark") state; seeded on appear and
     // updated when the inline button is tapped.
     @State private var isFollowed = false
+    // Saving from the inline button puts the work in the Library before the
+    // list's next lookup.
+    @State private var savedHere = false
+
+    private var shownBadge: ResultBadge? {
+        badge ?? (savedHere ? .inLibrary : nil)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(work.title).font(.headline)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(work.title).font(.headline)
+                    if let shownBadge {
+                        ResultBadgeView(badge: shownBadge)
+                    }
+                }
                 Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
                 HStack(spacing: 8) {
                     if !work.rating.isEmpty {
@@ -849,7 +866,10 @@ struct WorkRow: View {
     private var bookmarkButton: some View {
         Button {
             let newState = WorkPersistence.toggleFollow(summary: work, into: context)
-            withAnimation(.easeInOut(duration: 0.2)) { isFollowed = newState }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isFollowed = newState
+                savedHere = true  // toggling creates the Work; unfollowing keeps it
+            }
         } label: {
             Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
                 .font(.body)
@@ -862,6 +882,59 @@ struct WorkRow: View {
         .buttonStyle(.borderless)
         .accessibilityLabel(isFollowed ? "Remove \(work.title) from Library"
                                        : "Save \(work.title) to Library")
+    }
+}
+
+/// The small capsule a result row shows for a work already read or saved.
+/// It sits inside the row's combined text element, so VoiceOver reads its
+/// label as part of the row.
+struct ResultBadgeView: View {
+    let badge: ResultBadge
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: badge.symbol)
+                .accessibilityHidden(true)
+            Text(badge.text)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.15), in: Capsule())
+        .lineLimit(1)
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(badge.accessibilityLabel)
+    }
+
+    private var tint: Color {
+        badge == .finished ? .green : .accentColor
+    }
+}
+
+extension View {
+    /// Keeps `badges` current for a results list: one lookup for the whole
+    /// page when the results change, and again when the list reappears
+    /// (back from reading a story).
+    func resultBadges(for works: [AO3WorkSummary], into badges: Binding<[Int: ResultBadge]>) -> some View {
+        modifier(ResultBadgesModifier(works: works, badges: badges))
+    }
+}
+
+private struct ResultBadgesModifier: ViewModifier {
+    let works: [AO3WorkSummary]
+    @Binding var badges: [Int: ResultBadge]
+    @Environment(\.modelContext) private var context
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: refresh)
+            .onChange(of: works.map(\.id)) { refresh() }
+    }
+
+    private func refresh() {
+        badges = WorkPersistence.resultBadges(for: works, in: context)
     }
 }
 
