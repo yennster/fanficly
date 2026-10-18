@@ -12,6 +12,11 @@ public interface IAO3Client
     Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default);
     Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default);
+    /// <summary>One chapter of a work, as AO3 pages it by default: chapter
+    /// <paramref name="chapter"/> (one-based) when it exists, else the first.
+    /// Clients with nothing lighter return the whole work.</summary>
+    async Task<AO3WorkChapterPage> FetchWorkChapterAsync(int id, int chapter = 1, CancellationToken ct = default) =>
+        new(await FetchWorkAsync(id, ct).ConfigureAwait(false), [], IsWholeWork: true);
     Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
     /// <summary>Comments for a specific chapter (AO3 threads comments per chapter).

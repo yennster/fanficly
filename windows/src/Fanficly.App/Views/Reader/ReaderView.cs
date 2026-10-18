@@ -37,6 +37,9 @@ internal sealed partial class ReaderView
     private readonly string _authorUsername;
     private readonly IReadOnlyList<AO3ChapterPayload> _chapters;
     private readonly int[] _chapterOrder;
+    /// <summary>The work's chapter count; more than <see cref="_chapters"/> holds
+    /// while the reader has opened on one chapter and the rest are loading.</summary>
+    private readonly int _totalChapters;
     private readonly AO3WorkSummary? _summary;
 
     private readonly ReaderBrushes _brushes = new();
@@ -89,7 +92,8 @@ internal sealed partial class ReaderView
     /// <see cref="ContentFilter.AllowsStoryImages"/>).</summary>
     private bool ShowImages => ReaderPrefs.ShowImages && ContentFilter.AllowsStoryImages(_summary?.Rating);
 
-    public ReaderView(string title, string author, string authorUsername, IReadOnlyList<AO3ChapterPayload> chapters, AO3WorkSummary? summary)
+    public ReaderView(string title, string author, string authorUsername, IReadOnlyList<AO3ChapterPayload> chapters, AO3WorkSummary? summary,
+                      int totalChapters = 0)
     {
         ReaderProfile.MigrateLegacySettingsIfNeeded();
         _title = title;
@@ -97,6 +101,7 @@ internal sealed partial class ReaderView
         _authorUsername = authorUsername;
         _chapters = chapters.OrderBy(c => c.Index).ToList();
         _chapterOrder = _chapters.Select(c => c.Index).ToArray();
+        _totalChapters = Math.Max(totalChapters, _chapters.Count);
         _summary = summary;
         if (_chapters.Count > 0) _selectedChapter = _visibleChapter = _chapters[0].Index;
 
@@ -145,6 +150,32 @@ internal sealed partial class ReaderView
 
     public static ReaderView FromPayload(AO3WorkPayload payload) =>
         new(payload.Summary.Title, payload.Summary.Author, payload.Summary.AuthorUsername, payload.Chapters, payload.Summary);
+
+    /// <summary>From one chapter of a work whose other chapters are still loading
+    /// (Windows only: AO3's whole-work page is its slowest). Progress is reckoned
+    /// against the whole work, so finishing this chapter doesn't finish the story.</summary>
+    public static ReaderView FromChapterPage(AO3WorkChapterPage page) =>
+        new(page.Payload.Summary.Title, page.Payload.Summary.Author, page.Payload.Summary.AuthorUsername, page.Payload.Chapters,
+            page.Payload.Summary, Math.Max(page.ChapterIds.Count, page.Payload.Summary.ChapterCount));
+
+    /// <summary>Narration is playing (a reader with more chapters waits for it to stop).</summary>
+    public bool IsListening => _speech.IsActive;
+
+    /// <summary>Opens where <paramref name="previous"/>, a reader of the same work
+    /// with fewer chapters, is. Call before the reader is shown.</summary>
+    public void ContinueFrom(ReaderView previous)
+    {
+        _loadedFromDisk = true;
+        if (previous._currentAnchor is { } anchor && ChapterAt(anchor.Chapter) is not null)
+        {
+            _currentAnchor = anchor;
+            _selectedChapter = _visibleChapter = anchor.Chapter;
+        }
+        else if (ChapterAt(previous.EffectiveChapter) is not null)
+        {
+            _selectedChapter = _visibleChapter = previous.EffectiveChapter;
+        }
+    }
 
     public static AO3WorkSummary SummaryOf(Work work) => new()
     {
@@ -245,6 +276,27 @@ internal sealed partial class ReaderView
         ReviewPrompter.Shared.ReaderClosed(() => ReviewPromptStats.From(
             ReadingStatsStore.Snapshots(AppHost.Library)
                 .Select(s => (s.IsFinished, (IEnumerable<string>)s.DaySeconds.Keys, s.FirstReadAt))));
+        Release();
+    }
+
+    /// <summary>Hands over to a reader of the same work with more of it loaded:
+    /// records the reading time and position, then lets go, without the closing
+    /// prompt or leaving full screen (the story is still open).</summary>
+    public void Retire()
+    {
+        if (_removed) return;
+        _removed = true;
+        if (_visible)
+        {
+            RecordReadingSpan(restart: false);
+            PersistNow();
+        }
+        _visible = false;
+        Release();
+    }
+
+    private void Release()
+    {
         _speech.Dispose();
         ApplyKeepScreenAwake(false);
         KeyValueStores.Default.Changed -= OnSettingChanged;
@@ -503,7 +555,10 @@ internal sealed partial class ReaderView
         var paragraphCount = Math.Max(Paragraphs(chapter.Index).Count, 1);
         var denominator = Math.Max(paragraphCount - 1, 1);
         var paragraphProgress = Math.Clamp((double)anchor.Paragraph / denominator, 0, 1);
-        return Math.Clamp((chapterOffset + paragraphProgress) / _chapters.Count, 0, 1);
+        // With only some chapters loaded, the chapters before this one are
+        // counted by number, not by what's in hand.
+        var before = _totalChapters > _chapters.Count ? Math.Max(chapter.Index - 1, 0) : chapterOffset;
+        return Math.Clamp((before + paragraphProgress) / _totalChapters, 0, 1);
     }
 
     /// <summary>The final paragraph's anchor once the end of the work is on screen

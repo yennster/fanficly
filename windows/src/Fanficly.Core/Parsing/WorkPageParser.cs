@@ -7,10 +7,34 @@ namespace Fanficly.Core;
 /// chapter's HTML.</summary>
 public static partial class WorkPageParser
 {
-    public static AO3WorkPayload Parse(string html, int workId)
+    public static AO3WorkPayload Parse(string html, int workId) => Parse(HtmlDom.Parse(html), workId);
+
+    /// <summary>Parses a work page in AO3's default view, one chapter to a page.
+    /// The chapter is numbered by its place in the page's chapter menu, which is
+    /// the order the whole-work page lists chapters in, so the two number alike.</summary>
+    public static AO3WorkChapterPage ParseChapterPage(string html, int workId)
     {
         var doc = HtmlDom.Parse(html);
+        var payload = Parse(doc, workId);
+        var ids = ChapterIndexIds(doc);
+        if (payload.Chapters is [var only] && ids.Count > 1)
+        {
+            var div = doc.SelectFirst("div.chapter[id^='chapter-']");
+            var ownId = div is null ? null : ChapterAoId(div);
+            int? position = ownId is { } id && ids.IndexOf(id) is >= 0 and var at ? at + 1 : null;
+            // Otherwise AO3's own numbering: <div class="chapter" id="chapter-3">.
+            if (position is null && div is not null
+                && HtmlDom.ParseSwiftInt(div.Attr("id")["chapter-".Length..]) is { } n && n >= 1 && n <= ids.Count)
+                position = n;
+            var index = position ?? 1;
+            payload = payload with { Chapters = [only with { Index = index, AoId = ownId ?? ids[index - 1] }] };
+        }
+        var expected = Math.Max(Math.Max(ids.Count, payload.Summary.ChapterCount), 1);
+        return new AO3WorkChapterPage(payload, ids, IsWholeWork: payload.Chapters.Count >= expected);
+    }
 
+    private static AO3WorkPayload Parse(IDocument doc, int workId)
+    {
         // Strip AO3's screen-reader-only landmark headings ("Chapter Text",
         // "Work Text", "Notes", etc.) so they don't render in the body.
         foreach (var landmark in doc.Select("h3.landmark, .landmark.heading")) landmark.Remove();

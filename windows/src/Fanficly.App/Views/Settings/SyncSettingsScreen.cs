@@ -281,8 +281,27 @@ public sealed class SyncSettingsScreen : Screen
     {
         try
         {
-            Sync.Backup(AppHost.Library);
-            MainWindow.Current.ShowMessage("Backed Up", "Your library was saved to the sync folder.");
+            switch (Sync.Backup(AppHost.Library))
+            {
+                case BackupOutcome.Written:
+                    MainWindow.Current.ShowMessage("Backed Up", "Your library was saved to the sync folder.");
+                    break;
+                case BackupOutcome.NotDownloaded:
+                    _ = Dialogs.AlertAsync("Not Backed Up Yet",
+                        "The backup in the sync folder is still downloading from the cloud. Fanficly will back up once it's on this PC.");
+                    break;
+                case BackupOutcome.FileBusy:
+                    _ = Dialogs.AlertAsync("Not Backed Up Yet",
+                        "The sync app is using the backup file right now. Try again in a minute.");
+                    break;
+                case BackupOutcome.NoFolder:
+                    _ = Dialogs.AlertAsync("Backup Failed", "Choose a sync folder first.");
+                    break;
+                default:
+                    _ = Dialogs.AlertAsync("Backup Failed",
+                        $"Couldn't write to the sync folder. Make sure it's available and try again. ({Sync.LastBackupError})");
+                    break;
+            }
         }
         catch (Exception e)
         {

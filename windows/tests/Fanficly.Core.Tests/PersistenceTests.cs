@@ -46,6 +46,24 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public void BackupSaysWhetherItWroteTheFile()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        Assert.Equal(BackupOutcome.NoFolder, new LibrarySyncManager(new InMemoryKeyValueStore()).Backup(store));
+
+        var path = MakeTempBackupPath();
+        var placeholder = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.icloud");
+        _tempFiles.Add(placeholder);
+        File.WriteAllText(placeholder, "");
+        Assert.Equal(BackupOutcome.NotDownloaded, MakeSync(path).Backup(store));
+        Assert.False(File.Exists(path));
+
+        File.Delete(placeholder);
+        Assert.Equal(BackupOutcome.Written, MakeSync(path).Backup(store));
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
     public void UpsertInsertsThenUpdates()
     {
         using var ctx = MakeContext();
@@ -462,6 +480,48 @@ public sealed class PersistenceTests : IDisposable
         MakeSync(path).Backup(pc);
 
         Assert.Equal([1, 2, 3, 4], DecodeBackup(path).Works.Select(w => w.Ao3Id));
+    }
+
+    [Fact]
+    public async Task FollowedAuthorsSyncBetweenDevices()
+    {
+        var path = MakeTempBackupPath();
+        var followed = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+
+        using var phone = MakeContext();
+        phone.Insert(new FollowedAuthor("writer", "The Writer", followed, knownWorkIds: [1, 2]));
+        phone.Save();
+        MakeSync(path).Backup(phone);
+
+        // The PC follows the same author (spelt with a capital) with a newer
+        // work seen, plus another.
+        using var pc = MakeContext();
+        pc.Insert(new FollowedAuthor("Writer", "The Writer", followed.AddDays(5), knownWorkIds: [2, 3]));
+        pc.Insert(new FollowedAuthor("other", "Other", followed, knownWorkIds: [9]));
+        pc.Save();
+        MakeSync(path).Backup(pc);
+
+        var backup = DecodeBackup(path);
+        Assert.Equal(2, backup.FollowedAuthors!.Count);
+        var writer = backup.FollowedAuthors!.Single(a => a.Username.Equals("writer", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal([1, 2, 3], writer.KnownWorkIds.Order());
+        Assert.Equal(followed, writer.FollowedAt);
+
+        // A fresh device gets both, with every work already seen.
+        using var laptop = MakeContext();
+        laptop.Insert(new FollowedAuthor("writer", "The Writer", followed, knownWorkIds: [1]));
+        laptop.Save();
+        Assert.True(await MakeSync(path).RestoreAsync(laptop));
+        Assert.Equal(["other", "writer"], laptop.All<FollowedAuthor>().Select(a => a.Username).Order());
+        Assert.Equal([1, 2, 3], laptop.GetFollowedAuthor("writer")!.KnownWorkIds.Order());
+        Assert.Equal([9], laptop.GetFollowedAuthor("other")!.KnownWorkIds);
+    }
+
+    [Fact]
+    public void BackupsWithoutFollowedAuthorsStillDecode()
+    {
+        var json = """{"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z"}""";
+        Assert.Null(LibraryBackupJson.Decode(System.Text.Encoding.UTF8.GetBytes(json)).FollowedAuthors);
     }
 
     /// <summary>On a per-work conflict the backing-up device's record wins, but

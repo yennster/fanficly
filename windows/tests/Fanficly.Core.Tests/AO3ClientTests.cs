@@ -47,9 +47,78 @@ public sealed class AO3ClientTests : IDisposable
         var req = Assert.Single(_handler.Requests);
         Assert.Equal("GET", req.Method);
         Assert.Equal("https://archiveofourown.org/works/7?view_full_work=true&view_adult=true", req.Uri.AbsoluteUri);
-        Assert.Equal("Fanficly/9.9.9 (+github.com/yennster/fanficly)", req.Header("User-Agent"));
+        Assert.Equal("Fanficly/9.9.9 (Windows; https://github.com/yennster/fanficly)", req.Header("User-Agent"));
         Assert.Equal("text/html,application/xhtml+xml", req.Header("Accept"));
         Assert.Equal("en-US,en;q=0.9", req.Header("Accept-Language"));
+    }
+
+    [Fact]
+    public async Task AsksForHttp3WithFallback()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkHtml));
+        await MakeClient().FetchWorkMetadataAsync(7);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal(HttpVersion.Version30, req.Version);
+        Assert.Equal(HttpVersionPolicy.RequestVersionOrLower, req.VersionPolicy);
+    }
+
+    [Fact]
+    public async Task AsksForHttp3OutrightWhenPreferred()
+    {
+        _handler.Respond(_ => { var r = FakeHandler.Html(WorkHtml); r.Version = HttpVersion.Version30; return r; });
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+        await client.FetchWorkMetadataAsync(7);
+        await client.FetchWorkMetadataAsync(8);
+
+        Assert.All(_handler.Requests, req =>
+        {
+            Assert.Equal(HttpVersion.Version30, req.Version);
+            Assert.Equal(HttpVersionPolicy.RequestVersionExact, req.VersionPolicy);
+        });
+    }
+
+    /// <summary>Where QUIC can't connect (UDP blocked, a proxy) the same request
+    /// goes again over HTTP/2 at once, and later ones skip HTTP/3.</summary>
+    [Fact]
+    public async Task FallsBackToHttp2WhenHttp3CantConnect()
+    {
+        _handler.Respond(req => req.Version.Major == 3
+            ? throw new HttpRequestException(HttpRequestError.ConnectionError, "QUIC handshake failed")
+            : FakeHandler.Html(WorkHtml));
+        var lines = new List<string>();
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+        client.Log = lines.Add;
+
+        Assert.Equal(3, (await client.FetchWorkMetadataAsync(7)).ChapterCount);
+        await client.FetchWorkMetadataAsync(8);
+
+        Assert.Equal(
+            new (Version, HttpVersionPolicy)[]
+            {
+                (HttpVersion.Version30, HttpVersionPolicy.RequestVersionExact),
+                (HttpVersion.Version20, HttpVersionPolicy.RequestVersionOrLower),
+                (HttpVersion.Version20, HttpVersionPolicy.RequestVersionOrLower),
+            },
+            _handler.Requests.Select(r => (r.Version, r.VersionPolicy)));
+        Assert.Contains(lines, l => l.StartsWith("HTTP/3 to archiveofourown.org failed", StringComparison.Ordinal)
+                                    && l.Contains("QUIC handshake failed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LogsEachRequestWithoutItsQuery()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkHtml));
+        var lines = new List<string>();
+        var client = MakeClient();
+        client.Log = lines.Add;
+        await client.FetchWorkMetadataAsync(7);
+
+        var line = Assert.Single(lines);
+        Assert.StartsWith("GET /works/7 → 200 over HTTP/", line);
+        Assert.DoesNotContain("view_adult", line);
     }
 
     [Theory]
@@ -57,7 +126,6 @@ public sealed class AO3ClientTests : IDisposable
     [InlineData(403, AO3ErrorKind.Unauthorized)]
     [InlineData(404, AO3ErrorKind.Http)]
     [InlineData(500, AO3ErrorKind.Http)]
-    [InlineData(503, AO3ErrorKind.Http)]
     public async Task MapsErrorStatusesWithoutRetrying(int status, AO3ErrorKind kind)
     {
         _handler.Respond(_ => new HttpResponseMessage((HttpStatusCode)status));
@@ -92,6 +160,49 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal(3, meta.ChapterCount);
         Assert.Equal(3, _handler.Requests.Count);
         Assert.Equal([TimeSpan.FromSeconds(0.5), TimeSpan.FromSeconds(1)], _sleeps);
+    }
+
+    [Theory]
+    [InlineData(502)]
+    [InlineData(503)]
+    [InlineData(504)]
+    [InlineData(520)]
+    [InlineData(525)]
+    [InlineData(526)]
+    public async Task ServerUnavailableGetsRetryPolitely(int status)
+    {
+        _handler.Respond(
+            _ => new HttpResponseMessage((HttpStatusCode)status),
+            _ => new HttpResponseMessage((HttpStatusCode)status),
+            _ => FakeHandler.Html(WorkHtml));
+
+        var meta = await MakeClient().FetchWorkMetadataAsync(1);
+
+        Assert.Equal(3, meta.ChapterCount);
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.Equal([TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5)], _sleeps);
+    }
+
+    [Fact]
+    public async Task ServerUnavailableSurfacesAPlainMessageAfterRetries()
+    {
+        _handler.Respond(_ => new HttpResponseMessage((HttpStatusCode)525));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.Http, e.Kind);
+        Assert.Equal(525, e.Status);
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.Equal("AO3 isn't responding right now (HTTP 525). This is on AO3's side; try again in a minute.", e.Message);
+    }
+
+    [Fact]
+    public async Task ServerUnavailablePostIsNeverRetried()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LoginAsync("user", "pw"));
+        Assert.Equal(["GET", "POST"], _handler.Requests.Select(r => r.Method));
+        Assert.Empty(_sleeps);
     }
 
     [Fact]
@@ -300,6 +411,58 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal("typed_name", await client.CurrentUsernameAsync());
     }
 
+    // MARK: - A chapter at a time
+
+    [Fact]
+    public async Task FirstChapterIsOneLightPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)));
+        var page = await MakeClient().FetchWorkChapterAsync(55);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal("https://archiveofourown.org/works/55?view_adult=true", req.Uri.AbsoluteUri);
+        Assert.Equal(1, Assert.Single(page.Payload.Chapters).Index);
+        Assert.False(page.IsWholeWork);
+    }
+
+    [Fact]
+    public async Task ALaterChapterFollowsTheFirstPagesMenu()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)),
+            _ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(3)));
+        var page = await MakeClient().FetchWorkChapterAsync(55, chapter: 3);
+
+        Assert.Equal(
+            ["https://archiveofourown.org/works/55?view_adult=true", "https://archiveofourown.org/works/55/chapters/703?view_adult=true"],
+            _handler.Requests.Select(r => r.Uri.AbsoluteUri));
+        var chapter = Assert.Single(page.Payload.Chapters);
+        Assert.Equal(3, chapter.Index);
+        Assert.Equal(703, chapter.AoId);
+    }
+
+    [Fact]
+    public async Task AChapterPastTheEndStaysOnTheFirst()
+    {
+        _handler.Respond(_ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)));
+        var page = await MakeClient().FetchWorkChapterAsync(55, chapter: 9);
+
+        Assert.Single(_handler.Requests);
+        Assert.Equal(1, Assert.Single(page.Payload.Chapters).Index);
+    }
+
+    [Fact]
+    public async Task UnreadableChapterPageFallsBackToTheWholeWork()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("<html><body>Something else</body></html>"),
+            _ => FakeHandler.Html(WorkChapterPageTests.ChapterPage(1)));
+        var page = await MakeClient().FetchWorkChapterAsync(55);
+
+        Assert.Equal("https://archiveofourown.org/works/55?view_full_work=true&view_adult=true", _handler.Requests[1].Uri.AbsoluteUri);
+        Assert.True(page.IsWholeWork);
+    }
+
     [Fact]
     public async Task SavedCookiesAreLoadedBeforeTheFirstRequest()
     {
@@ -407,6 +570,7 @@ public sealed class AO3ClientTests : IDisposable
                   <textarea name="comment[comment_content]"></textarea>
                 </form></body></html>
                 """),
+            _ => FakeHandler.Redirect("/works/12/chapters/34#comment_1"),
             _ => FakeHandler.Html("<html></html>"));
 
         await MakeClient().PostCommentAsync(12, 34, "  Loved it!  ");
@@ -424,6 +588,36 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Contains("comment%5Bpseud_id%5D=77", form);
         Assert.Contains("comment%5Bcomment_content%5D=Loved%20it%21", form);
         Assert.Contains("commit=Comment", form);
+    }
+
+    private const string CommentFormHtml = """
+        <html><body><form action="/works/12/comments" method="post">
+          <input type="hidden" name="authenticity_token" value="CSRF">
+          <textarea name="comment[comment_content]"></textarea>
+        </form></body></html>
+        """;
+
+    [Fact]
+    public async Task ARefusedCommentIsNotPosted()
+    {
+        // AO3 re-renders the form with a 200 when it won't save a comment.
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">Couldn't save comment!</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Contains("Couldn't save comment!", e.Message);
+    }
+
+    [Fact]
+    public async Task ACommentThatEndsAtLoginNeedsASignIn()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => FakeHandler.Redirect("/users/login"),
+            _ => FakeHandler.Html(LoginFormHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
     }
 
     [Fact]
@@ -454,6 +648,103 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal("https://archiveofourown.org/works/42/subscriptions", post.Uri.AbsoluteUri);
         Assert.Equal("T0K", post.Header("X-CSRF-Token"));
         Assert.Equal("authenticity_token=T0K&subscription%5Bsubscribable_id%5D=42&subscription%5Bsubscribable_type%5D=Work", post.Body);
+    }
+
+    [Fact]
+    public async Task ARefusedTokenIsNotSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => new HttpResponseMessage(HttpStatusCode.UnprocessableEntity));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Http, e.Kind);
+    }
+
+    [Fact]
+    public async Task ASubscriptionAO3TurnsDownIsNotSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => FakeHandler.Redirect("/works/42"),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">You can't subscribe to that.</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+    }
+
+    [Fact]
+    public async Task AlreadySubscribedCountsAsSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">You are already subscribed to that.</div></body></html>"""));
+        await MakeClient().SubscribeToWorkAsync(42);
+    }
+
+    [Fact]
+    public async Task ARestrictedWorkSignedOutIsNotReadAsOneChapter()
+    {
+        // The poller would otherwise reset its new-chapter baseline to 1.
+        _handler.Respond(_ => FakeHandler.Redirect("/users/login?restricted=true"), _ => FakeHandler.Html(LoginFormHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(7));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task AWorkPageWithoutAChapterCountFails()
+    {
+        _handler.Respond(_ => FakeHandler.Html("<html><body>Something went wrong</body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(7));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
+
+    [Fact]
+    public async Task AWorkPageWithoutChaptersFails()
+    {
+        // Saving it would replace the stored chapters with none.
+        _handler.Respond(_ => FakeHandler.Html("<html><body>Something went wrong</body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkAsync(7));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
+
+    [Fact]
+    public async Task AnEpubThatEndsAtLoginIsNotSaved()
+    {
+        _handler.Respond(_ => FakeHandler.Redirect("/users/login?restricted=true"), _ => FakeHandler.Html(LoginFormHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().DownloadEpubAsync(55));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.False(File.Exists(Path.Combine(_dir, "library", "55.epub")));
+    }
+
+    [Theory]
+    [InlineData("<!DOCTYPE html><html><body>Retry later</body></html>")]
+    [InlineData("\uFEFF  \n<html></html>")]
+    [InlineData("")]
+    public async Task AWebPageIsNotSavedAsTheBook(string body)
+    {
+        _handler.Respond(_ => FakeHandler.Html(body));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().DownloadEpubAsync(55));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+        Assert.False(File.Exists(Path.Combine(_dir, "library", "55.epub")));
+        await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().ExportWorkAsync(55, WorkExportFormat.Pdf, "x"));
+    }
+
+    [Fact]
+    public async Task AnHtmlExportIsAWebPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("<html><body>The story</body></html>"));
+        var path = await MakeClient().ExportWorkAsync(55, WorkExportFormat.Html, "x");
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task BookmarksSignedOutAskForASignIn()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="login"><form id="new_user" action="/users/login"></form></div>
+            <ol class="bookmark index group"></ol></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchBookmarksAsync("reader", 1));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
     }
 
     [Fact]
@@ -535,7 +826,7 @@ internal sealed class FakeHandler : HttpMessageHandler
         Func<HttpRequestMessage, HttpResponseMessage> responder;
         lock (_gate)
         {
-            Requests.Add(new RecordedRequest(request.Method.Method, request.RequestUri!,
+            Requests.Add(new RecordedRequest(request.Method.Method, request.RequestUri!, request.Version, request.VersionPolicy,
                 // The raw values, as written (reading the parsed ones re-formats them).
                 request.Headers.NonValidated.Select(h => (h.Key, Value: string.Join(", ", h.Value)))
                     .Concat(request.Content is null ? [] : request.Content.Headers.NonValidated.Select(h => (h.Key, Value: string.Join(", ", h.Value))))
@@ -553,6 +844,13 @@ internal sealed class FakeHandler : HttpMessageHandler
         return r;
     }
 
+    public static HttpResponseMessage Redirect(string location)
+    {
+        var r = new HttpResponseMessage(HttpStatusCode.Found);
+        r.Headers.Location = new Uri(location, UriKind.Relative);
+        return r;
+    }
+
     public static HttpResponseMessage Json(string json) =>
         new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
@@ -564,7 +862,7 @@ internal sealed class FakeHandler : HttpMessageHandler
     }
 }
 
-internal sealed record RecordedRequest(string Method, Uri Uri, IReadOnlyDictionary<string, string> Headers, string? Body)
+internal sealed record RecordedRequest(string Method, Uri Uri, Version Version, HttpVersionPolicy VersionPolicy, IReadOnlyDictionary<string, string> Headers, string? Body)
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var v) ? v : null;
 }

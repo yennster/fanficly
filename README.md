@@ -160,7 +160,7 @@ The usual way to refresh the committed pictures is the **Windows screenshots** w
 
 AO3 has no public JSON API; Fanficly works by reading the same HTML pages the AO3 website serves. We're respectful guests:
 
-- Identify ourselves in `User-Agent` (`Fanficly/<version> (+github.com/yennster/fanficly)`)
+- Identify ourselves in `User-Agent` (`Fanficly/<version> (Windows; https://github.com/yennster/fanficly)`)
 - Rate-limit ourselves to at most 1 request a second, and never send requests in parallel
 - Cache what we can (popular lists for a day, tag lookups for the session)
 - Retry only safe reads, never a login, comment or subscribe

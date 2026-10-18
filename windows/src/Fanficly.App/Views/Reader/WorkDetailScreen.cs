@@ -19,6 +19,9 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
     private readonly int _workId;
     private AO3WorkPayload? _payload;
+    /// <summary><see cref="_payload"/> holds every chapter (not just the one the
+    /// reader opened on), so it's safe to save.</summary>
+    private bool _isWholeWork;
     private string? _epubPath;
     private bool _followed;
     private bool _isSavingOffline;
@@ -44,27 +47,19 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         ShowLoading("Loading…");
         try
         {
-            var payload = await AppHost.Client.FetchWorkAsync(_workId);
+            // One chapter first (the saved one, else the first): AO3's
+            // whole-work page is its slowest, so the rest loads behind it.
+            var chapter = ReadingProgressStore.Load(_workId, AppHost.Library)?.Chapter ?? 1;
+            var page = await AppHost.Client.FetchWorkChapterAsync(_workId, chapter);
             if (IsRemoved) return;
-            _payload = payload;
-            Title = payload.Summary.Title;
-            try { WorkPersistence.RecordView(payload.Summary, AppHost.Library); }
+            _payload = page.Payload;
+            _isWholeWork = page.IsWholeWork;
+            Title = page.Payload.Summary.Title;
+            try { WorkPersistence.RecordView(page.Payload.Summary, AppHost.Library); }
             catch (Exception e) { AppHost.Log($"Recording the view failed: {e.Message}"); }
 
-            var reader = ReaderView.FromPayload(payload);
-            _currentChapter = reader.EffectiveChapter;
-            reader.ChapterChanged += chapter => _currentChapter = chapter;
-            _saveButton = reader.ToolbarButton("bookmark", "Save to Library", ToggleFollow);
-            AutomationProperties.SetAutomationId(_saveButton, "work.save");
-            _optionsButton = reader.ToolbarButton("ellipsis.circle", "Work options");
-            AutomationProperties.SetAutomationId(_optionsButton, "work.options");
-            var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight };
-            menu.Opening += (_, _) => FillOptions(menu);
-            _optionsButton.Flyout = menu;
-            reader.SetTrailingItems(_saveButton, _optionsButton);
-            UpdateSaveButton();
-            UpdateOptionsButton();
-            ShowReader(reader);
+            ShowReader(MakeReader(ReaderView.FromChapterPage(page)));
+            if (!page.IsWholeWork) _ = LoadRestAsync();
         }
         catch (Exception e)
         {
@@ -72,6 +67,40 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
             AppHost.Log($"Loading work {_workId} failed: {e.Message}");
             ShowError("exclamationmark.triangle", "Couldn't load work", e.Message, () => _ = LoadAsync());
         }
+    }
+
+    private async Task LoadRestAsync()
+    {
+        if (await FetchRestAsync(_workId) is not { } full || IsRemoved) return;
+        _payload = full;
+        _isWholeWork = true;
+        SwapReader(MakeReader(ReaderView.FromPayload(full)));
+    }
+
+    /// <summary>The whole work, fetching it if the reader opened on one chapter.</summary>
+    private async Task<AO3WorkPayload> WholeWorkAsync()
+    {
+        if (_isWholeWork && _payload is { } payload) return payload;
+        var full = await AppHost.Client.FetchWorkAsync(_workId);
+        if (!_isWholeWork) { _payload = full; _isWholeWork = true; }
+        return full;
+    }
+
+    private ReaderView MakeReader(ReaderView reader)
+    {
+        _currentChapter = reader.EffectiveChapter;
+        reader.ChapterChanged += chapter => _currentChapter = chapter;
+        _saveButton = reader.ToolbarButton("bookmark", "Save to Library", ToggleFollow);
+        AutomationProperties.SetAutomationId(_saveButton, "work.save");
+        _optionsButton = reader.ToolbarButton("ellipsis.circle", "Work options");
+        AutomationProperties.SetAutomationId(_optionsButton, "work.options");
+        var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight };
+        menu.Opening += (_, _) => FillOptions(menu);
+        _optionsButton.Flyout = menu;
+        reader.SetTrailingItems(_saveButton, _optionsButton);
+        UpdateSaveButton();
+        UpdateOptionsButton();
+        return reader;
     }
 
     // MARK: - Save to Library (local follow)
@@ -177,12 +206,14 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
     private async Task SaveOfflineAsync()
     {
-        if (_payload is not { } payload || _isSavingOffline) return;
+        if (_payload is null || _isSavingOffline) return;
         _isSavingOffline = true;
         UpdateOptionsButton();
         MainWindow.Current.Announce("Downloading for offline reading");
         try
         {
+            // Saving replaces the stored chapters, so never with just one of them.
+            var payload = await WholeWorkAsync();
             WorkPersistence.Upsert(payload, AppHost.Library);
             _epubPath = await AppHost.Client.DownloadEpubAsync(payload.Summary.Id);
             _followed = WorkPersistence.IsFollowed(_workId, AppHost.Library);

@@ -17,6 +17,8 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 {
     private readonly Work _work;
     private AO3WorkPayload? _payload;
+    /// <summary><see cref="_payload"/> holds every chapter, so it's safe to save.</summary>
+    private bool _isWholeWork;
     private bool _isLoading;
     private bool _isSavingOffline;
     private bool _isDownloaded;
@@ -82,10 +84,15 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         ShowLoading("Loading from AO3…");
         try
         {
-            var payload = await AppHost.Client.FetchWorkAsync(_work.Ao3Id);
+            // The chapter you were on first; AO3's whole-work page is its
+            // slowest, so the rest loads behind it.
+            var chapter = ReadingProgressStore.Load(_work.Ao3Id, AppHost.Library)?.Chapter ?? 1;
+            var page = await AppHost.Client.FetchWorkChapterAsync(_work.Ao3Id, chapter);
             if (IsRemoved) return;
-            _payload = payload;
-            ShowReader(MakeReader(ReaderView.FromPayload(payload)));
+            _payload = page.Payload;
+            _isWholeWork = page.IsWholeWork;
+            ShowReader(MakeReader(ReaderView.FromChapterPage(page)));
+            if (!page.IsWholeWork) _ = LoadRestAsync();
         }
         catch (Exception e)
         {
@@ -99,6 +106,14 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         {
             _isLoading = false;
         }
+    }
+
+    private async Task LoadRestAsync()
+    {
+        if (await FetchRestAsync(_work.Ao3Id) is not { } full || IsRemoved || HasOfflineText) return;
+        _payload = full;
+        _isWholeWork = true;
+        SwapReader(MakeReader(ReaderView.FromPayload(full)));
     }
 
     // MARK: - Comments
@@ -120,16 +135,20 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     /// <summary>Downloads saved before per-chapter comments have no chapter ids, so
     /// the reader can't tell which chapter's thread to load. Resolve them once from
-    /// the work page and persist; silent on failure.</summary>
+    /// the first chapter's page (its chapter menu lists every id) and persist;
+    /// silent on failure.</summary>
     private async Task EnsureChapterIdsAsync()
     {
         if (!HasOfflineText || CurrentChapterAoId is not null) return;
         try
         {
-            var fetched = await AppHost.Client.FetchWorkAsync(_work.Ao3Id);
+            var page = await AppHost.Client.FetchWorkChapterAsync(_work.Ao3Id);
+            var known = page.ChapterIds.Count > 0
+                ? page.ChapterIds.Select((id, i) => (Index: i + 1, AoId: (int?)id))
+                : page.Payload.Chapters.Select(c => (c.Index, c.AoId));
             var local = OfflineChapters;
             var changed = false;
-            foreach (var chapter in fetched.Chapters)
+            foreach (var chapter in known)
             {
                 if (chapter.AoId is not { } id) continue;
                 if (local.FirstOrDefault(c => c.Index == chapter.Index) is { AoId: null } match)
@@ -186,17 +205,23 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         MainWindow.Current.Announce("Saving for offline reading");
         try
         {
-            // Make sure we have the whole work to keep its chapters.
-            AO3WorkPayload? toSave = _payload;
+            // Make sure we have the whole work to keep its chapters (never
+            // just the one the reader opened on: saving replaces them).
+            AO3WorkPayload? toSave = _isWholeWork ? _payload : null;
             if (toSave is null)
             {
                 try { toSave = await AppHost.Client.FetchWorkAsync(_work.Ao3Id); }
-                catch (Exception e) { AppHost.Log($"Fetching the work to save failed: {e.Message}"); }
+                catch (Exception e) when (AppHost.Library.ChaptersOf(_work).Count > 0)
+                {
+                    // The chapters saved earlier still read offline.
+                    AppHost.Log($"Fetching the work to save failed: {e.Message}");
+                }
             }
             if (toSave is not null)
             {
                 WorkPersistence.Upsert(toSave, AppHost.Library);
                 _payload = toSave;
+                _isWholeWork = true;
             }
             await AppHost.Client.DownloadEpubAsync(_work.Ao3Id);
             _isDownloaded = true;

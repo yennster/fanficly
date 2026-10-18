@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 
 namespace Fanficly.Core;
@@ -125,16 +124,17 @@ public sealed class LibrarySyncManager
     /// <summary>Backs the library up to the sync folder, merging with the
     /// backup already there so a device that holds only part of the library (a
     /// fresh install, a metadata-only laptop) can never last-writer-wins away
-    /// another device's records.</summary>
-    public void Backup(LibraryStore store)
+    /// another device's records. Says whether the file was written, so Back
+    /// Up Now can report what really happened.</summary>
+    public BackupOutcome Backup(LibraryStore store)
     {
-        if (BackupPath is not { } path) return;
+        if (BackupPath is not { } path) return BackupOutcome.NoFolder;
 
         // A backup that exists only as a not-yet-downloaded placeholder can't
         // be merged with, and overwriting would drop every record the other
         // device backed up. Let a later QueueBackup (they fire on every
         // mutation) retry once it's local.
-        if (!File.Exists(path) && File.Exists(PlaceholderPath(path))) return;
+        if (!File.Exists(path) && File.Exists(PlaceholderPath(path))) return BackupOutcome.NotDownloaded;
 
         try
         {
@@ -154,7 +154,8 @@ public sealed class LibrarySyncManager
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException)
                 {
-                    return;
+                    LibraryHooks.Log?.Invoke($"Backup skipped, the sync folder's backup is busy: {e.Message}");
+                    return BackupOutcome.FileBusy;
                 }
                 try
                 {
@@ -172,12 +173,18 @@ public sealed class LibrarySyncManager
             // We just wrote the file, so its content is already applied here —
             // stamp it so the launch auto-sync doesn't re-restore our own backup.
             MarkCloudBackupApplied();
+            return BackupOutcome.Written;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            Debug.WriteLine($"Failed to back up the library: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Failed to back up the library: {e.Message}");
+            LastBackupError = e.Message;
+            return BackupOutcome.Failed;
         }
     }
+
+    /// <summary>Why the last backup that failed to write failed.</summary>
+    public string? LastBackupError { get; private set; }
 
     /// <summary>The library as a backup, mapping every record type.</summary>
     internal LibraryBackup MakeLocalBackup(LibraryStore store)
@@ -234,7 +241,9 @@ public sealed class LibrarySyncManager
             Stats: store.All<ReadingStat>().Select(s => new StatBackup(
                 s.Ao3Id, s.Title, s.Author, s.Fandoms, s.Categories, s.Relationships, s.Rating, s.WordCount,
                 s.FirstReadAt, s.LastReadAt, s.TotalSeconds, s.DaySeconds, s.MaxProgress, s.WorkIsComplete)).ToList(),
-            Timestamp: DateTimeOffset.Now);
+            Timestamp: DateTimeOffset.Now,
+            FollowedAuthors: store.All<FollowedAuthor>().Where(a => a.Username.Length > 0).Select(a => new AuthorBackup(
+                a.Username, a.DisplayName, a.FollowedAt, a.KnownWorkIds, a.LastCheckedAt)).ToList());
     }
 
     // MARK: - Launch auto-sync bookkeeping
@@ -301,6 +310,20 @@ public sealed class LibrarySyncManager
         foreach (var s in local.Stats ?? [])
             statsById[s.Ao3Id] = statsById.TryGetValue(s.Ao3Id, out var c) ? MergedStat(s, c) : s;
 
+        // Authors: local wins, but the works either device already knows are
+        // kept, so neither alerts for a work the other has seen.
+        var authorsByName = new Dictionary<string, AuthorBackup>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in cloud.FollowedAuthors ?? []) authorsByName.TryAdd(a.Username, a);
+        foreach (var a in local.FollowedAuthors ?? [])
+            authorsByName[a.Username] = authorsByName.TryGetValue(a.Username, out var other)
+                ? a with
+                {
+                    FollowedAt = a.FollowedAt < other.FollowedAt ? a.FollowedAt : other.FollowedAt,
+                    KnownWorkIds = a.KnownWorkIds.Union(other.KnownWorkIds).ToList(),
+                    LastCheckedAt = Later(a.LastCheckedAt, other.LastCheckedAt),
+                }
+                : a;
+
         return new LibraryBackup(
             Works: worksById.Values.OrderBy(w => w.Ao3Id).ToList(),
             Bookmarks: bookmarksById.Values.OrderBy(b => b.Ao3Id).ToList(),
@@ -312,11 +335,17 @@ public sealed class LibrarySyncManager
             Settings: local.Settings ?? cloud.Settings,
             Folders: foldersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Stats: statsById.Values.OrderBy(s => s.Ao3Id).ToList(),
-            Timestamp: local.Timestamp);
+            Timestamp: local.Timestamp,
+            FollowedAuthors: local.FollowedAuthors is null && cloud.FollowedAuthors is null
+                ? null
+                : authorsByName.Values.OrderBy(a => a.Username, StringComparer.Ordinal).ToList());
     }
 
     /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
     /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
+    private static DateTimeOffset? Later(DateTimeOffset? a, DateTimeOffset? b) =>
+        a is null ? b : b is null ? a : a > b ? a : b;
+
     private static Dictionary<TKey, T> FirstByKey<TKey, T>(IEnumerable<T> items, Func<T, TKey> key) where TKey : notnull
     {
         var d = new Dictionary<TKey, T>();
@@ -375,7 +404,7 @@ public sealed class LibrarySyncManager
             }
             if (!downloaded)
             {
-                Debug.WriteLine("Library backup download timed out");
+                LibraryHooks.Log?.Invoke("Library backup download timed out");
                 return false;
             }
         }
@@ -393,7 +422,7 @@ public sealed class LibrarySyncManager
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException
                                       or Microsoft.Data.Sqlite.SqliteException or OperationCanceledException)
         {
-            Debug.WriteLine($"Failed to restore the library: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Failed to restore the library: {e.Message}");
             return false;
         }
     }
@@ -645,6 +674,27 @@ public sealed class LibrarySyncManager
                     st.MaxProgress ?? 0, st.WorkIsComplete ?? false));
             }
         }
+
+        // 9. Followed authors: added when missing; known works only grow, so a
+        // restored follow doesn't announce the back catalogue.
+        foreach (var a in backup.FollowedAuthors ?? [])
+        {
+            if (a.Username.Length == 0) continue;
+            var existing = store.GetFollowedAuthor(a.Username)
+                ?? store.Where<FollowedAuthor>(f => string.Equals(f.Username, a.Username, StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
+            if (existing is not null)
+            {
+                var known = existing.KnownWorkIds.Union(a.KnownWorkIds).ToList();
+                if (known.Count != existing.KnownWorkIds.Count) existing.KnownWorkIds = known;
+                if (a.FollowedAt < existing.FollowedAt) existing.FollowedAt = a.FollowedAt;
+                if (Later(existing.LastCheckedAt, a.LastCheckedAt) != existing.LastCheckedAt) existing.LastCheckedAt = a.LastCheckedAt;
+            }
+            else
+            {
+                store.Insert(new FollowedAuthor(a.Username, a.DisplayName.Length == 0 ? a.Username : a.DisplayName,
+                    a.FollowedAt, a.LastCheckedAt, a.KnownWorkIds));
+            }
+        }
     }
 
     /// <summary>Deletes the backup file from the sync folder.</summary>
@@ -658,8 +708,21 @@ public sealed class LibrarySyncManager
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            Debug.WriteLine($"Failed to clear the library backup: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Failed to clear the library backup: {e.Message}");
             return false;
         }
     }
+}
+
+/// <summary>What <see cref="LibrarySyncManager.Backup"/> did.</summary>
+public enum BackupOutcome
+{
+    Written,
+    /// <summary>Sync is off or has no folder.</summary>
+    NoFolder,
+    /// <summary>The backup there is a cloud placeholder that isn't downloaded yet.</summary>
+    NotDownloaded,
+    /// <summary>The backup there couldn't be read (locked by the sync app).</summary>
+    FileBusy,
+    Failed,
 }

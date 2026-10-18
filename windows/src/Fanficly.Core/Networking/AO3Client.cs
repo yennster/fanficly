@@ -71,6 +71,8 @@ public sealed class AO3Client : IAO3Client, IDisposable
         _origin = _baseUri.GetLeftPart(UriPartial.Authority);
         _throttle = throttle ?? new Throttle(TimeSpan.FromSeconds(1));
         UserAgent = UserAgentFor(appVersion);
+        _realTransport = handler is null;
+        PreferHttp3 = _realTransport;
         _http = handler is null
             ? new HttpClient(CreateDefaultHandler(), disposeHandler: true)
             : new HttpClient(handler, disposeHandler: false);
@@ -79,7 +81,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     public string UserAgent { get; }
 
-    public static string UserAgentFor(string version) => $"Fanficly/{version} (+github.com/yennster/fanficly)";
+    public static string UserAgentFor(string version) => $"Fanficly/{version} (Windows; https://github.com/yennster/fanficly)";
 
     /// <summary>Waits between retries; tests replace it to run instantly.</summary>
     internal Func<TimeSpan, CancellationToken, Task> Sleep { get; set; } = Task.Delay;
@@ -90,6 +92,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     /// <summary>Where <see cref="ExportWorkAsync"/> writes: %TEMP%\Fanficly\Exports,
     /// which Windows' storage cleanup empties.</summary>
+    /// <summary>A line per request for the app's local log: method, path, status,
+    /// HTTP version and time to headers. Never the query, cookies or body.</summary>
+    public Action<string>? Log { get; set; }
+
     internal string ExportsDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "Fanficly", "Exports");
 
     private static SocketsHttpHandler CreateDefaultHandler() => new()
@@ -188,21 +194,55 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var response = await PerformRequestAsync(Get(AO3Endpoints.UserBookmarks(username, page, _baseUri)), ct: ct).ConfigureAwait(false);
         // The bookmarks page wraps each work in `li.bookmark.blurb` (vs.
         // `li.work.blurb` on search) but the inner blurb markup is identical.
-        return SearchResultsParser.Parse(Decode(response.Body, "Bookmarks response"), "li.bookmark.blurb");
+        var html = Decode(response.Body, "Bookmarks response");
+        // Signed out, AO3 still shows the public bookmarks, under its guest
+        // login form; an expired session must say so, not show a partial list.
+        if (EndedAtLogin(response) || LoginParser.HasLoginForm(html)) throw AO3Exception.Unauthorized();
+        return SearchResultsParser.Parse(html, "li.bookmark.blurb");
     }
 
     public async Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Work(id, _baseUri)), ct: ct).ConfigureAwait(false);
-        return WorkPageParser.Parse(Decode(response.Body, "Work response"), id);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        var payload = WorkPageParser.Parse(Decode(response.Body, "Work response"), id);
+        // Fail closed: saving a payload replaces the stored chapters, so a page
+        // that isn't the work (an error or interstitial) must never pass as one.
+        if (payload.Chapters.Count == 0) throw AO3Exception.ParseFailed("no chapters on the work page");
+        return payload;
+    }
+
+    public async Task<AO3WorkChapterPage> FetchWorkChapterAsync(int id, int chapter = 1, CancellationToken ct = default)
+    {
+        var page = await FetchChapterPageAsync(id, null, ct).ConfigureAwait(false);
+        // Markup we can't read: the whole work, as before.
+        if (page.Payload.Chapters.Count == 0)
+            return new(await FetchWorkAsync(id, ct).ConfigureAwait(false), [], IsWholeWork: true);
+        // The first page names every chapter's id, so a later chapter is one
+        // more small page.
+        if (chapter <= 1 || page.IsWholeWork || chapter > page.ChapterIds.Count
+            || page.Payload.Chapters.Any(c => c.Index == chapter))
+            return page;
+        var later = await FetchChapterPageAsync(id, page.ChapterIds[chapter - 1], ct).ConfigureAwait(false);
+        return later.Payload.Chapters.Count > 0 ? later : page;
+    }
+
+    private async Task<AO3WorkChapterPage> FetchChapterPageAsync(int id, int? chapterId, CancellationToken ct)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.WorkChapter(id, chapterId, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        return WorkPageParser.ParseChapterPage(Decode(response.Body, "Work response"), id);
     }
 
     public async Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Work(id, _baseUri)), ct: ct).ConfigureAwait(false);
-        return WorkMetadataParser.Parse(Decode(response.Body, "Work response"), id);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        return WorkMetadataParser.TryParse(Decode(response.Body, "Work response"), id)
+            ?? throw AO3Exception.ParseFailed("no chapter count on the work page");
     }
 
     /// <summary>Every subscription across all pages. AO3 paginates the index at 20
@@ -277,6 +317,12 @@ public sealed class AO3Client : IAO3Client, IDisposable
         };
         var response = await PerformRequestAsync(Post(form.Action, fields.ToList(), headers), ct: ct).ConfigureAwait(false);
         if (response.Status >= 400) throw AO3Exception.Http(response.Status);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        // A saved comment redirects to it (or to the comments); a refused one
+        // (spam check, validation, guest name) re-renders the form in place with
+        // a 200, which must not read as posted, or the draft would be cleared.
+        if (response.FinalUri.AbsolutePath == form.Action.AbsolutePath)
+            throw AO3Exception.Rejected(PageError(response) ?? "the comment wasn't saved");
     }
 
     // MARK: - Browse & popular
@@ -391,6 +437,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Epub(workId, _baseUri)), ct: ct).ConfigureAwait(false);
+        EnsureDownloadedFile(response, WorkExportFormat.Epub);
         Directory.CreateDirectory(_libraryDirectory);
         var path = Path.Combine(_libraryDirectory, $"{workId}.epub");
         await WriteAtomicallyAsync(path, response.Body, ct).ConfigureAwait(false);
@@ -401,12 +448,43 @@ public sealed class AO3Client : IAO3Client, IDisposable
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Download(workId, format, _baseUri)), ct: ct).ConfigureAwait(false);
+        EnsureDownloadedFile(response, format);
         Directory.CreateDirectory(ExportsDirectory);
         var safe = SanitizeFilename(filename.Length == 0 ? $"work-{workId}" : filename);
         var path = Path.Combine(ExportsDirectory, $"{safe}.{format.Ext()}");
         if (File.Exists(path)) File.Delete(path);
         await WriteAtomicallyAsync(path, response.Body, ct).ConfigureAwait(false);
         return path;
+    }
+
+    /// <summary>A download is really the file, not a page: a work for signed-in
+    /// users only, fetched signed out, redirects to the login page (a 200), which
+    /// would otherwise be saved as the book and shown as Downloaded.</summary>
+    internal static void EnsureDownloadedFile(Response response, WorkExportFormat format)
+    {
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        if (format == WorkExportFormat.Html) return;
+        // EPUB/AZW3 are zips, MOBI and PDF binary; none starts with markup.
+        var body = response.Body;
+        var i = body.Length >= 3 && body[0] == 0xEF && body[1] == 0xBB && body[2] == 0xBF ? 3 : 0;
+        while (i < body.Length && body[i] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') i++;
+        if (body.Length == 0 || (i < body.Length && body[i] == (byte)'<'))
+            throw AO3Exception.ParseFailed($"AO3 sent a web page instead of the {format.Ext().ToUpperInvariant()} file");
+    }
+
+    /// <summary>AO3 answers a request it wants a signed-in user for by redirecting
+    /// to its login page, with a 200.</summary>
+    private static bool EndedAtLogin(Response response) =>
+        response.FinalUri.AbsolutePath.StartsWith("/users/login", StringComparison.Ordinal);
+
+    /// <summary>The page's error message (AO3's error flash or form errors), if any.</summary>
+    private static string? PageError(Response response)
+    {
+        if (TryDecode(response.Body) is not { } html) return null;
+        var doc = HtmlDom.Parse(html);
+        var text = string.Join(" ", doc.Select("#error li, div.flash.error, div.error li")
+            .Select(e => e.Text().TrimSwiftWhitespaces()).Where(t => t.Length > 0).Distinct());
+        return text.Length > 0 ? text : null;
     }
 
     /// <summary>Replaces characters that can't appear in a file name with "-", keeps
@@ -444,7 +522,13 @@ public sealed class AO3Client : IAO3Client, IDisposable
             new("subscription[subscribable_type]", "Work"),
         ], [new("Referer", pageUri.AbsoluteUri), new("Origin", _origin), new("X-CSRF-Token", token)]);
         var response = await PerformRequestAsync(request, ct: ct).ConfigureAwait(false);
-        if (response.Status >= 400 && response.Status != 422) throw AO3Exception.Http(response.Status);
+        // 422 is Rails refusing the security token: not subscribed.
+        if (response.Status >= 400) throw AO3Exception.Http(response.Status);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        // Both outcomes redirect back to the work; a refusal carries an error
+        // flash. Already subscribed is what we wanted.
+        if (PageError(response) is { } error && !error.Contains("already", StringComparison.OrdinalIgnoreCase))
+            throw AO3Exception.Rejected(error);
     }
 
     // MARK: - Transport
@@ -516,6 +600,13 @@ public sealed class AO3Client : IAO3Client, IDisposable
                         continue;
                     }
                     throw AO3Exception.RateLimited();
+                case var status when AO3Exception.IsServerUnavailable(status) && canRetry:
+                    // AO3 overloaded or restarting (503), or Cloudflare unable to
+                    // reach it (502/504, 520–526). These come and go, so a page load
+                    // tries again after a longer, polite pause than a network blip.
+                    await Sleep(ServerBackoff(attempt), ct).ConfigureAwait(false);
+                    await _throttle.WaitAsync(ct).ConfigureAwait(false);
+                    continue;
                 default:
                     throw AO3Exception.Http(response.Status);
             }
@@ -524,6 +615,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     /// <summary>Exponential backoff before a retry: ~0.5 s, then ~1 s.</summary>
     internal static TimeSpan Backoff(int attempt) => TimeSpan.FromSeconds(0.5 * Math.Pow(2, attempt));
+
+    /// <summary>Backoff before retrying a page AO3 couldn't serve: 2 s, then 5 s.</summary>
+    internal static TimeSpan ServerBackoff(int attempt) => TimeSpan.FromSeconds(attempt == 0 ? 2 : 5);
 
     private static bool IsCallerCancellation(Exception e, CancellationToken ct) =>
         e is OperationCanceledException && ct.IsCancellationRequested;
@@ -549,11 +643,90 @@ public sealed class AO3Client : IAO3Client, IDisposable
         };
     }
 
+    private static string Elapsed(long started) =>
+        $"{System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds:0.00} s";
+
     private static SocketError? FindSocketError(Exception? e)
     {
         for (; e is not null; e = e.InnerException)
             if (e is SocketException se) return se.SocketErrorCode;
         return null;
+    }
+
+    private readonly bool _realTransport;
+    private int _transportLogged;
+    private int _altSvcLogged;
+    private long _http3OffUntil;
+    private int _http3Confirmed;
+    private int _http3Misses;
+
+    /// <summary>Ask for HTTP/3 from the first request instead of waiting for AO3's
+    /// Alt-Svc: AO3's edge answers HTTP/2 slowly or with 503/525s, so even the one
+    /// request .NET would send before upgrading lands in the slow lane. On by
+    /// default for the real transport; tests turn it on to cover the fallback.</summary>
+    internal bool PreferHttp3 { get; set; }
+
+    /// <summary>Says once per run what can keep HTTP/3 away: .NET never uses
+    /// it through a proxy (the system's, or HTTPS_PROXY), nor where QUIC is
+    /// missing. The proxy's host and port only, never its credentials.</summary>
+    private void LogTransportOnce(Uri uri)
+    {
+        if (!_realTransport || Log is not { } log || Interlocked.Exchange(ref _transportLogged, 1) != 0) return;
+        string proxy;
+        try
+        {
+            proxy = HttpClient.DefaultProxy.GetProxy(uri) is { } p && !HttpClient.DefaultProxy.IsBypassed(uri)
+                ? $"through a proxy at {p.Host}:{p.Port}, so no HTTP/3"
+                : "with no proxy";
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            proxy = $"(couldn't read the proxy settings: {e.Message})";
+        }
+        var quic = (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                   && System.Net.Quic.QuicConnection.IsSupported;
+        log($"Connecting to {uri.Host} {proxy}; QUIC (HTTP/3) {(quic ? "available" : "not available")}");
+    }
+
+    /// <summary>Until HTTP/3 has answered once, a GET waits this long for it, so a
+    /// network that silently drops UDP costs seconds rather than the full timeout.</summary>
+    private static readonly TimeSpan Http3FirstAnswerCap = TimeSpan.FromSeconds(5);
+    private const int Http3MissesBeforeGivingUp = 2;
+
+    /// <summary>How long HTTP/2 is used after HTTP/3 fails, before HTTP/3 is tried
+    /// again: the failure may have been the network dropping, not UDP being blocked.</summary>
+    private static readonly TimeSpan Http3RetryAfter = TimeSpan.FromMinutes(10);
+
+    private bool Http3Off => Environment.TickCount64 < Volatile.Read(ref _http3OffUntil);
+
+    private void TurnHttp3Off()
+    {
+        Volatile.Write(ref _http3OffUntil, Environment.TickCount64 + (long)Http3RetryAfter.TotalMilliseconds);
+        Volatile.Write(ref _http3Misses, 0);
+    }
+
+    /// <summary>HTTP/3 couldn't even start: QUIC missing or blocked, a proxy, or
+    /// HTTP/3 off in the runtime. No request went out, so even a POST can go
+    /// again over HTTP/2.</summary>
+    private static bool IsHttp3ConnectFailure(HttpRequestException e) =>
+        e.HttpRequestError is HttpRequestError.ConnectionError or HttpRequestError.SecureConnectionError
+            or HttpRequestError.VersionNegotiationError;
+
+    /// <summary>Logs once what AO3 advertised on the first answer that wasn't
+    /// HTTP/3, since .NET only tries HTTP/3 after an Alt-Svc offering h3.</summary>
+    private void NoteAltSvc(Uri uri, HttpResponseMessage response)
+    {
+        if (!_realTransport || response.Version.Major >= 3) return;
+        var altSvc = response.Headers.TryGetValues("Alt-Svc", out var values) ? string.Join(", ", values) : null;
+        if (Interlocked.Exchange(ref _altSvcLogged, 1) != 0) return;
+        Log?.Invoke(altSvc is null ? $"{uri.Host} sent no Alt-Svc header" : $"{uri.Host} advertises Alt-Svc: {altSvc}");
+    }
+
+    private static string ExceptionChain(Exception e)
+    {
+        var parts = new List<string>();
+        for (var x = e; x is not null; x = x.InnerException) parts.Add($"{x.GetType().Name}: {x.Message}");
+        return string.Join(" → ", parts);
     }
 
     private async Task<Response> SendFollowingRedirectsAsync(RequestSpec spec, CancellationToken ct)
@@ -563,9 +736,21 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var method = spec.Method;
         var uri = spec.Uri;
         var body = spec.FormBody;
+        LogTransportOnce(uri);
+        var useHttp2 = false;
         for (var hop = 0; ; hop++)
         {
-            using var request = new HttpRequestMessage(method, uri);
+            // HTTP/3, as URLSession and browsers use: AO3's Cloudflare edge answered
+            // HTTP/1.1 and HTTP/2 clients far slower, or with 503/525s, while HTTP/3
+            // got the same pages in under a second. With PreferHttp3 it's asked for
+            // outright from the first request; where it can't connect (Windows 10,
+            // a proxy, UDP blocked) the request goes again over HTTP/2, and so do
+            // the next 10 minutes of requests.
+            using var request = new HttpRequestMessage(method, uri)
+            {
+                Version = HttpVersion.Version30,
+                VersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
+            };
             request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
             request.Headers.TryAddWithoutValidation("Accept", spec.Accept);
             request.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
@@ -578,17 +763,56 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
             }
 
+            var http3Only = PreferHttp3 && !useHttp2 && !Http3Off;
+            var capped = http3Only && method == HttpMethod.Get && Volatile.Read(ref _http3Confirmed) == 0;
+            if (http3Only)
+            {
+                request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+            }
+            else if (PreferHttp3)
+            {
+                request.Version = HttpVersion.Version20;
+            }
+
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(resourceCts.Token);
-            timeoutCts.CancelAfter(spec.Timeout);
+            timeoutCts.CancelAfter(capped ? Http3FirstAnswerCap : spec.Timeout);
             HttpResponseMessage response;
+            var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
             }
+            catch (HttpRequestException e) when (http3Only && !ct.IsCancellationRequested && IsHttp3ConnectFailure(e))
+            {
+                TurnHttp3Off();
+                Log?.Invoke($"HTTP/3 to {uri.Host} failed after {Elapsed(started)}, so HTTP/2 for the next 10 minutes: {ExceptionChain(e)}");
+                useHttp2 = true;
+                hop--;
+                continue;
+            }
+            catch (OperationCanceledException) when (capped && !ct.IsCancellationRequested && !resourceCts.IsCancellationRequested)
+            {
+                var givingUp = Interlocked.Increment(ref _http3Misses) >= Http3MissesBeforeGivingUp;
+                if (givingUp) TurnHttp3Off();
+                Log?.Invoke($"HTTP/3 to {uri.Host} didn't answer in {Elapsed(started)}; sending it over HTTP/2{(givingUp ? " for the next 10 minutes" : "")}");
+                useHttp2 = true;
+                hop--;
+                continue;
+            }
             catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
             {
+                Log?.Invoke($"{method} {uri.AbsolutePath} timed out after {Elapsed(started)}");
                 throw new TimeoutException("The request timed out.", e);
             }
+            catch (HttpRequestException e)
+            {
+                Log?.Invoke($"{method} {uri.AbsolutePath} failed after {Elapsed(started)}: {e.Message}");
+                throw;
+            }
+            // Path only: queries can hold search terms, and nothing here is a secret.
+            Log?.Invoke($"{method} {uri.AbsolutePath} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
+            NoteAltSvc(uri, response);
+            if (response.Version.Major >= 3) Volatile.Write(ref _http3Confirmed, 1);
 
             using (response)
             {

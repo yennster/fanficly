@@ -22,7 +22,15 @@ public sealed record LibraryBackup(
     IReadOnlyList<FolderBackup>? Folders,
     /// <summary>Optional so older backups (before the Stats feature) still decode.</summary>
     IReadOnlyList<StatBackup>? Stats,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp,
+    /// <summary>Windows-only for now (the Swift decoder ignores the key); optional
+    /// so older backups still decode.</summary>
+    IReadOnlyList<AuthorBackup>? FollowedAuthors = null);
+
+/// <summary>A locally followed author, matched across devices by username
+/// ignoring case.</summary>
+public sealed record AuthorBackup(string Username, string DisplayName, DateTimeOffset FollowedAt,
+                                  IReadOnlyList<int> KnownWorkIds, DateTimeOffset? LastCheckedAt);
 
 public sealed record FolderBackup(string Name, DateTimeOffset CreatedAt);
 
@@ -300,6 +308,17 @@ public static class LibraryBackupJson
                     WriteDate(w, "createdAt", x.CreatedAt);
                 });
             if (b.Stats is { } stats) WriteArray(w, "stats", stats, WriteStat);
+            if (b.FollowedAuthors is { } authors)
+                WriteArray(w, "followedAuthors", authors, (w, x) =>
+                {
+                    w.WriteString("username", x.Username);
+                    w.WriteString("displayName", x.DisplayName);
+                    WriteDate(w, "followedAt", x.FollowedAt);
+                    w.WriteStartArray("knownWorkIds");
+                    foreach (var id in x.KnownWorkIds) w.WriteNumberValue(id);
+                    w.WriteEndArray();
+                    WriteDate(w, "lastCheckedAt", x.LastCheckedAt);
+                });
             WriteDate(w, "timestamp", b.Timestamp);
             w.WriteEndObject();
         }
@@ -441,7 +460,13 @@ public static class LibraryBackupJson
             Settings: Present(o, "settings", out var s) ? ReadSettings(s) : null,
             Folders: Present(o, "folders", out _) ? Array(o, "folders", x => new FolderBackup(Str(x, "name"), Date(x, "createdAt"))) : null,
             Stats: Present(o, "stats", out _) ? Array(o, "stats", ReadStat) : null,
-            Timestamp: Date(o, "timestamp"));
+            Timestamp: Date(o, "timestamp"),
+            FollowedAuthors: Present(o, "followedAuthors", out _) ? Array(o, "followedAuthors", x => new AuthorBackup(
+                Str(x, "username"), Str(x, "displayName"), Date(x, "followedAt"),
+                Present(x, "knownWorkIds", out var ids) && ids.ValueKind == JsonValueKind.Array
+                    ? ids.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Number).Select(e => e.GetInt32()).ToList()
+                    : [],
+                DateN(x, "lastCheckedAt"))) : null);
     }
 
     private static WorkBackup ReadWork(JsonElement x) => new(

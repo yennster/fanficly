@@ -30,6 +30,7 @@ public sealed class SubscriptionsScreen : Screen
     private string? _lastError;
     private int? _lastNotifyCount;
     private int? _lastNewWorksCount;
+    private int _lastFailedChecks;
     private bool _hasRequestedNotifications;
     private string? _shownUser = "\0";
     private bool _isVisible;
@@ -216,6 +217,7 @@ public sealed class SubscriptionsScreen : Screen
         _isChecking = false;
         _lastNotifyCount = chapters;
         _lastNewWorksCount = newWorks;
+        _lastFailedChecks = poller.FailedChecks;
         UpdateRefreshButton();
         Render();
         MainWindow.Current.Announce(NotifySummary());
@@ -227,6 +229,10 @@ public sealed class SubscriptionsScreen : Screen
         var text = count == 0 ? "No new chapters." : $"{count} work{(count == 1 ? "" : "s")} have new chapters.";
         if (_lastNewWorksCount is > 0 and var works)
             text += $" {works} new work{(works == 1 ? "" : "s")} from authors you follow.";
+        if (_lastFailedChecks is > 0 and var failed)
+            text = count == 0 && _lastNewWorksCount is not > 0
+                ? $"Couldn't check {failed} of them. AO3 may be down; try again later."
+                : $"{text} Couldn't check {failed} more.";
         return text;
     }
 

@@ -184,6 +184,27 @@ public sealed class LibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void RowsAnotherProcessWroteDontBlockLaterSaves()
+    {
+        // Two stores on one file stand in for the app and its background task
+        // (or a second copy of the app): both count new row ids from the same
+        // starting point.
+        Directory.CreateDirectory(_dir);
+        using (var mine = LibraryStore.Open(DbPath))
+        using (var other = LibraryStore.Open(DbPath))
+        {
+            other.Insert(new FollowedAuthor("first", "First"));
+            other.Save();
+            mine.Insert(new FollowedAuthor("second", "Second"));
+            mine.Save();
+            mine.Insert(new FollowedAuthor("third", "Third"));
+            mine.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal(["first", "second", "third"], store.All<FollowedAuthor>().Select(a => a.Username).Order());
+    }
+
+    [Fact]
     public void QueriesSeeUnsavedInsertsAndDeletes()
     {
         using var store = LibraryStore.OpenInMemory();
