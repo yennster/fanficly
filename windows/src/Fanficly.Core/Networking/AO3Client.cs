@@ -540,18 +540,21 @@ public sealed class AO3Client : IAO3Client, IDisposable
         // still signed in. AO3 takes guest kudos too, so posting with an expired
         // cookie would silently leave one as a guest.
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
-        var pageUri = AO3Endpoints.Work(workId, _baseUri);
+        // The first page is enough for the form and the greeting: no view_full_work.
+        var pageUri = AO3Endpoints.WorkChapter(workId, null, _baseUri);
         var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
         if (EndedAtLogin(page)) throw AO3Exception.Unauthorized();
         var pageHtml = Decode(page.Body, "Work page");
         if (LoginParser.CurrentUsername(pageHtml) is null) throw AO3Exception.Unauthorized();
         var fields = KudosParser.FormFields(pageHtml)
             ?? throw AO3Exception.Rejected("AO3 doesn't offer kudos on this work. It may be your own, or its creator may have blocked you.");
-        if (!fields.TryGetValue("authenticity_token", out var token) || token.Length == 0)
-        {
-            token = LoginParser.AuthenticityToken(pageHtml) ?? "";
-            if (token.Length > 0) fields["authenticity_token"] = token;
-        }
+        // The page-wide token (<meta name="csrf-token">), as comments and subscribe
+        // use. AO3 has Rails' per-form tokens on, so the form's own token only
+        // validates for a POST to /kudos, not /kudos.js; AO3's script gets through
+        // because it also sends the meta token.
+        var token = LoginParser.AuthenticityToken(pageHtml)
+            ?? throw AO3Exception.ParseFailed("authenticity_token not found on work page");
+        fields["authenticity_token"] = token;
 
         // Post the form the way AO3's own script does (/kudos.js): it answers 201
         // on success and 422 with {"error_message": …} otherwise, instead of a
@@ -562,14 +565,27 @@ public sealed class AO3Client : IAO3Client, IDisposable
             new("Referer", pageUri.AbsoluteUri),
             new("Origin", _origin),
             new("X-Requested-With", "XMLHttpRequest"),
+            new("X-CSRF-Token", token),
         };
-        if (token.Length > 0) headers.Add(new("X-CSRF-Token", token));
         var response = await PerformRequestAsync(Post(AO3Endpoints.Kudos(_baseUri), fields.ToList(), headers),
             ct: ct, passing: [422]).ConfigureAwait(false);
-        if (response.Status != 422) return KudosOutcome.Left;
-        var message = KudosParser.ErrorMessage(TryDecode(response.Body) ?? "") ?? "";
-        if (KudosParser.IsAlreadyLeft(message)) return KudosOutcome.AlreadyLeft;
-        throw AO3Exception.Rejected(message);
+        switch (response.Status)
+        {
+            case 201:
+                return KudosOutcome.Left;
+            case 422:
+                var body = TryDecode(response.Body) ?? "";
+                // A refused token (the session ended between the two requests)
+                // answers {"errors": {"auth_error": …}} instead.
+                if (KudosParser.IsAuthError(body)) throw AO3Exception.Unauthorized();
+                var message = KudosParser.ErrorMessage(body) ?? "";
+                if (KudosParser.IsAlreadyLeft(message)) return KudosOutcome.AlreadyLeft;
+                throw AO3Exception.Rejected(message);
+            default:
+                // Anything else (a maintenance page, a proxy) isn't AO3's kudos
+                // answer, so it mustn't be remembered as a kudo.
+                throw AO3Exception.Rejected($"AO3 gave an unexpected answer (HTTP {response.Status}), so the kudos may not have been left. Trying again is safe.");
+        }
     }
 
     // MARK: - Transport

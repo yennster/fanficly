@@ -5,7 +5,7 @@ namespace Fanficly.Core;
 /// <summary>Works an AO3 account has left kudos on, remembered on this PC so the
 /// kudos item reads "Kudos Left" instead of inviting a second click (Swift's
 /// <c>KudosStore</c>). Keyed by username because AO3 counts one kudo per account.
-/// Not backed up: AO3 itself still refuses a duplicate, which reads as already left.</summary>
+/// Not in the library backup: AO3 itself still refuses a duplicate, which reads as already left.</summary>
 public static class KudosStore
 {
     public static string Key(string username) => $"kudos.left.{username.ToLowerInvariant()}";

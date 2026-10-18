@@ -45,6 +45,14 @@ public class KudosParserTests
     }
 
     [Fact]
+    public void ARefusedTokenIsAnAuthError()
+    {
+        Assert.True(KudosParser.IsAuthError("""{"errors":{"auth_error":"Your current session has expired."}}"""));
+        Assert.False(KudosParser.IsAuthError("""{"error_message":"You have already left kudos here. :)"}"""));
+        Assert.False(KudosParser.IsAuthError("not json"));
+    }
+
+    [Fact]
     public void OnlyTheDuplicateAnswerIsAlreadyLeft()
     {
         Assert.True(KudosParser.IsAlreadyLeft("You have already left kudos here. :)"));

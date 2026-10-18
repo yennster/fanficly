@@ -380,6 +380,24 @@ public static class KudosParser
         }
     }
 
+    /// <summary>AO3's answer when it refuses the CSRF token (an ended session):
+    /// <c>{"errors": {"auth_error": "Your current session has expired…"}}</c>.</summary>
+    public static bool IsAuthError(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("errors", out var errors)
+                && errors.ValueKind == System.Text.Json.JsonValueKind.Object
+                && errors.TryGetProperty("auth_error", out _);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>AO3's duplicate-kudos answer, "You have already left kudos here. :)",
     /// the same for a signed-in user (one per account) and a guest (one per IP).</summary>
     public static bool IsAlreadyLeft(string message) =>

@@ -836,15 +836,16 @@ public sealed class AO3ClientTests : IDisposable
 
         Assert.Equal(KudosOutcome.Left, await MakeClient().LeaveKudosAsync(42));
 
-        Assert.Equal("https://archiveofourown.org/works/42?view_full_work=true&view_adult=true", _handler.Requests[0].Uri.AbsoluteUri);
+        Assert.Equal("https://archiveofourown.org/works/42?view_adult=true", _handler.Requests[0].Uri.AbsoluteUri);
         var post = _handler.Requests[1];
         Assert.Equal("POST", post.Method);
         Assert.Equal("https://archiveofourown.org/kudos.js", post.Uri.AbsoluteUri);
-        Assert.Equal("FORM", post.Header("X-CSRF-Token"));
+        // The page-wide meta token, not the form's per-form one (valid only for /kudos).
+        Assert.Equal("META", post.Header("X-CSRF-Token"));
         Assert.Equal("XMLHttpRequest", post.Header("X-Requested-With"));
         Assert.Equal(_handler.Requests[0].Uri.AbsoluteUri, post.Header("Referer"));
         var form = post.Body!.Split('&').ToHashSet();
-        Assert.Equal(["authenticity_token=FORM", "kudo%5Bcommentable_id%5D=42", "kudo%5Bcommentable_type%5D=Work"], form.Order());
+        Assert.Equal(["authenticity_token=META", "kudo%5Bcommentable_id%5D=42", "kudo%5Bcommentable_type%5D=Work"], form.Order());
     }
 
     [Fact]
@@ -889,14 +890,27 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task KudosFallBackToThePagesMetaToken()
+    public async Task ARefusedTokenNeedsASignIn()
     {
         _handler.Respond(
-            _ => FakeHandler.Html(KudosPageHtml.Replace("""value="FORM" """, """value="" """)),
-            _ => new HttpResponseMessage(HttpStatusCode.Created));
-        await MakeClient().LeaveKudosAsync(42);
-        Assert.Equal("META", _handler.Requests[1].Header("X-CSRF-Token"));
-        Assert.Contains("authenticity_token=META", _handler.Requests[1].Body!.Split('&'));
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            {
+                Content = new StringContent("""{"errors":{"auth_error":"Your current session has expired."}}""", Encoding.UTF8, "application/json"),
+            });
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task OnlyA201CountsAsLeft()
+    {
+        // A 200 maintenance or proxy page isn't AO3's kudos answer.
+        _handler.Respond(
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => FakeHandler.Html("<html><body>Down for maintenance</body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
     }
 
     [Fact]
