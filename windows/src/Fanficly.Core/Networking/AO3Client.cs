@@ -282,18 +282,18 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     // MARK: - Comments
 
-    public async Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default)
+    public async Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
-        var response = await PerformRequestAsync(Get(CommentsPageUri(workId, chapterId)), ct: ct).ConfigureAwait(false);
-        return CommentsParser.Parse(Decode(response.Body, "Comments response"));
+        var response = await PerformRequestAsync(Get(CommentsPageUri(workId, chapterId, page)), ct: ct).ConfigureAwait(false);
+        return CommentsParser.ParsePage(Decode(response.Body, "Comments response"));
     }
 
     /// <summary>The page whose <c>?show_comments=true</c> thread we read/post against: a
     /// specific chapter when its id is known, else the work page.</summary>
-    private Uri CommentsPageUri(int workId, int? chapterId) => chapterId is { } cid
-        ? AO3Endpoints.ChapterComments(workId, cid, _baseUri)
-        : AO3Endpoints.WorkComments(workId, _baseUri);
+    private Uri CommentsPageUri(int workId, int? chapterId, int page = 1) => chapterId is { } cid
+        ? AO3Endpoints.ChapterComments(workId, cid, _baseUri, page)
+        : AO3Endpoints.WorkComments(workId, _baseUri, page);
 
     public async Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default)
     {

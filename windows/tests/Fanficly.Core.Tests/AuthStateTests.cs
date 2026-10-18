@@ -22,7 +22,7 @@ public class AuthStateTests
         public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) => _rest.FetchWorkAsync(id, ct);
         public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default) => _rest.FetchWorkMetadataAsync(id, ct);
         public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) => _rest.FetchSubscriptionsAsync(username, ct);
-        public Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default) => _rest.FetchCommentsAsync(workId, chapterId, ct);
+        public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) => _rest.FetchCommentsAsync(workId, chapterId, page, ct);
         public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => _rest.PostCommentAsync(workId, chapterId, text, ct);
         public Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default) => _rest.FetchFandomsInCategoryAsync(categoryName, ct);
         public Task<PopularSnapshot> FetchPopularSnapshotAsync(CancellationToken ct = default) => _rest.FetchPopularSnapshotAsync(ct);

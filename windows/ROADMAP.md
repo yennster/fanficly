@@ -26,7 +26,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
 - **History, authors and account:**
   - Recently Viewed, followed authors, and an author's works page with a Follow button.
   - AO3 sign-in, Bookmarks, and Subscriptions, which shows AO3 subscriptions alongside local follows.
-  - Per-chapter comments with a composer.
+  - Per-chapter comments with a composer, a page of threads at a time ("Load more comments").
 - **Stats:** week, month, year and all-time totals, plus a shareable wrap-up card.
 - **Updates and notifications:** new-chapter and new-work checks, in the app and from a timer background task. Toasts open the work or author they're about.
 - **Sync:** library backup and restore through a user-chosen folder (OneDrive or iCloud Drive), in the Swift backup format, with merge-never-clobber backups, forward-only restores and EPUB re-download after a restore.

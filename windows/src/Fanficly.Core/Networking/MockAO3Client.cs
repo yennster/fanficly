@@ -43,8 +43,8 @@ public sealed class MockAO3Client : IAO3Client
     public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<AO3Subscription>>([]);
 
-    public Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<AO3Comment>>([]);
+    public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3CommentsPage([], page));
 
     public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => Task.CompletedTask;
 
