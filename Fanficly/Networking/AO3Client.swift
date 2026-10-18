@@ -239,7 +239,13 @@ public actor AO3Client: AO3ClientProtocol {
 
     public static var userAgent: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
-        return "Fanficly/\(version) (+github.com/yennster/fanficly)"
+        // Not the "(+url)" form web crawlers use; the Windows app sends "(Windows; …)".
+        #if targetEnvironment(macCatalyst)
+        let platform = "macOS"
+        #else
+        let platform = "iOS"
+        #endif
+        return "Fanficly/\(version) (\(platform); https://github.com/yennster/fanficly)"
     }
 
     public func login(username: String, password: String) async throws {

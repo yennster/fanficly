@@ -118,7 +118,7 @@ xcodebuild test \
 
 AO3 has no public JSON API; Fanficly works by parsing the same HTML pages the AO3 website serves. We're respectful guests:
 
-- Identify ourselves in `User-Agent` (`Fanficly/<version> (+github.com/yennster/fanficly)`)
+- Identify ourselves in `User-Agent` (`Fanficly/<version> (iOS; https://github.com/yennster/fanficly)`, `(macOS; …)` on the Mac)
 - Rate-limit ourselves to ≤1 request/second
 - Cache aggressively
 - Never parallelize scrapes
