@@ -125,6 +125,7 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
 
     public func subscribeToWork(workId: Int) async throws {}
+    public func leaveKudos(workId: Int) async throws -> KudosOutcome { .left }
 }
 
 // MARK: - Curated demo catalog

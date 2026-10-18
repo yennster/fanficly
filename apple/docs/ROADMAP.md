@@ -154,7 +154,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Scope:** A POST to `/kudos` with the scraped token, from the work's options menu, login-gated, once per work and remembered locally so it doesn't invite a double-tap. Same CSRF flow as comments. Never retried.
 - **Open question:** AO3 returns guest-kudos differently from logged-in kudos; confirm against the live site by hand before shipping.
 

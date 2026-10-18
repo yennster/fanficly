@@ -198,3 +198,26 @@ enum WorkPersistence {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 }
+
+/// Works an AO3 account has left kudos on, remembered on this device so the
+/// kudos button reads "Kudos Left" instead of inviting a second tap. Keyed by
+/// username because AO3 counts one kudo per account. Not backed up: AO3
+/// itself still refuses a duplicate, which the app treats as already left.
+enum KudosStore {
+    static func key(username: String) -> String { "kudos.left.\(username.lowercased())" }
+
+    static func hasLeft(workId: Int, username: String, defaults: UserDefaults = .standard) -> Bool {
+        workIds(username: username, defaults: defaults).contains(workId)
+    }
+
+    static func markLeft(workId: Int, username: String, defaults: UserDefaults = .standard) {
+        var ids = workIds(username: username, defaults: defaults)
+        guard !ids.contains(workId) else { return }
+        ids.append(workId)
+        defaults.set(ids, forKey: key(username: username))
+    }
+
+    private static func workIds(username: String, defaults: UserDefaults) -> [Int] {
+        defaults.array(forKey: key(username: username)) as? [Int] ?? []
+    }
+}

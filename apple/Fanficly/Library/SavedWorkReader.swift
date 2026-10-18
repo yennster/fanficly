@@ -20,6 +20,7 @@ struct SavedWorkReader: View {
     @State private var currentChapterIndex = 1
     @State private var isResolvingComments = false
     @State private var exporter = WorkExporter()
+    @State private var kudos = KudosGiver()
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
 
@@ -91,11 +92,12 @@ struct SavedWorkReader: View {
                 .disabled(isResolvingComments)
                 .accessibilityLabel("Comments")
 
-                // Share + Save-offline live in one "…" menu so this plus the
+                // Kudos, share and save-offline live in one "…" menu so this plus the
                 // reader's own items (chapters, Aa, minimize) stay within the
                 // ~5 trailing icons the iPhone nav bar fits before it spills
                 // into its own overflow (a confusing second ellipsis).
                 Menu {
+                    KudosMenuButton(workId: work.ao3Id, giver: kudos)
                     WorkExportButton(workId: work.ao3Id, title: work.title,
                                      exporter: exporter, useTextLabel: true)
                     Button {
@@ -106,7 +108,7 @@ struct SavedWorkReader: View {
                     }
                     .disabled(isSavingOffline || isDownloaded)
                 } label: {
-                    if isSavingOffline || exporter.isExporting {
+                    if isSavingOffline || exporter.isExporting || kudos.isSending {
                         ProgressView()
                     } else {
                         Image(systemName: "ellipsis.circle")
@@ -123,6 +125,7 @@ struct SavedWorkReader: View {
         }
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
+        .kudosPresentation(kudos, workId: work.ao3Id)
         .task { await load() }
         .onAppear {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil

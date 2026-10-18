@@ -86,6 +86,11 @@ enum AO3Endpoints {
         base.appending(path: "/works/\(id)/subscriptions")
     }
 
+    /// The kudos POST, at the `.js` format AO3's own kudos button uses.
+    static func kudos(base: URL) throws -> URL {
+        base.appending(path: "/kudos.js")
+    }
+
     static func workCommentsPost(id: Int, base: URL) throws -> URL {
         base.appending(path: "/works/\(id)/comments")
     }
