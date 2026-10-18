@@ -223,6 +223,63 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(2, all.StoriesRead);
     }
 
+    // MARK: Yearly reading goal (RM-011)
+
+    private static DateTimeOffset Utc(int year, int month, int dayOfMonth, int hour = 0) =>
+        new(year, month, dayOfMonth, hour, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void GoalProgress_AtYearStartIsOnPace()
+    {
+        var p = ReadingStatsAggregator.GoalProgress(0, 52, Utc(2026, 1, 1, hour: 1), TimeZoneInfo.Utc);
+        Assert.NotNull(p);
+        Assert.Equal(0, p.Expected);
+        Assert.Equal(0, p.Ahead);
+        Assert.Equal(0, p.Fraction, 4);
+        Assert.False(p.IsComplete);
+        Assert.Equal("On pace", p.PaceLabel);
+    }
+
+    [Fact]
+    public void GoalProgress_MidYearReportsAheadAndBehind()
+    {
+        // July 2 2026 00:00 UTC is 182 of 365 days in: an even pace of 24 a
+        // year expects 11 (11.97 rounded down).
+        var mid = Utc(2026, 7, 2);
+        var onPace = ReadingStatsAggregator.GoalProgress(11, 24, mid, TimeZoneInfo.Utc);
+        Assert.NotNull(onPace);
+        Assert.Equal(11, onPace.Expected);
+        Assert.Equal("On pace", onPace.PaceLabel);
+        Assert.Equal(11.0 / 24.0, onPace.Fraction, 4);
+
+        var ahead = ReadingStatsAggregator.GoalProgress(14, 24, mid, TimeZoneInfo.Utc);
+        Assert.NotNull(ahead);
+        Assert.Equal(3, ahead.Ahead);
+        Assert.Equal("3 ahead", ahead.PaceLabel);
+
+        var behind = ReadingStatsAggregator.GoalProgress(9, 24, mid, TimeZoneInfo.Utc);
+        Assert.NotNull(behind);
+        Assert.Equal(-2, behind.Ahead);
+        Assert.Equal("2 behind", behind.PaceLabel);
+    }
+
+    [Fact]
+    public void GoalProgress_PastTheGoalIsCompleteWithAFullRing()
+    {
+        var p = ReadingStatsAggregator.GoalProgress(30, 20, Utc(2026, 9, 1), TimeZoneInfo.Utc);
+        Assert.NotNull(p);
+        Assert.True(p.IsComplete);
+        Assert.Equal(1, p.Fraction, 4);
+        Assert.Equal("Goal reached", p.PaceLabel);
+    }
+
+    [Fact]
+    public void GoalProgress_ZeroGoalIsHidden()
+    {
+        Assert.Null(ReadingStatsAggregator.GoalProgress(5, 0, Utc(2026, 6, 1), TimeZoneInfo.Utc));
+        Assert.Null(ReadingStatsAggregator.GoalProgress(5, -3, Utc(2026, 6, 1), TimeZoneInfo.Utc));
+    }
+
     [Fact]
     public void Backfill_SeedsZeroTimeStatsFromHistory()
     {

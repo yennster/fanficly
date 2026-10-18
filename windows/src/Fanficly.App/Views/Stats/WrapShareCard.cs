@@ -23,7 +23,9 @@ public static class WrapShareCard
 
     private static SolidColorBrush White(byte alpha) => new(Color.FromArgb(alpha, 0xFF, 0xFF, 0xFF));
 
-    public static FrameworkElement Build(string scopeTitle, ReadingStatsSummary summary)
+    /// <param name="goal">This year's goal, shown as a ring row when set and the
+    /// card covers this year.</param>
+    public static FrameworkElement Build(string scopeTitle, ReadingStatsSummary summary, ReadingGoalProgress? goal = null)
     {
         var brand = Theme.BrandLight; // #3B2E8C, the App Store canvas indigo
         var background = new LinearGradientBrush
@@ -38,7 +40,7 @@ public static class WrapShareCard
             },
         };
 
-        var root = UI.UI.Grid("*", "Auto,Auto,Auto,Auto,*,Auto", rowSpacing: 20);
+        var root = UI.UI.Grid("*", "Auto,Auto,Auto,Auto,Auto,*,Auto", rowSpacing: 20);
 
         var header = UI.UI.VStack(2,
             new TextBlock { Text = "My Reading", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = White(0xB3), FontFamily = Theme.UIFont },
@@ -60,13 +62,16 @@ public static class WrapShareCard
         stats.Children.Add(BigStat(StatsFormat.FormatWords(summary.TotalWords), "words").Col(2));
         root.Children.Add(stats.Row(1));
 
-        if (summary.TopFandoms.Count > 0) root.Children.Add(ListBlock("Top Fandoms", summary.TopFandoms.Take(4)).Row(2));
-        if (summary.TopRelationships.Count > 0) root.Children.Add(ListBlock("Top Ships", summary.TopRelationships.Take(3)).Row(3));
+        if (goal is not null) root.Children.Add(GoalRow(goal).Row(2));
+
+        // A goal row takes a list line from each block so the card keeps its size.
+        if (summary.TopFandoms.Count > 0) root.Children.Add(ListBlock("Top Fandoms", summary.TopFandoms.Take(goal is null ? 4 : 3)).Row(3));
+        if (summary.TopRelationships.Count > 0) root.Children.Add(ListBlock("Top Ships", summary.TopRelationships.Take(goal is null ? 3 : 2)).Row(4));
 
         var footer = UI.UI.HStack(6,
             Symbols.Icon("book.pages", 12).Also(i => { i.Foreground = White(0xD9); i.VerticalAlignment = VerticalAlignment.Center; }),
             new TextBlock { Text = "Made with Fanficly", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = White(0xD9), FontFamily = Theme.UIFont });
-        root.Children.Add(footer.Row(5));
+        root.Children.Add(footer.Row(6));
 
         return new Border
         {
@@ -94,6 +99,23 @@ public static class WrapShareCard
         var fit = new Viewbox { Child = valueText, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left, Height = 34 };
         return UI.UI.VStack(1, fit,
             new TextBlock { Text = label, FontSize = 11, Foreground = White(0xB3), FontFamily = Theme.UIFont });
+    }
+
+    private static FrameworkElement GoalRow(ReadingGoalProgress goal)
+    {
+        var ring = GoalRing.Build(goal.Fraction, 36, 5, White(0x33), White(0xFF));
+        var text = UI.UI.VStack(1,
+            new TextBlock
+            {
+                Text = $"{goal.Finished} of {goal.Goal} {(goal.Goal == 1 ? "story" : "stories")} goal",
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = White(0xFF),
+                FontFamily = Theme.UIFont,
+            },
+            new TextBlock { Text = goal.PaceLabel, FontSize = 11, Foreground = White(0xB3), FontFamily = Theme.UIFont });
+        text.VerticalAlignment = VerticalAlignment.Center;
+        return UI.UI.HStack(12, ring, text);
     }
 
     private static FrameworkElement ListBlock(string title, IEnumerable<ReadingTagCount> items)
