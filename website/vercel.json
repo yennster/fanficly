@@ -1,16 +1,27 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
   "redirects": [
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "www.fanficly.app" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "www.fanficly.app"
+        }
+      ],
       "destination": "https://fanficly.app/$1",
       "permanent": true
     },
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "fanficly.jennyspeelman.dev" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "fanficly.jennyspeelman.dev"
+        }
+      ],
       "destination": "https://fanficly.app/$1",
       "permanent": true
     }
@@ -18,13 +29,24 @@
   "headers": [
     {
       "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=604800"
+        }
+      ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
     }
   ]
