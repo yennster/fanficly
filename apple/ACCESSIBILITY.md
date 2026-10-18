@@ -1,6 +1,6 @@
 # Accessibility
 
-This covers Fanficly for iPhone, iPad and Mac. For the Windows app, see [windows/ACCESSIBILITY.md](windows/ACCESSIBILITY.md).
+This covers Fanficly for iPhone, iPad and Mac. For the Windows app, see [windows/ACCESSIBILITY.md](../windows/ACCESSIBILITY.md).
 
 Fanficly is built to be a calm, flexible reading app, with particular attention
 to readers who need **larger text** or a **darker interface**.

@@ -18,7 +18,7 @@ certification.
 | Listing text and release notes in the repo | `fastlane/metadata/` | `windows/store/listing/<language>/*.txt`, turned into the CLI's JSON by `New-StoreListingJson.ps1` |
 | Version number | `increment_build_number` | `windows/store/version.txt` + `Set-AppVersion.ps1` |
 | Check the build before submitting | `precheck` | **Windows App Certification Kit** (WACK, `appcert.exe` from the Windows SDK), run by `Test-StorePackage.ps1` |
-| Marketing screenshots and art | `fastlane screenshots` + `bin/frame-screenshots.py` | UI tests at 4K + `make_store_art.py` (see [Screenshots and Store art](#screenshots-and-store-art)) |
+| Marketing screenshots and art | `fastlane screenshots` + `apple/bin/frame-screenshots.py` | UI tests at 4K + `make_store_art.py` (see [Screenshots and Store art](#screenshots-and-store-art)) |
 | Upload screenshots and art | `deliver` | `Publish-StoreScreenshots.ps1` (home-baked, see below) |
 | Developer portal | App Store Connect | **Partner Center** (partner.microsoft.com/dashboard) |
 
@@ -439,7 +439,7 @@ Transformative Works" line.
 ## Screenshots and Store art
 
 The listing's pictures are built the way the iOS ones are (`fastlane
-screenshots`, then `bin/frame-screenshots.py`): the app is photographed in demo
+screenshots`, then `apple/bin/frame-screenshots.py`): the app is photographed in demo
 mode, then each picture is laid out as a web page on the brand canvas and
 rendered at the Store's exact size by headless Chrome.
 

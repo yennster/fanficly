@@ -7,7 +7,7 @@ Picking up roadmap work? Go straight to [Autonomous roadmap work](#autonomous-ro
 
 A native Windows app (WinUI 3 on the Windows App SDK, C# on .NET 10, Native AOT in Release, MSIX for the Microsoft Store, x64 and ARM64, Windows 10 2004 / build 19041 and later) that reads AO3 fanfiction. It is a port of the SwiftUI app on `main`. There is no AO3 JSON API, so the app scrapes AO3's HTML with AngleSharp, through one `HttpClient` with a custom `User-Agent` and a 1 request/second throttle. Everything runs on the PC: no servers, no analytics.
 
-Both apps live on `main`: the Apple app at the repository root (`Fanficly/`, `FanficlyTests/`, …) and this one in `windows/`. The Swift sources are the reference implementation. Most C# types name their Swift counterpart in a doc comment ("SwiftData's `@Query`", "the Mac's swipe action"); when behaviour is unclear, the Swift code is the specification. The Apple app's own guide is the root `AGENTS.md`.
+Both apps live on `main`: the Apple app in `apple/` (`apple/Fanficly/`, `apple/FanficlyTests/`, …) and this one in `windows/`. The Swift sources are the reference implementation. Most C# types name their Swift counterpart in a doc comment ("SwiftData's `@Query`", "the Mac's swipe action"); when behaviour is unclear, the Swift code is the specification. The Apple app's own guide is [`apple/AGENTS.md`](../apple/AGENTS.md).
 
 ## Start here
 
@@ -89,9 +89,9 @@ Mutations go through `WorkPersistence` (Upsert, UpsertMetadata, ToggleFollow, Un
   windows-store.yml            # windows-v* tag: build, WACK, Store submit, release
   windows-screenshots.yml      # [screenshots] push or manual: capture every screen,
                                #   build the Store art, commit the pictures
-  ci.yml                       # the Apple app; skips changes only under windows/
-Fanficly/ … FanficlyWidget/    # the Swift app: reference implementation, not built
-                               #   by the Windows workflows
+  ci.yml                       # the Apple app; runs only for apple/**
+apple/                         # the Swift app: reference implementation, not built
+                               #   by the Windows workflows (its own AGENTS.md)
 docs/
   ROADMAP.md                   # the Apple backlog (the Windows one is windows/ROADMAP.md)
   screenshots/windows/         # README shots from ScreenshotTests (desktop/tablet/compact)
@@ -425,7 +425,7 @@ The app stores nothing off the PC except, when the user turns sync on, the backu
 
 ## CI
 
-`.github/workflows/windows-ci.yml` runs on pull requests to `main` and pushes to `main` that touch `windows/`, `docs/screenshots/windows/` or the Windows workflows. The Apple `ci.yml` skips changes that touch only those paths, so a PR builds just the app it changes. A newer push waits for the running build rather than cancelling it.
+`.github/workflows/windows-ci.yml` runs on pull requests to `main` and pushes to `main` that touch `windows/`, `docs/screenshots/windows/` or the Windows workflows. The Apple `ci.yml` runs only for `apple/**`, so a PR builds just the app it changes. A newer push waits for the running build rather than cancelling it.
 
 - **Core tests:** `dotnet test` in Release on `windows-latest`, results as `core-test-results`.
 - **App (x64, ARM64):** unpackaged self-contained Debug builds; the x64 build is launched in demo mode and photographed (`launch-screenshot`).
@@ -438,7 +438,7 @@ The app stores nothing off the PC except, when the user turns sync on, the backu
 
 ## Autonomous roadmap work
 
-The backlog is [`windows/ROADMAP.md`](ROADMAP.md). Windows items are numbered from **RM-101** so they never collide with the Apple roadmap's IDs (`docs/ROADMAP.md`). This loop is for an agent told to "pick a roadmap item and ship a PR". It ends at an **open PR against `main`**. A human merges.
+The backlog is [`windows/ROADMAP.md`](ROADMAP.md). Windows items are numbered from **RM-101** so they never collide with the Apple roadmap's IDs (`apple/docs/ROADMAP.md`). This loop is for an agent told to "pick a roadmap item and ship a PR". It ends at an **open PR against `main`**. A human merges.
 
 **Hard rules**
 - Never merge a PR, enable auto-merge, approve your own PR, push to `main`, force-push a branch you didn't create, or edit CI to make it pass.

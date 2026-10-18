@@ -6,7 +6,7 @@ An open-source, ad-free Windows reader for [Archive of Our Own](https://archiveo
 
 This is Fanficly for Windows: a native Windows app in C# on .NET 10 with WinUI 3 (Windows App SDK), compiled with Native AOT and shipped through the Microsoft Store as an MSIX bundle for x64 and ARM64. It runs on Windows 10 (version 2004, build 19041, and later) and Windows 11. The app lives in this folder, [`windows/`](./).
 
-The iPhone, iPad and Mac app is at the [repository root](../README.md), on the same `main` branch. Its Swift sources (`Fanficly/`, `FanficlyWidget/`, `FanficlyShare/`, the Xcode project) are the reference implementation the Windows port follows; the Windows workflows don't build them.
+The iPhone, iPad and Mac app is in [`apple/`](../apple/README.md), on the same `main` branch; the [repository README](../README.md) covers both. Its Swift sources (`apple/Fanficly/`, `apple/FanficlyWidget/`, `apple/FanficlyShare/`, the Xcode project) are the reference implementation the Windows port follows; the Windows workflows don't build them.
 
 | Home | Search results |
 | --- | --- |
@@ -154,7 +154,7 @@ The usual way to refresh the committed pictures is the **Windows screenshots** w
 - **UI tests and screenshots**: the smoke tests, the screenshot tests, then the reader layout tests, on a 1920 × 1200 display.
 - **MSIX bundle**: the Release (Native AOT) x64 + ARM64 Store upload, as the `msix-bundle` artifact.
 
-[`.github/workflows/windows-screenshots.yml`](../.github/workflows/windows-screenshots.yml) is started by hand and commits fresh screenshots (see [Screenshots](#screenshots)). Store releases are [`.github/workflows/windows-store.yml`](../.github/workflows/windows-store.yml), started by a `windows-vX.Y.Z` tag; see [MICROSOFT_STORE.md](MICROSOFT_STORE.md). The Apple workflow (`ci.yml`) skips changes that touch only those Windows paths.
+[`.github/workflows/windows-screenshots.yml`](../.github/workflows/windows-screenshots.yml) is started by hand and commits fresh screenshots (see [Screenshots](#screenshots)). Store releases are [`.github/workflows/windows-store.yml`](../.github/workflows/windows-store.yml), started by a `windows-vX.Y.Z` tag; see [MICROSOFT_STORE.md](MICROSOFT_STORE.md). The Apple workflow (`ci.yml`) runs only for `apple/**`.
 
 ## About AO3
 

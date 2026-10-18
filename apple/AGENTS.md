@@ -1,12 +1,14 @@
-# AGENTS.md — working in the Fanficly repo
+# AGENTS.md — working on Fanficly for iPhone, iPad and Mac
 
 Architecture, development workflow, and regression constraints for agents working
-in this repository. Read the overview first, then the detailed section for the
+on the Apple app in `apple/`. **Paths in this guide are relative to `apple/`**,
+and commands run from there, except `bin/roadmap.sh`, which is at the repository
+root. Claude Code loads this file through `apple/CLAUDE.md` when you work in this
+folder; the repository-wide rules are in the root [`AGENTS.md`](../AGENTS.md). Read the overview first, then the detailed section for the
 subsystem you change. Keep this file current when ownership or behavior changes,
-and verify implementation details against source. This is the only agent guide
-for the Apple app: `CLAUDE.md` just imports it, so edit this file, never that one.
-The Windows app in `windows/` has its own guide, [`windows/AGENTS.md`](windows/AGENTS.md)
-(imported by `windows/CLAUDE.md`); read it before changing anything under `windows/`.
+and verify implementation details against source. This is the agent guide
+for the Apple app: `apple/CLAUDE.md` just imports it, so edit this file, never that one.
+The Windows app in `windows/` has its own guide, [`windows/AGENTS.md`](../windows/AGENTS.md).
 Picking up roadmap work? Go straight to [Autonomous roadmap work](#autonomous-roadmap-work).
 
 ## What this is
@@ -15,12 +17,11 @@ A SwiftUI app (iPhone + iPad, plus Mac via Catalyst; iOS 17+, Swift 6) that read
 
 ## Start here
 
-- **Two apps, one branch:** the Apple app is the repository root (everything
-  below); the Windows app is `windows/`, with its own README, AGENTS.md,
-  PRIVACY.md, ACCESSIBILITY.md, CONTRIBUTING.md and ROADMAP.md there. Both ship
-  from `main`. CI is path-filtered: `ci.yml` skips a change that only touches
-  `windows/`, `docs/screenshots/windows/` or the `windows-*.yml` workflows, and
-  the Windows workflows run only for those paths. Keep a PR to one app.
+- **Two apps, one branch:** this app is `apple/` (everything below); the
+  Windows app is `windows/`. Both ship from `main`. CI is path-filtered:
+  `.github/workflows/ci.yml` runs for `apple/**` (and itself), the Windows
+  workflows for `windows/**`. Keep a PR to one app. The privacy policy is the
+  repository root's `PRIVACY.md`, because the App Store listing links to it there.
 - **Project/build truth:** `project.yml` defines all five targets, Swift 6 strict
   concurrency, dependencies, generated Info.plists, entitlements, and schemes.
   Regenerate with XcodeGen; do not hand-edit the generated project. Keep the iOS
@@ -39,7 +40,7 @@ A SwiftUI app (iPhone + iPad, plus Mac via Catalyst; iOS 17+, Swift 6) that read
   and a Mac for native execution. This Linux orb cannot build or run the app.
   See [Tests](#tests) and [Linux orbs](#linux-orbs).
 - **Related docs:** `README.md` (user features/setup), `CONTRIBUTING.md` (change
-  policy), `ACCESSIBILITY.md`, `PRIVACY.md`, `.github/workflows/ci.yml` (actual CI).
+  policy), `ACCESSIBILITY.md`, `../PRIVACY.md`, `../.github/workflows/ci.yml` (actual CI).
   Release lanes under ignored `fastlane/` are maintainer-local, not available in
   a fresh checkout. Never upload assets or release as part of ordinary testing.
 
@@ -138,11 +139,12 @@ pagination, saved anchors, and resume URLs.
 ```
 project.yml                    # xcodegen is the source of truth
 bin/                           # developer scripts (icon gen, screenshots,
-                               #   roadmap.sh = list/claim-check roadmap items)
+                               #   store art); ../bin/roadmap.sh = list and
+                               #   claim-check roadmap items (repo root)
 docs/ROADMAP.md                # the backlog (RM-nnn items); agents: see below
-windows/                       # the Windows app (its own AGENTS.md, ROADMAP.md
-                               #   from RM-101, workflows windows-*.yml)
-.github/pull_request_template.md  # PR checklist
+docs/screenshots/              # demo-mode captures (iphone, ipad, mac, duo-*)
+../.github/                    # workflows (ci.yml = this app) + PR template
+../PRIVACY.md                  # this app's privacy policy (the App Store links it)
 Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
   RootView.swift               # NavigationSplitView sidebar (Search, Browse,
@@ -274,7 +276,7 @@ FanficlyWidget/                # WidgetKit extension target (embedded in app)
 
 ## Linux orbs
 
-`.agents/setup` prepares the portable developer tools: Chromium, ffmpeg,
+`../.agents/setup` (at the repository root) prepares the portable developer tools: Chromium, ffmpeg,
 ShellCheck, and the existing `bin/.venv` Python environment (Pillow,
 PyJWT with crypto support, and requests, pinned in `bin/requirements.txt`).
 Run Python scripts with `bin/.venv/bin/python`; no shell activation is needed.
@@ -297,7 +299,7 @@ To update Python dependencies, edit `bin/requirements.in`, then run:
 
 ```bash
 uv pip compile bin/requirements.in --python-version 3.11 --generate-hashes --output-file bin/requirements.txt
-.agents/setup
+../.agents/setup
 ```
 
 ## Autonomous roadmap work
@@ -666,7 +668,7 @@ private iCloud. Search, login, comments, and subscriptions communicate directly
 with AO3; opting into story images also contacts their external hosts. Do not
 describe the app as never transmitting data. Passwords are used only for login;
 session cookies are persisted in Keychain. Don't add analytics, crash reporting,
-or remote logging. See `PRIVACY.md` and `Fanficly/PrivacyInfo.xcprivacy`.
+or remote logging. See `../PRIVACY.md` and `Fanficly/PrivacyInfo.xcprivacy`.
 
 ## Content safety and accessibility
 

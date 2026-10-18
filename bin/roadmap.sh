@@ -2,7 +2,7 @@
 # List roadmap items and whether anyone has claimed them.
 #   bin/roadmap.sh                 every item: platform, ID, size, status, claim, title
 #   bin/roadmap.sh free            only items that are open AND unclaimed
-#   bin/roadmap.sh free windows    the same, for one app (apple: docs/ROADMAP.md,
+#   bin/roadmap.sh free windows    the same, for one app (apple: apple/docs/ROADMAP.md,
 #                                  windows: windows/ROADMAP.md; default both)
 # A claim is an open PR, or a remote branch, whose name or title mentions the ID
 # (branch `roadmap/RM-007-series-page`). Needs `gh` and network for claims; with
@@ -14,9 +14,9 @@ mode="${1:-all}"
 platform="${2:-all}"
 case "$mode" in all|free) ;; *) echo "usage: bin/roadmap.sh [all|free] [apple|windows|all]" >&2; exit 2 ;; esac
 case "$platform" in
-  apple)   roadmaps=("apple:$repo_root/docs/ROADMAP.md") ;;
+  apple)   roadmaps=("apple:$repo_root/apple/docs/ROADMAP.md") ;;
   windows) roadmaps=("windows:$repo_root/windows/ROADMAP.md") ;;
-  all)     roadmaps=("apple:$repo_root/docs/ROADMAP.md" "windows:$repo_root/windows/ROADMAP.md") ;;
+  all)     roadmaps=("apple:$repo_root/apple/docs/ROADMAP.md" "windows:$repo_root/windows/ROADMAP.md") ;;
   *)       echo "usage: bin/roadmap.sh [all|free] [apple|windows|all]" >&2; exit 2 ;;
 esac
 

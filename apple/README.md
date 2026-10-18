@@ -1,11 +1,8 @@
-# Fanficly
+# Fanficly for iPhone, iPad and Mac
 
-An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https://archiveofourown.org), with a native Windows app too.
+An open-source, ad-free iPhone, iPad & Mac reader for [Archive of Our Own](https://archiveofourown.org).
 
-This repository holds both apps on one `main` branch:
-
-- **iPhone, iPad and Mac** (SwiftUI): at the repository root. This README covers it.
-- **Windows** (C# and WinUI 3, in the Microsoft Store): in [`windows/`](windows/). See [its README](windows/README.md).
+This folder, `apple/`, is the SwiftUI app; commands below run from here. The Windows app is in [`windows/`](../windows/), and the [repository README](../README.md) covers both.
 
 <img src="screenshots/showcase.png" alt="Fanficly showcase">
 
@@ -48,6 +45,7 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 Set up:
 ```bash
 brew install xcodegen
+cd apple
 xcodegen generate
 open Fanficly.xcodeproj
 ```
@@ -133,12 +131,12 @@ Fanficly is not affiliated with AO3 or the Organization for Transformative Works
 
 ## Privacy
 
-We collect nothing. The app talks directly to AO3 from your device. Your AO3 session cookie lives in your iOS Keychain. Deleting the app erases everything. See [PRIVACY.md](PRIVACY.md).
+We collect nothing. The app talks directly to AO3 from your device. Your AO3 session cookie lives in your iOS Keychain. Deleting the app erases everything. See [PRIVACY.md](../PRIVACY.md).
 
 ## Contributing
 
-See the [roadmap](docs/ROADMAP.md) for what's planned (the Windows app's is [windows/ROADMAP.md](windows/ROADMAP.md)). PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See the [roadmap](docs/ROADMAP.md) for what's planned (the Windows app's is [windows/ROADMAP.md](../windows/ROADMAP.md)). PRs welcome — read [CONTRIBUTING.md](CONTRIBUTING.md) first. Be kind, be patient with reviewers. See [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md).
 
 ## License
 
-[PolyForm Noncommercial License 1.0.0](LICENSE).
+[PolyForm Noncommercial License 1.0.0](../LICENSE).

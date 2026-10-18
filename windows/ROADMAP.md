@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-16, before the first Store release (`windows/store/version.txt`: 1.0). Written from the code: every item names the files it touches and what already exists.
 
-This is the Windows app's backlog. The Apple app's roadmap is [`docs/ROADMAP.md`](../docs/ROADMAP.md). Windows items are numbered from **RM-101** so the two never share an ID; their branches and PRs target `main`, like the Apple app's. Agents: read [Autonomous roadmap work](AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. Claims are PRs, never issue assignments.
+This is the Windows app's backlog. The Apple app's roadmap is [`apple/docs/ROADMAP.md`](../apple/docs/ROADMAP.md). Windows items are numbered from **RM-101** so the two never share an ID; their branches and PRs target `main`, like the Apple app's. Agents: read [Autonomous roadmap work](AGENTS.md#autonomous-roadmap-work) in AGENTS.md before picking anything. Humans: reorder, add and strike items freely. Claims are PRs, never issue assignments.
 
 ## Where the app is
 
@@ -209,11 +209,11 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - Delete the `windows` branch once `main` builds, tests and publishes the Windows app.
 - **Done when:** `main` builds and tests both apps with path-filtered CI, a `windows-v*` tag on `main` runs the Store release, and the `windows` branch is gone.
 - **Touches:** the repository layout, `.github/workflows/*`, README.md, AGENTS.md, MICROSOFT_STORE.md.
-- **Result:** `windows` is merged into `main`. Each app keeps its own README, AGENTS.md, PRIVACY.md, ACCESSIBILITY.md, CONTRIBUTING.md and roadmap: the Apple ones at the root, the Windows ones in `windows/` (the two privacy policies are separate store listings' policies). The root README and AGENTS.md link the Windows ones, and `windows/CLAUDE.md` imports `windows/AGENTS.md`. CI is path-filtered and the Store workflow runs from `main`. **Left for the maintainer:** the first `windows-v*` tag on `main`, then deleting the `windows` branch. Until that Store submission goes out, the live listing's privacy policy and website links still point at the `windows` branch.
+- **Result:** `windows` is merged into `main`, and each app has its own folder: the Apple app moved into `apple/` (with its scripts, roadmap, screenshots and docs), the Windows app is in `windows/`. Each folder has its own README, AGENTS.md (with a CLAUDE.md that imports it), ACCESSIBILITY.md, CONTRIBUTING.md and roadmap. The root keeps a README, AGENTS.md and CONTRIBUTING.md for both apps, plus the Apple privacy policy at `PRIVACY.md`, because the App Store listing links there. CI is path-filtered (`ci.yml` for `apple/**`, `windows-*.yml` for `windows/**`) and the Store workflow runs from `main`. **Left for the maintainer:** the first `windows-v*` tag on `main`, then deleting the `windows` branch. Until that Store submission goes out, the live listing's privacy policy and website links still point at the `windows` branch.
 
 ### RM-111 — Scripted Store trailer video
 - **Status:** open · **Size:** M · **Validation:** windows
-- **Why:** The Store listing can show a trailer, and the first submission went out without one. The Apple app records its App Store previews automatically (`bin/record-app-previews.sh` driving the `PreviewTourTests` UI test); nothing records the Windows app yet.
+- **Why:** The Store listing can show a trailer, and the first submission went out without one. The Apple app records its App Store previews automatically (`apple/bin/record-app-previews.sh` driving the `PreviewTourTests` UI test); nothing records the Windows app yet.
 - **Scope:**
   - Add a demo-mode tour to `Fanficly.UITests` (search, open a work, read page by page, Listen, Library, Stats), in the spirit of the Swift `PreviewTourTests`.
   - Record the window while the tour runs and post-process with ffmpeg to the Store's trailer spec: MP4, H.264, 16:9 at 1920×1080 or 3840×2160, under 60 seconds, with captions in the Store art's look (`windows/store-art/`).

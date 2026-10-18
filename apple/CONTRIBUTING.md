@@ -2,14 +2,14 @@
 
 Thanks for wanting to help. A few quick guidelines.
 
-This guide is for the iPhone, iPad and Mac app at the repository root. The Windows app lives in [`windows/`](windows/) and has [its own guide](windows/CONTRIBUTING.md). Both apps take pull requests against `main`.
+This guide is for the iPhone, iPad and Mac app in `apple/`. The Windows app lives in [`windows/`](../windows/) and has [its own guide](../windows/CONTRIBUTING.md). Both apps take pull requests against `main`.
 
 ## Setup
 
 ```bash
 brew install xcodegen
 git clone https://github.com/yennster/fanficly.git
-cd fanficly
+cd fanficly/apple
 xcodegen generate
 open Fanficly.xcodeproj
 ```
@@ -24,7 +24,7 @@ open Fanficly.xcodeproj
 
 ## What to work on
 
-The backlog is [docs/ROADMAP.md](docs/ROADMAP.md): small, scoped items with IDs (`RM-nnn`) and a "Done when". Run `bin/roadmap.sh free` to see what's unclaimed. Claim an item by opening a draft PR from a `roadmap/RM-nnn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work); a human always does the merge.
+The backlog is [docs/ROADMAP.md](docs/ROADMAP.md): small, scoped items with IDs (`RM-nnn`) and a "Done when". Run `bin/roadmap.sh free apple` from the repository root to see what's unclaimed. Claim an item by opening a draft PR from a `roadmap/RM-nnn-slug` branch. AI agents follow the loop in [AGENTS.md](AGENTS.md#autonomous-roadmap-work); a human always does the merge.
 
 ## Pull requests
 
@@ -46,4 +46,4 @@ Open an issue with:
 
 ## Code of Conduct
 
-See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+See [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md).

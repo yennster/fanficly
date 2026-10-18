@@ -1,6 +1,6 @@
 # Contributing to Fanficly for Windows
 
-Thanks for wanting to help. This folder (`windows/`) is the native Windows app. The iPhone, iPad and Mac app lives at the repository root and has its own [contributing guide](../CONTRIBUTING.md). Pull requests for either app go against `main`.
+Thanks for wanting to help. This folder (`windows/`) is the native Windows app. The iPhone, iPad and Mac app lives in `apple/` and has its own [contributing guide](../apple/CONTRIBUTING.md). Pull requests for either app go against `main`.
 
 ## Setup
 

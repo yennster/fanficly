@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Builds the Microsoft Store art from the UI tests' raw captures: the Windows
-counterpart of bin/frame-screenshots.py (fastlane screenshots) on main.
+counterpart of apple/bin/frame-screenshots.py (fastlane screenshots).
 
 The raws come from `ScreenshotTests.CaptureMainScreens("store" | "store-tablet")`,
 which draws the demo app enlarged ("-captureScale 2.4"), so a 1200x750 window

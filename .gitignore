@@ -46,6 +46,7 @@ Podfile.lock
 # fastlane — App Store release tooling (Fastfile, metadata, screenshots, keys)
 # is kept LOCAL only and intentionally not tracked in this public repo.
 /fastlane/
+/apple/fastlane/
 
 # Secrets / signing
 *.p8
