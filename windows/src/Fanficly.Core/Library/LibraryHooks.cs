@@ -41,4 +41,9 @@ public static class LibraryHooks
     /// <summary>The app's local log, for failures the library otherwise only
     /// reports as a false return (<see cref="LibraryStore.TrySave"/>).</summary>
     public static Action<string>? Log { get; set; }
+
+    /// <summary>Tells the user a library save failed (its error message), so a
+    /// change that only looks saved doesn't go unnoticed. Called on the saving
+    /// thread.</summary>
+    public static Action<string>? SaveFailed { get; set; }
 }

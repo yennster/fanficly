@@ -526,6 +526,7 @@ public sealed class AO3ClientTests : IDisposable
                   <textarea name="comment[comment_content]"></textarea>
                 </form></body></html>
                 """),
+            _ => FakeHandler.Redirect("/works/12/chapters/34#comment_1"),
             _ => FakeHandler.Html("<html></html>"));
 
         await MakeClient().PostCommentAsync(12, 34, "  Loved it!  ");
@@ -543,6 +544,36 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Contains("comment%5Bpseud_id%5D=77", form);
         Assert.Contains("comment%5Bcomment_content%5D=Loved%20it%21", form);
         Assert.Contains("commit=Comment", form);
+    }
+
+    private const string CommentFormHtml = """
+        <html><body><form action="/works/12/comments" method="post">
+          <input type="hidden" name="authenticity_token" value="CSRF">
+          <textarea name="comment[comment_content]"></textarea>
+        </form></body></html>
+        """;
+
+    [Fact]
+    public async Task ARefusedCommentIsNotPosted()
+    {
+        // AO3 re-renders the form with a 200 when it won't save a comment.
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">Couldn't save comment!</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Contains("Couldn't save comment!", e.Message);
+    }
+
+    [Fact]
+    public async Task ACommentThatEndsAtLoginNeedsASignIn()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => FakeHandler.Redirect("/users/login"),
+            _ => FakeHandler.Html(LoginFormHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
     }
 
     [Fact]
@@ -573,6 +604,103 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal("https://archiveofourown.org/works/42/subscriptions", post.Uri.AbsoluteUri);
         Assert.Equal("T0K", post.Header("X-CSRF-Token"));
         Assert.Equal("authenticity_token=T0K&subscription%5Bsubscribable_id%5D=42&subscription%5Bsubscribable_type%5D=Work", post.Body);
+    }
+
+    [Fact]
+    public async Task ARefusedTokenIsNotSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => new HttpResponseMessage(HttpStatusCode.UnprocessableEntity));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Http, e.Kind);
+    }
+
+    [Fact]
+    public async Task ASubscriptionAO3TurnsDownIsNotSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => FakeHandler.Redirect("/works/42"),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">You can't subscribe to that.</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+    }
+
+    [Fact]
+    public async Task AlreadySubscribedCountsAsSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">You are already subscribed to that.</div></body></html>"""));
+        await MakeClient().SubscribeToWorkAsync(42);
+    }
+
+    [Fact]
+    public async Task ARestrictedWorkSignedOutIsNotReadAsOneChapter()
+    {
+        // The poller would otherwise reset its new-chapter baseline to 1.
+        _handler.Respond(_ => FakeHandler.Redirect("/users/login?restricted=true"), _ => FakeHandler.Html(LoginFormHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(7));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task AWorkPageWithoutAChapterCountFails()
+    {
+        _handler.Respond(_ => FakeHandler.Html("<html><body>Something went wrong</body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(7));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
+
+    [Fact]
+    public async Task AWorkPageWithoutChaptersFails()
+    {
+        // Saving it would replace the stored chapters with none.
+        _handler.Respond(_ => FakeHandler.Html("<html><body>Something went wrong</body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkAsync(7));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
+
+    [Fact]
+    public async Task AnEpubThatEndsAtLoginIsNotSaved()
+    {
+        _handler.Respond(_ => FakeHandler.Redirect("/users/login?restricted=true"), _ => FakeHandler.Html(LoginFormHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().DownloadEpubAsync(55));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.False(File.Exists(Path.Combine(_dir, "library", "55.epub")));
+    }
+
+    [Theory]
+    [InlineData("<!DOCTYPE html><html><body>Retry later</body></html>")]
+    [InlineData("\uFEFF  \n<html></html>")]
+    [InlineData("")]
+    public async Task AWebPageIsNotSavedAsTheBook(string body)
+    {
+        _handler.Respond(_ => FakeHandler.Html(body));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().DownloadEpubAsync(55));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+        Assert.False(File.Exists(Path.Combine(_dir, "library", "55.epub")));
+        await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().ExportWorkAsync(55, WorkExportFormat.Pdf, "x"));
+    }
+
+    [Fact]
+    public async Task AnHtmlExportIsAWebPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("<html><body>The story</body></html>"));
+        var path = await MakeClient().ExportWorkAsync(55, WorkExportFormat.Html, "x");
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task BookmarksSignedOutAskForASignIn()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="login"><form id="new_user" action="/users/login"></form></div>
+            <ol class="bookmark index group"></ol></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchBookmarksAsync("reader", 1));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
     }
 
     [Fact]
@@ -669,6 +797,13 @@ internal sealed class FakeHandler : HttpMessageHandler
     {
         var r = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(html, Encoding.UTF8, "text/html") };
         if (setCookie is not null) r.Headers.Add("Set-Cookie", setCookie);
+        return r;
+    }
+
+    public static HttpResponseMessage Redirect(string location)
+    {
+        var r = new HttpResponseMessage(HttpStatusCode.Found);
+        r.Headers.Location = new Uri(location, UriKind.Relative);
         return r;
     }
 

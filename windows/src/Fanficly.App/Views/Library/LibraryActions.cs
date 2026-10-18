@@ -169,8 +169,10 @@ internal static class LibraryActions
                 var payload = await AppHost.Client.FetchWorkAsync(id);
                 if (work.IsInserted) WorkPersistence.Upsert(payload, Store);
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            catch (Exception e) when (e is not OperationCanceledException && Store.ChaptersOf(work).Count > 0)
             {
+                // The chapters saved earlier still read offline; without any,
+                // an EPUB alone wouldn't, so that failure stands.
                 AppHost.Log($"Fetching {id} before download failed: {e.Message}");
             }
             await AppHost.Client.DownloadEpubAsync(id);

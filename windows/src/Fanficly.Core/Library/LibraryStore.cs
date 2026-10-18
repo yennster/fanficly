@@ -348,6 +348,7 @@ public sealed class LibraryStore : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             AttachReachable();
+            RenumberAfterOtherWriters();
             var writes = new List<(LibraryEntity Entity, object?[] Row, bool Insert, LibraryEntityKinds Kind, string Table, string[] Columns)>();
             var bodies = new List<Chapter>();
             foreach (var t in LibrarySchema.Tables)
@@ -424,7 +425,29 @@ public sealed class LibraryStore : IDisposable
             // Every later save retries the same rows, so one bad write keeps
             // failing silently; say what it was.
             LibraryHooks.Log?.Invoke($"Saving the library failed: {e.Message}");
+            LibraryHooks.SaveFailed?.Invoke(e.Message);
             return false;
+        }
+    }
+
+    /// <summary>Row ids for new records count up from the highest id seen at open.
+    /// Another process writing the same file since (the background task, a
+    /// second copy of the app) may have taken those ids, and inserting over one
+    /// would fail every save from then on; so new records move past the
+    /// table's current highest id first.</summary>
+    private void RenumberAfterOtherWriters()
+    {
+        foreach (var t in LibrarySchema.Tables)
+        {
+            var fresh = _live[t.Type].Where(e => e.PersistedRow is null).ToList();
+            if (fresh.Count == 0) continue;
+            using var cmd = _conn.CreateCommand();
+            cmd.CommandText = $"SELECT COALESCE(MAX(id), 0) FROM {t.Table}";
+            var max = Convert.ToInt64(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+            if (fresh.Min(e => e.RowId) > max) continue;
+            var next = Math.Max(max, _lastId[t.Type]);
+            foreach (var e in fresh) e.RowId = ++next;
+            _lastId[t.Type] = next;
         }
     }
 

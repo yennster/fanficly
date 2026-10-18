@@ -113,6 +113,11 @@ public sealed class SubscriptionPoller
         return fresh;
     }
 
+    /// <summary>How many per-record checks failed (AO3 down, signed out, a page
+    /// that didn't read), so a refresh doesn't report "no new chapters" when it
+    /// couldn't look.</summary>
+    public int FailedChecks { get; private set; }
+
     public async Task<int> CheckForNewChaptersAsync(CancellationToken ct = default)
     {
         var notifyCount = 0;
@@ -155,7 +160,7 @@ public sealed class SubscriptionPoller
         }
         catch (Exception e)
         {
-            Debug.WriteLine($"Subscriptions list fetch failed: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Subscriptions list fetch failed: {e.Message}");
         }
 
         var targets = new List<(DateTimeOffset? LastCheckedAt, Func<Task<int>> Check)>();
@@ -207,7 +212,8 @@ public sealed class SubscriptionPoller
             }
             catch (Exception e)
             {
-                Debug.WriteLine($"Skipping work {workId}: {e.Message}");
+                FailedChecks++;
+                LibraryHooks.Log?.Invoke($"Skipping work {workId}: {e.Message}");
                 return 0;
             }
         }
@@ -233,7 +239,8 @@ public sealed class SubscriptionPoller
         }
         catch (Exception e)
         {
-            Debug.WriteLine($"Skipping followed work {work.Ao3Id}: {e.Message}");
+            FailedChecks++;
+            LibraryHooks.Log?.Invoke($"Skipping followed work {work.Ao3Id}: {e.Message}");
             return 0;
         }
         finally
@@ -268,7 +275,8 @@ public sealed class SubscriptionPoller
         }
         catch (Exception e)
         {
-            Debug.WriteLine($"Skipping author {author.Username}: {e.Message}");
+            FailedChecks++;
+            LibraryHooks.Log?.Invoke($"Skipping author {author.Username}: {e.Message}");
             return 0;
         }
         finally

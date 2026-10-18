@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 
 namespace Fanficly.Core;
@@ -125,16 +124,17 @@ public sealed class LibrarySyncManager
     /// <summary>Backs the library up to the sync folder, merging with the
     /// backup already there so a device that holds only part of the library (a
     /// fresh install, a metadata-only laptop) can never last-writer-wins away
-    /// another device's records.</summary>
-    public void Backup(LibraryStore store)
+    /// another device's records. Says whether the file was written, so Back
+    /// Up Now can report what really happened.</summary>
+    public BackupOutcome Backup(LibraryStore store)
     {
-        if (BackupPath is not { } path) return;
+        if (BackupPath is not { } path) return BackupOutcome.NoFolder;
 
         // A backup that exists only as a not-yet-downloaded placeholder can't
         // be merged with, and overwriting would drop every record the other
         // device backed up. Let a later QueueBackup (they fire on every
         // mutation) retry once it's local.
-        if (!File.Exists(path) && File.Exists(PlaceholderPath(path))) return;
+        if (!File.Exists(path) && File.Exists(PlaceholderPath(path))) return BackupOutcome.NotDownloaded;
 
         try
         {
@@ -154,7 +154,8 @@ public sealed class LibrarySyncManager
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException)
                 {
-                    return;
+                    LibraryHooks.Log?.Invoke($"Backup skipped, the sync folder's backup is busy: {e.Message}");
+                    return BackupOutcome.FileBusy;
                 }
                 try
                 {
@@ -172,12 +173,18 @@ public sealed class LibrarySyncManager
             // We just wrote the file, so its content is already applied here —
             // stamp it so the launch auto-sync doesn't re-restore our own backup.
             MarkCloudBackupApplied();
+            return BackupOutcome.Written;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            Debug.WriteLine($"Failed to back up the library: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Failed to back up the library: {e.Message}");
+            LastBackupError = e.Message;
+            return BackupOutcome.Failed;
         }
     }
+
+    /// <summary>Why the last backup that failed to write failed.</summary>
+    public string? LastBackupError { get; private set; }
 
     /// <summary>The library as a backup, mapping every record type.</summary>
     internal LibraryBackup MakeLocalBackup(LibraryStore store)
@@ -375,7 +382,7 @@ public sealed class LibrarySyncManager
             }
             if (!downloaded)
             {
-                Debug.WriteLine("Library backup download timed out");
+                LibraryHooks.Log?.Invoke("Library backup download timed out");
                 return false;
             }
         }
@@ -393,7 +400,7 @@ public sealed class LibrarySyncManager
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException
                                       or Microsoft.Data.Sqlite.SqliteException or OperationCanceledException)
         {
-            Debug.WriteLine($"Failed to restore the library: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Failed to restore the library: {e.Message}");
             return false;
         }
     }
@@ -658,8 +665,21 @@ public sealed class LibrarySyncManager
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            Debug.WriteLine($"Failed to clear the library backup: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Failed to clear the library backup: {e.Message}");
             return false;
         }
     }
+}
+
+/// <summary>What <see cref="LibrarySyncManager.Backup"/> did.</summary>
+public enum BackupOutcome
+{
+    Written,
+    /// <summary>Sync is off or has no folder.</summary>
+    NoFolder,
+    /// <summary>The backup there is a cloud placeholder that isn't downloaded yet.</summary>
+    NotDownloaded,
+    /// <summary>The backup there couldn't be read (locked by the sync app).</summary>
+    FileBusy,
+    Failed,
 }

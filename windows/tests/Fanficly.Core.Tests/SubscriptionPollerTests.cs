@@ -96,6 +96,21 @@ public sealed class SubscriptionPollerTests
     }
 
     [Fact]
+    public async Task FailedChecksAreCountedSoARefreshCanSaySo()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new Work(404, "Unreachable", "A") { IsFollowed = true, LastSeenChapterCount = 1 });
+        store.Insert(new Work(20, "Fine", "A") { IsFollowed = true, LastSeenChapterCount = 4 });
+        store.Save();
+        var client = new PollerFakeClient();
+        client.ChapterCounts[20] = 4;
+        var poller = new SubscriptionPoller(client, store, null);
+
+        Assert.Equal(0, await poller.CheckFollowedWorksAsync());
+        Assert.Equal(1, poller.FailedChecks);
+    }
+
+    [Fact]
     public async Task FirstPollOfAnUnseededAuthorDoesNotAlertForTheBackCatalogue()
     {
         using var store = LibraryStore.OpenInMemory();

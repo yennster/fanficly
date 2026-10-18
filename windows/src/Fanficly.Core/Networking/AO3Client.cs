@@ -192,14 +192,23 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var response = await PerformRequestAsync(Get(AO3Endpoints.UserBookmarks(username, page, _baseUri)), ct: ct).ConfigureAwait(false);
         // The bookmarks page wraps each work in `li.bookmark.blurb` (vs.
         // `li.work.blurb` on search) but the inner blurb markup is identical.
-        return SearchResultsParser.Parse(Decode(response.Body, "Bookmarks response"), "li.bookmark.blurb");
+        var html = Decode(response.Body, "Bookmarks response");
+        // Signed out, AO3 still shows the public bookmarks, under its guest
+        // login form; an expired session must say so, not show a partial list.
+        if (EndedAtLogin(response) || LoginParser.HasLoginForm(html)) throw AO3Exception.Unauthorized();
+        return SearchResultsParser.Parse(html, "li.bookmark.blurb");
     }
 
     public async Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Work(id, _baseUri)), ct: ct).ConfigureAwait(false);
-        return WorkPageParser.Parse(Decode(response.Body, "Work response"), id);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        var payload = WorkPageParser.Parse(Decode(response.Body, "Work response"), id);
+        // Fail closed: saving a payload replaces the stored chapters, so a page
+        // that isn't the work (an error or interstitial) must never pass as one.
+        if (payload.Chapters.Count == 0) throw AO3Exception.ParseFailed("no chapters on the work page");
+        return payload;
     }
 
     public async Task<AO3WorkChapterPage> FetchWorkChapterAsync(int id, int chapter = 1, CancellationToken ct = default)
@@ -221,6 +230,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.WorkChapter(id, chapterId, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
         return WorkPageParser.ParseChapterPage(Decode(response.Body, "Work response"), id);
     }
 
@@ -228,7 +238,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Work(id, _baseUri)), ct: ct).ConfigureAwait(false);
-        return WorkMetadataParser.Parse(Decode(response.Body, "Work response"), id);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        return WorkMetadataParser.TryParse(Decode(response.Body, "Work response"), id)
+            ?? throw AO3Exception.ParseFailed("no chapter count on the work page");
     }
 
     /// <summary>Every subscription across all pages. AO3 paginates the index at 20
@@ -303,6 +315,12 @@ public sealed class AO3Client : IAO3Client, IDisposable
         };
         var response = await PerformRequestAsync(Post(form.Action, fields.ToList(), headers), ct: ct).ConfigureAwait(false);
         if (response.Status >= 400) throw AO3Exception.Http(response.Status);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        // A saved comment redirects to it (or to the comments); a refused one
+        // (spam check, validation, guest name) re-renders the form in place with
+        // a 200, which must not read as posted, or the draft would be cleared.
+        if (response.FinalUri.AbsolutePath == form.Action.AbsolutePath)
+            throw AO3Exception.Rejected(PageError(response) ?? "the comment wasn't saved");
     }
 
     // MARK: - Browse & popular
@@ -417,6 +435,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Epub(workId, _baseUri)), ct: ct).ConfigureAwait(false);
+        EnsureDownloadedFile(response, WorkExportFormat.Epub);
         Directory.CreateDirectory(_libraryDirectory);
         var path = Path.Combine(_libraryDirectory, $"{workId}.epub");
         await WriteAtomicallyAsync(path, response.Body, ct).ConfigureAwait(false);
@@ -427,12 +446,43 @@ public sealed class AO3Client : IAO3Client, IDisposable
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var response = await PerformRequestAsync(Get(AO3Endpoints.Download(workId, format, _baseUri)), ct: ct).ConfigureAwait(false);
+        EnsureDownloadedFile(response, format);
         Directory.CreateDirectory(ExportsDirectory);
         var safe = SanitizeFilename(filename.Length == 0 ? $"work-{workId}" : filename);
         var path = Path.Combine(ExportsDirectory, $"{safe}.{format.Ext()}");
         if (File.Exists(path)) File.Delete(path);
         await WriteAtomicallyAsync(path, response.Body, ct).ConfigureAwait(false);
         return path;
+    }
+
+    /// <summary>A download is really the file, not a page: a work for signed-in
+    /// users only, fetched signed out, redirects to the login page (a 200), which
+    /// would otherwise be saved as the book and shown as Downloaded.</summary>
+    internal static void EnsureDownloadedFile(Response response, WorkExportFormat format)
+    {
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        if (format == WorkExportFormat.Html) return;
+        // EPUB/AZW3 are zips, MOBI and PDF binary; none starts with markup.
+        var body = response.Body;
+        var i = body.Length >= 3 && body[0] == 0xEF && body[1] == 0xBB && body[2] == 0xBF ? 3 : 0;
+        while (i < body.Length && body[i] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n') i++;
+        if (body.Length == 0 || (i < body.Length && body[i] == (byte)'<'))
+            throw AO3Exception.ParseFailed($"AO3 sent a web page instead of the {format.Ext().ToUpperInvariant()} file");
+    }
+
+    /// <summary>AO3 answers a request it wants a signed-in user for by redirecting
+    /// to its login page, with a 200.</summary>
+    private static bool EndedAtLogin(Response response) =>
+        response.FinalUri.AbsolutePath.StartsWith("/users/login", StringComparison.Ordinal);
+
+    /// <summary>The page's error message (AO3's error flash or form errors), if any.</summary>
+    private static string? PageError(Response response)
+    {
+        if (TryDecode(response.Body) is not { } html) return null;
+        var doc = HtmlDom.Parse(html);
+        var text = string.Join(" ", doc.Select("#error li, div.flash.error, div.error li")
+            .Select(e => e.Text().TrimSwiftWhitespaces()).Where(t => t.Length > 0).Distinct());
+        return text.Length > 0 ? text : null;
     }
 
     /// <summary>Replaces characters that can't appear in a file name with "-", keeps
@@ -470,7 +520,13 @@ public sealed class AO3Client : IAO3Client, IDisposable
             new("subscription[subscribable_type]", "Work"),
         ], [new("Referer", pageUri.AbsoluteUri), new("Origin", _origin), new("X-CSRF-Token", token)]);
         var response = await PerformRequestAsync(request, ct: ct).ConfigureAwait(false);
-        if (response.Status >= 400 && response.Status != 422) throw AO3Exception.Http(response.Status);
+        // 422 is Rails refusing the security token: not subscribed.
+        if (response.Status >= 400) throw AO3Exception.Http(response.Status);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        // Both outcomes redirect back to the work; a refusal carries an error
+        // flash. Already subscribed is what we wanted.
+        if (PageError(response) is { } error && !error.Contains("already", StringComparison.OrdinalIgnoreCase))
+            throw AO3Exception.Rejected(error);
     }
 
     // MARK: - Transport

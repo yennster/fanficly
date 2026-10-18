@@ -211,7 +211,11 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             if (toSave is null)
             {
                 try { toSave = await AppHost.Client.FetchWorkAsync(_work.Ao3Id); }
-                catch (Exception e) { AppHost.Log($"Fetching the work to save failed: {e.Message}"); }
+                catch (Exception e) when (AppHost.Library.ChaptersOf(_work).Count > 0)
+                {
+                    // The chapters saved earlier still read offline.
+                    AppHost.Log($"Fetching the work to save failed: {e.Message}");
+                }
             }
             if (toSave is not null)
             {

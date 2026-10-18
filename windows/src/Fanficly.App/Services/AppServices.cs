@@ -61,7 +61,9 @@ public static partial class AppHost
             MergeReaderProfiles = (local, incoming) => ReaderProfile.MergedProfiles(local, incoming),
             PublishReaderProfiles = ReaderProfileSyncStore.PublishLocalProfiles,
         };
-        LibrarySyncManager.Shared = IsDemoMode ? null : Sync;
+        // Without the real library, a backup or restore would stamp the sync
+        // folder as applied while this PC's library never saw it.
+        LibrarySyncManager.Shared = IsDemoMode || LibraryOpenFailed is not null ? null : Sync;
         if (KeyValueStores.Synced is SyncFolderKeyValueStore synced && Sync.IsSyncEnabled)
             synced.Folder = Sync.SyncFolder;
 
@@ -84,22 +86,44 @@ public static partial class AppHost
 
     private static LibraryStore OpenLibrary()
     {
-        try
+        for (var attempt = 1; ; attempt++)
         {
-            return LibraryStore.Open(AppPaths.Database);
-        }
-        catch (Exception e)
-        {
-            // A damaged database must not stop the app: keep it aside and start fresh.
-            Log($"Library open failed, starting a new one: {e}");
-            try { File.Move(AppPaths.Database, AppPaths.Database + $".damaged-{DateTime.Now:yyyyMMddHHmmss}"); } catch { }
-            return LibraryStore.Open(AppPaths.Database);
+            try
+            {
+                return LibraryStore.Open(AppPaths.Database);
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException e) when (e.SqliteErrorCode is 11 or 26)
+            {
+                // SQLITE_CORRUPT or SQLITE_NOTADB: a damaged database must not stop
+                // the app, so keep it aside and start fresh.
+                Log($"Library is damaged, starting a new one: {e}");
+                try { File.Move(AppPaths.Database, AppPaths.Database + $".damaged-{DateTime.Now:yyyyMMddHHmmss}"); } catch { }
+                return LibraryStore.Open(AppPaths.Database);
+            }
+            catch (Exception e) when (attempt < 3)
+            {
+                // Busy or locked (another copy of the app, a backup tool): wait.
+                Log($"Library open failed, retrying: {e.Message}");
+                Thread.Sleep(1000);
+            }
+            catch (Exception e)
+            {
+                // Never set a library aside over a lock: read nothing and save
+                // nothing this run, and say so once the window is up.
+                Log($"Library open failed, running without it: {e}");
+                LibraryOpenFailed = e.Message;
+                return LibraryStore.OpenInMemory();
+            }
         }
     }
+
+    /// <summary>Why the library couldn't be opened this run, if it couldn't.</summary>
+    private static string? LibraryOpenFailed;
 
     private static void InstallLibraryHooks()
     {
         LibraryHooks.Log = Log;
+        LibraryHooks.SaveFailed = ReportSaveFailure;
         LibraryHooks.RecordReadingEvent = () => StreakStore.RecordReadingEvent();
         LibraryHooks.SaveWidgetProgress = u =>
         {
@@ -108,6 +132,22 @@ public static partial class AppHost
         };
         LibraryHooks.UpdateWidgetData = store => WidgetDataStore.UpdateAll(WidgetSources(store));
         if (!IsDemoMode) Library.Changed += _ => LibrarySyncManager.QueueBackupShared(Library);
+    }
+
+    private static long _lastSaveFailureShown;
+
+    /// <summary>Says so when a library change didn't reach the disk, at most
+    /// once a minute (every later save retries the same change).</summary>
+    private static void ReportSaveFailure(string error)
+    {
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastSaveFailureShown);
+        if (last != 0 && now - last < 60_000) return;
+        if (Interlocked.CompareExchange(ref _lastSaveFailureShown, now, last) != last) return;
+        MainWindow.Current?.DispatcherQueue.TryEnqueue(() => MainWindow.Current?.ShowMessage(
+            "Couldn't save your library",
+            $"Your latest change may be lost when Fanficly closes. {error}",
+            Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 10));
     }
 
     /// <summary>The rows the widgets show, read from the library.</summary>
@@ -129,6 +169,13 @@ public static partial class AppHost
     public static async Task RunLaunchTasksAsync()
     {
         if (IsDemoMode) return;
+        if (LibraryOpenFailed is { } why)
+        {
+            MainWindow.Current?.ShowMessage("Couldn't open your library",
+                $"Fanficly can't save anything this time. Close other copies of Fanficly and restart it. {why}",
+                Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 20);
+            return;
+        }
         try
         {
             if (Sync.IsSyncEnabled && Sync.IsBackupAvailable && Sync.CloudBackupHasUnappliedChanges)
@@ -151,7 +198,7 @@ public static partial class AppHost
         try
         {
             Library.TrySave();
-            if (!IsDemoMode && Sync.IsSyncEnabled) Sync.Backup(Library);
+            if (!IsDemoMode && LibraryOpenFailed is null && Sync.IsSyncEnabled) Sync.Backup(Library);
             WidgetProgressStore.FlushPendingCloudWrite();
             StreakStore.FlushPendingCloudWrite();
             if (AppGroupStore.Shared is JsonFileKeyValueStore g) g.Flush();

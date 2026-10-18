@@ -46,6 +46,24 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public void BackupSaysWhetherItWroteTheFile()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        Assert.Equal(BackupOutcome.NoFolder, new LibrarySyncManager(new InMemoryKeyValueStore()).Backup(store));
+
+        var path = MakeTempBackupPath();
+        var placeholder = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.icloud");
+        _tempFiles.Add(placeholder);
+        File.WriteAllText(placeholder, "");
+        Assert.Equal(BackupOutcome.NotDownloaded, MakeSync(path).Backup(store));
+        Assert.False(File.Exists(path));
+
+        File.Delete(placeholder);
+        Assert.Equal(BackupOutcome.Written, MakeSync(path).Backup(store));
+        Assert.True(File.Exists(path));
+    }
+
+    [Fact]
     public void UpsertInsertsThenUpdates()
     {
         using var ctx = MakeContext();
