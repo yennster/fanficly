@@ -439,8 +439,15 @@ final class NonReaderAccessibilityTests: XCTestCase {
         open(tab: "stats", title: "Stats")
         assertLabeled(["Share"])
         audit("stats")
-        // The ‹ › period buttons only show for a dated period.
+        // The ‹ › period buttons only show for a dated period. At this text
+        // size the period picker is a menu (segments clip their titles).
         let week = app.buttons["Week"].firstMatch
+        if !week.waitForExistence(timeout: 2) {
+            let menu = app.buttons.matching(NSPredicate(
+                format: "label == 'Period' OR label CONTAINS 'All Time' OR value CONTAINS 'All Time'")).firstMatch
+            XCTAssertTrue(menu.waitForExistence(timeout: 3), "the period menu")
+            menu.tap()
+        }
         if week.waitForExistence(timeout: 3) { week.tap() }
         assertLabeled(["Previous week", "Next week"])
         audit("stats-week")

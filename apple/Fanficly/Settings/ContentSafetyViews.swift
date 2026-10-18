@@ -72,6 +72,7 @@ struct HiddenWorksView: View {
                             Text("Hidden \(item.hiddenAt.formatted(.relative(presentation: .named)))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
+                        .accessibilityElement(children: .combine)
                         .swipeActions {
                             Button {
                                 HiddenWorkStore.unhide(ao3Id: item.ao3Id, in: context)

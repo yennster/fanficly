@@ -11,6 +11,7 @@ struct LibraryView: View {
     @AppStorage(LibrarySort.ascendingStorageKey) private var sortAscending = LibrarySort.default.ascending
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var filter: LibraryFilter = .all
     @State private var showingCreateFolderAlert = false
     @State private var newFolderName = ""
@@ -44,8 +45,10 @@ struct LibraryView: View {
         }
     }
 
+    /// The chip row scrolls, so it also stands in for the segmented filter
+    /// (which clips "Downloaded") at accessibility text sizes.
     private var usesCompactFilterBar: Bool {
-        horizontalSizeClass == .compact
+        horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
     }
 
     private var filtered: [Work] {
@@ -124,11 +127,15 @@ struct LibraryView: View {
                             }
                             ForEach(filteredFolders) { folder in
                                 NavigationLink(value: folder) {
-                                    HStack {
+                                    // At accessibility text sizes the count goes under the name.
+                                    let rowLayout = dynamicTypeSize.isAccessibilitySize
+                                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                                        : AnyLayout(HStackLayout())
+                                    rowLayout {
                                         Image(systemName: "folder").foregroundStyle(.blue)
                                             .accessibilityHidden(true)
                                         Text(folder.name).font(.headline)
-                                        Spacer()
+                                        if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                                         let totalCount = folder.works.count
                                         let matchingCount = query.isEmpty ? totalCount : folder.works.filter { $0.matches(query: query) }.count
                                         if query.isEmpty {
@@ -143,6 +150,7 @@ struct LibraryView: View {
                                     }
                                     .padding(.vertical, 4)
                                     .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
+                                    .accessibilityElement(children: .combine)
                                 }
                                 .swipeActions(edge: .trailing) {
                                     Button(role: .destructive) {
@@ -366,6 +374,10 @@ struct LibraryRow: View {
     let work: Work
     let downloaded: Bool
     @AppStorage("library.showReadingProgress") private var showReadingProgress = true
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// At accessibility text sizes, lines that clip to one get room to wrap.
+    private var isLargeText: Bool { dynamicTypeSize.isAccessibilitySize }
 
     /// Show the first fandom, shortened from AO3's canonical form
     /// ("Harry Potter - J. K. Rowling" → "Harry Potter"), plus a count
@@ -401,7 +413,7 @@ struct LibraryRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(work.title)
                     .font(.headline)
-                    .lineLimit(2)
+                    .lineLimit(isLargeText ? 5 : 2)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 LibraryStatusBadges(
@@ -413,7 +425,7 @@ struct LibraryRow: View {
             Text("by \(work.authorName)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(isLargeText ? 3 : 1)
             if let firstFandom = work.fandoms.first {
                 HStack(spacing: 4) {
                     Image(systemName: FandomCatalog.symbol(for: firstFandom)).font(.caption2)
@@ -421,7 +433,7 @@ struct LibraryRow: View {
                     Text(fandomLabel).font(.caption)
                 }
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(isLargeText ? 3 : 1)
             }
 
             FlowLayout(spacing: 6, lineSpacing: 5) {
@@ -471,7 +483,11 @@ struct LibraryRow: View {
                 ProgressView(value: progress)
                     .tint(finished ? .green : .accentColor)
                     .scaleEffect(x: 1, y: 0.7, anchor: .center)
-                HStack(spacing: 6) {
+                // Stacked at accessibility sizes: one line truncated the date.
+                let stripLayout = isLargeText
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                    : AnyLayout(HStackLayout(spacing: 6))
+                stripLayout {
                     if finished {
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.circle.fill")
@@ -485,14 +501,14 @@ struct LibraryRow: View {
                             Text("· Ch \(chapter)")
                         }
                     }
-                    Spacer(minLength: 4)
+                    if !isLargeText { Spacer(minLength: 4) }
                     if let lastReadAt = work.lastReadAt {
                         Text(lastReadAt, format: .relative(presentation: .named))
                     }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(isLargeText ? 2 : 1)
             }
             .padding(.top, 2)
             .accessibilityElement(children: .combine)
@@ -545,6 +561,7 @@ private struct LibraryMetadataPill: View {
     let text: String
     var isFolder = false
     var isPersonalTag = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 4) {
@@ -558,7 +575,7 @@ private struct LibraryMetadataPill: View {
                     .accessibilityHidden(true)
             }
             Text(text)
-                .lineLimit(1)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
         }
         .font(.caption2)
         .foregroundStyle(isFolder ? Color.accentColor : isPersonalTag ? Color.purple : .secondary)
@@ -959,6 +976,7 @@ struct StatsView: View {
     @Query private var stats: [ReadingStat]
     @Environment(\.displayScale) private var displayScale
     @Environment(\.calendar) private var calendar
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @State private var period: StatsPeriod = .allTime
     /// A date inside the period currently shown; ‹ › moves it by one unit.
@@ -1125,10 +1143,22 @@ struct StatsView: View {
 
     private var periodControl: some View {
         VStack(spacing: Spacing.md) {
-            Picker("Period", selection: $period) {
-                ForEach(StatsPeriod.allCases) { Text($0.title).tag($0) }
+            Group {
+                // Four segments clip their titles ("All Ti…") at accessibility
+                // text sizes; a menu has room for them.
+                if dynamicTypeSize.isAccessibilitySize {
+                    Picker("Period", selection: $period) {
+                        ForEach(StatsPeriod.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Picker("Period", selection: $period) {
+                        ForEach(StatsPeriod.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
             }
-            .pickerStyle(.segmented)
             // Reset to the current period when switching granularity.
             .onChange(of: period) { _, _ in anchor = Date() }
 
@@ -1146,7 +1176,8 @@ struct StatsView: View {
                     Text(scopeTitle)
                         .font(.subheadline.weight(.semibold))
                         .monospacedDigit()
-                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
                         .minimumScaleFactor(0.8)
                     Spacer(minLength: 0)
 
@@ -1170,7 +1201,8 @@ struct StatsView: View {
             Text(scopeTitle)
                 .font(.title2.bold())
             // Adaptive grid so the four stat tiles wrap nicely on phone & iPad.
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: Spacing.md)], spacing: Spacing.md) {
+            // One tile a row at accessibility sizes, so values aren't shrunk to fit.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 280 : 150), spacing: Spacing.md)], spacing: Spacing.md) {
                 StatTile(value: "\(summary.storiesRead)",
                          label: summary.storiesRead == 1 ? "Story Finished" : "Stories Finished",
                          systemImage: "checkmark.circle")
@@ -1360,13 +1392,14 @@ private struct StatBarRow: View {
     let name: String
     let count: Int
     let fraction: Double
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xxs) {
             HStack {
                 Text(name)
                     .font(.subheadline)
-                    .lineLimit(1)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 1)
                 Spacer(minLength: Spacing.sm)
                 Text("\(count)")
                     .font(.subheadline.monospacedDigit())
@@ -1394,14 +1427,22 @@ private struct StatBarRow: View {
 private struct LibraryStatsStrip: View {
     let summary: ReadingStatsSummary
     let streak: Int
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 0) {
-            metric(value: "\(summary.storiesRead)", label: "Finished", systemImage: "checkmark.circle")
-            divider
-            metric(value: StatsView.formatDuration(summary.totalSeconds), label: "Time", systemImage: "clock")
-            divider
-            metric(value: "\(streak)", label: "Streak", systemImage: "flame")
+            // Three metrics side by side shrink to unreadable at accessibility
+            // text sizes, so they stack there.
+            let metrics = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: Spacing.sm))
+                : AnyLayout(HStackLayout(spacing: 0))
+            metrics {
+                metric(value: "\(summary.storiesRead)", label: "Finished", systemImage: "checkmark.circle")
+                divider
+                metric(value: StatsView.formatDuration(summary.totalSeconds), label: "Time", systemImage: "clock")
+                divider
+                metric(value: "\(streak)", label: "Streak", systemImage: "flame")
+            }
             Spacer(minLength: Spacing.sm)
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
@@ -1416,8 +1457,10 @@ private struct LibraryStatsStrip: View {
         .accessibilityHint("Opens the Stats tab")
     }
 
+    @ViewBuilder
     private func metric(value: String, label: String, systemImage: String) -> some View {
-        VStack(spacing: 2) {
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        VStack(alignment: stacked ? .leading : .center, spacing: 2) {
             HStack(spacing: 4) {
                 Image(systemName: systemImage)
                     .font(.caption2)
@@ -1431,13 +1474,16 @@ private struct LibraryStatsStrip: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: stacked ? .leading : .center)
     }
 
+    @ViewBuilder
     private var divider: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: 1, height: 26)
+        if !dynamicTypeSize.isAccessibilitySize {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(width: 1, height: 26)
+        }
     }
 }
 

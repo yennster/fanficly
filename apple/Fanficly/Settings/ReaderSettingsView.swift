@@ -5,6 +5,7 @@ import SwiftData
 struct ReaderSettingsView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
@@ -385,9 +386,13 @@ struct ReaderSettingsView: View {
     private func metricSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,
                               step: Double, unit: String, icon: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            // The value goes under the title at accessibility text sizes.
+            let header = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                : AnyLayout(HStackLayout())
+            header {
                 Label(title, systemImage: icon).font(.subheadline)
-                Spacer()
+                if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                 let formattedValue = step < 1.0 ? String(format: "%.1f", value.wrappedValue) : "\(Int(value.wrappedValue.rounded()))"
                 Text("\(formattedValue) \(unit)")
                     .font(.subheadline.monospacedDigit())

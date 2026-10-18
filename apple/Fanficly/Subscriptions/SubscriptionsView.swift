@@ -33,6 +33,7 @@ struct SubscriptionsView: View {
                 SubscriptionRow(sub: sub)
             }
             .buttonStyle(.plain)
+            .accessibilityHint("Opens on AO3")
         }
     }
 
@@ -167,7 +168,8 @@ struct SubscriptionRow: View {
             if !sub.authorName.isEmpty {
                 Text("by \(sub.authorName)").font(.subheadline).foregroundStyle(.secondary)
             }
-            HStack(spacing: 8) {
+            // Wraps instead of truncating at large text sizes.
+            FlowLayout(spacing: 8, lineSpacing: 4) {
                 HStack(spacing: 4) {
                     Image(systemName: icon).font(.caption2)
                         .accessibilityHidden(true)
