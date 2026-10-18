@@ -72,8 +72,9 @@ jobs:
       # bottom edge, full pages, across backgrounding, control toggles, the
       # keyboard and wide (two-page) windows. NonReaderAccessibilityTests
       # checks Library, Stats, Subscriptions and Settings at the largest text
-      # size: labeled icon buttons and Xcode's accessibility audit. The rest of FanficlyUITests
-      # (screenshots, app previews) runs from fastlane, not CI.
+      # size: labeled icon buttons, and logs Xcode's accessibility audit.
+      # The rest of FanficlyUITests (screenshots, app previews) runs from
+      # fastlane, not CI.
       # The first launch of the app on a simulator is slow on CI: once ~30 s,
       # once past XCUITest's launch timeout, failing whichever layout test
       # ran first. Boot each simulator and launch the app once (demo mode,

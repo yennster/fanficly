@@ -123,7 +123,8 @@ struct SubscriptionsView: View {
             }
         }
         .task {
-            if !hasRequestedNotifications, auth.username != nil {
+            // Not in demo mode, so screenshot and UI-test runs never get the alert.
+            if !hasRequestedNotifications, auth.username != nil, !FanficlyApp.isDemoMode {
                 hasRequestedNotifications = true
                 _ = await NotificationsAuthorization.request()
             }

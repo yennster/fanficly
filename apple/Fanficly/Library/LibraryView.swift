@@ -132,9 +132,11 @@ struct LibraryView: View {
                                         ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
                                         : AnyLayout(HStackLayout())
                                     rowLayout {
-                                        Image(systemName: "folder").foregroundStyle(.blue)
-                                            .accessibilityHidden(true)
-                                        Text(folder.name).font(.headline)
+                                        HStack {
+                                            Image(systemName: "folder").foregroundStyle(.blue)
+                                                .accessibilityHidden(true)
+                                            Text(folder.name).font(.headline)
+                                        }
                                         if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                                         let totalCount = folder.works.count
                                         let matchingCount = query.isEmpty ? totalCount : folder.works.filter { $0.matches(query: query) }.count
@@ -1177,7 +1179,7 @@ struct StatsView: View {
                         .font(.subheadline.weight(.semibold))
                         .monospacedDigit()
                         .multilineTextAlignment(.center)
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         .minimumScaleFactor(0.8)
                     Spacer(minLength: 0)
 
@@ -1442,8 +1444,10 @@ private struct LibraryStatsStrip: View {
                 metric(value: StatsView.formatDuration(summary.totalSeconds), label: "Time", systemImage: "clock")
                 divider
                 metric(value: "\(streak)", label: "Streak", systemImage: "flame")
+                // Inside the layout, so the metrics and the spacer share the
+                // width four ways as before; stacked, the metrics fill it.
+                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: Spacing.sm) }
             }
-            Spacer(minLength: Spacing.sm)
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)

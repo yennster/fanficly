@@ -444,7 +444,7 @@ final class NonReaderAccessibilityTests: XCTestCase {
         let week = app.buttons["Week"].firstMatch
         if !week.waitForExistence(timeout: 2) {
             let menu = app.buttons.matching(NSPredicate(
-                format: "label == 'Period' OR label CONTAINS 'All Time' OR value CONTAINS 'All Time'")).firstMatch
+                format: "label == 'Period' OR label CONTAINS 'All Time'")).firstMatch
             XCTAssertTrue(menu.waitForExistence(timeout: 3), "the period menu")
             menu.tap()
         }

@@ -290,9 +290,12 @@ struct ReaderSettingsView: View {
                 .help("Select a voice for reading aloud.")
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
+                    let header = dynamicTypeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                        : AnyLayout(HStackLayout())
+                    header {
                         Label("Speaking rate", systemImage: "speedometer").font(.subheadline)
-                        Spacer()
+                        if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                         Text(String(format: "%.1f×", ttsRate / Double(SpeechController.defaultRate)))
                             .font(.subheadline.monospacedDigit())
                             .foregroundStyle(.secondary)

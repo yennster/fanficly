@@ -181,7 +181,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Move types verbatim to their own files. This needs `xcodegen generate` and a committed `.xcodeproj`, which is why it isn't done in passing. Do it as the only change in the PR, with no behavior edits.
 
 ### RM-019 — Accessibility audit of non-reader screens
-- **Status:** open · **Size:** S per screen · **Validation:** mac
+- **Status:** done · **Size:** S per screen · **Validation:** mac
 - **Scope:** Walk Library, Stats, Subscriptions and Settings at the largest Dynamic Type size and with VoiceOver; fix truncation and unlabeled controls; add a UI test that asserts labels on a screen's icon-only buttons. One screen per PR.
 
 ### RM-021 — Shift-⌘ +/− to change the Mac UI size
