@@ -14,7 +14,8 @@ namespace Fanficly.App.Views.Library;
 /// One custom folder (FolderDetailView): its stories, sorted by the shared
 /// sort menu atop the list and searchable (starting from the Library's search
 /// text). Edit switches to multi-select, with "Remove (n)" taking the chosen
-/// stories out of the folder. Keys: Enter opens, Delete removes from the
+/// stories out of the folder. Download All saves every story not yet
+/// downloaded, through <see cref="RestoreDownloadCenter"/>'s queue. Keys: Enter opens, Delete removes from the
 /// folder, Ctrl+A selects all while selecting, Esc leaves selection, F2
 /// renames the folder, Ctrl+F searches.
 /// </summary>
@@ -129,6 +130,21 @@ public sealed class FolderScreen : Screen
     {
         var folder = Folder;
         if (folder is null || (folder.Works.Count == 0 && !_selecting)) yield break;
+        if (!_selecting)
+        {
+            // Download All (RM-010): every story here without an EPUB, one at a time.
+            var count = DownloadCandidates(folder).Count;
+            var downloadAll = UI.UI.ToolbarButton("arrow.down.circle", "Download All", () => _ = DownloadAllAsync(), showLabel: true);
+            downloadAll.IsEnabled = count > 0 && RestoreDownloadCenter.Shared.Progress is null;
+            AutomationProperties.SetAutomationId(downloadAll, "folder.downloadAll");
+            AutomationProperties.SetHelpText(downloadAll, count == 0
+                ? "Every story in this folder is already downloaded."
+                : $"Saves {count} {(count == 1 ? "story" : "stories")} for offline reading, one at a time.");
+            ToolTipService.SetToolTip(downloadAll, count == 0
+                ? "Every story here is downloaded"
+                : "Download every story in this folder for offline reading");
+            yield return downloadAll;
+        }
         var edit = UI.UI.ToolbarButton(_selecting ? "checkmark" : "checklist", _selecting ? "Done" : "Edit", ToggleSelecting, showLabel: true);
         AutomationProperties.SetAutomationId(edit, "folder.edit");
         ToolTipService.SetToolTip(edit, _selecting ? "Done selecting" : "Select stories to remove");
@@ -146,6 +162,24 @@ public sealed class FolderScreen : Screen
         delete.Foreground = Theme.Danger;
         AutomationProperties.SetAutomationId(delete, "folder.delete");
         yield return delete;
+    }
+
+    /// <summary>The folder's stories without an EPUB, in on-screen order.</summary>
+    private static IReadOnlyList<int> DownloadCandidates(CustomFolder folder) =>
+        RestoreDownloadCenter.FolderDownloadCandidates(
+            LibrarySortMenu.Current.Sorted(folder.Works.OrderByDescending(w => w.SavedAt)));
+
+    private async Task DownloadAllAsync()
+    {
+        if (Folder is not { } folder) return;
+        var ids = DownloadCandidates(folder);
+        if (ids.Count == 0 || RestoreDownloadCenter.Shared.IsDownloading) return;
+        var ok = await Dialogs.ConfirmAsync(
+            $"Download {ids.Count} {(ids.Count == 1 ? "story" : "stories")} for offline reading?",
+            "Stories download one at a time. You can cancel anytime, and the ones already downloaded stay.",
+            "Download");
+        if (!ok) return;
+        _ = RestoreDownloadCenter.Shared.StartFolderDownload(AppHost.Client, Store, ids);
     }
 
     private void ToggleSelecting()
@@ -192,6 +226,7 @@ public sealed class FolderScreen : Screen
         Store.Changed += OnStoreChanged;
         LibrarySortMenu.Changed += ScheduleRebuild;
         LibraryActions.FilesChanged += ScheduleRebuild;
+        RestoreDownloadCenter.Shared.PropertyChanged += OnDownloadsChanged;
     }
 
     private void Unsubscribe()
@@ -201,6 +236,18 @@ public sealed class FolderScreen : Screen
         Store.Changed -= OnStoreChanged;
         LibrarySortMenu.Changed -= ScheduleRebuild;
         LibraryActions.FilesChanged -= ScheduleRebuild;
+        RestoreDownloadCenter.Shared.PropertyChanged -= OnDownloadsChanged;
+    }
+
+    /// <summary>Each finished download refreshes the rows' Downloaded badges
+    /// and the Download All button.</summary>
+    private void OnDownloadsChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(RestoreDownloadCenter.Progress)) return;
+        var queue = MainWindow.Current?.DispatcherQueue;
+        if (queue is null) return;
+        if (queue.HasThreadAccess) ScheduleRebuild();
+        else queue.TryEnqueue(ScheduleRebuild);
     }
 
     private void OnStoreChanged(LibraryEntityKinds kinds)
@@ -284,14 +331,15 @@ public sealed class FolderScreen : Screen
         RefreshChromeIfNeeded();
     }
 
-    private (bool Exists, bool HasWorks, bool Selecting, string Name) _chromeState;
+    private (bool Exists, bool HasWorks, bool Selecting, string Name, int ToDownload, bool Downloading) _chromeState;
 
     /// <summary>Redraws the toolbar only when what it shows changed (rebuilding
     /// it on every refresh would take focus off its buttons).</summary>
     private void RefreshChromeIfNeeded()
     {
         var folder = Folder;
-        var state = (folder is not null, folder is { Works.Count: > 0 }, _selecting, _folderName);
+        var state = (folder is not null, folder is { Works.Count: > 0 }, _selecting, _folderName,
+            folder is null ? 0 : DownloadCandidates(folder).Count, RestoreDownloadCenter.Shared.Progress is not null);
         if (state == _chromeState) return;
         _chromeState = state;
         InvalidateChrome();

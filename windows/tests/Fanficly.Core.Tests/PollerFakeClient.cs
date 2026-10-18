@@ -12,9 +12,11 @@ internal sealed class PollerFakeClient : IAO3Client
     public Dictionary<int, int> ChapterCounts { get; } = new();
     /// <summary>Works pages by author username; a missing author fails the fetch.</summary>
     public Dictionary<string, IReadOnlyList<AO3WorkSummary>> AuthorWorks { get; } = new();
+    /// <summary>Full works by id for <see cref="FetchWorkAsync"/>; a missing id fails the fetch.</summary>
+    public Dictionary<int, AO3WorkPayload> Works { get; } = new();
     /// <summary>Work ids whose EPUB download fails.</summary>
     public HashSet<int> FailingDownloads { get; } = [];
-    /// <summary>Every metadata/author/download request, in order ("work:1", "author:x", "epub:3").</summary>
+    /// <summary>Every metadata/author/fetch/download request, in order ("work:1", "author:x", "fetch:2", "epub:3").</summary>
     public List<string> Requests { get; } = [];
     /// <summary>Called after each request is logged (tests use it to cancel mid-run).</summary>
     public Action<string>? OnRequest { get; set; }
@@ -58,7 +60,13 @@ internal sealed class PollerFakeClient : IAO3Client
     public Task<string?> CurrentUsernameAsync() => Task.FromResult<string?>(null);
     public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => throw new NotSupportedException();
-    public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default)
+    {
+        Log($"fetch:{id}");
+        return Works.TryGetValue(id, out var payload)
+            ? Task.FromResult(payload)
+            : Task.FromException<AO3WorkPayload>(AO3Exception.Http(404));
+    }
     public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default) => throw new NotSupportedException();
