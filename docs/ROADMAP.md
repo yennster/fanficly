@@ -158,6 +158,21 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** the tests pass in CI at the desktop and compact sizes, and CI uploads their screenshots.
 - **Touches:** `windows/tests/Fanficly.UITests/`, `.github/workflows/windows-ci.yml` (one new step; ask first).
 
+### RM-112 — Marked for Later section
+- **Status:** open · **Size:** M · **Validation:** unit + windows
+- **Why:** On the AO3 website a signed-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app. The Apple app's item is RM-023 on `main`; keep the two the same in name and behavior.
+- **Scope:**
+  - Add `FetchMarkedForLaterAsync(username, page)` to `IAO3Client` for `/users/<name>/readings?show=to-read`, with an endpoint builder next to `UserBookmarks`. Reuse `SearchResultsParser` with the readings page's blurb selector, as `FetchBookmarksAsync` does.
+  - Add a sign-in-gated "Marked for Later" tab built like `BookmarksScreen`: paginated, content filter applied, rows open the live work page.
+  - Add the `SidebarItem` case with the same raw value the Swift app uses (`app.selectedTabRaw` is shared), its title, icon and Ctrl+number shortcut, and list the shortcut in `ShortcutsScreen`.
+  - Read-only: adding or removing a mark is a later item.
+- **Open question:** confirm the readings page's markup (blurb class, where the work id lives) from a real saved page before writing the fixture; don't guess it. If RM-023 lands first, use its fixture.
+- **Done when:**
+  - `SearchResultsParserTests` cover a real-page fixture (works listed, empty list, sign-in page fails closed) and `AO3EndpointsTests` cover the URL and paging.
+  - `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` support the new method.
+  - The PR lists what to check on Windows: the tab signed out (sign-in prompt) and signed in.
+- **Touches:** `windows/src/Fanficly.Core/Networking/{IAO3Client,AO3Client,AO3Endpoints,MockAO3Client}.cs`, `Demo/DemoAO3Client.cs`, `Settings/SidebarItem.cs`, `windows/src/Fanficly.App/Shell/SidebarItem.cs`, `Views/Account/BookmarksScreen.cs` (pattern), `windows/tests/Fanficly.Core.Tests/`.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find followed works from Windows Search
