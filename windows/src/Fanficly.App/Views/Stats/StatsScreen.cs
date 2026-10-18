@@ -117,13 +117,15 @@ public sealed class StatsScreen : Screen
         };
 
         _prev = UI.UI.IconButton("chevron.left", "Previous", () => Page(-1));
-        _prev.Width = 44;
+        // MinWidth, not Width: the chevron grows with Windows' text size.
+        _prev.MinWidth = 44;
         AutomationProperties.SetAutomationId(_prev, "stats.prev");
         _next = UI.UI.IconButton("chevron.right", "Next", () => Page(1));
-        _next.Width = 44;
+        _next.MinWidth = 44;
         AutomationProperties.SetAutomationId(_next, "stats.next");
-        _pagerTitle = UI.UI.Text("", Theme.Style.Subheadline, wrap: false);
+        _pagerTitle = UI.UI.Text("", Theme.Style.Subheadline, maxLines: UI.UI.LineLimit(1));
         _pagerTitle.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        _pagerTitle.TextAlignment = TextAlignment.Center;
         _pagerTitle.HorizontalAlignment = HorizontalAlignment.Center;
         _pagerTitle.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetLiveSetting(_pagerTitle, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
@@ -386,7 +388,10 @@ public sealed class StatsScreen : Screen
         valueText.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
         var stack = UI.UI.VStack(4,
             UI.UI.Icon(symbol, 18, Theme.Accent).Also(i => i.HorizontalAlignment = HorizontalAlignment.Left),
-            new Viewbox { Child = valueText, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left, Height = 34 },
+            // The value shrinks only to fit the tile's width (SwiftUI's
+            // minimumScaleFactor); its height grows with Windows' text size, so
+            // large text isn't scaled back down to the default size.
+            new Viewbox { Child = valueText, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left, Height = 34 * UI.UI.TextScale },
             UI.UI.Caption(label));
         var card = new Border
         {
@@ -412,7 +417,7 @@ public sealed class StatsScreen : Screen
     private static FrameworkElement BarRow(ReadingTagCount item, double fraction)
     {
         var top = UI.UI.Grid("*,Auto", columnSpacing: 8);
-        top.Children.Add(UI.UI.Text(item.Name, Theme.Style.Subheadline, wrap: false).Col(0));
+        top.Children.Add(UI.UI.Text(item.Name, Theme.Style.Subheadline, maxLines: UI.UI.LineLimit(1)).Col(0));
         top.Children.Add(UI.UI.Secondary(item.Count.ToString(CultureInfo.CurrentCulture)).Col(1));
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, Value = Math.Max(0.02, fraction), MinHeight = 6, CornerRadius = new CornerRadius(3) };
         return new AccessibleGroup($"{item.Name}, {item.Count} {(item.Count == 1 ? "story" : "stories")}", UI.UI.VStack(4, top, bar));

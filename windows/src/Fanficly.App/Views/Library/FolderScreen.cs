@@ -299,7 +299,7 @@ public sealed class FolderScreen : Screen
 
     private void UpdateRemoveButton()
     {
-        _removeSelected.Content = UI.UI.Label("folder.badge.minus", $"Remove ({_selected.Count})", foreground: Theme.Danger, spacing: 6);
+        _removeSelected.Content = UI.UI.Label("folder.badge.minus", $"Remove ({_selected.Count})", foreground: Theme.Danger, spacing: 6, maxLines: UI.UI.LineLimit(1));
         AutomationProperties.SetName(_removeSelected, $"Remove {_selected.Count} from folder");
         _removeSelected.IsEnabled = _selected.Count > 0;
     }

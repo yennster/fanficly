@@ -156,6 +156,11 @@ internal static class SettingsKit
         var plus = UI.UI.IconButton("plus.circle", $"Increase {title}", () =>
             slider.Value = Math.Min(range.Max, Math.Round((slider.Value + step) / step) * step));
         AutomationProperties.SetHelpText(plus, $"Increases {title.ToLowerInvariant()} by {stepText} {unit}");
+        if (automationId is not null)
+        {
+            AutomationProperties.SetAutomationId(minus, $"{automationId}.decrease");
+            AutomationProperties.SetAutomationId(plus, $"{automationId}.increase");
+        }
 
         slider.ValueChanged += (_, e) =>
         {

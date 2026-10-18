@@ -179,7 +179,7 @@ public static class ContentSafetyViews
 
         var email = new HyperlinkButton
         {
-            Content = UI.UI.Text("Email the developer", Theme.Style.Subheadline, Theme.Accent, wrap: false),
+            Content = UI.UI.Text("Email the developer", Theme.Style.Subheadline, Theme.Accent),
             NavigateUri = FeedbackMailto,
             Padding = new Thickness(0, 4, 0, 4),
             Margin = new Thickness(0, 4, 0, 0),

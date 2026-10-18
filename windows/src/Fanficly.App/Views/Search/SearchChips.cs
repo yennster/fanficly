@@ -134,7 +134,7 @@ internal static class SearchChips
     public static Button SuggestionButton(SuggestionCandidate candidate, Action onApply)
     {
         var s = candidate.Suggestion;
-        var content = UI.UI.Label(s.SystemImage, s.Label, Theme.Style.Subheadline, Theme.Accent, spacing: 6);
+        var content = UI.UI.Label(s.SystemImage, s.Label, Theme.Style.Subheadline, Theme.Accent, spacing: 6, maxLines: UI.UI.LineLimit(1));
         var button = new Button
         {
             Content = content,

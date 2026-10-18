@@ -62,7 +62,7 @@ public sealed class ShortcutsScreen : Screen
         grid.Children.Add(UI.UI.Text(action).Also(t => t.VerticalAlignment = VerticalAlignment.Center).Col(0));
         var keyCap = new Border
         {
-            Child = UI.UI.Text(keys, Theme.Style.Subheadline, wrap: false),
+            Child = UI.UI.Text(keys, Theme.Style.Subheadline),
             Background = Theme.SubtleFill,
             BorderBrush = Theme.CardStroke,
             BorderThickness = new Thickness(1),
@@ -70,7 +70,9 @@ public sealed class ShortcutsScreen : Screen
             Padding = new Thickness(8, 2, 8, 3),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        grid.Children.Add(keyCap.Col(1));
+        // At most 45 % of the row: at large text sizes a long key cap
+        // ("Ctrl+Left / Ctrl+Right") wraps instead of squeezing its action.
+        grid.Children.Add(keyCap.MaxWidthOf(grid, 0.45).Col(1));
         return grid;
     }
 }
