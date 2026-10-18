@@ -124,7 +124,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Models/Work.swift`, `Library/LibraryView.swift`, `Library/iCloudSyncManager.swift`.
 
 ### RM-010 — Bulk download for a folder
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** Offline reading before a flight means tapping download on each work.
 - **Scope:** "Download all" on a custom folder, reusing the sequential, cancellable queue pattern from `RestoreDownloadCenter` (candidates: works with no `WorkPersistence.epubURL`). Progress banner, cancel keeps what finished. The 1 req/sec throttle paces it; no parallelism.
 - **Done when:** the candidate selection and progress bookkeeping are pure and tested; cancelling mid-run keeps finished downloads.

@@ -829,6 +829,63 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx), [987654321])
     }
 
+    /// A folder's "Download All" queues the stories without an EPUB, in the
+    /// folder's on-screen order, each once.
+    func test_folderDownloadCandidatesSkipDownloadedKeepOrder() throws {
+        let ctx = try makeContext()
+        let works = [3, 1, 2, 1].map { Work(ao3Id: $0, title: "W\($0)", authorName: "A") }
+        works.forEach(ctx.insert)
+        let ids = RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { $0 == 2 })
+        XCTAssertEqual(ids, [3, 1])
+        XCTAssertEqual(RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { _ in true }), [])
+    }
+
+    func test_downloadProgressBookkeeping() {
+        let start = RestoreDownloadCenter.Progress(done: 0, failed: 0, total: 3, finished: false)
+        let tally = start.recording(succeeded: true).recording(succeeded: false).recording(succeeded: true)
+        XCTAssertEqual(tally, .init(done: 2, failed: 1, total: 3, finished: false))
+        XCTAssertEqual(tally.finishing(), .init(done: 2, failed: 1, total: 3, finished: true))
+    }
+
+    @MainActor
+    private final class QueueRecorder {
+        var attempted: [Int] = []
+        var downloaded: [Int] = []
+        var reports: [RestoreDownloadCenter.Progress] = []
+    }
+
+    /// A failed story is counted and skipped; the rest still download.
+    func test_downloadQueueSkipsFailures() async {
+        let rec = QueueRecorder()
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+            rec.attempted.append(id)
+            if id == 2 { throw URLError(.badServerResponse) }
+            rec.downloaded.append(id)
+        }, report: { rec.reports.append($0) })
+        XCTAssertEqual(rec.attempted, [1, 2, 3])
+        XCTAssertEqual(rec.downloaded, [1, 3])
+        XCTAssertEqual(rec.reports.count, 3)
+        XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
+    }
+
+    /// Cancelling mid-run stops before the next story and undoes nothing:
+    /// the stories that finished stay downloaded.
+    func test_downloadQueueCancelKeepsFinished() async {
+        let rec = QueueRecorder()
+        let task = Task { @MainActor in
+            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+                rec.attempted.append(id)
+                rec.downloaded.append(id)
+                if id == 2 { withUnsafeCurrentTask { $0?.cancel() } }
+            }, report: { rec.reports.append($0) })
+        }
+        let result = await task.value
+        XCTAssertNil(result)
+        XCTAssertEqual(rec.attempted, [1, 2])
+        XCTAssertEqual(rec.downloaded, [1, 2])
+        XCTAssertEqual(rec.reports, [.init(done: 1, failed: 0, total: 3, finished: false)])
+    }
+
     /// Restore's stat merge must keep totalSeconds == Σ daySeconds: per-day
     /// maxima from two devices (iPhone read Monday, iPad Tuesday) sum past
     /// either device's own total, and taking only max(totals) left All Time
