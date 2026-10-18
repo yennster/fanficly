@@ -331,15 +331,19 @@ public sealed class FolderScreen : Screen
         RefreshChromeIfNeeded();
     }
 
-    private (bool Exists, bool HasWorks, bool Selecting, string Name, int ToDownload, bool Downloading) _chromeState;
+    private (bool Exists, bool HasWorks, bool Selecting, string Name, bool CanDownload, int ToDownload) _chromeState;
 
     /// <summary>Redraws the toolbar only when what it shows changed (rebuilding
     /// it on every refresh would take focus off its buttons).</summary>
     private void RefreshChromeIfNeeded()
     {
         var folder = Folder;
+        // While a run goes the button is disabled, so the shrinking count
+        // doesn't redraw the toolbar (and take focus) after every story.
+        var downloading = RestoreDownloadCenter.Shared.Progress is not null;
+        var toDownload = downloading || folder is null ? 0 : DownloadCandidates(folder).Count;
         var state = (folder is not null, folder is { Works.Count: > 0 }, _selecting, _folderName,
-            folder is null ? 0 : DownloadCandidates(folder).Count, RestoreDownloadCenter.Shared.Progress is not null);
+            !downloading && toDownload > 0, toDownload);
         if (state == _chromeState) return;
         _chromeState = state;
         InvalidateChrome();

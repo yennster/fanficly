@@ -305,4 +305,23 @@ public sealed class SubscriptionPollerTests
         Assert.False(center.IsDownloading);
         Assert.Null(center.Progress);
     }
+
+    /// <summary>A story removed from the library before its turn is skipped:
+    /// no request, no EPUB, and it doesn't come back.</summary>
+    [Fact]
+    public async Task FolderDownloadSkipsWorksRemovedMidRun()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var gone = new Work(987680001, "Gone", "A");
+        store.Insert(gone);
+        store.Save();
+        store.Delete(gone);
+        store.Save();
+
+        var client = new PollerFakeClient();
+        await RestoreDownloadCenter.SaveOfflineAsync(client, store, 987680001);
+
+        Assert.Empty(client.Requests);
+        Assert.Null(store.GetWork(987680001));
+    }
 }

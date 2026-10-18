@@ -122,7 +122,6 @@ public static class RestoreBanner
         var group = new AccessibleGroup("", UI.UI.VStack(4, title, bar));
         var cancel = UI.UI.Button("Cancel", () => Center.Cancel());
         cancel.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-
         AutomationProperties.SetAutomationId(cancel, "restore.cancel");
 
         var grid = UI.UI.Grid("Auto,*,Auto", columnSpacing: 12);

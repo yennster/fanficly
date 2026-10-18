@@ -106,7 +106,7 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
         if (ids.Count == 0 || _downloadCts is not null) return Task.CompletedTask;
         ProposedIds = null;
         _lastProposal = [];
-        return Start(ids, DownloadKind.Restore, async (id, ct) => await client.DownloadEpubAsync(id, ct));
+        return Start(ids, DownloadKind.Restore, (id, ct) => client.DownloadEpubAsync(id, ct));
     }
 
     // MARK: - Folder "Download All"
@@ -133,10 +133,14 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
     /// when none is stored yet (so it reads offline in the app), then the EPUB.</summary>
     public static async Task SaveOfflineAsync(IAO3Client client, LibraryStore store, int workId, CancellationToken ct = default)
     {
-        if (store.GetWork(workId) is { } work && store.ChaptersOf(work).Count == 0)
+        // Removed from the library mid-run: nothing to save it for.
+        if (store.GetWork(workId) is not { } work) return;
+        if (store.ChaptersOf(work).Count == 0)
         {
             var payload = await client.FetchWorkAsync(workId, ct);
             ct.ThrowIfCancellationRequested();
+            // Deleted while its fetch waited: don't bring it back.
+            if (!work.IsInserted) return;
             WorkPersistence.Upsert(payload, store);
             LibrarySyncManager.QueueBackupShared(store);
         }
