@@ -23,6 +23,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
   - All, Starred, Downloaded and Folders, with folders, sorting, pins and stars;
   - offline EPUB downloads and sharing;
   - a reading-stats strip that opens the Stats tab.
+  - export and import of the whole library as a file (Settings → Sync), in the Apple app's format.
 - **History, authors and account:**
   - Recently Viewed, followed authors, and an author's works page with a Follow button.
   - AO3 sign-in, Bookmarks, and Subscriptions, which shows AO3 subscriptions alongside local follows.

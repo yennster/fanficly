@@ -746,7 +746,8 @@ public sealed class PersistenceTests : IDisposable
 
     /// <summary>Importing a file exported earlier, after reading further, never
     /// moves progress backwards: the reading position, the work's last-read
-    /// chapter and the stat's furthest progress all keep the newer values.</summary>
+    /// chapter, the stat's furthest progress and a subscription's notification
+    /// baseline all keep the newer values.</summary>
     [Fact]
     public void ImportingOlderLibraryFileNeverMovesProgressBackwards()
     {
@@ -759,6 +760,7 @@ public sealed class PersistenceTests : IDisposable
         old.Insert(new ReadingProgress(1, 2, 3, "T", "A", earlier));
         old.Insert(new ReadingStat(1, "T", "A", firstReadAt: earlier, lastReadAt: earlier, totalSeconds: 100,
             daySeconds: new Dictionary<string, double> { ["2026-09-21"] = 100 }, maxProgress: 0.2));
+        old.Insert(new SubscriptionRecord("work:1", "work", "T", "A") { LastSeenChapterCount = 2, LastCheckedAt = earlier });
         old.Save();
         var file = MakeFileSync().ExportLibraryFile(old);
 
@@ -768,6 +770,7 @@ public sealed class PersistenceTests : IDisposable
         device.Insert(new ReadingProgress(1, 7, 0, "T", "A", later));
         device.Insert(new ReadingStat(1, "T", "A", firstReadAt: earlier, lastReadAt: later, totalSeconds: 900,
             daySeconds: new Dictionary<string, double> { ["2026-09-21"] = 100, ["2026-09-22"] = 800 }, maxProgress: 0.7));
+        device.Insert(new SubscriptionRecord("work:1", "work", "T", "A") { LastSeenChapterCount = 7, LastCheckedAt = later });
         device.Save();
 
         MakeFileSync().ImportLibraryFile(file, device);
@@ -782,6 +785,9 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(0.7, stat.MaxProgress, 3);
         Assert.Equal(900, stat.TotalSeconds, 3);
         Assert.Equal(later, stat.LastReadAt);
+        var sub = device.GetSubscription("work:1")!;
+        Assert.Equal(7, sub.LastSeenChapterCount); // an old file must not re-fire chapter alerts
+        Assert.Equal(later, sub.LastCheckedAt);
     }
 
     /// <summary>A file that isn't a library backup is refused and changes nothing.</summary>

@@ -149,7 +149,7 @@ public sealed class SyncSettingsScreen : Screen
                 automationId: "settings.sync.importFile").Also(b => b.IsEnabled = !_isRestoring),
         };
         return UI.UI.Section("Library file", rows,
-            footer: "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly on an iPhone, iPad or Mac. Importing adds to your library and never moves reading progress backwards.");
+            footer: "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly on an iPhone, iPad or Mac. Importing adds the file's works to your library without moving reading progress backwards, and uses the file's reader and content settings.");
     }
 
     /// <summary>The cloud services this PC syncs (<see cref="SyncFolderSuggestions"/>).</summary>
@@ -374,7 +374,6 @@ public sealed class SyncSettingsScreen : Screen
     {
         try
         {
-            var data = Sync.ExportLibraryFile(AppHost.Library);
             var picker = new FileSavePicker
             {
                 SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
@@ -385,6 +384,8 @@ public sealed class SyncSettingsScreen : Screen
             WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(MainWindow.Current));
             var file = await picker.PickSaveFileAsync();
             if (file is null) return;
+            // Every saved chapter's text: build it off the UI thread.
+            var data = await Task.Run(() => Sync.ExportLibraryFile(AppHost.Library));
             await FileIO.WriteBytesAsync(file, data);
             MainWindow.Current.ShowMessage("Library Exported", file.Name);
         }
@@ -418,29 +419,33 @@ public sealed class SyncSettingsScreen : Screen
         _isRestoring = true;
         Render();
         MainWindow.Current.Announce("Importing library");
-        bool success;
+        string? failure = null;
         try
         {
             var data = (await FileIO.ReadBufferAsync(file)).ToArray();
             // Off the UI thread, as a restore runs.
             await Task.Run(() => Sync.ImportLibraryFile(data, AppHost.Library));
-            success = true;
+        }
+        catch (System.Text.Json.JsonException e)
+        {
+            AppHost.Log($"Library import failed: {e.Message}");
+            failure = "That file couldn't be read as a Fanficly library file. Nothing was changed.";
         }
         catch (Exception e)
         {
             AppHost.Log($"Library import failed: {e.Message}");
-            success = false;
+            failure = "The library couldn't be saved. Fanficly will keep trying to save what was imported; check that the file is still there and try again if anything is missing.";
         }
         _isRestoring = false;
         Render();
-        if (success)
+        if (failure is null)
         {
             RestoreDownloadCenter.Shared.ProposeRedownload(AppHost.Library);
-            await Dialogs.AlertAsync("Library Imported", "The file's works, reading progress, stats and settings have been added to your library.");
+            await Dialogs.AlertAsync("Library Imported", "The file's works, reading progress and stats have been added to your library, and its settings applied.");
         }
         else
         {
-            await Dialogs.AlertAsync("Import Failed", "That file couldn't be read as a Fanficly library file. Nothing was changed.");
+            await Dialogs.AlertAsync("Import Failed", failure);
         }
     }
 

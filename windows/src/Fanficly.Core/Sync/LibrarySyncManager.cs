@@ -560,8 +560,11 @@ public sealed class LibrarySyncManager
                 existing.Kind = sub.Kind;
                 existing.DisplayName = sub.DisplayName;
                 existing.AuthorName = sub.AuthorName;
-                existing.LastSeenChapterCount = sub.LastSeenChapterCount;
-                existing.LastCheckedAt = sub.LastCheckedAt;
+                // The notification baseline only advances (as for works): an
+                // older backup or library file must not re-fire alerts.
+                if (sub.LastSeenChapterCount is { } seen)
+                    existing.LastSeenChapterCount = Math.Max(existing.LastSeenChapterCount ?? 0, seen);
+                existing.LastCheckedAt = Later(existing.LastCheckedAt, sub.LastCheckedAt);
             }
             else
             {
