@@ -1019,6 +1019,7 @@ public sealed class SearchScreen : Screen
         AO3Exception { Kind: AO3ErrorKind.ParseFailed } e => $"Couldn't read AO3's response: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.Network } e => $"Network: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.RateLimited } => "AO3 is asking us to slow down. Try again in a minute.",
+        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "AO3 sent its login page instead of results. Log in again in Settings, then try again.",
         _ => error.Message,
     };
 

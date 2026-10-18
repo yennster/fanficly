@@ -194,6 +194,59 @@ public class WorkPageParserTests
         var payload = WorkPageParser.Parse(Html, workId: 12345);
         Assert.Null(payload.Chapters[0].AoId);
     }
+
+    // Failing closed (RM-001)
+
+    /// <summary>A real work page whose only chapter has no text still parses: the
+    /// guest header's login form doesn't make it the login page.</summary>
+    [Fact]
+    public void GuestWorkPageWithEmptyChapterParses()
+    {
+        var html = AO3PageFixtures.GuestPage("works-show", """
+            <div class="wrapper"><dl class="work meta group">
+              <dt class="rating tags">Rating:</dt><dd class="rating tags"><ul class="commas"><li><a class="tag" href="/tags/General%20Audiences/works">General Audiences</a></li></ul></dd>
+            </dl></div>
+            <div id="workskin">
+              <div class="preface group"><h2 class="title heading">Blank Page</h2></div>
+              <div id="chapters" role="article"><div class="userstuff"></div></div>
+            </div>
+            """);
+        var payload = WorkPageParser.Parse(html, 7);
+        Assert.Equal("Blank Page", payload.Summary.Title);
+        Assert.Equal("General Audiences", payload.Summary.Rating);
+    }
+
+    [Fact]
+    public void RestrictedWorkLoginPageThrowsUnauthorized()
+    {
+        var e = Assert.Throws<AO3Exception>(() => WorkPageParser.Parse(AO3PageFixtures.LoginPage, 7));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        e = Assert.Throws<AO3Exception>(() => WorkPageParser.ParseChapterPage(AO3PageFixtures.LoginPage, 7));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    public static TheoryData<string> GarbagePages =>
+    [
+        AO3PageFixtures.ErrorPage,
+        AO3PageFixtures.ForeignPage,
+        AO3PageFixtures.GuestPage("works-show", """
+            <p class="caution notice">This work could have adult content. If you continue, you have agreed that you are willing to see such content.</p>
+            <ul class="actions"><li><a href="/works/7?view_adult=true">Yes, Continue</a></li></ul>
+            """),
+    ];
+
+    /// <summary>Anything without the work's markup (an error page, a foreign page,
+    /// the adult gate) would otherwise parse to an untitled work with no chapters
+    /// and overwrite a saved copy.</summary>
+    [Theory]
+    [MemberData(nameof(GarbagePages))]
+    public void GarbagePageThrowsParseFailed(string html)
+    {
+        var e = Assert.Throws<AO3Exception>(() => WorkPageParser.Parse(html, 7));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+        e = Assert.Throws<AO3Exception>(() => WorkPageParser.ParseChapterPage(html, 7));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
 }
 
 public class CommentsParserTests
