@@ -256,3 +256,30 @@ struct BlockedTermsView: View {
         iCloudSyncManager.shared.queueBackup(context: context)
     }
 }
+
+/// "Nothing to show" for a result list whose loaded rows are all filtered out
+/// (hidden, blocked or Mature). Infinite scroll only fires from a visible
+/// row, so when more pages remain this offers them with a button instead of
+/// leaving a dead end.
+struct FilteredOutView: View {
+    let message: String
+    let canLoadMore: Bool
+    let isLoadingMore: Bool
+    let loadMore: @MainActor () async -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Nothing to show", systemImage: "eye.slash")
+        } description: {
+            Text(message)
+        } actions: {
+            if canLoadMore {
+                if isLoadingMore {
+                    ProgressView()
+                } else {
+                    Button("Load more results") { Task { await loadMore() } }
+                }
+            }
+        }
+    }
+}

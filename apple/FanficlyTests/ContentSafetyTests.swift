@@ -121,6 +121,17 @@ final class ContentSafetyTests: XCTestCase {
         XCTAssertEqual(ContentFilter.apply(works, hiddenIds: [], filterMature: false, blocklist: blocklist).map(\.id), [3])
     }
 
+    func test_blockedAuthorMatchesAnyCoAuthor() {
+        let works = [
+            tagged(id: 1, author: "First, Second Pseud (second)", login: "first"),
+            tagged(id: 2, author: "First, Third", login: "first"),
+        ]
+        XCTAssertEqual(ContentFilter.apply(works, hiddenIds: [], filterMature: false,
+                                           blocklist: Blocklist(tags: [String](), authors: ["second"])).map(\.id), [2])
+        XCTAssertEqual(ContentFilter.apply(works, hiddenIds: [], filterMature: false,
+                                           blocklist: Blocklist(tags: [String](), authors: ["Third"])).map(\.id), [1])
+    }
+
     func test_blocklistWithNoMatchKeepsEverything() {
         let works = [tagged(id: 1, freeforms: ["Fluff"]), tagged(id: 2, login: "writer")]
         let blocklist = Blocklist(tags: ["Angst"], authors: ["nobody"])
@@ -146,6 +157,18 @@ final class ContentSafetyTests: XCTestCase {
         filters.creators = "Writer"
         XCTAssertEqual(ContentFilter.apply(works, hiddenIds: [], filterMature: false,
                                            blocklist: blocklist.lifting(filters)).map(\.id), [1])
+    }
+
+    func test_warningAndCategoryFiltersLiftTheirBlockedTags() {
+        let works = [tagged(id: 1, warnings: ["Major Character Death"])]
+        let blocklist = Blocklist(tags: ["Major Character Death"], authors: [String]())
+        var filters = AO3SearchFilters()
+        XCTAssertTrue(ContentFilter.apply(works, hiddenIds: [], filterMature: false,
+                                          blocklist: blocklist.lifting(filters)).isEmpty)
+        filters.warnings = [.majorCharacterDeath]
+        XCTAssertEqual(ContentFilter.apply(works, hiddenIds: [], filterMature: false,
+                                           blocklist: blocklist.lifting(filters)).map(\.id), [1])
+        XCTAssertEqual(blocklist.lifting(tags: ["Fluff"], authors: ["x"]), blocklist)
     }
 
     func test_blockThenUnblock() throws {

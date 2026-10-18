@@ -45,8 +45,9 @@ struct AuthorWorksView: View {
                 ContentUnavailableView("No works to show", systemImage: "person.slash",
                     description: Text("This author has no works published."))
             } else if visibleWorks.isEmpty {
-                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                    description: Text("Every work by this author is filtered out by your content settings."))
+                FilteredOutView(message: "Every work by this author so far is filtered out by your content settings.",
+                                canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                                loadMore: loadMore)
             } else {
                 List {
                     ForEach(visibleWorks) { work in

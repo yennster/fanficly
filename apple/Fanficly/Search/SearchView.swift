@@ -321,8 +321,9 @@ struct SearchView: View {
                 }
             }
         } else if visibleResults.isEmpty {
-            ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                description: Text("Every match is hidden or filtered out by your content settings."))
+            FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
+                            canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                            loadMore: loadMore)
         } else {
             resultsList
         }

@@ -61,10 +61,25 @@ struct Blocklist: Sendable, Equatable {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// Every name a work's byline answers to, folded: the first author's
+    /// login, the whole byline, and each co-author's pseud and login (AO3
+    /// writes a byline as "pseud (login)" when they differ, joined by ", ").
+    static func authorNames(of work: AO3WorkSummary) -> Set<String> {
+        var names: Set<String> = [fold(work.authorUsername), fold(work.author)]
+        for part in work.author.components(separatedBy: ", ") {
+            names.insert(fold(part))
+            if part.hasSuffix(")"), let open = part.range(of: " (", options: .backwards) {
+                names.insert(fold(String(part[..<open.lowerBound])))
+                names.insert(fold(String(part[open.upperBound..<part.index(before: part.endIndex)])))
+            }
+        }
+        names.remove("")
+        return names
+    }
+
     func blocks(_ work: AO3WorkSummary) -> Bool {
         if isEmpty { return false }
-        if !authors.isEmpty,
-           authors.contains(Self.fold(work.authorUsername)) || authors.contains(Self.fold(work.author)) {
+        if !authors.isEmpty, Self.authorNames(of: work).contains(where: { authors.contains($0) }) {
             return true
         }
         guard !tags.isEmpty else { return false }
@@ -79,6 +94,7 @@ struct Blocklist: Sendable, Equatable {
     func lifting(_ filters: AO3SearchFilters) -> Blocklist {
         let asked = filters.fandomNames + filters.relationshipNames + filters.characterNames
             + filters.freeformNames + filters.otherTagNames
+            + filters.warnings.map(\.displayName) + filters.categories.map(\.displayName)
         let creators = filters.creators.split(separator: ",").map(String.init)
         return lifting(tags: asked, authors: creators)
     }

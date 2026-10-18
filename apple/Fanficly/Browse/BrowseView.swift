@@ -324,8 +324,9 @@ struct FandomWorksView: View {
                 ContentUnavailableView("No works found", systemImage: "magnifyingglass",
                     description: Text("Try adjusting your filters or search terms."))
             } else if visibleWorks.isEmpty {
-                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                    description: Text("Every match is hidden or filtered out by your content settings."))
+                FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
+                                canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                                loadMore: loadMore)
             } else {
                 List {
                     Section {
