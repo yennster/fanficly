@@ -27,6 +27,10 @@
     <PublishTrimmed Condition="'$(Configuration)' == 'Release'">true</PublishTrimmed>
     <SelfContained Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' != ''">true</SelfContained>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- Trimmed and AOT builds turn HTTP/3 off unless asked (the ILLink targets
+         default Http3Support to false), and AO3's edge answers HTTP/2 with 503s,
+         525s and 6-36 s waits where HTTP/3 takes under a second. -->
+    <Http3Support>true</Http3Support>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>
     <!-- Store packages: one bundle with x64 and ARM64. -->
