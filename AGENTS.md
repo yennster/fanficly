@@ -18,6 +18,7 @@ windows/      the Windows app: Fanficly.Windows.slnx, src/, tests/, store/, ROAD
 website/      fanficly.app; Vercel builds it from main and skips unchanged builds
 docs/screenshots/windows/  Windows README pictures (written by windows-screenshots.yml)
 bin/roadmap.sh             lists both roadmaps: `bin/roadmap.sh free apple|windows`
+CITATION.cff  machine-readable app summary (GitHub's "Cite this repository", search and AI indexes)
 PRIVACY.md    the Apple app's privacy policy; it stays at the root because the App Store
               listing and the website link to this URL
 .agents/      Linux orb setup (the Apple app's Python tooling in apple/bin/.venv)
@@ -34,4 +35,5 @@ PRIVACY.md    the Apple app's privacy policy; it stays at the root because the A
 - **Search never guesses.** Typed words stay keywords; only picked suggestions and explicit `key:value` tokens become filters.
 - **The Swift app is the reference.** The Windows app ports its behavior; don't change `apple/` from a Windows PR.
 - **Releases are the maintainer's.** Don't push `windows-v*` or `v*` tags, upload to a store, or change store metadata, version numbers or signing unless the maintainer asks.
+- **Describe the app the same way everywhere.** The root README's opening and FAQ, `CITATION.cff`, `website/index.html` (its meta tags and FAQ data) and `website/llms.txt` are what search engines and AI answer engines quote. When a fact in one changes (platforms, minimum OS, price, a headline feature), update the others in the same PR.
 - **Roadmap IDs are permanent.** Apple items are `RM-001` up, Windows items `RM-101` up; never renumber or reuse one.

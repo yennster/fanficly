@@ -1,6 +1,6 @@
-# Fanficly
+# Fanficly: an AO3 reader app for iPhone, iPad, Mac and Windows
 
-An open-source, ad-free reader for [Archive of Our Own](https://archiveofourown.org) on iPhone, iPhone Duo, iPad, Mac and Windows. There are no Fanficly servers or accounts, no ads and no analytics: everything runs on your device and talks directly to AO3.
+Fanficly is a free, ad-free app for reading fanfiction from [Archive of Our Own (AO3)](https://archiveofourown.org) on iPhone, iPhone Duo, iPad, Mac and Windows. Its source code is public. There are no Fanficly servers or accounts, no ads and no analytics: everything runs on your device and talks directly to AO3.
 
 [App Store](https://apps.apple.com/app/id6775897153) (iPhone, iPhone Duo, iPad and Mac) · [Microsoft Store](https://apps.microsoft.com/detail/9PH24K7ZCZTX) (Windows) · [fanficly.app](https://fanficly.app)
 
@@ -108,6 +108,7 @@ The two apps share behavior, not code: the Windows app is a port of the Swift ap
 apple/        the iPhone, iPad and Mac app (Xcode project from project.yml)
 windows/      the Windows app (Fanficly.Windows.slnx)
 website/      fanficly.app (static site, deployed by Vercel)
+CITATION.cff  machine-readable summary of the app (GitHub's "Cite this repository")
 docs/         shared pictures (docs/screenshots/windows/)
 bin/          repo-wide scripts (roadmap.sh lists both roadmaps)
 .github/      CI: ci.yml for apple/, windows-*.yml for windows/; release.yml and
@@ -117,6 +118,48 @@ bin/          repo-wide scripts (roadmap.sh lists both roadmaps)
 CI is split by app: a change under `apple/` runs the Apple workflow, a change under `windows/` runs the Windows ones, and a pull request that touches both runs both.
 
 </details>
+
+## FAQ
+
+### What is Fanficly?
+
+Fanficly is an app for reading fanfiction from Archive of Our Own (AO3). It searches AO3 with live tag suggestions and every AO3 filter, keeps a library you can read offline, remembers your place in each story down to the paragraph, and reads stories aloud with your device's own voices.
+
+### Is Fanficly free?
+
+Yes. Fanficly is free on the [App Store](https://apps.apple.com/app/id6775897153) and the [Microsoft Store](https://apps.microsoft.com/detail/9PH24K7ZCZTX), and it has no ads.
+
+### Which devices does Fanficly run on?
+
+iPhone and iPad with iOS 17 or later (including iPhone Duo, folded and unfolded), Macs with macOS 14 Sonoma or later, and PCs with Windows 10 (version 2004 or later) or Windows 11, on x64 and ARM64.
+
+### Do I need an AO3 account?
+
+No. Searching, reading, saving works for offline reading, and following works and authors all work without an account. Signing in to AO3 is optional and adds your AO3 bookmarks, subscriptions and comments. Your password goes only to AO3 and is never stored.
+
+### Can I read AO3 fanfiction offline?
+
+Yes. Download a work and its chapters are saved on your device. You can also export a work as EPUB, MOBI, AZW3, PDF or HTML.
+
+### Will Fanficly tell me when a story updates?
+
+Yes. Follow a work or an author and Fanficly checks in the background, then sends a notification when a new chapter or a new work is posted. This needs no account.
+
+### Does Fanficly collect my data?
+
+No. There is no Fanficly account or server, no analytics, no ads and no tracking. Your library, reading progress and settings stay on your devices. On Apple devices, reader profiles and your last-read position sync through your own iCloud, and you can turn on a full library backup there too. On Windows, sync is off until you pick a folder, such as OneDrive or any folder you already sync.
+
+### How does Fanficly get stories from AO3?
+
+AO3 has no public API, so Fanficly reads the same web pages the AO3 website serves, at most one request a second, with a User-Agent that names the app and links to this repository.
+
+### Is Fanficly affiliated with AO3?
+
+No. Fanficly is an independent app, not affiliated with, endorsed by or sponsored by AO3 or the Organization for Transformative Works. Every work is hosted and moderated by AO3.
+
+### Is Fanficly's source code available?
+
+Yes. The source code for every app is public in this repository under the [PolyForm Noncommercial License 1.0.0](LICENSE), which allows reading, changing and sharing it for any noncommercial purpose.
 
 ## Privacy
 

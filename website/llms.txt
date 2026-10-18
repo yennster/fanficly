@@ -4,8 +4,8 @@
 
 ## Download
 
-- [App Store (iPhone, iPad and Mac)](https://apps.apple.com/app/id6775897153): iOS 17 or later, macOS 14 Sonoma or later
-- [Microsoft Store (Windows)](https://apps.microsoft.com/detail/9PH24K7ZCZTX): Windows 10 version 2004 or later, Windows 11
+- [App Store (iPhone, iPhone Duo, iPad and Mac)](https://apps.apple.com/app/id6775897153): iOS 17 or later, macOS 14 Sonoma or later
+- [Microsoft Store (Windows)](https://apps.microsoft.com/detail/9PH24K7ZCZTX): Windows 10 version 2004 or later, Windows 11, on x64 and ARM64
 
 ## What it does
 
