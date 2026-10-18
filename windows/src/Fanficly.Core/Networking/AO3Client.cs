@@ -81,7 +81,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     public string UserAgent { get; }
 
-    public static string UserAgentFor(string version) => $"Fanficly/{version} (+github.com/yennster/fanficly)";
+    public static string UserAgentFor(string version) => $"Fanficly/{version} (Windows; https://github.com/yennster/fanficly)";
 
     /// <summary>Waits between retries; tests replace it to run instantly.</summary>
     internal Func<TimeSpan, CancellationToken, Task> Sleep { get; set; } = Task.Delay;
