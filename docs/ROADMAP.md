@@ -85,6 +85,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** `ReaderLayoutTests` pass on iPhone and iPad; the PR attaches the reader-layout screenshots artifact and says the Duo pose was not checked unless someone ran it.
 - **Touches:** `Reader/ReaderView.swift`, `Search/SearchView.swift` (`WorkDetailView`), `Library/SavedWorkReader.swift`.
 
+### RM-022 — Back up and restore followed authors (iPhone, iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** unit
+- **Why:** `iCloudSyncManager` backs up works, folders, subscriptions, progress, stats and more, but not `FollowedAuthor`, so followed authors are lost on a new device or a reinstall. The maintainer asked (2026-10-18) for followed authors to sync on every platform. The Windows app is getting the same change in its own library backup, and both apps read the same backup file, so they must agree on the format.
+- **Scope:** Add an optional `followedAuthors: [FollowedAuthorBackup]?` to `LibraryBackup` (optional, so older backups and the other app's older builds still decode). Each entry: `username`, `displayName`, `followedAt`, `knownWorkIds`, `lastCheckedAt`. Use exactly the field names and JSON keys the Windows app uses (check its `Sync/LibraryBackup.cs` first; if Windows hasn't shipped yet, agree the names in that PR). Merge in `mergedBackup` by case-insensitive `username`: union of entries, `knownWorkIds` unioned (so a restored follow never re-alerts for works either device already knew), earliest `followedAt`, latest `lastCheckedAt`. Restore is forward-only like everything else: add missing follows, union `knownWorkIds`, never remove a local follow (deletions don't propagate, as for works).
+- **Done when:** `PersistenceTests` cover backup → restore of a followed author on a second simulated device (`overrideBackupURL`), the `knownWorkIds` union (no duplicate alerts after restore), an older backup without the field still restoring, and the two-device merge keeping both sides' follows. The "Storage map" note in AGENTS.md that `FollowedAuthor` isn't serialized is updated.
+- **Touches:** `Library/iCloudSyncManager.swift`, `FanficlyTests/PersistenceTests.swift`, `AGENTS.md`.
+
 ## Next (1.12)
 
 ### RM-006 — Tag and author blocklist
