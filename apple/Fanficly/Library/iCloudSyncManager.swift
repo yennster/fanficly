@@ -648,8 +648,14 @@ final class iCloudSyncManager {
                 existing.kind = s.kind
                 existing.displayName = s.displayName
                 existing.authorName = s.authorName
-                existing.lastSeenChapterCount = s.lastSeenChapterCount
-                existing.lastCheckedAt = s.lastCheckedAt
+                // The notification baseline only advances (as for works):
+                // an older backup or library file must not re-fire alerts.
+                if let seen = s.lastSeenChapterCount {
+                    existing.lastSeenChapterCount = max(existing.lastSeenChapterCount ?? 0, seen)
+                }
+                if let checked = s.lastCheckedAt, checked > (existing.lastCheckedAt ?? .distantPast) {
+                    existing.lastCheckedAt = checked
+                }
             } else {
                 let rec = SubscriptionRecord(key: s.key, kind: s.kind, displayName: s.displayName, authorName: s.authorName)
                 rec.lastSeenChapterCount = s.lastSeenChapterCount
@@ -790,6 +796,9 @@ final class iCloudSyncManager {
     func exportLibraryFile(context: ModelContext) throws -> URL {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("LibraryExport", isDirectory: true)
+        // Each export holds every saved chapter's text, so replace the last
+        // one rather than letting copies pile up in tmp.
+        try? FileManager.default.removeItem(at: folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(Self.exportFileName())
         try Self.encodeBackup(makeLocalBackup(context: context)).write(to: url, options: .atomic)
@@ -805,7 +814,12 @@ final class iCloudSyncManager {
         let accessing = url.startAccessingSecurityScopedResource()
         defer { if accessing { url.stopAccessingSecurityScopedResource() } }
         let backup = try Self.decodeBackup(Data(contentsOf: url))
-        try applyBackup(backup, context: context)
+        do {
+            try applyBackup(backup, context: context)
+        } catch {
+            context.rollback()
+            throw error
+        }
         // Refresh widgets, and carry the imported records into the iCloud
         // backup when sync is on.
         queueBackup(context: context)

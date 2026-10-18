@@ -831,7 +831,8 @@ final class PersistenceTests: XCTestCase {
 
     /// Importing a file exported earlier, after reading further, never moves
     /// progress backwards: the reading position, the work's last-read
-    /// chapter and the stat's furthest progress all keep the newer values.
+    /// chapter, the stat's furthest progress and a subscription's
+    /// notification baseline all keep the newer values.
     func test_importingOlderLibraryFileNeverMovesProgressBackwards() throws {
         let earlier = Date(timeIntervalSince1970: 1_790_000_000)
         let later = earlier.addingTimeInterval(86_400)
@@ -848,6 +849,10 @@ final class PersistenceTests: XCTestCase {
         old.insert(ReadingStat(ao3Id: 1, title: "T", author: "A",
                                firstReadAt: earlier, lastReadAt: earlier,
                                totalSeconds: 100, daySeconds: ["2026-09-21": 100], maxProgress: 0.2))
+        let oldSub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "T", authorName: "A")
+        oldSub.lastSeenChapterCount = 2
+        oldSub.lastCheckedAt = earlier
+        old.insert(oldSub)
         try old.save()
         let url = try iCloudSyncManager.shared.exportLibraryFile(context: old)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -865,6 +870,10 @@ final class PersistenceTests: XCTestCase {
                                   firstReadAt: earlier, lastReadAt: later,
                                   totalSeconds: 900, daySeconds: ["2026-09-21": 100, "2026-09-22": 800],
                                   maxProgress: 0.7))
+        let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "T", authorName: "A")
+        sub.lastSeenChapterCount = 7
+        sub.lastCheckedAt = later
+        device.insert(sub)
         try device.save()
 
         try iCloudSyncManager.shared.importLibraryFile(at: url, context: device)
@@ -879,6 +888,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(stat.maxProgress, 0.7, accuracy: 0.001)
         XCTAssertEqual(stat.totalSeconds, 900, accuracy: 0.001)
         XCTAssertEqual(stat.lastReadAt, later)
+        let restoredSub = try XCTUnwrap(try device.fetch(FetchDescriptor<SubscriptionRecord>()).first)
+        XCTAssertEqual(restoredSub.lastSeenChapterCount, 7, "an old file must not re-fire chapter alerts")
+        XCTAssertEqual(restoredSub.lastCheckedAt, later)
     }
 
     /// A file that isn't a library backup is refused and changes nothing.

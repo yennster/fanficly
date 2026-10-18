@@ -163,7 +163,7 @@ struct SettingsView: View {
             } header: {
                 Text("Library File")
             } footer: {
-                Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds to your library and never moves reading progress backwards.")
+                Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards, and uses the file's reader and content settings.")
             }
             Section {
                 Toggle("Filter mature & explicit works", isOn: $filterMature)
@@ -260,8 +260,8 @@ private enum LibraryFileAlert: String, Identifiable {
 
     var message: String {
         switch self {
-        case .imported: "The file's works, reading progress, stats and settings have been added to your library."
-        case .importFailed: "That file couldn't be read as a Fanficly library file. Nothing was changed."
+        case .imported: "The file's works, reading progress and stats have been added to your library, and its settings applied."
+        case .importFailed: "That file couldn't be imported. Make sure it's a Fanficly library file and try again."
         case .exportFailed: "Your library couldn't be written to a file. Please try again."
         }
     }
