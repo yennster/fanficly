@@ -46,7 +46,7 @@ public class CrossAreaTests
             <ol class="work index group"></ol></body></html>
             """;
         Assert.Equal(126_555, SearchResultsParser.Parse(html).TotalFound);
-        Assert.Null(SearchResultsParser.Parse("<html><body></body></html>").TotalFound);
+        Assert.Null(SearchResultsParser.Parse("<html><body><ol class=\"work index group\"></ol></body></html>").TotalFound);
     }
 
     [Fact]
