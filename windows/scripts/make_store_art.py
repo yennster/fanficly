@@ -43,7 +43,7 @@ from PIL import Image
 WINDOWS = pathlib.Path(__file__).resolve().parent.parent
 REPO = WINDOWS.parent
 ART = WINDOWS / "store-art"
-ICON = REPO / "Fanficly" / "Assets.xcassets" / "AppIcon.appiconset" / "icon-1024.png"
+ICON = REPO / "apple" / "Fanficly" / "Assets.xcassets" / "AppIcon.appiconset" / "icon-1024.png"
 SHOTS_OUT = WINDOWS / "store" / "screenshots" / "en-us"
 IMAGES_OUT = WINDOWS / "store" / "images" / "en-us"
 SHOWCASE = REPO / "docs" / "screenshots" / "windows" / "showcase.jpg"

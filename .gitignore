@@ -54,7 +54,7 @@ Podfile.lock
 *.mobileprovision
 
 # Python venv for screenshot framing
-bin/.venv/
+**/bin/.venv/
 __pycache__/
 
 # Local tool scratch dirs

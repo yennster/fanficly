@@ -280,7 +280,7 @@ FanficlyWidget/                # WidgetKit extension target (embedded in app)
 ShellCheck, and the existing `bin/.venv` Python environment (Pillow,
 PyJWT with crypto support, and requests, pinned in `bin/requirements.txt`).
 Run Python scripts with `bin/.venv/bin/python`; no shell activation is needed.
-Setup is safe to repeat and reuses installed packages. `.agents/resume` only
+Setup is safe to repeat and reuses installed packages. `../.agents/resume` only
 checks the environment; it does not install dependencies or authenticate.
 
 **The native app cannot build or run on Linux.** Xcode, Apple SDKs, simulators,
@@ -444,7 +444,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 **Add a new sidebar tab.** Add a case to `SidebarItem` (in `RootView.swift`) — order in the enum drives the sidebar order — give it a `title` + `systemImage`, add it to the `switch selectedDetailItem` in `mainSplitView`, and add a `Button`/`keyboardShortcut` to the "Go" `CommandMenu` in `FanficlyApp.swift` (renumber ⌘N to match). Recent examples: `popular`, `authors`, `bookmarks`. `xcodegen` isn't always available; prefer adding the tab's view to an existing file (e.g. `PopularView` in `BrowseView.swift`, `BookmarksView` in `SubscriptionsView.swift`, `FollowedAuthorsView` in `AuthorWorksView.swift`) over a new file, so the committed `.xcodeproj` doesn't need regenerating.
 
-**Run the app on a different device.** Replace `iPhone 17` in the build/run commands with whatever is available. CI auto-picks — see `.github/workflows/ci.yml`.
+**Run the app on a different device.** Replace `iPhone 17` in the build/run commands with whatever is available. CI auto-picks — see `../.github/workflows/ci.yml`.
 
 ## Things to know about AO3
 

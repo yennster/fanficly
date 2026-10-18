@@ -91,9 +91,9 @@ Mutations go through `WorkPersistence` (Upsert, UpsertMetadata, ToggleFollow, Un
                                #   build the Store art, commit the pictures
   ci.yml                       # the Apple app; runs only for apple/**
 apple/                         # the Swift app: reference implementation, not built
-                               #   by the Windows workflows (its own AGENTS.md)
+                               #   by the Windows workflows (its own AGENTS.md;
+                               #   its backlog is apple/docs/ROADMAP.md)
 docs/
-  ROADMAP.md                   # the Apple backlog (the Windows one is windows/ROADMAP.md)
   screenshots/windows/         # README shots from ScreenshotTests (desktop/tablet/compact)
                                #   + showcase.jpg, committed by windows-screenshots.yml
 windows/
