@@ -212,4 +212,128 @@ final class SearchResultsParserTests: XCTestCase {
         XCTAssertNil(SearchResultsParser.workId(fromHref: "/series/4242"))
         XCTAssertNil(SearchResultsParser.workId(fromHref: ""))
     }
+
+    // MARK: - Failing closed (RM-001)
+
+    func test_emptySearch_returnsNoWorks() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "works-search", body: """
+        <h2 class="heading">Search Results</h2>
+        <p>No results found. You may want to edit your search to make it less specific.</p>
+        """)
+        XCTAssertTrue(try SearchResultsParser.parse(html: html).works.isEmpty)
+    }
+
+    func test_emptyAuthorWorks_returnsNoWorks() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "works-index dashboard", body: """
+        <h2 class="heading">0 Works by alice</h2>
+        <h3 class="landmark heading">Listing Works</h3>
+        <ol class="work index group"></ol>
+        """)
+        XCTAssertTrue(try SearchResultsParser.parse(html: html).works.isEmpty)
+    }
+
+    func test_emptyBookmarks_returnsNoWorks() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "bookmarks-index dashboard", body: """
+        <h2 class="heading">0 Bookmarks by alice</h2>
+        <ol class="bookmark index group"></ol>
+        """)
+        XCTAssertTrue(try SearchResultsParser.parse(html: html, blurbSelector: "li.bookmark.blurb").works.isEmpty)
+    }
+
+    /// Every guest page has the header's login form; it must not read as the
+    /// login page.
+    func test_guestResultsPage_stillParses() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "works-search", body: """
+        <ol class="work index group">
+          <li id="work_12345" class="work blurb group" role="article">
+            <div class="header module"><h4 class="heading"><a href="/works/12345">A Coffee Shop Tale</a></h4></div>
+          </li>
+        </ol>
+        """)
+        XCTAssertEqual(try SearchResultsParser.parse(html: html).works.map(\.id), [12345])
+    }
+
+    func test_loginPage_throwsUnauthorized() {
+        for selector in ["li.work.blurb", "li.bookmark.blurb"] {
+            XCTAssertThrowsError(try SearchResultsParser.parse(html: AO3PageFixtures.loginPage, blurbSelector: selector)) { error in
+                XCTAssertEqual(error as? AO3Error, .unauthorized)
+            }
+        }
+    }
+
+    func test_garbagePage_throwsParseFailed() {
+        for html in [AO3PageFixtures.errorPage, AO3PageFixtures.foreignPage, "<html><body></body></html>"] {
+            XCTAssertThrowsError(try SearchResultsParser.parse(html: html)) { error in
+                guard case AO3Error.parseFailed = error else {
+                    return XCTFail("Expected parseFailed, got \(error)")
+                }
+            }
+        }
+    }
+}
+
+/// Page shells for the fail-closed parser tests, cut down from otwarchive's own
+/// templates (`layouts/application`, `users/sessions/new`, `public/502.html`).
+/// AO3 sets `#main`'s class to the Rails `controller-action`.
+enum AO3PageFixtures {
+    /// The header every logged-out page carries, small login form included.
+    static let guestHeader = """
+    <div id="header" class="region" role="banner">
+      <h1 class="heading"><a href="/"><span>Archive of Our Own</span></a></h1>
+      <div id="login" class="dropdown">
+        <p class="user actions"><a id="login-dropdown" href="/users/login?return_to=%2Fworks">Log In</a></p>
+        <div id="small_login" class="simple login">
+          <form class="new_user" id="new_user_session_small" action="/users/login?return_to=%2Fworks" accept-charset="UTF-8" method="post">
+            <dl>
+              <dt><label for="user_session_login_small">Username or email:</label></dt>
+              <dd><input autocomplete="on" id="user_session_login_small" type="text" name="user[login]" /></dd>
+              <dt><label for="user_password">Password:</label></dt>
+              <dd><input type="password" name="user[password]" id="user_password" /></dd>
+            </dl>
+          </form>
+        </div>
+      </div>
+    </div>
+    """
+
+    static func guestPage(mainClass: String, body: String) -> String {
+        """
+        <html><body><div id="outer" class="wrapper">
+        \(guestHeader)
+        <div id="inner" class="wrapper">
+          <div id="main" class="\(mainClass) region" role="main">
+          \(body)
+          </div>
+        </div>
+        </div></body></html>
+        """
+    }
+
+    /// Where AO3 sends a stale session or a guest opening a restricted work.
+    static let loginPage = guestPage(mainClass: "sessions-new system session", body: """
+    <h3 class="heading">Sorry!</h3>
+    <p>This work is only available to registered users of the Archive.</p>
+    <div id="loginform">
+      <form class="new_user" id="new_user" action="/users/login" accept-charset="UTF-8" method="post">
+        <dl>
+          <dt><label for="user_login">Username or email:</label></dt>
+          <dd><input type="text" name="user[login]" id="user_login" /></dd>
+          <dt><label for="user_password">Password:</label></dt>
+          <dd><input type="password" name="user[password]" id="user_password" /></dd>
+        </dl>
+      </form>
+    </div>
+    """)
+
+    /// AO3's static 502 page.
+    static let errorPage = guestPage(mainClass: "system errors error-502", body: """
+    <h2 class="heading">Error 502</h2>
+    <p>The page was responding too slowly.</p>
+    """)
+
+    /// Not AO3 at all: a captive portal or a proxy's block page.
+    static let foreignPage = """
+    <html><head><title>Sign in to Wi-Fi</title></head>
+    <body><h1>Welcome</h1><a href="/tags/accept/works">Accept and continue</a></body></html>
+    """
 }

@@ -170,6 +170,49 @@ final class WorkPageParserTests: XCTestCase {
         let payload = try WorkPageParser.parse(html: html, workId: 12345)
         XCTAssertNil(payload.chapters[0].aoId)
     }
+
+    // MARK: - Failing closed (RM-001)
+
+    /// A real work page whose only chapter has no text still parses: the guest
+    /// header's login form doesn't make it the login page.
+    func test_guestWorkPageWithEmptyChapter_parses() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "works-show", body: """
+        <div class="wrapper"><dl class="work meta group">
+          <dt class="rating tags">Rating:</dt><dd class="rating tags"><ul class="commas"><li><a class="tag" href="/tags/General%20Audiences/works">General Audiences</a></li></ul></dd>
+        </dl></div>
+        <div id="workskin">
+          <div class="preface group"><h2 class="title heading">Blank Page</h2></div>
+          <div id="chapters" role="article"><div class="userstuff"></div></div>
+        </div>
+        """)
+        let payload = try WorkPageParser.parse(html: html, workId: 7)
+        XCTAssertEqual(payload.summary.title, "Blank Page")
+        XCTAssertEqual(payload.summary.rating, "General Audiences")
+    }
+
+    func test_restrictedWorkLoginPage_throwsUnauthorized() {
+        XCTAssertThrowsError(try WorkPageParser.parse(html: AO3PageFixtures.loginPage, workId: 7)) { error in
+            XCTAssertEqual(error as? AO3Error, .unauthorized)
+        }
+    }
+
+    /// Anything without the work's markup (an error page, the adult gate, a
+    /// foreign page) would otherwise parse to an untitled work with no
+    /// chapters and overwrite a saved copy.
+    func test_garbagePage_throwsParseFailed() {
+        let adultGate = AO3PageFixtures.guestPage(mainClass: "works-show", body: """
+        <p class="caution notice">This work could have adult content. If you continue, you have agreed that you are willing to see such content.</p>
+        <ul class="actions"><li><a href="/works/7?view_adult=true">Yes, Continue</a></li></ul>
+        """)
+        for html in [AO3PageFixtures.errorPage, AO3PageFixtures.foreignPage, adultGate] {
+            XCTAssertThrowsError(try WorkPageParser.parse(html: html, workId: 7)) { error in
+                guard case AO3Error.parseFailed = error else {
+                    return XCTFail("Expected parseFailed, got \(error)")
+                }
+            }
+        }
+    }
+
 }
 
 final class CommentsParserTests: XCTestCase {
