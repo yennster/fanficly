@@ -431,6 +431,13 @@ final class KudosParserTests: XCTestCase {
         XCTAssertNil(KudosParser.errorMessage(json: Data(#"{"error_message":"  "}"#.utf8)))
     }
 
+    func test_isAuthError_forARefusedToken() {
+        let refused = Data(#"{"errors":{"auth_error":"Your current session has expired and we can't authenticate your request."}}"#.utf8)
+        XCTAssertTrue(KudosParser.isAuthError(json: refused))
+        XCTAssertNil(KudosParser.errorMessage(json: refused))
+        XCTAssertFalse(KudosParser.isAuthError(json: Data(#"{"error_message":"You have already left kudos here. :)"}"#.utf8)))
+    }
+
     func test_isAlreadyLeft_onlyForTheDuplicateAnswer() {
         XCTAssertTrue(KudosParser.isAlreadyLeft(message: "You have already left kudos here. :)"))
         XCTAssertFalse(KudosParser.isAlreadyLeft(message: "You can't leave kudos on your own work."))

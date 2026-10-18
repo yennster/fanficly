@@ -33,19 +33,7 @@ final class WorkExporterTests: XCTestCase {
 /// the alert. Each test gets its own defaults suite so nothing leaks.
 @MainActor
 final class KudosGiverTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private let suite = "KudosGiverTests"
-
-    override func setUp() {
-        super.setUp()
-        UserDefaults().removePersistentDomain(forName: suite)
-        defaults = UserDefaults(suiteName: suite)
-    }
-
-    override func tearDown() {
-        UserDefaults().removePersistentDomain(forName: suite)
-        super.tearDown()
-    }
+    private let defaults = UserDefaults(suiteName: "test.kudos.\(UUID().uuidString)")!
 
     func testLeavingKudosRemembersTheWorkForThatAccount() async {
         let client = StubAO3Client()

@@ -201,8 +201,8 @@ enum WorkPersistence {
 
 /// Works an AO3 account has left kudos on, remembered on this device so the
 /// kudos button reads "Kudos Left" instead of inviting a second tap. Keyed by
-/// username because AO3 counts one kudo per account. Not backed up: AO3
-/// itself still refuses a duplicate, which the app treats as already left.
+/// username because AO3 counts one kudo per account. Not in the iCloud library
+/// backup: AO3 itself still refuses a duplicate, which reads as already left.
 enum KudosStore {
     static func key(username: String) -> String { "kudos.left.\(username.lowercased())" }
 

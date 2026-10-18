@@ -56,6 +56,15 @@ enum AO3Endpoints {
         base.appending(path: "/users/login")
     }
 
+    /// A work's first page (its first chapter, for a chaptered work), without
+    /// `view_full_work`: enough for the kudos form and the navbar.
+    static func workFirstPage(id: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad work URL") }
+        return url
+    }
+
     static func workComments(id: Int, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
         components?.queryItems = [

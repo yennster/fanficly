@@ -368,6 +368,14 @@ enum KudosParser {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// AO3's answer when it refuses the CSRF token (an ended session):
+    /// `{"errors": {"auth_error": "Your current session has expired…"}}`.
+    static func isAuthError(json: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let errors = object["errors"] as? [String: Any] else { return false }
+        return errors["auth_error"] != nil
+    }
+
     /// AO3's duplicate-kudos answer, "You have already left kudos here. :)",
     /// the same for a logged-in user (one per account) and a guest (one per IP).
     static func isAlreadyLeft(message: String) -> Bool {

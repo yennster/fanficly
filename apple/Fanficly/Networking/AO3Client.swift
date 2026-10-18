@@ -617,7 +617,7 @@ public actor AO3Client: AO3ClientProtocol {
         // session is still logged in. AO3 takes guest kudos too, so posting
         // with an expired cookie would silently leave one as a guest.
         await throttle.wait()
-        let pageURL = try AO3Endpoints.work(id: workId, base: baseURL)
+        let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
         let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
         guard let pageHTML = String(data: pageData, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Work page not UTF-8")
@@ -628,10 +628,14 @@ public actor AO3Client: AO3ClientProtocol {
         guard var fields = KudosParser.formFields(html: pageHTML) else {
             throw AO3Error.kudosRejected(message: "AO3 doesn't offer kudos on this work. It may be your own, or its creator may have blocked you.")
         }
-        if (fields["authenticity_token"] ?? "").isEmpty,
-           let token = try? LoginParser.authenticityToken(html: pageHTML) {
-            fields["authenticity_token"] = token
+        // The page-wide token (`<meta name="csrf-token">`), as comments and
+        // subscribe use. AO3 has Rails' per-form tokens on, so the form's own
+        // token only validates for a POST to `/kudos`, not `/kudos.js`; AO3's
+        // script gets through because it also sends the meta token.
+        guard let token = try? LoginParser.authenticityToken(html: pageHTML) else {
+            throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
         }
+        fields["authenticity_token"] = token
 
         // Post the form the way AO3's own script does (`/kudos.js`): it
         // answers 201 on success and 422 with `{"error_message": …}` otherwise,
@@ -644,16 +648,25 @@ public actor AO3Client: AO3ClientProtocol {
         request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
         request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
-        if let token = fields["authenticity_token"], !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
-        }
+        request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
         let (data, response) = try await performRequest(request, passing: [422])
-        guard response.statusCode == 422 else { return .left }
-        let message = KudosParser.errorMessage(json: data) ?? ""
-        if KudosParser.isAlreadyLeft(message: message) { return .alreadyLeft }
-        throw AO3Error.kudosRejected(message: message.isEmpty ? "AO3 didn't accept the kudos." : message)
+        switch response.statusCode {
+        case 201:
+            return .left
+        case 422:
+            // A refused token (the session ended between the two requests)
+            // answers `{"errors": {"auth_error": …}}` instead.
+            if KudosParser.isAuthError(json: data) { throw AO3Error.unauthorized }
+            let message = KudosParser.errorMessage(json: data) ?? ""
+            if KudosParser.isAlreadyLeft(message: message) { return .alreadyLeft }
+            throw AO3Error.kudosRejected(message: message.isEmpty ? "AO3 didn't accept the kudos." : message)
+        default:
+            // Anything else (a maintenance page, a proxy) isn't AO3's kudos
+            // answer, so it mustn't be remembered as a kudo.
+            throw AO3Error.kudosRejected(message: "AO3 gave an unexpected answer (HTTP \(response.statusCode)), so the kudos may not have been left. Trying again is safe.")
+        }
     }
 
 
