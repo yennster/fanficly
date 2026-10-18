@@ -28,7 +28,7 @@ _The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/Screens
 - **Follow authors.** Follow an author from their works page and get a notification when they post a new work. The Authors tab keeps everyone you follow in one place.
 - **Recently Viewed.** The stories you've opened, newest first. Remove one with Delete, several with Edit, or clear the list.
 - **Comments.** Read a chapter's comment thread, with replies indented under the comment they answer. Signed in to AO3, post a comment of your own.
-- **AO3 account (optional).** Sign in to see your AO3 subscriptions (synced into the Subscriptions tab with your local follows), browse your AO3 bookmarks (private ones included) and the works you marked for later, and post comments. Your password goes only to AO3 and is never stored; the session cookie is kept encrypted with Windows Data Protection, so only your Windows account can read it.
+- **AO3 account (optional).** Sign in to see your AO3 subscriptions (synced into the Subscriptions tab with your local follows), browse your AO3 bookmarks (private ones included) the works you marked for later and your AO3 reading history, and post comments. Your password goes only to AO3 and is never stored; the session cookie is kept encrypted with Windows Data Protection, so only your Windows account can read it.
 - **Reading stats and a yearly wrap-up.** The Stats tab totals the stories you've finished, time read, words read and your day streak, with top fandoms, ships, categories and authors for any week, month, year or all time. Share the wrap-up card, save it as an image or copy it. Everything is computed on your PC.
 - **Widgets.** Six widgets for the Windows 11 Widgets board, each small or medium: Continue reading (your last story and how far you got), Reading Streak, Subscriptions, Folder Shortcuts, Saved Searches and Recommendation. Clicking one opens the story, folder or search it shows.
 - **Jump list.** Right-click Fanficly on the taskbar or in Start for "Continue" with your last story, and shortcuts to Search, Library, Popular and Subscriptions.
@@ -98,7 +98,7 @@ dotnet build src/Fanficly.App -c Debug -p:Platform=x64 -p:WindowsPackageType=Non
 
 - `-demoMode` runs fully offline with a curated, all-ages demo catalogue and in-memory storage, so nothing on your PC changes. It's what the UI tests and screenshots use.
 - Without it, the app talks to AO3 and keeps its data in `%LOCALAPPDATA%\Fanficly` (an installed MSIX uses its own package folder instead).
-- `-tab <name>` opens a tab at launch (`search`, `browse`, `popular`, `library`, `recentlyViewed`, `authors`, `bookmarks`, `markedForLater`, `subscriptions`, `stats`, `settings`).
+- `-tab <name>` opens a tab at launch (`search`, `browse`, `popular`, `library`, `recentlyViewed`, `authors`, `bookmarks`, `markedForLater`, `ao3History`, `subscriptions`, `stats`, `settings`).
 - With `-demoMode`, `-set key=value` presets a setting for that run (for example `-set reader.mode.windows=pageByPage`), and `-demoLongChapters` makes the demo chapters long enough for full pages mid-chapter. The UI tests use both.
 - `-iconGallery` opens a page showing every icon the app uses, to spot one missing from the installed icon font.
 

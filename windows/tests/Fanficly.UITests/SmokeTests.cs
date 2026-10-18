@@ -49,7 +49,7 @@ public sealed partial class SmokeTests
     }
 
     /// <summary>Marked for Later and AO3 History have no Ctrl+number (Ctrl+1–9 are taken, as ⌘1–9
-    /// are on the Mac), so it opens from the sidebar and from <c>-tab</c>; demo mode
+    /// are on the Mac), so they open from the sidebar and from <c>-tab</c>; demo mode
     /// is signed in, so it shows the demo list.</summary>
     [Fact]
     public void TabsWithoutAShortcutOpenFromTheSidebarAndLaunchArgument()
