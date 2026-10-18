@@ -654,6 +654,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     private readonly bool _realTransport;
     private int _transportLogged;
+    private int _altSvcLogged;
+    private int _sawH3AltSvc;
+    private int _h3Probed;
 
     /// <summary>Says once per run what can keep HTTP/3 away: .NET never uses
     /// it through a proxy (the system's, or HTTPS_PROXY), nor where QUIC is
@@ -675,6 +678,30 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var quic = (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
                    && System.Net.Quic.QuicConnection.IsSupported;
         log($"Connecting to {uri.Host} {proxy}; QUIC (HTTP/3) {(quic ? "available" : "not available")}");
+    }
+
+    private static readonly TimeSpan Http3ProbeTimeout = TimeSpan.FromSeconds(5);
+
+    private bool ShouldProbeHttp3(HttpMethod method) =>
+        _realTransport && method == HttpMethod.Get && Volatile.Read(ref _sawH3AltSvc) == 1
+        && Interlocked.Exchange(ref _h3Probed, 1) == 0;
+
+    /// <summary>Logs once what AO3 advertised on the first answer that wasn't
+    /// HTTP/3, since .NET only tries HTTP/3 after an Alt-Svc offering h3.</summary>
+    private void NoteAltSvc(Uri uri, HttpResponseMessage response)
+    {
+        if (!_realTransport || response.Version.Major >= 3) return;
+        var altSvc = response.Headers.TryGetValues("Alt-Svc", out var values) ? string.Join(", ", values) : null;
+        if (altSvc is not null && altSvc.Contains("h3", StringComparison.Ordinal)) Volatile.Write(ref _sawH3AltSvc, 1);
+        if (Interlocked.Exchange(ref _altSvcLogged, 1) != 0) return;
+        Log?.Invoke(altSvc is null ? $"{uri.Host} sent no Alt-Svc header" : $"{uri.Host} advertises Alt-Svc: {altSvc}");
+    }
+
+    private static string ExceptionChain(Exception e)
+    {
+        var parts = new List<string>();
+        for (var x = e; x is not null; x = x.InnerException) parts.Add($"{x.GetType().Name}: {x.Message}");
+        return string.Join(" → ", parts);
     }
 
     private async Task<Response> SendFollowingRedirectsAsync(RequestSpec spec, CancellationToken ct)
@@ -709,13 +736,25 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded");
             }
 
+            // Once a run, after AO3 has advertised HTTP/3, ask for it outright so a
+            // failure says why: the usual fallback to HTTP/2 is silent.
+            var probing = ShouldProbeHttp3(method);
+            if (probing) request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(resourceCts.Token);
-            timeoutCts.CancelAfter(spec.Timeout);
+            timeoutCts.CancelAfter(probing ? Http3ProbeTimeout : spec.Timeout);
             HttpResponseMessage response;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception e) when (probing && !ct.IsCancellationRequested && !resourceCts.IsCancellationRequested
+                                      && e is HttpRequestException or OperationCanceledException)
+            {
+                Log?.Invoke($"HTTP/3 to {uri.Host} failed after {Elapsed(started)}: {ExceptionChain(e)}");
+                hop--;
+                continue;
             }
             catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
             {
@@ -729,6 +768,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
             }
             // Path only: queries can hold search terms, and nothing here is a secret.
             Log?.Invoke($"{method} {uri.AbsolutePath} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
+            NoteAltSvc(uri, response);
 
             using (response)
             {
