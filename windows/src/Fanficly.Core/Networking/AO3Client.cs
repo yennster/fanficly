@@ -201,6 +201,14 @@ public sealed class AO3Client : IAO3Client, IDisposable
         return SearchResultsParser.Parse(html, "li.bookmark.blurb");
     }
 
+    public async Task<AO3SearchResults> FetchMarkedForLaterAsync(string username, int page, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.UserMarkedForLater(username, page, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        return SearchResultsParser.ParseReadings(Decode(response.Body, "Marked for Later response"));
+    }
+
     public async Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);

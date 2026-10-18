@@ -163,9 +163,10 @@ public sealed partial class MainWindow : Window
                 Icon = Symbols.Icon(item.Symbol()),
                 Tag = item.RawValue(),
             };
-            ToolTipService.SetToolTip(navItem, $"{item.Title()} ({item.ShortcutText()})");
+            var shortcut = item.ShortcutText();
+            ToolTipService.SetToolTip(navItem, shortcut is null ? item.Title() : $"{item.Title()} ({shortcut})");
             AutomationProperties.SetAutomationId(navItem, $"sidebar.{item.RawValue()}");
-            AutomationProperties.SetAcceleratorKey(navItem, item.ShortcutText());
+            if (shortcut is not null) AutomationProperties.SetAcceleratorKey(navItem, shortcut);
             _navItems[item] = navItem;
             if (item == SidebarItem.Settings) _nav.FooterMenuItems.Add(navItem);
             else _nav.MenuItems.Add(navItem);
@@ -409,8 +410,8 @@ public sealed partial class MainWindow : Window
         }
         foreach (var item in SidebarItems.All)
         {
-            var (key, mods) = item.Shortcut();
-            Add(key, mods, () => Select(item));
+            if (item.Shortcut() is not { } shortcut) continue;
+            Add(shortcut.Key, shortcut.Modifiers, () => Select(item));
         }
         // Zoom, with or without Shift (the Mac app's ⌘ and ⇧⌘ +/−): the Plus key
         // (VK_OEM_PLUS, = on US layouts), the Minus key and the number pad's.

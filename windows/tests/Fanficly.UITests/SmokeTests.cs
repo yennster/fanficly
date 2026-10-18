@@ -48,6 +48,29 @@ public sealed partial class SmokeTests
         Assert.True(s.WaitForHeader("Library"));
     }
 
+    /// <summary>Marked for Later has no Ctrl+number (Ctrl+1–9 are taken, as ⌘1–9
+    /// are on the Mac), so it opens from the sidebar and from <c>-tab</c>; demo mode
+    /// is signed in, so it shows the demo list.</summary>
+    [Fact]
+    public void TabsWithoutAShortcutOpenFromTheSidebarAndLaunchArgument()
+    {
+        foreach (var raw in AppSession.TabsWithoutShortcut)
+        {
+            using (var s = AppSession.Launch(Laptop))
+            {
+                var item = s.ById($"sidebar.{raw}");
+                Assert.NotNull(item);
+                s.Activate(item!);
+                Assert.True(Retry.WhileFalse(() => s.IsTabSelected(raw), TimeSpan.FromSeconds(4)).Result, $"The sidebar didn't open {raw}.");
+                Assert.NotNull(s.ById($"{raw}.list", 8));
+            }
+            using (var s = AppSession.Launch(Laptop, "-tab", raw))
+            {
+                Assert.True(Retry.WhileFalse(() => s.IsTabSelected(raw), TimeSpan.FromSeconds(6)).Result, $"-tab didn't open {raw}.");
+            }
+        }
+    }
+
     [Fact]
     public void LaunchArgumentOpensATab()
     {

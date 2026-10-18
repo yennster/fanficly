@@ -24,14 +24,37 @@ public static partial class SearchResultsParser
         return new AO3SearchResults(works, totalPages, currentPage, TotalFound(doc));
     }
 
-    /// <summary>A works or bookmarks listing, even an empty one: the index
+    /// <summary>A works, bookmarks or readings listing, even an empty one: the index
     /// <c>&lt;ol&gt;</c> that author, tag and bookmark pages always render, the Rails
     /// controller-action class on <c>#main</c>, or the "No results found" line search
     /// shows instead of the list.</summary>
     private static bool IsListingPage(IDocument doc) =>
         doc.SelectFirst("ol.work.index, ol.bookmark.index") is not null
-        || AO3PageCheck.MainHasClass(doc, "works-search", "works-index", "works-collected", "bookmarks-search", "bookmarks-index")
+        || AO3PageCheck.MainHasClass(doc, "works-search", "works-index", "works-collected", "bookmarks-search", "bookmarks-index", "readings-index")
         || doc.Select("#main p").Any(p => p.Text().Contains("No results found", StringComparison.Ordinal));
+
+    /// <summary>AO3's readings page (<c>/users/&lt;name&gt;/readings</c>, which with
+    /// <c>?show=to-read</c> is Marked for Later). Each entry is
+    /// <c>li.reading.work.blurb</c> with id <c>work_&lt;id&gt;</c> around the usual work
+    /// blurb; deleted works keep an entry with no id and no title link, so
+    /// <see cref="ParseBlurb"/> skips them. Fails closed: the page is login-only,
+    /// so a login form means the session expired, and a page without the
+    /// <c>readings-index</c> shell (AO3 sends readers with history turned off to
+    /// their preferences) is never read as an empty list.</summary>
+    /// <exception cref="AO3Exception">Unauthorized for a login page; ParseFailed for
+    /// any page that isn't the readings page.</exception>
+    public static AO3SearchResults ParseReadings(string html)
+    {
+        if (LoginParser.HasLoginForm(html)) throw AO3Exception.Unauthorized();
+        var doc = HtmlDom.Parse(html);
+        if (doc.Select("div.readings-index").Count == 0)
+        {
+            if (doc.Select("div.preferences-index").Count > 0)
+                throw AO3Exception.ParseFailed("History is turned off in your AO3 preferences; check \"Turn on History\" there to see this list");
+            throw AO3Exception.ParseFailed("not your readings page");
+        }
+        return Parse(html, "li.reading.work.blurb");
+    }
 
     [GeneratedRegex(@"^[\d,.]+(?=\s+Found)")]
     private static partial Regex FoundRegex();

@@ -13,8 +13,9 @@ public static class SidebarItems
 
     public static string Symbol(this SidebarItem item) => item.SystemImage();
 
-    /// <summary>The "Go" menu shortcuts: Ctrl+1…9 in the Mac app's ⌘1…9 order, Ctrl+, for Settings.</summary>
-    public static (VirtualKey Key, VirtualKeyModifiers Modifiers) Shortcut(this SidebarItem item) => item switch
+    /// <summary>The "Go" menu shortcuts: Ctrl+1…9 in the Mac app's ⌘1…9 order, Ctrl+, for Settings.
+    /// Null for tabs past the nine (Marked for Later), which the Mac app also leaves without one.</summary>
+    public static (VirtualKey Key, VirtualKeyModifiers Modifiers)? Shortcut(this SidebarItem item) => item switch
     {
         SidebarItem.Search => (VirtualKey.Number1, VirtualKeyModifiers.Control),
         SidebarItem.Browse => (VirtualKey.Number2, VirtualKeyModifiers.Control),
@@ -25,10 +26,14 @@ public static class SidebarItems
         SidebarItem.Bookmarks => (VirtualKey.Number7, VirtualKeyModifiers.Control),
         SidebarItem.Subscriptions => (VirtualKey.Number8, VirtualKeyModifiers.Control),
         SidebarItem.Stats => (VirtualKey.Number9, VirtualKeyModifiers.Control),
-        _ => ((VirtualKey)188, VirtualKeyModifiers.Control), // VK_OEM_COMMA
+        SidebarItem.Settings => ((VirtualKey)188, VirtualKeyModifiers.Control), // VK_OEM_COMMA
+        _ => null,
     };
 
-    public static string ShortcutText(this SidebarItem item) => item == SidebarItem.Settings
-        ? "Ctrl+,"
-        : $"Ctrl+{Array.IndexOf(All, item) + 1}";
+    /// <summary>"Ctrl+1" … "Ctrl+9", "Ctrl+,"; null when the tab has no shortcut.</summary>
+    public static string? ShortcutText(this SidebarItem item)
+    {
+        if (item.Shortcut() is not { } shortcut) return null;
+        return item == SidebarItem.Settings ? "Ctrl+," : $"Ctrl+{shortcut.Key - VirtualKey.Number0}";
+    }
 }
