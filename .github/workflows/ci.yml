@@ -70,7 +70,9 @@ jobs:
 
       # Page-by-page layout as drawn on each screen: the page footer on the
       # bottom edge, full pages, across backgrounding, control toggles, the
-      # keyboard and wide (two-page) windows. The rest of FanficlyUITests
+      # keyboard and wide (two-page) windows. NonReaderAccessibilityTests
+      # checks Library, Stats, Subscriptions and Settings at the largest text
+      # size: labeled icon buttons and Xcode's accessibility audit. The rest of FanficlyUITests
       # (screenshots, app previews) runs from fastlane, not CI.
       # The first launch of the app on a simulator is slow on CI: once ~30 s,
       # once past XCUITest's launch timeout, failing whichever layout test
@@ -96,6 +98,7 @@ jobs:
             -scheme Fanficly \
             -destination "id=${{ steps.sim.outputs.iphone_id }}" \
             -only-testing:FanficlyUITests/ReaderLayoutTests \
+            -only-testing:FanficlyUITests/NonReaderAccessibilityTests \
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath build/iphone-ui.xcresult
 
@@ -106,6 +109,7 @@ jobs:
             -scheme Fanficly \
             -destination "id=${{ steps.sim.outputs.ipad_id }}" \
             -only-testing:FanficlyUITests/ReaderLayoutTests \
+            -only-testing:FanficlyUITests/NonReaderAccessibilityTests \
             CODE_SIGNING_ALLOWED=NO \
             -resultBundlePath build/ipad-ui.xcresult
 

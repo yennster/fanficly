@@ -413,3 +413,116 @@ final class ReaderLayoutTests: XCTestCase {
         usleep(1_500_000)
     }
 }
+
+/// Library, Stats, Subscriptions and Settings at the largest accessibility text
+/// size (RM-019). Each screen's icon-only buttons must carry a spoken label,
+/// and Xcode's accessibility audit runs over what's on screen. Demo mode, so
+/// every screen has content without a network or an AO3 login.
+final class NonReaderAccessibilityTests: XCTestCase {
+    private var app: XCUIApplication!
+
+    override func setUpWithError() throws {
+        continueAfterFailure = true
+        app = XCUIApplication()
+        #if !targetEnvironment(macCatalyst)
+        XCUIDevice.shared.orientation = .portrait
+        #endif
+    }
+
+    func test_library() throws {
+        open(tab: "library", title: "Library")
+        assertLabeled(["Sort"])
+        audit("library")
+    }
+
+    func test_stats() throws {
+        open(tab: "stats", title: "Stats")
+        assertLabeled(["Share"])
+        audit("stats")
+        // The ‹ › period buttons only show for a dated period.
+        let week = app.buttons["Week"].firstMatch
+        if week.waitForExistence(timeout: 3) { week.tap() }
+        assertLabeled(["Previous week", "Next week"])
+        audit("stats-week")
+    }
+
+    func test_subscriptions() throws {
+        open(tab: "subscriptions", title: "Subscriptions")
+        // Demo mode starts with none stored; Refresh fetches the demo list.
+        let empty = app.buttons["Refresh"].firstMatch
+        if empty.waitForExistence(timeout: 3) { empty.tap() }
+        usleep(2_000_000)
+        assertLabeled(["Refresh subscriptions"])
+        audit("subscriptions")
+    }
+
+    func test_settings() throws {
+        open(tab: "settings", title: "Settings")
+        audit("settings")
+        for page in 1...4 {
+            app.swipeUp()
+            usleep(500_000)
+            audit("settings-\(page)")
+        }
+        let reader = app.buttons["Theme & typography"].firstMatch
+        for _ in 0..<4 where !reader.exists { app.swipeDown() }
+        if reader.waitForExistence(timeout: 3) {
+            reader.tap()
+            usleep(1_000_000)
+            audit("reader-settings")
+            // The text-size row's −/+ buttons are icon-only.
+            for _ in 0..<6 where !app.buttons["Increase Text size"].exists { app.swipeUp() }
+            assertLabeled(["Decrease Text size", "Increase Text size"])
+            audit("reader-settings-sliders")
+        } else {
+            XCTFail("Theme & typography row")
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Launches at the largest accessibility text size on `tab`. iPhone
+    /// launches on the sidebar menu, so tap the row there when the tab isn't
+    /// already showing.
+    private func open(tab: String, title: String, file: StaticString = #filePath, line: UInt = #line) {
+        app.launchArguments = ["-demoMode",
+                               "-AppleLocale", "en_US", "-AppleLanguages", "(en)",
+                               "-app.selectedTabRaw", tab, "-app.zoomScale", "1.0",
+                               "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        let bar = app.navigationBars[title]
+        if !bar.waitForExistence(timeout: 8) {
+            let row = app.staticTexts[title].firstMatch
+            for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp() }
+            if row.exists { row.tap() }
+        }
+        XCTAssertTrue(bar.waitForExistence(timeout: 10), "the \(title) screen", file: file, line: line)
+        usleep(1_000_000)
+    }
+
+    /// Every one of these buttons is on screen, found by its spoken label.
+    private func assertLabeled(_ labels: [String], file: StaticString = #filePath, line: UInt = #line) {
+        for label in labels {
+            XCTAssertTrue(app.buttons[label].firstMatch.waitForExistence(timeout: 5),
+                          "a button labeled \"\(label)\"", file: file, line: line)
+        }
+    }
+
+    /// Runs Xcode's accessibility audit and logs every issue it finds, with a
+    /// screenshot of the screen it ran on.
+    private func audit(_ name: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "a11y-\(name)"
+        shot.lifetime = .keepAlways
+        add(shot)
+        do {
+            try app.performAccessibilityAudit { issue in
+                let element = issue.element
+                print("A11Y-AUDIT [\(name)] type=\(issue.auditType.rawValue) \(issue.compactDescription) | label=\"\(element?.label ?? "")\" id=\"\(element?.identifier ?? "")\" kind=\(element?.elementType.rawValue ?? 0) frame=\(element?.frame ?? .zero) | \(issue.detailedDescription)")
+                return true
+            }
+        } catch {
+            print("A11Y-AUDIT [\(name)] audit failed: \(error)")
+        }
+    }
+}
