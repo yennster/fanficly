@@ -89,6 +89,7 @@ final class iCloudSyncManager {
             let hidden = (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
             let folders = (try? context.fetch(FetchDescriptor<CustomFolder>())) ?? []
             let readingStats = (try? context.fetch(FetchDescriptor<ReadingStat>())) ?? []
+            let blockedTerms = (try? context.fetch(FetchDescriptor<BlockedTerm>())) ?? []
             
             // 2. Map them to Codable structures
             let workBackups = works.map { work in
@@ -239,6 +240,10 @@ final class iCloudSyncManager {
                 )
             }
 
+            let blockedBackups = blockedTerms.map {
+                BlockedBackup(kind: $0.kind, value: $0.value, createdAt: $0.createdAt)
+            }
+
             var backup = LibraryBackup(
                 works: workBackups,
                 bookmarks: bookmarkBackups,
@@ -250,6 +255,7 @@ final class iCloudSyncManager {
                 settings: settingsBackup,
                 folders: folderBackups,
                 stats: statBackups,
+                blocked: blockedBackups,
                 timestamp: .now
             )
 
@@ -335,6 +341,9 @@ final class iCloudSyncManager {
         var foldersByName = Dictionary((cloud.folders ?? []).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         for f in local.folders ?? [] { foldersByName[f.name] = f }
 
+        var blockedByKey = Dictionary((cloud.blocked ?? []).map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+        for b in local.blocked ?? [] { blockedByKey[b.key] = b }
+
         var statsById = Dictionary((cloud.stats ?? []).map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for s in local.stats ?? [] {
             if let c = statsById[s.ao3Id] {
@@ -355,6 +364,7 @@ final class iCloudSyncManager {
             settings: local.settings ?? cloud.settings,
             folders: foldersByName.values.sorted { $0.name < $1.name },
             stats: statsById.values.sorted { $0.ao3Id < $1.ao3Id },
+            blocked: blockedByKey.values.sorted { $0.key < $1.key },
             timestamp: local.timestamp
         )
     }
@@ -689,7 +699,18 @@ final class iCloudSyncManager {
                 }
             }
             
-            // 8. Restore ReadingStats. Merge conservatively — take the larger of
+            // 8. Restore BlockedTerms: add any this device lacks (a union, so
+            // unblocking on one device doesn't propagate, like hidden works).
+            for b in backup.blocked ?? [] {
+                guard let kind = BlockedTermKind(rawValue: b.kind) else { continue }
+                let key = b.key
+                let descriptor = FetchDescriptor<BlockedTerm>(predicate: #Predicate { $0.key == key })
+                if ((try? context.fetch(descriptor))?.first) == nil {
+                    context.insert(BlockedTerm(kind: kind, value: b.value, createdAt: b.createdAt))
+                }
+            }
+
+            // 9. Restore ReadingStats. Merge conservatively — take the larger of
             // the two totals and the per-day maxima, and the widest date span —
             // so syncing two devices never double-counts or loses reading time.
             for st in (backup.stats ?? []) {
@@ -770,7 +791,18 @@ struct LibraryBackup: Codable {
     let folders: [FolderBackup]?
     /// Optional so older backups (written before the Stats feature) still decode.
     let stats: [StatBackup]?
+    /// Blocked tags and authors (RM-006). Optional so older backups still
+    /// decode; defaulted so existing initializer calls still compile.
+    var blocked: [BlockedBackup]? = nil
     let timestamp: Date
+}
+
+struct BlockedBackup: Codable {
+    let kind: String
+    let value: String
+    let createdAt: Date
+
+    var key: String { BlockedTerm.key(kind: kind, value: value) }
 }
 
 struct FolderBackup: Codable {

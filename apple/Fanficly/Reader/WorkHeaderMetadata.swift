@@ -17,9 +17,11 @@ struct WorkHeaderMetadata: View {
                 RatingBadge(rating: summary.rating)
                 ForEach(summary.warnings, id: \.self) { warning in
                     SmallChip(text: warning, kind: .warning)
+                        .blockTermMenu(.tag, warning)
                 }
                 ForEach(summary.categories, id: \.self) { category in
                     SmallChip(text: category, kind: .category)
+                        .blockTermMenu(.tag, category)
                 }
             }
 
@@ -83,6 +85,7 @@ private struct MetadataRow: View {
             FlowLayout(spacing: 6, lineSpacing: 6) {
                 ForEach(values, id: \.self) { value in
                     SmallChip(text: value, kind: kind)
+                        .blockTermMenu(.tag, value)
                 }
             }
         }

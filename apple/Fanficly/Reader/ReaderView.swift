@@ -1928,6 +1928,7 @@ struct ReaderView: View {
             if !author.isEmpty {
                 if authorUsername.isEmpty {
                     Text("by \(author)").foregroundStyle(fg.opacity(0.65))
+                        .blockTermMenu(.author, author)
                 } else {
                     // Tappable byline → the author's other works.
                     NavigationLink(value: AuthorRef(username: authorUsername, displayName: author)) {
@@ -1941,6 +1942,7 @@ struct ReaderView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
                     .accessibilityHint("Shows this author's other works.")
+                    .blockTermMenu(.author, authorUsername)
                 }
             }
             if let summary {

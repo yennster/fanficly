@@ -15,6 +15,7 @@ struct AuthorWorksView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
     @Query private var hiddenWorks: [HiddenWork]
+    @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     let author: AuthorRef
 
@@ -26,8 +27,11 @@ struct AuthorWorksView: View {
     @State private var errorMessage: String?
     @State private var isFollowingAuthor = false
 
+    /// Opening a blocked author's page is asking for them, so only blocked
+    /// tags apply here.
     private var visibleWorks: [AO3WorkSummary] {
-        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature,
+                            blocklist: Blocklist(blockedTerms).lifting(tags: [String](), authors: [author.username, author.displayName]))
     }
 
     var body: some View {

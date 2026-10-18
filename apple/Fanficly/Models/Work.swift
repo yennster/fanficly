@@ -237,6 +237,37 @@ final class HiddenWork {
     }
 }
 
+/// A tag or author the user has blocked (RM-006). Works carrying a blocked
+/// tag, or by a blocked author, are filtered out of search and browse lists
+/// by `ContentFilter.apply`, never out of works the user opened on purpose.
+@Model
+final class BlockedTerm {
+    /// `BlockedTermKind.rawValue`: "tag" or "author".
+    var kind: String
+    /// As blocked: AO3's tag name, or the author's login.
+    var value: String
+    /// `BlockedTerm.key(kind:value:)`, so a term can't be blocked twice in
+    /// different case.
+    @Attribute(.unique) var key: String
+    var createdAt: Date
+
+    init(kind: BlockedTermKind, value: String, createdAt: Date = .now) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.kind = kind.rawValue
+        self.value = trimmed
+        self.key = Self.key(kind: kind.rawValue, value: trimmed)
+        self.createdAt = createdAt
+    }
+
+    static func key(kind: String, value: String) -> String {
+        "\(kind):\(Blocklist.fold(value))"
+    }
+}
+
+enum BlockedTermKind: String, CaseIterable, Sendable {
+    case tag, author
+}
+
 @Model
 final class SubscriptionRecord {
     @Attribute(.unique) var key: String
