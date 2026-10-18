@@ -1,6 +1,6 @@
 # Fanficly
 
-An open-source, ad-free reader for [Archive of Our Own](https://archiveofourown.org) on iPhone, iPhone Duo, iPad, Mac and Windows. There are no servers, accounts, ads or analytics: everything runs on your device and talks directly to AO3.
+An open-source, ad-free reader for [Archive of Our Own](https://archiveofourown.org) on iPhone, iPhone Duo, iPad, Mac and Windows. There are no Fanficly servers or accounts, no ads and no analytics: everything runs on your device and talks directly to AO3.
 
 [App Store](https://apps.apple.com/app/id6775897153) (iPhone, iPhone Duo, iPad and Mac) · [Microsoft Store](https://apps.microsoft.com/detail/9PH24K7ZCZTX) (Windows) · [fanficly.app](https://fanficly.app)
 
@@ -18,7 +18,7 @@ An open-source, ad-free reader for [Archive of Our Own](https://archiveofourown.
 
 ## Pick your platform
 
-Every app has the same features. Open a platform for its screenshots and docs.
+Every app has the same core features. Open a platform for its screenshots, extras and docs. The iPhone, iPhone Duo, iPad and Mac sections share one guide: [features](apple/README.md#features) · [build and run](apple/README.md#development) · [accessibility](apple/ACCESSIBILITY.md) · [roadmap](apple/docs/ROADMAP.md) · [privacy](PRIVACY.md).
 
 <details>
 <summary><b>iPhone</b>: the SwiftUI app, iOS 17 and later</summary>
@@ -30,7 +30,7 @@ Every app has the same features. Open a platform for its screenshots and docs.
 
 Home-screen widgets, the Safari share sheet, and lock-screen controls while a story is read aloud.
 
-**Docs:** [features and setup](apple/README.md) · [build and run](apple/README.md#development) · [accessibility](apple/ACCESSIBILITY.md) · [roadmap](apple/docs/ROADMAP.md) · [privacy](PRIVACY.md) · [all iPhone screenshots](apple/docs/screenshots/iphone/)
+**Docs:** [the Apple app guide](apple/README.md) · [all iPhone screenshots](apple/docs/screenshots/iphone/)
 
 </details>
 
@@ -46,7 +46,7 @@ Home-screen widgets, the Safari share sheet, and lock-screen controls while a st
 
 Unfolded, the reader becomes an open book with the fold as its spine. Folding or unfolding keeps your place in the story.
 
-**Docs:** [features and setup](apple/README.md) · [build and run](apple/README.md#development) · [accessibility](apple/ACCESSIBILITY.md) · [roadmap](apple/docs/ROADMAP.md) · [privacy](PRIVACY.md) · screenshots: [folded](apple/docs/screenshots/duo-outer/), [unfolded](apple/docs/screenshots/duo-inner/)
+**Docs:** [the Apple app guide](apple/README.md) · screenshots: [folded](apple/docs/screenshots/duo-outer/), [unfolded](apple/docs/screenshots/duo-inner/)
 
 </details>
 
@@ -60,7 +60,7 @@ Unfolded, the reader becomes an open book with the fold as its spine. Folding or
 
 A sidebar beside every screen, two-page spreads in landscape, and hardware keyboard page turns.
 
-**Docs:** [features and setup](apple/README.md) · [build and run](apple/README.md#development) · [accessibility](apple/ACCESSIBILITY.md) · [roadmap](apple/docs/ROADMAP.md) · [privacy](PRIVACY.md) · [all iPad screenshots](apple/docs/screenshots/ipad/)
+**Docs:** [the Apple app guide](apple/README.md) · [all iPad screenshots](apple/docs/screenshots/ipad/)
 
 </details>
 
@@ -68,13 +68,13 @@ A sidebar beside every screen, two-page spreads in landscape, and hardware keybo
 <summary><b>Mac</b>: the same app through Mac Catalyst</summary>
 <br>
 
-| Search | Reader |
+| Search | Reader settings |
 | :---: | :---: |
 | <img src="apple/screenshots/final/mac/01-search-plain-english.png" width="400" alt="Search on the Mac"> | <img src="apple/screenshots/final/mac/03-customize-every-page.png" width="400" alt="Reader settings on the Mac"> |
 
 A resizable window, ⌘1–9 for the tabs, interface zoom (⌘+ / ⌘− / ⌘0), and arrow keys to turn pages.
 
-**Docs:** [features and setup](apple/README.md) · [build and run](apple/README.md#development) · [accessibility](apple/ACCESSIBILITY.md) · [roadmap](apple/docs/ROADMAP.md) · [privacy](PRIVACY.md) · [all Mac screenshots](apple/screenshots/final/mac/)
+**Docs:** [the Apple app guide](apple/README.md) · [all Mac screenshots](apple/screenshots/final/mac/)
 
 </details>
 
@@ -82,17 +82,15 @@ A resizable window, ⌘1–9 for the tabs, interface zoom (⌘+ / ⌘− / ⌘0)
 <summary><b>Windows</b>: WinUI 3, Windows 10 and 11, x64 and ARM64</summary>
 <br>
 
-| Search | Reader |
-| :---: | :---: |
-| <img src="docs/screenshots/windows/desktop/02-search-results.png" width="400" alt="Search results on Windows"> | <img src="docs/screenshots/windows/desktop/13-reader-spread.png" width="400" alt="A two-page spread in the reader on Windows"> |
+<img src="docs/screenshots/windows/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
 
-Windows 11 widgets and jump lists, sync through OneDrive or any folder you already sync, keyboard, controller and Narrator support. The backup format matches the Apple app, so a PC and an iPhone can share one library.
+Widgets on Windows 11, taskbar jump lists, sync through OneDrive or any folder you already sync, keyboard, controller and Narrator support. The backup format matches the Apple app, so a PC and an iPhone can share one library.
 
 **Docs:** [features and setup](windows/README.md) · [build and run](windows/README.md#development) · [accessibility](windows/ACCESSIBILITY.md) · [roadmap](windows/ROADMAP.md) · [privacy](windows/PRIVACY.md) · screenshots: [desktop](docs/screenshots/windows/desktop/), [tablet](docs/screenshots/windows/tablet/), [narrow window](docs/screenshots/windows/compact/)
 
 </details>
 
-The screenshots are captured from each app's demo mode and refreshed with every release, so they always show what shipped.
+The screenshots come from each app's demo mode and are regenerated by the release tooling, so they track what shipped.
 
 ## For developers
 
