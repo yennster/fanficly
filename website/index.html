@@ -111,14 +111,6 @@
     </div>
   </section>
 
-  <!-- Quote break -->
-  <section class="excerpt" aria-label="An excerpt as Fanficly sets it">
-    <blockquote>
-      <p>“You’re up early,” said Wira, who was already three cups of something vaguely coffee-shaped into the day.</p>
-      <footer>The Long Way Home, chapter one</footer>
-    </blockquote>
-  </section>
-
   <!-- Finding -->
   <section class="chapter" id="search">
     <div class="chapter-head">
@@ -234,7 +226,7 @@
 
   // Fade sections in as they arrive; skipped entirely for reduced motion.
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches && 'IntersectionObserver' in window) {
-    const els = document.querySelectorAll('.chapter-head, .split, .showcase, .index, .mac, .excerpt blockquote, .privacy h2, .privacy-cols, .cards');
+    const els = document.querySelectorAll('.chapter-head, .split, .showcase, .index, .mac, .privacy h2, .privacy-cols, .cards');
     els.forEach(el => el.classList.add('rise'));
     const io = new IntersectionObserver(entries => entries.forEach(e => {
       if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
