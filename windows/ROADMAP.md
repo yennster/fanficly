@@ -174,6 +174,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - The PR lists what to check on Windows: the tab signed out (sign-in prompt) and signed in.
 - **Touches:** `windows/src/Fanficly.Core/Networking/{IAO3Client,AO3Client,AO3Endpoints,MockAO3Client}.cs`, `Demo/DemoAO3Client.cs`, `Settings/SidebarItem.cs`, `windows/src/Fanficly.App/Shell/SidebarItem.cs`, `Views/Account/BookmarksScreen.cs` (pattern), `Views/Account/AccountModule.cs`, `Views/Settings/ShortcutsScreen.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`, `windows/tests/Fanficly.UITests/SmokeTests.cs`, AGENTS.md.
 
+### RM-113 — Library export and import as a file
+- **Status:** done · **Size:** S · **Validation:** unit
+- **Why:** Sync needs a folder a sync app keeps up to date; a plain file is a safe fallback and a way to move a library between PCs, accounts or platforms. The Apple app's item is RM-012 on `main` (issue #49); the two use one file format, the backup's JSON, so a file exported on either imports on the other.
+- **Scope:** "Export Library File…" in Settings → Sync writes `LibrarySyncManager.MakeLocalBackup` as `LibraryBackupJson` through a save picker; "Import Library File…" runs a picked file through the restore's forward-only merge (`Apply`). No new merge rules.
+- **Done when:** a round-trip test (export → import into an empty in-memory store), a test that importing an older file never moves progress backwards, and tests that a non-library file is refused and an Apple-written file imports.
+- **Touches:** `windows/src/Fanficly.Core/Sync/LibrarySyncManager.cs`, `windows/src/Fanficly.App/Views/Settings/SyncSettingsScreen.cs`, `windows/tests/Fanficly.Core.Tests/PersistenceTests.cs`.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find followed works from Windows Search

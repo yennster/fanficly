@@ -697,6 +697,29 @@ public sealed class LibrarySyncManager
         }
     }
 
+    // MARK: - Library file export and import
+
+    /// <summary>The exported file's name, e.g. "Fanficly Library 2026-10-18.json".</summary>
+    public static string ExportFileName(DateTimeOffset date) =>
+        $"Fanficly Library {date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}.json";
+
+    /// <summary>The library as a file ("Export Library File…"): the same JSON
+    /// as the sync folder's backup, so the Apple apps read it too. Works
+    /// whether or not sync is on.</summary>
+    public byte[] ExportLibraryFile(LibraryStore store) => LibraryBackupJson.Encode(MakeLocalBackup(store));
+
+    /// <summary>Merges a library file (exported here, by another PC, or by the
+    /// Apple apps) into the library through the same forward-only rules as a
+    /// restore, then saves. Throws <see cref="JsonException"/> when the bytes
+    /// aren't a library file; nothing is changed then. Unlike a restore it
+    /// doesn't stamp the sync folder's backup as applied.</summary>
+    public void ImportLibraryFile(byte[] data, LibraryStore store)
+    {
+        var backup = LibraryBackupJson.Decode(data);
+        Apply(backup, store);
+        store.Save();
+    }
+
     /// <summary>Deletes the backup file from the sync folder.</summary>
     public bool Clear()
     {
