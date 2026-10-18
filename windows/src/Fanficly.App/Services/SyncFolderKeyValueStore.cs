@@ -121,6 +121,8 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
         try
         {
             _local.Flush();
+            // Nothing synced has been set on this PC yet, so there's no file to copy.
+            if (!File.Exists(_localPath)) return;
             var tmp = path + ".tmp";
             File.Copy(_localPath, tmp, overwrite: true);
             lock (_gate) { if (_watcher is not null) _watcher.EnableRaisingEvents = false; }
