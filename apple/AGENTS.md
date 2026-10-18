@@ -143,6 +143,7 @@ project.yml                    # xcodegen is the source of truth
 bin/                           # developer scripts (icon gen, screenshots,
                                #   store art); ../.github/scripts/roadmap.sh
                                #   = list and claim-check roadmap items
+ci_scripts/ci_post_clone.sh    # Xcode Cloud: regenerate the project first
 docs/ROADMAP.md                # the backlog (RM-nnn items); agents: see below
 docs/RELEASING.md              # cloud release + store-art workflows, secrets
 docs/screenshots/              # demo-mode captures (iphone, ipad, mac, duo-*)
@@ -325,7 +326,7 @@ The backlog is [`docs/ROADMAP.md`](docs/ROADMAP.md) (each item is mirrored by a 
 2. **Pick.** Run `.github/scripts/roadmap.sh free apple` (open and unclaimed; needs `gh`; `windows` lists the Windows roadmap instead). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
 3. **Verify it's real.** Read the files the item names. If the feature already exists, the premise is wrong, or the item is bigger than `M`, don't build it: open a PR that only edits the roadmap (fix or split the item, with new IDs) or report back.
 4. **Claim before coding.** Create the branch `roadmap/RM-nnn-short-slug` from `origin/main`, push it, and open a **draft PR** titled `RM-nnn: <title>` whose body is the filled-in PR template. The branch/PR is the claim `.github/scripts/roadmap.sh` sees; re-run `.github/scripts/roadmap.sh` first and if another claim appeared for the same ID in the meantime, abandon yours (close your draft) and pick again. (A draft PR needs at least one commit; push the roadmap's `claimed` note, or an empty commit `git commit --allow-empty -m "Claim RM-nnn"`.)
-5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file means `xcodegen generate` and a regenerated `.xcodeproj`, which you can only do on a Mac.
+5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file is fine without a Mac: GitHub CI and Xcode Cloud (`ci_scripts/ci_post_clone.sh`) both run `xcodegen generate` before building, so the committed `.xcodeproj` can lag behind.
 6. **Test.** Add tests for every behavior change in `FanficlyTests/` (fixtures inline, no network), and add the feature's tests to the list in "Tests" below if it's a new area. A new `AO3ClientProtocol` method needs `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` updated.
 7. **Validate honestly** (see "Which machine you're on").
 8. **Update the roadmap** in the same PR: set that item's `Status` to `done`, and nothing else in the file. Update AGENTS.md (the only agent guide; CLAUDE.md just imports it) if you added a convention or a gotcha; keep it to what the next agent can't see from the code.

@@ -117,6 +117,12 @@ path** workflow (`xcode-cloud.yml`, `bin/xcode-cloud-project-path.py`): without
 `apple/`. It uses the same `app-store` secrets, so it only runs from `main`.
 Any start conditions that filter on file paths are edited in App Store Connect.
 
+Xcode Cloud builds what is committed, and the committed `Fanficly.xcodeproj`
+only lists the files it had when XcodeGen last ran. So
+`ci_scripts/ci_post_clone.sh` installs XcodeGen and regenerates the project
+from `project.yml` before every Xcode Cloud build, as GitHub CI does; new
+Swift files build there without a Mac.
+
 ## Running lanes on a Mac
 
 `cd apple`, `bundle install`, then the same lanes. Put the API key in
