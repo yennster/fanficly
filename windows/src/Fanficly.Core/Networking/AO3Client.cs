@@ -545,7 +545,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
         if (EndedAtLogin(page)) throw AO3Exception.Unauthorized();
         var pageHtml = Decode(page.Body, "Work page");
-        if (LoginParser.CurrentUsername(pageHtml) is null) throw AO3Exception.Unauthorized();
+        if (!KudosParser.IsSignedIn(pageHtml)) throw AO3Exception.Unauthorized();
         var fields = KudosParser.FormFields(pageHtml)
             ?? throw AO3Exception.Rejected("AO3 doesn't offer kudos on this work. It may be your own, or its creator may have blocked you.");
         // The page-wide token (<meta name="csrf-token">), as comments and subscribe

@@ -25,6 +25,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
 - **Your preferences** (theme, reader profiles and typography, sort order, voice and so on) are kept in a settings file. That file also holds:
   - your last 10 searches, which are never synced or backed up;
   - whether you confirmed you're 17 or older;
+  - which works you've left kudos on, as work numbers only, deleted when you sign out;
   - the size and position of the window.
 - **Widget data.** The story you read last, your reading streak, your folders, saved searches, subscriptions and a recommendation are kept in a small file that Fanficly's own widgets read, so the Windows Widgets board can show them.
 - **A local diagnostic log** (`Logs\fanficly.log`). It records errors, which can include a work's title, a fandom name or a web address. It never records passwords or cookies. It's capped at 512 KB, and Fanficly never sends it anywhere.

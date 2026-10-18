@@ -362,6 +362,14 @@ public static class KudosParser
         return fields.TryGetValue("kudo[commentable_id]", out var id) && id.Length > 0 ? fields : null;
     }
 
+    /// <summary>Whether the page was served to a signed-in reader: AO3's
+    /// <c>nav#greeting</c> links to <c>/users/&lt;login&gt;</c> only then, and a signed-out
+    /// header carries the login form. Stricter than <see cref="LoginParser.CurrentUsername"/>,
+    /// whose <c>#header</c> fallback also matches the signed-out
+    /// <c>/users/login?return_to=…</c> link.</summary>
+    public static bool IsSignedIn(string html) =>
+        !LoginParser.HasLoginForm(html) && HtmlDom.Parse(html).Select("#greeting a[href^='/users/']").Count > 0;
+
     /// <summary>The reason in a refused <c>/kudos.js</c> POST's <c>{"error_message": "…"}</c>.</summary>
     public static string? ErrorMessage(string json)
     {

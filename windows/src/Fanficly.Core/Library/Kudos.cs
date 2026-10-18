@@ -2,28 +2,31 @@ using System.Globalization;
 
 namespace Fanficly.Core;
 
-/// <summary>Works an AO3 account has left kudos on, remembered on this PC so the
-/// kudos item reads "Kudos Left" instead of inviting a second click (Swift's
-/// <c>KudosStore</c>). Keyed by username because AO3 counts one kudo per account.
-/// Not in the library backup: AO3 itself still refuses a duplicate, which reads as already left.</summary>
+/// <summary>Works you've left kudos on, remembered on this PC so the kudos item
+/// reads "Kudos Left" instead of inviting a second click (Swift's <c>KudosStore</c>).
+/// Cleared on sign-out, so it always belongs to the signed-in account (AO3 counts
+/// one kudo per account) and no username is kept beside it. Not in the library
+/// backup: AO3 itself still refuses a duplicate, which reads as already left.</summary>
 public static class KudosStore
 {
-    public static string Key(string username) => $"kudos.left.{username.ToLowerInvariant()}";
+    public const string Key = "kudos.leftWorkIds";
 
-    public static bool HasLeft(int workId, string username, IKeyValueStore? store = null) =>
-        WorkIds(username, store ?? KeyValueStores.Default).Contains(workId);
+    public static bool HasLeft(int workId, IKeyValueStore? store = null) =>
+        WorkIds(store ?? KeyValueStores.Default).Contains(workId);
 
-    public static void MarkLeft(int workId, string username, IKeyValueStore? store = null)
+    public static void MarkLeft(int workId, IKeyValueStore? store = null)
     {
         store ??= KeyValueStores.Default;
-        var ids = WorkIds(username, store);
+        var ids = WorkIds(store);
         if (ids.Contains(workId)) return;
         ids.Add(workId);
-        store.SetString(Key(username), string.Join(",", ids.Select(id => id.ToString(CultureInfo.InvariantCulture))));
+        store.SetString(Key, string.Join(",", ids.Select(id => id.ToString(CultureInfo.InvariantCulture))));
     }
 
-    private static List<int> WorkIds(string username, IKeyValueStore store) =>
-        (store.GetString(Key(username)) ?? "")
+    public static void Clear(IKeyValueStore? store = null) => (store ?? KeyValueStores.Default).Remove(Key);
+
+    private static List<int> WorkIds(IKeyValueStore store) =>
+        (store.GetString(Key) ?? "")
             .Split(',', StringSplitOptions.RemoveEmptyEntries)
             .Select(s => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : 0)
             .Where(id => id > 0)
@@ -50,7 +53,7 @@ public sealed class KudosGiver(IKeyValueStore? store = null)
 
     public void Refresh(int workId, string? username)
     {
-        var hasLeft = username is not null && KudosStore.HasLeft(workId, username, _store);
+        var hasLeft = username is not null && KudosStore.HasLeft(workId, _store);
         if (hasLeft == HasLeft) return;
         HasLeft = hasLeft;
         Changed?.Invoke();
@@ -67,7 +70,7 @@ public sealed class KudosGiver(IKeyValueStore? store = null)
         {
             // No ConfigureAwait(false): Changed must fire on the caller's (UI) thread.
             var outcome = await client.LeaveKudosAsync(workId);
-            KudosStore.MarkLeft(workId, username, _store);
+            KudosStore.MarkLeft(workId, _store);
             HasLeft = true;
             return outcome == KudosOutcome.Left
                 ? new("Kudos left", "Thank you for leaving kudos!")
@@ -83,7 +86,7 @@ public sealed class KudosGiver(IKeyValueStore? store = null)
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Network)
         {
-            return new("Couldn't leave kudos", $"{e.Message} The kudos may still have landed; trying again is safe.");
+            return new("Couldn't leave kudos", $"{e.Message} If the request reached AO3, the kudos may have landed; trying again is safe.");
         }
         catch (AO3Exception e)
         {

@@ -45,6 +45,32 @@ public class KudosParserTests
     }
 
     [Fact]
+    public void SignedInOnlyWithTheGreeting()
+    {
+        Assert.True(KudosParser.IsSignedIn("""
+            <html><body><header id="header">
+              <nav id="greeting"><ul class="user navigation actions"><li class="dropdown">
+                <a href="/users/reader">Hi, reader!</a></li></ul></nav>
+            </header></body></html>
+            """));
+        Assert.False(KudosParser.IsSignedIn(SignedOutHeader));
+        Assert.False(KudosParser.IsSignedIn("<html><body></body></html>"));
+    }
+
+    /// <summary>AO3's signed-out header: the login dropdown and its small login form.</summary>
+    internal const string SignedOutHeader = """
+        <html><body><header id="header">
+          <div id="login" class="dropdown">
+            <p class="user actions"><a id="login-dropdown" href="/users/login?return_to=%2Fworks%2F42">Log In</a></p>
+            <div id="small_login" class="simple login"><form id="new_user" action="/users/login" method="post">
+              <input type="text" name="user[login]" id="user_login" />
+              <a href="/users/password/new">Forgot password?</a>
+            </form></div>
+          </div>
+        </header></body></html>
+        """;
+
+    [Fact]
     public void ARefusedTokenIsAnAuthError()
     {
         Assert.True(KudosParser.IsAuthError("""{"errors":{"auth_error":"Your current session has expired."}}"""));
@@ -61,15 +87,15 @@ public class KudosParserTests
     }
 }
 
-/// <summary><see cref="KudosGiver"/> sends one kudo per click, remembers it per
-/// account so the menu item reads "Kudos Left", and turns AO3's refusals into
+/// <summary><see cref="KudosGiver"/> sends one kudo per click, remembers it until
+/// sign-out so the menu item reads "Kudos Left", and turns AO3's refusals into
 /// what the screen shows (the Swift app's <c>KudosGiverTests</c>).</summary>
 public class KudosGiverTests
 {
     private readonly InMemoryKeyValueStore _store = new();
 
     [Fact]
-    public async Task LeavingKudosRemembersTheWorkForThatAccount()
+    public async Task LeavingKudosRemembersTheWork()
     {
         var client = new StubAO3Client();
         var giver = new KudosGiver(_store);
@@ -78,9 +104,16 @@ public class KudosGiverTests
         Assert.Equal([7], client.KudosCalls);
         Assert.True(giver.HasLeft);
         Assert.Equal("Kudos left", result?.Title);
-        Assert.True(KudosStore.HasLeft(7, "Reader", _store));
-        Assert.False(KudosStore.HasLeft(7, "someone-else", _store));
-        Assert.False(KudosStore.HasLeft(8, "reader", _store));
+        Assert.True(KudosStore.HasLeft(7, _store));
+        Assert.False(KudosStore.HasLeft(8, _store));
+    }
+
+    [Fact]
+    public void SigningOutForgetsKudos()
+    {
+        KudosStore.MarkLeft(7, _store);
+        KudosStore.Clear(_store);
+        Assert.False(KudosStore.HasLeft(7, _store));
     }
 
     [Fact]
@@ -96,14 +129,14 @@ public class KudosGiverTests
     [Fact]
     public void RememberedKudosShowOnTheNextScreen()
     {
-        KudosStore.MarkLeft(7, "reader", _store);
-        KudosStore.MarkLeft(9, "reader", _store);
+        KudosStore.MarkLeft(7, _store);
+        KudosStore.MarkLeft(9, _store);
         var giver = new KudosGiver(_store);
         giver.Refresh(7, "reader");
         Assert.True(giver.HasLeft);
         giver.Refresh(7, null);
         Assert.False(giver.HasLeft);
-        Assert.True(KudosStore.HasLeft(9, "reader", _store));
+        Assert.True(KudosStore.HasLeft(9, _store));
     }
 
     [Fact]
@@ -125,7 +158,7 @@ public class KudosGiverTests
 
         Assert.True(giver.HasLeft);
         Assert.Equal("Kudos already left", result?.Title);
-        Assert.True(KudosStore.HasLeft(7, "reader", _store));
+        Assert.True(KudosStore.HasLeft(7, _store));
     }
 
     [Fact]
@@ -138,7 +171,7 @@ public class KudosGiverTests
         Assert.False(giver.HasLeft);
         Assert.False(giver.IsSending);
         Assert.Equal("You can't leave kudos on your own work.", result?.Message);
-        Assert.False(KudosStore.HasLeft(7, "reader", _store));
+        Assert.False(KudosStore.HasLeft(7, _store));
     }
 
     [Fact]

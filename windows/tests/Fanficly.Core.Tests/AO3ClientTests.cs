@@ -880,6 +880,17 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task KudosStopOnAO3sSignedOutHeader()
+    {
+        // The header's /users/login?return_to=… link once read as a signed-in name.
+        _handler.Respond(_ => FakeHandler.Html(KudosParserTests.SignedOutHeader.Replace("</header>",
+            """</header><form id="new_kudo" action="/kudos"><input type="hidden" name="kudo[commentable_id]" value="42"></form>""")));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
     public async Task NoKudosButtonMeansNoPost()
     {
         // Your own work, or a creator who blocked you: AO3 leaves the form out.
