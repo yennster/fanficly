@@ -143,6 +143,7 @@ public class SearchResultsParserTests
         // must resolve so "Load more" advances past page 2.
         const string liForm = """
         <html><body>
+        <ol class="work index group"></ol>
         <ol class="pagination actions">
           <li><a href="?page=1">1</a></li>
           <li class="current">3</li>
@@ -230,4 +231,138 @@ public class SearchResultsParserTests
         Assert.Null(SearchResultsParser.WorkId("/series/4242"));
         Assert.Null(SearchResultsParser.WorkId(""));
     }
+
+    // Failing closed (RM-001)
+
+    [Fact]
+    public void EmptySearchReturnsNoWorks()
+    {
+        var html = AO3PageFixtures.GuestPage("works-search", """
+            <h2 class="heading">Search Results</h2>
+            <p>No results found. You may want to edit your search to make it less specific.</p>
+            """);
+        Assert.Empty(SearchResultsParser.Parse(html).Works);
+    }
+
+    [Fact]
+    public void EmptyAuthorWorksReturnsNoWorks()
+    {
+        var html = AO3PageFixtures.GuestPage("works-index dashboard", """
+            <h2 class="heading">0 Works by alice</h2>
+            <h3 class="landmark heading">Listing Works</h3>
+            <ol class="work index group"></ol>
+            """);
+        Assert.Empty(SearchResultsParser.Parse(html).Works);
+    }
+
+    [Fact]
+    public void EmptyBookmarksReturnNoWorks()
+    {
+        var html = AO3PageFixtures.GuestPage("bookmarks-index dashboard", """
+            <h2 class="heading">0 Bookmarks by alice</h2>
+            <ol class="bookmark index group"></ol>
+            """);
+        Assert.Empty(SearchResultsParser.Parse(html, "li.bookmark.blurb").Works);
+    }
+
+    /// <summary>Every guest page has the header's login form; it must not read as
+    /// the login page.</summary>
+    [Fact]
+    public void GuestResultsPageStillParses()
+    {
+        var html = AO3PageFixtures.GuestPage("works-search", """
+            <ol class="work index group">
+              <li id="work_12345" class="work blurb group" role="article">
+                <div class="header module"><h4 class="heading"><a href="/works/12345">A Coffee Shop Tale</a></h4></div>
+              </li>
+            </ol>
+            """);
+        Assert.Equal([12345], SearchResultsParser.Parse(html).Works.Select(w => w.Id));
+    }
+
+    [Theory]
+    [InlineData("li.work.blurb")]
+    [InlineData("li.bookmark.blurb")]
+    public void LoginPageThrowsUnauthorized(string selector)
+    {
+        var e = Assert.Throws<AO3Exception>(() => SearchResultsParser.Parse(AO3PageFixtures.LoginPage, selector));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    public static TheoryData<string> GarbagePages =>
+        [AO3PageFixtures.ErrorPage, AO3PageFixtures.ForeignPage, "<html><body></body></html>"];
+
+    [Theory]
+    [MemberData(nameof(GarbagePages))]
+    public void GarbagePageThrowsParseFailed(string html)
+    {
+        var e = Assert.Throws<AO3Exception>(() => SearchResultsParser.Parse(html));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
+}
+
+/// <summary>Page shells for the fail-closed parser tests, cut down from otwarchive's
+/// own templates (<c>layouts/application</c>, <c>users/sessions/new</c>,
+/// <c>public/502.html</c>). AO3 sets <c>#main</c>'s class to the Rails
+/// <c>controller-action</c>. The Swift tests use the same shells.</summary>
+internal static class AO3PageFixtures
+{
+    /// <summary>The header every logged-out page carries, small login form included.</summary>
+    public const string GuestHeader = """
+        <div id="header" class="region" role="banner">
+          <h1 class="heading"><a href="/"><span>Archive of Our Own</span></a></h1>
+          <div id="login" class="dropdown">
+            <p class="user actions"><a id="login-dropdown" href="/users/login?return_to=%2Fworks">Log In</a></p>
+            <div id="small_login" class="simple login">
+              <form class="new_user" id="new_user_session_small" action="/users/login?return_to=%2Fworks" accept-charset="UTF-8" method="post">
+                <dl>
+                  <dt><label for="user_session_login_small">Username or email:</label></dt>
+                  <dd><input autocomplete="on" id="user_session_login_small" type="text" name="user[login]" /></dd>
+                  <dt><label for="user_password">Password:</label></dt>
+                  <dd><input type="password" name="user[password]" id="user_password" /></dd>
+                </dl>
+              </form>
+            </div>
+          </div>
+        </div>
+        """;
+
+    public static string GuestPage(string mainClass, string body) => $"""
+        <html><body><div id="outer" class="wrapper">
+        {GuestHeader}
+        <div id="inner" class="wrapper">
+          <div id="main" class="{mainClass} region" role="main">
+          {body}
+          </div>
+        </div>
+        </div></body></html>
+        """;
+
+    /// <summary>Where AO3 sends a stale session or a guest opening a restricted work.</summary>
+    public static readonly string LoginPage = GuestPage("sessions-new system session", """
+        <h3 class="heading">Sorry!</h3>
+        <p>This work is only available to registered users of the Archive.</p>
+        <div id="loginform">
+          <form class="new_user" id="new_user" action="/users/login" accept-charset="UTF-8" method="post">
+            <dl>
+              <dt><label for="user_login">Username or email:</label></dt>
+              <dd><input type="text" name="user[login]" id="user_login" /></dd>
+              <dt><label for="user_password">Password:</label></dt>
+              <dd><input type="password" name="user[password]" id="user_password" /></dd>
+            </dl>
+          </form>
+        </div>
+        """);
+
+    /// <summary>AO3's static 502 page.</summary>
+    public static readonly string ErrorPage = GuestPage("system errors error-502", """
+        <h2 class="heading">Error 502</h2>
+        <p>The page was responding too slowly.</p>
+        """);
+
+    /// <summary>Not AO3 at all: a captive portal or a proxy's block page.</summary>
+    public const string ForeignPage = """
+        <html><head><title>Sign in to Wi-Fi</title></head>
+        <body><h1>Welcome</h1><a href="/tags/accept/works">Accept and continue</a></body></html>
+        """;
 }

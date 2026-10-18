@@ -35,6 +35,14 @@ public static partial class WorkPageParser
 
     private static AO3WorkPayload Parse(IDocument doc, int workId)
     {
+        // A restricted work or a stale session lands on the login page, and
+        // anything else without the work's own markup (the adult gate, an error
+        // page, drift) would parse to an untitled work with no chapters, which
+        // saving would write over the offline copy. Both must be errors.
+        AO3PageCheck.RejectLoginPage(doc);
+        if (doc.SelectFirst("#workskin, div#chapters, dl.work.meta") is null)
+            throw AO3Exception.ParseFailed("Not a work page");
+
         // Strip AO3's screen-reader-only landmark headings ("Chapter Text",
         // "Work Text", "Notes", etc.) so they don't render in the body.
         foreach (var landmark in doc.Select("h3.landmark, .landmark.heading")) landmark.Remove();

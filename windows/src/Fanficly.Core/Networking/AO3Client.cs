@@ -215,17 +215,25 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     public async Task<AO3WorkChapterPage> FetchWorkChapterAsync(int id, int chapter = 1, CancellationToken ct = default)
     {
-        var page = await FetchChapterPageAsync(id, null, ct).ConfigureAwait(false);
+        var page = await TryFetchChapterPageAsync(id, null, ct).ConfigureAwait(false);
         // Markup we can't read: the whole work, as before.
-        if (page.Payload.Chapters.Count == 0)
+        if (page is null || page.Payload.Chapters.Count == 0)
             return new(await FetchWorkAsync(id, ct).ConfigureAwait(false), [], IsWholeWork: true);
         // The first page names every chapter's id, so a later chapter is one
         // more small page.
         if (chapter <= 1 || page.IsWholeWork || chapter > page.ChapterIds.Count
             || page.Payload.Chapters.Any(c => c.Index == chapter))
             return page;
-        var later = await FetchChapterPageAsync(id, page.ChapterIds[chapter - 1], ct).ConfigureAwait(false);
-        return later.Payload.Chapters.Count > 0 ? later : page;
+        var later = await TryFetchChapterPageAsync(id, page.ChapterIds[chapter - 1], ct).ConfigureAwait(false);
+        return later is { Payload.Chapters.Count: > 0 } ? later : page;
+    }
+
+    /// <summary>A chapter page, or null when it isn't a work page at all (the parser
+    /// fails closed); the caller then falls back. The login page still throws.</summary>
+    private async Task<AO3WorkChapterPage?> TryFetchChapterPageAsync(int id, int? chapterId, CancellationToken ct)
+    {
+        try { return await FetchChapterPageAsync(id, chapterId, ct).ConfigureAwait(false); }
+        catch (AO3Exception e) when (e.Kind == AO3ErrorKind.ParseFailed) { return null; }
     }
 
     private async Task<AO3WorkChapterPage> FetchChapterPageAsync(int id, int? chapterId, CancellationToken ct)
