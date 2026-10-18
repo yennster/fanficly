@@ -11,6 +11,11 @@ public interface IAO3Client
     Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default);
+    /// <summary>One page of the user's AO3 Marked for Later list. Needs login.
+    /// The default throws, so a client that doesn't forward it can't show an
+    /// empty list; test fakes that never open the tab need nothing.</summary>
+    Task<AO3SearchResults> FetchMarkedForLaterAsync(string username, int page, CancellationToken ct = default) =>
+        throw new NotSupportedException(nameof(FetchMarkedForLaterAsync));
     Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default);
     /// <summary>One chapter of a work, as AO3 pages it by default: chapter
     /// <paramref name="chapter"/> (one-based) when it exists, else the first.

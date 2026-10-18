@@ -100,6 +100,15 @@ public class AO3EndpointsTests
     }
 
     [Fact]
+    public void UserMarkedForLaterURL_Paginates()
+    {
+        Assert.Equal("https://archiveofourown.org/users/reader/readings?show=to-read",
+            AO3Endpoints.UserMarkedForLater("reader", 1, _base).AbsoluteUri);
+        Assert.Equal("https://archiveofourown.org/users/reader/readings?show=to-read&page=2",
+            AO3Endpoints.UserMarkedForLater("reader", 2, _base).AbsoluteUri);
+    }
+
+    [Fact]
     public void WorkSubscriptionsURL()
     {
         Assert.Equal("https://archiveofourown.org/works/42/subscriptions", AO3Endpoints.WorkSubscriptions(42, _base).AbsoluteUri);

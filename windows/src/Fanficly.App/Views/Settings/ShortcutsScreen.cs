@@ -16,7 +16,9 @@ public sealed class ShortcutsScreen : Screen
 
     protected override FrameworkElement Build()
     {
-        var go = SidebarItems.All.Select(item => (item.ShortcutText(), $"Go to {item.Title()}")).ToList();
+        // Tabs without a shortcut (Marked for Later) are left out, not shown as "Ctrl+10".
+        var go = SidebarItems.All.Where(item => item.ShortcutText() is not null)
+            .Select(item => (item.ShortcutText()!, $"Go to {item.Title()}")).ToList();
 
         var page = UI.UI.VStack(18,
             Group("Go", go),
