@@ -52,6 +52,9 @@ final class Work {
     /// SwiftData migrates existing stores automatically.
     var note: String?
     var personalTags: [String] = []
+    /// When the note or tags were last edited on any device; nil until then.
+    /// The newest edit wins in backup merges, so clearing a note sticks.
+    var notesUpdatedAt: Date?
 
     @Relationship(deleteRule: .cascade, inverse: \Chapter.work)
     var chapters: [Chapter] = []
@@ -126,10 +129,15 @@ extension Work {
     }
 
     /// Stores what the notes sheet edited. A blank note is stored as nil.
-    func setNotes(note text: String, tagsText: String) {
+    /// Stamps `notesUpdatedAt` only when something actually changed.
+    func setNotes(note text: String, tagsText: String, now: Date = .now) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        note = trimmed.isEmpty ? nil : trimmed
-        personalTags = Work.personalTags(from: tagsText)
+        let newNote: String? = trimmed.isEmpty ? nil : trimmed
+        let newTags = Work.personalTags(from: tagsText)
+        guard newNote != note || newTags != personalTags else { return }
+        note = newNote
+        personalTags = newTags
+        notesUpdatedAt = now
     }
 }
 

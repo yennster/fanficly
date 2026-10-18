@@ -942,6 +942,70 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: ["x"]), ["x"])
         XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: nil), [])
         XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: ["y"], other: ["x"]), ["y"])
+
+        // With edit stamps, the newest side wins outright, a clear included.
+        let older = Date(timeIntervalSince1970: 1_000)
+        let newer = Date(timeIntervalSince1970: 2_000)
+        let filled = WorkNotes(note: "old", personalTags: ["t"], updatedAt: older)
+        let cleared = WorkNotes(note: nil, personalTags: [], updatedAt: newer)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: filled, other: cleared), cleared)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: cleared, other: filled), cleared)
+        // A stamped side beats an unstamped (never edited) one.
+        let never = WorkNotes(note: nil, personalTags: [], updatedAt: nil)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: never, other: filled), filled)
+        // Ties go to local.
+        let same = WorkNotes(note: "other", personalTags: [], updatedAt: older)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: filled, other: same), filled)
+        // Neither stamped: the forward-only fallback.
+        XCTAssertEqual(
+            iCloudSyncManager.mergedNotes(local: never, other: WorkNotes(note: "x", personalTags: ["y"], updatedAt: nil)),
+            WorkNotes(note: "x", personalTags: ["y"], updatedAt: nil))
+    }
+
+    func test_setNotesStampsOnlyRealChanges() {
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        let t1 = Date(timeIntervalSince1970: 1_000)
+        work.setNotes(note: "a", tagsText: "x", now: t1)
+        XCTAssertEqual(work.notesUpdatedAt, t1)
+        work.setNotes(note: " a ", tagsText: "x,", now: Date(timeIntervalSince1970: 2_000))
+        XCTAssertEqual(work.notesUpdatedAt, t1, "saving unchanged text must not look like a newer edit")
+    }
+
+    /// Clearing a note on one device reaches the others: the newer, empty
+    /// value replaces the note in the backup and then on restore.
+    func test_clearedNoteSyncsInsteadOfComingBack() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // The pad wrote a note an hour ago and backed it up.
+        let pad = try makeContext()
+        let padWork = Work(ao3Id: 1, title: "T", authorName: "A")
+        padWork.setNotes(note: "old note", tagsText: "old", now: Date(timeIntervalSinceNow: -3600))
+        pad.insert(padWork)
+        try pad.save()
+        iCloudSyncManager.shared.backupToiCloud(context: pad)
+
+        // The phone restored it, cleared it just now, and backed up.
+        let phone = try makeContext()
+        XCTAssertTrue(await iCloudSyncManager.shared.restoreFromiCloud(context: phone))
+        let phoneWork = try XCTUnwrap(try phone.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(phoneWork.note, "old note")
+        phoneWork.setNotes(note: "", tagsText: "")
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let backedUp = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertNil(backedUp.note)
+        XCTAssertEqual(backedUp.personalTags, [])
+
+        // The pad's next restore clears its copy too.
+        XCTAssertTrue(await iCloudSyncManager.shared.restoreFromiCloud(context: pad))
+        XCTAssertNil(padWork.note)
+        XCTAssertEqual(padWork.personalTags, [])
     }
 
     /// A device without a note must not erase another device's note in the
