@@ -17,7 +17,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
 - **Your AO3 session.** If you sign in, your AO3 username and AO3's session cookies are stored encrypted with Windows Data Protection (DPAPI) for your Windows account only. Another Windows user on the same PC can't read them. Your password is sent once to AO3 when you sign in and is never stored. Signing out deletes the cookies and username.
 - **Your library.** In a database file (`library.sqlite`) on your PC:
   - works you've saved, and their chapter text if you downloaded it
-  - folders, stars and pins
+  - folders, stars and pins, and your own notes and tags on saved works
   - reading positions, recently viewed works and reading stats
   - followed works and authors, and the list of your AO3 subscriptions
   - saved searches and filters, and works you've hidden
@@ -39,7 +39,7 @@ Sync is **off** until you turn it on in Settings → Sync and choose a folder. T
 
 - **`library_backup.json`.** It holds:
   - your saved works, including downloaded chapter text
-  - folders, reading positions and reading stats
+  - folders, your notes and tags on saved works, reading positions and reading stats
   - your AO3 bookmarks and subscriptions lists
   - saved searches and filters, and hidden works
   - your reader settings, your content settings, and whether you confirmed you're 17 or older

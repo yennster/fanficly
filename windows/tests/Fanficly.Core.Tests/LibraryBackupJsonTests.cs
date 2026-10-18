@@ -85,6 +85,26 @@ public sealed class LibraryBackupJsonTests
         Assert.Null(b.Settings);
         Assert.Null(b.Folders);
         Assert.Null(b.Stats);
+        Assert.Null(w.Note);
+        Assert.Null(w.PersonalTags);
+    }
+
+    [Fact]
+    public void NoteAndPersonalTagsRoundTripInSwiftsKeys()
+    {
+        // The Swift app writes them as "note" and "personalTags" on a work.
+        var json = SwiftFixture.Replace("\"folderNames\":[\"Faves\",\"To Reread\"]",
+            "\"folderNames\":[\"Faves\",\"To Reread\"],\"note\":\"Comfort read\",\"personalTags\":[\"for a bad day\"],\"notesUpdatedAt\":\"2026-05-04T03:02:01Z\"");
+        Assert.NotEqual(SwiftFixture, json);
+        var w = Assert.Single(LibraryBackupJson.Decode(json).Works);
+        Assert.Equal("Comfort read", w.Note);
+        Assert.Equal(["for a bad day"], w.PersonalTags!);
+        Assert.Equal(Utc(2026, 5, 4, 3, 2, 1), w.NotesUpdatedAt);
+
+        var again = Assert.Single(LibraryBackupJson.Decode(LibraryBackupJson.Encode(LibraryBackupJson.Decode(json))).Works);
+        Assert.Equal("Comfort read", again.Note);
+        Assert.Equal(["for a bad day"], again.PersonalTags!);
+        Assert.Equal(Utc(2026, 5, 4, 3, 2, 1), again.NotesUpdatedAt);
     }
 
     [Fact]

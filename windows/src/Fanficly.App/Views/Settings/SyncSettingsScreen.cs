@@ -84,7 +84,7 @@ public sealed class SyncSettingsScreen : Screen
         }
 
         return UI.UI.Section("Sync", rows,
-            footer: "Fanficly has no servers, so it syncs through a folder you already sync: OneDrive, Google Drive, Dropbox, iCloud Drive or any other. Your library — saved works, downloaded chapters, folders, reading positions and stats — and your reader profiles are written there, and that service's app carries them to your other devices. Point an iPhone, iPad or Mac and this PC at the same backup and they share one library. Backups merge with what's already in the folder and restores only ever move things forward, so a device with less can never erase another's.");
+            footer: "Fanficly has no servers, so it syncs through a folder you already sync: OneDrive, Google Drive, Dropbox, iCloud Drive or any other. Your library — saved works, downloaded chapters, your notes and tags, folders, reading positions and stats — and your reader profiles are written there, and that service's app carries them to your other devices. Point an iPhone, iPad or Mac and this PC at the same backup and they share one library. Backups merge with what's already in the folder and restores only ever move things forward, so a device with less can never erase another's.");
     }
 
     private Button RestoreRow(string title, bool enableAfter)

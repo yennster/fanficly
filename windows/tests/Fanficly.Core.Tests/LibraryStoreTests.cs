@@ -258,6 +258,66 @@ public sealed class LibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void NoteAndPersonalTagsSurviveReopening()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new Work(1, "T", "A")
+            {
+                Note = "Comfort read",
+                PersonalTags = ["for a bad day", "reread at Christmas"],
+                NotesUpdatedAt = new DateTimeOffset(2026, 5, 4, 3, 2, 1, TimeSpan.Zero),
+            });
+            store.Insert(new Work(2, "U", "A"));
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var noted = store.All<Work>().Single(w => w.Ao3Id == 1);
+            Assert.Equal("Comfort read", noted.Note);
+            Assert.Equal(["for a bad day", "reread at Christmas"], noted.PersonalTags);
+            Assert.Equal(new DateTimeOffset(2026, 5, 4, 3, 2, 1, TimeSpan.Zero), noted.NotesUpdatedAt);
+            var plain = store.All<Work>().Single(w => w.Ao3Id == 2);
+            Assert.Null(plain.Note);
+            Assert.Empty(plain.PersonalTags);
+        }
+    }
+
+    /// <summary>A library from before notes (schema version 1) gains the note
+    /// columns on open and keeps its works.</summary>
+    [Fact]
+    public void VersionOneLibraryMigratesToNotes()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new Work(1, "T", "A"));
+            store.Save();
+        }
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath};Pooling=False"))
+        {
+            conn.Open();
+            foreach (var sql in new[] { "ALTER TABLE works DROP COLUMN note", "ALTER TABLE works DROP COLUMN personal_tags",
+                                       "ALTER TABLE works DROP COLUMN notes_updated_at", "PRAGMA user_version = 1" })
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            Assert.Equal(LibrarySchema.CurrentVersion, store.SchemaVersion);
+            var work = Assert.Single(store.All<Work>());
+            Assert.Null(work.Note);
+            Assert.Empty(work.PersonalTags);
+            work.SetNotes("now", "tagged");
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal("now", Assert.Single(store.All<Work>()).Note);
+    }
+
+    [Fact]
     public void SchemaIsVersionedAndMigrationsAreAdditive()
     {
         using (var store = LibraryStore.Open(DbPath))
