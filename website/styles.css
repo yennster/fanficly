@@ -52,6 +52,8 @@ h1 em, h2 em { font-style: italic; font-weight: 400; }
 }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 500 22px/1 var(--serif); letter-spacing: -.01em; }
 .brand img { border-radius: 8px; }
+/* Center the wordmark's capitals on the icon. Centering the line box (which includes the "y" descender) leaves them sitting high. */
+.brand span, .foot-brand span { transform: translateY(.12em); }
 .nav nav { display: flex; align-items: center; gap: 28px; font-size: 15px; font-weight: 500; }
 .nav nav a { text-decoration: none; opacity: .82; transition: opacity .2s; }
 .nav nav a:hover { opacity: 1; }
