@@ -137,7 +137,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/LibraryView.swift` (`StatsView`, `WrapShareCard`), `Reader/ReadingProgressStore.swift`.
 
 ### RM-012 — Library export and import as a file
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** iCloud backup is opt-in and tied to one Apple ID; a plain file is a safe fallback and a way to move between accounts.
 - **Scope:** Reuse the backup encoder: "Export library file…" writes the JSON to the share sheet; "Import…" runs it through the existing forward-only restore merge. No new merge rules.
 - **Done when:** a round-trip test (export → restore into an empty in-memory container) and a test that importing an older file never moves progress backwards.
