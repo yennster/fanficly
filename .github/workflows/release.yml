@@ -71,9 +71,13 @@ jobs:
 
       - name: Check the version is new
         id: version
+        env:
+          LANE: ${{ inputs.lane }}
+          PLATFORM: ${{ inputs.platform }}
         run: |
           version=$(sed -nE 's/^ *MARKETING_VERSION: "([^"]+)"/\1/p' project.yml)
-          if [ "${{ inputs.lane }}" = release ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+          # A Windows-only release ships no Apple version, so it needs no new tag.
+          if [ "$LANE" = release ] && [ "$PLATFORM" != windows ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "::error::v$version is already released. Bump MARKETING_VERSION in apple/project.yml first."
             exit 1
           fi
@@ -209,9 +213,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          NOTES: ${{ needs.notes.outputs.notes }}
+          # Written notes go to every store. Left blank, the generated fallback
+          # lists Apple changes only, so Windows keeps the What's New in
+          # windows/store/listing/en-us/release_notes.txt instead.
+          NOTES: ${{ inputs.notes }}
         run: |
-          gh workflow run windows-store.yml --ref main -f submit=true -f release_notes="$NOTES"
+          if [ -n "$NOTES" ]; then
+            gh workflow run windows-store.yml --ref main -f submit=true -f release_notes="$NOTES"
+          else
+            gh workflow run windows-store.yml --ref main -f submit=true
+          fi
           echo "Started the Windows Store release: approve it under Actions > Windows Store release." >> "$GITHUB_STEP_SUMMARY"
 
   docs:
@@ -233,14 +244,17 @@ jobs:
           VERSION: ${{ needs.notes.outputs.version }}
         run: |
           branch="release-docs/v$VERSION"
-          gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null \
-            || echo "$branch already exists; adding to it"
+          if gh api "repos/$GH_REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
+            echo "$branch already exists; adding to it"
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null
+          fi
           # Windows screenshots commit to the branch they run on.
           gh workflow run windows-screenshots.yml --ref "$branch"
           # Apple: regenerate on main, upload to the App Store versions this
           # release just made (approval in app-store), and push to the branch.
           gh workflow run store-assets.yml --ref main -f what=store_art -f upload=true \
-            -f push_branch=true -f branch="$branch"
+            -f push_branch=true -f branch="$branch" -f sha="$GITHUB_SHA"
           {
             echo "### Docs refresh"
             echo

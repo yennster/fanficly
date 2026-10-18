@@ -81,7 +81,8 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    Approve the runs as GitHub asks (`app-store`, then `microsoft-store`). It:
    - builds and uploads the iPhone/iPad and Mac apps and pushes the store
      copy with the new What's New (no App Store submit);
-   - starts **Windows Store release** with the same notes, which submits to
+   - starts **Windows Store release** (with the same notes when you wrote
+     them; blank keeps `windows/store/listing/en-us/release_notes.txt`), which submits to
      the Microsoft Store for certification;
    - starts **Windows screenshots** and **Store assets** (which uploads the
      new Apple store art) onto a `release-docs/vX.Y.Z` branch;

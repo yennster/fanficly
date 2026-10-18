@@ -28,6 +28,10 @@ on:
         description: Push the refreshed tracked screenshots to a store-assets/ branch
         type: boolean
         default: true
+      sha:
+        description: Commit to capture (blank = the run's own; the Release workflow passes the released commit)
+        type: string
+        required: false
       branch:
         description: Branch to push them to (blank = store-assets/run-N; the Release workflow passes its release-docs/ branch)
         type: string
@@ -60,6 +64,8 @@ jobs:
       LANG: en_US.UTF-8
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
 
       - name: Select newest installed Xcode
         run: |
@@ -145,11 +151,12 @@ jobs:
             commit -m "Refresh the App Store screenshots (store-assets run ${{ github.run_number }})"
           # The branch may already exist with other commits (the Release
           # workflow's Windows screenshots push to it too): rebase onto it.
+          # Only this run's commit is replayed (the checkout is shallow).
           pushed=0
           for attempt in 1 2 3; do
             if git fetch -q origin "refs/heads/$branch" 2>/dev/null; then
               git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-                rebase -q FETCH_HEAD
+                rebase -q --onto FETCH_HEAD HEAD~1
             fi
             git push origin "HEAD:refs/heads/$branch" && { pushed=1; break; }
             sleep $((attempt * 10))
