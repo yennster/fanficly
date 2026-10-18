@@ -551,9 +551,40 @@ public static class ReadingSpeed
         return Math.Clamp(words / minutes, MinWordsPerMinute, MaxWordsPerMinute);
     }
 
-    /// <summary>The pace from every stat in the library.</summary>
-    public static double WordsPerMinute(LibraryStore store) =>
-        WordsPerMinute(store.All<ReadingStat>().Select(s => s.Snapshot));
+    private sealed record CachedPace(LibraryStore Store, int Version, double Pace);
+    private static readonly object s_gate = new();
+    private static LibraryStore? s_watched;
+    private static int s_version;
+    private static CachedPace? s_cached;
+
+    /// <summary>The pace from every stat in the library, cached until the
+    /// library next saves a <see cref="ReadingStat"/> (Swift sets it once near
+    /// the root), so result rows don't each copy every stat.</summary>
+    public static double WordsPerMinute(LibraryStore store)
+    {
+        lock (s_gate)
+        {
+            if (!ReferenceEquals(store, s_watched))
+            {
+                if (s_watched is not null) s_watched.Changed -= Invalidate;
+                s_watched = store;
+                store.Changed += Invalidate;
+                Interlocked.Increment(ref s_version);
+            }
+        }
+        var version = Volatile.Read(ref s_version);
+        if (s_cached is { } cached && cached.Version == version && ReferenceEquals(cached.Store, store)) return cached.Pace;
+        var pace = WordsPerMinute(store.All<ReadingStat>().Select(s => s.Snapshot));
+        s_cached = new CachedPace(store, version, pace);
+        return pace;
+    }
+
+    // Raised on the saving thread, possibly under the store's lock, so it only
+    // bumps the version and never takes s_gate.
+    private static void Invalidate(LibraryEntityKinds kinds)
+    {
+        if ((kinds & LibraryEntityKinds.ReadingStats) != 0) Interlocked.Increment(ref s_version);
+    }
 
     /// <summary>Whole minutes to read <paramref name="words"/> (rounded), null for no words.</summary>
     public static int? Minutes(int words, double wordsPerMinute)

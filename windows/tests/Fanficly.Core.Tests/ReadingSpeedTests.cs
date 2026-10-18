@@ -41,10 +41,18 @@ public sealed class ReadingSpeedTests
     }
 
     [Fact]
-    public void WordsPerMinute_FromTheLibrary()
+    public void WordsPerMinute_FromTheLibrary_FollowsNewStats()
     {
         using var store = LibraryStore.OpenInMemory();
         Assert.Equal(250.0, ReadingSpeed.WordsPerMinute(store));
+        // Three finished works of 3,000 words in 10 minutes each: 300 wpm, and
+        // the cached pace updates as each saves.
+        for (var id = 1; id <= 3; id++)
+            ReadingStatsStore.Record(id, "Fic", "someone", [], [], [], "", 3_000, 600, store, progress: 1.0);
+        Assert.Equal(300.0, ReadingSpeed.WordsPerMinute(store), 3);
+        // A different library isn't served the first one's pace.
+        using var other = LibraryStore.OpenInMemory();
+        Assert.Equal(250.0, ReadingSpeed.WordsPerMinute(other));
     }
 
     [Theory]

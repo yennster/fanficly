@@ -26,7 +26,7 @@ public static class WorkRow
         if (ReadingSpeed.Estimate(work.WordCount, wordsPerMinute) is { } estimate)
         {
             var caption = UI.UI.Caption(estimate);
-            AutomationProperties.SetName(caption, ReadingSpeed.SpokenEstimate(work.WordCount, wordsPerMinute));
+            AutomationProperties.SetName(caption, ReadingSpeed.SpokenEstimate(work.WordCount, wordsPerMinute) ?? estimate);
             stats.Children.Add(caption);
         }
         if (work.TotalChapters is { } total) Stat($"{work.ChapterCount}/{total}");

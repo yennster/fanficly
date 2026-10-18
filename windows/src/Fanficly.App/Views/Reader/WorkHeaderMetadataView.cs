@@ -176,8 +176,11 @@ internal static class WorkHeaderMetadataView
     {
         var culture = CultureInfo.CurrentCulture;
         var row = UI.UI.Flow(14, 4);
-        void Stat(string symbol, string value)
+        // What Narrator reads for each stat, in order (the estimate's spoken form).
+        var spoken = new List<string>();
+        void Stat(string symbol, string value, string? spokenValue = null)
         {
+            spoken.Add(spokenValue ?? value);
             var icon = Symbols.Icon(symbol, 10).A11yHidden();
             icon.Foreground = brushes.Fg75;
             icon.VerticalAlignment = VerticalAlignment.Center;
@@ -190,7 +193,8 @@ internal static class WorkHeaderMetadataView
         }
         Stat("text.alignleft", $"{summary.WordCount.ToString("N0", culture)} words");
         var wordsPerMinute = ReadingSpeed.WordsPerMinute(AppHost.Library);
-        if (ReadingSpeed.Estimate(summary.WordCount, wordsPerMinute) is { } estimate) Stat("clock", estimate);
+        if (ReadingSpeed.Estimate(summary.WordCount, wordsPerMinute) is { } estimate)
+            Stat("clock", estimate, ReadingSpeed.SpokenEstimate(summary.WordCount, wordsPerMinute));
         Stat("book.closed", ChapterText(summary));
         if (summary.Kudos > 0) Stat("heart", summary.Kudos.ToString("N0", culture));
         if (summary.Hits > 0) Stat("eye", summary.Hits.ToString("N0", culture));
@@ -203,8 +207,7 @@ internal static class WorkHeaderMetadataView
             footer = summary.Language;
         if (footer is not null)
             stack.Children.Add(new TextBlock { Text = footer, FontSize = 11, Foreground = brushes.Fg55, TextWrapping = TextWrapping.Wrap });
-        AutomationProperties.SetName(row, string.Join(", ", row.Children.OfType<StackPanel>()
-            .Select(s => s.Children.OfType<TextBlock>().FirstOrDefault()?.Text).Where(t => t is not null)));
+        AutomationProperties.SetName(row, string.Join(", ", spoken));
         return stack;
     }
 
