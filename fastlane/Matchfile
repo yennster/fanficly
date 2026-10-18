@@ -1,0 +1,6 @@
+# Certificates and profiles live encrypted (MATCH_PASSWORD) in a private repo,
+# never in this public one. CI reaches it with a deploy key; see
+# docs/RELEASING.md.
+git_url(ENV["MATCH_GIT_URL"] || "git@github.com:yennster/fanficly-certificates.git")
+storage_mode("git")
+type("appstore")

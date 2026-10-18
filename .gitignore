@@ -43,9 +43,22 @@ Package.resolved
 Pods/
 Podfile.lock
 
-# fastlane — App Store release tooling (Fastfile, metadata, screenshots, keys)
-# is kept LOCAL only and intentionally not tracked in this public repo.
-/fastlane/
+# fastlane — the lanes and the public store copy are tracked so releases run
+# in GitHub Actions (.github/workflows/release.yml). Everything generated or
+# secret stays out: API keys, built screenshots/previews/creative art, and the
+# App Review contact details (filled in from secrets at upload time).
+/fastlane/*
+!/fastlane/Fastfile
+!/fastlane/Appfile
+!/fastlane/Matchfile
+!/fastlane/metadata/
+!/fastlane/metadata-mac/
+/fastlane/metadata*/review_information/first_name.txt
+/fastlane/metadata*/review_information/last_name.txt
+/fastlane/metadata*/review_information/email_address.txt
+/fastlane/metadata*/review_information/phone_number.txt
+/fastlane/metadata*/review_information/demo_user.txt
+/fastlane/metadata*/review_information/demo_password.txt
 
 # Secrets / signing
 *.p8
@@ -72,3 +85,6 @@ cache/
 # Android machine-local files
 android/.gradle/
 android/local.properties
+
+# Local-only keys and scratch (e.g. the App Store Connect .p8). Never committed.
+/.local/

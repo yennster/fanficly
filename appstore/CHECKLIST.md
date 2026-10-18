@@ -1,5 +1,9 @@
 # Fanficly → App Store: submission checklist
 
+> **Now automated:** builds, uploads, metadata and store art run in GitHub
+> Actions. See [docs/RELEASING.md](../docs/RELEASING.md); the steps below that
+> say [local] describe the old single-Mac flow.
+
 Hybrid flow: **fastlane** pushes metadata + screenshots + the build; the few
 things `deliver` can't do are done live in App Store Connect (you have it open
 and logged in). Work top to bottom. Steps marked **[portal]** are clicks in the

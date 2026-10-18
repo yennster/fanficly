@@ -1,0 +1,3 @@
+app_identifier("io.github.yennster.fanficly")
+# The team is a GitHub Actions variable (APPLE_TEAM_ID); locally, export it.
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"]
