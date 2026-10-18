@@ -98,6 +98,21 @@ h1 em, h2 em { font-style: italic; font-weight: 400; }
 .s3 { --w: 260px; --o: .05; --r: 18deg; right: -70px; top: 40px; --b: 1px; }
 .s4 { --w: 170px; --o: .05; --r: -8deg; left: 6%; bottom: 22%; --b: 3px; }
 
+/* Slow drifting light and floating pages behind the hero. Transforms only, so it stays cheap; off for reduced motion. */
+.glow { position: absolute; border-radius: 50%; filter: blur(60px); will-change: transform; mix-blend-mode: screen; }
+.g1 { width: 46vw; height: 46vw; left: 48%; top: 30%; background: radial-gradient(circle, rgba(150, 132, 255, .55), transparent 65%); animation: drift-a 26s ease-in-out infinite alternate; }
+.g2 { width: 38vw; height: 38vw; left: -8%; top: 8%; background: radial-gradient(circle, rgba(255, 190, 130, .22), transparent 65%); animation: drift-b 32s ease-in-out infinite alternate; }
+.g3 { width: 40vw; height: 40vw; right: -10%; top: -12%; background: radial-gradient(circle, rgba(232, 104, 170, .22), transparent 65%); animation: drift-c 29s ease-in-out infinite alternate; }
+@keyframes drift-a { from { transform: translate(-6%, 0) scale(1); } to { transform: translate(-28%, -18%) scale(1.15); } }
+@keyframes drift-b { from { transform: translate(0, 0) scale(1); } to { transform: translate(30%, 22%) scale(1.2); } }
+@keyframes drift-c { from { transform: translate(0, 0) scale(1.1); } to { transform: translate(-24%, 26%) scale(.95); } }
+.sheet { animation: float 18s ease-in-out infinite alternate; }
+.s2 { animation-duration: 22s; animation-delay: -6s; }
+.s3 { animation-duration: 26s; animation-delay: -11s; }
+.s4 { animation-duration: 20s; animation-delay: -3s; }
+@keyframes float { from { transform: translateY(0) rotate(var(--r)); } to { transform: translateY(-28px) rotate(calc(var(--r) + 4deg)); } }
+@media (prefers-reduced-motion: reduce) { .glow, .sheet { animation: none; } }
+
 .hero-copy { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; text-align: center; }
 .eyebrow {
   display: inline-flex; align-items: center; gap: 18px; margin: 0 0 26px;
