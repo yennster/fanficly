@@ -303,6 +303,40 @@ public class SearchResultsParserTests
     }
 
     [Fact]
+    public void ReadingsParseHistoryPage()
+    {
+        // The unfiltered readings page (AO3 history) has the same markup, most
+        // recently visited first, and one page has no pagination.
+        const string history = """
+        <html><body><div id="main" class="readings-index dashboard region" role="main">
+        <h2 class="heading">History</h2>
+        <ol class="reading work index group">
+          <li id="work_11" class="reading work blurb group" role="article">
+            <div class="header module"><h4 class="heading">
+              <a href="/works/11">Newest Visit</a> by <a rel="author" href="/users/a/pseuds/a">a</a>
+            </h4></div>
+            <div class="user module group"><h4 class="viewed heading">
+              <span>Last visited:</span> 17 Oct 2026 (Update available.) Visited 3 times
+            </h4></div>
+          </li>
+          <li id="work_22" class="reading work blurb group" role="article">
+            <div class="header module"><h4 class="heading">
+              <a href="/works/22">Older Visit</a> by <a rel="author" href="/users/b/pseuds/b">b</a>
+            </h4></div>
+            <div class="user module group"><h4 class="viewed heading">
+              <span>Last visited:</span> 02 Sep 2026 (Latest version.) Visited once
+            </h4></div>
+          </li>
+        </ol>
+        </div></body></html>
+        """;
+        var result = SearchResultsParser.ParseReadings(history);
+        Assert.Equal([11, 22], result.Works.Select(w => w.Id));
+        Assert.Equal(["Newest Visit", "Older Visit"], result.Works.Select(w => w.Title));
+        Assert.Equal(1, result.TotalPages);
+    }
+
+    [Fact]
     public void ReadingsParseEmptyList()
     {
         // AO3 renders no list and no pagination when nothing is marked.

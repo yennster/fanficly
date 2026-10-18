@@ -174,6 +174,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - The PR lists what to check on Windows: the tab signed out (sign-in prompt) and signed in.
 - **Touches:** `windows/src/Fanficly.Core/Networking/{IAO3Client,AO3Client,AO3Endpoints,MockAO3Client}.cs`, `Demo/DemoAO3Client.cs`, `Settings/SidebarItem.cs`, `windows/src/Fanficly.App/Shell/SidebarItem.cs`, `Views/Account/BookmarksScreen.cs` (pattern), `Views/Account/AccountModule.cs`, `Views/Settings/ShortcutsScreen.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`, `windows/tests/Fanficly.UITests/SmokeTests.cs`, AGENTS.md.
 
+### RM-114 — AO3 reading history
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** The Windows half of the Apple app's RM-015 (#52): a signed-in reader's AO3 history (`/users/<name>/readings`) had no place in the app. Keep the two the same in name and behavior.
+- **Scope:** `FetchReadingHistoryAsync(username, page)` on `IAO3Client` with `AO3Endpoints.UserReadingHistory`, parsed by RM-112's `SearchResultsParser.ParseReadings`; an "AO3 History" tab after Marked for Later (raw value `ao3History`, the Swift app's), shown by `ReadingListScreen`, sign-in gated and read-only, with no Ctrl+number. Separate from the on-device Recently Viewed tab.
+- **Done when:** parser and endpoint tests, the smoke test opening the tab from the sidebar and `-tab ao3History`, and the PR lists what to check on Windows: the tab signed out and signed in.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find library works from Windows Search

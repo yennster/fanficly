@@ -20,6 +20,9 @@ public sealed class MockAO3Client : IAO3Client
     public Task<AO3SearchResults> FetchMarkedForLaterAsync(string username, int page, CancellationToken ct = default) =>
         Task.FromResult(new AO3SearchResults([], 0, page));
 
+    public Task<AO3SearchResults> FetchReadingHistoryAsync(string username, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3SearchResults([], 0, page));
+
     public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) =>
         Task.FromResult(new AO3WorkPayload(
             new AO3WorkSummary

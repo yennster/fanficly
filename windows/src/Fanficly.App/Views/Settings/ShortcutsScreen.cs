@@ -16,7 +16,7 @@ public sealed class ShortcutsScreen : Screen
 
     protected override FrameworkElement Build()
     {
-        // Tabs without a shortcut (Marked for Later) are left out, not shown as "Ctrl+10".
+        // Tabs without a shortcut (Marked for Later, AO3 History) are left out, not shown as "Ctrl+10".
         var go = SidebarItems.All.Where(item => item.ShortcutText() is not null)
             .Select(item => (item.ShortcutText()!, $"Go to {item.Title()}")).ToList();
 

@@ -789,6 +789,21 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadingHistoryReadsTheUnfilteredReadingsPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="main" class="readings-index dashboard region">
+            <ol class="reading work index group">
+              <li id="work_11" class="reading work blurb group"><div class="header module">
+                <h4 class="heading"><a href="/works/11">Visited</a></h4></div></li>
+            </ol></div></body></html>
+            """));
+        var result = await MakeClient().FetchReadingHistoryAsync("reader", 1);
+        Assert.Equal([11], result.Works.Select(w => w.Id));
+        Assert.Equal("https://archiveofourown.org/users/reader/readings", _handler.Requests[0].Uri.AbsoluteUri);
+    }
+
+    [Fact]
     public async Task MarkedForLaterSignedOutAsksForASignIn()
     {
         _handler.Respond(_ => FakeHandler.Html("""

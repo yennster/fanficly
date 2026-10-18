@@ -80,6 +80,9 @@ public sealed class DemoAO3Client : IAO3Client
     public Task<AO3SearchResults> FetchMarkedForLaterAsync(string username, int page, CancellationToken ct = default) =>
         Task.FromResult(new AO3SearchResults(DemoCatalog.Works.TakeLast(4).ToList(), 1, page));
 
+    public Task<AO3SearchResults> FetchReadingHistoryAsync(string username, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3SearchResults(DemoCatalog.Works.Take(6).ToList(), 1, page));
+
     public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) =>
         Task.FromResult(DemoCatalog.Payload(id));
 
