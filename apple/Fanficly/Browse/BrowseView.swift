@@ -548,6 +548,7 @@ struct SeriesView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    @State private var loadMoreError: String?
 
     private var visibleWorks: [AO3WorkSummary] {
         ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
@@ -583,6 +584,15 @@ struct SeriesView: View {
                             HStack { Spacer(); ProgressView(); Spacer() }
                                 .padding(.vertical, 8)
                                 .listRowSeparator(.hidden)
+                        } else if let loadMoreError {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Couldn't load more works: \(loadMoreError)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Button("Try Again") { Task { await loadMore() } }
+                                    .buttonStyle(.borderless)
+                            }
+                            .padding(.vertical, 8)
                         }
                     } header: {
                         Text("Works in order")
@@ -610,6 +620,8 @@ struct SeriesView: View {
                         NavigationLink(value: AuthorRef(username: info.creatorUsername, displayName: info.creator)) {
                             Text("by \(info.creator)").foregroundStyle(Color.accentColor)
                         }
+                        // Plain, so only the byline (not the whole row) opens the author.
+                        .buttonStyle(.plain)
                         .accessibilityHint("Shows this author's other works.")
                     }
                 }
@@ -644,6 +656,20 @@ struct SeriesView: View {
             totalPages = result.totalPages
         } catch {
             errorMessage = "\(error)"
+            return
+        }
+        isLoading = false
+        await loadPastHiddenPages()
+    }
+
+    /// Infinite scroll loads from the last visible row, so a page whose works
+    /// are all unrevealed or filtered out would never fetch the next one.
+    /// Keep fetching (throttled, one page at a time) until something shows.
+    private func loadPastHiddenPages() async {
+        while visibleWorks.isEmpty, currentPage < totalPages, loadMoreError == nil, !Task.isCancelled {
+            let before = currentPage
+            await loadMore()
+            if currentPage == before { break }
         }
     }
 
@@ -652,13 +678,16 @@ struct SeriesView: View {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let result = try await client.fetchSeries(id: series.id, page: currentPage + 1)
+            let next = currentPage + 1
+            let result = try await client.fetchSeries(id: series.id, page: next)
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
-            currentPage = result.currentPage
+            // Never step backwards if AO3's pagination markup didn't parse.
+            currentPage = max(result.currentPage, next)
             totalPages = result.totalPages
+            loadMoreError = nil
         } catch {
-            errorMessage = "\(error)"
+            loadMoreError = "\(error)"
         }
     }
 }

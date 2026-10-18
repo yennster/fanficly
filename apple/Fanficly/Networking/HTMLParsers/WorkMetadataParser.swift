@@ -89,7 +89,8 @@ enum SeriesParser {
     /// as ordinary blurbs in `ul.series.work.index`, paginated like search.
     static func parse(html: String, seriesId: Int) throws -> AO3Series {
         let doc = try SwiftSoup.parse(html)
-        let title = try doc.select("h2.heading").first()?.text().trimmingCharacters(in: .whitespaces) ?? ""
+        let titleEl = try doc.select("#main h2.heading").first() ?? doc.select("h2.heading").first()
+        let title = try titleEl?.text().trimmingCharacters(in: .whitespaces) ?? ""
 
         var creator = ""
         var creatorUsername = ""
