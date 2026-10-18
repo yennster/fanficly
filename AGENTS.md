@@ -23,8 +23,8 @@ PRIVACY.md    the Apple app's privacy policy; it stays at the root because the A
               listing and the website link to this URL
 .agents/      Linux orb setup (the Apple app's Python tooling in apple/bin/.venv)
 .github/      ci.yml (apple/**), windows-ci.yml / windows-store.yml / windows-screenshots.yml
-              (windows/**), release.yml / store-assets.yml (Apple releases, run by hand;
-              apple/docs/RELEASING.md), the PR template
+              (windows/**), release.yml / store-assets.yml / xcode-cloud.yml (Apple releases
+              and Xcode Cloud upkeep, run by hand; apple/docs/RELEASING.md), the PR template
 ```
 
 ## Rules for both apps

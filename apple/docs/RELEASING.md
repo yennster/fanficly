@@ -106,6 +106,17 @@ captures the display it boots on and reframes the committed captures for the
 other. The art needs Apple's SF Pro and New York fonts, which the workflow
 installs from developer.apple.com.
 
+## Xcode Cloud
+
+Xcode Cloud also builds the app, configured in App Store Connect (Xcode Cloud →
+Manage Workflows), not in this repo. Each workflow stores the project's path,
+which must be `apple/Fanficly.xcodeproj`. If a build fails with "Fanficly.xcodeproj
+does not exist at the root of the repository", run the **Xcode Cloud project
+path** workflow (`xcode-cloud.yml`, `bin/xcode-cloud-project-path.py`): without
+"apply" it lists each workflow's path, with it it points the outdated ones at
+`apple/`. It uses the same `app-store` secrets, so it only runs from `main`.
+Any start conditions that filter on file paths are edited in App Store Connect.
+
 ## Running lanes on a Mac
 
 `cd apple`, `bundle install`, then the same lanes. Put the API key in
