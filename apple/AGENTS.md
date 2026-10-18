@@ -553,8 +553,8 @@ Keep those shared files free of app-only models/UI dependencies;
   keyword); anything else, malformed JSON included, runs as prompt text. Build the link
   with `WidgetSavedSearch.searchURL`, which also escapes `&`, `=`, `+` and `#`
   (a ship like "A & B" was cut off at the `&`), and read it with
-  `WidgetSavedSearch.routeQuery(from:)`. The Windows app's `DeepLink.SavedFilter`
-  makes the same call, so keep the widget's JSON format. `WidgetDataStoreTests`
+  `WidgetSavedSearch.routeQuery(from:)`. The Windows app also decodes the JSON
+  (RM-102), so keep the widget's JSON format. `WidgetDataStoreTests`
   holds the round trip.
 - Subscription/recommendation widgets use `fanficly://resume/<id>`; unlike
   notification work routes, this can open the saved copy.
