@@ -220,10 +220,14 @@ struct FanficlyApp: App {
                 }
                 .keyboardShortcut("7", modifiers: [.command])
 
-                // ⌘1–⌘9 are all taken, so this one has no ⌘-number shortcut
+                // ⌘1–⌘9 are all taken, so these two have no ⌘-number shortcut
                 // (the Windows app's Ctrl+number list matches).
                 Button("Marked for Later") {
                     selectedTabRaw = SidebarItem.markedForLater.rawValue
+                }
+
+                Button("AO3 History") {
+                    selectedTabRaw = SidebarItem.ao3History.rawValue
                 }
 
                 Button("Subscriptions") {
