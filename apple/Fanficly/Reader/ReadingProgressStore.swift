@@ -135,6 +135,34 @@ struct ReadingStatsSummary: Equatable, Sendable {
     )
 }
 
+/// Where the reader stands against their yearly goal (RM-011), from
+/// `ReadingStatsAggregator.goalProgress`. The goal is per-device
+/// (`@AppStorage(ReadingGoal.storageKey)`) and never synced.
+struct ReadingGoalProgress: Equatable, Sendable {
+    var goal: Int
+    var finished: Int
+    /// Stories an even pace would have finished by now.
+    var expected: Int
+
+    /// 0…1 for the progress ring; stays full once the goal is passed.
+    var fraction: Double { min(Double(finished) / Double(goal), 1) }
+    var isComplete: Bool { finished >= goal }
+    /// Stories ahead of an even pace (negative when behind).
+    var ahead: Int { finished - expected }
+
+    /// "Goal reached", "On pace", "3 ahead", "2 behind".
+    var paceLabel: String {
+        if isComplete { return "Goal reached" }
+        if ahead == 0 { return "On pace" }
+        return ahead > 0 ? "\(ahead) ahead" : "\(-ahead) behind"
+    }
+}
+
+enum ReadingGoal {
+    /// Stories to finish this year; 0 means no goal. Per-device, not synced.
+    static let storageKey = "reading.yearlyGoal"
+}
+
 /// Pure aggregation over `ReadingStatSnapshot`s. No SwiftData, no UI — fully
 /// unit-testable (see `ReadingStatsTests`). Time is bucketed per calendar day,
 /// so any `DateInterval` (a week, month, year, or nil for all-time) rolls up
@@ -227,6 +255,23 @@ enum ReadingStatsAggregator {
             topRelationships: rank(works.flatMap { $0.relationships }, topCount: topCount),
             topAuthors: rank(works.compactMap { $0.author.isEmpty ? nil : $0.author }, topCount: topCount)
         )
+    }
+
+    /// Progress toward a yearly goal of `goal` finished stories, given how many
+    /// the reader has finished so far in the year containing `now`. nil when
+    /// there's no goal (zero or negative), which hides the ring. Pace compares
+    /// against an even spread across the year, rounded down so nobody starts
+    /// January 1st already behind.
+    static func goalProgress(finished: Int, goal: Int, now: Date = Date(),
+                             calendar: Calendar = .current) -> ReadingGoalProgress? {
+        guard goal > 0 else { return nil }
+        let finished = max(finished, 0)
+        var elapsed = 0.0
+        if let year = calendar.dateInterval(of: .year, for: now), year.duration > 0 {
+            elapsed = min(max(now.timeIntervalSince(year.start) / year.duration, 0), 1)
+        }
+        let expected = Int((Double(goal) * elapsed).rounded(.down))
+        return ReadingGoalProgress(goal: goal, finished: finished, expected: expected)
     }
 
     /// Tally occurrences of each name, most common first. Ties break
