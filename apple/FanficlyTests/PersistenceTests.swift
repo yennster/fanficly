@@ -933,7 +933,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(Work(ao3Id: 2, title: "Other", authorName: "B").matches(query: "christmas"))
     }
 
-    func test_noteAndTagMergeIsForwardOnlyAndLocalWins() {
+    func test_noteAndTagMerge() {
         XCTAssertEqual(iCloudSyncManager.mergedNote(local: nil, other: "cloud"), "cloud")
         XCTAssertEqual(iCloudSyncManager.mergedNote(local: "  ", other: "cloud"), "cloud")
         XCTAssertEqual(iCloudSyncManager.mergedNote(local: "local", other: nil), "local")
@@ -1008,9 +1008,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(padWork.personalTags, [])
     }
 
-    /// A device without a note must not erase another device's note in the
-    /// backup file, and a device with its own note keeps it.
-    func test_backupMergeKeepsNotesForwardOnly() throws {
+    /// A device that never edited the note doesn't erase another device's
+    /// note in the backup file, and a later edit replaces it.
+    func test_backupMergeKeepsNotesUntilANewerEdit() throws {
         let url = makeTempBackupURL()
         iCloudSyncManager.overrideBackupURL = url
         defer {
@@ -1046,9 +1046,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(work.personalTags, ["angst"])
     }
 
-    /// Restore fills an empty note and tags from the backup but never
-    /// overwrites this device's own.
-    func test_restoreKeepsLocalNotesAndFillsEmptyOnes() async throws {
+    /// Restore fills a never-edited note and tags from the backup, and keeps
+    /// this device's own when they were edited after the backup's.
+    func test_restoreKeepsNewerLocalNotesAndFillsEmptyOnes() async throws {
         let url = makeTempBackupURL()
         iCloudSyncManager.overrideBackupURL = url
         defer {

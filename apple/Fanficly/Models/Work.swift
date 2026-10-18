@@ -137,7 +137,9 @@ extension Work {
         guard newNote != note || newTags != personalTags else { return }
         note = newNote
         personalTags = newTags
-        notesUpdatedAt = now
+        // Whole seconds, like the backup file's dates, so this device's stamp
+        // and its own backed-up copy compare equal.
+        notesUpdatedAt = Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down))
     }
 }
 

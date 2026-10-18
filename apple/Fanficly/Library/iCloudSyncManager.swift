@@ -943,7 +943,7 @@ struct WorkBackup: Codable {
     let isStarred: Bool?
     let isPinned: Bool?
     /// Optional so backups from before notes and personal tags still decode;
-    /// `var` so the backup merge can keep the cloud copy's when local is empty.
+    /// `var` so the backup merge can take the cloud copy's when it's newer.
     var note: String?
     var personalTags: [String]?
     var notesUpdatedAt: Date?
