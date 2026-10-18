@@ -523,7 +523,7 @@ Typography settings are per-device: typography/layout keys go through `ReaderPro
 
 ## Last-read widget
 
-`FanficlyWidget` shows the last-read story with a progress bar. When passed a progress fraction, `ReadingProgressStore.save` also writes to `WidgetProgressStore`, which persists to the `group.io.github.yennster.fanficly` app-group defaults and mirrors to iCloud KVS (debounced ~1.2 s; immediate when the reader closes). `FanficlyApp` installs the KVS observers for `WidgetProgressStore`, `ReaderProfileSyncStore`, and `StreakStore` at launch, skipped in demo and unit-test runs. Tapping the widget opens the resume route above.
+`FanficlyWidget` shows the last-read story with a progress bar. When passed a progress fraction, `ReadingProgressStore.save` also writes to `WidgetProgressStore`, which persists to the `group.io.github.yennster.fanficly` app-group defaults and mirrors to iCloud KVS (debounced ~1.2 s; immediate when the reader closes). `FanficlyApp` installs the KVS observers for `WidgetProgressStore`, `ReaderProfileSyncStore`, and `StreakStore` at launch, skipped in demo and unit-test runs. Tapping the widget opens the resume route above. Besides small and medium it offers the lock-screen `accessoryCircular` and `accessoryRectangular` families (iPhone and iPad; the Mac has no lock screen); they read the same entry, use template colors only, and set the same resume URL.
 
 ## Other widgets and shortcut routes
 
