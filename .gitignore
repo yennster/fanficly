@@ -83,3 +83,6 @@ cache/
 # Android machine-local files
 android/.gradle/
 android/local.properties
+
+# Local-only keys and scratch (e.g. the App Store Connect .p8). Never committed.
+/.local/
