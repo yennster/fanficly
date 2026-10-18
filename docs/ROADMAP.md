@@ -143,6 +143,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** a round-trip test (export → restore into an empty in-memory container) and a test that importing an older file never moves progress backwards.
 - **Touches:** `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
 
+### RM-023 — Marked for Later section (iPhone, iPad, Mac)
+- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Why:** On the AO3 website a logged-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The app has no way to see it. The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app; the Windows app gets the same section as RM-112 on the `windows` branch, so the two should match in name and behavior.
+- **Scope:** A login-gated "Marked for Later" sidebar tab that lists `/users/<name>/readings?show=to-read`, built like the Bookmarks tab: a paginated `AO3Client.fetchMarkedForLater(username:page:)` (new endpoint builder next to `userBookmarks`) that reuses `SearchResultsParser` with the readings page's blurb selector, a live-fetched list with infinite scroll, `ContentFilter.apply` on the rows, and rows that open the live `WorkDetailView`. Add the tab per "Add a new sidebar tab" in AGENTS.md (enum case with raw value `markedForLater`, which `app.selectedTabRaw` shares with Windows; title + symbol; a Go menu item), placed after Bookmarks. ⌘1–⌘9 are all taken, so the Go menu item gets no ⌘-number shortcut and existing shortcuts are not renumbered; Windows' RM-112 does the same. Put the view in an existing file (`SubscriptionsView.swift`, beside `BookmarksView`) so no `.xcodeproj` regeneration is needed. Read-only: adding or removing a mark is a later item.
+- **Open question:** confirm the readings page's markup (blurb class, where the work id lives) from a real saved page before writing the fixture; don't guess it.
+- **Done when:** parser tests on a real-page fixture (works listed, empty list, login page fails closed), endpoint tests for the URL and pagination, `MockAO3Client`/`DemoAO3Client`/`StubAO3Client` support, and the PR lists what to check on a device: the tab logged out (sign-in prompt) and logged in, on iPhone, iPad and the Mac.
+- **Touches:** `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`, `Networking/DemoAO3Client.swift`, `Subscriptions/SubscriptionsView.swift`, `RootView.swift`, `FanficlyApp.swift`, `FanficlyTests/` (incl. `StubAO3Client.swift`).
+
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos
@@ -154,9 +162,9 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Status:** open · **Size:** M · **Validation:** unit + mac
 - **Scope:** The Bookmarks tab is read-only today. Add "Bookmark on AO3" (with notes, tags, rec, private) as a POST to `/works/<id>/bookmarks`. Needs the form scraped for field names; must be tested against the live site by hand.
 
-### RM-015 — Marked for Later and history import
+### RM-015 — Reading history import
 - **Status:** open · **Size:** M · **Validation:** unit
-- **Scope:** Login-gated list of `/users/<name>/readings?show=to-read`, parsed like the bookmarks page (reuse `SearchResultsParser` with a blurb selector). Read-only first.
+- **Scope:** Login-gated list of `/users/<name>/readings` (AO3's history), parsed like the bookmarks page (reuse `SearchResultsParser` with a blurb selector). Read-only first. The Marked for Later list moved to RM-023; build on its fetch and parser.
 
 ### RM-016 — Open Spotlight results, and App Shortcuts
 - **Status:** open · **Size:** M · **Validation:** mac
