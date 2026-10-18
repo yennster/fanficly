@@ -71,6 +71,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
         _origin = _baseUri.GetLeftPart(UriPartial.Authority);
         _throttle = throttle ?? new Throttle(TimeSpan.FromSeconds(1));
         UserAgent = UserAgentFor(appVersion);
+        _realTransport = handler is null;
         _http = handler is null
             ? new HttpClient(CreateDefaultHandler(), disposeHandler: true)
             : new HttpClient(handler, disposeHandler: false);
@@ -651,6 +652,31 @@ public sealed class AO3Client : IAO3Client, IDisposable
         return null;
     }
 
+    private readonly bool _realTransport;
+    private int _transportLogged;
+
+    /// <summary>Says once per run what can keep HTTP/3 away: .NET never uses
+    /// it through a proxy (the system's, or HTTPS_PROXY), nor where QUIC is
+    /// missing. The proxy's host and port only, never its credentials.</summary>
+    private void LogTransportOnce(Uri uri)
+    {
+        if (!_realTransport || Log is not { } log || Interlocked.Exchange(ref _transportLogged, 1) != 0) return;
+        string proxy;
+        try
+        {
+            proxy = HttpClient.DefaultProxy.GetProxy(uri) is { } p && !HttpClient.DefaultProxy.IsBypassed(uri)
+                ? $"through a proxy at {p.Host}:{p.Port}, so no HTTP/3"
+                : "with no proxy";
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            proxy = $"(couldn't read the proxy settings: {e.Message})";
+        }
+        var quic = (OperatingSystem.IsWindows() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                   && System.Net.Quic.QuicConnection.IsSupported;
+        log($"Connecting to {uri.Host} {proxy}; QUIC (HTTP/3) {(quic ? "available" : "not available")}");
+    }
+
     private async Task<Response> SendFollowingRedirectsAsync(RequestSpec spec, CancellationToken ct)
     {
         using var resourceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -658,6 +684,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var method = spec.Method;
         var uri = spec.Uri;
         var body = spec.FormBody;
+        LogTransportOnce(uri);
         for (var hop = 0; ; hop++)
         {
             // HTTP/3 once AO3's edge advertises it (Alt-Svc), as URLSession and
