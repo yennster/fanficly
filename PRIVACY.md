@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective: 2026-10-07
+Effective: 2026-10-18
 
 This policy covers Fanficly for iPhone, iPad and Mac (the app in [`apple/`](apple/)). Fanficly for Windows has its own policy: [windows/PRIVACY.md](windows/PRIVACY.md).
 
@@ -36,7 +36,7 @@ The app makes HTTP requests directly to `archiveofourown.org` on your behalf, th
 - To search, the app submits queries to `/works/search`. While you type in the search box, the last few words you've typed are sent to AO3's tag autocomplete (`/autocomplete/tag`) to suggest exact tags — the same lookup AO3's own search form makes
 - To log in, the app POSTs your username and password to `/users/login` and stores the resulting session cookie
 - To sync your account state, the app fetches your bookmarks, history, and subscriptions pages while logged in
-- To subscribe to a work or post a chapter comment — only when you're logged in and choose to (these are user-initiated and happen only when you tap the button) — the app POSTs that action to AO3 on your behalf; any comment text goes only to AO3, which hosts and moderates it
+- To subscribe to a work, post a chapter comment, or save an AO3 bookmark — only when you're logged in and choose to (these are user-initiated and happen only when you tap the button) — the app POSTs that action to AO3 on your behalf; any comment text, and a bookmark's notes and tags, go only to AO3, which hosts them
 
 We never store your AO3 username or password. The session cookie is sufficient for authenticated requests.
 
