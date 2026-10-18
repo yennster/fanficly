@@ -11,12 +11,14 @@ npx serve website
 
 ## Deploy
 
-The Vercel project's root is this folder. From the repo root:
+The Vercel project `fanficly` is connected to this GitHub repo with its Root
+Directory set to `website`. Merging into `main` publishes to
+https://fanficly.app; every other branch gets a preview URL. `vercel.json`'s
+`ignoreCommand` skips the build when a commit doesn't touch this folder, so app
+commits don't redeploy the site.
 
-```bash
-cd website
-vercel deploy --prod
-```
+`www.fanficly.app` and the old `fanficly.jennyspeelman.dev` redirect to
+`fanficly.app` (also in `vercel.json`).
 
 ## Images
 
