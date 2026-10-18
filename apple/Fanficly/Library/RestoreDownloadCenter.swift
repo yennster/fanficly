@@ -103,15 +103,15 @@ final class RestoreDownloadCenter {
         UIAccessibility.post(notification: .announcement,
                              argument: "Downloading \(ids.count) stories for offline reading.")
         downloadTask = Task {
-            let final = await Self.runQueue(ids: ids, download: download) { [weak self] in
+            let tally = await Self.runQueue(ids: ids, download: download) { [weak self] in
                 self?.progress = $0
             }
-            guard let final, !Task.isCancelled else { return }
+            guard let tally, !Task.isCancelled else { return }
             downloadTask = nil
-            progress = final
-            UIAccessibility.post(notification: .announcement, argument: final.failed == 0
-                ? "Downloaded \(final.done) stories for offline reading."
-                : "Downloads finished. \(final.done) succeeded, \(final.failed) failed.")
+            progress = tally
+            UIAccessibility.post(notification: .announcement, argument: tally.failed == 0
+                ? "Downloaded \(tally.done) stories for offline reading."
+                : "Downloads finished. \(tally.done) succeeded, \(tally.failed) failed.")
             try? await Task.sleep(for: .seconds(4))
             if progress?.finished == true { progress = nil }
         }

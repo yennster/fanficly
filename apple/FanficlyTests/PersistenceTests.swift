@@ -831,10 +831,8 @@ final class PersistenceTests: XCTestCase {
 
     /// A folder's "Download All" queues the stories without an EPUB, in the
     /// folder's on-screen order, each once.
-    func test_folderDownloadCandidatesSkipDownloadedKeepOrder() throws {
-        let ctx = try makeContext()
+    func test_folderDownloadCandidatesSkipDownloadedKeepOrder() {
         let works = [3, 1, 2, 1].map { Work(ao3Id: $0, title: "W\($0)", authorName: "A") }
-        works.forEach(ctx.insert)
         let ids = RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { $0 == 2 })
         XCTAssertEqual(ids, [3, 1])
         XCTAssertEqual(RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { _ in true }), [])

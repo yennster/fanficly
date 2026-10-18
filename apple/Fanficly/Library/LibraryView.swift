@@ -736,10 +736,11 @@ struct FolderDetailView: View {
         }
         .confirmationDialog(downloadPromptTitle, isPresented: Binding(
             get: { pendingDownloadIds != nil },
-            set: { if !$0 { pendingDownloadIds = nil } }), titleVisibility: .visible) {
+            set: { if !$0 { pendingDownloadIds = nil } }), titleVisibility: .visible,
+            presenting: pendingDownloadIds) { ids in
+            // `presenting` hands the ids in, so it works whichever order
+            // SwiftUI clears the binding and runs the action.
             Button("Download") {
-                guard let ids = pendingDownloadIds else { return }
-                pendingDownloadIds = nil
                 let client = client
                 let context = context
                 RestoreDownloadCenter.shared.startFolderDownload(ids: ids) { id in
@@ -747,7 +748,7 @@ struct FolderDetailView: View {
                 }
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
+        } message: { _ in
             Text("Stories download one at a time. You can cancel anytime, and the ones already downloaded stay.")
         }
         .overlay {
@@ -792,7 +793,9 @@ struct FolderDetailView: View {
     @MainActor
     private static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
-        if let work = try? context.fetch(descriptor).first, work.chapters.isEmpty {
+        // Removed from the library mid-run: nothing to save it for.
+        guard let work = try? context.fetch(descriptor).first else { return }
+        if work.chapters.isEmpty {
             let payload = try await client.fetchWork(id: workId)
             _ = WorkPersistence.upsert(payload: payload, into: context)
             iCloudSyncManager.shared.queueBackup(context: context)
