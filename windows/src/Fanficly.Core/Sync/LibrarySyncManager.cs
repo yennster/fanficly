@@ -241,7 +241,9 @@ public sealed class LibrarySyncManager
             Stats: store.All<ReadingStat>().Select(s => new StatBackup(
                 s.Ao3Id, s.Title, s.Author, s.Fandoms, s.Categories, s.Relationships, s.Rating, s.WordCount,
                 s.FirstReadAt, s.LastReadAt, s.TotalSeconds, s.DaySeconds, s.MaxProgress, s.WorkIsComplete)).ToList(),
-            Timestamp: DateTimeOffset.Now);
+            Timestamp: DateTimeOffset.Now,
+            FollowedAuthors: store.All<FollowedAuthor>().Where(a => a.Username.Length > 0).Select(a => new AuthorBackup(
+                a.Username, a.DisplayName, a.FollowedAt, a.KnownWorkIds, a.LastCheckedAt)).ToList());
     }
 
     // MARK: - Launch auto-sync bookkeeping
@@ -308,6 +310,20 @@ public sealed class LibrarySyncManager
         foreach (var s in local.Stats ?? [])
             statsById[s.Ao3Id] = statsById.TryGetValue(s.Ao3Id, out var c) ? MergedStat(s, c) : s;
 
+        // Authors: local wins, but the works either device already knows are
+        // kept, so neither alerts for a work the other has seen.
+        var authorsByName = new Dictionary<string, AuthorBackup>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in cloud.FollowedAuthors ?? []) authorsByName.TryAdd(a.Username, a);
+        foreach (var a in local.FollowedAuthors ?? [])
+            authorsByName[a.Username] = authorsByName.TryGetValue(a.Username, out var other)
+                ? a with
+                {
+                    FollowedAt = a.FollowedAt < other.FollowedAt ? a.FollowedAt : other.FollowedAt,
+                    KnownWorkIds = a.KnownWorkIds.Union(other.KnownWorkIds).ToList(),
+                    LastCheckedAt = Later(a.LastCheckedAt, other.LastCheckedAt),
+                }
+                : a;
+
         return new LibraryBackup(
             Works: worksById.Values.OrderBy(w => w.Ao3Id).ToList(),
             Bookmarks: bookmarksById.Values.OrderBy(b => b.Ao3Id).ToList(),
@@ -319,11 +335,17 @@ public sealed class LibrarySyncManager
             Settings: local.Settings ?? cloud.Settings,
             Folders: foldersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Stats: statsById.Values.OrderBy(s => s.Ao3Id).ToList(),
-            Timestamp: local.Timestamp);
+            Timestamp: local.Timestamp,
+            FollowedAuthors: local.FollowedAuthors is null && cloud.FollowedAuthors is null
+                ? null
+                : authorsByName.Values.OrderBy(a => a.Username, StringComparer.Ordinal).ToList());
     }
 
     /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
     /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
+    private static DateTimeOffset? Later(DateTimeOffset? a, DateTimeOffset? b) =>
+        a is null ? b : b is null ? a : a > b ? a : b;
+
     private static Dictionary<TKey, T> FirstByKey<TKey, T>(IEnumerable<T> items, Func<T, TKey> key) where TKey : notnull
     {
         var d = new Dictionary<TKey, T>();
@@ -650,6 +672,27 @@ public sealed class LibrarySyncManager
                     st.Ao3Id, st.Title, st.Author, st.Fandoms, st.Categories, st.Relationships, st.Rating, st.WordCount,
                     st.FirstReadAt, st.LastReadAt, st.TotalSeconds, new Dictionary<string, double>(st.DaySeconds),
                     st.MaxProgress ?? 0, st.WorkIsComplete ?? false));
+            }
+        }
+
+        // 9. Followed authors: added when missing; known works only grow, so a
+        // restored follow doesn't announce the back catalogue.
+        foreach (var a in backup.FollowedAuthors ?? [])
+        {
+            if (a.Username.Length == 0) continue;
+            var existing = store.GetFollowedAuthor(a.Username)
+                ?? store.Where<FollowedAuthor>(f => string.Equals(f.Username, a.Username, StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
+            if (existing is not null)
+            {
+                var known = existing.KnownWorkIds.Union(a.KnownWorkIds).ToList();
+                if (known.Count != existing.KnownWorkIds.Count) existing.KnownWorkIds = known;
+                if (a.FollowedAt < existing.FollowedAt) existing.FollowedAt = a.FollowedAt;
+                if (Later(existing.LastCheckedAt, a.LastCheckedAt) != existing.LastCheckedAt) existing.LastCheckedAt = a.LastCheckedAt;
+            }
+            else
+            {
+                store.Insert(new FollowedAuthor(a.Username, a.DisplayName.Length == 0 ? a.Username : a.DisplayName,
+                    a.FollowedAt, a.LastCheckedAt, a.KnownWorkIds));
             }
         }
     }
