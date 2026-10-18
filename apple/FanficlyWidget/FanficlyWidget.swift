@@ -153,18 +153,21 @@ struct FanficlyWidgetEntryView : View {
 
 // MARK: - Lock-screen families (iPhone and iPad)
 
-/// Lock-screen ring: progress around a book glyph. The system tints and
-/// blurs lock-screen widgets, so this sticks to template colors.
+/// Lock-screen ring: progress around the percent read, or a book glyph when
+/// there's no story yet. The system tints and blurs lock-screen widgets, so
+/// this sticks to template colors.
 private struct LastReadCircularView: View {
     let entry: SimpleEntry
 
     var body: some View {
         Group {
             if entry.storyId != nil {
+                // The capacity style draws only the value label inside the ring.
                 Gauge(value: min(max(entry.progress, 0), 1)) {
-                    Image(systemName: "book.fill")
+                    EmptyView()
                 } currentValueLabel: {
-                    Text("\(Int((entry.progress * 100).rounded()))")
+                    Text("\(lastReadPercent(entry))%")
+                        .minimumScaleFactor(0.6)
                 }
                 .gaugeStyle(.accessoryCircularCapacity)
             } else {
@@ -198,7 +201,7 @@ private struct LastReadRectangularView: View {
                 Gauge(value: min(max(entry.progress, 0), 1)) {
                     EmptyView()
                 } currentValueLabel: {
-                    Text("\(Int((entry.progress * 100).rounded()))%")
+                    Text("\(lastReadPercent(entry))%")
                 }
                 .gaugeStyle(.accessoryLinearCapacity)
             }
@@ -216,8 +219,11 @@ private struct LastReadRectangularView: View {
 /// widget's combined element.
 private func lastReadAccessibilityLabel(_ entry: SimpleEntry) -> String {
     guard entry.storyId != nil else { return "\(entry.storyTitle). \(entry.author)" }
-    let percent = Int((min(max(entry.progress, 0), 1) * 100).rounded())
-    return "Continue reading \(entry.storyTitle) by \(entry.author), \(percent) percent read"
+    return "Continue reading \(entry.storyTitle) by \(entry.author), \(lastReadPercent(entry)) percent read"
+}
+
+private func lastReadPercent(_ entry: SimpleEntry) -> Int {
+    Int((min(max(entry.progress, 0), 1) * 100).rounded())
 }
 
 private struct WidgetProgressBar: View {
