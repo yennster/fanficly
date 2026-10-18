@@ -176,7 +176,7 @@ public sealed record ReadingStatsSummary(
 public sealed record ReadingGoalProgress(int Goal, int Finished, int Expected)
 {
     /// <summary>0…1 for the progress ring; stays full once the goal is passed.</summary>
-    public double Fraction => Math.Min((double)Finished / Goal, 1);
+    public double Fraction => Goal > 0 ? Math.Min((double)Finished / Goal, 1) : 0;
     public bool IsComplete => Finished >= Goal;
     /// <summary>Stories ahead of an even pace (negative when behind).</summary>
     public int Ahead => Finished - Expected;

@@ -71,7 +71,10 @@ public sealed class StatsScreen : Screen
         _ => false,
     };
 
-    /// <summary>This year's goal progress; null when there's no goal.</summary>
+    /// <summary>This year's goal progress; null when there's no goal. "Finished
+    /// this year" is the yearly wrap's rule (finished, and read on a day this
+    /// year): there's no finish date, so a story finished last year and reopened
+    /// this year counts too.</summary>
     private ReadingGoalProgress? GoalProgress()
     {
         var goal = YearlyGoal;
@@ -240,8 +243,10 @@ public sealed class StatsScreen : Screen
         if (_snapshots.Count == 0)
         {
             _scroll.Visibility = Visibility.Collapsed;
+            // A new reader can set a goal before their first read.
             _emptyHost.Content = UI.UI.EmptyState("chart.bar.xaxis", "No Reading Stats Yet",
-                "Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.");
+                "Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.",
+                YearlyGoal > 0 ? null : $"Set a {CurrentYear} Reading Goal", () => _ = EditGoalAsync());
             _summary = ReadingStatsSummary.Empty;
             return;
         }
@@ -299,7 +304,7 @@ public sealed class StatsScreen : Screen
         }
 
         var ring = GoalRing.Build(progress.Fraction, 64, 8, Theme.SubtleFill, Theme.Accent);
-        var percent = UI.UI.Text($"{Math.Round(progress.Fraction * 100)}%", Theme.Style.Caption, wrap: false);
+        var percent = UI.UI.Text($"{Math.Floor(progress.Fraction * 100)}%", Theme.Style.Caption, wrap: false);
         percent.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
         percent.HorizontalAlignment = HorizontalAlignment.Center;
         percent.VerticalAlignment = VerticalAlignment.Center;
@@ -330,7 +335,7 @@ public sealed class StatsScreen : Screen
             BorderThickness = new Thickness(1),
         };
         button.Click += (_, _) => _ = EditGoalAsync();
-        AutomationProperties.SetName(button, $"{CurrentYear} reading goal: {progress.Finished} of {progress.Goal} stories finished, {progress.PaceLabel}");
+        AutomationProperties.SetName(button, $"{CurrentYear} reading goal: {progress.Finished} of {progress.Goal} {(progress.Goal == 1 ? "story" : "stories")} finished, {progress.PaceLabel}");
         AutomationProperties.SetHelpText(button, "Edits your yearly reading goal");
         AutomationProperties.SetAutomationId(button, "stats.goal");
         ToolTipService.SetToolTip(button, "Edit your reading goal");
@@ -358,8 +363,13 @@ public sealed class StatsScreen : Screen
                                               secondary: current > 0 ? "Remove Goal" : null);
         switch (result)
         {
-            case ContentDialogResult.Primary when !double.IsNaN(box.Value):
-                YearlyGoal = (int)Math.Clamp(Math.Round(box.Value), 1, 1000);
+            case ContentDialogResult.Primary:
+                // Enter can close the dialog before the box commits its typed
+                // text to Value, so read the text first.
+                var typed = int.TryParse(box.Text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var n) ? n : (double?)null;
+                var value = typed ?? box.Value;
+                if (double.IsNaN(value)) return;
+                YearlyGoal = (int)Math.Clamp(Math.Round(value), 1, 1000);
                 break;
             case ContentDialogResult.Secondary:
                 YearlyGoal = 0;
@@ -418,7 +428,7 @@ public sealed class StatsScreen : Screen
     {
         if (_rendering || _snapshots.Count == 0) return null;
         _rendering = true;
-        var card = WrapShareCard.Build(ScopeTitle, _summary, ShowsGoal ? GoalProgress() : null);
+        var card = WrapShareCard.Build(ScopeTitle, _summary, ShowsGoal ? GoalProgress() : null, CurrentYear);
         _renderHost.Children.Add(card);
         try
         {

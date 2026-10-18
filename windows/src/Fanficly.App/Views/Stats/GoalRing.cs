@@ -17,12 +17,14 @@ public static class GoalRing
     {
         fraction = Math.Clamp(double.IsNaN(fraction) ? 0 : fraction, 0, 1);
         var host = new Grid { Width = size, Height = size };
-        host.Children.Add(new Ellipse { Stroke = track, StrokeThickness = thickness, Margin = new Thickness(thickness / 2) });
+        // An Ellipse strokes inside its bounds, so its stroke's centre line is
+        // thickness/2 in from the edge: the same radius as the arc below.
+        host.Children.Add(new Ellipse { Stroke = track, StrokeThickness = thickness });
 
         if (fraction >= 1)
         {
             // A full circle: an arc that ends where it starts draws nothing.
-            host.Children.Add(new Ellipse { Stroke = fill, StrokeThickness = thickness, Margin = new Thickness(thickness / 2) });
+            host.Children.Add(new Ellipse { Stroke = fill, StrokeThickness = thickness });
         }
         else if (fraction > 0)
         {
