@@ -130,6 +130,7 @@ final class SearchResultsParserTests: XCTestCase {
         // must resolve so "Load more" advances past page 2.
         let liForm = """
         <html><body>
+        <ol class="work index group"></ol>
         <ol class="pagination actions">
           <li><a href="?page=1">1</a></li>
           <li class="current">3</li>
