@@ -12,6 +12,27 @@ public struct WidgetSavedSearch: Codable, Equatable, Sendable {
     }
 }
 
+extension WidgetSavedSearch {
+    /// The `fanficly://search?query=` link the widget opens. `query` is a saved
+    /// search's prompt or a saved filter's `savedJSON()`; the app reads either
+    /// back with `AO3SearchFilters.searchPrompt(fromRouteQuery:)`. `&`, `=`,
+    /// `+` and `#` are escaped too, so a tag like "Harry & Hermione" stays
+    /// inside the value.
+    public var searchURL: URL? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#")
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: "fanficly://search?query=\(encoded)")
+    }
+
+    /// The `query` value of a `fanficly://search` link, percent-decoded.
+    public static func routeQuery(from url: URL) -> String? {
+        guard url.host == "search",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return nil }
+        return components.queryItems?.first(where: { $0.name == "query" })?.value
+    }
+}
+
 public struct WidgetFolderShortcut: Codable, Equatable, Sendable {
     public let name: String
     public let workCount: Int

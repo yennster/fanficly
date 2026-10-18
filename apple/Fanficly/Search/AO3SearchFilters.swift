@@ -212,6 +212,20 @@ extension AO3SearchFilters {
         return try? JSONDecoder().decode(AO3SearchFilters.self, from: data)
     }
 
+    /// The search-box text for a `fanficly://search?query=` route. The Saved
+    /// Searches widget sends a saved search as its prompt and a saved filter
+    /// as its `savedJSON()`; the JSON becomes the filters' `promptText()`,
+    /// which `SearchSyntax.parse` reads back exactly. Anything else, including
+    /// JSON that doesn't decode, is already prompt text (so it runs as keywords).
+    /// The Windows app's `DeepLink.SearchPrompt` makes the same call.
+    public static func searchPrompt(fromRouteQuery query: String) -> String {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"), let filters = from(savedJSON: trimmed) {
+            return filters.promptText()
+        }
+        return query
+    }
+
     public func queryItems() -> [URLQueryItem] {
         var items: [URLQueryItem] = []
         let composedQuery = composedQueryString()

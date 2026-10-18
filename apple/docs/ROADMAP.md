@@ -72,7 +72,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`.
 
 ### RM-020 — Make the saved-search widget route work
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** AGENTS.md ("Other widgets and shortcut routes") documents that the saved-search widget puts saved-filter JSON in `fanficly://search?query=`, but `SearchView.consumePendingQuery` expects prompt syntax, so tapping a saved search doesn't run it.
 - **Scope:** Have the widget write `AO3SearchFilters.promptText()` (the `key:value` rendering `SearchSyntax.parse` reads back exactly) instead of JSON, or decode JSON explicitly in the consumer; pick one and document the contract. Old widget URLs must not crash the consumer.
 - **Done when:** a round-trip test (saved filters → URL → pending query → parsed filters equal), plus a test that a legacy JSON query degrades to a plain keyword search. Update the "Current limitation" note in AGENTS.md.

@@ -749,7 +749,7 @@ struct SearchView: View {
 
     private func consumePendingQuery() {
         guard !pendingQuery.isEmpty else { return }
-        let prompt = pendingQuery
+        let prompt = AO3SearchFilters.searchPrompt(fromRouteQuery: pendingQuery)
         pendingQuery = ""
         load(prompt: prompt)
     }
