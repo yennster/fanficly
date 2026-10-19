@@ -19,7 +19,7 @@ jobs:
     name: Build & Test
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Select newest installed Xcode
         run: |
@@ -112,7 +112,7 @@ jobs:
       # What the layout tests saw, step by step, on each simulator.
       - name: Upload reader screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: reader-layout-screenshots
           path: apple/build/reader-layout-screenshots
@@ -120,7 +120,7 @@ jobs:
 
       - name: Upload result bundles on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xcresults
           path: apple/build/*.xcresult
@@ -131,7 +131,7 @@ jobs:
     name: Unit tests on Mac (Catalyst)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Select newest installed Xcode
         run: |
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload result bundle on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xcresult-mac
           path: apple/build/*.xcresult

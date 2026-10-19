@@ -63,7 +63,7 @@ jobs:
       LC_ALL: en_US.UTF-8
       LANG: en_US.UTF-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.sha || github.sha }}
 
@@ -82,7 +82,7 @@ jobs:
           bundler-cache: true
           working-directory: apple
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -115,7 +115,7 @@ jobs:
       # folders were made.
       - name: Upload the store art
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: store-art
           path: |
@@ -130,7 +130,7 @@ jobs:
 
       - name: Upload the logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs
           path: |
@@ -177,7 +177,7 @@ jobs:
       LC_ALL: en_US.UTF-8
       LANG: en_US.UTF-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -185,7 +185,7 @@ jobs:
           bundler-cache: true
           working-directory: apple
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -194,7 +194,7 @@ jobs:
           python -m venv bin/.venv
           bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: store-art
           path: apple

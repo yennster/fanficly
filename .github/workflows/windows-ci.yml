@@ -28,12 +28,12 @@ jobs:
     runs-on: windows-latest
     defaults: { run: { working-directory: windows } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with: { global-json-file: windows/global.json }
       - name: Unit tests
         run: dotnet test tests/Fanficly.Core.Tests -c Release --logger "trx;LogFileName=core.trx" --results-directory ../artifacts/test-results
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: core-test-results, path: artifacts/test-results }
 
@@ -46,8 +46,8 @@ jobs:
         platform: [x64, ARM64]
     defaults: { run: { working-directory: windows } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with: { global-json-file: windows/global.json }
       - name: Build (unpackaged, self-contained, for the launch test)
         run: >
@@ -59,7 +59,7 @@ jobs:
         if: matrix.platform == 'x64'
         shell: pwsh
         run: ./scripts/Capture-Screen.ps1 -Exe ../artifacts/app-x64/Fanficly.exe -Out ../artifacts/screenshots/launch.png -EmitBase64
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && matrix.platform == 'x64'
         with: { name: launch-screenshot, path: artifacts/screenshots, if-no-files-found: ignore }
 
@@ -71,8 +71,8 @@ jobs:
       FANFICLY_EXE: ${{ github.workspace }}\artifacts\app-x64\Fanficly.exe
       FANFICLY_SCREENSHOTS: ${{ github.workspace }}\artifacts\ui-screenshots
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with: { global-json-file: windows/global.json }
       - name: Build the app (unpackaged, x64)
         run: >
@@ -111,7 +111,7 @@ jobs:
           python -m pip install --quiet fonttools pillow
           python scripts/Chart-IconFont.py ../artifacts/icon-font-charts
           ./scripts/Write-Screenshots.ps1 -Dir ../artifacts/icon-font-charts -MaxWidth 1152 -Quality 80
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: ${{ !cancelled() }}
         with: { python-version: '3.12' }
       - name: Build the Store art (checked here, committed by the screenshots workflow)
@@ -126,10 +126,10 @@ jobs:
         if: ${{ !cancelled() }}
         shell: pwsh
         run: ./scripts/Write-Screenshots.ps1 -Dir ../artifacts/ui-screenshots
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: ui-screenshots, path: artifacts/ui-screenshots, if-no-files-found: ignore }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: ui-test-results, path: artifacts/test-results, if-no-files-found: ignore }
 
@@ -138,10 +138,10 @@ jobs:
     runs-on: windows-latest
     needs: [core-tests, app]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with: { global-json-file: windows/global.json }
-      - uses: microsoft/setup-msbuild@v2
+      - uses: microsoft/setup-msbuild@v3
       - name: Restore
         working-directory: windows
         run: msbuild src/Fanficly.App/Fanficly.App.csproj /t:Restore /p:Configuration=Release
@@ -152,5 +152,5 @@ jobs:
           /p:AppxBundle=Always "/p:AppxBundlePlatforms=x64|arm64"
           /p:UapAppxPackageBuildMode=StoreUpload /p:AppxPackageDir=${{ github.workspace }}\artifacts\AppPackages\
           /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=false
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: msix-bundle, path: artifacts/AppPackages }

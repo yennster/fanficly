@@ -72,7 +72,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check the package identity variables
         shell: pwsh
@@ -128,9 +128,9 @@ jobs:
         shell: pwsh
         run: ./windows/scripts/store/New-StoreListingJson.ps1 -OutFile "$env:RUNNER_TEMP/listing.json"
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with: { global-json-file: windows/global.json }
-      - uses: microsoft/setup-msbuild@v2
+      - uses: microsoft/setup-msbuild@v3
 
       - name: Restore
         working-directory: windows
@@ -154,7 +154,7 @@ jobs:
           }
           Write-Host "Built $($upload[0].Name) ($([math]::Round($upload[0].Length / 1MB, 1)) MB)"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: store-package
           path: artifacts/AppPackages
@@ -167,14 +167,14 @@ jobs:
     runs-on: windows-latest
     needs: build
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with: { name: store-package, path: artifacts/AppPackages }
       - name: Run WACK
         continue-on-error: true
         shell: pwsh
         run: ./windows/scripts/store/Test-StorePackage.ps1 -Package artifacts/AppPackages -ReportPath artifacts/wack/wack-report.xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: wack-report, path: artifacts/wack, if-no-files-found: ignore }
 
@@ -219,8 +219,8 @@ jobs:
             }
           }
 
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with: { name: store-package, path: artifacts/AppPackages }
 
       - name: Find the package
@@ -231,7 +231,7 @@ jobs:
           "path=$($upload.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Install the Microsoft Store Developer CLI
-        uses: microsoft/microsoft-store-apppublisher@v1.1
+        uses: microsoft/microsoft-store-apppublisher@v1.4
 
       - name: Sign in to Partner Center
         shell: pwsh
@@ -344,8 +344,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with: { name: store-package, path: artifacts/AppPackages }
       - name: Create the release
         env:
