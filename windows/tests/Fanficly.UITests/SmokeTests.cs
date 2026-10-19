@@ -116,7 +116,8 @@ public sealed partial class SmokeTests
         Assert.True(s.WaitForHeader("The Lighthouse Letters"), "The series didn't open.");
         Assert.NotNull(s.ById("series.works", 8));
         s.GoBack();
-        Assert.True(s.WaitForHeader("Of Maps and Mistakes"), "Back didn't return to the work.");
+        // The reader hides the app header once a work loads, so look for its series row.
+        Assert.True(s.ById("work.series.5", 8) is not null, "Back didn't return to the work.");
     }
 
     [Fact]
