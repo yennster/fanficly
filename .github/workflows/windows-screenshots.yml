@@ -39,8 +39,8 @@ jobs:
       FANFICLY_EXE: ${{ github.workspace }}\artifacts\app-x64\Fanficly.exe
       FANFICLY_SCREENSHOTS: ${{ github.workspace }}\artifacts\ui-screenshots
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with: { global-json-file: windows/global.json }
       - name: Build the app (unpackaged, x64)
         run: >
@@ -65,7 +65,7 @@ jobs:
       - name: Copy into the repository
         shell: pwsh
         run: ./scripts/Copy-Screenshots.ps1 -From ../artifacts/ui-screenshots -Repo ..
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with: { python-version: '3.12' }
       - name: Build the Store art
         timeout-minutes: 20
@@ -92,6 +92,6 @@ jobs:
           # pictures on top of it (they only touch picture folders).
           git pull --rebase origin ${{ github.ref_name }}
           git push origin HEAD:${{ github.ref_name }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: ui-screenshots, path: artifacts/ui-screenshots, if-no-files-found: ignore }
