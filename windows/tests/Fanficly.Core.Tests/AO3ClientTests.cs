@@ -872,6 +872,134 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal(["A/B"], snapshot.Ships);
         Assert.Equal(["Cee"], snapshot.Characters);
     }
+
+    // MARK: - Kudos
+
+    /// <summary>A signed-in work page with AO3's kudos form.</summary>
+    private const string KudosPageHtml = """
+        <html><head><meta name="csrf-token" content="META"/></head><body>
+        <div id="greeting"><a href="/users/reader">Hi, reader!</a></div>
+        <form id="new_kudo" action="/kudos" accept-charset="UTF-8" method="post">
+          <input type="hidden" name="authenticity_token" value="FORM" autocomplete="off" />
+          <input value="42" autocomplete="off" type="hidden" name="kudo[commentable_id]" id="kudo_commentable_id" />
+          <input value="Work" autocomplete="off" type="hidden" name="kudo[commentable_type]" id="kudo_commentable_type" />
+          <input type="submit" name="commit" value="Kudos ♥" id="kudo_submit" />
+        </form></body></html>
+        """;
+
+    private static HttpResponseMessage KudosRefused(string message) =>
+        new(HttpStatusCode.UnprocessableEntity)
+        {
+            Content = new StringContent($$"""{"error_message":"{{message}}"}""", Encoding.UTF8, "application/json"),
+        };
+
+    [Fact]
+    public async Task LeaveKudosPostsTheWorkPagesFormToKudosJs()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("// js", Encoding.UTF8, "text/javascript") });
+
+        Assert.Equal(KudosOutcome.Left, await MakeClient().LeaveKudosAsync(42));
+
+        Assert.Equal("https://archiveofourown.org/works/42?view_adult=true", _handler.Requests[0].Uri.AbsoluteUri);
+        var post = _handler.Requests[1];
+        Assert.Equal("POST", post.Method);
+        Assert.Equal("https://archiveofourown.org/kudos.js", post.Uri.AbsoluteUri);
+        // The page-wide meta token, not the form's per-form one (valid only for /kudos).
+        Assert.Equal("META", post.Header("X-CSRF-Token"));
+        Assert.Equal("XMLHttpRequest", post.Header("X-Requested-With"));
+        Assert.Equal(_handler.Requests[0].Uri.AbsoluteUri, post.Header("Referer"));
+        var form = post.Body!.Split('&').ToHashSet();
+        Assert.Equal(["authenticity_token=META", "kudo%5Bcommentable_id%5D=42", "kudo%5Bcommentable_type%5D=Work"], form.Order());
+    }
+
+    [Fact]
+    public async Task KudosAlreadyLeftCountAsLeft()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => KudosRefused("You have already left kudos here. :)"));
+        Assert.Equal(KudosOutcome.AlreadyLeft, await MakeClient().LeaveKudosAsync(42));
+    }
+
+    [Fact]
+    public async Task RefusedKudosCarryAO3sReason()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => KudosRefused("Sorry, you have been blocked by one or more of this work's creators."));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal("Sorry, you have been blocked by one or more of this work's creators.", e.Reason);
+    }
+
+    [Fact]
+    public async Task KudosNeedASignedInPage()
+    {
+        // AO3 takes guest kudos, so a page without the signed-in greeting must
+        // stop before the POST rather than leave one as a guest.
+        _handler.Respond(_ => FakeHandler.Html(KudosPageHtml.Replace("""<div id="greeting"><a href="/users/reader">Hi, reader!</a></div>""", "")));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task KudosStopOnAO3sSignedOutHeader()
+    {
+        // The header's /users/login?return_to=… link once read as a signed-in name.
+        _handler.Respond(_ => FakeHandler.Html(KudosParserTests.SignedOutHeader.Replace("</header>",
+            """</header><form id="new_kudo" action="/kudos"><input type="hidden" name="kudo[commentable_id]" value="42"></form>""")));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task NoKudosButtonMeansNoPost()
+    {
+        // Your own work, or a creator who blocked you: AO3 leaves the form out.
+        _handler.Respond(_ => FakeHandler.Html("""<html><body><div id="greeting"><a href="/users/reader">reader</a></div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task ARefusedTokenNeedsASignIn()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            {
+                Content = new StringContent("""{"errors":{"auth_error":"Your current session has expired."}}""", Encoding.UTF8, "application/json"),
+            });
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task OnlyA201CountsAsLeft()
+    {
+        // A 200 maintenance or proxy page isn't AO3's kudos answer.
+        _handler.Respond(
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => FakeHandler.Html("<html><body>Down for maintenance</body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+    }
+
+    [Fact]
+    public async Task AKudosPostIsNeverRetried()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(KudosPageHtml),
+            _ => throw new HttpRequestException(HttpRequestError.ConnectionError, "refused"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Network, e.Kind);
+        Assert.Equal(["GET", "POST"], _handler.Requests.Select(r => r.Method));
+    }
 }
 
 /// <summary>A scripted <see cref="HttpMessageHandler"/>: each request gets the next

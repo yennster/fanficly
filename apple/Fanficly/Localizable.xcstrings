@@ -31,6 +31,16 @@
         }
       }
     },
+    "Blocked tags & authors" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocked tags & authors"
+          }
+        }
+      }
+    },
     "Clear iCloud Data" : {
       "localizations" : {
         "en" : {
@@ -91,12 +101,12 @@
         }
       }
     },
-    "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results." : {
+    "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results; blocking a tag or author removes every work that has it." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results."
+            "value" : "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results; blocking a tag or author removes every work that has it."
           }
         }
       }

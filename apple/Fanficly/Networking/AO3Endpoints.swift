@@ -73,6 +73,15 @@ enum AO3Endpoints {
         base.appending(path: "/users/login")
     }
 
+    /// A work's first page (its first chapter, for a chaptered work), without
+    /// `view_full_work`: enough for the kudos form and the navbar.
+    static func workFirstPage(id: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad work URL") }
+        return url
+    }
+
     /// `page` is the comment page (AO3 shows a chapter's threads a page at a
     /// time); page 1 sends no `page=`.
     static func workComments(id: Int, page: Int = 1, base: URL) throws -> URL {
@@ -106,6 +115,11 @@ enum AO3Endpoints {
 
     static func workSubscriptions(id: Int, base: URL) throws -> URL {
         base.appending(path: "/works/\(id)/subscriptions")
+    }
+
+    /// The kudos POST, at the `.js` format AO3's own kudos button uses.
+    static func kudos(base: URL) throws -> URL {
+        base.appending(path: "/kudos.js")
     }
 
     static func workCommentsPost(id: Int, base: URL) throws -> URL {

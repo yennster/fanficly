@@ -508,3 +508,75 @@ final class LoginParserTests: XCTestCase {
         XCTAssertFalse(try LoginParser.hasLoginForm(html: dashboard))
     }
 }
+
+/// The work page's kudos form, as AO3 renders it (`form_for(:kudo, …)` in
+/// otwarchive's `comments/_commentable.html.erb`), and AO3's `/kudos.js` answers.
+final class KudosParserTests: XCTestCase {
+    func test_formFields_capturesTheHiddenInputs() throws {
+        let html = """
+        <html><body><ul class="work navigation actions">
+          <li><form id="new_kudo" action="/kudos" accept-charset="UTF-8" method="post">
+            <input type="hidden" name="authenticity_token" value="TOK" autocomplete="off" />
+            <input value="12345" autocomplete="off" type="hidden" name="kudo[commentable_id]" id="kudo_commentable_id" />
+            <input value="Work" autocomplete="off" type="hidden" name="kudo[commentable_type]" id="kudo_commentable_type" />
+            <input type="submit" name="commit" value="Kudos ♥" id="kudo_submit" />
+          </form></li>
+        </ul></body></html>
+        """
+        let fields = try XCTUnwrap(KudosParser.formFields(html: html))
+        XCTAssertEqual(fields["authenticity_token"], "TOK")
+        XCTAssertEqual(fields["kudo[commentable_id]"], "12345")
+        XCTAssertEqual(fields["kudo[commentable_type]"], "Work")
+        XCTAssertNil(fields["commit"])
+    }
+
+    func test_formFields_nilWithoutTheKudosButton() {
+        // Your own work, or a creator who blocked you: AO3 leaves the form out.
+        XCTAssertNil(KudosParser.formFields(html: "<html><body><form id=\"new_comment\"></form></body></html>"))
+        XCTAssertNil(KudosParser.formFields(html: "<form id=\"new_kudo\"><input type=\"hidden\" name=\"authenticity_token\" value=\"T\"></form>"))
+    }
+
+    func test_errorMessage_readsAO3sJSON() {
+        let data = Data(#"{"error_message":"You have already left kudos here. :)"}"#.utf8)
+        XCTAssertEqual(KudosParser.errorMessage(json: data), "You have already left kudos here. :)")
+        XCTAssertNil(KudosParser.errorMessage(json: Data("Retry later".utf8)))
+        XCTAssertNil(KudosParser.errorMessage(json: Data(#"{"error_message":"  "}"#.utf8)))
+    }
+
+    func test_isSignedIn_onlyWithTheGreeting() {
+        let signedIn = """
+        <html><body><header id="header">
+          <nav id="greeting"><ul class="user navigation actions"><li class="dropdown">
+            <a href="/users/reader">Hi, reader!</a></li></ul></nav>
+        </header></body></html>
+        """
+        XCTAssertTrue(KudosParser.isSignedIn(html: signedIn))
+        // AO3's signed-out header: the login dropdown and its small login form.
+        let signedOut = """
+        <html><body><header id="header">
+          <div id="login" class="dropdown">
+            <p class="user actions"><a id="login-dropdown" href="/users/login?return_to=%2Fworks%2F42">Log In</a></p>
+            <div id="small_login" class="simple login"><form id="new_user" action="/users/login" method="post">
+              <input type="text" name="user[login]" id="user_login" />
+              <a href="/users/password/new">Forgot password?</a>
+            </form></div>
+          </div>
+        </header></body></html>
+        """
+        XCTAssertFalse(KudosParser.isSignedIn(html: signedOut))
+        XCTAssertFalse(KudosParser.isSignedIn(html: "<html><body></body></html>"))
+    }
+
+    func test_isAuthError_forARefusedToken() {
+        let refused = Data(#"{"errors":{"auth_error":"Your current session has expired and we can't authenticate your request."}}"#.utf8)
+        XCTAssertTrue(KudosParser.isAuthError(json: refused))
+        XCTAssertNil(KudosParser.errorMessage(json: refused))
+        XCTAssertFalse(KudosParser.isAuthError(json: Data(#"{"error_message":"You have already left kudos here. :)"}"#.utf8)))
+    }
+
+    func test_isAlreadyLeft_onlyForTheDuplicateAnswer() {
+        XCTAssertTrue(KudosParser.isAlreadyLeft(message: "You have already left kudos here. :)"))
+        XCTAssertFalse(KudosParser.isAlreadyLeft(message: "You can't leave kudos on your own work."))
+        XCTAssertFalse(KudosParser.isAlreadyLeft(message: "Sorry, you have been blocked by one or more of this work's creators."))
+    }
+}

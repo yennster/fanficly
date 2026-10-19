@@ -261,6 +261,7 @@ struct CategoryFandomsView: View {
 struct FandomWorksView: View {
     @Environment(\.ao3Client) private var client
     @Query private var hiddenWorks: [HiddenWork]
+    @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     let title: String
     @State private var works: [AO3WorkSummary] = []
@@ -306,9 +307,11 @@ struct FandomWorksView: View {
         self.init(filters: initial, title: tag.name)
     }
 
-    /// Works minus hidden ones and (optionally) Mature/Explicit-rated ones.
+    /// Works minus hidden ones, blocked tags and authors (except the ones
+    /// being browsed) and (optionally) Mature/Explicit-rated ones.
     private var visibleWorks: [AO3WorkSummary] {
-        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature,
+                            blocklist: Blocklist(blockedTerms).lifting(filters))
     }
 
     var body: some View {
@@ -322,8 +325,9 @@ struct FandomWorksView: View {
                 ContentUnavailableView("No works found", systemImage: "magnifyingglass",
                     description: Text("Try adjusting your filters or search terms."))
             } else if visibleWorks.isEmpty {
-                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                    description: Text("Every match is hidden or filtered out by your content settings."))
+                FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
+                                canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                                loadMore: loadMore)
             } else {
                 List {
                     Section {
