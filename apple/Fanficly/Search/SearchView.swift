@@ -801,6 +801,7 @@ struct WorkRow: View {
     /// page (`.resultBadges(for:into:)`).
     var badge: ResultBadge? = nil
     @Environment(\.modelContext) private var context
+    @Environment(\.readingWordsPerMinute) private var wordsPerMinute
     // Reflects the local follow ("bookmark") state; seeded on appear and
     // updated when the inline button is tapped.
     @State private var isFollowed = false
@@ -822,12 +823,18 @@ struct WorkRow: View {
                     }
                 }
                 Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
-                HStack(spacing: 8) {
+                // Wraps rather than truncating once the reading-time estimate
+                // joins the row on a narrow phone.
+                FlowLayout(spacing: 8, lineSpacing: 2) {
                     if !work.rating.isEmpty {
                         Text(work.rating).font(.caption).foregroundStyle(.secondary)
                     }
                     if work.wordCount > 0 {
                         Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let estimate = ReadingSpeed.estimate(words: work.wordCount, wordsPerMinute: wordsPerMinute) {
+                        Text(estimate).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityLabel(ReadingSpeed.spokenEstimate(words: work.wordCount, wordsPerMinute: wordsPerMinute) ?? estimate)
                     }
                     if work.totalChapters != nil {
                         Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
