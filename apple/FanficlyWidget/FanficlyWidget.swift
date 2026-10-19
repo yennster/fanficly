@@ -920,9 +920,9 @@ struct SavedSearchesWidgetEntryView: View {
                 Spacer()
             } else {
                 let first = searches[0]
-                let destURL = "fanficly://search?query=\(first.query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+                let destURL = first.searchURL ?? URL(string: "fanficly://search")!
                 if isSmall {
-                    Link(destination: URL(string: destURL)!) {
+                    Link(destination: destURL) {
                         VStack(alignment: .leading, spacing: 2) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(first.name)
@@ -957,8 +957,8 @@ struct SavedSearchesWidgetEntryView: View {
                     // Medium Family lists top 3 searches
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(searches.prefix(3), id: \.name) { item in
-                            let itemURL = "fanficly://search?query=\(item.query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
-                            Link(destination: URL(string: itemURL)!) {
+                            let itemURL = item.searchURL ?? URL(string: "fanficly://search")!
+                            Link(destination: itemURL) {
                                 HStack {
                                     Image(systemName: "magnifyingglass")
                                         .font(.system(size: 10, weight: .bold))

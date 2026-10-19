@@ -51,7 +51,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Networking/HTMLParsers/*`, `FanficlyTests/*ParserTests.swift`.
 
 ### RM-002 — "Read" and "In Library" badges on result rows
-- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Status:** done · **Size:** S · **Validation:** unit + mac
 - **Why:** Search and Browse can't tell you what you've already read or saved.
 - **Scope:** `WorkRow` shows a small badge ("In Library", "Finished", or a percent) using the existing `Work` and `ReadingProgress` rows. Compute the lookup once per result page as a `[Int: Badge]` from one fetch, not one fetch per row. Put the pure mapping in a testable function.
 - **Done when:** mapping tests cover saved, started, finished and unknown works; VoiceOver reads the badge as part of the row (`.accessibilityElement(children: .combine)` is only safe if the row holds no `Link` or button — it holds the bookmark button, so label the badge instead).
@@ -73,7 +73,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no lock screen, so the accessory families never show there. Windows has no lock-screen family of its own; its small "Continue reading" Widgets-board widget is the nearest equivalent (see `windows/ROADMAP.md`).
 
 ### RM-020 — Make the saved-search widget route work
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** AGENTS.md ("Other widgets and shortcut routes") documents that the saved-search widget puts saved-filter JSON in `fanficly://search?query=`, but `SearchView.consumePendingQuery` expects prompt syntax, so tapping a saved search doesn't run it.
 - **Scope:** Have the widget write `AO3SearchFilters.promptText()` (the `key:value` rendering `SearchSyntax.parse` reads back exactly) instead of JSON, or decode JSON explicitly in the consumer; pick one and document the contract. Old widget URLs must not crash the consumer.
 - **Done when:** a round-trip test (saved filters → URL → pending query → parsed filters equal), plus a test that a legacy JSON query degrades to a plain keyword search. Update the "Current limitation" note in AGENTS.md.
@@ -117,7 +117,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Search/SearchView.swift` (`CommentsView`), `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`.
 
 ### RM-009 — Notes and personal tags on library works
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AO3 tags describe the story; readers also want "for a bad day" or "reread at Christmas".
 - **Scope:** Optional `note: String?` and `personalTags: [String]` fields on `Work` (additive schema; defaults keep migration automatic). Edit them from the Library row's context menu; Library search matches them. Back up and restore with forward-only semantics: a non-empty value never gets overwritten by an empty one, and when both sides differ, local wins.
 - **Done when:** persistence tests, backup merge tests (old backup without the fields decodes), library search test.
@@ -145,7 +145,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
 
 ### RM-023 — Marked for Later section (iPhone, iPad, Mac)
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Why:** On the AO3 website a logged-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The app has no way to see it. The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app; the Windows app gets the same section as RM-112 on the `windows` branch, so the two should match in name and behavior.
 - **Scope:** A login-gated "Marked for Later" sidebar tab that lists `/users/<name>/readings?show=to-read`, built like the Bookmarks tab: a paginated `AO3Client.fetchMarkedForLater(username:page:)` (new endpoint builder next to `userBookmarks`) that reuses `SearchResultsParser` with the readings page's blurb selector, a live-fetched list with infinite scroll, `ContentFilter.apply` on the rows, and rows that open the live `WorkDetailView`. Add the tab per "Add a new sidebar tab" in AGENTS.md (enum case with raw value `markedForLater`, which `app.selectedTabRaw` shares with Windows; title + symbol; a Go menu item), placed after Bookmarks. ⌘1–⌘9 are all taken, so the Go menu item gets no ⌘-number shortcut and existing shortcuts are not renumbered; Windows' RM-112 does the same. Put the view in an existing file (`SubscriptionsView.swift`, beside `BookmarksView`) so no `.xcodeproj` regeneration is needed. Read-only: adding or removing a mark is a later item.
 - **Open question:** confirm the readings page's markup (blurb class, where the work id lives) from a real saved page before writing the fixture; don't guess it.
