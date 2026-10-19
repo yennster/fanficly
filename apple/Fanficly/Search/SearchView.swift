@@ -1336,6 +1336,9 @@ struct AO3BookmarkSheet: View {
             dismiss()
         } catch {
             saveError = "Couldn't save: \(Self.message(for: error))"
+            // Not when AO3 asked us to slow down or the session is gone.
+            if case AO3Error.rateLimited = error { return }
+            if case AO3Error.unauthorized = error { return }
             await refreshForm(keeping: form)
         }
     }

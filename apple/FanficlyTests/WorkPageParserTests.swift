@@ -531,7 +531,8 @@ final class BookmarkFormParserTests: XCTestCase {
 
     func test_saveErrors_readsErrorFlash() {
         let html = #"<html><body><div class="flash error">You can't bookmark with that pseud.</div></body></html>"#
-        XCTAssertEqual(BookmarkFormParser.saveErrors(html: html), ["You can't bookmark with that pseud."])
+        XCTAssertEqual(BookmarkFormParser.flashErrors(html: html), ["You can't bookmark with that pseud."])
+        XCTAssertEqual(BookmarkFormParser.saveErrors(html: html), [], "a flash isn't a form error")
     }
 
     func test_saveErrors_readsAO3ErrorList() {

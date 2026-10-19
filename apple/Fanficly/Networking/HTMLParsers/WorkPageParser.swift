@@ -387,11 +387,19 @@ enum BookmarkFormParser {
         )
     }
 
-    /// The messages in AO3's `div#error` list after a rejected save, or an
-    /// error flash (a refused pseud or account redirects with one).
+    /// The messages in AO3's `div#error` list after a rejected save.
     static func saveErrors(html: String) -> [String] {
+        texts(html: html, selector: "div#error li")
+    }
+
+    /// An error flash: a refused pseud or account redirects elsewhere with one.
+    static func flashErrors(html: String) -> [String] {
+        texts(html: html, selector: "div.flash.error")
+    }
+
+    private static func texts(html: String, selector: String) -> [String] {
         guard let doc = try? SwiftSoup.parse(html),
-              let items = try? doc.select("div#error li, div.flash.error") else { return [] }
+              let items = try? doc.select(selector) else { return [] }
         return items.array().compactMap { try? $0.text() }.filter { !$0.isEmpty }
     }
 

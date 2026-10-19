@@ -689,12 +689,16 @@ public actor AO3Client: AO3ClientProtocol {
         if (try? LoginParser.hasLoginForm(html: html)) == true {
             throw AO3Error.unauthorized
         }
+        // A failed update re-renders on `/bookmarks/<id>` too, so form errors
+        // come first; a flash on the saved bookmark's page (say, a collection
+        // it couldn't join) doesn't undo the save.
         let errors = BookmarkFormParser.saveErrors(html: html)
         if !errors.isEmpty {
             throw AO3Error.parseFailed(reason: errors.joined(separator: " "))
         }
         guard BookmarkFormParser.isBookmarkPage(path: response.url?.path ?? "") else {
-            throw AO3Error.parseFailed(reason: "AO3 didn't save the bookmark.")
+            let flash = BookmarkFormParser.flashErrors(html: html)
+            throw AO3Error.parseFailed(reason: flash.isEmpty ? "AO3 didn't save the bookmark." : flash.joined(separator: " "))
         }
     }
 
