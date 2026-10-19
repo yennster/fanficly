@@ -799,195 +799,6 @@ struct SearchView: View {
     }
 }
 
-struct WorkRow: View {
-    let work: AO3WorkSummary
-    /// "In Library", "Finished" or a percent, from the list's one lookup per
-    /// page (`.resultBadges(for:into:)`).
-    var badge: ResultBadge? = nil
-    @Environment(\.modelContext) private var context
-    @Environment(\.readingWordsPerMinute) private var wordsPerMinute
-    // Reflects the local follow ("bookmark") state; seeded on appear and
-    // updated when the inline button is tapped.
-    @State private var isFollowed = false
-    // Saving from the inline button puts the work in the Library before the
-    // list's next lookup.
-    @State private var savedHere = false
-
-    private var shownBadge: ResultBadge? {
-        badge ?? (savedHere ? .inLibrary : nil)
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(work.title).font(.headline)
-                    if let shownBadge {
-                        ResultBadgeView(badge: shownBadge)
-                    }
-                }
-                Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
-                // Wraps rather than truncating once the reading-time estimate
-                // joins the row on a narrow phone.
-                FlowLayout(spacing: 8, lineSpacing: 2) {
-                    if !work.rating.isEmpty {
-                        Text(work.rating).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if work.wordCount > 0 {
-                        Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let estimate = ReadingSpeed.estimate(words: work.wordCount, wordsPerMinute: wordsPerMinute) {
-                        Text(estimate).font(.caption).foregroundStyle(.secondary)
-                            .accessibilityLabel(ReadingSpeed.spokenEstimate(words: work.wordCount, wordsPerMinute: wordsPerMinute) ?? estimate)
-                    }
-                    if work.totalChapters != nil {
-                        Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
-                    } else if work.chapterCount > 0 {
-                        Text("\(work.chapterCount)/?").font(.caption).foregroundStyle(.secondary)
-                    }
-                    if work.kudos > 0 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "heart")
-                                .accessibilityHidden(true)
-                            Text(work.kudos.formatted())
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                if !work.summary.isEmpty {
-                    Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
-                }
-            }
-            // Combine only the text stack, so the inline bookmark button stays
-            // its own focusable element.
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 8)
-            bookmarkButton
-        }
-        .padding(.vertical, 4)
-        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
-        .onAppear { isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context) }
-    }
-
-    /// Inline one-tap follow/unfollow, so a story can be saved to the Library
-    /// straight from a results list without opening it. `.borderless` keeps the
-    /// tap from also triggering the row's NavigationLink.
-    private var bookmarkButton: some View {
-        Button {
-            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isFollowed = newState
-                savedHere = true  // toggling creates the Work; unfollowing keeps it
-            }
-        } label: {
-            Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
-                .font(.body)
-                .foregroundStyle(isFollowed ? Color.accentColor : Color.secondary)
-                .contentTransition(.symbolEffect(.replace))
-                .padding(.vertical, 4)
-                .padding(.leading, 6)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(isFollowed ? "Remove \(work.title) from Library"
-                                       : "Save \(work.title) to Library")
-    }
-}
-
-/// The small capsule a result row shows for a work already read or saved.
-/// It sits inside the row's combined text element, so VoiceOver reads its
-/// label as part of the row.
-struct ResultBadgeView: View {
-    let badge: ResultBadge
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: badge.symbol)
-                .accessibilityHidden(true)
-            Text(badge.text)
-        }
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(tint)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(tint.opacity(0.15), in: Capsule())
-        .lineLimit(1)
-        .fixedSize()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(badge.accessibilityLabel)
-    }
-
-    private var tint: Color {
-        badge == .finished ? .green : .accentColor
-    }
-}
-
-extension View {
-    /// Keeps `badges` current for a results list: one lookup for the whole
-    /// page when the results change, and again when the list reappears
-    /// (back from reading a story).
-    func resultBadges(for works: [AO3WorkSummary], into badges: Binding<[Int: ResultBadge]>) -> some View {
-        modifier(ResultBadgesModifier(works: works, badges: badges))
-    }
-}
-
-private struct ResultBadgesModifier: ViewModifier {
-    let works: [AO3WorkSummary]
-    @Binding var badges: [Int: ResultBadge]
-    @Environment(\.modelContext) private var context
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear(perform: refresh)
-            .onChange(of: works.map(\.id)) { refresh() }
-    }
-
-    private func refresh() {
-        badges = WorkPersistence.resultBadges(for: works, in: context)
-    }
-}
-
-struct ChipView: View {
-    enum Kind { case include, exclude }
-    let text: String
-    let kind: Kind
-    var removable: Bool = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(text)
-            if removable {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).opacity(0.6)
-                    .accessibilityHidden(true)
-            }
-        }
-        .font(.caption)
-        .padding(.leading, 10)
-        .padding(.trailing, removable ? 8 : 10)
-        .padding(.vertical, 5)
-        .background(background)
-        .foregroundStyle(foreground)
-        .clipShape(Capsule())
-    }
-
-    private var background: Color {
-        switch kind {
-        case .include: Color.accentColor.opacity(0.18)
-        case .exclude: Color.red.opacity(0.18)
-        }
-    }
-
-    private var foreground: Color {
-        switch kind {
-        case .include: Color.accentColor
-        case .exclude: Color.red
-        }
-    }
-}
-
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
@@ -1002,6 +813,7 @@ struct WorkDetailView: View {
     @State private var epubURL: URL?
     @State private var showingReport: Bool = false
     @State private var showingComments: Bool = false
+    @State private var showingBookmark: Bool = false
     @State private var currentChapterIndex = 1
     @State private var exporter = WorkExporter()
     @State private var kudos = KudosGiver()
@@ -1041,6 +853,9 @@ struct WorkDetailView: View {
                                      chapterNumber: currentChapterIndex,
                                      totalChapters: payload.chapters.count)
                     }
+                    .sheet(isPresented: $showingBookmark) {
+                        AO3BookmarkSheet(workId: workId, workTitle: payload.summary.title)
+                    }
             } else if let errorMessage {
                 ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
@@ -1076,6 +891,11 @@ struct WorkDetailView: View {
                 Label("Comments", systemImage: "bubble.left.and.bubble.right")
             }
             KudosMenuButton(workId: workId, giver: kudos)
+            Button {
+                showingBookmark = true
+            } label: {
+                Label("Bookmark on AO3", systemImage: "bookmark.square")
+            }
 
             Divider()
 
@@ -1475,6 +1295,158 @@ struct CommentsView: View {
     }
 }
 
+/// Creates or edits the signed-in user's AO3 bookmark for a work: notes,
+/// their own tags, rec and private. Loads AO3's own form from the work page
+/// (prefilled when the work is already bookmarked) and posts it back, so the
+/// field names and CSRF token come from AO3 rather than being hardcoded.
+struct AO3BookmarkSheet: View {
+    let workId: Int
+    let workTitle: String
+    @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var form: AO3BookmarkForm?
+    @State private var isLoading = false
+    @State private var loadError: String?
+    @State private var isSaving = false
+    @State private var saveError: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if auth.username == nil {
+                    ContentUnavailableView("Log in to bookmark", systemImage: "person.crop.circle.badge.questionmark",
+                        description: Text("Log in to AO3 (Settings) to bookmark this work on AO3."))
+                } else if let binding = Binding($form) {
+                    editor(binding)
+                } else if let loadError {
+                    ContentUnavailableView {
+                        Label("Couldn't load your bookmark", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(loadError)
+                    } actions: {
+                        Button("Retry") { Task { await load() } }
+                    }
+                } else {
+                    VStack { Spacer(); ProgressView("Loading…"); Spacer() }
+                }
+            }
+            .navigationTitle(form?.isExisting == true ? "Edit Bookmark" : "Bookmark on AO3")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                if form != nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button {
+                            Task { await save() }
+                        } label: {
+                            if isSaving { ProgressView() } else { Text("Save") }
+                        }
+                        .disabled(isSaving)
+                        .accessibilityLabel("Save bookmark")
+                    }
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func editor(_ form: Binding<AO3BookmarkForm>) -> some View {
+        Form {
+            Section {
+                Text(workTitle).font(.headline)
+            }
+            Section {
+                TextEditor(text: form.notes)
+                    .frame(minHeight: 120)
+                    .accessibilityLabel("Notes")
+            } header: {
+                Text("Notes")
+            } footer: {
+                Text("The creator's summary is added automatically.")
+            }
+            Section {
+                TextField("Your tags", text: form.tags, axis: .vertical)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Your tags")
+            } footer: {
+                Text("Comma separated. The creator's tags are added automatically.")
+            }
+            Section {
+                Toggle("Rec", isOn: form.isRec)
+                Toggle("Private bookmark", isOn: form.isPrivate)
+            } footer: {
+                Text("A rec is a bookmark you recommend. A private bookmark is only visible to you.")
+            }
+            if let saveError {
+                Section {
+                    Text(saveError).foregroundStyle(.red)
+                }
+            }
+        }
+        .disabled(isSaving)
+    }
+
+    private func load() async {
+        guard auth.username != nil, form == nil, !isLoading else { return }
+        isLoading = true
+        loadError = nil
+        defer { isLoading = false }
+        do {
+            form = try await client.fetchBookmarkForm(workId: workId)
+        } catch {
+            loadError = Self.message(for: error)
+        }
+    }
+
+    private func save() async {
+        guard let form, !isSaving else { return }
+        isSaving = true
+        saveError = nil
+        defer { isSaving = false }
+        do {
+            try await client.saveBookmark(form)
+            UIAccessibility.post(notification: .announcement,
+                                 argument: form.isExisting ? "Bookmark updated" : "Bookmarked on AO3")
+            dismiss()
+        } catch {
+            saveError = "Couldn't save: \(Self.message(for: error))"
+            // Not when AO3 asked us to slow down or the session is gone.
+            if case AO3Error.rateLimited = error { return }
+            if case AO3Error.unauthorized = error { return }
+            await refreshForm(keeping: form)
+        }
+    }
+
+    /// After a failed save, reload AO3's form but keep the user's edits, so a
+    /// second Save posts with a fresh token and, if the first one did land
+    /// (a lost response), updates that bookmark instead of creating another.
+    private func refreshForm(keeping edited: AO3BookmarkForm) async {
+        guard var fresh = try? await client.fetchBookmarkForm(workId: workId) else { return }
+        fresh.notes = edited.notes
+        fresh.tags = edited.tags
+        fresh.isPrivate = edited.isPrivate
+        fresh.isRec = edited.isRec
+        form = fresh
+    }
+
+    private static func message(for error: Error) -> String {
+        switch error {
+        case AO3Error.unauthorized: return "Your AO3 session has expired. Log in again in Settings."
+        case AO3Error.parseFailed(let reason): return reason
+        case AO3Error.http(let status): return "AO3 returned HTTP \(status)."
+        case AO3Error.network(let underlying): return "Network: \(underlying)"
+        case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
+        default: return error.localizedDescription
+        }
+    }
+}
+
 private struct CommentRow: View {
     let comment: AO3Comment
 
@@ -1512,124 +1484,6 @@ private struct CommentRow: View {
         .padding(.leading, CGFloat(min(comment.depth, 6)) * 16)
         .padding(.vertical, 2)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
-    }
-}
-
-struct SearchHelpView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("How search works")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .padding(.top)
-
-                    Text("Type anything — AO3 searches titles, summaries, tags and authors, and a work has to match every word. A few distinctive words beat a long sentence.")
-                        .foregroundStyle(.secondary)
-                        .font(.subheadline)
-
-                    Divider()
-
-                    HelpSection(
-                        title: "Tap a suggestion for an exact tag",
-                        icon: "tag.fill",
-                        color: .blue,
-                        examples: [
-                            ("teen wolf", "Suggests the Teen Wolf (TV) fandom — tap it to filter by the tag instead of the words."),
-                            ("derek stiles", "Suggests their ship and characters."),
-                            ("slow burn", "Suggests the Slow Burn tag."),
-                        ]
-                    )
-
-                    HelpSection(
-                        title: "Filters",
-                        icon: "line.3.horizontal.decrease.circle.fill",
-                        color: .purple,
-                        examples: [
-                            ("Filters button", "Rating, warnings, categories, complete or in progress, length, language, sort and more."),
-                        ]
-                    )
-
-                    HelpSection(
-                        title: "Shortcuts you can type",
-                        icon: "bolt.fill",
-                        color: .orange,
-                        examples: [
-                            ("complete · wip · one shot", "Completion and single-chapter works."),
-                            ("explicit · nsfw · sfw", "Ratings (\"teen\" and \"mature\" stay words — use a suggestion or Filters)."),
-                            ("m/m · f/f · f/m", "Categories."),
-                            ("under 10k · over 50k · between 10k and 50k", "Word count."),
-                            ("in spanish · no crossovers · no mcd", "Language, crossovers, and leaving out Major Character Death."),
-                        ]
-                    )
-
-                    HelpSection(
-                        title: "Precise searching",
-                        icon: "scope",
-                        color: .green,
-                        examples: [
-                            ("\"enemies to lovers\"", "An exact phrase."),
-                            ("-angst", "Leave out works mentioning a word."),
-                            ("title:\"The Long Way Home\"", "Search titles only."),
-                            ("by:astolat", "Works by an author."),
-                            ("tag:\"Slow Burn\" -tag:\"Major Character Death\"", "Include or exclude an exact tag."),
-                        ]
-                    )
-                }
-                .padding(.horizontal)
-            }
-            .navigationTitle("Search Tips")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct HelpSection: View {
-    let title: String
-    let icon: String
-    let color: Color
-    let examples: [(query: String, description: String)]
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(color)
-                    .font(.headline)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.headline)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(examples, id: \.query) { example in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(example.query)
-                            .font(.system(.subheadline, design: .monospaced))
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.secondarySystemBackground))
-                            .cornerRadius(4)
-                        Text(example.description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.leading, 8)
-                }
-            }
-        }
-        .padding(.vertical, 8)
     }
 }
 

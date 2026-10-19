@@ -612,6 +612,50 @@ public sealed class AO3Client : IAO3Client, IDisposable
         }
     }
 
+    // MARK: - Bookmark
+
+    public async Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.WorkPage(workId, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        var html = Decode(response.Body, "Work response");
+        if (BookmarkFormParser.Parse(html, _baseUri) is { } form) return form;
+        // AO3 only renders the form for a signed-in user; a page without it
+        // that isn't signed out is an error page or changed markup.
+        if (LoginParser.HasLoginForm(html) || LoginParser.CurrentUsername(html) is null) throw AO3Exception.Unauthorized();
+        throw AO3Exception.ParseFailed("bookmark form not found on the work page");
+    }
+
+    public async Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("Referer", form.Action.AbsoluteUri),
+            new("Origin", _origin),
+        };
+        if (form.HiddenFields.TryGetValue("authenticity_token", out var token)) headers.Add(new("X-CSRF-Token", token));
+        var response = await PerformRequestAsync(Post(form.Action, form.PostFields.ToList(), headers), ct: ct).ConfigureAwait(false);
+        // 422 is Rails refusing the security token: not saved.
+        if (response.Status >= 400) throw AO3Exception.Http(response.Status);
+        // AO3 redirects a saved bookmark (new or updated) to `/bookmarks/<id>`.
+        // A rejected one re-renders the form with an `#error` list, an expired
+        // session lands on the login form, and a refused account or pseud is
+        // redirected elsewhere with an error flash. Judge by the final page.
+        var html = TryDecode(response.Body) ?? "";
+        if (EndedAtLogin(response) || LoginParser.HasLoginForm(html)) throw AO3Exception.Unauthorized();
+        // A failed update re-renders on `/bookmarks/<id>` too, so form errors
+        // come first; a flash on the saved bookmark's page (say, a collection
+        // it couldn't join) doesn't undo the save.
+        if (BookmarkFormParser.SaveErrors(html) is { Count: > 0 } errors)
+            throw AO3Exception.Rejected(string.Join(" ", errors));
+        if (!BookmarkFormParser.IsBookmarkPage(response.FinalUri.AbsolutePath))
+            throw AO3Exception.Rejected(BookmarkFormParser.FlashErrors(html) is { Count: > 0 } flash
+                ? string.Join(" ", flash)
+                : "AO3 didn't save the bookmark.");
+    }
+
     // MARK: - Transport
 
     /// <summary>One request, described so it can be re-sent on a retry or a redirect.</summary>

@@ -30,6 +30,8 @@ public class AuthStateTests
         public Task<string> DownloadEpubAsync(int workId, CancellationToken ct = default) => _rest.DownloadEpubAsync(workId, ct);
         public Task<string> ExportWorkAsync(int workId, WorkExportFormat format, string filename, CancellationToken ct = default) => _rest.ExportWorkAsync(workId, format, filename, ct);
         public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => _rest.SubscribeToWorkAsync(workId, ct);
+        public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) => _rest.FetchBookmarkFormAsync(workId, ct);
+        public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => _rest.SaveBookmarkAsync(form, ct);
     }
 
     [Fact]

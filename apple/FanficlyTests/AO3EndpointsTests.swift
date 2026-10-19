@@ -12,12 +12,24 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertTrue(s.contains("view_adult=true"))
     }
 
+    func test_workPageURL_isAdultWithoutFullWork() throws {
+        let url = try AO3Endpoints.workPage(id: 12345, base: base)
+        XCTAssertEqual(url.absoluteString, "https://archiveofourown.org/works/12345?view_adult=true")
+    }
+
     func test_authorWorksURL_paginates() throws {
         let p1 = try AO3Endpoints.authorWorks(name: "HoweverSheWrites", page: 1, base: base)
         XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/HoweverSheWrites/works")
         let p3 = try AO3Endpoints.authorWorks(name: "HoweverSheWrites", page: 3, base: base)
         XCTAssertTrue(p3.absoluteString.contains("/users/HoweverSheWrites/works"))
         XCTAssertTrue(p3.absoluteString.contains("page=3"), p3.absoluteString)
+    }
+
+    func test_seriesURL_paginates() throws {
+        let p1 = try AO3Endpoints.series(id: 9, page: 1, base: base)
+        XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/series/9")
+        let p2 = try AO3Endpoints.series(id: 9, page: 2, base: base)
+        XCTAssertEqual(p2.absoluteString, "https://archiveofourown.org/series/9?page=2")
     }
 
     func test_authorLogin_fromByline() {

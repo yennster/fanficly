@@ -99,7 +99,8 @@ enum WorkPageParser {
             kudos: kudos,
             hits: hits,
             isComplete: isComplete,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            series: SeriesParser.parts(in: doc)
         )
 
         _ = (bookmarksCount, commentsCount)
@@ -366,6 +367,109 @@ enum CommentsParser {
             node = n.parent()
         }
         return false
+    }
+}
+
+/// Reads the bookmark form AO3 renders on a work page for a signed-in user
+/// (`div#bookmark_form_placement`, from otwarchive's `bookmarks/_bookmark_form`).
+/// AO3 fills it from the user's existing bookmark, so the same form both
+/// creates and edits.
+enum BookmarkFormParser {
+    /// nil when the page has no bookmark form (signed out).
+    static func parse(html: String, base: URL) -> AO3BookmarkForm? {
+        guard let doc = try? SwiftSoup.parse(html),
+              let forms = try? doc.select("form") else { return nil }
+        let candidates = forms.array().filter {
+            ((try? $0.select("textarea[name='bookmark[bookmarker_notes]']").isEmpty()) ?? true) == false
+        }
+        let form = candidates.first(where: { isInsidePlacement($0) }) ?? candidates.first
+        guard let form else { return nil }
+
+        let actionStr = (try? form.attr("action")) ?? ""
+        guard !actionStr.isEmpty, let action = URL(string: actionStr, relativeTo: base)?.absoluteURL else { return nil }
+
+        var hidden: [String: String] = [:]
+        for input in (try? form.select("input[type=hidden]").array()) ?? [] {
+            let name = (try? input.attr("name")) ?? ""
+            guard !name.isEmpty else { continue }
+            hidden[name] = (try? input.attr("value")) ?? ""
+        }
+        // Several pseuds render a <select> instead of a hidden input.
+        if let select = try? form.select("select[name='bookmark[pseud_id]']").first() {
+            let option = (try? select.select("option[selected]").first()) ?? (try? select.select("option").first())
+            if let value = try? option?.attr("value"), !value.isEmpty {
+                hidden["bookmark[pseud_id]"] = value
+            }
+        }
+        // Rails pairs each checkbox with a hidden "0"; the edited value is sent instead.
+        hidden["bookmark[private]"] = nil
+        hidden["bookmark[rec]"] = nil
+
+        let method = (hidden["_method"] ?? "").lowercased()
+        return AO3BookmarkForm(
+            action: action,
+            hiddenFields: hidden,
+            isExisting: method == "put" || method == "patch",
+            notes: textareaValue(form, name: "bookmark[bookmarker_notes]"),
+            tags: inputValue(form, name: "bookmark[tag_string]"),
+            collections: optionalInputValue(form, name: "bookmark[collection_names]"),
+            isPrivate: isChecked(form, name: "bookmark[private]"),
+            isRec: isChecked(form, name: "bookmark[rec]")
+        )
+    }
+
+    /// The messages in AO3's `div#error` list after a rejected save.
+    static func saveErrors(html: String) -> [String] {
+        texts(html: html, selector: "div#error li")
+    }
+
+    /// An error flash: a refused pseud or account redirects elsewhere with one.
+    static func flashErrors(html: String) -> [String] {
+        texts(html: html, selector: "div.flash.error")
+    }
+
+    private static func texts(html: String, selector: String) -> [String] {
+        guard let doc = try? SwiftSoup.parse(html),
+              let items = try? doc.select(selector) else { return [] }
+        return items.array().compactMap { try? $0.text() }.filter { !$0.isEmpty }
+    }
+
+    /// True for `/bookmarks/<id>`, where AO3 redirects a saved bookmark.
+    static func isBookmarkPage(path: String) -> Bool {
+        let parts = path.split(separator: "/")
+        return parts.count == 2 && parts[0] == "bookmarks" && Int(parts[1]) != nil
+    }
+
+    private static func isInsidePlacement(_ el: Element) -> Bool {
+        var node = el.parent()
+        while let n = node {
+            if n.id() == "bookmark_form_placement" { return true }
+            node = n.parent()
+        }
+        return false
+    }
+
+    /// Raw textarea text, so notes keep their line breaks (`text()` collapses
+    /// whitespace). HTML drops one newline right after `<textarea>`.
+    private static func textareaValue(_ form: Element, name: String) -> String {
+        guard let area = try? form.select("textarea[name='\(name)']").first() else { return "" }
+        var text = area.textNodes().map { $0.getWholeText() }.joined()
+        if text.first?.isNewline == true { text.removeFirst() }  // "\r\n" is one Character
+        return text
+    }
+
+    private static func inputValue(_ form: Element, name: String) -> String {
+        optionalInputValue(form, name: name) ?? ""
+    }
+
+    private static func optionalInputValue(_ form: Element, name: String) -> String? {
+        guard let input = try? form.select("input[name='\(name)']:not([type=hidden])").first() else { return nil }
+        return (try? input.attr("value")) ?? ""
+    }
+
+    private static func isChecked(_ form: Element, name: String) -> Bool {
+        guard let box = try? form.select("input[type=checkbox][name='\(name)']").first() else { return false }
+        return box.hasAttr("checked")
     }
 }
 

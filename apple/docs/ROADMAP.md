@@ -103,7 +103,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Settings/ContentFilter.swift`, `Models/Work.swift`, `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
 
 ### RM-007 — Series page and "next in series"
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** Series are how many readers move between stories, and Fanficly can't follow one.
 - **Scope:** A `SeriesParser` for `/series/<id>` (title, author, works in order) and `AO3Endpoints.series`; `AO3Client.fetchSeries` through the throttle; a `SeriesView` reached from a series link in the work header. Parse "Part N of <series>" from the work page's `dd.series` into `AO3WorkMetadata` (optional fields, so saved data and backups still decode).
 - **Done when:** parser tests with inline HTML (series with 1 work, several, a work in two series, a deleted entry); endpoint test; `MockAO3Client` and `DemoAO3Client` implement the new method. Put `SeriesView` in an existing file.
@@ -124,7 +124,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Models/Work.swift`, `Library/LibraryView.swift`, `Library/iCloudSyncManager.swift`.
 
 ### RM-010 — Bulk download for a folder
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** Offline reading before a flight means tapping download on each work.
 - **Scope:** "Download all" on a custom folder, reusing the sequential, cancellable queue pattern from `RestoreDownloadCenter` (candidates: works with no `WorkPersistence.epubURL`). Progress banner, cancel keeps what finished. The 1 req/sec throttle paces it; no parallelism.
 - **Done when:** the candidate selection and progress bookkeeping are pure and tested; cancelling mid-run keeps finished downloads.
@@ -160,7 +160,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Open question:** AO3 returns guest-kudos differently from logged-in kudos; confirm against the live site by hand before shipping.
 
 ### RM-014 — Create and edit AO3 bookmarks
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Scope:** The Bookmarks tab is read-only today. Add "Bookmark on AO3" (with notes, tags, rec, private) as a POST to `/works/<id>/bookmarks`. Needs the form scraped for field names; must be tested against the live site by hand.
 
 ### RM-015 — Reading history import
