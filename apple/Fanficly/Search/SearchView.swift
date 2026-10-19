@@ -10,6 +10,7 @@ struct SearchView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
     @Query private var hiddenWorks: [HiddenWork]
+    @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("search.pendingQuery") private var pendingQuery: String = ""
     @AppStorage(RecentSearches.storageKey) private var recentRaw: String = ""
@@ -284,9 +285,11 @@ struct SearchView: View {
 
     // MARK: - Content
 
-    /// Results minus hidden works and (optionally) Mature/Explicit-rated ones.
+    /// Results minus hidden works, blocked tags and authors (except ones this
+    /// search asked for by name) and (optionally) Mature/Explicit-rated ones.
     private var visibleResults: [AO3WorkSummary] {
-        ContentFilter.apply(results, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+        ContentFilter.apply(results, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature,
+                            blocklist: Blocklist(blockedTerms).lifting(searched ?? active))
     }
 
     @ViewBuilder
@@ -319,8 +322,9 @@ struct SearchView: View {
                 }
             }
         } else if visibleResults.isEmpty {
-            ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                description: Text("Every match is hidden or filtered out by your content settings."))
+            FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
+                            canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                            loadMore: loadMore)
         } else {
             resultsList
         }
@@ -1000,6 +1004,7 @@ struct WorkDetailView: View {
     @State private var showingComments: Bool = false
     @State private var currentChapterIndex = 1
     @State private var exporter = WorkExporter()
+    @State private var kudos = KudosGiver()
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -1050,6 +1055,7 @@ struct WorkDetailView: View {
         .background(readerBackground.ignoresSafeArea())
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
+        .kudosPresentation(kudos, workId: workId)
         .task { await load() }
     }
 
@@ -1069,6 +1075,7 @@ struct WorkDetailView: View {
             } label: {
                 Label("Comments", systemImage: "bubble.left.and.bubble.right")
             }
+            KudosMenuButton(workId: workId, giver: kudos)
 
             Divider()
 
@@ -1101,7 +1108,7 @@ struct WorkDetailView: View {
                 Label("Hide this work", systemImage: "eye.slash")
             }
         } label: {
-            if exporter.isExporting {
+            if exporter.isExporting || kudos.isSending {
                 ProgressView()
             } else {
                 Label("Work options", systemImage: "book.circle")
@@ -1137,6 +1144,109 @@ struct WorkDetailView: View {
         }
     }
 
+}
+
+/// Leaves kudos from a work's options menu (login-gated, once per work).
+/// The screen owns it, like `WorkExporter`, so the result alert has a live
+/// anchor after the menu closes. The POST is never retried: after a dropped
+/// connection a second tap is safe, because AO3 answers a duplicate with
+/// "already left kudos".
+@Observable @MainActor
+final class KudosGiver {
+    var isSending = false
+    var hasLeft = false
+    /// The alert after a tap: a thank-you or AO3's reason for refusing.
+    var result: (title: String, message: String)?
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func refresh(workId: Int, username: String?) {
+        hasLeft = username != nil && KudosStore.hasLeft(workId: workId, defaults: defaults)
+    }
+
+    func leave(workId: Int, username: String?, client: any AO3ClientProtocol) async {
+        guard username != nil, !isSending, !hasLeft else { return }
+        isSending = true
+        defer { isSending = false }
+        do {
+            let outcome = try await client.leaveKudos(workId: workId)
+            KudosStore.markLeft(workId: workId, defaults: defaults)
+            hasLeft = true
+            result = outcome == .left
+                ? (title: "Kudos left", message: "Thank you for leaving kudos!")
+                : (title: "Kudos already left", message: "You've already left kudos on this work.")
+        } catch AO3Error.unauthorized {
+            result = (title: "Couldn't leave kudos", message: "Your AO3 login has expired. Log in again in Settings, then try again.")
+        } catch AO3Error.kudosRejected(let message) {
+            result = (title: "Couldn't leave kudos", message: message)
+        } catch AO3Error.rateLimited {
+            result = (title: "Couldn't leave kudos", message: "AO3 is asking us to slow down. Try again in a few minutes.")
+        } catch AO3Error.http(let status) {
+            result = (title: "Couldn't leave kudos", message: "AO3 returned HTTP \(status). Try again later.")
+        } catch AO3Error.network(let underlying) {
+            result = (title: "Couldn't leave kudos", message: "Network: \(underlying). If the request reached AO3, the kudos may have landed; trying again is safe.")
+        } catch {
+            result = (title: "Couldn't leave kudos", message: "\(error)")
+        }
+    }
+}
+
+/// The "Leave Kudos" item for a work's options menu. Pass the screen's
+/// `KudosGiver` and attach `.kudosPresentation(_:workId:)` to the screen.
+struct KudosMenuButton: View {
+    @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
+    let workId: Int
+    let giver: KudosGiver
+
+    var body: some View {
+        Button {
+            let client = client
+            let username = auth.username
+            Task { await giver.leave(workId: workId, username: username, client: client) }
+        } label: {
+            if giver.isSending {
+                Label("Leaving Kudos…", systemImage: "heart")
+            } else if giver.hasLeft {
+                Label("Kudos Left", systemImage: "heart.fill")
+            } else if auth.username == nil {
+                Label("Log In to Leave Kudos", systemImage: "heart")
+            } else {
+                Label("Leave Kudos", systemImage: "heart")
+            }
+        }
+        .disabled(giver.isSending || giver.hasLeft || auth.username == nil)
+    }
+}
+
+private struct KudosPresentation: ViewModifier {
+    @Environment(AuthState.self) private var auth
+    @Bindable var giver: KudosGiver
+    let workId: Int
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { giver.refresh(workId: workId, username: auth.username) }
+            .onChange(of: auth.username) { _, name in giver.refresh(workId: workId, username: name) }
+            .alert(giver.result?.title ?? "", isPresented: Binding(
+                get: { giver.result != nil },
+                set: { if !$0 { giver.result = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(giver.result?.message ?? "")
+            }
+    }
+}
+
+extension View {
+    /// Loads the remembered kudos state and presents a `KudosGiver`'s result.
+    /// Attach to the screen view that owns the giver, never inside `Menu` content.
+    func kudosPresentation(_ giver: KudosGiver, workId: Int) -> some View {
+        modifier(KudosPresentation(giver: giver, workId: workId))
+    }
 }
 
 /// Reads a work's comment thread and, when logged in, lets you post a comment.

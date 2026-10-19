@@ -9,7 +9,7 @@ final class PersistenceTests: XCTestCase {
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
             RecentlyViewed.self, CustomFolder.self, FollowedAuthor.self,
-            ReadingStat.self,
+            ReadingStat.self, BlockedTerm.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
@@ -684,6 +684,49 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(stat.daySeconds["2026-06-01"] ?? 0, 1000, accuracy: 0.001)
         XCTAssertEqual(stat.daySeconds["2026-06-02"] ?? 0, 2000, accuracy: 0.001)
         XCTAssertEqual(stat.totalSeconds, 3000, accuracy: 0.001)
+    }
+
+    /// Blocked tags and authors from two devices union in the backup file
+    /// (the same term in different case counts once), and restoring the
+    /// merged file gives either device the whole list (RM-006).
+    func test_backupUnionsBlockedTermsAcrossDevices() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let phone = try makeContext()
+        BlocklistStore.block(.tag, "Major Character Death", into: phone)
+        BlocklistStore.block(.author, "writer", into: phone)
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let pad = try makeContext()
+        BlocklistStore.block(.tag, "major character death", into: pad)
+        BlocklistStore.block(.tag, "Angst", into: pad)
+        iCloudSyncManager.shared.backupToiCloud(context: pad)
+
+        let merged = try XCTUnwrap(try decodeBackup(at: url).blocked)
+        XCTAssertEqual(merged.map(\.key), ["author:writer", "tag:angst", "tag:major character death"])
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(success)
+        let restored = try pad.fetch(FetchDescriptor<BlockedTerm>()).map(\.key).sorted()
+        XCTAssertEqual(restored, ["author:writer", "tag:angst", "tag:major character death"])
+    }
+
+    /// A backup written before the blocklist existed has no `blocked` key
+    /// and must still decode.
+    func test_backupWithoutBlockedTermsStillDecodes() throws {
+        let json = """
+        {"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],
+         "filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let backup = try decoder.decode(LibraryBackup.self, from: Data(json.utf8))
+        XCTAssertNil(backup.blocked)
     }
 
     /// Restoring a metadata-only backup (chapters: []) must not delete a

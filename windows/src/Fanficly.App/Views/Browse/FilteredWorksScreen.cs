@@ -106,9 +106,13 @@ internal sealed class FilteredWorksScreen : Screen
 
     // MARK: - Visible works
 
+    /// <summary>Works minus hidden ones, blocked tags and authors (except the
+    /// ones being browsed, so a blocked tag's chip still opens its works) and
+    /// (optionally) Mature/Explicit-rated ones.</summary>
     private IReadOnlyList<AO3WorkSummary> Visible(IEnumerable<AO3WorkSummary> works) =>
         ContentFilter.Apply(works, HiddenWorkStore.Ids(AppHost.Library),
-            KeyValueStores.Default.GetBool(Core.ContentControl.FilterMatureKey, true));
+            KeyValueStores.Default.GetBool(Core.ContentControl.FilterMatureKey, true),
+            Blocklist.From(AppHost.Library).Lifting(_filters));
 
     private void RefreshVisible()
     {
@@ -138,8 +142,13 @@ internal sealed class FilteredWorksScreen : Screen
             view = UI.UI.EmptyState("magnifyingglass", "No works found",
                 "Try adjusting your filters or search terms.", "Filters", () => _ = ShowFiltersAsync());
         else if (_list.Items.Count == 0)
-            view = UI.UI.EmptyState("eye.slash", "Nothing to show",
-                "Every match is hidden or filtered out by your content settings.");
+            // Rows are what ask for the next page, so offer it here.
+            view = _currentPage < _totalPages && !_isLoadingMore
+                ? UI.UI.EmptyState("eye.slash", "Nothing to show",
+                    "Every match so far is hidden or filtered out by your content settings.",
+                    "Load more results", () => _ = LoadMoreAsync())
+                : UI.UI.EmptyState("eye.slash", "Nothing to show",
+                    "Every match is hidden or filtered out by your content settings.");
         else
             view = _list.Element;
         // Leave the list in the tree when it's already showing, so its scroll
@@ -325,6 +334,7 @@ internal sealed class FilteredWorksScreen : Screen
         _isLoadingMore = true;
         _loadMoreError = null;
         RenderFooter();
+        Render();
         try
         {
             for (var attempt = 0; attempt < 3 && _currentPage < _totalPages; attempt++)
@@ -357,6 +367,8 @@ internal sealed class FilteredWorksScreen : Screen
                 _isLoadingMore = false;
                 _list.HasMore = _currentPage < _totalPages && _loadMoreError is null;
                 RenderFooter();
+                // Swaps "Nothing to show" for the list once a page adds rows.
+                Render();
             }
         }
     }
