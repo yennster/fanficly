@@ -1995,7 +1995,7 @@ struct ReaderView: View {
                 }
             }
         } label: {
-            Image(systemName: "list.bullet")
+            Label("Chapters", systemImage: "list.bullet")
         }
         .accessibilityLabel("Chapters")
     }
@@ -2107,7 +2107,7 @@ struct ReaderView: View {
                 ], icon: "arrow.left.and.right.square")
             }
         } label: {
-            Image(systemName: "textformat")
+            Label("Reader settings", systemImage: "textformat")
         }
         .accessibilityLabel("Reader settings")
         .accessibilityIdentifier("reader_settings_button")

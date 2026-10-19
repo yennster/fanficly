@@ -68,7 +68,7 @@ struct WorkExportButton: View {
                 if useTextLabel {
                     Label("Share & export...", systemImage: "square.and.arrow.up")
                 } else {
-                    Image(systemName: "square.and.arrow.up")
+                    Label("Share and export", systemImage: "square.and.arrow.up")
                 }
             }
         }

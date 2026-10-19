@@ -926,7 +926,8 @@ struct WorkDetailView: View {
                             Button {
                                 followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
                             } label: {
-                                Image(systemName: followed ? "bookmark.fill" : "bookmark")
+                                Label(followed ? "Remove from Library" : "Save to Library",
+                                      systemImage: followed ? "bookmark.fill" : "bookmark")
                             }
                             .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
                             
@@ -967,7 +968,8 @@ struct WorkDetailView: View {
     /// to AO3 (the host/moderator), and hide the work locally so it never
     /// appears in results again. Kept to a single menu so the toolbar matches
     /// the Library reader and the reader's own items (chapters, Aa, minimize)
-    /// fit without the system spilling them into a second "…" overflow.
+    /// fit without the system spilling them into its own overflow. Its symbol
+    /// isn't an ellipsis: Apple keeps that for the system overflow menu.
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
             Button {
@@ -1010,7 +1012,7 @@ struct WorkDetailView: View {
             if exporter.isExporting {
                 ProgressView()
             } else {
-                Image(systemName: "ellipsis.circle")
+                Label("Work options", systemImage: "book.circle")
             }
         }
         .accessibilityLabel("Work options")
