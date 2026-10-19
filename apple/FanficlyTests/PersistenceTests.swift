@@ -991,7 +991,8 @@ final class PersistenceTests: XCTestCase {
 
         // The phone restored it, cleared it just now, and backed up.
         let phone = try makeContext()
-        XCTAssertTrue(await iCloudSyncManager.shared.restoreFromiCloud(context: phone))
+        let phoneRestored = await iCloudSyncManager.shared.restoreFromiCloud(context: phone)
+        XCTAssertTrue(phoneRestored)
         let phoneWork = try XCTUnwrap(try phone.fetch(FetchDescriptor<Work>()).first)
         XCTAssertEqual(phoneWork.note, "old note")
         phoneWork.setNotes(note: "", tagsText: "")
@@ -1003,7 +1004,8 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(backedUp.personalTags, [])
 
         // The pad's next restore clears its copy too.
-        XCTAssertTrue(await iCloudSyncManager.shared.restoreFromiCloud(context: pad))
+        let padRestored = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(padRestored)
         XCTAssertNil(padWork.note)
         XCTAssertEqual(padWork.personalTags, [])
     }
