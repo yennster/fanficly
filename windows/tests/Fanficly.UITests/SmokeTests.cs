@@ -104,6 +104,21 @@ public sealed partial class SmokeTests
         Assert.True(s.WaitForHeader(root), "Alt+Left didn't go back.");
     }
 
+    /// <summary>A work in a series (demo work 90003, from Recently Viewed) shows
+    /// "Part 3 of …" in its header, which opens the series' works.</summary>
+    [Fact]
+    public void SeriesOpensFromTheWorkHeader()
+    {
+        using var s = AppSession.Launch(Laptop);
+        Assert.True(s.OpenTab("recentlyViewed"));
+        Assert.True(s.Tap(8, "history.90003"), "Of Maps and Mistakes isn't in Recently Viewed.");
+        Assert.True(s.Tap(15, "work.series.5", "Part 3 of The Lighthouse Letters"), "The work header has no series row.");
+        Assert.True(s.WaitForHeader("The Lighthouse Letters"), "The series didn't open.");
+        Assert.NotNull(s.ById("series.works", 8));
+        s.GoBack();
+        Assert.True(s.WaitForHeader("Of Maps and Mistakes"), "Back didn't return to the work.");
+    }
+
     [Fact]
     public void ZoomAndFullScreenKeysKeepTheAppRunning()
     {

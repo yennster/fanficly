@@ -53,6 +53,24 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchSeriesRequestsTheSeriesPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="main" class="series-show region"><h2 class="heading">Shore</h2>
+            <dl class="series meta group"><dt>Creator:</dt><dd><a rel="author" href="/users/ana/pseuds/ana">ana</a></dd></dl>
+            <ul class="series work index group"><li id="work_11" class="work blurb group"><h4 class="heading"><a href="/works/11">One</a></h4></li></ul>
+            </div></body></html>
+            """));
+        var series = await MakeClient().FetchSeriesAsync(9, 2);
+
+        Assert.Equal("Shore", series.Title);
+        Assert.Equal([11], series.Works.Select(w => w.Id));
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal("GET", req.Method);
+        Assert.Equal("https://archiveofourown.org/series/9?page=2", req.Uri.AbsoluteUri);
+    }
+
+    [Fact]
     public async Task AsksForHttp3WithFallback()
     {
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));

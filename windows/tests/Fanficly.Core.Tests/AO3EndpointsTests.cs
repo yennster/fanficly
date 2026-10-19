@@ -26,6 +26,13 @@ public class AO3EndpointsTests
     }
 
     [Fact]
+    public void SeriesURL_Paginates()
+    {
+        Assert.Equal("https://archiveofourown.org/series/9", AO3Endpoints.Series(9, 1, _base).AbsoluteUri);
+        Assert.Equal("https://archiveofourown.org/series/9?page=2", AO3Endpoints.Series(9, 2, _base).AbsoluteUri);
+    }
+
+    [Fact]
     public void AuthorLogin_FromByline()
     {
         Assert.Equal("HoweverSheWrites", SearchResultsParser.AuthorLogin("/users/HoweverSheWrites/pseuds/HoweverSheWrites"));

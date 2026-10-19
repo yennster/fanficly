@@ -46,6 +46,9 @@ public sealed class MockAO3Client : IAO3Client
     public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default) =>
         Task.FromResult(new AO3WorkMetadata(id, 1, 1, null));
 
+    public Task<AO3Series> FetchSeriesAsync(int id, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3Series { Id = id, Title = "Sample Series", Creator = "Anon", CurrentPage = page });
+
     public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<AO3Subscription>>([]);
 
