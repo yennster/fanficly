@@ -24,7 +24,7 @@ public class PopularStoreTests
         public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) => _stub.FetchWorkAsync(id, ct);
         public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default) => _stub.FetchWorkMetadataAsync(id, ct);
         public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) => _stub.FetchSubscriptionsAsync(username, ct);
-        public Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default) => _stub.FetchCommentsAsync(workId, chapterId, ct);
+        public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) => _stub.FetchCommentsAsync(workId, chapterId, page, ct);
         public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => _stub.PostCommentAsync(workId, chapterId, text, ct);
         public Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default) => _stub.FetchFandomsInCategoryAsync(categoryName, ct);
         public Task<IReadOnlyList<string>> AutocompleteAsync(AO3AutocompleteField field, string term, CancellationToken ct = default) => _stub.AutocompleteAsync(field, term, ct);

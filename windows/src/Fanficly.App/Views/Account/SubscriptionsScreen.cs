@@ -336,9 +336,9 @@ public sealed class SubscriptionsScreen : Screen
 
     private static FrameworkElement ProgressLine(string text)
     {
-        var row = UI.UI.HStack(10,
-            new ProgressRing { IsActive = true, Width = 16, Height = 16 }.A11yHidden(),
-            UI.UI.Secondary(text, Theme.Style.Callout));
+        var row = UI.UI.Grid("Auto,*", columnSpacing: 10);
+        row.Children.Add(new ProgressRing { IsActive = true, Width = 16, Height = 16 }.A11yHidden().Col(0));
+        row.Children.Add(UI.UI.Secondary(text, Theme.Style.Callout).Col(1));
         row.Margin = new Thickness(14, 8, 14, 8);
         AutomationProperties.SetName(row, text);
         return row;
@@ -439,7 +439,7 @@ public sealed class SubscriptionsScreen : Screen
 
     private UIElement FollowedAuthorRow(FollowedAuthor author)
     {
-        var meta = UI.UI.HStack(8, AccountKit.KindLabel("person", "Author"));
+        var meta = UI.UI.Flow(8, 2, AccountKit.KindLabel("person", "Author"));
         var parts = new List<string> { author.DisplayName, "Author" };
         if (author.LastCheckedAt is { } c)
         {

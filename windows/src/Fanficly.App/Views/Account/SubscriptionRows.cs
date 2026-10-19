@@ -35,10 +35,11 @@ internal static class SubscriptionRows
         var stack = UI.UI.VStack(4, UI.UI.Text(sub.DisplayName, Theme.Style.Headline));
         if (sub.AuthorName.Length > 0)
         {
-            stack.Children.Add(UI.UI.Secondary($"by {sub.AuthorName}", maxLines: 1));
+            stack.Children.Add(UI.UI.Secondary($"by {sub.AuthorName}", maxLines: UI.UI.LineLimit(1)));
             parts.Add($"by {sub.AuthorName}");
         }
-        var meta = UI.UI.HStack(8, AccountKit.KindLabel(KindSymbol(sub.Kind), KindLabel(sub.Kind)));
+        // Wraps onto a second line when it doesn't fit (large text, a narrow window).
+        var meta = UI.UI.Flow(8, 2, AccountKit.KindLabel(KindSymbol(sub.Kind), KindLabel(sub.Kind)));
         parts.Add(KindLabel(sub.Kind));
         if (sub.Kind == "work" && sub.LastSeenChapterCount is { } count)
         {
@@ -63,7 +64,7 @@ internal static class SubscriptionRows
     {
         var parts = new List<string> { work.Title, $"by {work.AuthorName}" };
         var titleRow = UI.UI.Grid("*,Auto", columnSpacing: 8);
-        titleRow.Children.Add(UI.UI.Text(work.Title, Theme.Style.Headline, maxLines: 2).Col(0));
+        titleRow.Children.Add(UI.UI.Text(work.Title, Theme.Style.Headline, maxLines: UI.UI.LineLimit(2)).Col(0));
         var badges = UI.UI.HStack(5);
         void Badge(string symbol, Microsoft.UI.Xaml.Media.Brush brush, string label)
         {
@@ -77,7 +78,7 @@ internal static class SubscriptionRows
         badges.Margin = new Thickness(0, 3, 0, 0);
         titleRow.Children.Add(badges.Col(1));
 
-        var stack = UI.UI.VStack(5, titleRow, UI.UI.Secondary($"by {work.AuthorName}", maxLines: 1));
+        var stack = UI.UI.VStack(5, titleRow, UI.UI.Secondary($"by {work.AuthorName}", maxLines: UI.UI.LineLimit(1)));
         if (work.Fandoms.Count > 0)
         {
             var first = work.Fandoms[0];
@@ -109,7 +110,9 @@ internal static class SubscriptionRows
             var finished = progress >= 0.99 || (work.IsComplete && progress >= 0.95);
             var bar = new ProgressBar { Value = progress * 100, Maximum = 100, MinHeight = 3 }.A11yHidden();
             if (finished) bar.Foreground = Theme.Success;
-            var line = UI.UI.Grid("*,Auto", columnSpacing: 6);
+            // At large text sizes the last-read date goes under the percentage.
+            var large = UI.UI.IsLargeText;
+            var line = large ? UI.UI.Grid("*", "Auto,Auto", rowSpacing: 2) : UI.UI.Grid("*,Auto", columnSpacing: 6);
             var left = UI.UI.HStack(6);
             if (finished)
             {
@@ -132,7 +135,7 @@ internal static class SubscriptionRows
             if (work.LastReadAt is { } lastRead)
             {
                 var when = AccountKit.RelativeNamed(lastRead);
-                line.Children.Add(UI.UI.Text(when, Theme.Style.Caption2, Theme.TextSecondary, wrap: false).Col(1));
+                line.Children.Add(UI.UI.Text(when, Theme.Style.Caption2, Theme.TextSecondary, wrap: false).Col(large ? 0 : 1).Row(large ? 1 : 0));
                 parts.Add($"last read {when}");
             }
             stack.Children.Add(UI.UI.VStack(3, bar, line).Also(s => s.Margin = new Thickness(0, 2, 0, 0)));

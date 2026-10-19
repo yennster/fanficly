@@ -59,7 +59,7 @@ internal sealed class PollerFakeClient : IAO3Client
     public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) => throw new NotSupportedException();
-    public Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<PopularSnapshot> FetchPopularSnapshotAsync(CancellationToken ct = default) => throw new NotSupportedException();

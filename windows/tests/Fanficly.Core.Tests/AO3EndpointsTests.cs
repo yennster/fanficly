@@ -100,6 +100,24 @@ public class AO3EndpointsTests
     }
 
     [Fact]
+    public void UserMarkedForLaterURL_Paginates()
+    {
+        Assert.Equal("https://archiveofourown.org/users/reader/readings?show=to-read",
+            AO3Endpoints.UserMarkedForLater("reader", 1, _base).AbsoluteUri);
+        Assert.Equal("https://archiveofourown.org/users/reader/readings?show=to-read&page=2",
+            AO3Endpoints.UserMarkedForLater("reader", 2, _base).AbsoluteUri);
+    }
+
+    [Fact]
+    public void UserReadingHistoryURL_Paginates()
+    {
+        Assert.Equal("https://archiveofourown.org/users/reader/readings",
+            AO3Endpoints.UserReadingHistory("reader", 1, _base).AbsoluteUri);
+        Assert.Equal("https://archiveofourown.org/users/reader/readings?page=4",
+            AO3Endpoints.UserReadingHistory("reader", 4, _base).AbsoluteUri);
+    }
+
+    [Fact]
     public void WorkSubscriptionsURL()
     {
         Assert.Equal("https://archiveofourown.org/works/42/subscriptions", AO3Endpoints.WorkSubscriptions(42, _base).AbsoluteUri);
@@ -135,5 +153,16 @@ public class AO3EndpointsTests
     {
         var uri = AO3Endpoints.ChapterComments(9, 42, _base);
         Assert.Equal("https://archiveofourown.org/works/9/chapters/42?view_adult=true&show_comments=true#comments", uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public void CommentsURLs_Paginate()
+    {
+        Assert.Equal("https://archiveofourown.org/works/9/chapters/42?view_adult=true&show_comments=true&page=3#comments",
+            AO3Endpoints.ChapterComments(9, 42, _base, page: 3).AbsoluteUri);
+        // A one-shot has no chapter id; its work-level thread paginates the same way.
+        Assert.Equal("https://archiveofourown.org/works/9?view_adult=true&show_comments=true&page=2#comments",
+            AO3Endpoints.WorkComments(9, _base, page: 2).AbsoluteUri);
+        Assert.DoesNotContain("page=", AO3Endpoints.WorkComments(9, _base, page: 1).AbsoluteUri);
     }
 }

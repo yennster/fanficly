@@ -30,7 +30,8 @@ public static class LibraryRow
 
         // Title + status badges.
         var titleRow = UI.UI.Grid("*,Auto", columnSpacing: 8);
-        titleRow.Children.Add(UI.UI.Text(work.Title, Theme.Style.Headline, maxLines: 2).Col(0));
+        // Line limits lift at large text sizes, so nothing ends in "…".
+        titleRow.Children.Add(UI.UI.Text(work.Title, Theme.Style.Headline, maxLines: UI.UI.LineLimit(2)).Col(0));
         var badges = UI.UI.HStack(5);
         badges.VerticalAlignment = VerticalAlignment.Top;
         badges.Margin = new Thickness(0, 3, 0, 0);
@@ -39,14 +40,15 @@ public static class LibraryRow
         if (downloaded) { badges.Children.Add(UI.UI.Icon("arrow.down.circle.fill", 11, Theme.Success)); spoken.Add("Downloaded"); }
         titleRow.Children.Add(badges.Col(1));
 
-        var stack = UI.UI.VStack(6, titleRow, UI.UI.Secondary($"by {work.AuthorName}", maxLines: 1).Also(t => t.TextWrapping = TextWrapping.NoWrap));
+        var stack = UI.UI.VStack(6, titleRow, UI.UI.Secondary($"by {work.AuthorName}", maxLines: UI.UI.LineLimit(1)));
 
         if (work.Fandoms.Count > 0)
         {
             var label = FandomLabel(work.Fandoms);
-            var fandom = UI.UI.HStack(4,
-                UI.UI.Icon(FandomCatalog.Symbol(work.Fandoms[0]), 10, Theme.TextSecondary).Also(i => i.VerticalAlignment = VerticalAlignment.Center),
-                UI.UI.Text(label, Theme.Style.Caption, Theme.TextSecondary, wrap: false));
+            var fandom = UI.UI.Grid("Auto,*", columnSpacing: 4);
+            fandom.Children.Add(UI.UI.Icon(FandomCatalog.Symbol(work.Fandoms[0]), 10, Theme.TextSecondary)
+                .Also(i => { i.VerticalAlignment = VerticalAlignment.Top; i.Margin = new Thickness(0, 2, 0, 0); }).Col(0));
+            fandom.Children.Add(UI.UI.Text(label, Theme.Style.Caption, Theme.TextSecondary, maxLines: UI.UI.LineLimit(1)).Col(1));
             stack.Children.Add(fandom);
             spoken.Add(label);
         }
@@ -128,7 +130,10 @@ public static class LibraryRow
             MinHeight = 3,
         }.A11yHidden();
 
-        var line = UI.UI.Grid("*,Auto", columnSpacing: 6);
+        // At large text sizes the last-read date goes under the percentage
+        // rather than running into it.
+        var large = UI.UI.IsLargeText;
+        var line = large ? UI.UI.Grid("*", "Auto,Auto", rowSpacing: 2) : UI.UI.Grid("*,Auto", columnSpacing: 6);
         var left = UI.UI.HStack(6);
         if (finished)
         {
@@ -144,7 +149,8 @@ public static class LibraryRow
         }
         line.Children.Add(left.Col(0));
         if (work.LastReadAt is { } lastRead)
-            line.Children.Add(UI.UI.Text(RelativeDate.Named(lastRead), Theme.Style.Caption2, Theme.TextSecondary, wrap: false).Col(1));
+            line.Children.Add(UI.UI.Text(RelativeDate.Named(lastRead), Theme.Style.Caption2, Theme.TextSecondary, wrap: false)
+                .Col(large ? 0 : 1).Row(large ? 1 : 0));
 
         var element = UI.UI.VStack(3, bar, line).Also(s => s.Margin = new Thickness(0, 2, 0, 0)).A11yHidden();
         return (element, ProgressLabel(work, progress, finished));
@@ -206,14 +212,24 @@ public static class LibraryStatsStrip
         top.HorizontalAlignment = HorizontalAlignment.Center;
         var caption = UI.UI.Text(label, Theme.Style.Caption2, Theme.TextSecondary, wrap: false);
         caption.HorizontalAlignment = HorizontalAlignment.Center;
-        return UI.UI.VStack(2, top, caption).Also(s => s.HorizontalAlignment = HorizontalAlignment.Stretch);
+        // Shrinks to fit its third of the strip rather than being clipped
+        // (SwiftUI's minimumScaleFactor), as at large text sizes "12h 30m" can
+        // be wider than a narrow window's third.
+        return new Viewbox
+        {
+            Child = UI.UI.VStack(2, top, caption),
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
+            StretchDirection = StretchDirection.DownOnly,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
     }
 
     private static Border Divider() => new()
     {
         Width = 1,
-        Height = 26,
+        // As tall as the metrics beside it, however their Viewbox scaled them.
         Background = Theme.Divider,
-        VerticalAlignment = VerticalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Stretch,
+        Margin = new Thickness(0, 4, 0, 4),
     };
 }
