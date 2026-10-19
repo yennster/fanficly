@@ -76,7 +76,7 @@ struct SettingsView: View {
                     if let date = lastSync {
                         LabeledContent("Last synced", value: date.formatted())
                     } else {
-                        LabeledContent("Last synced", value: "Never")
+                        LabeledContent("Last synced") { Text("Never") }
                     }
                     
                     Button("Sync Now") {
@@ -304,7 +304,7 @@ struct PrivacyTransparencyView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func section(_ title: String, _ body: String) -> some View {
+    private func section(_ title: LocalizedStringKey, _ body: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.headline)
             Text(body).foregroundStyle(.secondary)

@@ -117,16 +117,16 @@ public abstract record DeepLink
 
     public static Uri SearchUri(string query) => new($"{Scheme}://search?query={Uri.EscapeDataString(query)}");
 
-    /// <summary>The search text for a fanficly://search query. The Saved
-    /// Searches widget sends a saved filter as its filters JSON (as the Swift
-    /// widget does); that becomes the filters' key:value prompt, which
-    /// SearchSyntax reads back exactly. Anything else is already prompt text.</summary>
-    public static string SearchPrompt(string query)
+    /// <summary>The saved filter a fanficly://search query carries, if any. The
+    /// Saved Searches widget sends a saved search as its prompt and a saved
+    /// filter as its filters JSON (as the Swift widget does): a query that starts
+    /// with "{" and decodes is a saved filter, and anything else, malformed JSON
+    /// included, is prompt text. The Swift app's
+    /// <c>AO3SearchFilters.savedFilter(fromRouteQuery:)</c> makes the same call.</summary>
+    public static AO3SearchFilters? SavedFilter(string query)
     {
         var trimmed = query.Trim();
-        if (trimmed.StartsWith('{') && AO3SearchFilters.FromSavedJson(trimmed) is { } filters)
-            return filters.PromptText();
-        return query;
+        return trimmed.StartsWith('{') ? AO3SearchFilters.FromSavedJson(trimmed) : null;
     }
 
     // MARK: - Helpers

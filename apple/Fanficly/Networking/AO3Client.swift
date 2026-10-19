@@ -14,7 +14,7 @@ public protocol AO3ClientProtocol: Sendable {
     /// Comments for a specific chapter (AO3 threads comments per chapter). Pass
     /// `chapterId` = the chapter's AO3 id; nil fetches the work-level page (the
     /// first chapter's thread), used as a fallback when the id is unknown.
-    func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment]
+    func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage
     func postComment(workId: Int, chapterId: Int?, text: String) async throws
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom]
     func fetchPopularSnapshot() async throws -> PopularSnapshot
@@ -115,6 +115,23 @@ public struct PopularSnapshot: Sendable, Codable, Hashable {
         self.ships = ships
         self.characters = characters
         self.fetchedAt = fetchedAt
+    }
+}
+
+/// One page of a chapter's (or one-shot's) comment threads. AO3 paginates
+/// comments by top-level thread; `totalPages` comes from the thread's
+/// will_paginate list and is 1 when there is none.
+public struct AO3CommentsPage: Sendable, Equatable {
+    public let comments: [AO3Comment]
+    public let currentPage: Int
+    public let totalPages: Int
+
+    public var hasMore: Bool { currentPage < totalPages }
+
+    public init(comments: [AO3Comment], currentPage: Int = 1, totalPages: Int = 1) {
+        self.comments = comments
+        self.currentPage = currentPage
+        self.totalPages = totalPages
     }
 }
 
@@ -405,23 +422,23 @@ public actor AO3Client: AO3ClientProtocol {
         return all
     }
 
-    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {
+    public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
         await throttle.wait()
-        let url = try commentsPageURL(workId: workId, chapterId: chapterId)
+        let url = try commentsPageURL(workId: workId, chapterId: chapterId, page: page)
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Comments response not UTF-8")
         }
-        return try CommentsParser.parse(html: html)
+        return try CommentsParser.parsePage(html: html)
     }
 
     /// The page whose `?show_comments=true` thread we read/post against: a
     /// specific chapter when its id is known, else the work page.
-    private func commentsPageURL(workId: Int, chapterId: Int?) throws -> URL {
+    private func commentsPageURL(workId: Int, chapterId: Int?, page: Int = 1) throws -> URL {
         if let chapterId {
-            return try AO3Endpoints.chapterComments(workId: workId, chapterId: chapterId, base: baseURL)
+            return try AO3Endpoints.chapterComments(workId: workId, chapterId: chapterId, page: page, base: baseURL)
         }
-        return try AO3Endpoints.workComments(id: workId, base: baseURL)
+        return try AO3Endpoints.workComments(id: workId, page: page, base: baseURL)
     }
 
     public func postComment(workId: Int, chapterId: Int?, text: String) async throws {
@@ -742,7 +759,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
-    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
+    public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
+        AO3CommentsPage(comments: [], currentPage: page)
+    }
     public func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
     public func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     public func fetchPopularSnapshot() async throws -> PopularSnapshot {
