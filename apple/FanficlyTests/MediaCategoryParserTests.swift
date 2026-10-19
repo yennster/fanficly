@@ -76,6 +76,44 @@ final class MediaCategoryParserTests: XCTestCase {
         XCTAssertEqual(MediaCategoryParser.trailingCount(in: "Foo (Bar) (42)"), 42)
         XCTAssertNil(MediaCategoryParser.trailingCount(in: "No count here"))
     }
+
+    // MARK: - Failing closed (RM-001)
+
+    func test_noFandomsFound_returnsEmpty() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "fandoms-index", body: """
+        <h2 class="heading"><a href="/media">Fandoms</a> &gt; Music &amp; Bands</h2>
+        <h3 class="heading">No fandoms found</h3>
+        """)
+        XCTAssertTrue(try MediaCategoryParser.parse(html: html).isEmpty)
+    }
+
+    func test_guestFandomsPage_stillParses() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "fandoms-index", body: """
+        <ol class="alphabet fandom index group">
+          <li id="letter-M" class="letter listbox group"><ul class="tags index group">
+            <li><a class="tag" href="/tags/Marvel/works">Marvel</a> (12345)</li>
+          </ul></li>
+        </ol>
+        """)
+        XCTAssertEqual(try MediaCategoryParser.parse(html: html).map(\.canonicalName), ["Marvel"])
+    }
+
+    func test_loginPage_throwsUnauthorized() {
+        XCTAssertThrowsError(try MediaCategoryParser.parse(html: AO3PageFixtures.loginPage)) { error in
+            XCTAssertEqual(error as? AO3Error, .unauthorized)
+        }
+    }
+
+    func test_garbagePage_throwsParseFailed() {
+        for html in [AO3PageFixtures.errorPage, "<html><body><p>Nothing here</p></body></html>"] {
+            XCTAssertThrowsError(try MediaCategoryParser.parse(html: html)) { error in
+                guard case AO3Error.parseFailed = error else {
+                    return XCTFail("Expected parseFailed, got \(error)")
+                }
+            }
+        }
+    }
+
 }
 
 final class WorkFiltersParserTests: XCTestCase {
@@ -214,5 +252,37 @@ final class WorkFiltersParserTests: XCTestCase {
         let filters = try WorkFiltersParser.parse(html: liveHTML)
         XCTAssertEqual(filters.relationships.filter { $0.name == "Sherlock Holmes/John Watson" }.count, 1,
                        "the exclude half repeats every tag and must not double-count")
+    }
+
+    // MARK: - Failing closed (RM-001)
+
+    /// A tag with no works renders the works index without the filter form.
+    func test_tagWithNoWorks_returnsNoFacets() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "works-index", body: """
+        <h2 class="heading">0 Works in Some Rare Tag</h2>
+        <h3 class="landmark heading">Listing Works</h3>
+        <ol class="work index group"></ol>
+        """)
+        let filters = try WorkFiltersParser.parse(html: html)
+        XCTAssertTrue(filters.relationships.isEmpty)
+        XCTAssertTrue(filters.characters.isEmpty)
+        XCTAssertTrue(filters.fandoms.isEmpty)
+        XCTAssertTrue(filters.freeforms.isEmpty)
+    }
+
+    func test_loginPage_throwsUnauthorized() {
+        XCTAssertThrowsError(try WorkFiltersParser.parse(html: AO3PageFixtures.loginPage)) { error in
+            XCTAssertEqual(error as? AO3Error, .unauthorized)
+        }
+    }
+
+    func test_garbagePage_throwsParseFailed() {
+        for html in [AO3PageFixtures.errorPage, AO3PageFixtures.foreignPage] {
+            XCTAssertThrowsError(try WorkFiltersParser.parse(html: html)) { error in
+                guard case AO3Error.parseFailed = error else {
+                    return XCTFail("Expected parseFailed, got \(error)")
+                }
+            }
+        }
     }
 }

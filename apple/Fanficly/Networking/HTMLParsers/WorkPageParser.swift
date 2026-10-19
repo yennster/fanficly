@@ -5,6 +5,16 @@ enum WorkPageParser {
     static func parse(html: String, workId: Int) throws -> AO3WorkPayload {
         let doc = try SwiftSoup.parse(html)
 
+        // A restricted work or a stale session lands on the login page, and
+        // anything else without the work's own markup (the adult gate, an
+        // error page, drift) would parse to an untitled work with no chapters,
+        // which `WorkPersistence.upsert(payload:)` would save over the
+        // offline copy. Both must be errors.
+        try AO3PageCheck.rejectLoginPage(doc)
+        if try doc.select("#workskin, div#chapters, dl.work.meta").isEmpty() {
+            throw AO3Error.parseFailed(reason: "Not a work page")
+        }
+
         // Strip AO3's screen-reader-only landmark headings ("Chapter Text",
         // "Work Text", "Notes", etc.) so they don't render in the body.
         _ = try? doc.select("h3.landmark, .landmark.heading").remove()

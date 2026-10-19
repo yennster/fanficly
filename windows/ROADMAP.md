@@ -27,7 +27,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
 - **History, authors and account:**
   - Recently Viewed, followed authors, and an author's works page with a Follow button.
   - AO3 sign-in, Bookmarks, and Subscriptions, which shows AO3 subscriptions alongside local follows.
-  - Per-chapter comments with a composer.
+  - Per-chapter comments with a composer, a page of threads at a time ("Load more comments").
 - **Stats:** week, month, year and all-time totals, plus a shareable wrap-up card.
 - **Updates and notifications:** new-chapter and new-work checks, in the app and from a timer background task. Toasts open the work or author they're about.
 - **Sync:** library backup and restore through a user-chosen folder (OneDrive or iCloud Drive), in the Swift backup format, with merge-never-clobber backups, forward-only restores and EPUB re-download after a restore.
@@ -68,7 +68,7 @@ Servers or accounts of our own, ads, telemetry, a "trending" feed we'd have to s
 
 Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `bin/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
 
-- **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), or `done`.
+- **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), `done`, or `exception` (an Apple feature Windows can't support; the item says why, and it isn't built).
 - **Size:** `S` is about one file plus tests, `M` is a few files plus tests. Anything bigger is split into new `S`/`M` items before it's started.
 - **Validation:** `unit` = provable by `dotnet test tests/Fanficly.Core.Tests` on any OS. `windows` = also needs a person (or the UI tests) on Windows; say what to look at in the PR.
 
@@ -160,7 +160,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/tests/Fanficly.UITests/`, `.github/workflows/windows-ci.yml` (one new step; ask first).
 
 ### RM-112 — Marked for Later section
-- **Status:** open · **Size:** M · **Validation:** unit + windows
+- **Status:** done · **Size:** M · **Validation:** unit + windows
 - **Why:** On the AO3 website a signed-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app. The Apple app's item is RM-023 on `main`; keep the two the same in name and behavior.
 - **Scope:**
   - Add `FetchMarkedForLaterAsync(username, page)` to `IAO3Client` for `/users/<name>/readings?show=to-read`, with an endpoint builder next to `UserBookmarks`. Reuse `SearchResultsParser` with the readings page's blurb selector, as `FetchBookmarksAsync` does.
@@ -182,17 +182,20 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** a round-trip test (export → import into an empty in-memory store), a test that importing an older file never moves progress backwards, and tests that a non-library file is refused and an Apple-written file imports.
 - **Touches:** `windows/src/Fanficly.Core/Sync/LibrarySyncManager.cs`, `windows/src/Fanficly.App/Views/Settings/SyncSettingsScreen.cs`, `windows/tests/Fanficly.Core.Tests/PersistenceTests.cs`.
 
+### RM-114 — AO3 reading history
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** The Windows half of the Apple app's RM-015 (#52): a signed-in reader's AO3 history (`/users/<name>/readings`) had no place in the app. Keep the two the same in name and behavior.
+- **Scope:** `FetchReadingHistoryAsync(username, page)` on `IAO3Client` with `AO3Endpoints.UserReadingHistory`, parsed by RM-112's `SearchResultsParser.ParseReadings`; an "AO3 History" tab after Marked for Later (raw value `ao3History`, the Swift app's), shown by `ReadingListScreen`, sign-in gated and read-only, with no Ctrl+number. Separate from the on-device Recently Viewed tab.
+- **Done when:** parser and endpoint tests, the smoke test opening the tab from the sidebar and `-tab ao3History`, and the PR lists what to check on Windows: the tab signed out and signed in.
+
 ## Later (needs design, or a person on Windows)
 
-### RM-108 — Find followed works from Windows Search
-- **Status:** open · **Size:** M · **Validation:** windows
-- **Why:** Core calls `LibraryHooks.SearchIndexer` (`IWorkSearchIndexer`) when works are followed or removed, the way the Swift app feeds Spotlight, but Windows installs no indexer.
-- **Scope:**
-  - Pick a Windows API that a packaged, Native AOT app can use to index its own items, and open them with a `fanficly://resume/<id>` link.
-  - Write the choice in the PR before building.
-  - Index followed works only, and remove them on unfollow.
-- **Done when:** a followed work's title is findable in Windows Search on Windows 11 and opens the work; unfollowing removes it.
-- **Touches:** a new `windows/src/Fanficly.App/Platform/` file, `Services/AppServices.cs`.
+### RM-108 — Find library works from Windows Search
+- **Status:** exception · **Size:** M · **Validation:** windows
+- **Why:** The Swift app puts every library work in Spotlight and opens a tapped result (RM-016 in `apple/docs/ROADMAP.md`). Core calls `LibraryHooks.SearchIndexer` (`IWorkSearchIndexer`) for this, but Windows installs no indexer.
+- **Why it's an exception:** Windows 11 has no public API for an app to add its own items to Windows Search. The taskbar and Start search show apps, settings, files in indexed folders and web results only. The public WinRT `Windows.Storage.Search.ContentIndexer` builds an index only the app itself can query; its items never appear in taskbar or Start search. The Windows App SDK's `AppContentIndex` is a limited-access feature (it needs a token from Microsoft) and is queried by the app itself, not shown in Windows Search. The only workaround is to write a shortcut file per work into an indexed folder such as Documents, which clutters a folder the user sees and, when OneDrive backs up Documents, uploads the library's titles, against principle 1.
+- **Already covered:** the App Shortcut half of RM-016 ("Continue Reading") is the jump list's "Continue “<title>”" entry and the Continue reading widget, both opening `fanficly://resume/<id>`.
+- **Revisit when:** Windows offers a public search-provider API for packaged apps, or `AppContentIndex` leaves limited access and its results reach Windows Search.
 
 ### RM-109 — Localization groundwork
 - **Status:** open · **Size:** M · **Validation:** windows

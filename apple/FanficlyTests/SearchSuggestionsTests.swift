@@ -117,6 +117,6 @@ final class SearchSuggestionsTests: XCTestCase {
         <ol class="work index group"></ol></body></html>
         """
         XCTAssertEqual(try SearchResultsParser.parse(html: html).totalFound, 126_555)
-        XCTAssertNil(try SearchResultsParser.parse(html: "<html><body></body></html>").totalFound)
+        XCTAssertNil(try SearchResultsParser.parse(html: "<html><body><ol class=\"work index group\"></ol></body></html>").totalFound)
     }
 }

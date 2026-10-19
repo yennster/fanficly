@@ -45,8 +45,8 @@ public sealed class StubAO3Client : IAO3Client
         Task.FromResult(new AO3WorkMetadata(id, 1, 1, null));
     public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
         Task.FromResult(SubscriptionsResponse);
-    public Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<AO3Comment>>([]);
+    public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3CommentsPage([], page));
     public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => Task.CompletedTask;
     public Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<BrowseFandom>>([]);

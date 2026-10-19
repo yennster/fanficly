@@ -9,6 +9,7 @@ public static partial class MediaCategoryParser
     public static IReadOnlyList<BrowseFandom> Parse(string html)
     {
         var doc = HtmlDom.Parse(html);
+        AO3PageCheck.RejectLoginPage(doc);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var results = new List<BrowseFandom>();
 
@@ -26,8 +27,17 @@ public static partial class MediaCategoryParser
             var count = TrailingCount(containerText);
             if (seen.Add(canonical)) results.Add(new BrowseFandom(canonical, canonical, count));
         }
+        if (results.Count == 0 && !IsFandomsPage(doc)) throw AO3Exception.ParseFailed("Not a fandoms page");
         return results.OrderBy(f => f.CanonicalName, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
+
+    /// <summary>The fandoms index shell, present even when a category has none: its
+    /// <c>fandoms-index</c> main div, the alphabetised <c>&lt;ol&gt;</c>, or the "No
+    /// fandoms found" heading it shows instead.</summary>
+    private static bool IsFandomsPage(IDocument doc) =>
+        AO3PageCheck.MainHasClass(doc, "fandoms-index")
+        || doc.SelectFirst("ol.fandom.index") is not null
+        || doc.Select("h3.heading").Any(h => h.Text().Contains("No fandoms found", StringComparison.Ordinal));
 
     /// <summary>The number inside the trailing <c>(…)</c> of a fandom line, e.g.
     /// "Harry Potter - J. K. Rowling (123,456)" → 123456. Null when absent.</summary>
@@ -57,12 +67,23 @@ public static class WorkFiltersParser
     public static AO3WorkFilters Parse(string html)
     {
         var doc = HtmlDom.Parse(html);
-        return new AO3WorkFilters(
+        AO3PageCheck.RejectLoginPage(doc);
+        var filters = new AO3WorkFilters(
             Facets(doc, "relationship"),
             Facets(doc, "character"),
             Facets(doc, "fandom"),
             Facets(doc, "freeform"));
+        // No facets is genuine on a tag with no works (AO3 drops the filter form
+        // but still renders the works index); anywhere else it's drift.
+        if (filters.Relationships.Count == 0 && filters.Characters.Count == 0
+            && filters.Fandoms.Count == 0 && filters.Freeforms.Count == 0 && !IsWorksIndex(doc))
+            throw AO3Exception.ParseFailed("Not a works listing");
+        return filters;
     }
+
+    private static bool IsWorksIndex(IDocument doc) =>
+        AO3PageCheck.MainHasClass(doc, "works-index")
+        || doc.SelectFirst("form#work-filters, ol.work.index") is not null;
 
     /// <summary>Each facet is a checkbox label in the sidebar's "Include" half. Live
     /// AO3 ids are <c>include_work_search_&lt;kind&gt;_ids_&lt;tag id&gt;</c> with the name and

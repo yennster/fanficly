@@ -14,9 +14,53 @@ public static partial class SearchResultsParser
     public static AO3SearchResults Parse(string html, string blurbSelector = "li.work.blurb")
     {
         var doc = HtmlDom.Parse(html);
-        var works = doc.Select(blurbSelector).Select(ParseBlurb).OfType<AO3WorkSummary>().ToList();
+        AO3PageCheck.RejectLoginPage(doc);
+        var blurbs = doc.Select(blurbSelector);
+        // No blurbs only means "no results" on a real listing; a stray error
+        // page or markup drift must not read as an empty search.
+        if (blurbs.Count == 0 && !IsListingPage(doc)) throw AO3Exception.ParseFailed("Not a works listing");
+        var works = blurbs.Select(ParseBlurb).OfType<AO3WorkSummary>().ToList();
         var (currentPage, totalPages) = HtmlDom.Pagination(doc);
         return new AO3SearchResults(works, totalPages, currentPage, TotalFound(doc));
+    }
+
+    /// <summary>A works, bookmarks or readings listing, even an empty one: the index
+    /// <c>&lt;ol&gt;</c> that author, tag and bookmark pages always render, the Rails
+    /// controller-action class on <c>#main</c>, or the "No results found" line search
+    /// shows instead of the list.</summary>
+    private static bool IsListingPage(IDocument doc) =>
+        doc.SelectFirst("ol.work.index, ol.bookmark.index") is not null
+        || AO3PageCheck.MainHasClass(doc, "works-search", "works-index", "works-collected", "bookmarks-search", "bookmarks-index", "readings-index")
+        || doc.Select("#main p").Any(p => p.Text().Contains("No results found", StringComparison.Ordinal));
+
+    /// <summary>AO3's readings page (<c>/users/&lt;name&gt;/readings</c>, which with
+    /// <c>?show=to-read</c> is Marked for Later). Each entry is
+    /// <c>li.reading.work.blurb</c> with id <c>work_&lt;id&gt;</c> around the usual work
+    /// blurb; deleted works keep an entry with no id and no title link, so
+    /// <see cref="ParseBlurb"/> skips them. Fails closed: the page is login-only,
+    /// so a login form means the session expired, and a page without the
+    /// <c>readings-index</c> shell (AO3 sends readers with history turned off to
+    /// their preferences) is never read as an empty list.</summary>
+    /// <exception cref="AO3Exception">Unauthorized for a login page; ParseFailed for
+    /// any page that isn't the readings page.</exception>
+    /// <summary>ParseReadings' reasons, written to be shown as they are (the
+    /// Swift app's wording); see <c>ReadingListScreen</c>.</summary>
+    public const string HistoryOffReason =
+        "Your AO3 reading history is turned off. Check \"Turn on History\" in your AO3 preferences to see this list.";
+    public const string NotReadingsReason =
+        "AO3 sent a page that isn't your readings list. Try again, or check the list on the AO3 website.";
+
+    public static AO3SearchResults ParseReadings(string html)
+    {
+        if (LoginParser.HasLoginForm(html)) throw AO3Exception.Unauthorized();
+        var doc = HtmlDom.Parse(html);
+        if (doc.Select("div.readings-index").Count == 0)
+        {
+            if (doc.Select("div.preferences-index").Count > 0)
+                throw AO3Exception.ParseFailed(HistoryOffReason);
+            throw AO3Exception.ParseFailed(NotReadingsReason);
+        }
+        return Parse(html, "li.reading.work.blurb");
     }
 
     [GeneratedRegex(@"^[\d,.]+(?=\s+Found)")]
@@ -144,4 +188,26 @@ public static partial class SearchResultsParser
             or "Underage";
 
     private static bool IsCategory(string s) => s is "F/F" or "F/M" or "Gen" or "M/M" or "Multi" or "Other";
+}
+
+/// <summary>Fail-closed checks shared by the parsers of pages a guest can open. They
+/// can't reuse <see cref="SubscriptionsParser"/>'s "any login form" test: every page
+/// AO3 serves a logged-out reader carries the header's small login form.</summary>
+internal static class AO3PageCheck
+{
+    /// <summary>AO3's login page, where it redirects a stale session or a guest
+    /// opening a restricted work (the HTTP client follows the redirect, so it arrives
+    /// as a 200). Only the login page has a login form inside <c>#main</c>.</summary>
+    public static bool IsLoginPage(IDocument doc) =>
+        doc.SelectFirst("div#main.sessions-new, #main #loginform, #main form[action*='/users/login']") is not null;
+
+    public static void RejectLoginPage(IDocument doc)
+    {
+        if (IsLoginPage(doc)) throw AO3Exception.Unauthorized();
+    }
+
+    /// <summary>Whether <c>div#main</c> carries one of these classes (AO3 sets it to
+    /// the Rails <c>controller-action</c>, e.g. <c>works-search</c>).</summary>
+    public static bool MainHasClass(IDocument doc, params string[] classes) =>
+        doc.SelectFirst("div#main") is { } main && classes.Any(main.ClassList.Contains);
 }

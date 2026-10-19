@@ -38,7 +38,7 @@ Every screen can be used from the keyboard. Settings → Input → Keyboard shor
 - **Library:**
   - Enter opens a work, Delete removes it, F2 renames a folder.
   - Ctrl+F searches the library; Ctrl+Shift+N makes a new folder.
-- **View:** Ctrl+Plus and Ctrl+Minus zoom, Ctrl+0 resets the zoom, and F11 toggles full screen.
+- **View:** Ctrl+Plus and Ctrl+Minus zoom (with or without Shift), Ctrl+0 resets the zoom, and F11 toggles full screen.
 
 ## Xbox controller
 
@@ -52,9 +52,10 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 
 ## Seeing the screen
 
-- **Zoom.** The whole interface zooms from 50 % to 200 % in 10 % steps with Ctrl+Plus and Ctrl+Minus. The zoom is remembered between sessions.
+- **Zoom.** The whole interface zooms from 50 % to 200 % in 10 % steps with Ctrl+Plus and Ctrl+Minus (with or without Shift). The zoom is remembered between sessions.
 - **Light and dark.** Settings → Appearance follows Windows or forces Light or Dark, and the title bar follows suit.
 - **High contrast.** When a Windows contrast theme is on, the app's colours switch to the system's contrast colours, and the brand colours step aside. Reader settings suggests the "Match System" or "Dracula Navy" reading theme so story text stays readable.
+- **Larger text.** Settings → Accessibility → Text size in Windows enlarges the app's text up to 225 %. From 150 % up, titles, authors and other lines that are otherwise cut to one or two lines wrap in full, settings controls move under their labels sooner, and the Library, Stats, Subscriptions and Settings screens keep their text from running off the edge. A Text size change applies to a screen's layout when the screen next rebuilds, for example when you open it again.
 - **Window sizes.** The layout works from a narrow 360-pixel window up to full screen. In a narrow window the sidebar folds into a menu button in the title bar.
 
 ## Reading comfort (the reader)
