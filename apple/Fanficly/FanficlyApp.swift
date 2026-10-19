@@ -82,6 +82,7 @@ struct FanficlyApp: App {
             CustomFolder.self,
             FollowedAuthor.self,
             ReadingStat.self,
+            BlockedTerm.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
@@ -95,6 +96,7 @@ struct FanficlyApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .readingSpeedFromStats()
                 .environment(\.ao3Client, client)
                 .environment(auth)
                 // Screenshots use the standard system blue accent (cleaner for

@@ -9,7 +9,7 @@ final class PersistenceTests: XCTestCase {
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
             RecentlyViewed.self, CustomFolder.self, FollowedAuthor.self,
-            ReadingStat.self,
+            ReadingStat.self, BlockedTerm.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
@@ -909,6 +909,49 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(third)
     }
 
+    /// Blocked tags and authors from two devices union in the backup file
+    /// (the same term in different case counts once), and restoring the
+    /// merged file gives either device the whole list (RM-006).
+    func test_backupUnionsBlockedTermsAcrossDevices() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let phone = try makeContext()
+        BlocklistStore.block(.tag, "Major Character Death", into: phone)
+        BlocklistStore.block(.author, "writer", into: phone)
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let pad = try makeContext()
+        BlocklistStore.block(.tag, "major character death", into: pad)
+        BlocklistStore.block(.tag, "Angst", into: pad)
+        iCloudSyncManager.shared.backupToiCloud(context: pad)
+
+        let merged = try XCTUnwrap(try decodeBackup(at: url).blocked)
+        XCTAssertEqual(merged.map(\.key), ["author:writer", "tag:angst", "tag:major character death"])
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(success)
+        let restored = try pad.fetch(FetchDescriptor<BlockedTerm>()).map(\.key).sorted()
+        XCTAssertEqual(restored, ["author:writer", "tag:angst", "tag:major character death"])
+    }
+
+    /// A backup written before the blocklist existed has no `blocked` key
+    /// and must still decode.
+    func test_backupWithoutBlockedTermsStillDecodes() throws {
+        let json = """
+        {"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],
+         "filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let backup = try decoder.decode(LibraryBackup.self, from: Data(json.utf8))
+        XCTAssertNil(backup.blocked)
+    }
+
     /// Restoring a metadata-only backup (chapters: []) must not delete a
     /// fuller offline download — the Downloaded badge keys off the epub file,
     /// so wiping chapters here would silently strand it.
@@ -1050,6 +1093,61 @@ final class PersistenceTests: XCTestCase {
         ctx.insert(Work(ao3Id: 987654322, title: "Metadata only", authorName: "A"))          // follow
         try ctx.save()
         XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx), [987654321])
+    }
+
+    /// A folder's "Download All" queues the stories without an EPUB, in the
+    /// folder's on-screen order, each once.
+    func test_folderDownloadCandidatesSkipDownloadedKeepOrder() {
+        let works = [3, 1, 2, 1].map { Work(ao3Id: $0, title: "W\($0)", authorName: "A") }
+        let ids = RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { $0 == 2 })
+        XCTAssertEqual(ids, [3, 1])
+        XCTAssertEqual(RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { _ in true }), [])
+    }
+
+    func test_downloadProgressBookkeeping() {
+        let start = RestoreDownloadCenter.Progress(done: 0, failed: 0, total: 3, finished: false)
+        let tally = start.recording(succeeded: true).recording(succeeded: false).recording(succeeded: true)
+        XCTAssertEqual(tally, .init(done: 2, failed: 1, total: 3, finished: false))
+        XCTAssertEqual(tally.finishing(), .init(done: 2, failed: 1, total: 3, finished: true))
+    }
+
+    @MainActor
+    private final class QueueRecorder {
+        var attempted: [Int] = []
+        var downloaded: [Int] = []
+        var reports: [RestoreDownloadCenter.Progress] = []
+    }
+
+    /// A failed story is counted and skipped; the rest still download.
+    func test_downloadQueueSkipsFailures() async {
+        let rec = QueueRecorder()
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+            rec.attempted.append(id)
+            if id == 2 { throw URLError(.badServerResponse) }
+            rec.downloaded.append(id)
+        }, report: { rec.reports.append($0) })
+        XCTAssertEqual(rec.attempted, [1, 2, 3])
+        XCTAssertEqual(rec.downloaded, [1, 3])
+        XCTAssertEqual(rec.reports.count, 3)
+        XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
+    }
+
+    /// Cancelling mid-run stops before the next story and undoes nothing:
+    /// the stories that finished stay downloaded.
+    func test_downloadQueueCancelKeepsFinished() async {
+        let rec = QueueRecorder()
+        let task = Task { @MainActor in
+            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+                rec.attempted.append(id)
+                rec.downloaded.append(id)
+                if id == 2 { withUnsafeCurrentTask { $0?.cancel() } }
+            }, report: { rec.reports.append($0) })
+        }
+        let result = await task.value
+        XCTAssertNil(result)
+        XCTAssertEqual(rec.attempted, [1, 2])
+        XCTAssertEqual(rec.downloaded, [1, 2])
+        XCTAssertEqual(rec.reports, [.init(done: 1, failed: 0, total: 3, finished: false)])
     }
 
     /// Restore's stat merge must keep totalSeconds == Σ daySeconds: per-day
@@ -1527,5 +1625,81 @@ final class PersistenceTests: XCTestCase {
 
         let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
+    }
+}
+
+/// RM-003: the reading-time estimate's pace (fallback and clamping) and its
+/// formatting at no words, under a minute, minutes and hours.
+@MainActor
+final class ReadingSpeedTests: XCTestCase {
+    private func snap(_ id: Int, words: Int, seconds: Double, progress: Double = 1.0) -> ReadingStatSnapshot {
+        ReadingStatSnapshot(ao3Id: id, title: "", author: "A",
+                            fandoms: [], categories: [], relationships: [],
+                            rating: "", wordCount: words,
+                            firstReadAt: .now, lastReadAt: .now,
+                            totalSeconds: seconds, daySeconds: [:],
+                            maxProgress: progress, workIsComplete: false)
+    }
+
+    func test_wordsPerMinute_fallsBackUntilThreeFinishedTimedWorks() {
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute([]), 250)
+        // Two finished works at 300 wpm aren't enough yet.
+        let two = [snap(1, words: 3_000, seconds: 600), snap(2, words: 3_000, seconds: 600)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(two), 250)
+        // Unfinished and zero-time (backfilled) works don't count toward the three.
+        let padded = two + [snap(3, words: 3_000, seconds: 600, progress: 0.5),
+                            snap(4, words: 3_000, seconds: 0)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(padded), 250)
+        // A third finished, timed work switches to the personal pace.
+        let three = two + [snap(5, words: 3_000, seconds: 600)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(three), 300, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_isTheMedianWorksPace() {
+        // 400, 500 and 200 wpm → 400; an unfinished work's time doesn't count.
+        let snaps = [snap(1, words: 2_000, seconds: 300), snap(2, words: 4_000, seconds: 480),
+                     snap(3, words: 6_000, seconds: 1_800), snap(4, words: 50_000, seconds: 36_000, progress: 0.1)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps), 400, accuracy: 0.001)
+        // An even count averages the middle two: 200, 400, 500, 600 → 450.
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps + [snap(5, words: 6_000, seconds: 600)]), 450, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_ignoresASkimAndARereadSwing() {
+        let honest = (1...3).map { snap($0, words: 5_000, seconds: 1_200) }   // 250 wpm each
+        // A 150k-word work jumped to the end in 5 minutes, and a re-read
+        // that doubled a work's time, leave the pace where it was.
+        let skimmed = snap(4, words: 150_000, seconds: 300)
+        let reread = snap(5, words: 5_000, seconds: 4_800)
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(honest + [skimmed]), 250, accuracy: 0.001)
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(honest + [skimmed, reread]), 250, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_isClamped() {
+        let fast = (1...3).map { snap($0, words: 10_000, seconds: 60) }      // 10,000 wpm
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(fast), 600)
+        let slow = (1...3).map { snap($0, words: 1_000, seconds: 3_600) }    // ~17 wpm
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(slow), 120)
+    }
+
+    func test_estimate_formatting() {
+        XCTAssertNil(ReadingSpeed.estimate(words: 0))
+        XCTAssertNil(ReadingSpeed.estimate(words: -5))
+        XCTAssertEqual(ReadingSpeed.estimate(words: 100), "<1 min")          // 0.4 min
+        XCTAssertEqual(ReadingSpeed.estimate(words: 250), "~1 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 11_250), "~45 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 14_900), "~1 hr")        // 59.6 rounds up
+        XCTAssertEqual(ReadingSpeed.estimate(words: 15_000), "~1 hr")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 31_250), "~2 hr 5 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 200_000), "~13 hr")      // 13 hr 20 min, minutes dropped
+        // The pace changes the estimate.
+        XCTAssertEqual(ReadingSpeed.estimate(words: 12_000, wordsPerMinute: 400), "~30 min")
+    }
+
+    func test_spokenEstimate() {
+        XCTAssertNil(ReadingSpeed.spokenEstimate(words: 0))
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 100), "Under a minute to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 250), "About 1 minute to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 15_000), "About 1 hour to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 31_250), "About 2 hours 5 minutes to read")
     }
 }

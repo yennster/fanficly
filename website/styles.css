@@ -98,6 +98,31 @@ h1 em, h2 em { font-style: italic; font-weight: 400; }
 .s3 { --w: 260px; --o: .05; --r: 18deg; right: -70px; top: 40px; --b: 1px; }
 .s4 { --w: 170px; --o: .05; --r: -8deg; left: 6%; bottom: 22%; --b: 3px; }
 
+/* Drifting light and floating pages behind the hero. Transforms only, so it stays cheap; off for reduced motion. */
+.glow { position: absolute; border-radius: 50%; filter: blur(50px); will-change: transform; mix-blend-mode: screen; }
+.g1 { width: 52vw; height: 52vw; left: 40%; top: 20%; background: radial-gradient(circle, rgba(160, 140, 255, .75), transparent 62%); animation: drift-a 14s ease-in-out infinite alternate; }
+.g2 { width: 44vw; height: 44vw; left: -12%; top: 4%; background: radial-gradient(circle, rgba(255, 186, 120, .38), transparent 62%); animation: drift-b 17s ease-in-out infinite alternate; }
+.g3 { width: 46vw; height: 46vw; right: -14%; top: -16%; background: radial-gradient(circle, rgba(236, 100, 176, .40), transparent 62%); animation: drift-c 15s ease-in-out infinite alternate; }
+@keyframes drift-a { from { transform: translate(10%, 6%) scale(.9); } to { transform: translate(-45%, -28%) scale(1.25); } }
+@keyframes drift-b { from { transform: translate(0, 0) scale(1); } to { transform: translate(55%, 35%) scale(1.3); } }
+@keyframes drift-c { from { transform: translate(0, 0) scale(1.15); } to { transform: translate(-45%, 40%) scale(.9); } }
+/* Each page drifts on its own path, speed and direction so they never move in step. */
+.s5 { --w: 120px; --o: .06; --r: 24deg; right: 22%; top: 46%; --b: 2px; }
+.s6 { --w: 190px; --o: .045; --r: -22deg; left: 24%; top: 34%; --b: 4px; }
+.s1 { animation: path-1 11s ease-in-out infinite alternate; }
+.s2 { animation: path-2 7s ease-in-out -3s infinite alternate; }
+.s3 { animation: path-3 15s ease-in-out -9s infinite alternate-reverse; }
+.s4 { animation: path-4 9s ease-in-out -5s infinite alternate; }
+.s5 { animation: path-5 6s ease-in-out -2s infinite alternate-reverse; }
+.s6 { animation: path-6 13s ease-in-out -7s infinite alternate; }
+@keyframes path-1 { 0% { transform: translate(0, 0) rotate(var(--r)); } 50% { transform: translate(22px, -30px) rotate(calc(var(--r) + 5deg)); } 100% { transform: translate(-10px, -52px) rotate(calc(var(--r) - 3deg)); } }
+@keyframes path-2 { 0% { transform: translate(0, 0) rotate(var(--r)); } 100% { transform: translate(-26px, 34px) rotate(calc(var(--r) - 9deg)); } }
+@keyframes path-3 { 0% { transform: translate(0, 0) rotate(var(--r)); } 40% { transform: translate(-30px, 20px) rotate(calc(var(--r) + 4deg)); } 100% { transform: translate(18px, 60px) rotate(calc(var(--r) + 10deg)); } }
+@keyframes path-4 { 0% { transform: translate(0, 0) rotate(var(--r)); } 100% { transform: translate(34px, -40px) rotate(calc(var(--r) + 7deg)); } }
+@keyframes path-5 { 0% { transform: translate(0, 0) rotate(var(--r)); } 60% { transform: translate(16px, 22px) rotate(calc(var(--r) - 6deg)); } 100% { transform: translate(-20px, 36px) rotate(calc(var(--r) - 12deg)); } }
+@keyframes path-6 { 0% { transform: translate(0, 0) rotate(var(--r)); } 100% { transform: translate(-40px, -24px) rotate(calc(var(--r) + 8deg)); } }
+@media (prefers-reduced-motion: reduce) { .glow, .sheet { animation: none; } }
+
 .hero-copy { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; text-align: center; }
 .eyebrow {
   display: inline-flex; align-items: center; gap: 18px; margin: 0 0 26px;
@@ -116,19 +141,11 @@ h1 em, h2 em { font-style: italic; font-weight: 400; }
 .hero h1 em { color: var(--gold); }
 .lede { max-width: 640px; margin: 28px auto 0; font-size: clamp(17px, 1.6vw, 20px); line-height: 1.55; color: rgba(255, 255, 255, .84); }
 
-.stores { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-top: 36px; }
-.store {
-  display: inline-flex; align-items: center; gap: 12px;
-  padding: 11px 22px 11px 18px; min-width: 196px; border-radius: 14px;
-  text-decoration: none; color: #fff; background: rgba(12, 6, 40, .55);
-  border: 1px solid rgba(255, 255, 255, .22);
-  box-shadow: 0 10px 30px rgba(10, 5, 45, .25), inset 0 1px 0 rgba(255, 255, 255, .12);
-  transition: transform .2s, background .2s;
-}
-.store:hover { transform: translateY(-2px); background: rgba(12, 6, 40, .75); }
-.store svg { width: 22px; height: 22px; flex: none; }
-.store span { display: flex; flex-direction: column; font: 600 19px/1.1 var(--sans); letter-spacing: -.01em; text-align: left; }
-.store small { font: 500 11px/1.3 var(--sans); letter-spacing: .02em; opacity: .75; }
+.stores { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px; margin-top: 36px; }
+/* The official store badges, both at one height as their guidelines ask. */
+.badge { display: block; border-radius: 9px; transition: transform .2s; box-shadow: 0 10px 30px rgba(10, 5, 45, .25); }
+.badge:hover { transform: translateY(-2px); }
+.badge img { height: 50px; width: auto; }
 .fineprint { margin: 18px 0 0; font-size: 14px; color: rgba(255, 255, 255, .6); }
 
 .hero-stage {

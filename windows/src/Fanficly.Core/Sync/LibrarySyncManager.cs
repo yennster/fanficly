@@ -283,7 +283,8 @@ public sealed class LibrarySyncManager
                 s.FirstReadAt, s.LastReadAt, s.TotalSeconds, s.DaySeconds, s.MaxProgress, s.WorkIsComplete)).ToList(),
             Timestamp: DateTimeOffset.Now,
             FollowedAuthors: store.All<FollowedAuthor>().Where(a => a.Username.Length > 0).Select(a => new AuthorBackup(
-                a.Username, a.DisplayName, a.FollowedAt, a.KnownWorkIds, a.LastCheckedAt)).ToList());
+                a.Username, a.DisplayName, a.FollowedAt, a.KnownWorkIds, a.LastCheckedAt)).ToList(),
+            Blocked: store.All<BlockedTerm>().Select(t => new BlockedBackup(t.Kind, t.Value, t.CreatedAt)).ToList());
     }
 
     // MARK: - Launch auto-sync bookkeeping
@@ -353,6 +354,9 @@ public sealed class LibrarySyncManager
         var foldersByName = FirstByKey(cloud.Folders ?? [], f => f.Name);
         foreach (var f in local.Folders ?? []) foldersByName[f.Name] = f;
 
+        var blockedByKey = FirstByKey(cloud.Blocked ?? [], b => b.Key);
+        foreach (var b in local.Blocked ?? []) blockedByKey[b.Key] = b;
+
         var statsById = FirstByKey(cloud.Stats ?? [], s => s.Ao3Id);
         foreach (var s in local.Stats ?? [])
             statsById[s.Ao3Id] = statsById.TryGetValue(s.Ao3Id, out var c) ? MergedStat(s, c) : s;
@@ -385,7 +389,10 @@ public sealed class LibrarySyncManager
             Timestamp: local.Timestamp,
             FollowedAuthors: local.FollowedAuthors is null && cloud.FollowedAuthors is null
                 ? null
-                : authorsByName.Values.OrderBy(a => a.Username, StringComparer.Ordinal).ToList());
+                : authorsByName.Values.OrderBy(a => a.Username, StringComparer.Ordinal).ToList(),
+            Blocked: local.Blocked is null && cloud.Blocked is null
+                ? null
+                : blockedByKey.Values.OrderBy(b => b.Key, StringComparer.Ordinal).ToList());
     }
 
     /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
@@ -706,6 +713,15 @@ public sealed class LibrarySyncManager
             {
                 store.Insert(new HiddenWork(h.Ao3Id, h.Title, h.HiddenAt));
             }
+        }
+
+        // 7b. Blocked tags and authors: add any this device lacks (a union, so
+        // unblocking on one device doesn't propagate, like hidden works).
+        foreach (var b in backup.Blocked ?? [])
+        {
+            if (BlockedTerm.ParseKind(b.Kind) is not { } kind || Blocklist.Fold(b.Value).Length == 0
+                || store.GetBlockedTerm(kind, b.Value) is not null) continue;
+            store.Insert(new BlockedTerm(kind, b.Value, b.CreatedAt));
         }
 
         // 8. Reading stats, merged conservatively — the larger of the totals and

@@ -15,6 +15,7 @@ struct AuthorWorksView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
     @Query private var hiddenWorks: [HiddenWork]
+    @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     let author: AuthorRef
 
@@ -27,8 +28,11 @@ struct AuthorWorksView: View {
     @State private var errorMessage: String?
     @State private var isFollowingAuthor = false
 
+    /// Opening a blocked author's page is asking for them, so only blocked
+    /// tags apply here.
     private var visibleWorks: [AO3WorkSummary] {
-        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+        ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature,
+                            blocklist: Blocklist(blockedTerms).lifting(tags: [String](), authors: [author.username, author.displayName]))
     }
 
     var body: some View {
@@ -42,8 +46,9 @@ struct AuthorWorksView: View {
                 ContentUnavailableView("No works to show", systemImage: "person.slash",
                     description: Text("This author has no works published."))
             } else if visibleWorks.isEmpty {
-                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                    description: Text("Every work by this author is filtered out by your content settings."))
+                FilteredOutView(message: "Every work by this author so far is filtered out by your content settings.",
+                                canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                                loadMore: loadMore)
             } else {
                 List {
                     ForEach(visibleWorks) { work in
@@ -195,12 +200,15 @@ private struct FollowedAuthorRow: View {
 }
 
 extension View {
-    /// Push destinations shared by every stack that can reach a work or an
-    /// author: a work summary opens the reader; an `AuthorRef` opens that
-    /// author's works. Apply once per `NavigationStack` root.
+    /// Push destinations shared by every stack that can reach a work, an
+    /// author or a series: a work summary (or a series' next work) opens the
+    /// reader; an `AuthorRef` opens that author's works; a `SeriesRef` opens
+    /// the series page. Apply once per `NavigationStack` root.
     func workAndAuthorDestinations() -> some View {
         self
             .navigationDestination(for: AO3WorkSummary.self) { WorkDetailView(workId: $0.id) }
             .navigationDestination(for: AuthorRef.self) { AuthorWorksView(author: $0) }
+            .navigationDestination(for: SeriesRef.self) { SeriesView(series: $0) }
+            .navigationDestination(for: SeriesWorkRef.self) { WorkDetailView(workId: $0.workId) }
     }
 }

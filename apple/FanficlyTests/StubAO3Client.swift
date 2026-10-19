@@ -13,6 +13,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     var subscriptionsResponse: [AO3Subscription] = []
     /// Scripted export failure (WorkExporter tests).
     var exportError: Error?
+    /// Scripted kudos answer, and the works kudos were sent for (KudosGiver tests).
+    var kudosResult: Result<KudosOutcome, Error> = .success(.left)
+    private(set) var kudosCalls: [Int] = []
 
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         autocompleteCalls.append(term)
@@ -44,6 +47,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
+    func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        AO3Series(id: id, title: "x", creator: "x", works: [], currentPage: page)
+    }
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
     func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
         AO3CommentsPage(comments: [], currentPage: page)
@@ -61,4 +67,13 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
     func subscribeToWork(workId: Int) async throws {}
+    func leaveKudos(workId: Int) async throws -> KudosOutcome {
+        kudosCalls.append(workId)
+        return try kudosResult.get()
+    }
+    func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+    func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }

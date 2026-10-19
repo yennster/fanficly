@@ -555,6 +555,107 @@ public sealed class AO3Client : IAO3Client, IDisposable
             throw AO3Exception.Rejected(error);
     }
 
+    // MARK: - Kudos
+
+    public async Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default)
+    {
+        // Read the work page first: it carries the kudos form (absent on your own
+        // work or one whose creator blocked you) and shows whether the session is
+        // still signed in. AO3 takes guest kudos too, so posting with an expired
+        // cookie would silently leave one as a guest.
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        // The first page is enough for the form and the greeting: no view_full_work.
+        var pageUri = AO3Endpoints.WorkChapter(workId, null, _baseUri);
+        var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(page)) throw AO3Exception.Unauthorized();
+        var pageHtml = Decode(page.Body, "Work page");
+        if (!KudosParser.IsSignedIn(pageHtml)) throw AO3Exception.Unauthorized();
+        var fields = KudosParser.FormFields(pageHtml)
+            ?? throw AO3Exception.Rejected("AO3 doesn't offer kudos on this work. It may be your own, or its creator may have blocked you.");
+        // The page-wide token (<meta name="csrf-token">), as comments and subscribe
+        // use. AO3 has Rails' per-form tokens on, so the form's own token only
+        // validates for a POST to /kudos, not /kudos.js; AO3's script gets through
+        // because it also sends the meta token.
+        var token = LoginParser.AuthenticityToken(pageHtml)
+            ?? throw AO3Exception.ParseFailed("authenticity_token not found on work page");
+        fields["authenticity_token"] = token;
+
+        // Post the form the way AO3's own script does (/kudos.js): it answers 201
+        // on success and 422 with {"error_message": …} otherwise, instead of a
+        // redirect whose flash we'd have to scrape.
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("Referer", pageUri.AbsoluteUri),
+            new("Origin", _origin),
+            new("X-Requested-With", "XMLHttpRequest"),
+            new("X-CSRF-Token", token),
+        };
+        var response = await PerformRequestAsync(Post(AO3Endpoints.Kudos(_baseUri), fields.ToList(), headers),
+            ct: ct, passing: [422]).ConfigureAwait(false);
+        switch (response.Status)
+        {
+            case 201:
+                return KudosOutcome.Left;
+            case 422:
+                var body = TryDecode(response.Body) ?? "";
+                // A refused token (the session ended between the two requests)
+                // answers {"errors": {"auth_error": …}} instead.
+                if (KudosParser.IsAuthError(body)) throw AO3Exception.Unauthorized();
+                var message = KudosParser.ErrorMessage(body) ?? "";
+                if (KudosParser.IsAlreadyLeft(message)) return KudosOutcome.AlreadyLeft;
+                throw AO3Exception.Rejected(message);
+            default:
+                // Anything else (a maintenance page, a proxy) isn't AO3's kudos
+                // answer, so it mustn't be remembered as a kudo.
+                throw AO3Exception.Rejected($"AO3 gave an unexpected answer (HTTP {response.Status}), so the kudos may not have been left. Trying again is safe.");
+        }
+    }
+
+    // MARK: - Bookmark
+
+    public async Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.WorkPage(workId, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        var html = Decode(response.Body, "Work response");
+        if (BookmarkFormParser.Parse(html, _baseUri) is { } form) return form;
+        // AO3 only renders the form for a signed-in user; a page without it
+        // that isn't signed out is an error page or changed markup.
+        if (LoginParser.HasLoginForm(html) || LoginParser.CurrentUsername(html) is null) throw AO3Exception.Unauthorized();
+        throw AO3Exception.ParseFailed("bookmark form not found on the work page");
+    }
+
+    public async Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var headers = new List<KeyValuePair<string, string>>
+        {
+            new("Referer", form.Action.AbsoluteUri),
+            new("Origin", _origin),
+        };
+        if (form.HiddenFields.TryGetValue("authenticity_token", out var token)) headers.Add(new("X-CSRF-Token", token));
+        var response = await PerformRequestAsync(Post(form.Action, form.PostFields.ToList(), headers), ct: ct).ConfigureAwait(false);
+        // 422 is Rails refusing the security token: not saved.
+        if (response.Status >= 400) throw AO3Exception.Http(response.Status);
+        // AO3 redirects a saved bookmark (new or updated) to `/bookmarks/<id>`.
+        // A rejected one re-renders the form with an `#error` list, an expired
+        // session lands on the login form, and a refused account or pseud is
+        // redirected elsewhere with an error flash. Judge by the final page.
+        var html = TryDecode(response.Body) ?? "";
+        if (EndedAtLogin(response) || LoginParser.HasLoginForm(html)) throw AO3Exception.Unauthorized();
+        // A failed update re-renders on `/bookmarks/<id>` too, so form errors
+        // come first; a flash on the saved bookmark's page (say, a collection
+        // it couldn't join) doesn't undo the save.
+        if (BookmarkFormParser.SaveErrors(html) is { Count: > 0 } errors)
+            throw AO3Exception.Rejected(string.Join(" ", errors));
+        if (!BookmarkFormParser.IsBookmarkPage(response.FinalUri.AbsolutePath))
+            throw AO3Exception.Rejected(BookmarkFormParser.FlashErrors(html) is { Count: > 0 } flash
+                ? string.Join(" ", flash)
+                : "AO3 didn't save the bookmark.");
+    }
+
     // MARK: - Transport
 
     /// <summary>One request, described so it can be re-sent on a retry or a redirect.</summary>
@@ -582,7 +683,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// reads are retried: replaying a POST (login, comment, subscribe) after a
     /// timeout could double-submit — a comment that actually landed but whose
     /// response was lost — so those surface the error instead.</summary>
-    internal async Task<Response> PerformRequestAsync(RequestSpec spec, int maxRetries = MaxRetries, CancellationToken ct = default)
+    /// <remarks><paramref name="passing"/> lists error statuses the caller reads itself
+    /// (the kudos POST's 422 carries AO3's reason) instead of having them thrown.</remarks>
+    internal async Task<Response> PerformRequestAsync(RequestSpec spec, int maxRetries = MaxRetries, CancellationToken ct = default,
+        IReadOnlyCollection<int>? passing = null)
     {
         EnsureCookiesLoaded();
         for (var attempt = 0; ; attempt++)
@@ -604,6 +708,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 continue;
             }
 
+            if (passing?.Contains(response.Status) == true) return response;
             switch (response.Status)
             {
                 case >= 200 and < 300 or 302:

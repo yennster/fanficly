@@ -20,6 +20,15 @@ enum AO3Endpoints {
         return url
     }
 
+    /// The work's own page without `view_full_work`: enough for the bookmark
+    /// form, without downloading every chapter of a long work.
+    static func workPage(id: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad work URL") }
+        return url
+    }
+
     static func epub(workId: Int, base: URL) throws -> URL {
         base.appending(path: "/downloads/\(workId)/work.epub")
     }
@@ -33,6 +42,15 @@ enum AO3Endpoints {
                                        resolvingAgainstBaseURL: false)
         if page > 1 { components?.queryItems = [URLQueryItem(name: "page", value: String(page))] }
         guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad author works URL") }
+        return url
+    }
+
+    /// A series page (`/series/<id>`), which lists its works in order, 20 a page.
+    static func series(id: Int, page: Int = 1, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/series/\(id)"),
+                                       resolvingAgainstBaseURL: false)
+        if page > 1 { components?.queryItems = [URLQueryItem(name: "page", value: String(page))] }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad series URL") }
         return url
     }
 
@@ -73,6 +91,15 @@ enum AO3Endpoints {
         base.appending(path: "/users/login")
     }
 
+    /// A work's first page (its first chapter, for a chaptered work), without
+    /// `view_full_work`: enough for the kudos form and the navbar.
+    static func workFirstPage(id: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad work URL") }
+        return url
+    }
+
     /// `page` is the comment page (AO3 shows a chapter's threads a page at a
     /// time); page 1 sends no `page=`.
     static func workComments(id: Int, page: Int = 1, base: URL) throws -> URL {
@@ -106,6 +133,11 @@ enum AO3Endpoints {
 
     static func workSubscriptions(id: Int, base: URL) throws -> URL {
         base.appending(path: "/works/\(id)/subscriptions")
+    }
+
+    /// The kudos POST, at the `.js` format AO3's own kudos button uses.
+    static func kudos(base: URL) throws -> URL {
+        base.appending(path: "/kudos.js")
     }
 
     static func workCommentsPost(id: Int, base: URL) throws -> URL {

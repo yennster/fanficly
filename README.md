@@ -2,6 +2,8 @@
 
 Fanficly is a free, ad-free app for reading fanfiction from [Archive of Our Own (AO3)](https://archiveofourown.org) on iPhone, iPhone Duo, iPad, Mac and Windows. Its source code is public. There are no Fanficly servers or accounts, no ads and no analytics: everything runs on your device and talks directly to AO3.
 
+<a href="https://apps.apple.com/app/id6775897153"><img src="website/assets/badges/app-store.svg" alt="Download on the App Store" height="50"></a> <a href="https://apps.microsoft.com/detail/9PH24K7ZCZTX"><img src="website/assets/badges/microsoft-store.svg" alt="Get it from Microsoft" height="50"></a>
+
 [App Store](https://apps.apple.com/app/id6775897153) (iPhone, iPhone Duo, iPad and Mac) · [Microsoft Store](https://apps.microsoft.com/detail/9PH24K7ZCZTX) (Windows) · [fanficly.app](https://fanficly.app)
 
 <img src="apple/screenshots/showcase.png" alt="Fanficly on iPhone: search, privacy and reader settings">
@@ -14,7 +16,7 @@ Fanficly is a free, ad-free app for reading fanfiction from [Archive of Our Own 
 - **New chapter alerts.** Follow works and authors without an account and get a notification when something new is posted.
 - **Listen.** Stories read aloud with the device's own voices, nothing sent anywhere.
 - **Stats and a yearly wrap.** Stories finished, time and words read, your streak and your top fandoms, all computed on your device.
-- **Optional AO3 account.** Sign in for your AO3 subscriptions, bookmarks and comments. Your password is never stored.
+- **Optional AO3 account.** Sign in for your AO3 subscriptions, bookmarks, comments and kudos. Your password is never stored.
 
 ## Pick your platform
 
@@ -134,7 +136,7 @@ iPhone and iPad with iOS 17 or later (including iPhone Duo, folded and unfolded)
 
 ### Do I need an AO3 account?
 
-No. Searching, reading, saving works for offline reading, and following works and authors all work without an account. Signing in to AO3 is optional and adds your AO3 bookmarks, subscriptions and comments. Your password goes only to AO3 and is never stored.
+No. Searching, reading, saving works for offline reading, and following works and authors all work without an account. Signing in to AO3 is optional and adds your AO3 bookmarks, subscriptions, comments and kudos. Your password goes only to AO3 and is never stored.
 
 ### Can I read AO3 fanfiction offline?
 

@@ -86,6 +86,44 @@ public sealed record AO3Comment(
     string BodyHtml,
     int Depth);
 
+/// <summary>The bookmark form AO3 renders on a work page for the signed-in user
+/// (<c>#bookmark_form_placement</c>; Swift's <c>AO3BookmarkForm</c>). Saving replays
+/// it: <see cref="Action"/> is <c>/works/&lt;id&gt;/bookmarks</c> for a new bookmark or
+/// <c>/bookmarks/&lt;id&gt;</c> (with a hidden <c>_method=put</c>) for an existing one, and
+/// <see cref="HiddenFields"/> carries the CSRF token and the pseud, so neither is hardcoded.</summary>
+/// <param name="IsExisting">The work is already bookmarked, so saving updates it.</param>
+public sealed record AO3BookmarkForm(Uri Action, IReadOnlyDictionary<string, string> HiddenFields, bool IsExisting)
+{
+    /// <summary>Notes may contain AO3's allowed HTML; they're sent back as typed.</summary>
+    public string Notes { get; set; } = "";
+    /// <summary>The bookmarker's own tags, comma separated, as AO3's field takes them.</summary>
+    public string Tags { get; set; } = "";
+    /// <summary>Collections the bookmark is in, kept as-is (not edited in the app);
+    /// null when the form had no such field, so nothing is sent for it.</summary>
+    public string? Collections { get; set; }
+    public bool IsPrivate { get; set; }
+    public bool IsRec { get; set; }
+
+    /// <summary>The urlencoded fields to POST: the hidden inputs plus the edited
+    /// values, with the checkboxes sent as Rails' <c>0</c>/<c>1</c>.</summary>
+    public IReadOnlyDictionary<string, string> PostFields
+    {
+        get
+        {
+            var fields = new Dictionary<string, string>(HiddenFields, StringComparer.Ordinal)
+            {
+                ["bookmark[bookmarker_notes]"] = Notes,
+                ["bookmark[tag_string]"] = Tags,
+            };
+            if (Collections is not null) fields["bookmark[collection_names]"] = Collections;
+            fields["bookmark[private]"] = IsPrivate ? "1" : "0";
+            fields["bookmark[rec]"] = IsRec ? "1" : "0";
+            fields["commit"] = IsExisting ? "Update" : "Create";
+            return fields;
+        }
+    }
+}
+
 /// <summary>One page of a chapter's (or one-shot's) comment threads (Swift's
 /// <c>AO3CommentsPage</c>). AO3 paginates comments by top-level thread;
 /// <paramref name="TotalPages"/> comes from the thread's will_paginate list and is
@@ -167,6 +205,11 @@ public static class WorkExportFormatExtensions
         _ => "globe",
     };
 }
+
+/// <summary>What AO3 said to a kudos POST (Swift's <c>KudosOutcome</c>). AO3 allows
+/// one kudo per user per work and answers a second with "You have already left
+/// kudos here. :)", which is still a kudo on the work.</summary>
+public enum KudosOutcome { Left, AlreadyLeft }
 
 public enum AO3ErrorKind { LoginFailed, RateLimited, Unauthorized, ParseFailed, Http, Network, Rejected }
 

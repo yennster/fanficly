@@ -1934,6 +1934,7 @@ struct ReaderView: View {
             if !author.isEmpty {
                 if authorUsername.isEmpty {
                     Text("by \(author)").foregroundStyle(fg.opacity(0.65))
+                        .blockTermMenu(.author, author)
                 } else {
                     // Tappable byline → the author's other works.
                     NavigationLink(value: AuthorRef(username: authorUsername, displayName: author)) {
@@ -1947,6 +1948,7 @@ struct ReaderView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
                     .accessibilityHint("Shows this author's other works.")
+                    .blockTermMenu(.author, authorUsername)
                 }
             }
             if let summary {
@@ -2393,6 +2395,28 @@ enum ReaderPaginator {
         }
         
         height += 80
+
+        // "Part N of <series> ›" per series (caption, up to two lines), and
+        // "Next in series →" beside it or on a line of its own (SeriesPartRow).
+        if let series = summary?.series, !series.isEmpty {
+            let caption = UIFont.preferredFont(forTextStyle: .caption1)
+            let line = ceil(caption.lineHeight)
+            func size(_ text: String, _ maxWidth: CGFloat) -> CGSize {
+                NSAttributedString(string: text, attributes: [.font: caption])
+                    .boundingRect(with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
+                                  options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).size
+            }
+            let icons: CGFloat = 36   // books + chevron symbols and their spacing
+            for part in series {
+                let label = size("Part \(part.position) of \(part.title)", max(1, width - icons))
+                var rowHeight = min(ceil(label.height), line * 2)
+                if part.nextWorkId != nil {
+                    let next = ceil(size("Next in series", .greatestFiniteMagnitude).width) + 18
+                    if ceil(label.width) + icons + 12 + next > width { rowHeight += 6 + line }
+                }
+                height += rowHeight + 10
+            }
+        }
         
         if let summary, !summary.summary.isEmpty {
             height += 15 + 4

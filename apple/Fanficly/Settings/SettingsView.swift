@@ -6,6 +6,7 @@ struct SettingsView: View {
         case login
         case reader
         case hiddenWorks
+        case blockedTerms
         case contentPolicy
         case privacy
     }
@@ -177,11 +178,12 @@ struct SettingsView: View {
             Section {
                 Toggle("Filter mature & explicit works", isOn: $filterMature)
                 NavigationLink("Hidden works", value: SettingsRoute.hiddenWorks)
+                NavigationLink("Blocked tags & authors", value: SettingsRoute.blockedTerms)
                 NavigationLink("Content policy", value: SettingsRoute.contentPolicy)
             } header: {
                 Text("Content & Safety")
             } footer: {
-                Text("Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results.")
+                Text("Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results; blocking a tag or author removes every work that has it.")
             }
             Section("Privacy") {
                 NavigationLink("What this app sees and stores", value: SettingsRoute.privacy)
@@ -208,6 +210,8 @@ struct SettingsView: View {
                 ReaderSettingsView()
             case .hiddenWorks:
                 HiddenWorksView()
+            case .blockedTerms:
+                BlockedTermsView()
             case .contentPolicy:
                 ContentPolicyView()
             case .privacy:
