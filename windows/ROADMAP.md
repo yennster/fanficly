@@ -200,7 +200,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** the About screen reads its strings from resources in the packaged Release build, with no change in English.
 - **Touches:** `windows/src/Fanficly.App/Views/Settings/AboutScreen.cs`, a new resource file, `Fanficly.App.csproj` if needed.
 
-### RM-113 — Move the remaining screens' strings to the resource table
+### RM-117 — Move the remaining screens' strings to the resource table
 - **Status:** open · **Size:** M (one screen per PR) · **Validation:** unit + windows
 - **Why:** RM-109 added `Strings/en-US/Resources.resw` and `Strings.Get`, and moved Settings → About. Every other screen's text is still inline C#.
 - **Scope:** One screen (or screen family) per PR, following the convention in AGENTS.md: the rest of Settings, Search and its filters, Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, sign-in, dialogs, toasts and the widget. Do not translate. AO3 tag and category names stay verbatim.
