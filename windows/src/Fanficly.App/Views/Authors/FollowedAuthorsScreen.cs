@@ -100,7 +100,7 @@ public sealed class FollowedAuthorsScreen : Screen
 
     private UIElement BuildRow(FollowedAuthor author)
     {
-        var meta = UI.UI.HStack(8, AccountKit.KindLabel("person", "Author"));
+        var meta = UI.UI.Flow(8, 2, AccountKit.KindLabel("person", "Author"));
         if (author.LastCheckedAt is { } checkedAt) meta.Children.Add(UI.UI.Caption(AccountKit.CheckedAgo(checkedAt)));
         var content = UI.UI.VStack(4, UI.UI.Text(author.DisplayName, Theme.Style.Headline), meta);
 

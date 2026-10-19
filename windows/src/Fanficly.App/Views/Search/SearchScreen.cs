@@ -645,7 +645,7 @@ public sealed class SearchScreen : Screen
                     MainWindow.Current.Announce("Removed from recent searches");
                     RenderContent();
                 }
-                rows.Add(new ListRow(UI.UI.Label("clock.arrow.circlepath", prompt), prompt, "Runs this search again",
+                rows.Add(new ListRow(UI.UI.Label("clock.arrow.circlepath", prompt, maxLines: UI.UI.LineLimit(1)), prompt, "Runs this search again",
                     () => LoadPrompt(prompt), Remove, UI.UI.MenuItem("Remove", Remove, "trash", isDestructive: true)));
             }
             stack.Children.Add(UI.UI.VStack(2, header, RowList("search.recent", "Recent searches", rows)));
@@ -1019,6 +1019,7 @@ public sealed class SearchScreen : Screen
         AO3Exception { Kind: AO3ErrorKind.ParseFailed } e => $"Couldn't read AO3's response: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.Network } e => $"Network: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.RateLimited } => "AO3 is asking us to slow down. Try again in a minute.",
+        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "AO3 sent its login page instead of results. Log in again in Settings, then try again.",
         _ => error.Message,
     };
 

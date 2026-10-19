@@ -156,7 +156,7 @@ Fanficly/
   RootView.swift               # NavigationSplitView sidebar (Search, Browse,
                                #   Popular, Library, Stats, Recently Viewed,
                                #   Authors, Bookmarks, Subscriptions, Settings);
-                               #   global ⌘ zoom (app.zoomScale); deep links
+                               #   global zoom (app.zoomScale, UIZoom); deep links
                                #   (import, resume, folder, search) + notifications
   AO3ClientEnvironment.swift   # @Environment(\.ao3Client) key
   WidgetProgressStore.swift    # last-read progress for the widget: app-group
@@ -576,12 +576,12 @@ The Duo (5.4" outer, 7.6" inner, iOS 27.1, ships Oct 23 2026) is the **phone** i
 **App Store screenshots for the Duo** (required from April 2027): the `screenshots` lane runs `ScreenshotTests/testCaptureDuoScreens` on the Duo (when the Xcode has one) in whatever pose it's in: folded → `docs/screenshots/duo-outer` (portrait, 1398×2034 slides), unfolded → `duo-inner` (landscape like an open book, 2853×2007 slides, the reader shown as a two-page spread). CI captures the pose the simulator boots in and reframes the committed captures of the other; refresh that one by hand on a Mac. `upload_store_art` uploads them, with the iPhone preview, which the Duo slot accepts at 886×1920, through the App Asset Library API (`bin/upload-duo-assets.py`), because deliver doesn't know the Duo sizes.
 
 **Not done yet:**
-- With the 27.1 SDK, toolbars and tab bars go **vertical** on the Duo. The reader's items render as icons in the strip, but toolbar items should carry a title + symbol (`Label`, not `Image`), and Apple reserves the ellipsis symbol for the system overflow menu, which conflicts with the reader's `ellipsis.circle` options menu.
+- With the 27.1 SDK, toolbars and tab bars go **vertical** on the Duo, and Apple wants toolbar items to carry a title + symbol there (the reader's items have drawn as icons in the strip; whether the strip ever draws the titles is unverified, but the system also uses them for overflow and Large Content Viewer). So every reader toolbar item (`ReaderView`, `WorkDetailView`, `SavedWorkReader`) is a `Label`, never a bare `Image`, with no `.labelStyle`: the automatic style already draws icons only in a horizontal bar, and forcing `.iconOnly` would take the titles away from the system everywhere (there's no API to tell the two apart). Apple reserves the ellipsis symbol for the system overflow menu, so the parents' options menus (More, Work options) use `book.circle`; don't bring back `ellipsis.circle`.
 - There's no API to detect a Duo. Never branch on idiom or screen size; use size classes and geometry.
 
 ## Mac Catalyst
 
-The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale`, bound to ⌘+/⌘=/⌘−/⌘0 — by counter-scaling the root view. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).
+The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale` — by counter-scaling the root view. Step and clamp live in the pure `UIZoom` (0.5–2.0 in tenths, `UIZoomTests`). The View menu (`CommandGroup(after: .sidebar)` in `FanficlyApp`, not a `CommandMenu("View")`, which would add a second View menu) shows Zoom In ⇧⌘+, Zoom Out ⇧⌘− and Actual Size ⌘0; a menu item takes one shortcut, so `RootView` keeps the other spellings (⌘+, ⌘=, ⇧⌘=, ⌘−, ⇧⌘_) as hidden buttons. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).
 
 
 ## Screenshots
