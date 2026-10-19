@@ -192,7 +192,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 ### RM-118 — Lock-screen widget for last read
 - **Status:** exception · **Size:** S · **Validation:** windows
 - **Why:** The Swift app's Recently Read widget also comes in the iPhone and iPad lock-screen sizes, a progress ring and a title-and-progress card (RM-004 in `apple/docs/ROADMAP.md`).
-- **Why it's an exception:** Windows has no lock-screen widget family an app can build for. The lock screen shows widgets from the Widgets board, and Windows 11 lets people add a third-party one there only if it has the small size; the app can't place it or draw a lock-screen-only layout. The Mac has no lock screen at all, so the Apple app records the same exception for it.
+- **Why it's an exception:** Windows has no lock-screen widget family an app can build for. Where Windows 11 offers lock-screen widgets (rolling out from Insider builds, first in the EEA), they are Widgets-board widgets, and people can add a third-party one only if it has the small size; the app can't place it or draw a lock-screen-only layout.
 - **Already covered:** the "Continue reading" Widgets-board widget already supports the small size (`Package.appxmanifest`), so where Windows offers lock-screen widgets people can add it there. It and the jump list's "Continue “<title>”" entry both open `fanficly://resume/<id>`.
 - **Revisit when:** Windows gives widget providers a lock-screen size or template of their own.
 
