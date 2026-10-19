@@ -42,7 +42,7 @@ public static class WorkRow
         // The title wraps; the badge, when there is one, sits at the line's end.
         var titleLine = UI.UI.Grid("*,Auto", columnSpacing: 6);
         titleLine.Children.Add(UI.UI.Text(work.Title, Theme.Style.Headline).Col(0));
-        var badgeHost = new ContentControl { VerticalAlignment = VerticalAlignment.Top, IsTabStop = false }.A11yHidden();
+        var badgeHost = new Border { VerticalAlignment = VerticalAlignment.Top }.A11yHidden();
         titleLine.Children.Add(badgeHost.Col(1));
 
         var text = UI.UI.VStack(4,
@@ -68,7 +68,7 @@ public static class WorkRow
             // here the store is an in-memory identity map, so a per-row lookup
             // costs the same and stays current on Loaded.
             var badge = WorkPersistence.ResultBadgeFor(work, AppHost.Library);
-            badgeHost.Content = badge is { } b ? Badge(b) : null;
+            badgeHost.Child = badge is { } b ? Badge(b) : null;
             if (row is not null)
                 AutomationProperties.SetName(row, RowName(work, badge));
             bookmark.Content = UI.UI.Icon(followed ? "bookmark.fill" : "bookmark", 16, followed ? Theme.Accent : Theme.TextSecondary);
