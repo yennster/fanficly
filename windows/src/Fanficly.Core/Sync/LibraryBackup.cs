@@ -25,7 +25,17 @@ public sealed record LibraryBackup(
     DateTimeOffset Timestamp,
     /// <summary>Windows-only for now (the Swift decoder ignores the key); optional
     /// so older backups still decode.</summary>
-    IReadOnlyList<AuthorBackup>? FollowedAuthors = null);
+    IReadOnlyList<AuthorBackup>? FollowedAuthors = null,
+    /// <summary>Blocked tags and authors (RM-006); optional so older backups
+    /// still decode.</summary>
+    IReadOnlyList<BlockedBackup>? Blocked = null);
+
+/// <summary>A blocked tag or author, matched across devices by
+/// <see cref="Key"/> (kind plus the value ignoring case).</summary>
+public sealed record BlockedBackup(string Kind, string Value, DateTimeOffset CreatedAt)
+{
+    public string Key => BlockedTerm.KeyFor(Kind, Value);
+}
 
 /// <summary>A locally followed author, matched across devices by username
 /// ignoring case.</summary>
@@ -308,6 +318,13 @@ public static class LibraryBackupJson
                     WriteDate(w, "createdAt", x.CreatedAt);
                 });
             if (b.Stats is { } stats) WriteArray(w, "stats", stats, WriteStat);
+            if (b.Blocked is { } blocked)
+                WriteArray(w, "blocked", blocked, (w, x) =>
+                {
+                    w.WriteString("kind", x.Kind);
+                    w.WriteString("value", x.Value);
+                    WriteDate(w, "createdAt", x.CreatedAt);
+                });
             if (b.FollowedAuthors is { } authors)
                 WriteArray(w, "followedAuthors", authors, (w, x) =>
                 {
@@ -466,7 +483,10 @@ public static class LibraryBackupJson
                 Present(x, "knownWorkIds", out var ids) && ids.ValueKind == JsonValueKind.Array
                     ? ids.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Number).Select(e => e.GetInt32()).ToList()
                     : [],
-                DateN(x, "lastCheckedAt"))) : null);
+                DateN(x, "lastCheckedAt"))) : null,
+            Blocked: Present(o, "blocked", out _)
+                ? Array(o, "blocked", x => new BlockedBackup(Str(x, "kind"), Str(x, "value"), Date(x, "createdAt")))
+                : null);
     }
 
     private static WorkBackup ReadWork(JsonElement x) => new(

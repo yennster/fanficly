@@ -152,7 +152,7 @@ windows/
     Search/                    # AO3SearchFilters, SearchSyntax, SearchSuggestions,
                                #   TagResolver, KnownTags
     Settings/                  # IKeyValueStore + stores, ContentFilter (17+,
-                               #   mature filter, hidden works), ReviewPrompt,
+                               #   mature filter, hidden works, blocklist), ReviewPrompt,
                                #   SidebarItem (tab order + raw values)
     Stats/StreakStore.cs       # reading-day streak
     Subscriptions/             # SubscriptionPoller, NotificationRouting,
@@ -392,7 +392,7 @@ Typography settings are per device (`ReaderProfile.CurrentDevice = ReaderDevice.
 
 ## Content safety
 
-The app is 17+. `ContentSafetyViews.EnsureAgeGateAsync` asks once at first launch (skipped in demo mode). "Filter mature & explicit works" (`content.filterMatureExplicit`, default on) hides Mature and Explicit results in lists. Hidden works (`HiddenWork`, `HiddenWorkStore`) are filtered from lists and can be unhidden in Settings → Content & Safety. Hiding a work is "Hide this work" in the live work page's options menu (`HiddenWorkStore.Hide`, then the page closes); "Report this work" beside it opens AO3's abuse-report page in the browser.
+The app is 17+. `ContentSafetyViews.EnsureAgeGateAsync` asks once at first launch (skipped in demo mode). "Filter mature & explicit works" (`content.filterMatureExplicit`, default on) hides Mature and Explicit results in lists. Hidden works (`HiddenWork`, `HiddenWorkStore`) are filtered from lists and can be unhidden in Settings → Content & Safety. Blocked tags and authors (`BlockedTerm`, `BlocklistStore`, folded into a `Blocklist`; RM-006 in Swift) drop matching works from Search, Browse and author lists: tags by exact AO3 name ignoring case, authors by any co-author's pseud or login. A list lifts what it asked for by name (`Blocklist.Lifting`: a search's or tag chip's own tags and creators, an author page's author), and the reader, Library, Subscriptions and Bookmarks never apply it. Block from a tag chip's or byline's context menu (`ContentSafetyViews.BlockMenu`) or in Settings → Content & Safety → Blocked tags & authors. The backup carries them under `blocked`, merged as a union like hidden works. Hiding a work is "Hide this work" in the live work page's options menu (`HiddenWorkStore.Hide`, then the page closes); "Report this work" beside it opens AO3's abuse-report page in the browser.
 
 ## The reader, Listen, export and reading position
 

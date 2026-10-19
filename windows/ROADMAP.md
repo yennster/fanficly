@@ -240,9 +240,16 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** one manual workflow run produces a Store-ready trailer MP4 as an artifact, with no hand editing.
 - **Touches:** `windows/tests/Fanficly.UITests/`, `windows/scripts/`, `.github/workflows/windows-screenshots.yml` (ask first), `MICROSOFT_STORE.md`.
 
+### RM-119 — Tag and author blocklist
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** Ports the Apple app's RM-006 (`apple/`, PR #100): the only block was one work at a time (`HiddenWork`).
+- **Scope:** `BlockedTerm` (table `blocked_terms`, schema v2), `Blocklist` in `ContentFilter.Apply` for Search, Browse and author lists, block/unblock from a tag chip's or byline's context menu and Settings → Content & Safety, and the backup's `blocked` array in the Swift format, merged as a union.
+- **Done when:** Core tests cover tag match (case-insensitive, AO3 names), author and co-author match, no match, an empty list and lifting; a backup test shows two devices union their lists.
+- **Touches:** `Settings/ContentFilter.cs`, `Library/*`, `Sync/*`, `Views/Account/ContentSafetyViews.cs`, the reader header, Search, Browse and author screens.
+
 ## Ideas from the Apple roadmap
 
-The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, notes and personal tags, and creating AO3 bookmarks (kudos is RM-115). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages, bulk download for a folder, notes and personal tags, and creating AO3 bookmarks (kudos is RM-115). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 

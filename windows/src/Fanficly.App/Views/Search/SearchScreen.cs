@@ -330,11 +330,11 @@ public sealed class SearchScreen : Screen
 
     private void OnLibraryChanged(LibraryEntityKinds kinds)
     {
-        if ((kinds & (LibraryEntityKinds.SavedSearches | LibraryEntityKinds.HiddenWorks)) == 0) return;
+        if ((kinds & (LibraryEntityKinds.SavedSearches | LibraryEntityKinds.HiddenWorks | LibraryEntityKinds.BlockedTerms)) == 0) return;
         MainWindow.Current?.DispatcherQueue.TryEnqueue(() =>
         {
             if (!_built) return;
-            if ((kinds & LibraryEntityKinds.HiddenWorks) != 0) RefreshVisible();
+            if ((kinds & (LibraryEntityKinds.HiddenWorks | LibraryEntityKinds.BlockedTerms)) != 0) RefreshVisible();
             RenderContent();
         });
     }
@@ -563,8 +563,13 @@ public sealed class SearchScreen : Screen
         }
         else if (_list.Items.Count == 0)
         {
-            view = UI.UI.EmptyState("eye.slash", "Nothing to show",
-                "Every match is hidden or filtered out by your content settings.");
+            // Rows are what ask for the next page, so offer it here.
+            view = _currentPage < _totalPages && !_isLoadingMore
+                ? UI.UI.EmptyState("eye.slash", "Nothing to show",
+                    "Every match so far is hidden or filtered out by your content settings.",
+                    "Load more results", () => _ = LoadMoreAsync())
+                : UI.UI.EmptyState("eye.slash", "Nothing to show",
+                    "Every match is hidden or filtered out by your content settings.");
         }
         else
         {
@@ -738,10 +743,12 @@ public sealed class SearchScreen : Screen
 
     // MARK: - Results
 
-    /// <summary>Results minus hidden works and (optionally) Mature/Explicit-rated ones.</summary>
-    private static IReadOnlyList<AO3WorkSummary> Visible(IEnumerable<AO3WorkSummary> works) =>
+    /// <summary>Results minus hidden works, blocked tags and authors (except ones
+    /// this search asked for by name) and (optionally) Mature/Explicit-rated ones.</summary>
+    private IReadOnlyList<AO3WorkSummary> Visible(IEnumerable<AO3WorkSummary> works) =>
         ContentFilter.Apply(works, HiddenWorkStore.Ids(Store),
-            KeyValueStores.Default.GetBool(Fanficly.Core.ContentControl.FilterMatureKey, true));
+            KeyValueStores.Default.GetBool(Fanficly.Core.ContentControl.FilterMatureKey, true),
+            Blocklist.From(Store).Lifting(_searched ?? _active));
 
     private void ResetList()
     {
