@@ -243,6 +243,34 @@ enum WorkPersistence {
     }
 }
 
+/// Works you've left kudos on, remembered on this device so the kudos button
+/// reads "Kudos Left" instead of inviting a second tap. Cleared on logout, so
+/// it always belongs to the signed-in account (AO3 counts one kudo per
+/// account) and no username is kept beside it. Not in the iCloud library
+/// backup: AO3 itself still refuses a duplicate, which reads as already left.
+enum KudosStore {
+    static let key = "kudos.leftWorkIds"
+
+    static func hasLeft(workId: Int, defaults: UserDefaults = .standard) -> Bool {
+        workIds(defaults).contains(workId)
+    }
+
+    static func markLeft(workId: Int, defaults: UserDefaults = .standard) {
+        var ids = workIds(defaults)
+        guard !ids.contains(workId) else { return }
+        ids.append(workId)
+        defaults.set(ids, forKey: key)
+    }
+
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
+    }
+
+    private static func workIds(_ defaults: UserDefaults) -> [Int] {
+        defaults.array(forKey: key) as? [Int] ?? []
+    }
+}
+
 /// The small status badge on a search or browse result row (RM-002).
 enum ResultBadge: Equatable, Sendable {
     case finished
