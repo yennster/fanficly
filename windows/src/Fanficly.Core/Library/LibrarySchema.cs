@@ -199,6 +199,13 @@ internal static class LibrarySchema
     internal static readonly Action<SqliteConnection>[] Migrations =
     [
         conn => Exec(conn, V1),
+        // Version 2: the reader's own note and tags on a work (RM-009).
+        conn =>
+        {
+            AddColumnIfMissing(conn, "works", "note", "TEXT");
+            AddColumnIfMissing(conn, "works", "personal_tags", "TEXT NOT NULL DEFAULT '[]'");
+            AddColumnIfMissing(conn, "works", "notes_updated_at", "INTEGER");
+        },
     ];
 
     internal static int CurrentVersion => Migrations.Length;

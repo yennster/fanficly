@@ -86,7 +86,16 @@ public sealed record WorkBackup(
     bool? IsPinned,
     IReadOnlyList<ChapterBackup> Chapters,
     string? FolderName,
-    IReadOnlyList<string>? FolderNames);
+    IReadOnlyList<string>? FolderNames,
+    // Optional so backups written before notes and personal tags still decode.
+    string? Note = null,
+    IReadOnlyList<string>? PersonalTags = null,
+    DateTimeOffset? NotesUpdatedAt = null);
+
+/// <summary>A work's note, personal tags and when they were last edited,
+/// merged as one value (<see cref="LibrarySyncManager.MergedNotes"/>; Swift's
+/// <c>WorkNotes</c>).</summary>
+public sealed record WorkNotes(string? Note, IReadOnlyList<string> PersonalTags, DateTimeOffset? UpdatedAt);
 
 /// <param name="AoId">AO3 chapter id (drives per-chapter comments). Optional so
 /// backups written before this field still decode.</param>
@@ -368,6 +377,9 @@ public static class LibraryBackupJson
         });
         if (x.FolderName is { } folderName) w.WriteString("folderName", folderName);
         if (x.FolderNames is { } folderNames) WriteStrings(w, "folderNames", folderNames);
+        if (x.Note is { } note) w.WriteString("note", note);
+        if (x.PersonalTags is { } personalTags) WriteStrings(w, "personalTags", personalTags);
+        WriteDate(w, "notesUpdatedAt", x.NotesUpdatedAt);
     }
 
     private static void WriteStat(Utf8JsonWriter w, StatBackup x)
@@ -504,7 +516,10 @@ public static class LibraryBackupJson
         IsPinned: BoolN(x, "isPinned"),
         Chapters: Array(x, "chapters", c => new ChapterBackup(Int(c, "index"), Str(c, "title"), Str(c, "bodyHTML"), IntN(c, "aoId"))),
         FolderName: StrN(x, "folderName"),
-        FolderNames: Present(x, "folderNames", out _) ? Strings(x, "folderNames") : null);
+        FolderNames: Present(x, "folderNames", out _) ? Strings(x, "folderNames") : null,
+        Note: StrN(x, "note"),
+        PersonalTags: Present(x, "personalTags", out _) ? Strings(x, "personalTags") : null,
+        NotesUpdatedAt: DateN(x, "notesUpdatedAt"));
 
     private static StatBackup ReadStat(JsonElement x)
     {

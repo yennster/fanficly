@@ -235,7 +235,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 
 ## Ideas from the Apple roadmap
 
-The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, notes and personal tags, kudos, and creating AO3 bookmarks. Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, kudos, and creating AO3 bookmarks. Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 

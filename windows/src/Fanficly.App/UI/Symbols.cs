@@ -40,6 +40,8 @@ public static class Symbols
         ["heart"] = "",
         ["flag"] = "",
         ["tag.fill"] = "",
+        ["tag"] = "",               // a personal tag (RM-009)
+        ["note.text"] = "",         // a work's note (RM-009)
 
         // Books, reading
         ["book"] = "",                 // ReadingMode
