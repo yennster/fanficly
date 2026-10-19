@@ -77,6 +77,64 @@ public sealed class PersistenceTests : IDisposable
         Assert.Single(ctx.All<Work>());
     }
 
+    // MARK: Result-row badges (RM-002)
+
+    [Fact]
+    public void ResultBadge_UnknownWorkHasNone()
+    {
+        Assert.Null(WorkPersistence.ResultBadgeFor(inLibrary: false, started: false, progress: null, isComplete: false));
+        Assert.Null(WorkPersistence.ResultBadgeFor(inLibrary: false, started: false, progress: 0, isComplete: true));
+    }
+
+    [Fact]
+    public void ResultBadge_SavedWorkReadsInLibrary() =>
+        Assert.Equal<ResultBadge?>(ResultBadge.InLibrary, WorkPersistence.ResultBadgeFor(inLibrary: true, started: false, progress: null, isComplete: false));
+
+    [Fact]
+    public void ResultBadge_StartedWorkShowsPercent()
+    {
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(42), WorkPersistence.ResultBadgeFor(inLibrary: true, started: true, progress: 0.42, isComplete: false));
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(42), WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.42, isComplete: true));
+        // A sliver of progress still reads as begun, never 0%.
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(1), WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.001, isComplete: false));
+        // Opened but no fraction yet.
+        Assert.Equal<ResultBadge?>(ResultBadge.Started, WorkPersistence.ResultBadgeFor(inLibrary: true, started: true, progress: null, isComplete: false));
+    }
+
+    [Fact]
+    public void ResultBadge_FinishedFollowsTheLibraryRule()
+    {
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, WorkPersistence.ResultBadgeFor(inLibrary: true, started: true, progress: 0.99, isComplete: false));
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 1.4, isComplete: false));
+        // 95% finishes a complete work but not a work in progress.
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.96, isComplete: true));
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(96), WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.96, isComplete: false));
+    }
+
+    [Fact]
+    public void ResultBadges_LookUpAPage()
+    {
+        using var ctx = MakeContext();
+        // 1: saved, never read. 2: saved and half read. 3: read without saving.
+        // 4: opened without saving, no fraction. 5: unknown.
+        WorkPersistence.UpsertMetadata(Payload(1, 1).Summary, ctx);
+        var half = WorkPersistence.UpsertMetadata(Payload(2, 4).Summary, ctx);
+        half.LastReadProgress = 0.5;
+        half.LastReadAt = DateTimeOffset.Now;
+        ctx.Insert(new ReadingProgress(3, chapterIndex: 2));
+        ctx.Insert(new ReadingStat(3, maxProgress: 1, workIsComplete: true));
+        ctx.Insert(new ReadingProgress(4));
+
+        var page = Enumerable.Range(1, 5).Select(id => Payload(id, 1).Summary).ToList();
+        var badges = WorkPersistence.ResultBadges(page, ctx);
+        Assert.Equal<ResultBadge?>(ResultBadge.InLibrary, badges[1]);
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(50), badges[2]);
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, badges[3]);
+        Assert.Equal<ResultBadge?>(ResultBadge.Started, badges[4]);
+        Assert.False(badges.ContainsKey(5));
+        Assert.Empty(WorkPersistence.ResultBadges([], ctx));
+    }
+
     [Fact]
     public void ToggleFollowAuthor()
     {
