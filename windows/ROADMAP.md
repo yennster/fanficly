@@ -180,6 +180,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Scope:** `FetchReadingHistoryAsync(username, page)` on `IAO3Client` with `AO3Endpoints.UserReadingHistory`, parsed by RM-112's `SearchResultsParser.ParseReadings`; an "AO3 History" tab after Marked for Later (raw value `ao3History`, the Swift app's), shown by `ReadingListScreen`, sign-in gated and read-only, with no Ctrl+number. Separate from the on-device Recently Viewed tab.
 - **Done when:** parser and endpoint tests, the smoke test opening the tab from the sidebar and `-tab ao3History`, and the PR lists what to check on Windows: the tab signed out and signed in.
 
+### RM-115 — Leave kudos
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** The Windows port of the Apple app's RM-013 (`AO3Client.leaveKudos`, `KudosGiver`, `KudosStore`), so every app can leave kudos.
+- **Scope:** "Leave Kudos" in the work page's options menu and the saved reader's More menu: sign-in gated, once per work and remembered per account so it reads "Kudos Left", one POST that is never retried. The request replays the work page's `form#new_kudo` to `/kudos.js`, as AO3's own button does (201, or 422 with `{"error_message": …}`); "already left kudos" counts as left.
+- **Done when:** `AO3ClientTests` and `KudosTests` cover the POST, the duplicate answer, a refusal, a signed-out page, no kudos button and no retry; the PR lists what to check on Windows.
+- **Touches:** `windows/src/Fanficly.Core/Networking/`, `Parsing/WorkPageParser.cs`, `Library/Kudos.cs`, `windows/src/Fanficly.App/Views/Reader/{WorkKudos,WorkDetailScreen,SavedWorkReaderScreen}.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find library works from Windows Search
@@ -235,7 +242,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 
 ## Ideas from the Apple roadmap
 
-The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, notes and personal tags, kudos, and creating AO3 bookmarks. Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+The Apple app's roadmap on `main` has features that apply here too once they ship there: a tag and author blocklist, series pages, bulk download for a folder, notes and personal tags, and creating AO3 bookmarks (kudos is RM-115). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 

@@ -25,6 +25,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private bool _isResolvingComments;
     private int _currentChapter = 1;
     private readonly WorkExporter _exporter = new();
+    private readonly WorkKudos _kudos;
     private Button? _commentsButton;
     private Button? _moreButton;
 
@@ -33,6 +34,8 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         _work = work;
         Title = work.Title.Length > 0 ? work.Title : "Work";
         _exporter.Changed += UpdateMoreButton;
+        _kudos = new WorkKudos(work.Ao3Id);
+        _kudos.Changed += UpdateMoreButton;
     }
 
     /// <summary>The saved reader for a Library work, or the live work page when it
@@ -179,7 +182,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private void UpdateMoreButton()
     {
         if (_moreButton is null) return;
-        _moreButton.Content = _isSavingOffline || _exporter.IsExporting
+        _moreButton.Content = _isSavingOffline || _exporter.IsExporting || _kudos.IsSending
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
             : Symbols.Icon("book.circle", 16).A11yHidden();
     }
@@ -188,6 +191,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     {
         menu.Items.Clear();
         var title = _work.Title;
+        menu.Items.Add(_kudos.MenuItem());
         menu.Items.Add(_exporter.Menu(_work.Ao3Id, () => title));
         var save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Saving Offline…" : "Save Offline",
             () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = SaveOfflineAsync()),

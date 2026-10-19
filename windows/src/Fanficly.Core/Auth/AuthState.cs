@@ -76,6 +76,7 @@ public sealed class AuthState : INotifyPropertyChanged
     {
         await client.LogoutAsync();
         _vault.SetUsername(null);
+        KudosStore.Clear();
         Username = null;
     }
 

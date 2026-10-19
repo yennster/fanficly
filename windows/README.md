@@ -27,8 +27,8 @@ _The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/Screens
 - **Follow, star and pin.** Save any story with one click, right from the results list. Followed works are checked for new chapters in the background, and a Windows notification tells you when one is posted. Click the notification to open the story, even when it starts the app.
 - **Follow authors.** Follow an author from their works page and get a notification when they post a new work. The Authors tab keeps everyone you follow in one place.
 - **Recently Viewed.** The stories you've opened, newest first. Remove one with Delete, several with Edit, or clear the list.
-- **Comments.** Read a chapter's comment thread, with replies indented under the comment they answer. Signed in to AO3, post a comment of your own.
-- **AO3 account (optional).** Sign in to see your AO3 subscriptions (synced into the Subscriptions tab with your local follows), browse your AO3 bookmarks (private ones included) the works you marked for later and your AO3 reading history, and post comments. Your password goes only to AO3 and is never stored; the session cookie is kept encrypted with Windows Data Protection, so only your Windows account can read it.
+- **Comments and kudos.** Read a chapter's comment thread, with replies indented under the comment they answer. Signed in to AO3, post a comment of your own, or leave kudos from the work's options menu (once per work; the app remembers it).
+- **AO3 account (optional).** Sign in to see your AO3 subscriptions (synced into the Subscriptions tab with your local follows), browse your AO3 bookmarks (private ones included) the works you marked for later and your AO3 reading history, post comments and leave kudos. Your password goes only to AO3 and is never stored; the session cookie is kept encrypted with Windows Data Protection, so only your Windows account can read it.
 - **Reading stats and a yearly wrap-up.** The Stats tab totals the stories you've finished, time read, words read and your day streak, with top fandoms, ships, categories and authors for any week, month, year or all time. Share the wrap-up card, save it as an image or copy it. Everything is computed on your PC.
 - **Widgets.** Six widgets for the Windows 11 Widgets board, each small or medium: Continue reading (your last story and how far you got), Reading Streak, Subscriptions, Folder Shortcuts, Saved Searches and Recommendation. Clicking one opens the story, folder or search it shows.
 - **Jump list.** Right-click Fanficly on the taskbar or in Start for "Continue" with your last story, and shortcuts to Search, Library, Popular and Subscriptions.
@@ -48,7 +48,7 @@ _The screenshots come from the UI tests: `windows/tests/Fanficly.UITests/Screens
 - **Listen.** Any chapter read aloud with the voices built into Windows, entirely on your PC (Listen in the Aa menu, or Ctrl+L). The spoken paragraph is highlighted and kept in view, a bar at the bottom has play / pause, previous and next paragraph, a chapter picker and a speed from 0.5× to 2×, and narration moves on to the next chapter by itself, and keeps going with the window minimized. Your keyboard's media keys, headset buttons and Windows' media flyout control it too. Voice and default speaking rate are in Settings → Theme & typography, with a spoken sample.
 - **Story images (opt-in).** "Show images in stories" (off by default) shows authors' embedded artwork inline, in fixed-height slots so a slow image can never move your place. Images load from the author's image host when you read and are never saved with a download.
 - **Resume where you left off.** Your position is saved down to the paragraph and restored when you reopen a story, in any reading mode. Reading to the last line counts as finished. The Continue reading widget and the jump list's "Continue" open the story where you were, and never move your saved place backwards.
-- **Work page.** Full work metadata (rating, warnings, categories and stats, with fandoms, relationships, characters and tags behind "Tags & relationships"; each tag opens its works), the author's byline opening their works, a Save to Library button, and an options menu for comments, share and export, downloading for offline reading, subscribing on AO3 (signed in), reporting the work to AO3 and hiding it.
+- **Work page.** Full work metadata (rating, warnings, categories and stats, with fandoms, relationships, characters and tags behind "Tags & relationships"; each tag opens its works), the author's byline opening their works, a Save to Library button, and an options menu for comments, kudos (signed in), share and export, downloading for offline reading, subscribing on AO3 (signed in), reporting the work to AO3 and hiding it.
 - **Export in any format.** Share the work as EPUB, MOBI, AZW3, PDF or HTML through Windows' Share sheet, or save a copy anywhere with "Save a copy as".
 - **Keep screen awake** while reading (on by default in Settings).
 
@@ -163,7 +163,7 @@ AO3 has no public JSON API; Fanficly works by reading the same HTML pages the AO
 - Identify ourselves in `User-Agent` (`Fanficly/<version> (Windows; https://github.com/yennster/fanficly)`)
 - Rate-limit ourselves to at most 1 request a second, and never send requests in parallel
 - Cache what we can (popular lists for a day, tag lookups for the session)
-- Retry only safe reads, never a login, comment or subscribe
+- Retry only safe reads, never a login, comment, kudos or subscribe
 - Use the official `/downloads/` EPUB endpoints rather than re-rendering works
 
 Fanficly is not affiliated with AO3 or the Organization for Transformative Works.
