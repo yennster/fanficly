@@ -754,9 +754,19 @@ struct SearchView: View {
 
     private func consumePendingQuery() {
         guard !pendingQuery.isEmpty else { return }
-        let prompt = pendingQuery
+        let query = pendingQuery
         pendingQuery = ""
-        load(prompt: prompt)
+        guard let saved = AO3SearchFilters.savedFilter(fromRouteQuery: query) else {
+            load(prompt: query)
+            return
+        }
+        // A saved filter runs as saved, sort included. Reading it back as a
+        // prompt would turn keywords like "complete" into filters.
+        userPickedSort = true
+        active = saved
+        text = saved.query
+        searchFocused = false
+        startSearch()
     }
 
     private func suggestName() -> String {
