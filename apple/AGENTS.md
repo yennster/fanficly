@@ -182,11 +182,13 @@ Fanficly/
     HTMLParsers/               # one file per page kind
   Search/
     SearchView.swift           # search UI: keyword box + suggestion row +
-                               #   filter chips + Filters sheet; results (WorkRow
-                               #   has an inline bookmark/save button); recent &
+                               #   filter chips + Filters sheet; results; recent &
                                #   saved searches;
                                #   WorkDetailView (reader + toolbar actions);
                                #   CommentsView (view/post chapter comments)
+    WorkRow.swift              # a result row (inline bookmark/save button),
+                               #   its Read/In Library badge, ChipView
+    SearchHelpView.swift       # the Search Tips sheet
     AuthorWorksView.swift      # one author's works; Follow button +
                                #   FollowedAuthorsView (the Authors tab)
     SearchSyntax.swift         # search text ⇄ AO3SearchFilters: keywords stay
