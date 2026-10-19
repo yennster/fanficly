@@ -548,12 +548,18 @@ Keep those shared files free of app-only models/UI dependencies;
 - `fanficly://library?folder=<name>` selects Library, then a deferred
   `PinnedFolderRoute` opens the named folder. Folder identity in this route is
   its name; a missing/renamed folder shows Folder Not Found.
-- `fanficly://search?query=<prompt>` selects Search and writes
+- `fanficly://search?query=<value>` selects Search and writes
   `search.pendingQuery`; `SearchView.consumePendingQuery` consumes/clears it
-  and loads the prompt via `SearchSyntax`. **Current limitation:** the widget
-  also includes saved-filter JSON in this same query field, but the consumer
-  expects prompt syntax, not JSON. Do not assume saved filters round-trip through
-  that route; an implementation change needs an explicit encoding contract/test.
+  and loads it via `SearchSyntax`. **Contract:** the value is a saved search's
+  prompt or a saved filter's `savedJSON()`. `AO3SearchFilters.savedFilter(fromRouteQuery:)`
+  decodes JSON (a value starting with `{`), which runs as saved, sort included,
+  without going through the prompt parser (so a keyword like "complete" stays a
+  keyword); anything else, malformed JSON included, runs as prompt text. Build the link
+  with `WidgetSavedSearch.searchURL`, which also escapes `&`, `=`, `+` and `#`
+  (a ship like "A & B" was cut off at the `&`), and read it with
+  `WidgetSavedSearch.routeQuery(from:)`. The Windows app also decodes the JSON
+  (RM-102), so keep the widget's JSON format. `WidgetDataStoreTests`
+  holds the round trip.
 - Subscription/recommendation widgets use `fanficly://resume/<id>`; unlike
   notification work routes, this can open the saved copy.
 

@@ -306,10 +306,7 @@ struct RootView: View {
         }
         
         // Saved Searches Shortcut routing (fanficly://search?query=queryText)
-        if url.host == "search",
-           let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
-           let queryItem = components.queryItems?.first(where: { $0.name == "query" }),
-           let queryValue = queryItem.value {
+        if let queryValue = WidgetSavedSearch.routeQuery(from: url) {
             select(.search)
             UserDefaults.standard.set(queryValue, forKey: "search.pendingQuery")
             return

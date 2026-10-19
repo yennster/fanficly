@@ -212,6 +212,18 @@ extension AO3SearchFilters {
         return try? JSONDecoder().decode(AO3SearchFilters.self, from: data)
     }
 
+    /// The saved filter a `fanficly://search?query=` route carries, if any.
+    /// The Saved Searches widget sends a saved search as its prompt and a
+    /// saved filter as its `savedJSON()`; a value starting with `{` that
+    /// decodes is a saved filter, and anything else, malformed JSON included,
+    /// is prompt text (so it runs as keywords). The Windows app reads the
+    /// route the same way (RM-102).
+    public static func savedFilter(fromRouteQuery query: String) -> AO3SearchFilters? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") else { return nil }
+        return from(savedJSON: trimmed)
+    }
+
     public func queryItems() -> [URLQueryItem] {
         var items: [URLQueryItem] = []
         let composedQuery = composedQueryString()
