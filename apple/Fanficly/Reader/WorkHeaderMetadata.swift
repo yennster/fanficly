@@ -215,11 +215,19 @@ private struct RatingBadge: View {
 private struct StatsRow: View {
     let summary: AO3WorkSummary
     let foreground: Color
+    @Environment(\.readingWordsPerMinute) private var wordsPerMinute
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 14) {
+            // Wraps rather than truncating now that the reading-time estimate
+            // makes five stats, too many for a narrow phone on one line.
+            FlowLayout(spacing: 14, lineSpacing: 4) {
                 stat("text.alignleft", "\(summary.wordCount.formatted()) words")
+                if let estimate = ReadingSpeed.estimate(words: summary.wordCount, wordsPerMinute: wordsPerMinute) {
+                    stat("clock", estimate)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(ReadingSpeed.spokenEstimate(words: summary.wordCount, wordsPerMinute: wordsPerMinute) ?? estimate)
+                }
                 stat("book.closed", chapterText)
                 if summary.kudos > 0 { stat("heart", summary.kudos.formatted()) }
                 if summary.hits > 0  { stat("eye",   summary.hits.formatted()) }

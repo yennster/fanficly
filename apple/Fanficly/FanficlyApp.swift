@@ -95,6 +95,7 @@ struct FanficlyApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .readingSpeedFromStats()
                 .environment(\.ao3Client, client)
                 .environment(auth)
                 // Screenshots use the standard system blue accent (cleaner for
