@@ -645,7 +645,7 @@ public sealed class SearchScreen : Screen
                     MainWindow.Current.Announce("Removed from recent searches");
                     RenderContent();
                 }
-                rows.Add(new ListRow(UI.UI.Label("clock.arrow.circlepath", prompt), prompt, "Runs this search again",
+                rows.Add(new ListRow(UI.UI.Label("clock.arrow.circlepath", prompt, maxLines: UI.UI.LineLimit(1)), prompt, "Runs this search again",
                     () => LoadPrompt(prompt), Remove, UI.UI.MenuItem("Remove", Remove, "trash", isDestructive: true)));
             }
             stack.Children.Add(UI.UI.VStack(2, header, RowList("search.recent", "Recent searches", rows)));

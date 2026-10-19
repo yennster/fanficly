@@ -116,7 +116,7 @@ public static class RestoreBanner
 
         var spinner = new ProgressRing { IsActive = true, Width = 20, Height = 20 }.A11yHidden();
         var doneIcon = (FontIcon)UI.UI.Icon("checkmark.circle.fill", 20);
-        var title = UI.UI.Text("", Theme.Style.Footnote, wrap: false);
+        var title = UI.UI.Text("", Theme.Style.Footnote, maxLines: UI.UI.LineLimit(1));
         title.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, MinHeight = 4 };
         var group = new AccessibleGroup("", UI.UI.VStack(4, title, bar));

@@ -229,7 +229,9 @@ public sealed class SettingsScreen : Screen
         for (var i = 0; i < mapRows.Count; i++)
         {
             if (map.RowDefinitions.Count <= i) map.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            map.Children.Add(UI.UI.Text(mapRows[i].Button, Theme.Style.Headline).Col(0).Row(i));
+            // At most 40 % of the row, so "D-pad / left stick" wraps at large
+            // text sizes instead of leaving its action no room.
+            map.Children.Add(UI.UI.Text(mapRows[i].Button, Theme.Style.Headline).MaxWidthOf(map, 0.4).Col(0).Row(i));
             map.Children.Add(UI.UI.Secondary(mapRows[i].Action, Theme.Style.Body).Col(1).Row(i));
         }
 

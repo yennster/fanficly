@@ -90,6 +90,7 @@ struct FanficlyApp: App {
     @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
+    @AppStorage("app.zoomScale") private var zoomScale: Double = UIZoom.actualSize
 
     var body: some Scene {
         WindowGroup {
@@ -166,7 +167,29 @@ struct FanficlyApp: App {
         .modelContainer(Self.sharedModelContainer)
         .commands {
             SidebarCommands()
-            
+
+            // In the system View menu, after Show/Hide Sidebar. RootView keeps
+            // the other spellings of these keys (⌘+, ⌘=, ⌘−, ⇧⌘=) as hidden
+            // shortcuts, since a menu item shows only one.
+            CommandGroup(after: .sidebar) {
+                Divider()
+
+                Button("Zoom In") {
+                    zoomScale = UIZoom.stepped(zoomScale, in: true)
+                }
+                .keyboardShortcut("+", modifiers: [.command, .shift])
+
+                Button("Zoom Out") {
+                    zoomScale = UIZoom.stepped(zoomScale, in: false)
+                }
+                .keyboardShortcut("-", modifiers: [.command, .shift])
+
+                Button("Actual Size") {
+                    zoomScale = UIZoom.actualSize
+                }
+                .keyboardShortcut("0", modifiers: [.command])
+            }
+
             CommandMenu("Go") {
                 Button("Search") {
                     selectedTabRaw = SidebarItem.search.rawValue

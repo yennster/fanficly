@@ -360,6 +360,80 @@ public class CommentsParserTests
         Assert.Contains("Great chapter", comments[0].BodyHtml);
     }
 
+    /// <summary>AO3's comment pagination (will_paginate's list renderer): an
+    /// <c>ol.pagination.actions</c> above and below the thread in
+    /// <c>#comments_placeholder</c>, the current page as <c>&lt;span class="current"&gt;</c>.</summary>
+    private static string PagedHtml(int current, int total)
+    {
+        var pages = string.Concat(Enumerable.Range(1, total).Select(n => n == current
+            ? $"<li><span class=\"current\">{n}</span></li>"
+            : $"<li><a href=\"/works/1/chapters/2?page={n}&amp;show_comments=true#comments\">{n}</a></li>"));
+        var nav = $"""
+            <h4 class="landmark heading">Pages Navigation</h4>
+            <ol class="pagination actions" role="navigation" title="pagination">
+              <li class="previous" title="previous"><span class="disabled">← Previous</span></li>
+              {pages}
+              <li class="next" title="next"><a rel="next" href="/works/1/chapters/2?page=2&amp;show_comments=true#comments">Next →</a></li>
+            </ol>
+            """;
+        return $"""
+            <html><body>
+            <div id="comments" class="comments"></div>
+            <div id="comments_placeholder">
+              {nav}
+              <ol class="thread">
+                <li class="odd comment group" id="comment_{current}00" role="article">
+                  <h4 class="heading byline"><a href="/users/zed/pseuds/zed">zed</a></h4>
+                  <blockquote class="userstuff"><p>Page {current}.</p></blockquote>
+                </li>
+              </ol>
+              {nav}
+            </div>
+            </body></html>
+            """;
+    }
+
+    [Fact]
+    public void ParsePage_ReadsCommentPagination()
+    {
+        var page = CommentsParser.ParsePage(PagedHtml(2, 4));
+        Assert.Equal(2, page.CurrentPage);
+        Assert.Equal(4, page.TotalPages);
+        Assert.True(page.HasMore);
+        Assert.Equal(new[] { "200" }, page.Comments.Select(c => c.Id));
+
+        var last = CommentsParser.ParsePage(PagedHtml(4, 4));
+        Assert.Equal(4, last.CurrentPage);
+        Assert.False(last.HasMore);
+    }
+
+    [Fact]
+    public void ParsePage_SinglePageHasNoMore()
+    {
+        // A one-shot (or a short thread) has no pagination list at all.
+        var page = CommentsParser.ParsePage(Html);
+        Assert.Equal(3, page.Comments.Count);
+        Assert.Equal(1, page.CurrentPage);
+        Assert.Equal(1, page.TotalPages);
+        Assert.False(page.HasMore);
+    }
+
+    [Fact]
+    public void ParsePage_IgnoresPaginationOutsideTheThread()
+    {
+        const string html = """
+            <html><body>
+            <ol class="pagination actions"><li><span class="current">1</span></li><li><a href="#">9</a></li></ol>
+            <div id="comments_placeholder"><ol class="thread">
+              <li class="comment group" id="comment_1"><blockquote class="userstuff"><p>Hi</p></blockquote></li>
+            </ol></div>
+            </body></html>
+            """;
+        var page = CommentsParser.ParsePage(html);
+        Assert.Equal(1, page.TotalPages);
+        Assert.False(page.HasMore);
+    }
+
     [Fact]
     public void DefaultPseudId()
     {

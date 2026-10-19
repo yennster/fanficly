@@ -26,7 +26,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
 - **History, authors and account:**
   - Recently Viewed, followed authors, and an author's works page with a Follow button.
   - AO3 sign-in, Bookmarks, and Subscriptions, which shows AO3 subscriptions alongside local follows.
-  - Per-chapter comments with a composer.
+  - Per-chapter comments with a composer, a page of threads at a time ("Load more comments").
 - **Stats:** week, month, year and all-time totals, plus a shareable wrap-up card.
 - **Updates and notifications:** new-chapter and new-work checks, in the app and from a timer background task. Toasts open the work or author they're about.
 - **Sync:** library backup and restore through a user-chosen folder (OneDrive or iCloud Drive), in the Swift backup format, with merge-never-clobber backups, forward-only restores and EPUB re-download after a restore.
@@ -67,7 +67,7 @@ Servers or accounts of our own, ads, telemetry, a "trending" feed we'd have to s
 
 Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `bin/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
 
-- **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), or `done`.
+- **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), `done`, or `exception` (an Apple feature Windows can't support; the item says why, and it isn't built).
 - **Size:** `S` is about one file plus tests, `M` is a few files plus tests. Anything bigger is split into new `S`/`M` items before it's started.
 - **Validation:** `unit` = provable by `dotnet test tests/Fanficly.Core.Tests` on any OS. `windows` = also needs a person (or the UI tests) on Windows; say what to look at in the PR.
 
@@ -159,7 +159,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/tests/Fanficly.UITests/`, `.github/workflows/windows-ci.yml` (one new step; ask first).
 
 ### RM-112 — Marked for Later section
-- **Status:** open · **Size:** M · **Validation:** unit + windows
+- **Status:** done · **Size:** M · **Validation:** unit + windows
 - **Why:** On the AO3 website a signed-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app. The Apple app's item is RM-023 on `main`; keep the two the same in name and behavior.
 - **Scope:**
   - Add `FetchMarkedForLaterAsync(username, page)` to `IAO3Client` for `/users/<name>/readings?show=to-read`, with an endpoint builder next to `UserBookmarks`. Reuse `SearchResultsParser` with the readings page's blurb selector, as `FetchBookmarksAsync` does.
@@ -174,20 +174,23 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - The PR lists what to check on Windows: the tab signed out (sign-in prompt) and signed in.
 - **Touches:** `windows/src/Fanficly.Core/Networking/{IAO3Client,AO3Client,AO3Endpoints,MockAO3Client}.cs`, `Demo/DemoAO3Client.cs`, `Settings/SidebarItem.cs`, `windows/src/Fanficly.App/Shell/SidebarItem.cs`, `Views/Account/BookmarksScreen.cs` (pattern), `Views/Account/AccountModule.cs`, `Views/Settings/ShortcutsScreen.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`, `windows/tests/Fanficly.UITests/SmokeTests.cs`, AGENTS.md.
 
+### RM-114 — AO3 reading history
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** The Windows half of the Apple app's RM-015 (#52): a signed-in reader's AO3 history (`/users/<name>/readings`) had no place in the app. Keep the two the same in name and behavior.
+- **Scope:** `FetchReadingHistoryAsync(username, page)` on `IAO3Client` with `AO3Endpoints.UserReadingHistory`, parsed by RM-112's `SearchResultsParser.ParseReadings`; an "AO3 History" tab after Marked for Later (raw value `ao3History`, the Swift app's), shown by `ReadingListScreen`, sign-in gated and read-only, with no Ctrl+number. Separate from the on-device Recently Viewed tab.
+- **Done when:** parser and endpoint tests, the smoke test opening the tab from the sidebar and `-tab ao3History`, and the PR lists what to check on Windows: the tab signed out and signed in.
+
 ## Later (needs design, or a person on Windows)
 
-### RM-108 — Find followed works from Windows Search
-- **Status:** open · **Size:** M · **Validation:** windows
-- **Why:** Core calls `LibraryHooks.SearchIndexer` (`IWorkSearchIndexer`) when works are followed or removed, the way the Swift app feeds Spotlight, but Windows installs no indexer.
-- **Scope:**
-  - Pick a Windows API that a packaged, Native AOT app can use to index its own items, and open them with a `fanficly://resume/<id>` link.
-  - Write the choice in the PR before building.
-  - Index followed works only, and remove them on unfollow.
-- **Done when:** a followed work's title is findable in Windows Search on Windows 11 and opens the work; unfollowing removes it.
-- **Touches:** a new `windows/src/Fanficly.App/Platform/` file, `Services/AppServices.cs`.
+### RM-108 — Find library works from Windows Search
+- **Status:** exception · **Size:** M · **Validation:** windows
+- **Why:** The Swift app puts every library work in Spotlight and opens a tapped result (RM-016 in `apple/docs/ROADMAP.md`). Core calls `LibraryHooks.SearchIndexer` (`IWorkSearchIndexer`) for this, but Windows installs no indexer.
+- **Why it's an exception:** Windows 11 has no public API for an app to add its own items to Windows Search. The taskbar and Start search show apps, settings, files in indexed folders and web results only. The public WinRT `Windows.Storage.Search.ContentIndexer` builds an index only the app itself can query; its items never appear in taskbar or Start search. The Windows App SDK's `AppContentIndex` is a limited-access feature (it needs a token from Microsoft) and is queried by the app itself, not shown in Windows Search. The only workaround is to write a shortcut file per work into an indexed folder such as Documents, which clutters a folder the user sees and, when OneDrive backs up Documents, uploads the library's titles, against principle 1.
+- **Already covered:** the App Shortcut half of RM-016 ("Continue Reading") is the jump list's "Continue “<title>”" entry and the Continue reading widget, both opening `fanficly://resume/<id>`.
+- **Revisit when:** Windows offers a public search-provider API for packaged apps, or `AppContentIndex` leaves limited access and its results reach Windows Search.
 
 ### RM-109 — Localization groundwork
-- **Status:** open · **Size:** M · **Validation:** windows
+- **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Every string is English and inline in C#.
 - **Scope:**
   - Add a `.resw` resource file and a small lookup helper.
@@ -196,6 +199,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - Check it under Native AOT and in the MSIX (MakePri runs only on Windows).
 - **Done when:** the About screen reads its strings from resources in the packaged Release build, with no change in English.
 - **Touches:** `windows/src/Fanficly.App/Views/Settings/AboutScreen.cs`, a new resource file, `Fanficly.App.csproj` if needed.
+
+### RM-117 — Move the remaining screens' strings to the resource table
+- **Status:** open · **Size:** M (one screen per PR) · **Validation:** unit + windows
+- **Why:** RM-109 added `Strings/en-US/Resources.resw` and `Strings.Get`, and moved Settings → About. Every other screen's text is still inline C#.
+- **Scope:** One screen (or screen family) per PR, following the convention in AGENTS.md: the rest of Settings, Search and its filters, Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, sign-in, dialogs, toasts and the widget. Do not translate. AO3 tag and category names stay verbatim.
+- **Done when:** each screen's user-facing literals are `Strings.Get` keys with entries in the table, `ResourceStringsTests` passes, and English reads the same.
+- **Touches:** the screen's file under `src/Fanficly.App/Views/`, `Strings/en-US/Resources.resw`.
+- **Apple counterpart:** RM-024 (after RM-017).
 
 ### RM-110 — Move the Windows app onto `main` (one branch, a folder per platform)
 - **Status:** done · maintainer only · **Size:** M · **Validation:** windows

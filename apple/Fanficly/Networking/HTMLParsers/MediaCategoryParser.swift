@@ -4,6 +4,7 @@ import SwiftSoup
 enum MediaCategoryParser {
     static func parse(html: String) throws -> [BrowseFandom] {
         let doc = try SwiftSoup.parse(html)
+        try AO3PageCheck.rejectLoginPage(doc)
         var seen = Set<String>()
         var results: [BrowseFandom] = []
 
@@ -24,7 +25,22 @@ enum MediaCategoryParser {
                 results.append(BrowseFandom(canonical, canonical: canonical, workCount: count))
             }
         }
+        if results.isEmpty, try !isFandomsPage(doc) {
+            throw AO3Error.parseFailed(reason: "Not a fandoms page")
+        }
         return results.sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }
+    }
+
+    /// The fandoms index shell, present even when a category has none: its
+    /// `fandoms-index` main div, the alphabetised `<ol>`, or the "No fandoms
+    /// found" heading it shows instead.
+    private static func isFandomsPage(_ doc: Document) throws -> Bool {
+        if AO3PageCheck.mainHasClass(doc, ["fandoms-index"]) { return true }
+        if try !doc.select("ol.fandom.index").isEmpty() { return true }
+        for heading in try doc.select("h3.heading").array() {
+            if try heading.text().contains("No fandoms found") { return true }
+        }
+        return false
     }
 
     /// The number inside the trailing `(…)` of a fandom line, e.g.
@@ -63,12 +79,25 @@ public struct AO3WorkFilters: Sendable {
 enum WorkFiltersParser {
     static func parse(html: String) throws -> AO3WorkFilters {
         let doc = try SwiftSoup.parse(html)
-        return AO3WorkFilters(
+        try AO3PageCheck.rejectLoginPage(doc)
+        let filters = AO3WorkFilters(
             relationships: facets(in: doc, kind: "relationship"),
             characters: facets(in: doc, kind: "character"),
             fandoms: facets(in: doc, kind: "fandom"),
             freeforms: facets(in: doc, kind: "freeform")
         )
+        // No facets is genuine on a tag with no works (AO3 drops the filter
+        // form but still renders the works index); anywhere else it's drift.
+        if filters.relationships.isEmpty, filters.characters.isEmpty,
+           filters.fandoms.isEmpty, filters.freeforms.isEmpty, try !isWorksIndex(doc) {
+            throw AO3Error.parseFailed(reason: "Not a works listing")
+        }
+        return filters
+    }
+
+    private static func isWorksIndex(_ doc: Document) throws -> Bool {
+        if AO3PageCheck.mainHasClass(doc, ["works-index"]) { return true }
+        return try !doc.select("form#work-filters, ol.work.index").isEmpty()
     }
 
     /// Each facet is a checkbox label in the sidebar's "Include" half. Live

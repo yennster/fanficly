@@ -263,6 +263,19 @@ public static class CommentsParser
         return doc.Select("li.comment[id^='comment_']").Select(ParseComment).OfType<AO3Comment>().ToList();
     }
 
+    /// <summary>One page of comments plus where it sits in the thread's pagination
+    /// (Swift's <c>CommentsParser.parsePage</c>). AO3 renders the thread's
+    /// will_paginate list (<c>ol.pagination</c>, the current page in
+    /// <c>&lt;span class="current"&gt;</c>) inside <c>#comments_placeholder</c>, above
+    /// and below the thread; with one page there is no list at all.</summary>
+    public static AO3CommentsPage ParsePage(string html)
+    {
+        var doc = HtmlDom.Parse(html);
+        var comments = doc.Select("li.comment[id^='comment_']").Select(ParseComment).OfType<AO3Comment>().ToList();
+        var (current, total) = HtmlDom.Pagination(doc, "#comments_placeholder ol.pagination li");
+        return new AO3CommentsPage(comments, current, total);
+    }
+
     private static AO3Comment? ParseComment(IElement li)
     {
         var idAttr = li.Attr("id"); // e.g. "comment_123456"

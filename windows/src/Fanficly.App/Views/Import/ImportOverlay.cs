@@ -95,7 +95,6 @@ public static class ImportOverlay
                 work.IsFollowed = true;
                 work.FollowedAt = now;
                 work.SavedAt = now;
-                WorkPersistence.IndexWork(work);
                 library.TrySave();
                 LibrarySyncManager.QueueBackupShared(library);
                 saved = work;
