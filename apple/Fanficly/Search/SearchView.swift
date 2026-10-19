@@ -703,6 +703,7 @@ struct SearchView: View {
         case AO3Error.parseFailed(let reason): return "Couldn't read AO3's response: \(reason)"
         case AO3Error.network(let underlying): return "Network: \(underlying)"
         case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
+        case AO3Error.unauthorized: return "AO3 sent its login page instead of results. Log in again in Settings, then try again."
         default: return error.localizedDescription
         }
     }
