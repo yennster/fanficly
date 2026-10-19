@@ -135,6 +135,29 @@ public sealed class LibraryBackupJsonTests
     }
 
     [Fact]
+    public void KnownKeySetsListEveryBackupRecordField()
+    {
+        // Doesn't depend on a fixture: a field added to a backup record must be
+        // added to BackupUnknownKeys too, or a cleared value of it would be
+        // copied back from the file as "unknown".
+        static HashSet<string> Fields(Type t) =>
+            t.GetConstructors().Single().GetParameters().Select(p => p.Name!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var types = new Dictionary<string, Type>
+        {
+            ["works"] = typeof(WorkBackup), ["bookmarks"] = typeof(BookmarkBackup),
+            ["subscriptions"] = typeof(SubscriptionBackup), ["searches"] = typeof(SearchBackup),
+            ["progress"] = typeof(ProgressBackup), ["filters"] = typeof(FilterBackup),
+            ["hidden"] = typeof(HiddenBackup), ["folders"] = typeof(FolderBackup),
+            ["stats"] = typeof(StatBackup), ["followedAuthors"] = typeof(AuthorBackup),
+        };
+        Assert.Equal(types.Keys.Order(), BackupUnknownKeys.Records.Select(r => r.Array).Order());
+        foreach (var (array, _, known, _) in BackupUnknownKeys.Records)
+            Assert.True(Fields(types[array]).SetEquals(known), $"{array}: {string.Join(", ", Fields(types[array]).Except(known, StringComparer.OrdinalIgnoreCase))}");
+        Assert.True(Fields(typeof(ChapterBackup)).SetEquals(BackupUnknownKeys.ChapterKeys));
+        Assert.True(Fields(typeof(LibraryBackup)).SetEquals(BackupUnknownKeys.TopLevelKeys));
+    }
+
+    [Fact]
     public void ReencodingSwiftOutputGivesTheSameJson()
     {
         // Our encoding of a decoded Swift backup is the same JSON document
