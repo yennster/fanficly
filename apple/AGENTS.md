@@ -101,8 +101,8 @@ Opening a live result uses `WorkDetailView` in `SearchView.swift`; merely readin
 does not require creating a library `Work`. `SavedWorkReader` reads stored
 `Chapter.bodyHTML` when available, otherwise fetches a payload on demand. Both
 feed `ReaderView`. There is no EPUB rendering engine: chapter HTML is converted
-to attributed paragraphs and drawn natively. `ReaderPaginator` and
-`ReaderPageCell` live in `ReaderView.swift`; geometry policy lives in
+to attributed paragraphs and drawn natively. `ReaderPaginator` lives in
+`ReaderView.swift` and `ReaderPageCell` in `ReaderPageCell.swift`; geometry policy lives in
 `ReaderTheme.swift`. Modes are continuous, swipe-by-chapter, and page-by-page.
 
 ## Storage map and mutation contracts
@@ -219,6 +219,8 @@ Fanficly/
                                #   nav bar (no auto-hide — see below); paginated
                                #   mode has tap-to-turn zones + "Listen" TTS bar;
                                #   hardware arrow keys turn pages
+                               #   (ReaderKeyPressModifier.swift)
+    ReaderPageCell.swift       # draws one page-by-page page
     ChapterContentView.swift   # renders a chapter as paragraphs w/ scroll
                                #   anchors; every anchorStride-th paragraph +
                                #   ALWAYS the final one (isAnchorIndex) so
@@ -250,6 +252,9 @@ Fanficly/
                                #   and personal tags: WorkNotesSheet); rows
                                #   show a reading-progress bar (% read /
                                #   Finished) for any started work
+    LibraryRow.swift           # one Library row: badges, metadata pills,
+                               #   progress bar
+    StatsView.swift            # the Stats tab, reading goal, WrapShareCard
     LibrarySort.swift          # Library/folder sort (Date Saved, Last Read,
                                #   Last Updated, Title, Author, Length; pinned
                                #   stay on top) + LibrarySortMenu — lives in the
@@ -628,7 +633,7 @@ The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`,
 
 ## Reading stats & yearly wrap
 
-The **Stats tab** (`StatsView`, in `LibraryView.swift`) shows reading totals
+The **Stats tab** (`StatsView`, in `StatsView.swift`) shows reading totals
 (stories read, time read, words read, current day-streak) and top fandoms /
 categories / ships / authors for a chosen period — **Week / Month / Year / All
 Time** — with ‹ › to page through periods (`StatsPeriod`, an `anchor` date, and
