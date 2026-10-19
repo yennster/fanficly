@@ -173,6 +173,20 @@ final class WorkMetadataParserTests: XCTestCase {
         XCTAssertTrue(series.works.isEmpty)
     }
 
+    /// An error page or the login page must not read as an empty series.
+    func test_seriesPage_failsClosed() {
+        XCTAssertThrowsError(try SeriesParser.parse(
+            html: #"<html><body><div id="main" class="errors-404"><h2 class="heading">Error 404</h2></div></body></html>"#,
+            seriesId: 9)) { error in
+            guard case AO3Error.parseFailed = error else { return XCTFail("expected parseFailed, got \(error)") }
+        }
+        XCTAssertThrowsError(try SeriesParser.parse(
+            html: #"<html><body><div id="main" class="sessions-new"><form action="/users/login"></form></div></body></html>"#,
+            seriesId: 9)) { error in
+            guard case AO3Error.unauthorized = error else { return XCTFail("expected unauthorized, got \(error)") }
+        }
+    }
+
     private func workMeta(series: String) -> String {
         """
         <html><body>

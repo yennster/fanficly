@@ -89,6 +89,11 @@ enum SeriesParser {
     /// as ordinary blurbs in `ul.series.work.index`, paginated like search.
     static func parse(html: String, seriesId: Int) throws -> AO3Series {
         let doc = try SwiftSoup.parse(html)
+        try AO3PageCheck.rejectLoginPage(doc)
+        // An error page or markup drift must not read as an empty series.
+        if try doc.select("dl.series.meta").isEmpty(), !AO3PageCheck.mainHasClass(doc, ["series-show"]) {
+            throw AO3Error.parseFailed(reason: "Not a series page")
+        }
         let titleEl = try doc.select("#main h2.heading").first() ?? doc.select("h2.heading").first()
         let title = try titleEl?.text().trimmingCharacters(in: .whitespaces) ?? ""
 
@@ -124,7 +129,11 @@ enum SeriesParser {
         // Unrevealed works render a "Mystery Work" blurb with no title link;
         // there's nothing to open, so they're dropped. The rest keep AO3's order.
         let selector = "ul.series li.work.blurb"
-        let listing = try SearchResultsParser.parse(html: html, blurbSelector: selector)
+        // The blurb parser fails closed on a page with no blurbs; a series page
+        // was already checked above, so no blurbs here is an empty series.
+        let listing = try doc.select(selector).isEmpty()
+            ? AO3SearchResults(works: [], totalPages: 1, currentPage: 1)
+            : SearchResultsParser.parse(html: html, blurbSelector: selector)
         let linked = Set(try doc.select(selector).array().compactMap { li -> Int? in
             guard let href = try li.select("h4.heading a[href*=/works/]").first()?.attr("href") else { return nil }
             return SearchResultsParser.workId(fromHref: href)
