@@ -2,8 +2,8 @@
 
 Architecture, development workflow, and regression constraints for agents working
 on the Apple app in `apple/`. **Paths in this guide are relative to `apple/`**,
-and commands run from there, except `bin/roadmap.sh`, which is at the repository
-root. Claude Code loads this file through `apple/CLAUDE.md` when you work in this
+and commands run from there, except `.github/scripts/roadmap.sh`, which runs from
+the repository root. Claude Code loads this file through `apple/CLAUDE.md` when you work in this
 folder; the repository-wide rules are in the root [`AGENTS.md`](../AGENTS.md). Read the overview first, then the detailed section for the
 subsystem you change. Keep this file current when ownership or behavior changes,
 and verify implementation details against source. This is the agent guide
@@ -141,8 +141,9 @@ pagination, saved anchors, and resume URLs.
 ```
 project.yml                    # xcodegen is the source of truth
 bin/                           # developer scripts (icon gen, screenshots,
-                               #   store art); ../bin/roadmap.sh = list and
-                               #   claim-check roadmap items (repo root)
+                               #   store art); ../.github/scripts/roadmap.sh
+                               #   = list and claim-check roadmap items
+ci_scripts/ci_post_clone.sh    # Xcode Cloud: regenerate the project first
 docs/ROADMAP.md                # the backlog (RM-nnn items); agents: see below
 docs/RELEASING.md              # cloud release + store-art workflows, secrets
 docs/screenshots/              # demo-mode captures (iphone, ipad, mac, duo-*)
@@ -323,10 +324,10 @@ The backlog is [`docs/ROADMAP.md`](docs/ROADMAP.md) (each item is mirrored by a 
 
 **The loop**
 1. **Orient.** `git fetch origin && git checkout -b tmp origin/main`, read this file's Conventions and "Things to know about AO3", and the roadmap's principles.
-2. **Pick.** Run `bin/roadmap.sh free apple` (open and unclaimed; needs `gh`; `windows` lists the Windows roadmap instead). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
+2. **Pick.** Run `.github/scripts/roadmap.sh free apple` (open and unclaimed; needs `gh`; `windows` lists the Windows roadmap instead). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
 3. **Verify it's real.** Read the files the item names. If the feature already exists, the premise is wrong, or the item is bigger than `M`, don't build it: open a PR that only edits the roadmap (fix or split the item, with new IDs) or report back.
-4. **Claim before coding.** Create the branch `roadmap/RM-nnn-short-slug` from `origin/main`, push it, and open a **draft PR** titled `RM-nnn: <title>` whose body is the filled-in PR template. The branch/PR is the claim `bin/roadmap.sh` sees; re-run `bin/roadmap.sh` first and if another claim appeared for the same ID in the meantime, abandon yours (close your draft) and pick again. (A draft PR needs at least one commit; push the roadmap's `claimed` note, or an empty commit `git commit --allow-empty -m "Claim RM-nnn"`.)
-5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file means `xcodegen generate` and a regenerated `.xcodeproj`, which you can only do on a Mac.
+4. **Claim before coding.** Create the branch `roadmap/RM-nnn-short-slug` from `origin/main`, push it, and open a **draft PR** titled `RM-nnn: <title>` whose body is the filled-in PR template. The branch/PR is the claim `.github/scripts/roadmap.sh` sees; re-run `.github/scripts/roadmap.sh` first and if another claim appeared for the same ID in the meantime, abandon yours (close your draft) and pick again. (A draft PR needs at least one commit; push the roadmap's `claimed` note, or an empty commit `git commit --allow-empty -m "Claim RM-nnn"`.)
+5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file is fine without a Mac: GitHub CI and Xcode Cloud (`ci_scripts/ci_post_clone.sh`) both run `xcodegen generate` before building, so the committed `.xcodeproj` can lag behind.
 6. **Test.** Add tests for every behavior change in `FanficlyTests/` (fixtures inline, no network), and add the feature's tests to the list in "Tests" below if it's a new area. A new `AO3ClientProtocol` method needs `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` updated.
 7. **Validate honestly** (see "Which machine you're on").
 8. **Update the roadmap** in the same PR: set that item's `Status` to `done`, and nothing else in the file. Update AGENTS.md (the only agent guide; CLAUDE.md just imports it) if you added a convention or a gotcha; keep it to what the next agent can't see from the code.
@@ -452,7 +453,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 **Add a new SwiftData model.** Define the `@Model` in `Models/Work.swift`. Add it to `FanficlyApp.sharedModelContainer`'s `Schema` (and the in-memory `Schema` in `PersistenceTests`). SwiftData will migrate automatically across additive schema changes; destructive changes need a versioned migration plan. `FollowedAuthor` is a recent example.
 
-**Add a new sidebar tab.** Add a case to `SidebarItem` (in `RootView.swift`) — order in the enum drives the sidebar order — give it a `title` + `systemImage`, add it to the `switch selectedDetailItem` in `mainSplitView`, and add a `Button`/`keyboardShortcut` to the "Go" `CommandMenu` in `FanficlyApp.swift` (renumber ⌘N to match). Recent examples: `popular`, `authors`, `bookmarks`. `xcodegen` isn't always available; prefer adding the tab's view to an existing file (e.g. `PopularView` in `BrowseView.swift`, `BookmarksView` in `SubscriptionsView.swift`, `FollowedAuthorsView` in `AuthorWorksView.swift`) over a new file, so the committed `.xcodeproj` doesn't need regenerating.
+**Add a new sidebar tab.** Add a case to `SidebarItem` (in `RootView.swift`) — order in the enum drives the sidebar order — give it a `title` + `systemImage`, add it to the `switch selectedDetailItem` in `mainSplitView`, and add a `Button`/`keyboardShortcut` to the "Go" `CommandMenu` in `FanficlyApp.swift` (renumber ⌘N to match). Recent examples: `popular`, `authors`, `bookmarks`. To keep the diff small, prefer adding the tab's view to an existing file (e.g. `PopularView` in `BrowseView.swift`, `BookmarksView` in `SubscriptionsView.swift`, `FollowedAuthorsView` in `AuthorWorksView.swift`) over a new file (a new file also works: CI regenerates the project).
 
 **Run the app on a different device.** Replace `iPhone 17` in the build/run commands with whatever is available. CI auto-picks — see `../.github/workflows/ci.yml`.
 

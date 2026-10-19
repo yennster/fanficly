@@ -29,7 +29,7 @@ echo "Changes since ${prev:-the beginning} ($since)" >&2
 # main but aren't in this release, so they're left out.
 prs=$(gh pr list --state merged --base main --limit 200 \
     --search "merged:>$since" --json number,title,files \
-    --jq '[.[] | select(.files != [] and ([.files[].path | startswith("windows/") or startswith("docs/screenshots/windows/") or startswith(".github/workflows/windows-")] | all) | not)]
+    --jq '[.[] | select(.files != [] and ([.files[].path | startswith("windows/") or startswith(".github/workflows/windows-")] | all) | not)]
           | sort_by(.number) | .[] | "- \(.title) (#\(.number))"')
 issues=$(gh issue list --state closed --limit 200 \
     --search "closed:>$since reason:completed" --json number,title \
