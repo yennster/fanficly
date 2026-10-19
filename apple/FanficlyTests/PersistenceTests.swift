@@ -116,6 +116,57 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
     }
 
+    // MARK: Result-row badges (RM-002)
+
+    func test_resultBadge_unknownWorkHasNone() {
+        XCTAssertNil(WorkPersistence.resultBadge(inLibrary: false, started: false, progress: nil, isComplete: false))
+        XCTAssertNil(WorkPersistence.resultBadge(inLibrary: false, started: false, progress: 0, isComplete: true))
+    }
+
+    func test_resultBadge_savedWorkReadsInLibrary() {
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: false, progress: nil, isComplete: false), .inLibrary)
+    }
+
+    func test_resultBadge_startedWorkShowsPercent() {
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: true, progress: 0.42, isComplete: false), .percent(42))
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.42, isComplete: true), .percent(42))
+        // A sliver of progress still reads as begun, never 0%.
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.001, isComplete: false), .percent(1))
+        // Opened but no fraction yet.
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: true, progress: nil, isComplete: false), .started)
+    }
+
+    func test_resultBadge_finishedFollowsTheLibraryRule() {
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: true, progress: 0.99, isComplete: false), .finished)
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 1.4, isComplete: false), .finished)
+        // 95% finishes a complete work but not a work in progress.
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.96, isComplete: true), .finished)
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.96, isComplete: false), .percent(96))
+    }
+
+    func test_resultBadges_lookUpAPageAtOnce() throws {
+        let ctx = try makeContext()
+        // 1: saved, never read. 2: saved and half read. 3: read without saving.
+        // 4: opened without saving, no fraction. 5: unknown.
+        _ = WorkPersistence.upsertMetadata(summary: payload(id: 1, chapters: 1).summary, into: ctx)
+        let half = WorkPersistence.upsertMetadata(summary: payload(id: 2, chapters: 4).summary, into: ctx)
+        half.lastReadProgress = 0.5
+        half.lastReadAt = .now
+        ctx.insert(ReadingProgress(ao3Id: 3, chapterIndex: 2))
+        ctx.insert(ReadingStat(ao3Id: 3, maxProgress: 1, workIsComplete: true))
+        ctx.insert(ReadingProgress(ao3Id: 4))
+        try ctx.save()
+
+        let page = (1...5).map { payload(id: $0, chapters: 1).summary }
+        let badges = WorkPersistence.resultBadges(for: page, in: ctx)
+        XCTAssertEqual(badges[1], .inLibrary)
+        XCTAssertEqual(badges[2], .percent(50))
+        XCTAssertEqual(badges[3], .finished)
+        XCTAssertEqual(badges[4], .started)
+        XCTAssertNil(badges[5])
+        XCTAssertEqual(WorkPersistence.resultBadges(for: [], in: ctx), [:])
+    }
+
     func test_recordViewInsertsBumpsAndTrims() throws {
         let ctx = try makeContext()
         // First view inserts.
@@ -212,6 +263,64 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(all.totalWords, 16_340)
         // Only the two finished works count as stories read.
         XCTAssertEqual(all.storiesRead, 2)
+    }
+
+    // MARK: Yearly reading goal (RM-011)
+
+    private var utcGregorian: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }
+
+    private func utcDate(_ year: Int, _ month: Int, _ dayOfMonth: Int, hour: Int = 0) -> Date {
+        utcGregorian.date(from: DateComponents(year: year, month: month, day: dayOfMonth, hour: hour))!
+    }
+
+    func test_goalProgress_atYearStartIsOnPace() throws {
+        let p = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 0, goal: 52, now: utcDate(2026, 1, 1, hour: 1), calendar: utcGregorian))
+        XCTAssertEqual(p.expected, 0)
+        XCTAssertEqual(p.ahead, 0)
+        XCTAssertEqual(p.fraction, 0, accuracy: 0.0001)
+        XCTAssertFalse(p.isComplete)
+        XCTAssertEqual(p.paceLabel, "On pace")
+    }
+
+    func test_goalProgress_midYearReportsAheadAndBehind() throws {
+        // July 2 2026 00:00 UTC is 182 of 365 days in: an even pace of 24 a
+        // year expects 11 (11.97 rounded down).
+        let mid = utcDate(2026, 7, 2)
+        let onPace = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 11, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(onPace.expected, 11)
+        XCTAssertEqual(onPace.paceLabel, "On pace")
+        XCTAssertEqual(onPace.fraction, 11.0 / 24.0, accuracy: 0.0001)
+
+        let ahead = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 14, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(ahead.ahead, 3)
+        XCTAssertEqual(ahead.paceLabel, "3 ahead")
+
+        let behind = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 9, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(behind.ahead, -2)
+        XCTAssertEqual(behind.paceLabel, "2 behind")
+    }
+
+    func test_goalProgress_pastTheGoalIsCompleteWithAFullRing() throws {
+        let p = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 30, goal: 20, now: utcDate(2026, 9, 1), calendar: utcGregorian))
+        XCTAssertTrue(p.isComplete)
+        XCTAssertEqual(p.fraction, 1, accuracy: 0.0001)
+        XCTAssertEqual(p.paceLabel, "Goal reached")
+    }
+
+    func test_goalProgress_zeroGoalIsHidden() {
+        XCTAssertNil(ReadingStatsAggregator.goalProgress(
+            finished: 5, goal: 0, now: utcDate(2026, 6, 1), calendar: utcGregorian))
+        XCTAssertNil(ReadingStatsAggregator.goalProgress(
+            finished: 5, goal: -3, now: utcDate(2026, 6, 1), calendar: utcGregorian))
     }
 
     func test_backfill_seedsZeroTimeStatsFromHistory() throws {

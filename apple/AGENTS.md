@@ -2,8 +2,8 @@
 
 Architecture, development workflow, and regression constraints for agents working
 on the Apple app in `apple/`. **Paths in this guide are relative to `apple/`**,
-and commands run from there, except `bin/roadmap.sh`, which is at the repository
-root. Claude Code loads this file through `apple/CLAUDE.md` when you work in this
+and commands run from there, except `.github/scripts/roadmap.sh`, which runs from
+the repository root. Claude Code loads this file through `apple/CLAUDE.md` when you work in this
 folder; the repository-wide rules are in the root [`AGENTS.md`](../AGENTS.md). Read the overview first, then the detailed section for the
 subsystem you change. Keep this file current when ownership or behavior changes,
 and verify implementation details against source. This is the agent guide
@@ -141,8 +141,9 @@ pagination, saved anchors, and resume URLs.
 ```
 project.yml                    # xcodegen is the source of truth
 bin/                           # developer scripts (icon gen, screenshots,
-                               #   store art); ../bin/roadmap.sh = list and
-                               #   claim-check roadmap items (repo root)
+                               #   store art); ../.github/scripts/roadmap.sh
+                               #   = list and claim-check roadmap items
+ci_scripts/ci_post_clone.sh    # Xcode Cloud: regenerate the project first
 docs/ROADMAP.md                # the backlog (RM-nnn items); agents: see below
 docs/RELEASING.md              # cloud release + store-art workflows, secrets
 docs/screenshots/              # demo-mode captures (iphone, ipad, mac, duo-*)
@@ -155,7 +156,8 @@ Fanficly/
   FanficlyApp.swift            # @main, env wiring, ModelContainer, BG task
   RootView.swift               # NavigationSplitView sidebar (Search, Browse,
                                #   Popular, Library, Stats, Recently Viewed,
-                               #   Authors, Bookmarks, Subscriptions, Settings);
+                               #   Authors, Bookmarks, Marked for Later,
+                               #   Subscriptions, Settings);
                                #   global zoom (app.zoomScale, UIZoom); deep links
                                #   (import, resume, folder, search) + notifications
   AO3ClientEnvironment.swift   # @Environment(\.ao3Client) key
@@ -260,6 +262,7 @@ Fanficly/
   Subscriptions/               # poller (AO3 subs + local work/author follows),
                                #   BG task; SubscriptionsView + BookmarksView
                                #   (the Bookmarks tab — your AO3 bookmarks);
+                               #   ReadingListView (Marked for Later);
                                #   NotificationRouting (notification tap →
                                #   work / author page)
   Settings/                    # SettingsView + ReaderSettingsView + privacy;
@@ -325,10 +328,10 @@ The backlog is [`docs/ROADMAP.md`](docs/ROADMAP.md) (each item is mirrored by a 
 
 **The loop**
 1. **Orient.** `git fetch origin && git checkout -b tmp origin/main`, read this file's Conventions and "Things to know about AO3", and the roadmap's principles.
-2. **Pick.** Run `bin/roadmap.sh free apple` (open and unclaimed; needs `gh`; `windows` lists the Windows roadmap instead). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
+2. **Pick.** Run `.github/scripts/roadmap.sh free apple` (open and unclaimed; needs `gh`; `windows` lists the Windows roadmap instead). Take the lowest-numbered item that is size `S` or `M`, unless the user named one. Prefer `Validation: unit` items when you can't run a simulator. If nothing is free, stop and say so — don't invent work.
 3. **Verify it's real.** Read the files the item names. If the feature already exists, the premise is wrong, or the item is bigger than `M`, don't build it: open a PR that only edits the roadmap (fix or split the item, with new IDs) or report back.
-4. **Claim before coding.** Create the branch `roadmap/RM-nnn-short-slug` from `origin/main`, push it, and open a **draft PR** titled `RM-nnn: <title>` whose body is the filled-in PR template. The branch/PR is the claim `bin/roadmap.sh` sees; re-run `bin/roadmap.sh` first and if another claim appeared for the same ID in the meantime, abandon yours (close your draft) and pick again. (A draft PR needs at least one commit; push the roadmap's `claimed` note, or an empty commit `git commit --allow-empty -m "Claim RM-nnn"`.)
-5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file means `xcodegen generate` and a regenerated `.xcodeproj`, which you can only do on a Mac.
+4. **Claim before coding.** Create the branch `roadmap/RM-nnn-short-slug` from `origin/main`, push it, and open a **draft PR** titled `RM-nnn: <title>` whose body is the filled-in PR template. The branch/PR is the claim `.github/scripts/roadmap.sh` sees; re-run `.github/scripts/roadmap.sh` first and if another claim appeared for the same ID in the meantime, abandon yours (close your draft) and pick again. (A draft PR needs at least one commit; push the roadmap's `claimed` note, or an empty commit `git commit --allow-empty -m "Claim RM-nnn"`.)
+5. **Implement the smallest slice** that meets the item's "Done when". Follow the Conventions above (AO3Client is the only network seam, parsers are pure, AppStorage for settings, VoiceOver labels, etc.). Prefer extending an existing file; a new source file is fine without a Mac: GitHub CI and Xcode Cloud (`ci_scripts/ci_post_clone.sh`) both run `xcodegen generate` before building, so the committed `.xcodeproj` can lag behind.
 6. **Test.** Add tests for every behavior change in `FanficlyTests/` (fixtures inline, no network), and add the feature's tests to the list in "Tests" below if it's a new area. A new `AO3ClientProtocol` method needs `MockAO3Client`, `DemoAO3Client` and `StubAO3Client` updated.
 7. **Validate honestly** (see "Which machine you're on").
 8. **Update the roadmap** in the same PR: set that item's `Status` to `done`, and nothing else in the file. Update AGENTS.md (the only agent guide; CLAUDE.md just imports it) if you added a convention or a gotcha; keep it to what the next agent can't see from the code.
@@ -387,12 +390,12 @@ environment (a shell variable alone does not reach the simulator test process).
 Use it deliberately, not as the default regression suite.
 
 Coverage map:
-- **Parsers** — `SearchResultsParserTests` (incl. the bookmarks page: `li.bookmark.blurb`, work id from the `/works/<id>` link, skipping series/external bookmarks), `WorkPageParserTests` (+ `LoginParserTests`, `CommentsParserTests` — threaded comment depth, guest comments, comment pagination, comment-form pseud id), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
+- **Parsers** — `SearchResultsParserTests` (incl. the bookmarks page: `li.bookmark.blurb`, work id from the `/works/<id>` link, skipping series/external bookmarks; and the readings page via `parseReadings`: deleted entries skipped, login page and non-readings pages fail closed), `WorkPageParserTests` (+ `LoginParserTests`, `CommentsParserTests` — threaded comment depth, guest comments, comment pagination, comment-form pseud id), `SubscriptionsParserTests`, `MediaCategoryParserTests`, `WorkMetadataParserTests`. Each feeds inline HTML fixtures and asserts the typed output.
 - **Search** — `SearchSyntaxTests` (everyday words like "teen wolf"/"supernatural"/"french kiss" stay keywords; the filter-only phrases; every `key:value` token; render⇄parse round trip; old saved-filter JSON still decodes), `SearchSuggestionsTests` (trailing-word extraction, local suggestions, AO3 tag ranking, applying a suggestion, recents, results count), `AO3SearchFiltersTests` (every `work_search[*]` field mapping, NOT-exclusion composition, Codable round-trip for saved filters), `TagResolverTests` (canonical resolution, ship slash variants, character-fallback ship resolution via `StubAO3Client`), `FandomCatalogTests` (fandom → category icon).
 - **Endpoints** — `AO3EndpointsTests` (URLs, pagination, AO3 media path-encoding).
 - **Reader** — `HTMLToAttributedTests` (formatting, paragraph collapsing, lists/headings/hr, transparent conversion caching), `ChapterTrackingTests` (anchor key/parse, topmost-anchor, current-chapter). In `ReaderMetricsTests.swift`: `ReaderSpreadTests` (when two pages show, the gutter on the Duo's fold), `PageAreaTrackerTests` (page-by-page's page height: shrink at once, grow once settled, fill the screen with the controls hidden, and full screen keeps one page or two), and `ReaderPaginationTests` — the pure `ReaderPaginator` across a device matrix (iPhone SE to Pro Max in both orientations, iPhone Duo folded and unfolded, iPad mini and Pro 13-inch in both, a Mac window) × three typography settings: no page runs past its page area, every page but a chapter's last is full (no more blank under its last line than a paragraph gap and a line), and every sentence lands on exactly one page, all measured as SwiftUI draws the page (`ReaderPageCell.pageContent`). `test_uncheckedPages_stillFitTheirPageArea` holds the iOS-only boundingRect path (the chapters either side of the one being read) to its area. It also re-paginates each layout 84 pt taller and shorter (the controls hiding and showing) from a mid-chapter `PageStart`: that page keeps its first words, stays on the left of its spread when two pages show, and it and every page after it are full. Re-paginating from one of its own page breaks changes nothing. Add a device there when the app gains a new screen shape.
 - **Reader layout (UI)** — `ReaderLayoutTests` (in `FanficlyUITests.swift`) drives demo mode with `-demoLongChapters` (a demo-only flag that makes chapters long enough for a full page mid-chapter) in page-by-page and checks what's drawn: the page footer (`reader.pageFooter`) sits on the bottom edge, each page's text ends within 75 pt of it (the bottom margin, a paragraph gap and a line) and never under it, and the page label doesn't change when the app is backgrounded or a keyboard comes up (the New Profile prompt; skipped where a hardware keyboard means none shows). Hiding the controls (full screen; the page footer goes too, iPhone Duo included) re-paginates, checked on one page and again in the wide window's spread: the page keeps its first words and, when it gained room for a new paragraph's first two lines, holds more text (it used to leave the controls' room blank); showing them keeps the first words again. It also checks a wide window (landscape, the Mac) shows a two-page spread exactly when `ReaderSpread`'s rule says so. Each step saves a screenshot (`01-page` … `09-wide-controls-back`) to `build/reader-layout-screenshots/<device>/` and the test result, taken before that step's checks so a failure still leaves a picture; CI uploads the folder as the `reader-layout-screenshots` artifact on every run. It runs on whatever destination you give it. Before shipping reader layout changes, run `bundle exec fastlane reader_layout_tests`: the iPhone, the iPad and the iPhone Duo in its current pose, then the Mac (`-destination 'platform=macOS,variant=Mac Catalyst'`). The Mac run drives the real app window, so hands off, and macOS asks for an administrator password to enable UI automation before it starts, so an unattended run sits waiting there. Then fold or unfold the Duo in Device Hub and run `bundle exec fastlane reader_layout_tests devices:"iPhone Duo" mac:false`. Unfolded, the tests hide the sidebar first, because beside it the reader is too narrow for the spread. Taps are aimed from the window, never from `app`, because the unfolded Duo reports `app.frame` in portrait.
-- **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow, plus author follow: `isAuthorFollowed`/`toggleFollowAuthor` with seeded work ids, empty-username guard) and `ReadingProgressStore` (save/load round-trips), plus `ReaderProfile` merging (incl. deletion tombstones), per-device key migration, the iCloud backup/restore merge rules (two simulated devices via `overrideBackupURL`; incl. notes and personal tags, and an old backup without them still decoding), and poller-level subscription-sync behavior.
+- **Persistence** — `PersistenceTests` spins up an in-memory `ModelContainer` to exercise `WorkPersistence` (upsert/metadata/follow, plus author follow: `isAuthorFollowed`/`toggleFollowAuthor` with seeded work ids, empty-username guard), the result-row badges (the `resultBadge` mapping for saved, started, finished and unknown works; `resultBadges` looks up a whole page with one fetch per model) and `ReadingProgressStore` (save/load round-trips), plus `ReaderProfile` merging (incl. deletion tombstones), per-device key migration, the iCloud backup/restore merge rules (two simulated devices via `overrideBackupURL`; incl. notes and personal tags, and an old backup without them still decoding), and poller-level subscription-sync behavior.
 - **Localization** — `LocalizationTests` (the String Catalog ships in the bundle and the moved screens' keys resolve to their English text).
 - **Misc** — `ThrottleActorTests` (1 req/sec throttle timing + a concurrency test asserting N simultaneous waiters are serialized, never bursted). `ResumeProgressPolicyTests` (widget resume never rewinds saved progress). `ReviewPromptTests` (rating-prompt policy gates; `ReadingStatsStore.record` flags only the read that finishes a story). `LibrarySortTests` (every sort key + direction, pinned-first, missing dates sink, stable ties). `NotificationRouteTests` (each poller notification's payload survives plist storage and decodes to the right tap destination, incl. old work-id-only payloads). `StubAO3Client` is a scriptable `AO3ClientProtocol` test double for resolution logic.
 
@@ -454,7 +457,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 **Add a new SwiftData model.** Define the `@Model` in `Models/Work.swift`. Add it to `FanficlyApp.sharedModelContainer`'s `Schema` (and the in-memory `Schema` in `PersistenceTests`). SwiftData will migrate automatically across additive schema changes; destructive changes need a versioned migration plan. `FollowedAuthor` is a recent example.
 
-**Add a new sidebar tab.** Add a case to `SidebarItem` (in `RootView.swift`) — order in the enum drives the sidebar order — give it a `title` + `systemImage`, add it to the `switch selectedDetailItem` in `mainSplitView`, and add a `Button`/`keyboardShortcut` to the "Go" `CommandMenu` in `FanficlyApp.swift` (renumber ⌘N to match). Recent examples: `popular`, `authors`, `bookmarks`. `xcodegen` isn't always available; prefer adding the tab's view to an existing file (e.g. `PopularView` in `BrowseView.swift`, `BookmarksView` in `SubscriptionsView.swift`, `FollowedAuthorsView` in `AuthorWorksView.swift`) over a new file, so the committed `.xcodeproj` doesn't need regenerating.
+**Add a new sidebar tab.** Add a case to `SidebarItem` (in `RootView.swift`) — order in the enum drives the sidebar order — give it a `title` + `systemImage`, add it to the `switch selectedDetailItem` in `mainSplitView`, and add a `Button` to the "Go" `CommandMenu` in `FanficlyApp.swift` in sidebar order. ⌘1–⌘9 are all taken, so a new tab's Go item gets no ⌘-number shortcut and nothing is renumbered (the Windows app's Ctrl+number list matches). Recent examples: `popular`, `authors`, `bookmarks`. To keep the diff small, prefer adding the tab's view to an existing file (e.g. `PopularView` in `BrowseView.swift`, `BookmarksView` in `SubscriptionsView.swift`, `FollowedAuthorsView` in `AuthorWorksView.swift`) over a new file (a new file also works: CI regenerates the project).
 
 **Run the app on a different device.** Replace `iPhone 17` in the build/run commands with whatever is available. CI auto-picks — see `../.github/workflows/ci.yml`.
 
@@ -469,6 +472,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 - Work subscription is a POST to `/works/<id>/subscriptions` with `subscription[subscribable_type]=Work` + token. Requires login.
 - **Subscription sync fails closed.** With an expired cookie AO3 302s the subscriptions page to the login form and URLSession follows it, so the client sees a 200 of login HTML. `SubscriptionsParser` throws `AO3Error.unauthorized` when the page contains a login form and `parseFailed` when it has neither a subscription list nor the index shell — and `syncSubscriptionList` skips its delete pass on any empty fetch, so markup drift or a stale session can never mass-delete `SubscriptionRecord`s (and their `lastSeenChapterCount` baselines). `fetchSubscriptions` walks every page of `/users/<name>/subscriptions` (50-page ceiling); any page failing throws the whole call so a partial list can't reach the delete pass.
 - **Bookmarks** — `/users/<name>/bookmarks` (paginated) lists works in `li.bookmark.blurb` (vs. `li.work.blurb` on search), so `AO3Client.fetchBookmarks` reuses `SearchResultsParser.parse(html:blurbSelector:)`. The `<li>` id is `bookmark_<id>`, not `work_<id>`, so `parseBlurb` falls back to the `/works/<id>` title link for the work id (`SearchResultsParser.workId(fromHref:)`); series/external/deleted bookmarks have no such link and are skipped. The `BookmarksView` tab is login-gated (private bookmarks need the session cookie) and live-fetched with infinite scroll.
+- **Marked for Later** — `/users/<name>/readings?show=to-read` (paginated with AO3's pagy nav, which still renders `ol.pagination` with an inner `.current`). Entries are `li.reading.work.blurb` with id `work_<id>` around the usual blurb; deleted works keep an entry with no id or title link and are skipped. `AO3Client.fetchMarkedForLater` uses `SearchResultsParser.parseReadings`, which fails closed: a login form throws `unauthorized`, and a page without the `div.readings-index` shell throws `parseFailed` (AO3 redirects readers with history turned off to `preferences-index`, which gets its own message). The tab is `ReadingListView(list: .markedForLater)` in `SubscriptionsView.swift`, login-gated and read-only; the `AO3ReadingList` enum holds its titles and fetch. It has no ⌘-number shortcut (⌘1–⌘9 are taken).
 - **Comments are per-chapter when the AO3 chapter ID is known.** `AO3Client.fetchComments(workId:chapterId:page:)` loads `chapterComments` or falls back to `workComments` (the first chapter's thread), with `show_comments=true`. `CommentsParser` in `WorkPageParser.swift` parses threaded comment bodies and depth. AO3 pages a thread by top-level comment (`page=`); `CommentsParser.parsePage` reads the will_paginate list inside `#comments_placeholder` (verified against otwarchive's `comments/_commentable` and its list renderer), and `CommentsView` appends the next page from "Load more comments", skipping ids it already shows. Posting requires login and replays the **live form** from `CommentsParser.newCommentForm`: its action URL, CSRF token, pseud ID, and hidden `commentable_id`/`commentable_type` fields determine the destination. Do not hardcode a work-level POST. `CommentsView` re-fetches after posting (AO3 may moderate new comments). `Chapter.aoId` is optional for older downloads; `SavedWorkReader.ensureChapterIds` fetches and persists missing IDs without replacing saved text.
 - Browse-by-fandom hits `/media/<category>/fandoms`; category names are path-encoded with AO3's scheme (`&`→`*a*`, `/`→`*s*`, `.`→`*d*`, etc. — see `AO3Endpoints.ao3PathEncode`).
 - Tag autocomplete: `/autocomplete/{relationship,character,freeform,fandom}?term=…` returns JSON `[{id,name}]`. Used to resolve user-typed filter tags to canonical names before searching. **Two gotchas, both must hold or you get a 404 and tags silently don't resolve:** (1) the request must send `Accept: application/json` — the shared session defaults to `Accept: text/html`, and AO3's Rails content-negotiation 404s the JSON-only route on an HTML Accept; (2) the `term` must be percent-encoded including `/` (→`%2F`), because `URLComponents` leaves a raw slash in query values and AO3 404s on it. A ship like `Hermione/Draco` hits both.
@@ -550,12 +554,18 @@ Keep those shared files free of app-only models/UI dependencies;
 - `fanficly://library?folder=<name>` selects Library, then a deferred
   `PinnedFolderRoute` opens the named folder. Folder identity in this route is
   its name; a missing/renamed folder shows Folder Not Found.
-- `fanficly://search?query=<prompt>` selects Search and writes
+- `fanficly://search?query=<value>` selects Search and writes
   `search.pendingQuery`; `SearchView.consumePendingQuery` consumes/clears it
-  and loads the prompt via `SearchSyntax`. **Current limitation:** the widget
-  also includes saved-filter JSON in this same query field, but the consumer
-  expects prompt syntax, not JSON. Do not assume saved filters round-trip through
-  that route; an implementation change needs an explicit encoding contract/test.
+  and loads it via `SearchSyntax`. **Contract:** the value is a saved search's
+  prompt or a saved filter's `savedJSON()`. `AO3SearchFilters.savedFilter(fromRouteQuery:)`
+  decodes JSON (a value starting with `{`), which runs as saved, sort included,
+  without going through the prompt parser (so a keyword like "complete" stays a
+  keyword); anything else, malformed JSON included, runs as prompt text. Build the link
+  with `WidgetSavedSearch.searchURL`, which also escapes `&`, `=`, `+` and `#`
+  (a ship like "A & B" was cut off at the `&`), and read it with
+  `WidgetSavedSearch.routeQuery(from:)`. The Windows app also decodes the JSON
+  (RM-102), so keep the widget's JSON format. `WidgetDataStoreTests`
+  holds the round trip.
 - Subscription/recommendation widgets use `fanficly://resume/<id>`; unlike
   notification work routes, this can open the saved copy.
 
@@ -659,6 +669,17 @@ the list that taps through to the Stats tab (by setting `app.selectedTabRaw`).
 The Stats screen's toolbar Share button renders `WrapShareCard` (a portrait
 wrap-up image for the selected period on the indigo brand canvas) via
 `ImageRenderer` and presents it through the shared `ShareSheet`.
+
+**Yearly reading goal** (RM-011): an optional count of stories to finish this
+year in `@AppStorage(ReadingGoal.storageKey)` (`reading.yearlyGoal`, 0 = no
+goal), per-device and deliberately not in the iCloud backup. The Stats tab shows
+a `ReadingGoalCard` ring (or a "Set a 2026 Reading Goal" button, also on the
+empty state) on All Time and the current year only, and `WrapShareCard` adds a
+goal row for those scopes. "This year's finished" is `summarize(…, interval:
+<this year>).storiesRead`, the wrap's rule; with no finish date stored, a story
+finished last year and reopened this year counts too. Pace is
+the pure `ReadingStatsAggregator.goalProgress` (an even spread across the year,
+rounded down, so January 1st is "On pace"), tested in `PersistenceTests`.
 
 `ReadingStat` is registered in `FanficlyApp.sharedModelContainer`'s `Schema`
 (and `PersistenceTests`' in-memory schema), included in `iCloudSyncManager`
