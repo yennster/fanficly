@@ -223,9 +223,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           # The Windows What's New from bin/release-notes.py: the written notes
           # when given, else the Windows changes merged since the last release.
+          # Empty (no Windows changes) keeps windows/store/listing/en-us/release_notes.txt.
           NOTES: ${{ needs.notes.outputs.windows_notes }}
         run: |
-          gh workflow run windows-store.yml --ref main -f submit=true -f release_notes="$NOTES"
+          if [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            gh workflow run windows-store.yml --ref main -f submit=true -f release_notes="$NOTES"
+          else
+            gh workflow run windows-store.yml --ref main -f submit=true
+          fi
           echo "Started the Windows Store release: approve it under Actions > Windows Store release." >> "$GITHUB_STEP_SUMMARY"
 
   docs:
@@ -299,10 +304,14 @@ jobs:
             echo
             cat notes/notes.txt
             echo
-            echo "### Windows"
-            echo
-            cat notes/notes-windows.txt
-            echo
+            # The tag marks where every app's next notes start, so only list
+            # Windows when this run shipped it too.
+            if [ "$PLATFORM" = all ] && [ -n "$(tr -d '[:space:]' < notes/notes-windows.txt)" ]; then
+              echo "### Windows"
+              echo
+              cat notes/notes-windows.txt
+              echo
+            fi
             cat notes/changes.md
             echo "App Store: version $VERSION, build $BUILD ($where). Submit for review in App Store Connect."
           } > github-release.md

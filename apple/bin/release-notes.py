@@ -14,7 +14,8 @@ Writes into build/release/ (relative to apple/):
   previous-tag.txt   the last v* tag before HEAD (empty for the first release)
   changes.md         all of the above as Markdown, for the GitHub release
   notes.txt          the App Store "What's New" / TestFlight text
-  notes-windows.txt  the Microsoft Store "What's new in this version" text
+  notes-windows.txt  the Microsoft Store "What's new in this version" text (empty
+                     when no change touched the Windows app)
 
 The store notes list the user-facing changes: pull requests and direct commits
 that change an app's code (apple/Fanficly*/ for the Apple notes,
@@ -64,9 +65,13 @@ def repo_slug() -> str:
     return m.group(1)
 
 
-def gh_api(path: str) -> object:
-    out = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
-    return json.loads(out)
+def gh_api(path: str, missing_ok: bool = False) -> object:
+    done = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    if done.returncode != 0:
+        if missing_ok and "HTTP 404" in done.stderr:
+            return None
+        sys.exit(f"gh api {path} failed: {done.stderr.strip()}")
+    return json.loads(done.stdout)
 
 
 def tidy(title: str) -> str:
@@ -77,16 +82,17 @@ def tidy(title: str) -> str:
     return t[:1].upper() + t[1:]
 
 
-def bullets(lines: list[str], limit: int) -> str:
+def bullets(lines: list[str], limit: int, fallback: str = FALLBACK) -> str:
+    more = "• …and more fixes and improvements"
     out: list[str] = []
-    for line in lines:
+    for i, line in enumerate(lines):
         candidate = "\n".join(out + [f"• {line}"])
-        more = "\n• …and more fixes and improvements"
-        if len(candidate) + len(more) > limit:
-            out.append("• …and more fixes and improvements")
+        # Room for this line, plus the "…and more" line unless it's the last.
+        if len(candidate) + (0 if i == len(lines) - 1 else len(more) + 1) > limit:
+            out.append(more)
             break
         out.append(f"• {line}")
-    return "\n".join(out) if out else FALLBACK
+    return "\n".join(out) if out else fallback
 
 
 def main() -> None:
@@ -106,9 +112,12 @@ def main() -> None:
     tsv = Path("../.github/release-notes.tsv")
     if tsv.exists():
         for row in tsv.read_text().splitlines():
-            if row.strip() and not row.startswith("#"):
-                number, text = row.split("\t", 1)
-                overrides[int(number)] = text.strip()
+            number, tab, text = row.strip().partition("\t")
+            if row.strip().startswith("#") or not row.strip():
+                continue
+            if not tab or not number.isdigit():
+                sys.exit(f"{tsv}: expected '<PR number><tab><text>', got {row!r}")
+            overrides[int(number)] = text.strip()
 
     # Each change on main: (kind, number or sha, title, files, release-note override).
     changes = []
@@ -116,12 +125,12 @@ def main() -> None:
     for line in filter(None, log.splitlines()):
         sha, subject = line.split("\t", 1)
         # Files the change added, edited or deleted; a file that only moved isn't a change.
-        files = run("git", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--first-parent",
+        files = run("git", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "--first-parent", "--root",
                     "-M", "--diff-filter=ACDMT", sha).splitlines()
         m = re.search(r"\(#(\d+)\)$", subject) or re.match(r"Merge pull request #(\d+)\b", subject)
-        if m:
-            number = int(m.group(1))
-            pr = gh_api(f"repos/{slug}/pulls/{number}")
+        pr = gh_api(f"repos/{slug}/pulls/{m.group(1)}", missing_ok=True) if m else None
+        if pr:  # "(#N)" can also name an issue; then it's a plain commit
+            number = pr["number"]
             body = pr.get("body") or ""
             note = re.search(r"(?im)^\s*release note:\s*(.+?)\s*$", body)
             override = overrides.get(number) or (note.group(1) if note else None)
@@ -189,7 +198,9 @@ def main() -> None:
         windows_text = notes if len(notes) <= WINDOWS_LIMIT else notes[:WINDOWS_LIMIT - 1].rstrip() + "…"
     else:
         apple_text = bullets(store_lines("Apple"), APPLE_LIMIT)
-        windows_text = bullets(store_lines("Windows"), WINDOWS_LIMIT)
+        # Empty when nothing changed on Windows: the Store release then keeps
+        # windows/store/listing/en-us/release_notes.txt.
+        windows_text = bullets(store_lines("Windows"), WINDOWS_LIMIT, fallback="")
     (out_dir / "notes.txt").write_text(apple_text + "\n")
     (out_dir / "notes-windows.txt").write_text(windows_text + "\n")
 
