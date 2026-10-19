@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 
@@ -431,4 +432,89 @@ public static class KudosParser
     /// the same for a signed-in user (one per account) and a guest (one per IP).</summary>
     public static bool IsAlreadyLeft(string message) =>
         message.Contains("already left kudos", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>Reads the bookmark form AO3 renders on a work page for a signed-in user
+/// (<c>div#bookmark_form_placement</c>, from otwarchive's <c>bookmarks/_bookmark_form</c>;
+/// Swift's <c>BookmarkFormParser</c>). AO3 fills it from the user's existing
+/// bookmark, so the same form both creates and edits.</summary>
+public static class BookmarkFormParser
+{
+    /// <summary>Null when the page has no bookmark form (signed out).</summary>
+    public static AO3BookmarkForm? Parse(string html, Uri baseUri)
+    {
+        var doc = HtmlDom.Parse(html);
+        var candidates = doc.Select("form")
+            .Where(f => f.SelectFirst("textarea[name='bookmark[bookmarker_notes]']") is not null).ToList();
+        var form = candidates.FirstOrDefault(IsInsidePlacement) ?? candidates.FirstOrDefault();
+        if (form is null) return null;
+
+        var actionStr = form.Attr("action");
+        if (actionStr.Length == 0 || !Uri.TryCreate(baseUri, actionStr, out var action)) return null;
+
+        var hidden = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var input in form.Select("input[type='hidden']"))
+        {
+            var name = input.Attr("name");
+            if (name.Length == 0) continue;
+            hidden[name] = input.Attr("value");
+        }
+        // Several pseuds render a <select> instead of a hidden input.
+        if (form.SelectFirst("select[name='bookmark[pseud_id]']") is { } select)
+        {
+            var option = select.SelectFirst("option[selected]") ?? select.SelectFirst("option");
+            if (option.Attr("value") is { Length: > 0 } value) hidden["bookmark[pseud_id]"] = value;
+        }
+        // Rails pairs each checkbox with a hidden "0"; the edited value is sent instead.
+        hidden.Remove("bookmark[private]");
+        hidden.Remove("bookmark[rec]");
+
+        var method = hidden.GetValueOrDefault("_method", "").ToLowerInvariant();
+        return new AO3BookmarkForm(action, hidden, IsExisting: method is "put" or "patch")
+        {
+            Notes = TextareaValue(form, "bookmark[bookmarker_notes]"),
+            Tags = InputValue(form, "bookmark[tag_string]"),
+            Collections = OptionalInputValue(form, "bookmark[collection_names]"),
+            IsPrivate = IsChecked(form, "bookmark[private]"),
+            IsRec = IsChecked(form, "bookmark[rec]"),
+        };
+    }
+
+    /// <summary>The messages in AO3's <c>div#error</c> list after a rejected save.</summary>
+    public static IReadOnlyList<string> SaveErrors(string html) => Texts(html, "div#error li");
+
+    /// <summary>An error flash: a refused pseud or account redirects elsewhere with one.</summary>
+    public static IReadOnlyList<string> FlashErrors(string html) => Texts(html, "div.flash.error");
+
+    private static List<string> Texts(string html, string selector) =>
+        HtmlDom.Parse(html).Select(selector).Select(e => e.Text()).Where(t => t.Length > 0).ToList();
+
+    /// <summary>True for <c>/bookmarks/&lt;id&gt;</c>, where AO3 redirects a saved bookmark.</summary>
+    public static bool IsBookmarkPage(string path) =>
+        path.SwiftSplit('/') is ["bookmarks", var id] && int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out _);
+
+    private static bool IsInsidePlacement(IElement el)
+    {
+        for (var n = el.ParentElement; n is not null; n = n.ParentElement)
+            if (n.Id == "bookmark_form_placement") return true;
+        return false;
+    }
+
+    /// <summary>Raw textarea text, so notes keep their line breaks (<c>Text()</c>
+    /// collapses whitespace). HTML drops one newline right after <c>&lt;textarea&gt;</c>.</summary>
+    private static string TextareaValue(IElement form, string name)
+    {
+        if (form.SelectFirst($"textarea[name='{name}']") is not { } area) return "";
+        var text = area.TextContent;
+        if (text.StartsWith("\r\n", StringComparison.Ordinal)) return text[2..];
+        return text.StartsWith('\n') ? text[1..] : text;
+    }
+
+    private static string InputValue(IElement form, string name) => OptionalInputValue(form, name) ?? "";
+
+    private static string? OptionalInputValue(IElement form, string name) =>
+        form.SelectFirst($"input[name='{name}']:not([type='hidden'])") is { } input ? input.Attr("value") : null;
+
+    private static bool IsChecked(IElement form, string name) =>
+        form.SelectFirst($"input[type='checkbox'][name='{name}']")?.HasAttribute("checked") == true;
 }

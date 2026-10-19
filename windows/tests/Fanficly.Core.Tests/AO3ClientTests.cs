@@ -706,6 +706,169 @@ public sealed class AO3ClientTests : IDisposable
         await MakeClient().SubscribeToWorkAsync(42);
     }
 
+    // MARK: - Bookmarks
+
+    private static AO3BookmarkForm NewBookmarkForm() =>
+        BookmarkFormParser.Parse(BookmarkFormParserTests.NewForm, new Uri("https://archiveofourown.org"))!;
+
+    [Fact]
+    public async Task FetchBookmarkFormReadsTheWorkPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html(BookmarkFormParserTests.ExistingForm));
+        var form = await MakeClient().FetchBookmarkFormAsync(12345);
+
+        // The work's own page: the whole work isn't needed for the form.
+        Assert.Equal("https://archiveofourown.org/works/12345?view_adult=true",
+            Assert.Single(_handler.Requests).Uri.AbsoluteUri);
+        Assert.True(form.IsExisting);
+        Assert.Equal("https://archiveofourown.org/bookmarks/999", form.Action.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task FetchBookmarkFormSignedOutNeedsASignIn()
+    {
+        _handler.Respond(_ => FakeHandler.Html("<html><body><div id=\"workskin\"></div></body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchBookmarkFormAsync(12345));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task ASignedInPageWithoutTheFormIsNotAnExpiredSession()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><ul id="greeting"><li><a href="/users/reader">Hi, reader!</a></li></ul>
+            <div id="main"><p>Something went wrong.</p></div></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchBookmarkFormAsync(12345));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
+
+    [Fact]
+    public async Task SaveBookmarkPostsTheFormToItsAction()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Redirect("/bookmarks/1000"),
+            _ => FakeHandler.Html("""<html><body><div class="flash notice">Bookmark was successfully created.</div></body></html>"""));
+        var form = NewBookmarkForm();
+        form.Notes = "So good";
+        form.Tags = "comfort read";
+        form.IsRec = true;
+        await MakeClient().SaveBookmarkAsync(form);
+
+        var post = _handler.Requests[0];
+        Assert.Equal("POST", post.Method);
+        Assert.Equal("https://archiveofourown.org/works/12345/bookmarks", post.Uri.AbsoluteUri);
+        Assert.Equal("TOK123", post.Header("X-CSRF-Token"));
+        Assert.Equal("https://archiveofourown.org", post.Header("Origin"));
+        Assert.Equal("https://archiveofourown.org/works/12345/bookmarks", post.Header("Referer"));
+        var fields = post.Body!.Split('&');
+        Assert.Contains("authenticity_token=TOK123", fields);
+        Assert.Contains("bookmark%5Bpseud_id%5D=20", fields);
+        Assert.Contains("bookmark%5Bbookmarker_notes%5D=So%20good", fields);
+        Assert.Contains("bookmark%5Btag_string%5D=comfort%20read", fields);
+        Assert.Contains("bookmark%5Bprivate%5D=0", fields);
+        Assert.Contains("commit=Create", fields);
+        // Each checkbox once: Rails' hidden "0" isn't sent alongside the value.
+        Assert.Equal("bookmark%5Brec%5D=1", Assert.Single(fields, f => f.StartsWith("bookmark%5Brec%5D=", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task ABookmarkThatEndsAtLoginNeedsASignIn()
+    {
+        _handler.Respond(_ => FakeHandler.Redirect("/users/login"), _ => FakeHandler.Html(LoginFormHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SaveBookmarkAsync(NewBookmarkForm()));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task ABookmarkAO3RefusesThrowsItsErrors()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="error" class="error"><h4>Sorry! We couldn't save this bookmark because:</h4>
+            <ul><li>Notes must be less than 5000 characters long.</li><li>Tag is too long</li></ul></div></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SaveBookmarkAsync(NewBookmarkForm()));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal("Notes must be less than 5000 characters long. Tag is too long", e.Reason);
+    }
+
+    [Fact]
+    public async Task ARefusedPseudRedirectsWithAFlash()
+    {
+        // A refused pseud or a suspended account redirects away with an error flash.
+        _handler.Respond(
+            _ => FakeHandler.Redirect("/"),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">You can't bookmark with that pseud.</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SaveBookmarkAsync(NewBookmarkForm()));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal("You can't bookmark with that pseud.", e.Reason);
+    }
+
+    [Fact]
+    public async Task AFlashOnTheSavedBookmarksPageIsStillASave()
+    {
+        // Say, a collection it couldn't join: the bookmark itself was saved.
+        _handler.Respond(
+            _ => FakeHandler.Redirect("/bookmarks/1000"),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">Couldn't add to my_collection.</div></body></html>"""));
+        await MakeClient().SaveBookmarkAsync(NewBookmarkForm());
+    }
+
+    [Fact]
+    public async Task AFailedUpdateOnItsOwnPageThrowsTheFormErrors()
+    {
+        // A failed update re-renders at /bookmarks/<id>, so form errors decide first.
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="error" class="error"><ul><li>Tag is too long</li></ul></div></body></html>
+            """));
+        var form = BookmarkFormParser.Parse(BookmarkFormParserTests.ExistingForm, new Uri("https://archiveofourown.org"))!;
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SaveBookmarkAsync(form));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal("Tag is too long", e.Reason);
+    }
+
+    [Fact]
+    public async Task ABookmarkEndingAnywhereButItsPageWasNotSaved()
+    {
+        _handler.Respond(_ => FakeHandler.Redirect("/works/12345"), _ => FakeHandler.Html("<html><body></body></html>"));
+        var form = BookmarkFormParser.Parse(BookmarkFormParserTests.ExistingForm, new Uri("https://archiveofourown.org"))!;
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SaveBookmarkAsync(form));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal("AO3 didn't save the bookmark.", e.Reason);
+    }
+
+    [Fact]
+    public async Task ANewBookmarkStillOnTheFormWasNotSaved()
+    {
+        // A create that stays on the create URL was re-rendered, not saved.
+        _handler.Respond(_ => FakeHandler.Html(BookmarkFormParserTests.NewForm));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SaveBookmarkAsync(NewBookmarkForm()));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal("AO3 didn't save the bookmark.", e.Reason);
+    }
+
+    [Fact]
+    public async Task AnUpdatedBookmarkLandsOnItsPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""<html><body><div class="flash notice">Bookmark was successfully updated.</div></body></html>"""));
+        var form = BookmarkFormParser.Parse(BookmarkFormParserTests.ExistingForm, new Uri("https://archiveofourown.org"))!;
+        await MakeClient().SaveBookmarkAsync(form);
+
+        var post = Assert.Single(_handler.Requests);
+        Assert.Equal("https://archiveofourown.org/bookmarks/999", post.Uri.AbsoluteUri);
+        Assert.Contains("_method=put", post.Body!.Split('&'));
+        Assert.Contains("commit=Update", post.Body!.Split('&'));
+    }
+
+    [Fact]
+    public async Task ABookmarkPostIsNeverRetried()
+    {
+        _handler.Respond(_ => throw new HttpRequestException(HttpRequestError.ConnectionError, "refused"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SaveBookmarkAsync(NewBookmarkForm()));
+        Assert.Equal(AO3ErrorKind.Network, e.Kind);
+        Assert.Equal(["POST"], _handler.Requests.Select(r => r.Method));
+    }
+
     [Fact]
     public async Task ARestrictedWorkSignedOutIsNotReadAsOneChapter()
     {

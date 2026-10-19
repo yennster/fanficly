@@ -67,6 +67,8 @@ internal sealed class PollerFakeClient : IAO3Client
     public Task<string> ExportWorkAsync(int workId, WorkExportFormat format, string filename, CancellationToken ct = default) => throw new NotSupportedException();
     public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 /// <summary>Collects posted notifications.</summary>
