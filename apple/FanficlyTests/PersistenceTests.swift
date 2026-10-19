@@ -214,6 +214,64 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(all.storiesRead, 2)
     }
 
+    // MARK: Yearly reading goal (RM-011)
+
+    private var utcGregorian: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }
+
+    private func utcDate(_ year: Int, _ month: Int, _ dayOfMonth: Int, hour: Int = 0) -> Date {
+        utcGregorian.date(from: DateComponents(year: year, month: month, day: dayOfMonth, hour: hour))!
+    }
+
+    func test_goalProgress_atYearStartIsOnPace() throws {
+        let p = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 0, goal: 52, now: utcDate(2026, 1, 1, hour: 1), calendar: utcGregorian))
+        XCTAssertEqual(p.expected, 0)
+        XCTAssertEqual(p.ahead, 0)
+        XCTAssertEqual(p.fraction, 0, accuracy: 0.0001)
+        XCTAssertFalse(p.isComplete)
+        XCTAssertEqual(p.paceLabel, "On pace")
+    }
+
+    func test_goalProgress_midYearReportsAheadAndBehind() throws {
+        // July 2 2026 00:00 UTC is 182 of 365 days in: an even pace of 24 a
+        // year expects 11 (11.97 rounded down).
+        let mid = utcDate(2026, 7, 2)
+        let onPace = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 11, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(onPace.expected, 11)
+        XCTAssertEqual(onPace.paceLabel, "On pace")
+        XCTAssertEqual(onPace.fraction, 11.0 / 24.0, accuracy: 0.0001)
+
+        let ahead = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 14, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(ahead.ahead, 3)
+        XCTAssertEqual(ahead.paceLabel, "3 ahead")
+
+        let behind = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 9, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(behind.ahead, -2)
+        XCTAssertEqual(behind.paceLabel, "2 behind")
+    }
+
+    func test_goalProgress_pastTheGoalIsCompleteWithAFullRing() throws {
+        let p = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 30, goal: 20, now: utcDate(2026, 9, 1), calendar: utcGregorian))
+        XCTAssertTrue(p.isComplete)
+        XCTAssertEqual(p.fraction, 1, accuracy: 0.0001)
+        XCTAssertEqual(p.paceLabel, "Goal reached")
+    }
+
+    func test_goalProgress_zeroGoalIsHidden() {
+        XCTAssertNil(ReadingStatsAggregator.goalProgress(
+            finished: 5, goal: 0, now: utcDate(2026, 6, 1), calendar: utcGregorian))
+        XCTAssertNil(ReadingStatsAggregator.goalProgress(
+            finished: 5, goal: -3, now: utcDate(2026, 6, 1), calendar: utcGregorian))
+    }
+
     func test_backfill_seedsZeroTimeStatsFromHistory() throws {
         let ctx = try makeContext()
         let read = day(2026, 5, 10)
