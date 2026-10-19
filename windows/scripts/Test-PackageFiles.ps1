@@ -4,7 +4,8 @@
   needs at run time but the build can silently leave out.
 
 .DESCRIPTION
-  Opens each .msixupload (or .msixbundle) under -Package, then each .msix inside,
+  Opens each .msixupload (or, without one, .msixbundle) under -Package, then each
+  architecture .msix inside,
   and checks for every name in -Required at the package root. msquic.dll is the
   reason this exists: Native AOT drops it with the runtime pack's other native
   files, and without it .NET has no HTTP/3, so the app falls back to HTTP/2, where
@@ -32,14 +33,18 @@ function Get-AppPackages([System.IO.Compression.ZipArchive] $zip, [string] $wher
             $inner = $entry.Open()
             try { Get-AppPackages (Open-Zip $inner) "$where > $name" } finally { $inner.Dispose() }
         }
-        elseif ($name -match '\.(msix|appx)$') {
+        elseif ($name -match '_(x64|arm64|x86)\.(msix|appx)$') {
+            # Architecture packages only: resource packages (scale-150,
+            # language-*) carry assets, never binaries.
             $inner = $entry.Open()
             try { [pscustomobject]@{ Name = "$where > $name"; Zip = (Open-Zip $inner) } } finally { $inner.Dispose() }
         }
     }
 }
 
-$containers = @(Get-ChildItem $Package -Recurse -Include *.msixupload, *.msixbundle)
+# The Store upload holds the bundle; the _Test folder's bundle is the same one.
+$containers = @(Get-ChildItem $Package -Recurse -Filter *.msixupload)
+if ($containers.Count -eq 0) { $containers = @(Get-ChildItem $Package -Recurse -Filter *.msixbundle) }
 if ($containers.Count -eq 0) { throw "No .msixupload or .msixbundle under $Package." }
 
 $checked = 0
