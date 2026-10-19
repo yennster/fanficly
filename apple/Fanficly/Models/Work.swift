@@ -47,6 +47,15 @@ final class Work {
     var isStarred: Bool = false
     var isPinned: Bool = false
 
+    /// The reader's own note and tags ("for a bad day", "reread at
+    /// Christmas"), separate from AO3's tags. Additive (defaulted) so
+    /// SwiftData migrates existing stores automatically.
+    var note: String?
+    var personalTags: [String] = []
+    /// When the note or tags were last edited on any device; nil until then.
+    /// The newest edit wins in backup merges, so clearing a note sticks.
+    var notesUpdatedAt: Date?
+
     @Relationship(deleteRule: .cascade, inverse: \Chapter.work)
     var chapters: [Chapter] = []
 
@@ -102,6 +111,35 @@ final class Work {
         self.publishedAt = publishedAt
         self.updatedAt = updatedAt
         self.savedAt = savedAt
+    }
+}
+
+extension Work {
+    /// Splits the notes sheet's comma-separated tag field into tags: trimmed,
+    /// empties dropped, duplicates (ignoring case) dropped, first spelling kept.
+    static func personalTags(from text: String) -> [String] {
+        var seen = Set<String>()
+        var tags: [String] = []
+        for part in text.split(separator: ",") {
+            let tag = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tag.isEmpty, seen.insert(tag.lowercased()).inserted else { continue }
+            tags.append(tag)
+        }
+        return tags
+    }
+
+    /// Stores what the notes sheet edited. A blank note is stored as nil.
+    /// Stamps `notesUpdatedAt` only when something actually changed.
+    func setNotes(note text: String, tagsText: String, now: Date = .now) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newNote: String? = trimmed.isEmpty ? nil : trimmed
+        let newTags = Work.personalTags(from: tagsText)
+        guard newNote != note || newTags != personalTags else { return }
+        note = newNote
+        personalTags = newTags
+        // Whole seconds, like the backup file's dates, so this device's stamp
+        // and its own backed-up copy compare equal.
+        notesUpdatedAt = Date(timeIntervalSince1970: now.timeIntervalSince1970.rounded(.down))
     }
 }
 

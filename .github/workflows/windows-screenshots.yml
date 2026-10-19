@@ -5,8 +5,8 @@ name: Windows screenshots
 # ScreenshotTests) at a desktop, an upright tablet and a narrow window, plus
 # 4K "store" captures (the app drawn at 2x), builds the Store art from those
 # (windows/scripts/make_store_art.py), then commits the pictures to the branch it ran on:
-#   docs/screenshots/windows/{desktop,tablet,compact}/  README and docs
-#   docs/screenshots/windows/showcase.jpg               README strip
+#   windows/docs/screenshots/{desktop,tablet,compact}/  README and docs
+#   windows/docs/screenshots/showcase.jpg               README strip
 #   windows/store/screenshots/en-us/                    the Store listing (3840x2160)
 #   windows/store/images/en-us/                         hero, box and poster art
 # Run it after a visual change from the Actions tab (on a PR branch to commit
@@ -15,7 +15,7 @@ name: Windows screenshots
 on:
   push:
     branches: [main]
-    paths: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
+    paths: ['windows/**', '.github/workflows/windows-*.yml']
   workflow_dispatch:
 
 permissions:
@@ -85,7 +85,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/screenshots/windows windows/store/screenshots windows/store/images
+          git add windows/docs/screenshots windows/store/screenshots windows/store/images
           if (git diff --cached --quiet) { Write-Host 'Screenshots unchanged.'; exit 0 }
           git commit -m 'Windows: refresh screenshots' -m "Captured by the Windows screenshots workflow (run ${{ github.run_id }})."
           # The branch may have moved on while the run captured; put the

@@ -15,6 +15,7 @@ struct LibraryView: View {
     @State private var showingCreateFolderAlert = false
     @State private var newFolderName = ""
     @State private var workMovingToFolder: Work?
+    @State private var workEditingNotes: Work?
     @State private var searchText = ""
 
     enum LibraryFilter: String, CaseIterable, Identifiable {
@@ -231,6 +232,12 @@ struct LibraryView: View {
                                 } label: {
                                     Label("Folders...", systemImage: "folder")
                                 }
+
+                                Button {
+                                    workEditingNotes = work
+                                } label: {
+                                    Label("Note & Tags...", systemImage: "note.text")
+                                }
                                 
                                 if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
                                     ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
@@ -263,7 +270,7 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("Library")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search titles, authors, or tags")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search titles, authors, tags, or notes")
         .navigationDestination(for: Work.self) { work in
             SavedWorkReader(work: work)
         }
@@ -273,6 +280,9 @@ struct LibraryView: View {
         .workAndAuthorDestinations()
         .sheet(item: $workMovingToFolder) { work in
             FolderSelectionSheet(work: work)
+        }
+        .sheet(item: $workEditingNotes) { work in
+            WorkNotesSheet(work: work)
         }
         .alert("New Folder", isPresented: $showingCreateFolderAlert) {
             TextField("Folder Name", text: $newFolderName)
@@ -419,6 +429,24 @@ struct LibraryRow: View {
                     let isFolder = work.folders.contains(where: { $0.name == item })
                     LibraryMetadataPill(text: item, isFolder: isFolder)
                 }
+                ForEach(work.personalTags, id: \.self) { tag in
+                    LibraryMetadataPill(text: tag, isPersonalTag: true)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Your tag: \(tag)")
+                }
+            }
+
+            if let note = work.note, !note.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Image(systemName: "note.text")
+                        .accessibilityHidden(true)
+                    Text(note)
+                        .lineLimit(2)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Your note: \(note)")
             }
 
             if showReadingProgress {
@@ -516,6 +544,7 @@ private struct LibraryStatusBadges: View {
 private struct LibraryMetadataPill: View {
     let text: String
     var isFolder = false
+    var isPersonalTag = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -523,12 +552,16 @@ private struct LibraryMetadataPill: View {
                 Image(systemName: "folder")
                     .font(.caption2)
                     .accessibilityHidden(true)
+            } else if isPersonalTag {
+                Image(systemName: "tag")
+                    .font(.caption2)
+                    .accessibilityHidden(true)
             }
             Text(text)
                 .lineLimit(1)
         }
         .font(.caption2)
-        .foregroundStyle(isFolder ? Color.accentColor : .secondary)
+        .foregroundStyle(isFolder ? Color.accentColor : isPersonalTag ? Color.purple : .secondary)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background {
@@ -537,7 +570,9 @@ private struct LibraryMetadataPill: View {
             // pill reads as inset from the flush title/author text. A near-
             // vertical left edge lines the pills up with the text.
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isFolder ? Color.accentColor.opacity(0.12) : Color(.tertiarySystemFill))
+                .fill(isFolder ? Color.accentColor.opacity(0.12)
+                      : isPersonalTag ? Color.purple.opacity(0.12)
+                      : Color(.tertiarySystemFill))
         }
     }
 }
@@ -555,6 +590,7 @@ struct FolderDetailView: View {
 
     @State private var editMode: EditMode = .inactive
     @State private var selectedWorkIds = Set<PersistentIdentifier>()
+    @State private var workEditingNotes: Work?
 
     init(folder: CustomFolder, initialSearchText: String = "") {
         self.folder = folder
@@ -615,6 +651,12 @@ struct FolderDetailView: View {
                             } label: {
                                 Label(work.isPinned ? "Unpin" : "Pin", systemImage: work.isPinned ? "pin.slash" : "pin")
                             }
+
+                            Button {
+                                workEditingNotes = work
+                            } label: {
+                                Label("Note & Tags...", systemImage: "note.text")
+                            }
                             
                             if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
                                 ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
@@ -665,6 +707,9 @@ struct FolderDetailView: View {
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search stories in folder")
+        .sheet(item: $workEditingNotes) { work in
+            WorkNotesSheet(work: work)
+        }
         .overlay {
             if !query.isEmpty && filteredWorks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
@@ -815,7 +860,66 @@ extension Work {
             freeforms.contains { $0.lowercased().contains(trimmed) } ||
             rating.lowercased().contains(trimmed) ||
             warnings.contains { $0.lowercased().contains(trimmed) } ||
-            categories.contains { $0.lowercased().contains(trimmed) }
+            categories.contains { $0.lowercased().contains(trimmed) } ||
+            (note?.lowercased().contains(trimmed) ?? false) ||
+            personalTags.contains { $0.lowercased().contains(trimmed) }
+    }
+}
+
+/// Edits a library work's own note and personal tags (RM-009). Presented
+/// from the screen, never from the row's context menu (see Conventions).
+struct WorkNotesSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var context
+    let work: Work
+
+    @State private var noteText: String
+    @State private var tagsText: String
+
+    init(work: Work) {
+        self.work = work
+        self._noteText = State(initialValue: work.note ?? "")
+        self._tagsText = State(initialValue: work.personalTags.joined(separator: ", "))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Why you saved it, what to remember…", text: $noteText, axis: .vertical)
+                        .lineLimit(3...10)
+                } header: {
+                    Text("Note")
+                }
+                Section {
+                    TextField("for a bad day, reread at Christmas", text: $tagsText)
+                        .textInputAutocapitalization(.never)
+                } header: {
+                    Text("Your Tags")
+                } footer: {
+                    Text("Separate tags with commas. Library search finds your note and tags. They're saved in your library, and in your iCloud backup if library sync is on.")
+                }
+            }
+            .navigationTitle(work.title)
+            .navigationBarTitleDisplayMode(.inline)
+            // Swiping down would silently drop typed edits; Cancel is explicit.
+            .interactiveDismissDisabled(noteText != (work.note ?? "")
+                                        || tagsText != work.personalTags.joined(separator: ", "))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        work.setNotes(note: noteText, tagsText: tagsText)
+                        try? context.save()
+                        iCloudSyncManager.shared.queueBackup(context: context)
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
+        }
     }
 }
 
