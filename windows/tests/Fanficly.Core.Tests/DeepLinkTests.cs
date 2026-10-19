@@ -86,13 +86,31 @@ public class DeepLinkTests
     }
 
     [Fact]
-    public void SavedFilterJsonFromTheWidgetBecomesItsPrompt()
+    public void SavedFilterRoundTripsThroughTheWidgetRoute()
     {
-        var filters = new AO3SearchFilters { FreeformNames = ["Fluff"] };
-        var prompt = DeepLink.SearchPrompt(filters.ToJson());
-        Assert.Equal(filters.PromptText(), prompt);
-        Assert.Contains("Fluff", prompt);
-        Assert.Equal("tag:\"Slow Burn\" complete", DeepLink.SearchPrompt("tag:\"Slow Burn\" complete"));
-        Assert.Equal("{not json", DeepLink.SearchPrompt("{not json"));
+        var filters = new AO3SearchFilters
+        {
+            Query = "complete idiots",   // a filter phrase stays a keyword
+            FandomNames = ["Harry Potter - J. K. Rowling"],   // saved filters drop the fandom
+            RelationshipNames = ["Hermione Granger & Harry Potter"],
+            FreeformNames = ["Slow Burn"],
+            Ratings = [Rating.Explicit],
+            Complete = TriState.Yes,
+            WordCount = "1000-5000",
+            SortColumn = SortColumn.KudosCount,
+            SortDirection = SortDirection.Asc,
+        };
+        var link = Assert.IsType<DeepLink.Search>(Parse(DeepLink.SearchUri(filters.SavedJson()).AbsoluteUri));
+        var expected = filters.Clone();
+        expected.FandomNames = [];
+        Assert.Equal(expected, DeepLink.SavedFilter(link.Query));
+    }
+
+    [Fact]
+    public void PromptsAndMalformedJsonAreNotSavedFilters()
+    {
+        Assert.Null(DeepLink.SavedFilter("tag:\"Slow Burn\" complete"));
+        Assert.Null(DeepLink.SavedFilter("{not json"));
+        Assert.Null(DeepLink.SavedFilter("{\"relationshipNames\":[\"Draco"));
     }
 }

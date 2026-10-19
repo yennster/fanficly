@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
   Copies the UI tests' screenshots into the repository: every size to
-  docs/screenshots/windows/<size>/. The Store listing is built from the
+  windows/docs/screenshots/<size>/. The Store listing is built from the
   "store" and "store-tablet" captures by scripts/make_store_art.py instead.
 #>
 param([Parameter(Mandatory)] [string] $From, [Parameter(Mandatory)] [string] $Repo)
 $ErrorActionPreference = 'Stop'
-$docs = Join-Path $Repo 'docs/screenshots/windows'
+$docs = Join-Path $Repo 'windows/docs/screenshots'
 foreach ($size in 'desktop', 'tablet', 'compact') {
   $src = Join-Path $From $size
   if (-not (Test-Path $src)) { Write-Host "No $size screenshots."; continue }

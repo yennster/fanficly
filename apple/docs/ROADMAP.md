@@ -51,7 +51,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Networking/HTMLParsers/*`, `FanficlyTests/*ParserTests.swift`.
 
 ### RM-002 — "Read" and "In Library" badges on result rows
-- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Status:** done · **Size:** S · **Validation:** unit + mac
 - **Why:** Search and Browse can't tell you what you've already read or saved.
 - **Scope:** `WorkRow` shows a small badge ("In Library", "Finished", or a percent) using the existing `Work` and `ReadingProgress` rows. Compute the lookup once per result page as a `[Int: Badge]` from one fetch, not one fetch per row. Put the pure mapping in a testable function.
 - **Done when:** mapping tests cover saved, started, finished and unknown works; VoiceOver reads the badge as part of the row (`.accessibilityElement(children: .combine)` is only safe if the row holds no `Link` or button — it holds the bookmark button, so label the badge instead).

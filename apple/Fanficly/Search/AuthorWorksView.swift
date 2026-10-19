@@ -20,6 +20,7 @@ struct AuthorWorksView: View {
     let author: AuthorRef
 
     @State private var works: [AO3WorkSummary] = []
+    @State private var badges: [Int: ResultBadge] = [:]
     @State private var currentPage = 1
     @State private var totalPages = 1
     @State private var isLoading = false
@@ -51,7 +52,7 @@ struct AuthorWorksView: View {
             } else {
                 List {
                     ForEach(visibleWorks) { work in
-                        NavigationLink(value: work) { WorkRow(work: work) }
+                        NavigationLink(value: work) { WorkRow(work: work, badge: badges[work.id]) }
                             // Infinite scroll: pull the next page as the last row appears.
                             .onAppear {
                                 if work.id == visibleWorks.last?.id {
@@ -66,6 +67,7 @@ struct AuthorWorksView: View {
                     }
                 }
                 .listStyle(.plain)
+                .resultBadges(for: visibleWorks, into: $badges)
             }
         }
         .navigationTitle(author.displayName)

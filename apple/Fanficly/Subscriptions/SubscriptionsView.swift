@@ -220,6 +220,7 @@ struct BookmarksView: View {
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
 
     @State private var works: [AO3WorkSummary] = []
+    @State private var badges: [Int: ResultBadge] = [:]
     @State private var currentPage = 1
     @State private var totalPages = 1
     @State private var isLoading = false
@@ -256,7 +257,7 @@ struct BookmarksView: View {
             } else {
                 List {
                     ForEach(visibleWorks) { work in
-                        NavigationLink(value: work) { WorkRow(work: work) }
+                        NavigationLink(value: work) { WorkRow(work: work, badge: badges[work.id]) }
                             .onAppear {
                                 if work.id == visibleWorks.last?.id {
                                     Task { await loadMore() }
@@ -270,6 +271,7 @@ struct BookmarksView: View {
                     }
                 }
                 .listStyle(.plain)
+                .resultBadges(for: visibleWorks, into: $badges)
             }
         }
         .navigationTitle("Bookmarks")
