@@ -87,6 +87,14 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
                                totalChapters: w.totalChapters, updatedAt: w.updatedAt)
     }
 
+    public func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        let works = Array(DemoCatalog.works.prefix(3))
+        return AO3Series(id: id, title: "The Lighthouse Letters", creator: works.first?.author ?? "",
+                         creatorUsername: works.first?.authorUsername ?? "",
+                         descriptionHTML: "<p>Three stories from the same stretch of coast.</p>",
+                         workCount: works.count, isComplete: true, works: works, currentPage: page)
+    }
+
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] {
         DemoCatalog.subscriptions
     }

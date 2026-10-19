@@ -20,6 +20,13 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertTrue(p3.absoluteString.contains("page=3"), p3.absoluteString)
     }
 
+    func test_seriesURL_paginates() throws {
+        let p1 = try AO3Endpoints.series(id: 9, page: 1, base: base)
+        XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/series/9")
+        let p2 = try AO3Endpoints.series(id: 9, page: 2, base: base)
+        XCTAssertEqual(p2.absoluteString, "https://archiveofourown.org/series/9?page=2")
+    }
+
     func test_authorLogin_fromByline() {
         XCTAssertEqual(
             SearchResultsParser.authorLogin(fromHref: "/users/HoweverSheWrites/pseuds/HoweverSheWrites"),

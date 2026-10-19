@@ -12,6 +12,9 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
+    /// One page of a series (`/series/<id>`): its title, creators and works in
+    /// series order. AO3 lists 20 works a page.
+    func fetchSeries(id: Int, page: Int) async throws -> AO3Series
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
     /// Comments for a specific chapter (AO3 threads comments per chapter). Pass
     /// `chapterId` = the chapter's AO3 id; nil fetches the work-level page (the
@@ -76,15 +79,19 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
     public let hits: Int
     public let isComplete: Bool
     public let updatedAt: Date?
+    /// The series this work belongs to ("Part 2 of …"), parsed from the work
+    /// page's `dd.series`. Empty for search blurbs and saved works.
+    public let series: [AO3SeriesPart]
 
     // Explicit init (rather than the synthesized memberwise one) so adding
-    // `authorUsername` with a default keeps every existing call site compiling.
+    // `authorUsername` or `series` with a default keeps every existing call site compiling.
     public init(
         id: Int, title: String, author: String, authorUsername: String = "",
         summary: String, rating: String, warnings: [String], categories: [String],
         fandoms: [String], characters: [String], relationships: [String], freeforms: [String],
         wordCount: Int, chapterCount: Int, totalChapters: Int?, language: String,
-        kudos: Int, hits: Int, isComplete: Bool, updatedAt: Date?
+        kudos: Int, hits: Int, isComplete: Bool, updatedAt: Date?,
+        series: [AO3SeriesPart] = []
     ) {
         self.id = id
         self.title = title
@@ -106,6 +113,62 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
         self.hits = hits
         self.isComplete = isComplete
         self.updatedAt = updatedAt
+        self.series = series
+    }
+}
+
+/// A work's place in one series, from the work page's
+/// `<span class="series">← Previous Work · Part 2 of <a href="/series/9">…</a> · Next Work →</span>`.
+/// AO3 counts only the works visible to the viewer, so `position` and the
+/// neighbours can differ logged in and out.
+public struct AO3SeriesPart: Sendable, Hashable {
+    public let seriesId: Int
+    public let title: String
+    public let position: Int
+    public let previousWorkId: Int?
+    public let nextWorkId: Int?
+
+    public init(seriesId: Int, title: String, position: Int,
+                previousWorkId: Int? = nil, nextWorkId: Int? = nil) {
+        self.seriesId = seriesId
+        self.title = title
+        self.position = position
+        self.previousWorkId = previousWorkId
+        self.nextWorkId = nextWorkId
+    }
+}
+
+/// One page of a series page (`/series/<id>`).
+public struct AO3Series: Sendable, Equatable {
+    public let id: Int
+    public let title: String
+    /// Byline text, comma-joined for co-created series.
+    public let creator: String
+    /// The first creator's AO3 login, "" for anonymous/orphaned series.
+    public let creatorUsername: String
+    public let descriptionHTML: String
+    /// AO3's "Works:" stat (visible works across every page); nil if missing.
+    public let workCount: Int?
+    public let isComplete: Bool
+    /// This page's works in series order. Unrevealed ("Mystery Work") entries,
+    /// which have no link to open, are left out.
+    public let works: [AO3WorkSummary]
+    public let currentPage: Int
+    public let totalPages: Int
+
+    public init(id: Int, title: String, creator: String, creatorUsername: String = "",
+                descriptionHTML: String = "", workCount: Int? = nil, isComplete: Bool = false,
+                works: [AO3WorkSummary], currentPage: Int = 1, totalPages: Int = 1) {
+        self.id = id
+        self.title = title
+        self.creator = creator
+        self.creatorUsername = creatorUsername
+        self.descriptionHTML = descriptionHTML
+        self.workCount = workCount
+        self.isComplete = isComplete
+        self.works = works
+        self.currentPage = currentPage
+        self.totalPages = totalPages
     }
 }
 
@@ -418,6 +481,17 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.parseFailed(reason: "Work response not UTF-8")
         }
         return try WorkMetadataParser.parse(html: html, workId: id)
+    }
+
+    public func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        await throttle.wait()
+        let url = try AO3Endpoints.series(id: id, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Series response not UTF-8")
+        }
+        return try SeriesParser.parse(html: html, seriesId: id)
     }
 
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] {
@@ -850,6 +924,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
     public func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
+    }
+    public func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        AO3Series(id: id, title: "Sample Series", creator: "Anon", works: [], currentPage: page)
     }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
     public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
