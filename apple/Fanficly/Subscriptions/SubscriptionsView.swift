@@ -365,35 +365,40 @@ extension AO3WorkSummary {
 
 /// A list on AO3's readings page that `ReadingListView` shows.
 enum AO3ReadingList: Sendable {
-    case markedForLater
+    case markedForLater, history
 
     var title: String {
         switch self {
         case .markedForLater: "Marked for Later"
+        case .history: "AO3 History"
         }
     }
 
     var systemImage: String {
         switch self {
         case .markedForLater: SidebarItem.markedForLater.systemImage
+        case .history: SidebarItem.ao3History.systemImage
         }
     }
 
     var loginPrompt: String {
         switch self {
         case .markedForLater: "Works you mark for later on AO3 show here once you log in."
+        case .history: "The works AO3 remembers you reading show here once you log in, newest first."
         }
     }
 
     var emptyTitle: String {
         switch self {
         case .markedForLater: "Nothing marked for later"
+        case .history: "No AO3 history yet"
         }
     }
 
     var emptyDescription: String {
         switch self {
         case .markedForLater: "Use \"Mark for Later\" on a work on AO3 and it will appear here."
+        case .history: "Works you open on the AO3 website while logged in will appear here."
         }
     }
 
@@ -401,12 +406,14 @@ enum AO3ReadingList: Sendable {
         switch self {
         case .markedForLater:
             return try await client.fetchMarkedForLater(username: username, page: page)
+        case .history:
+            return try await client.fetchReadingHistory(username: username, page: page)
         }
     }
 }
 
-/// The "Marked for Later" tab: a list from the logged-in user's AO3 readings
-/// page, fetched live with infinite scroll. Built like `BookmarksView`;
+/// The "Marked for Later" and "AO3 History" tabs: a list from the logged-in
+/// user's AO3 readings page, fetched live with infinite scroll. Built like `BookmarksView`;
 /// read-only (marks are added and removed on AO3).
 struct ReadingListView: View {
     let list: AO3ReadingList

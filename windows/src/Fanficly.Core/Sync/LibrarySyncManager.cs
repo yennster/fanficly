@@ -19,8 +19,10 @@ namespace Fanficly.Core;
 /// assignments union, the new-chapter baseline only advances, chapters are
 /// replaced only by a fuller copy, stats merge conservatively.</item>
 /// <item>A backup file that exists but can't be read yet (a cloud placeholder
-/// still downloading, a file locked by the sync client) is skipped — the next
-/// queued backup retries — rather than overwritten.</item>
+/// still downloading, a file locked by the sync client) or can't be decoded (a
+/// truncated file, a newer app's format) is skipped — the next queued backup
+/// retries — rather than overwritten. Each write first keeps the file it
+/// replaces as <c>library_backup.prev.json</c>.</item>
 /// </list></summary>
 public sealed class LibrarySyncManager
 {
@@ -70,6 +72,12 @@ public sealed class LibrarySyncManager
 
     public string? BackupPath =>
         BackupPathOverride ?? (string.IsNullOrEmpty(SyncFolder) ? null : Path.Combine(SyncFolder, BackupFileName));
+
+    /// <summary>Where the copy of the backup a write replaces is kept, beside
+    /// it: <c>library_backup.prev.json</c>.</summary>
+    internal static string PreviousBackupPath(string path) =>
+        Path.Combine(Path.GetDirectoryName(path) ?? "",
+            $"{Path.GetFileNameWithoutExtension(path)}.prev{Path.GetExtension(path)}");
 
     /// <summary>A Mac-synced iCloud folder can hold an undownloaded
     /// <c>.library_backup.json.icloud</c> placeholder instead of the file.</summary>
@@ -143,12 +151,16 @@ public sealed class LibrarySyncManager
 
             // 3. Union with the backup already there. A file that's present but
             // unreadable (still hydrating, locked by the sync client) is the
-            // placeholder case: skip and retry later. An undecodable file falls
-            // back to writing the local snapshot, as the Swift app does. Note
+            // placeholder case: skip and retry later. So is a file that won't
+            // decode (truncated, or a newer app's format): writing this
+            // library alone over it would drop every other device's records,
+            // and restore couldn't bring them back. Only a missing file
+            // starts from the local snapshot alone. Note
             // whether that file held changes this device hasn't applied yet:
             // they go into the file, not into this library, so the file we
             // write isn't "applied here" until a restore pulls them in.
             var mergedUnappliedChanges = false;
+            byte[]? mergedWith = null;
             if (File.Exists(path))
             {
                 byte[] existing;
@@ -161,20 +173,39 @@ public sealed class LibrarySyncManager
                     LibraryHooks.Log?.Invoke($"Backup skipped, the sync folder's backup is busy: {e.Message}");
                     return BackupOutcome.FileBusy;
                 }
+                LibraryBackup cloud;
                 try
                 {
-                    var cloud = LibraryBackupJson.Decode(existing);
-                    mergedUnappliedChanges = CloudBackupHasUnappliedChanges;
-                    backup = MergedBackup(backup, cloud);
+                    cloud = LibraryBackupJson.Decode(existing);
                 }
-                catch (JsonException) { }
+                catch (JsonException e)
+                {
+                    LibraryHooks.Log?.Invoke($"Backup skipped, the sync folder's backup can't be read: {e.Message}");
+                    LastBackupError = e.Message;
+                    return BackupOutcome.Unreadable;
+                }
+                mergedUnappliedChanges = CloudBackupHasUnappliedChanges;
+                backup = MergedBackup(backup, cloud);
+                mergedWith = existing;
             }
 
-            // 4. Serialize and write atomically.
+            // 4. Serialize, keeping the keys this app doesn't know from the file
+            // it merged with (the Apple app's newer fields), and write atomically.
             var data = LibraryBackupJson.Encode(backup);
+            if (mergedWith is not null) data = BackupUnknownKeys.Preserve(data, mergedWith);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllBytes(tmp, data);
+            // Keep the file this write replaces (it decoded above), so one bad
+            // write can be undone by hand.
+            if (File.Exists(path))
+            {
+                try { File.Copy(path, PreviousBackupPath(path), overwrite: true); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    LibraryHooks.Log?.Invoke($"Couldn't keep the previous backup: {e.Message}");
+                }
+            }
             File.Move(tmp, path, overwrite: true);
             // When everything in the file came from this library (or was
             // already applied here), stamp it so the launch auto-sync doesn't
@@ -730,10 +761,16 @@ public sealed class LibrarySyncManager
         }
     }
 
-    /// <summary>Deletes the backup file from the sync folder.</summary>
+    /// <summary>Deletes the backup file (and the copy of the previous one) from the sync folder.</summary>
     public bool Clear()
     {
-        if (BackupPath is not { } path || !File.Exists(path)) return false;
+        if (BackupPath is not { } path) return false;
+        try { File.Delete(PreviousBackupPath(path)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            LibraryHooks.Log?.Invoke($"Failed to clear the previous library backup: {e.Message}");
+        }
+        if (!File.Exists(path)) return false;
         try
         {
             File.Delete(path);
@@ -757,5 +794,8 @@ public enum BackupOutcome
     NotDownloaded,
     /// <summary>The backup there couldn't be read (locked by the sync app).</summary>
     FileBusy,
+    /// <summary>The backup there couldn't be decoded (damaged, or a newer app's
+    /// format), so it was left alone rather than overwritten.</summary>
+    Unreadable,
     Failed,
 }

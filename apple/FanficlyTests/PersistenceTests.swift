@@ -686,6 +686,123 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(stat.totalSeconds, 3000, accuracy: 0.001)
     }
 
+    /// The Windows app writes fields this one doesn't know (its reader
+    /// settings, followed authors, whatever comes later). An Apple backup that
+    /// merges with its file keeps them, while this device's values still win
+    /// where it has them, and a note cleared here stays cleared (#126).
+    func test_backupKeepsKeysOnlyTheOtherAppKnows() throws {
+        let url = makeTempBackupURL()
+        let defaults = UserDefaults.standard
+        let originalThemeMac = defaults.object(forKey: "reader.theme.mac")
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: iCloudSyncManager.previousBackupURL(for: url))
+            defaults.set(originalThemeMac, forKey: "reader.theme.mac")
+        }
+        let work = #"""
+            "authorName":"A","authorUsername":"","summary":"","rating":"Not Rated","warnings":[],"categories":[],"fandoms":[],"characters":[],"relationships":[],"freeforms":[],"language":"en","wordCount":0,"chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,"isComplete":false,"savedAt":"2026-01-01T00:00:00Z","isFollowed":false
+            """#
+        let windowsFile = """
+            {"works":[{"ao3Id":1,"title":"PC Title",\(work),"note":"Old note","notesUpdatedAt":"2026-01-01T00:00:00Z","futureWorkField":"kept","chapters":[{"index":1,"title":"Ch","bodyHTML":"<p>x</p>","futureChapterField":7}]},
+                      {"ao3Id":2,"title":"PC Only",\(work),"futureWorkField":"pc only","chapters":[]}],
+             "bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[{"ao3Id":9,"title":"Nope","hiddenAt":"2026-01-01T00:00:00Z","futureReason":"spoilers"}],
+             "settings":{"themeMac":"sepia","themeWindows":"night","activeProfileWindows":"Desk","fontSizePtWindows":19},
+             "followedAuthors":[{"username":"writer","displayName":"Writer","followedAt":"2026-01-01T00:00:00Z","knownWorkIds":[1]}],
+             "timestamp":"2026-01-01T00:00:00Z"}
+            """
+        try Data(windowsFile.utf8).write(to: url)
+
+        // This Mac holds work 1 with a newer title and the note cleared later.
+        defaults.set("dracula", forKey: "reader.theme.mac")
+        let mac = try makeContext()
+        let local = Work(ao3Id: 1, title: "Mac Title", authorName: "A")
+        local.notesUpdatedAt = ISO8601DateFormatter().date(from: "2026-06-01T00:00:00Z")
+        mac.insert(local)
+        mac.insert(Chapter(work: local, index: 1, title: "Ch", bodyHTML: "<p>x</p>"))
+        mac.insert(HiddenWork(ao3Id: 9, title: "Nope", hiddenAt: .now))
+        try mac.save()
+        iCloudSyncManager.shared.backupToiCloud(context: mac)
+        XCTAssertNil(iCloudSyncManager.shared.lastBackupFailure)
+
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let works = try XCTUnwrap(root["works"] as? [[String: Any]])
+        let shared = try XCTUnwrap(works.first { ($0["ao3Id"] as? Int) == 1 })
+        XCTAssertEqual(shared["title"] as? String, "Mac Title")
+        XCTAssertNil(shared["note"], "a note cleared on this device must not come back")
+        XCTAssertEqual(shared["futureWorkField"] as? String, "kept")
+        let chapter = try XCTUnwrap((shared["chapters"] as? [[String: Any]])?.first)
+        XCTAssertEqual(chapter["futureChapterField"] as? Int, 7)
+        XCTAssertEqual(works.first { ($0["ao3Id"] as? Int) == 2 }?["futureWorkField"] as? String, "pc only")
+        XCTAssertEqual((root["hidden"] as? [[String: Any]])?.first?["futureReason"] as? String, "spoilers")
+        let settings = try XCTUnwrap(root["settings"] as? [String: Any])
+        XCTAssertEqual(settings["themeMac"] as? String, "dracula")
+        XCTAssertEqual(settings["themeWindows"] as? String, "night")
+        XCTAssertEqual(settings["activeProfileWindows"] as? String, "Desk")
+        XCTAssertEqual(settings["fontSizePtWindows"] as? Int, 19)
+        let authors = try XCTUnwrap(root["followedAuthors"] as? [[String: Any]])
+        XCTAssertEqual(authors.first?["username"] as? String, "writer")
+        // And the file still decodes for both apps.
+        XCTAssertEqual(try decodeBackup(at: url).works.count, 2)
+    }
+
+    /// A backup file that's there but won't decode (truncated, or a newer
+    /// app's format) is left alone: writing this device's library over it
+    /// would drop every other device's records (#125).
+    func test_backupSkipsAnUnreadableBackupAndLeavesItUntouched() throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+        for garbage in ["", "not json", #"{"works":[{"ao3Id":1}]"#] {
+            let original = Data(garbage.utf8)
+            try original.write(to: url)
+            iCloudSyncManager.shared.backupToiCloud(context: device)
+            XCTAssertEqual(try Data(contentsOf: url), original, "an unreadable backup must not be overwritten")
+            XCTAssertNotNil(iCloudSyncManager.shared.lastBackupFailure)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+    }
+
+    /// Each write keeps the file it replaces as library_backup.prev.json, and
+    /// clearing iCloud data removes both.
+    func test_backupKeepsThePreviousFileAndClearRemovesIt() throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+        XCTAssertEqual(iCloudSyncManager.previousBackupURL(for: URL(fileURLWithPath: "/a/library_backup.json")).lastPathComponent,
+                       "library_backup.prev.json")
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+        XCTAssertNil(iCloudSyncManager.shared.lastBackupFailure)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+        let first = try Data(contentsOf: url)
+
+        _ = WorkPersistence.upsert(payload: payload(id: 2, chapters: 1), into: device)
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+        XCTAssertEqual(try Data(contentsOf: previousURL), first)
+        XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2])
+
+        XCTAssertTrue(iCloudSyncManager.shared.clearFromiCloud())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+    }
+
     /// A backup that merges in another device's records puts them in the
     /// file, not in this library, so it must not stamp the file as applied
     /// here: the next launch sync still has to restore them (#124). Each

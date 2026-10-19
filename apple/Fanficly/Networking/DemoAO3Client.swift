@@ -77,6 +77,10 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3SearchResults(works: Array(DemoCatalog.works.suffix(4)), totalPages: 1, currentPage: page)
     }
 
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: Array(DemoCatalog.works.prefix(6)), totalPages: 1, currentPage: page)
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         DemoCatalog.payload(for: id)
     }

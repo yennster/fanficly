@@ -33,6 +33,19 @@ final class iCloudSyncManager {
         return FileManager.default.fileExists(atPath: placeholderURL.path)
     }
     
+    /// Where the copy of the backup each write replaces is kept, beside it:
+    /// `library_backup.prev.json`.
+    nonisolated static func previousBackupURL(for url: URL) -> URL {
+        let name = url.deletingPathExtension().lastPathComponent
+        return url.deletingLastPathComponent()
+            .appendingPathComponent("\(name).prev")
+            .appendingPathExtension(url.pathExtension)
+    }
+
+    /// Why the last backup that didn't write the file stopped, or nil after
+    /// one that did.
+    private(set) var lastBackupFailure: String?
+
     /// Gets the modification date of the iCloud backup file.
     var lastBackupDate: Date? {
         guard let url = Self.backupURL else { return nil }
@@ -66,15 +79,15 @@ final class iCloudSyncManager {
     func backupToiCloud(context: ModelContext) {
         guard let url = Self.backupURL else { return }
 
-        // If the cloud backup exists only as a not-yet-downloaded placeholder
-        // we can't merge with it, and overwriting would drop every record the
-        // other device backed up. Kick off the download and let a later
-        // queueBackup (they fire on every mutation) retry once it's local.
-        let fileManager = FileManager.default
-        let placeholderURL = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(url.lastPathComponent).icloud")
-        if !fileManager.fileExists(atPath: url.path), fileManager.fileExists(atPath: placeholderURL.path) {
-            try? fileManager.startDownloadingUbiquitousItem(at: url)
+        // If the cloud backup isn't downloaded yet we can't merge with it, and
+        // overwriting would drop every record the other device backed up.
+        // iOS shows that as a `.icloud` placeholder; newer macOS keeps the
+        // real name and reports it through the downloading status. Kick off
+        // the download and let a later queueBackup (they fire on every
+        // mutation) retry once it's local.
+        if Self.isUndownloaded(url) {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+            lastBackupFailure = String(localized: "The backup in iCloud is still downloading. Fanficly will back up once it's on this device.")
             return
         }
 
@@ -262,26 +275,47 @@ final class iCloudSyncManager {
                 timestamp: .now
             )
 
-            // 3. Union with the backup already in the cloud (an undecodable or
-            // absent file falls back to writing the local snapshot as before).
+            // 3. Union with the backup already in the cloud. Only a file that
+            // isn't there at all starts from the local snapshot alone: one
+            // that can't be read (a download or file-coordination conflict)
+            // or decoded (truncated, or a newer app's format) is left alone,
+            // because writing this library over it would drop every other
+            // device's records and restore couldn't bring them back.
             // Note whether that file held changes this device hasn't applied
             // yet: they go into the file, not into this library, so the file
             // we write isn't "applied here" until a restore pulls them in.
+            // The read, merge and write happen inside one coordinated write,
+            // so a file another device delivers can't land in between.
             var mergedUnappliedChanges = false
-            if let existingData = try? Data(contentsOf: url) {
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                if let cloudBackup = try? decoder.decode(LibraryBackup.self, from: existingData) {
+            var readError: (any Error)?
+            var mergedWith: Data?
+            try Self.updateBackup(at: url) { existing in
+                switch existing {
+                case .missing:
+                    break
+                case .unreadable(let error):
+                    readError = error
+                    return nil
+                case .backup(let cloudBackup, let cloudData):
                     mergedUnappliedChanges = cloudBackupHasUnappliedChanges
                     backup = Self.mergedBackup(local: backup, cloud: cloudBackup)
+                    mergedWith = cloudData
                 }
+                // 4. Serialize to JSON for the write, keeping the keys this app
+                // doesn't know from the file it merged with (the Windows
+                // app's fields, or a newer version's).
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(backup)
+                guard let mergedWith else { return data }
+                return try Self.preservingUnknownKeys(in: data, from: mergedWith, merged: backup)
             }
-
-            // 4. Serialize to JSON and write
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(backup)
-            try data.write(to: url, options: .atomic)
+            if let readError {
+                print("Skipped the iCloud backup, the existing backup can't be read: \(readError)")
+                lastBackupFailure = String(localized: "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device.")
+                return
+            }
+            lastBackupFailure = nil
             // When everything in the file came from this library (or was
             // already applied here), stamp it so the launch auto-sync doesn't
             // re-restore our own backup. When we merged in another device's
@@ -292,6 +326,203 @@ final class iCloudSyncManager {
             }
         } catch {
             print("Failed to backup to iCloud: \(error)")
+            lastBackupFailure = error.localizedDescription
+        }
+    }
+
+    // MARK: - Coordinated file access
+
+    /// What reading the backup file found.
+    enum BackupRead {
+        /// There's no file (and no placeholder) at all.
+        case missing
+        /// The decoded backup and the file's bytes as read.
+        case backup(LibraryBackup, Data)
+        /// There's a file, but it couldn't be read or decoded.
+        case unreadable(any Error)
+    }
+
+    /// Whether the backup exists in iCloud but isn't on this device yet: a
+    /// `.icloud` placeholder (iOS), or a file whose contents haven't
+    /// downloaded (newer macOS keeps the real name).
+    nonisolated static func isUndownloaded(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        let placeholderURL = url.deletingLastPathComponent()
+            .appendingPathComponent(".\(url.lastPathComponent).icloud")
+        guard fileManager.fileExists(atPath: url.path) else {
+            return fileManager.fileExists(atPath: placeholderURL.path)
+        }
+        // URL caches resource values, and callers poll this while waiting.
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        let status = (try? fresh.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?
+            .ubiquitousItemDownloadingStatus
+        return status == .notDownloaded
+    }
+
+    /// Reads and decodes the backup through `NSFileCoordinator`, as Apple
+    /// requires for files in the ubiquitous container.
+    nonisolated static func readBackup(at url: URL) -> BackupRead {
+        var result = BackupRead.missing
+        var coordinationError: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &coordinationError) { readURL in
+            result = decodedBackup(at: readURL)
+        }
+        if let coordinationError { return .unreadable(coordinationError) }
+        return result
+    }
+
+    /// Reads the backup, hands it to `body` and, when `body` returns data,
+    /// writes that, all inside one coordinated write (`.forMerging`, Apple's
+    /// option for read-modify-write) so another device's file can't arrive
+    /// between the read and the write. The file being replaced is first kept
+    /// as `library_backup.prev.json`, so one bad write can be undone by hand.
+    nonisolated static func updateBackup(at url: URL, _ body: (BackupRead) throws -> Data?) throws {
+        let fileManager = FileManager.default
+        let previousURL = previousBackupURL(for: url)
+        var coordinationError: NSError?
+        var bodyError: (any Error)?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            writingItemAt: url, options: .forMerging,
+            writingItemAt: previousURL, options: .forReplacing,
+            error: &coordinationError
+        ) { writeURL, previousWriteURL in
+            do {
+                guard let data = try body(decodedBackup(at: writeURL)) else { return }
+                if fileManager.fileExists(atPath: writeURL.path) {
+                    do {
+                        if fileManager.fileExists(atPath: previousWriteURL.path) {
+                            try fileManager.removeItem(at: previousWriteURL)
+                        }
+                        try fileManager.copyItem(at: writeURL, to: previousWriteURL)
+                    } catch {
+                        print("Couldn't keep the previous iCloud backup: \(error)")
+                    }
+                }
+                try data.write(to: writeURL, options: .atomic)
+            } catch {
+                bodyError = error
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        if let bodyError { throw bodyError }
+    }
+
+    // MARK: - Keys the other app wrote
+
+    /// `encoded` (a merged backup) with the keys `cloudData` (the file it
+    /// merged with) holds that this app doesn't know. The Apple and Windows
+    /// apps add fields at different times (the Windows reader settings and
+    /// followed authors, notes and tags before Windows had them), and a
+    /// backup that dropped every key it couldn't decode would erase the other
+    /// app's data from the file. The Windows app's `BackupUnknownKeys` does
+    /// the same.
+    /// - Top-level keys this app doesn't know are copied over whole.
+    /// - Each record (and each work's chapter) the file also has, matched by
+    ///   its identity key, gets back the keys this app doesn't know. Keys it
+    ///   does know are never copied: a missing one can mean "cleared" (the
+    ///   encoder omits nil optionals).
+    /// - `settings` merge key by key: a key the file has and this device
+    ///   doesn't is kept, known or not, because settings are only ever set,
+    ///   never cleared.
+    /// The known keys are each backup struct's stored properties (none of them
+    /// customizes `CodingKeys`, so those are its JSON keys).
+    nonisolated static func preservingUnknownKeys(in encoded: Data, from cloudData: Data, merged: LibraryBackup) throws -> Data {
+        guard var output = try JSONSerialization.jsonObject(with: encoded) as? [String: Any],
+              let file = (try? JSONSerialization.jsonObject(with: cloudData)) as? [String: Any] else { return encoded }
+        var changed = false
+
+        let topLevelKeys = propertyNames(of: merged)
+        for (key, value) in file where !topLevelKeys.contains(key) && output[key] == nil {
+            output[key] = value
+            changed = true
+        }
+
+        if let fileSettings = file["settings"] as? [String: Any] {
+            var settings = output["settings"] as? [String: Any] ?? [:]
+            for (key, value) in fileSettings where settings[key] == nil {
+                settings[key] = value
+                changed = true
+            }
+            output["settings"] = settings
+        }
+
+        let chapterKeys = merged.works.lazy.compactMap(\.chapters.first).first.map(propertyNames(of:))
+        let records: [(array: String, id: String, known: Set<String>?)] = [
+            ("works", "ao3Id", merged.works.first.map(propertyNames(of:))),
+            ("bookmarks", "ao3Id", merged.bookmarks.first.map(propertyNames(of:))),
+            ("subscriptions", "key", merged.subscriptions.first.map(propertyNames(of:))),
+            ("searches", "name", merged.searches.first.map(propertyNames(of:))),
+            ("progress", "ao3Id", merged.progress.first.map(propertyNames(of:))),
+            ("filters", "name", merged.filters.first.map(propertyNames(of:))),
+            ("hidden", "ao3Id", merged.hidden.first.map(propertyNames(of:))),
+            ("folders", "name", merged.folders?.first.map(propertyNames(of:))),
+            ("stats", "ao3Id", merged.stats?.first.map(propertyNames(of:))),
+        ]
+        for (array, id, known) in records {
+            guard let known,
+                  var outRecords = output[array] as? [[String: Any]],
+                  let fileRecords = file[array] as? [[String: Any]] else { continue }
+            var fileById: [String: [String: Any]] = [:]
+            for record in fileRecords {
+                if let key = identity(record[id]), fileById[key] == nil { fileById[key] = record }
+            }
+            for i in outRecords.indices {
+                guard let key = identity(outRecords[i][id]), let fileRecord = fileById[key] else { continue }
+                if copyUnknownKeys(into: &outRecords[i], from: fileRecord, known: known) { changed = true }
+                guard array == "works", let chapterKeys,
+                      var chapters = outRecords[i]["chapters"] as? [[String: Any]],
+                      let fileChapters = fileRecord["chapters"] as? [[String: Any]] else { continue }
+                var fileByIndex: [String: [String: Any]] = [:]
+                for chapter in fileChapters {
+                    if let index = identity(chapter["index"]), fileByIndex[index] == nil { fileByIndex[index] = chapter }
+                }
+                var chaptersChanged = false
+                for j in chapters.indices {
+                    guard let index = identity(chapters[j]["index"]), let fileChapter = fileByIndex[index] else { continue }
+                    if copyUnknownKeys(into: &chapters[j], from: fileChapter, known: chapterKeys) { chaptersChanged = true }
+                }
+                if chaptersChanged {
+                    outRecords[i]["chapters"] = chapters
+                    changed = true
+                }
+            }
+            output[array] = outRecords
+        }
+
+        guard changed else { return encoded }
+        return try JSONSerialization.data(withJSONObject: output, options: [.withoutEscapingSlashes])
+    }
+
+    private nonisolated static func propertyNames(of value: Any) -> Set<String> {
+        Set(Mirror(reflecting: value).children.compactMap(\.label))
+    }
+
+    private nonisolated static func identity(_ value: Any?) -> String? {
+        if let string = value as? String { return string }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private nonisolated static func copyUnknownKeys(into record: inout [String: Any], from fileRecord: [String: Any], known: Set<String>) -> Bool {
+        var changed = false
+        for (key, value) in fileRecord where !known.contains(key) && record[key] == nil {
+            record[key] = value
+            changed = true
+        }
+        return changed
+    }
+
+    /// Reads and decodes the backup at a URL a coordinator handed out.
+    private nonisolated static func decodedBackup(at url: URL) -> BackupRead {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return .backup(try decoder.decode(LibraryBackup.self, from: data), data)
+        } catch {
+            return .unreadable(error)
         }
     }
 
@@ -465,32 +696,26 @@ final class iCloudSyncManager {
         }
         
         let fileManager = FileManager.default
-        let dir = url.deletingLastPathComponent()
-        let filename = url.lastPathComponent
-        let placeholderURL = dir.appendingPathComponent(".\(filename).icloud")
-        
-        if !fileManager.fileExists(atPath: url.path) && fileManager.fileExists(atPath: placeholderURL.path) {
+        // Not downloaded yet (an iOS `.icloud` placeholder, or a file under
+        // its real name on newer macOS): start the download and wait up to
+        // 5 seconds, rather than block on a coordinated read of it.
+        if Self.isUndownloaded(url) {
             do {
                 try fileManager.startDownloadingUbiquitousItem(at: url)
-                // Poll for up to 5 seconds
-                var downloaded = false
-                for _ in 0..<25 {
-                    if fileManager.fileExists(atPath: url.path) {
-                        let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
-                        if let status = values?.ubiquitousItemDownloadingStatus,
-                           status == .current || status == .downloaded {
-                            downloaded = true
-                            break
-                        }
-                    }
-                    try? await Task.sleep(for: .milliseconds(200))
-                }
-                if !downloaded {
-                    print("iCloud backup download timed out")
-                    return false
-                }
             } catch {
                 print("Failed to download ubiquitous item: \(error)")
+                return false
+            }
+            var downloaded = false
+            for _ in 0..<25 {
+                if !Self.isUndownloaded(url), fileManager.fileExists(atPath: url.path) {
+                    downloaded = true
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            if !downloaded {
+                print("iCloud backup download timed out")
                 return false
             }
         }
@@ -500,12 +725,18 @@ final class iCloudSyncManager {
         }
         let readDate = lastBackupDate
         
+        let backup: LibraryBackup
+        switch Self.readBackup(at: url) {
+        case .missing:
+            return false
+        case .unreadable(let error):
+            print("Failed to restore from iCloud: \(error)")
+            return false
+        case .backup(let read, _):
+            backup = read
+        }
+
         do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let backup = try decoder.decode(LibraryBackup.self, from: data)
-            
             // 0. Restore settings and themes
             if let s = backup.settings {
                 let defaults = UserDefaults.standard
@@ -830,10 +1061,15 @@ final class iCloudSyncManager {
         }
     }
     
-    /// Deletes the backup file from iCloud.
+    /// Deletes the backup file (and the copy of the previous one) from iCloud.
     @discardableResult
     func clearFromiCloud() -> Bool {
-        guard let url = Self.backupURL, FileManager.default.fileExists(atPath: url.path) else {
+        guard let url = Self.backupURL else { return false }
+        let previousURL = Self.previousBackupURL(for: url)
+        if FileManager.default.fileExists(atPath: previousURL.path) {
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
             return false
         }
         
