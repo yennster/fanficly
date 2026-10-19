@@ -86,6 +86,15 @@ public sealed record AO3Comment(
     string BodyHtml,
     int Depth);
 
+/// <summary>One page of a chapter's (or one-shot's) comment threads (Swift's
+/// <c>AO3CommentsPage</c>). AO3 paginates comments by top-level thread;
+/// <paramref name="TotalPages"/> comes from the thread's will_paginate list and is
+/// 1 when there is none.</summary>
+public sealed record AO3CommentsPage(IReadOnlyList<AO3Comment> Comments, int CurrentPage = 1, int TotalPages = 1)
+{
+    public bool HasMore => CurrentPage < TotalPages;
+}
+
 public sealed record AO3WorkMetadata(int Id, int ChapterCount, int? TotalChapters, DateTimeOffset? UpdatedAt);
 
 public enum AO3SubscriptionKind { Work, Series, User }

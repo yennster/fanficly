@@ -125,14 +125,9 @@ internal static class ReaderPrefs
 
     public static bool ShowImages => Store.GetBool(ShowImagesKey, false);
 
-    public static double ZoomScale
-    {
-        get
-        {
-            var z = Store.GetDouble(ZoomKey, 1.0);
-            return z > 0.1 ? z : 1.0;
-        }
-    }
+    /// <summary>The window's zoom as <c>MainWindow</c> draws it (clamped the same way),
+    /// so the reader's text compensation matches.</summary>
+    public static double ZoomScale => UiZoom.Clamped(Store.GetDouble(ZoomKey, UiZoom.ActualSize));
 
     public static string ActiveProfileName
     {

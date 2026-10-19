@@ -51,6 +51,38 @@ public sealed class StatsScreen : Screen
     private static LibraryStore Store => AppHost.Library;
 
     private DateSpan? Interval => _period.Interval(_anchor);
+
+    /// <summary>Stories to finish this year (RM-011); 0 = no goal. Per-device,
+    /// not synced or backed up.</summary>
+    private static int YearlyGoal
+    {
+        get => KeyValueStores.Default.GetInt(ReadingGoal.StorageKey);
+        set => KeyValueStores.Default.SetInt(ReadingGoal.StorageKey, Math.Max(value, 0));
+    }
+
+    private static int CurrentYear => DateTimeOffset.Now.Year;
+
+    /// <summary>The goal ring belongs to this year, so it shows on All Time (the
+    /// default view) and on the current year, not on other weeks, months or years.</summary>
+    private bool ShowsGoal => _period switch
+    {
+        StatsPeriod.AllTime => true,
+        StatsPeriod.Year => Interval?.Contains(DateTimeOffset.Now) ?? false,
+        _ => false,
+    };
+
+    /// <summary>This year's goal progress; null when there's no goal. "Finished
+    /// this year" is the yearly wrap's rule (finished, and read on a day this
+    /// year): there's no finish date, so a story finished last year and reopened
+    /// this year counts too.</summary>
+    private ReadingGoalProgress? GoalProgress()
+    {
+        var goal = YearlyGoal;
+        if (goal <= 0) return null;
+        var now = DateTimeOffset.Now;
+        var finished = ReadingStatsAggregator.Summarize(_snapshots, DateSpan.Of(StatsCalendarUnit.Year, now)).StoriesRead;
+        return ReadingStatsAggregator.GoalProgress(finished, goal, now);
+    }
     private string ScopeTitle => _period.ScopeTitle(_anchor);
 
     protected override FrameworkElement Build()
@@ -85,13 +117,15 @@ public sealed class StatsScreen : Screen
         };
 
         _prev = UI.UI.IconButton("chevron.left", "Previous", () => Page(-1));
-        _prev.Width = 44;
+        // MinWidth, not Width: the chevron grows with Windows' text size.
+        _prev.MinWidth = 44;
         AutomationProperties.SetAutomationId(_prev, "stats.prev");
         _next = UI.UI.IconButton("chevron.right", "Next", () => Page(1));
-        _next.Width = 44;
+        _next.MinWidth = 44;
         AutomationProperties.SetAutomationId(_next, "stats.next");
-        _pagerTitle = UI.UI.Text("", Theme.Style.Subheadline, wrap: false);
+        _pagerTitle = UI.UI.Text("", Theme.Style.Subheadline, maxLines: UI.UI.LineLimit(1));
         _pagerTitle.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        _pagerTitle.TextAlignment = TextAlignment.Center;
         _pagerTitle.HorizontalAlignment = HorizontalAlignment.Center;
         _pagerTitle.VerticalAlignment = VerticalAlignment.Center;
         AutomationProperties.SetLiveSetting(_pagerTitle, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
@@ -211,8 +245,10 @@ public sealed class StatsScreen : Screen
         if (_snapshots.Count == 0)
         {
             _scroll.Visibility = Visibility.Collapsed;
+            // A new reader can set a goal before their first read.
             _emptyHost.Content = UI.UI.EmptyState("chart.bar.xaxis", "No Reading Stats Yet",
-                "Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.");
+                "Open a story in the reader and your reading time, top fandoms, and yearly wrap-up will show up here.",
+                YearlyGoal > 0 ? null : $"Set a {CurrentYear} Reading Goal", () => _ = EditGoalAsync());
             _summary = ReadingStatsSummary.Empty;
             return;
         }
@@ -236,6 +272,7 @@ public sealed class StatsScreen : Screen
 
         _body.Children.Clear();
         _body.Children.Add(HeaderCards(scope, _summary));
+        if (ShowsGoal) _body.Children.Add(GoalSection());
         AddTopList("Top Fandoms", "books.vertical", _summary.TopFandoms);
         AddTopList("Top Categories", "person.2.square.stack", _summary.TopCategories);
         AddTopList("Top Ships", "heart", _summary.TopRelationships);
@@ -257,13 +294,104 @@ public sealed class StatsScreen : Screen
         return UI.UI.VStack(8, heading, tiles);
     }
 
+    /// <summary>The yearly goal ring, or an invitation to set one.</summary>
+    private FrameworkElement GoalSection()
+    {
+        if (GoalProgress() is not { } progress)
+        {
+            var set = UI.UI.Button($"Set a {CurrentYear} Reading Goal", () => _ = EditGoalAsync(), "flag");
+            set.HorizontalAlignment = HorizontalAlignment.Left;
+            AutomationProperties.SetAutomationId(set, "stats.goal.set");
+            return set;
+        }
+
+        var ring = GoalRing.Build(progress.Fraction, 64, 8, Theme.SubtleFill, Theme.Accent);
+        var percent = UI.UI.Text($"{Math.Floor(progress.Fraction * 100)}%", Theme.Style.Caption, wrap: false);
+        percent.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
+        percent.HorizontalAlignment = HorizontalAlignment.Center;
+        percent.VerticalAlignment = VerticalAlignment.Center;
+        var ringHost = new Grid { Width = 64, Height = 64 };
+        ringHost.Children.Add(ring);
+        ringHost.Children.Add(percent);
+
+        var count = UI.UI.Text($"{progress.Finished} of {progress.Goal} {(progress.Goal == 1 ? "story" : "stories")}", Theme.Style.Headline, wrap: false);
+        var pace = UI.UI.Text(progress.PaceLabel, Theme.Style.Subheadline,
+            progress.Ahead < 0 && !progress.IsComplete ? Theme.TextSecondary : Theme.Accent, wrap: false);
+        var text = UI.UI.VStack(2, UI.UI.Caption($"{CurrentYear} Goal"), count, pace);
+        text.VerticalAlignment = VerticalAlignment.Center;
+
+        var row = UI.UI.Grid("Auto,*", columnSpacing: 16);
+        row.Children.Add(ringHost.Col(0));
+        row.Children.Add(text.Col(1));
+
+        // The Mac's tappable card: a button that opens the goal editor.
+        var button = new Button
+        {
+            Content = row,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(8),
+            Background = Theme.CardBackground,
+            BorderBrush = Theme.CardStroke,
+            BorderThickness = new Thickness(1),
+        };
+        button.Click += (_, _) => _ = EditGoalAsync();
+        AutomationProperties.SetName(button, $"{CurrentYear} reading goal: {progress.Finished} of {progress.Goal} {(progress.Goal == 1 ? "story" : "stories")} finished, {progress.PaceLabel}");
+        AutomationProperties.SetHelpText(button, "Edits your yearly reading goal");
+        AutomationProperties.SetAutomationId(button, "stats.goal");
+        ToolTipService.SetToolTip(button, "Edit your reading goal");
+        return button;
+    }
+
+    /// <summary>Sets or removes the yearly goal (ReadingGoalSheet). Cancel leaves it alone.</summary>
+    private async Task EditGoalAsync()
+    {
+        var current = YearlyGoal;
+        var box = new NumberBox
+        {
+            Header = $"Stories to finish in {CurrentYear}",
+            Minimum = 1,
+            Maximum = 1000,
+            SmallChange = 1,
+            LargeChange = 10,
+            Value = current > 0 ? current : 12,
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
+            ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten,
+        };
+        AutomationProperties.SetAutomationId(box, "stats.goal.value");
+        var content = UI.UI.VStack(12, box, UI.UI.Caption("Your goal stays on this device and isn't synced."));
+        var result = await Dialogs.SheetAsync("Reading Goal", content, primary: "Save", close: "Cancel", width: 400,
+                                              secondary: current > 0 ? "Remove Goal" : null);
+        switch (result)
+        {
+            case ContentDialogResult.Primary:
+                // Enter can close the dialog before the box commits its typed
+                // text to Value, so read the text first.
+                var typed = int.TryParse(box.Text, NumberStyles.Integer, CultureInfo.CurrentCulture, out var n) ? n : (double?)null;
+                var value = typed ?? box.Value;
+                if (double.IsNaN(value)) return;
+                YearlyGoal = (int)Math.Clamp(Math.Round(value), 1, 1000);
+                break;
+            case ContentDialogResult.Secondary:
+                YearlyGoal = 0;
+                break;
+            default:
+                return;
+        }
+        Rebuild();
+    }
+
     private static FrameworkElement StatTile(string value, string label, string symbol)
     {
         var valueText = UI.UI.Text(value, Theme.Style.Title, wrap: false);
         valueText.FontWeight = Microsoft.UI.Text.FontWeights.Bold;
         var stack = UI.UI.VStack(4,
             UI.UI.Icon(symbol, 18, Theme.Accent).Also(i => i.HorizontalAlignment = HorizontalAlignment.Left),
-            new Viewbox { Child = valueText, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left, Height = 34 },
+            // The value shrinks only to fit the tile's width (SwiftUI's
+            // minimumScaleFactor); its height grows with Windows' text size, so
+            // large text isn't scaled back down to the default size.
+            new Viewbox { Child = valueText, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left, Height = 34 * UI.UI.TextScale },
             UI.UI.Caption(label));
         var card = new Border
         {
@@ -289,7 +417,7 @@ public sealed class StatsScreen : Screen
     private static FrameworkElement BarRow(ReadingTagCount item, double fraction)
     {
         var top = UI.UI.Grid("*,Auto", columnSpacing: 8);
-        top.Children.Add(UI.UI.Text(item.Name, Theme.Style.Subheadline, wrap: false).Col(0));
+        top.Children.Add(UI.UI.Text(item.Name, Theme.Style.Subheadline, maxLines: UI.UI.LineLimit(1)).Col(0));
         top.Children.Add(UI.UI.Secondary(item.Count.ToString(CultureInfo.CurrentCulture)).Col(1));
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, Value = Math.Max(0.02, fraction), MinHeight = 6, CornerRadius = new CornerRadius(3) };
         return new AccessibleGroup($"{item.Name}, {item.Count} {(item.Count == 1 ? "story" : "stories")}", UI.UI.VStack(4, top, bar));
@@ -305,7 +433,7 @@ public sealed class StatsScreen : Screen
     {
         if (_rendering || _snapshots.Count == 0) return null;
         _rendering = true;
-        var card = WrapShareCard.Build(ScopeTitle, _summary);
+        var card = WrapShareCard.Build(ScopeTitle, _summary, ShowsGoal ? GoalProgress() : null, CurrentYear);
         _renderHost.Children.Add(card);
         try
         {

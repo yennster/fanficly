@@ -1,11 +1,18 @@
 name: Release
 
-# Signed builds and App Store Connect uploads. It only ever runs when the
-# maintainer starts it: never on a push, a merge to main or a pull request, so
-# nothing reaches the App Store by accident and forks can't reach the secrets.
-# The job waits for approval in the protected `app-store` environment, which
-# holds the secrets. See apple/docs/RELEASING.md. It releases the Apple app
-# (apple/), so every run step starts there.
+# Signed builds and store uploads. It only ever runs when the maintainer starts
+# it: never on a push, a merge to main or a pull request, so nothing reaches a
+# store by accident and forks can't reach the secrets. Jobs that use secrets
+# wait for approval in their protected environments. See apple/docs/RELEASING.md.
+#
+# One `release` with platform `all` ships everything with one set of notes:
+#   apple    iPhone, iPad and Mac to App Store Connect (fastlane, apple/)
+#   windows  the Microsoft Store (dispatches windows-store.yml)
+#   docs     refreshes every platform's screenshots and store art on a
+#            release-docs/vX.Y.Z branch to merge with a PR (dispatches
+#            windows-screenshots.yml and store-assets.yml, which also uploads
+#            the new Apple store art)
+#   tag      vX.Y.Z and the GitHub release
 
 on:
   workflow_dispatch:
@@ -15,16 +22,16 @@ on:
         type: choice
         default: beta
         options:
-          - beta            # build + upload to TestFlight
-          - release         # build + upload + metadata/screenshots, then tag + GitHub release (no submit)
-          - metadata_only   # metadata + screenshots, no build
-          - pull_metadata   # download the live store copy (artifact)
-          - signing_setup   # create certificates/profiles in the match repo
+          - beta            # Apple build + upload to TestFlight
+          - release         # every store (no App Store submit), docs refresh, tag + GitHub release
+          - metadata_only   # Apple metadata + screenshots, no build
+          - pull_metadata   # download the live Apple store copy (artifact)
+          - signing_setup   # create Apple certificates/profiles in the match repo
       platform:
-        description: Platform
+        description: Platform (all = iPhone, iPad, Mac and Windows)
         type: choice
-        default: both
-        options: [both, ios, mac]
+        default: all
+        options: [all, apple, ios, mac, windows]
       notes:
         description: What's New text (blank = the titles of the PRs merged since the last release)
         type: string
@@ -42,47 +49,87 @@ defaults:
     working-directory: apple
 
 jobs:
-  release:
-    name: ${{ inputs.lane }} (${{ inputs.platform }})
-    if: github.repository == 'yennster/fanficly' && github.actor == 'yennster'
-    runs-on: macos-26
-    timeout-minutes: 120
-    environment: app-store
+  notes:
+    name: Release notes
+    if: >-
+      github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
+      (inputs.lane == 'beta' || inputs.lane == 'release')
+    runs-on: ubuntu-latest
     permissions:
-      contents: write        # the release lane tags vX.Y.Z and publishes the GitHub release
+      contents: read
       pull-requests: read    # the PRs merged since the last release
       issues: read
-    # Secrets are given only to the steps that need them (the fastlane step and
-    # the deploy-key step), not to the tool installs.
     env:
       GH_TOKEN: ${{ github.token }}
-      FASTLANE_SKIP_UPDATE_CHECK: "1"
-      FASTLANE_HIDE_CHANGELOG: "1"
-      LC_ALL: en_US.UTF-8
-      LANG: en_US.UTF-8
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      notes: ${{ steps.collect.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # the tags, to find the previous release
 
       - name: Check the version is new
-        if: inputs.lane == 'release'
+        id: version
+        env:
+          LANE: ${{ inputs.lane }}
+          PLATFORM: ${{ inputs.platform }}
         run: |
           version=$(sed -nE 's/^ *MARKETING_VERSION: "([^"]+)"/\1/p' project.yml)
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            echo "::error::v$version is already released. Bump MARKETING_VERSION in project.yml first."
+          # A Windows-only release ships no Apple version, so it needs no new tag.
+          if [ "$LANE" = release ] && [ "$PLATFORM" != windows ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "::error::v$version is already released. Bump MARKETING_VERSION in apple/project.yml first."
             exit 1
           fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Collect what changed since the last release
-        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        id: collect
         env:
           NOTES: ${{ inputs.notes }}
         run: |
           bin/release-notes.sh
-          echo "RELEASE_NOTES_FILE=$PWD/build/release/notes.txt" >> "$GITHUB_ENV"
+          delim="NOTES_$(openssl rand -hex 8)"
+          { echo "notes<<$delim"; cat build/release/notes.txt; echo "$delim"; } >> "$GITHUB_OUTPUT"
           { echo "## What's New"; echo; cat build/release/notes.txt; echo; cat build/release/changes.md; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: apple/build/release
+
+  apple:
+    name: Apple ${{ inputs.lane }} (${{ inputs.platform }})
+    needs: notes
+    if: >-
+      !cancelled() && github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
+      inputs.platform != 'windows' && needs.notes.result != 'failure'
+    runs-on: macos-26
+    timeout-minutes: 120
+    environment: app-store
+    permissions:
+      contents: read
+    outputs:
+      build: ${{ steps.build.outputs.build }}
+    # Secrets are given only to the steps that need them (the fastlane step and
+    # the deploy-key step), not to the tool installs.
+    env:
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+      LC_ALL: en_US.UTF-8
+      LANG: en_US.UTF-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        if: needs.notes.result == 'success'
+        with:
+          name: release-notes
+          path: apple/build/release
+
+      - name: Use the release notes
+        if: needs.notes.result == 'success'
+        run: echo "RELEASE_NOTES_FILE=$PWD/build/release/notes.txt" >> "$GITHUB_ENV"
 
       - name: Select newest installed Xcode
         run: |
@@ -127,35 +174,15 @@ jobs:
           REVIEW_PHONE: ${{ secrets.REVIEW_PHONE }}
           REVIEW_DEMO_USER: ${{ secrets.REVIEW_DEMO_USER }}
           REVIEW_DEMO_PASSWORD: ${{ secrets.REVIEW_DEMO_PASSWORD }}
-        run: bundle exec fastlane ios "${{ inputs.lane }}" platform:"${{ inputs.platform }}"
-
-      - name: Tag and publish the GitHub release
-        if: inputs.lane == 'release'
+          PLATFORM: ${{ inputs.platform }}
         run: |
-          build=$(cat build/release/build-number.txt)
-          case "${{ inputs.platform }}" in ios) where="iOS" ;; mac) where="Mac" ;; *) where="iOS + Mac" ;; esac
-          {
-            echo "## What's new in $VERSION"
-            echo
-            cat build/release/notes.txt
-            echo
-            cat build/release/changes.md
-            echo "App Store: version $VERSION, build $build ($where). Submit for review in App Store Connect."
-          } > build/release/github-release.md
-          gh release create "v$VERSION" --target "$GITHUB_SHA" \
-            --title "Fanficly v$VERSION" --notes-file build/release/github-release.md
+          case "$PLATFORM" in ios|mac) p="$PLATFORM" ;; *) p=both ;; esac
+          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p"
 
-      # Only the notes: artifacts on a public repo can be downloaded by anyone,
-      # so the signed .ipa/.pkg stay off GitHub (they're on TestFlight).
-      - name: Upload the release notes
+      - name: Report the build number
+        id: build
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-notes
-          path: |
-            apple/build/release/*.md
-            apple/build/release/*.txt
-          if-no-files-found: ignore
+        run: echo "build=$(cat build/release/build-number.txt 2>/dev/null)" >> "$GITHUB_OUTPUT"
 
       - name: Upload the downloaded store copy
         if: inputs.lane == 'pull_metadata'
@@ -169,3 +196,106 @@ jobs:
       - name: Remove the keys
         if: always()
         run: rm -f ~/.ssh/match_deploy_key fastlane/api_key.json fastlane/AuthKey_*.p8
+
+  windows:
+    name: Windows (Microsoft Store)
+    needs: [notes, apple]
+    if: >-
+      !cancelled() && inputs.lane == 'release' &&
+      (inputs.platform == 'all' || inputs.platform == 'windows') &&
+      needs.notes.result == 'success' && needs.apple.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write   # to start windows-store.yml (it waits for approval in microsoft-store)
+    steps:
+      - name: Start the Microsoft Store release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # Written notes go to every store. Left blank, the generated fallback
+          # lists Apple changes only, so Windows keeps the What's New in
+          # windows/store/listing/en-us/release_notes.txt instead.
+          NOTES: ${{ inputs.notes }}
+        run: |
+          if [ -n "$NOTES" ]; then
+            gh workflow run windows-store.yml --ref main -f submit=true -f release_notes="$NOTES"
+          else
+            gh workflow run windows-store.yml --ref main -f submit=true
+          fi
+          echo "Started the Windows Store release: approve it under Actions > Windows Store release." >> "$GITHUB_STEP_SUMMARY"
+
+  docs:
+    name: Refresh screenshots and docs
+    needs: [notes, apple, windows]
+    if: >-
+      !cancelled() && inputs.lane == 'release' && inputs.platform == 'all' &&
+      needs.notes.result == 'success' && needs.apple.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the release-docs/ branch
+      actions: write    # to start the screenshot workflows
+    steps:
+      - name: Start the screenshot runs on a release-docs branch
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.notes.outputs.version }}
+        run: |
+          branch="release-docs/v$VERSION"
+          if gh api "repos/$GH_REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
+            echo "$branch already exists; adding to it"
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null
+          fi
+          # Windows screenshots commit to the branch they run on.
+          gh workflow run windows-screenshots.yml --ref "$branch"
+          # Apple: regenerate on main, upload to the App Store versions this
+          # release just made (approval in app-store), and push to the branch.
+          gh workflow run store-assets.yml --ref main -f what=store_art -f upload=true \
+            -f push_branch=true -f branch="$branch" -f sha="$GITHUB_SHA"
+          {
+            echo "### Docs refresh"
+            echo
+            echo "Screenshots for every platform are being regenerated onto \`$branch\`."
+            echo "Open a PR from it (and update any doc text that changed) once both runs finish."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  tag:
+    name: Tag and GitHub release
+    needs: [notes, apple]
+    if: >-
+      !cancelled() && inputs.lane == 'release' &&
+      needs.notes.result == 'success' && needs.apple.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # tags vX.Y.Z and publishes the GitHub release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: notes
+      - name: Tag and publish the GitHub release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.notes.outputs.version }}
+          BUILD: ${{ needs.apple.outputs.build }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$PLATFORM" in
+            ios) where="iOS" ;; mac) where="Mac" ;; apple) where="iOS + Mac" ;;
+            *) where="iOS + Mac; Windows went to the Microsoft Store separately" ;;
+          esac
+          {
+            echo "## What's new in $VERSION"
+            echo
+            cat notes/notes.txt
+            echo
+            cat notes/changes.md
+            echo "App Store: version $VERSION, build $BUILD ($where). Submit for review in App Store Connect."
+          } > github-release.md
+          gh release create "v$VERSION" --target "$GITHUB_SHA" \
+            --title "Fanficly v$VERSION" --notes-file github-release.md

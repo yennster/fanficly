@@ -88,7 +88,8 @@ public sealed class LibraryScreen : Screen
             var item = new SelectorBarItem
             {
                 Text = info.Title,
-                Icon = Symbols.Icon(info.Symbol),
+                // Decorative beside the title, which is the item's name.
+                Icon = Symbols.Icon(info.Symbol).A11yHidden(),
             };
             AutomationProperties.SetName(item, info.Title);
             AutomationProperties.SetAutomationId(item, info.Id);
@@ -360,7 +361,7 @@ public sealed class LibraryScreen : Screen
         var grid = UI.UI.Grid("Auto,*,Auto,Auto", columnSpacing: 10);
         grid.Padding = new Thickness(0, 6, 0, 6);
         grid.Children.Add(UI.UI.Icon("folder", 16, Theme.Accent).Also(i => i.VerticalAlignment = VerticalAlignment.Center).Col(0));
-        grid.Children.Add(UI.UI.Text(folder.Name, Theme.Style.Headline, wrap: false).Also(t => t.VerticalAlignment = VerticalAlignment.Center).Col(1));
+        grid.Children.Add(UI.UI.Text(folder.Name, Theme.Style.Headline, maxLines: UI.UI.LineLimit(1)).Also(t => t.VerticalAlignment = VerticalAlignment.Center).Col(1));
         grid.Children.Add(UI.UI.Secondary(countText).Also(t => { t.VerticalAlignment = VerticalAlignment.Center; t.TextWrapping = TextWrapping.NoWrap; }).Col(2));
         grid.Children.Add(UI.UI.Icon("chevron.right", 11, Theme.TextTertiary).Also(i => i.VerticalAlignment = VerticalAlignment.Center).Col(3));
 

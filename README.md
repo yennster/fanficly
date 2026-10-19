@@ -72,7 +72,7 @@ A sidebar beside every screen, two-page spreads in landscape, and hardware keybo
 | :---: | :---: |
 | <img src="apple/screenshots/final/mac/01-search-plain-english.png" width="400" alt="Search on the Mac"> | <img src="apple/screenshots/final/mac/03-customize-every-page.png" width="400" alt="Reader settings on the Mac"> |
 
-A resizable window, ⌘1–9 for the tabs, interface zoom (⌘+ / ⌘− / ⌘0), and arrow keys to turn pages.
+A resizable window, ⌘1–9 for the tabs, interface zoom from the View menu (⇧⌘+ / ⇧⌘− or ⌘+ / ⌘−, ⌘0), and arrow keys to turn pages.
 
 **Docs:** [the Apple app guide](apple/README.md) · [all Mac screenshots](apple/screenshots/final/mac/)
 
