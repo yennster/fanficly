@@ -1,4 +1,5 @@
 using Fanficly.App.Platform;
+using Fanficly.App.Services;
 using Fanficly.App.Shell;
 using Fanficly.App.UI;
 using Microsoft.UI.Xaml;
@@ -16,16 +17,16 @@ public sealed class AboutScreen : Screen
     /// <summary>Pre-filled feedback email (subject percent-encoded so it survives the mailto).</summary>
     public const string FeedbackMailto = "mailto:jenny+fanficly@jennyplunkett.me?subject=Fanficly%20feedback";
 
-    public AboutScreen() => Title = "About";
+    public AboutScreen() => Title = Strings.Get("About_Title");
 
     protected override FrameworkElement Build()
     {
         var version = UI.UI.Text(AppHost.AppVersion, foreground: Theme.TextSecondary, selectable: true);
         AutomationProperties.SetAutomationId(version, "settings.version");
 
-        var rate = SettingsKit.LinkRow("Rate Fanficly in the Microsoft Store",
+        var rate = SettingsKit.LinkRow(Strings.Get("About_Rate"),
             () => _ = StoreReviewRequester.OpenStoreReviewPageAsync(), "star", automationId: "settings.rate", chevron: false);
-        ToolTipService.SetToolTip(rate, "Opens Fanficly's page in the Microsoft Store");
+        ToolTipService.SetToolTip(rate, Strings.Get("About_RateTooltip"));
 
         // A grid, not a horizontal stack, so the tagline wraps beside the icon
         // (at large text sizes and in narrow windows) instead of being cut off.
@@ -38,17 +39,17 @@ public sealed class AboutScreen : Screen
         }.A11yHidden().Col(0));
         header.Children.Add(UI.UI.VStack(2,
             UI.UI.Text("Fanficly", Theme.Style.Title2).A11yHeading(),
-            UI.UI.Secondary("A reader for Archive of Our Own. No servers, no tracking.", Theme.Style.Body))
+            UI.UI.Secondary(Strings.Get("About_Tagline"), Theme.Style.Body))
             .Also(s => s.VerticalAlignment = VerticalAlignment.Center).Col(1));
 
         var page = UI.UI.VStack(18,
             header,
-            UI.UI.Section("About",
+            UI.UI.Section(Strings.Get("About_Title"),
             [
-                UI.UI.SettingsRow("Version", version),
-                SettingsKit.LinkRow("Source on GitHub", () => _ = SettingsKit.OpenUriAsync(SourceUrl),
+                UI.UI.SettingsRow(Strings.Get("About_Version"), version),
+                SettingsKit.LinkRow(Strings.Get("About_Source"), () => _ = SettingsKit.OpenUriAsync(SourceUrl),
                     "chevron.left.forwardslash.chevron.right", automationId: "settings.source", chevron: false),
-                SettingsKit.LinkRow("Send feedback", () => _ = SettingsKit.OpenUriAsync(FeedbackMailto), "envelope",
+                SettingsKit.LinkRow(Strings.Get("About_Feedback"), () => _ = SettingsKit.OpenUriAsync(FeedbackMailto), "envelope",
                     automationId: "settings.feedback", chevron: false),
                 rate,
             ]));
