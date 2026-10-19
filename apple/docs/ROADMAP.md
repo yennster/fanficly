@@ -117,7 +117,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Search/SearchView.swift` (`CommentsView`), `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`.
 
 ### RM-009 — Notes and personal tags on library works
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AO3 tags describe the story; readers also want "for a bad day" or "reread at Christmas".
 - **Scope:** Optional `note: String?` and `personalTags: [String]` fields on `Work` (additive schema; defaults keep migration automatic). Edit them from the Library row's context menu; Library search matches them. Back up and restore with forward-only semantics: a non-empty value never gets overwritten by an empty one, and when both sides differ, local wins.
 - **Done when:** persistence tests, backup merge tests (old backup without the fields decodes), library search test.
