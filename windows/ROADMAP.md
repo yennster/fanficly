@@ -187,6 +187,15 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** `AO3ClientTests` and `KudosTests` cover the POST, the duplicate answer, a refusal, a signed-out page, no kudos button and no retry; the PR lists what to check on Windows.
 - **Touches:** `windows/src/Fanficly.Core/Networking/`, `Parsing/WorkPageParser.cs`, `Library/Kudos.cs`, `windows/src/Fanficly.App/Views/Reader/{WorkKudos,WorkDetailScreen,SavedWorkReaderScreen}.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`.
 
+### RM-119 — Create and edit AO3 bookmarks
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** The Bookmarks tab is read-only. The Apple app added "Bookmark on AO3" (RM-014 on `main`: `AO3BookmarkForm`, `BookmarkFormParser`, `AO3BookmarkSheet`); this ports it.
+- **Scope:**
+  - `FetchBookmarkFormAsync(workId)` reads the bookmark form AO3 renders on the work page for a signed-in user (`BookmarkFormParser`, prefilled from an existing bookmark), and `SaveBookmarkAsync(form)` posts it back to its own action (`/works/<id>/bookmarks`, or `/bookmarks/<id>` with `_method=put`) with the token. Never retried.
+  - A `BookmarkScreen` (Notes, Your tags, Rec, Private bookmark; Cancel and Save), opened from "Bookmark on AO3" in the live work page's options menu and the saved reader's More menu (`work.options.bookmark`); signed out the item opens sign-in.
+- **Done when:** parser and client tests cover a new and an existing bookmark, the posted fields, a login redirect, AO3's error list, and a create that stays on the form; every `IAO3Client` implementation has the two methods.
+- **Touches:** `windows/src/Fanficly.Core/Networking/*`, `Parsing/WorkPageParser.cs`, `Demo/DemoAO3Client.cs`, `windows/src/Fanficly.App/Views/Account/`, `Views/Reader/{WorkDetailScreen,SavedWorkReaderScreen}.cs`, `Views/Routes.cs`, `windows/tests/Fanficly.Core.Tests/`.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find library works from Windows Search
@@ -249,7 +258,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 
 ## Ideas from the Apple roadmap
 
-The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages, bulk download for a folder, notes and personal tags, and creating AO3 bookmarks (kudos is RM-115). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages, bulk download for a folder, and notes and personal tags (kudos is RM-115, creating AO3 bookmarks RM-119). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 

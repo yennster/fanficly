@@ -573,3 +573,182 @@ public class LoginParserTests
         Assert.False(LoginParser.HasLoginForm("<html><body><div id=\"greeting\">Hi!</div></body></html>"));
     }
 }
+
+/// <summary>Fixtures follow otwarchive's <c>bookmarks/_bookmark_form.html.erb</c> as Rails
+/// renders it inside the work page's <c>#bookmark_form_placement</c> (Swift's
+/// <c>BookmarkFormParserTests</c>).</summary>
+public class BookmarkFormParserTests
+{
+    private static readonly Uri Base = new("https://archiveofourown.org");
+
+    internal const string NewForm = """
+        <html><body>
+        <form action="/works/12345/chapters/678/comments" method="post">
+          <input type="hidden" name="authenticity_token" value="COMMENTTOK">
+          <textarea name="comment[comment_content]"></textarea>
+        </form>
+        <div id="bookmark_form_placement" class="wrapper toggled">
+        <div class="post bookmark" id="bookmark-form">
+          <form action="/works/12345/bookmarks" accept-charset="UTF-8" method="post">
+            <input type="hidden" name="authenticity_token" value="TOK123" autocomplete="off">
+            <fieldset>
+              <h4 class="heading"><span class="byline">reader,
+                <input value="20" autocomplete="off" type="hidden" name="bookmark[pseud_id]" id="bookmark_pseud_id">
+              </span> save a bookmark!</h4>
+              <textarea rows="4" id="bookmark_notes" class="observe_textlength" name="bookmark[bookmarker_notes]">
+        </textarea>
+              <input size="60" type="text" name="bookmark[tag_string]" id="bookmark_tag_string">
+              <input type="text" name="bookmark[collection_names]" id="bookmark_collection_names">
+              <input name="bookmark[private]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[private]" id="bookmark_private">
+              <input name="bookmark[rec]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[rec]" id="bookmark_rec">
+              <input type="submit" name="commit" value="Create">
+            </fieldset>
+          </form>
+        </div>
+        </div>
+        </body></html>
+        """;
+
+    internal const string ExistingForm = """
+        <html><body>
+        <div id="bookmark_form_placement" class="wrapper toggled">
+        <div class="post bookmark" id="bookmark-form">
+          <form action="/bookmarks/999" accept-charset="UTF-8" method="post">
+            <input type="hidden" name="_method" value="put" autocomplete="off">
+            <input type="hidden" name="authenticity_token" value="TOK456" autocomplete="off">
+            <select name="bookmark[pseud_id]" title="choose pseud">
+              <option value="20">reader</option>
+              <option selected="selected" value="21">other_pseud</option>
+            </select>
+            <textarea rows="4" id="bookmark_notes" name="bookmark[bookmarker_notes]">
+        Loved it.
+
+        &lt;b&gt;Reread&lt;/b&gt; soon</textarea>
+            <input size="60" type="text" value="comfort read, favourites" name="bookmark[tag_string]" id="bookmark_tag_string">
+            <input type="text" value="my_collection" name="bookmark[collection_names]" id="bookmark_collection_names">
+            <input name="bookmark[private]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" checked="checked" name="bookmark[private]" id="bookmark_private">
+            <input name="bookmark[rec]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[rec]" id="bookmark_rec">
+            <input type="submit" name="commit" value="Update">
+          </form>
+        </div>
+        </div>
+        </body></html>
+        """;
+
+    [Fact]
+    public void NewBookmark_ReadsActionTokenAndPseud()
+    {
+        var form = BookmarkFormParser.Parse(NewForm, Base);
+        Assert.NotNull(form);
+        Assert.Equal("https://archiveofourown.org/works/12345/bookmarks", form.Action.AbsoluteUri);
+        Assert.False(form.IsExisting);
+        Assert.Equal("TOK123", form.HiddenFields["authenticity_token"]);
+        Assert.Equal("20", form.HiddenFields["bookmark[pseud_id]"]);
+        Assert.False(form.HiddenFields.ContainsKey("_method"));
+        Assert.Equal("", form.Notes);
+        Assert.Equal("", form.Tags);
+        Assert.False(form.IsPrivate);
+        Assert.False(form.IsRec);
+    }
+
+    [Fact]
+    public void ExistingBookmark_IsPrefilledAndUpdates()
+    {
+        var form = BookmarkFormParser.Parse(ExistingForm, Base);
+        Assert.NotNull(form);
+        Assert.Equal("https://archiveofourown.org/bookmarks/999", form.Action.AbsoluteUri);
+        Assert.True(form.IsExisting);
+        Assert.Equal("put", form.HiddenFields["_method"]);
+        Assert.Equal("TOK456", form.HiddenFields["authenticity_token"]);
+        // The selected pseud, not the first.
+        Assert.Equal("21", form.HiddenFields["bookmark[pseud_id]"]);
+        // Line breaks and HTML source survive.
+        Assert.Equal("Loved it.\n\n<b>Reread</b> soon", form.Notes);
+        Assert.Equal("comfort read, favourites", form.Tags);
+        Assert.Equal("my_collection", form.Collections);
+        Assert.True(form.IsPrivate);
+        Assert.False(form.IsRec);
+    }
+
+    [Fact]
+    public void PostFields_SendEditedValuesOnce()
+    {
+        var form = BookmarkFormParser.Parse(ExistingForm, Base)!;
+        form.Notes = "New notes";
+        form.Tags = "angst";
+        form.IsPrivate = false;
+        form.IsRec = true;
+        var fields = form.PostFields;
+        Assert.Equal("put", fields["_method"]);
+        Assert.Equal("TOK456", fields["authenticity_token"]);
+        Assert.Equal("21", fields["bookmark[pseud_id]"]);
+        Assert.Equal("New notes", fields["bookmark[bookmarker_notes]"]);
+        Assert.Equal("angst", fields["bookmark[tag_string]"]);
+        // Collections are kept.
+        Assert.Equal("my_collection", fields["bookmark[collection_names]"]);
+        Assert.Equal("0", fields["bookmark[private]"]);
+        Assert.Equal("1", fields["bookmark[rec]"]);
+        Assert.Equal("Update", fields["commit"]);
+    }
+
+    [Fact]
+    public void NewBookmark_CommitsCreate()
+    {
+        var form = BookmarkFormParser.Parse(NewForm, Base)!;
+        Assert.Equal("Create", form.PostFields["commit"]);
+        Assert.Equal("0", form.PostFields["bookmark[private]"]);
+    }
+
+    [Fact]
+    public void NullWhenSignedOut()
+    {
+        const string html = """
+            <html><body><ul class="work navigation actions"><li class="comments"><a href="#comments">Comments</a></li></ul></body></html>
+            """;
+        Assert.Null(BookmarkFormParser.Parse(html, Base));
+    }
+
+    [Fact]
+    public void MissingCollectionsField_IsNotSent()
+    {
+        var html = NewForm.Replace("""<input type="text" name="bookmark[collection_names]" id="bookmark_collection_names">""", "");
+        var form = BookmarkFormParser.Parse(html, Base)!;
+        Assert.Null(form.Collections);
+        Assert.False(form.PostFields.ContainsKey("bookmark[collection_names]"));
+        // With the field there, an empty value is still sent.
+        Assert.Equal("", BookmarkFormParser.Parse(NewForm, Base)!.PostFields["bookmark[collection_names]"]);
+    }
+
+    [Fact]
+    public void IsBookmarkPage_OnlyForASavedBookmark()
+    {
+        Assert.True(BookmarkFormParser.IsBookmarkPage("/bookmarks/999"));
+        Assert.False(BookmarkFormParser.IsBookmarkPage("/works/12345/bookmarks"));
+        Assert.False(BookmarkFormParser.IsBookmarkPage("/"));
+        Assert.False(BookmarkFormParser.IsBookmarkPage("/bookmarks/999/edit"));
+        Assert.False(BookmarkFormParser.IsBookmarkPage("/bookmarks/new"));
+    }
+
+    [Fact]
+    public void FlashErrors_ReadsTheErrorFlashOnly()
+    {
+        const string html = """<html><body><div class="flash error">You can't bookmark with that pseud.</div></body></html>""";
+        Assert.Equal(["You can't bookmark with that pseud."], BookmarkFormParser.FlashErrors(html));
+        // The form-error list is separate: a flash alone isn't a form error.
+        Assert.Empty(BookmarkFormParser.SaveErrors(html));
+        Assert.Empty(BookmarkFormParser.FlashErrors("""<html><body><div class="flash notice">Bookmark was successfully updated.</div></body></html>"""));
+    }
+
+    [Fact]
+    public void SaveErrors_ReadsAO3ErrorList()
+    {
+        const string html = """
+            <html><body>
+            <div id="error" class="error"><h4>Sorry! We couldn't save this bookmark because:</h4>
+            <ul><li>Notes must be less than 5000 characters long.</li><li>Tag is too long</li></ul></div>
+            </body></html>
+            """;
+        Assert.Equal(["Notes must be less than 5000 characters long.", "Tag is too long"], BookmarkFormParser.SaveErrors(html));
+        Assert.Empty(BookmarkFormParser.SaveErrors("""<html><body><div class="flash notice">Bookmark was successfully updated.</div></body></html>"""));
+    }
+}
