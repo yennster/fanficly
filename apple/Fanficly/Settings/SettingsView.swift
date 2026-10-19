@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage("settings.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = false
     @AppStorage("library.showReadingProgress") private var showReadingProgress = true
     @State private var lastSync: Date? = nil
+    @State private var lastBackupFailure: String? = nil
     @State private var showingRestoreSuccess = false
     @State private var showingRestoreFailure = false
     @State private var isRestoring = false
@@ -76,9 +77,20 @@ struct SettingsView: View {
                         LabeledContent("Last synced") { Text("Never") }
                     }
                     
+                    if let lastBackupFailure {
+                        Label {
+                            Text("Last backup didn't run: \(lastBackupFailure)")
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle")
+                                .accessibilityHidden(true)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+
                     Button("Sync Now") {
                         syncManager.backupToiCloud(context: context)
                         lastSync = syncManager.lastBackupDate
+                        lastBackupFailure = syncManager.lastBackupFailure
                     }
                     .disabled(isRestoring)
                     
@@ -113,6 +125,7 @@ struct SettingsView: View {
                     Button("Clear iCloud Data", role: .destructive) {
                         syncManager.clearFromiCloud()
                         lastSync = nil
+                        lastBackupFailure = nil
                     }
                     .disabled(isRestoring)
                 } else {
@@ -189,6 +202,7 @@ struct SettingsView: View {
         }
         .onAppear {
             lastSync = syncManager.lastBackupDate
+            lastBackupFailure = syncManager.lastBackupFailure
         }
         .onChange(of: filterMature) { _, _ in
             syncManager.queueBackup(context: context)

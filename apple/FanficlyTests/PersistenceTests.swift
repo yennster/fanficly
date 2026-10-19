@@ -686,6 +686,62 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(stat.totalSeconds, 3000, accuracy: 0.001)
     }
 
+    /// A backup file that's there but won't decode (truncated, or a newer
+    /// app's format) is left alone: writing this device's library over it
+    /// would drop every other device's records (#125).
+    func test_backupSkipsAnUnreadableBackupAndLeavesItUntouched() throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+        for garbage in ["", "not json", #"{"works":[{"ao3Id":1}]"#] {
+            let original = Data(garbage.utf8)
+            try original.write(to: url)
+            iCloudSyncManager.shared.backupToiCloud(context: device)
+            XCTAssertEqual(try Data(contentsOf: url), original, "an unreadable backup must not be overwritten")
+            XCTAssertNotNil(iCloudSyncManager.shared.lastBackupFailure)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+    }
+
+    /// Each write keeps the file it replaces as library_backup.prev.json, and
+    /// clearing iCloud data removes both.
+    func test_backupKeepsThePreviousFileAndClearRemovesIt() throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+        XCTAssertEqual(iCloudSyncManager.previousBackupURL(for: URL(fileURLWithPath: "/a/library_backup.json")).lastPathComponent,
+                       "library_backup.prev.json")
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+        XCTAssertNil(iCloudSyncManager.shared.lastBackupFailure)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+        let first = try Data(contentsOf: url)
+
+        _ = WorkPersistence.upsert(payload: payload(id: 2, chapters: 1), into: device)
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+        XCTAssertEqual(try Data(contentsOf: previousURL), first)
+        XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2])
+
+        XCTAssertTrue(iCloudSyncManager.shared.clearFromiCloud())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+    }
+
     /// A backup that merges in another device's records puts them in the
     /// file, not in this library, so it must not stamp the file as applied
     /// here: the next launch sync still has to restore them (#124). Each

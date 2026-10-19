@@ -151,6 +151,16 @@
         }
       }
     },
+    "Last backup didn't run: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last backup didn't run: %@"
+          }
+        }
+      }
+    },
     "Last synced" : {
       "localizations" : {
         "en" : {
@@ -357,6 +367,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync Now"
+          }
+        }
+      }
+    },
+    "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device."
+          }
+        }
+      }
+    },
+    "The backup in iCloud is still downloading. Fanficly will back up once it's on this device." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The backup in iCloud is still downloading. Fanficly will back up once it's on this device."
           }
         }
       }

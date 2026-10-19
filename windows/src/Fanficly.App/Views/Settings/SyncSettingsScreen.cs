@@ -294,6 +294,10 @@ public sealed class SyncSettingsScreen : Screen
                     _ = Dialogs.AlertAsync("Not Backed Up Yet",
                         "The sync app is using the backup file right now. Try again in a minute.");
                     break;
+                case BackupOutcome.Unreadable:
+                    _ = Dialogs.AlertAsync("Not Backed Up",
+                        $"Fanficly couldn't read the backup in the sync folder, so it left it alone rather than replace it with this PC's library. It may be damaged, or written by a newer version of Fanficly. Update Fanficly, or use Clear Synced Data to start a new backup from this PC. ({Sync.LastBackupError})");
+                    break;
                 case BackupOutcome.NoFolder:
                     _ = Dialogs.AlertAsync("Backup Failed", "Choose a sync folder first.");
                     break;

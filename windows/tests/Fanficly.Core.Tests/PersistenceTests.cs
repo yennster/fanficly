@@ -597,6 +597,54 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal([1, 2, 3, 4], DecodeBackup(path).Works.Select(w => w.Ao3Id));
     }
 
+    /// <summary>A backup file that's there but won't decode (truncated, or a
+    /// newer app's format) is left alone: writing this library over it would
+    /// drop every other device's records (#125).</summary>
+    [Fact]
+    public void BackupSkipsAnUnreadableBackupAndLeavesItUntouched()
+    {
+        var path = MakeTempBackupPath();
+        _tempFiles.Add(LibrarySyncManager.PreviousBackupPath(path));
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), store);
+
+        foreach (var garbage in new[] { "", "not json", """{"works":[{"ao3Id":1}]""" })
+        {
+            File.WriteAllText(path, garbage);
+            var sync = MakeSync(path);
+            Assert.Equal(BackupOutcome.Unreadable, sync.Backup(store));
+            Assert.Equal(garbage, File.ReadAllText(path));
+            Assert.NotNull(sync.LastBackupError);
+        }
+        Assert.False(File.Exists(LibrarySyncManager.PreviousBackupPath(path)));
+    }
+
+    /// <summary>Each write keeps the file it replaces as library_backup.prev.json,
+    /// and Clear removes both.</summary>
+    [Fact]
+    public void BackupKeepsThePreviousFileAndClearRemovesIt()
+    {
+        var path = MakeTempBackupPath();
+        var prev = LibrarySyncManager.PreviousBackupPath(path);
+        _tempFiles.Add(prev);
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), store);
+        var sync = MakeSync(path);
+
+        sync.Backup(store);
+        Assert.False(File.Exists(prev));
+        var first = File.ReadAllBytes(path);
+
+        WorkPersistence.Upsert(Payload(2, 1), store);
+        sync.Backup(store);
+        Assert.Equal(first, File.ReadAllBytes(prev));
+        Assert.Equal([1, 2], DecodeBackup(path).Works.Select(w => w.Ao3Id));
+
+        Assert.True(sync.Clear());
+        Assert.False(File.Exists(path));
+        Assert.False(File.Exists(prev));
+    }
+
     /// <summary>A backup that merges in another device's records puts them in
     /// the file, not in this library, so it must not stamp the file as applied
     /// here: the next launch sync still has to restore them (#124). The iPad's
