@@ -171,7 +171,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Handle `CSSearchableItemActionType` (`work-<id>` identifiers from `WorkPersistence.indexWork`) by routing through the existing resume route; index every saved library work, not only followed ones (deindex on delete); add a "Continue reading" App Shortcut. Index data stays on-device.
 
 ### RM-017 — Localization groundwork
-- **Status:** open · **Size:** M (the groundwork only) · **Validation:** mac
+- **Status:** done · **Size:** M (the groundwork only) · **Validation:** mac
 - **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
 
 ### RM-018 — Split the big view files
@@ -191,6 +191,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.
 - **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
 - **Touches:** `RootView.swift`, `FanficlyApp.swift`.
+
+### RM-024 — Move the remaining screens' strings to the String Catalog
+- **Status:** open · **Size:** S per screen family · **Validation:** unit + mac
+- **Why:** RM-017 added `Fanficly/Localizable.xcstrings` and moved Settings (`SettingsView.swift`). Every other screen's strings are still inline only.
+- **Scope:** One screen family per PR, following the convention in AGENTS.md: Search (incl. `WorkFilterSheet`), Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, Auth, the rest of Settings (`ReaderSettingsView`, `ContentSafetyViews`), then the widget and share extension (their own catalogs). Do not translate. AO3 tag and category names stay verbatim.
+- **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
+- **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
 
 ## Engineering health (any release)
 
