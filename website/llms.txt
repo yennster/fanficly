@@ -18,7 +18,7 @@
 - Follow works and authors without an account and get notifications for new chapters and new works.
 - Reading stats (stories finished, time and words read, streak, top fandoms, ships and authors) with a yearly wrap-up card.
 - Optional AO3 sign-in for bookmarks, subscriptions, comments and kudos. The password goes only to AO3; only AO3's session cookie is kept, in the device's secure keychain.
-- Widgets for the story you're reading on the iPhone and iPad home screen and on Windows.
+- Widgets for the story you're reading on the iPhone and iPad home and lock screens and on Windows.
 
 ## Links
 

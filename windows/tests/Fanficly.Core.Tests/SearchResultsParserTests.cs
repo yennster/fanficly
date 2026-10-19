@@ -143,6 +143,7 @@ public class SearchResultsParserTests
         // must resolve so "Load more" advances past page 2.
         const string liForm = """
         <html><body>
+        <ol class="work index group"></ol>
         <ol class="pagination actions">
           <li><a href="?page=1">1</a></li>
           <li class="current">3</li>
@@ -222,6 +223,161 @@ public class SearchResultsParserTests
         Assert.Equal(5, work.TotalChapters);
     }
 
+    // MARK: - Readings page (Marked for Later)
+
+    /// <summary>Markup from AO3's readings templates (otwarchive
+    /// readings/index.html.erb + _reading_blurb.html.erb), the Swift tests'
+    /// fixture: each entry is `li.reading.work.blurb` with id `work_&lt;id&gt;`,
+    /// wrapping the usual work blurb plus a "Last visited" module; a deleted work
+    /// keeps an entry with no id and no title link. Pagination is AO3's pagy nav.</summary>
+    private const string ReadingsHtml = """
+    <html><body>
+    <div id="main" class="readings-index dashboard region" role="main">
+    <h2 class="heading">Marked for Later</h2>
+    <h4 class="landmark heading">Pages Navigation</h4>
+    <ol class="pagination actions pagy" role="navigation">
+      <li class="previous"><a href="/users/me/readings?page=1&amp;show=to-read">← Previous</a></li>
+      <li><a href="/users/me/readings?page=1&amp;show=to-read">1</a></li>
+      <li><a role="link" aria-disabled="true" aria-current="page" class="current">2</a></li>
+      <li><a href="/users/me/readings?page=3&amp;show=to-read">3</a></li>
+      <li class="next"><a href="/users/me/readings?page=3&amp;show=to-read">Next →</a></li>
+    </ol>
+    <h3 class="landmark heading">List of Marked for Later Items</h3>
+    <ol class="reading work index group">
+      <li id="work_4242" class="reading work blurb group work-4242 user-1" role="article">
+        <div class="header module">
+          <h4 class="heading">
+            <a href="/works/4242">Saved For Later</a>
+            by
+            <a rel="author" href="/users/erin/pseuds/erin">erin</a>
+          </h4>
+          <h5 class="fandoms heading">
+            <a class="tag" href="/tags/Good%20Omens/works">Good Omens</a>
+          </h5>
+          <ul class="required-tags">
+            <li><a><span class="text">General Audiences</span></a></li>
+            <li><a><span class="text">No Archive Warnings Apply</span></a></li>
+            <li><a><span class="text">Work in Progress</span></a></li>
+          </ul>
+          <p class="datetime">12 Oct 2026</p>
+        </div>
+        <dl class="stats">
+          <dt class="words">Words:</dt><dd class="words">2,500</dd>
+          <dt class="chapters">Chapters:</dt><dd class="chapters">2/?</dd>
+        </dl>
+        <div class="user module group">
+          <h4 class="viewed heading">
+            <span>Last visited:</span> 14 Oct 2026
+            (Latest version.)
+            Visited once
+            (Marked for Later.)
+          </h4>
+          <ul class="actions"><li><form action="/users/me/readings/9" method="post"><input type="submit" value="Delete from History"></form></li></ul>
+        </div>
+      </li>
+      <li class="deleted reading work blurb group" role="article">
+        <div class="user module group">
+          <h4 class="viewed heading">(Deleted work, last visited 01 Jan 2026)</h4>
+        </div>
+      </li>
+    </ol>
+    </div>
+    </body></html>
+    """;
+
+    [Fact]
+    public void ReadingsParseListsWorksAndSkipsDeleted()
+    {
+        var result = SearchResultsParser.ParseReadings(ReadingsHtml);
+        var work = Assert.Single(result.Works); // the deleted entry has no work and is skipped
+        Assert.Equal(4242, work.Id);
+        Assert.Equal("Saved For Later", work.Title);
+        Assert.Equal("erin", work.Author);
+        Assert.Equal("erin", work.AuthorUsername);
+        Assert.Equal(["Good Omens"], work.Fandoms);
+        Assert.Equal(2500, work.WordCount);
+        Assert.Equal(2, work.ChapterCount);
+        Assert.Null(work.TotalChapters);
+        Assert.Equal(2, result.CurrentPage);
+        Assert.Equal(3, result.TotalPages);
+    }
+
+    [Fact]
+    public void ReadingsParseHistoryPage()
+    {
+        // The unfiltered readings page (AO3 history) has the same markup, most
+        // recently visited first, and one page has no pagination.
+        const string history = """
+        <html><body><div id="main" class="readings-index dashboard region" role="main">
+        <h2 class="heading">History</h2>
+        <ol class="reading work index group">
+          <li id="work_11" class="reading work blurb group" role="article">
+            <div class="header module"><h4 class="heading">
+              <a href="/works/11">Newest Visit</a> by <a rel="author" href="/users/a/pseuds/a">a</a>
+            </h4></div>
+            <div class="user module group"><h4 class="viewed heading">
+              <span>Last visited:</span> 17 Oct 2026 (Update available.) Visited 3 times
+            </h4></div>
+          </li>
+          <li id="work_22" class="reading work blurb group" role="article">
+            <div class="header module"><h4 class="heading">
+              <a href="/works/22">Older Visit</a> by <a rel="author" href="/users/b/pseuds/b">b</a>
+            </h4></div>
+            <div class="user module group"><h4 class="viewed heading">
+              <span>Last visited:</span> 02 Sep 2026 (Latest version.) Visited once
+            </h4></div>
+          </li>
+        </ol>
+        </div></body></html>
+        """;
+        var result = SearchResultsParser.ParseReadings(history);
+        Assert.Equal([11, 22], result.Works.Select(w => w.Id));
+        Assert.Equal(["Newest Visit", "Older Visit"], result.Works.Select(w => w.Title));
+        Assert.Equal(1, result.TotalPages);
+    }
+
+    [Fact]
+    public void ReadingsParseEmptyList()
+    {
+        // AO3 renders no list and no pagination when nothing is marked.
+        const string empty = """
+        <html><body><div id="main" class="readings-index dashboard region" role="main">
+        <h2 class="heading">Marked for Later</h2>
+        <h3 class="landmark heading">List of Marked for Later Items</h3>
+        </div></body></html>
+        """;
+        var result = SearchResultsParser.ParseReadings(empty);
+        Assert.Empty(result.Works);
+        Assert.Equal(1, result.TotalPages);
+    }
+
+    [Fact]
+    public void ReadingsParseLoginPageFailsClosed()
+    {
+        // An expired session: AO3 redirects to the login form, served as a 200.
+        const string login = """
+        <html><body><div id="main" class="user_sessions-new region">
+        <form id="new_user_session_small" action="/users/login" method="post">
+          <input name="user[login]"><input name="user[password]" type="password">
+        </form></div></body></html>
+        """;
+        var e = Assert.Throws<AO3Exception>(() => SearchResultsParser.ParseReadings(login));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public void ReadingsParseOtherPageFailsClosed()
+    {
+        // History turned off: AO3 redirects to the preferences page.
+        var prefs = Assert.Throws<AO3Exception>(() => SearchResultsParser.ParseReadings(
+            "<html><body><div id=\"main\" class=\"preferences-index dashboard region\"></div></body></html>"));
+        Assert.Equal(AO3ErrorKind.ParseFailed, prefs.Kind);
+        Assert.Equal(SearchResultsParser.HistoryOffReason, prefs.Reason);
+        // Anything else (markup drift, an error page) is never an empty list.
+        var other = Assert.Throws<AO3Exception>(() => SearchResultsParser.ParseReadings("<html><body><p>Oops</p></body></html>"));
+        Assert.Equal(AO3ErrorKind.ParseFailed, other.Kind);
+    }
+
     [Fact]
     public void WorkIdFromHref()
     {
@@ -230,4 +386,138 @@ public class SearchResultsParserTests
         Assert.Null(SearchResultsParser.WorkId("/series/4242"));
         Assert.Null(SearchResultsParser.WorkId(""));
     }
+
+    // Failing closed (RM-001)
+
+    [Fact]
+    public void EmptySearchReturnsNoWorks()
+    {
+        var html = AO3PageFixtures.GuestPage("works-search", """
+            <h2 class="heading">Search Results</h2>
+            <p>No results found. You may want to edit your search to make it less specific.</p>
+            """);
+        Assert.Empty(SearchResultsParser.Parse(html).Works);
+    }
+
+    [Fact]
+    public void EmptyAuthorWorksReturnsNoWorks()
+    {
+        var html = AO3PageFixtures.GuestPage("works-index dashboard", """
+            <h2 class="heading">0 Works by alice</h2>
+            <h3 class="landmark heading">Listing Works</h3>
+            <ol class="work index group"></ol>
+            """);
+        Assert.Empty(SearchResultsParser.Parse(html).Works);
+    }
+
+    [Fact]
+    public void EmptyBookmarksReturnNoWorks()
+    {
+        var html = AO3PageFixtures.GuestPage("bookmarks-index dashboard", """
+            <h2 class="heading">0 Bookmarks by alice</h2>
+            <ol class="bookmark index group"></ol>
+            """);
+        Assert.Empty(SearchResultsParser.Parse(html, "li.bookmark.blurb").Works);
+    }
+
+    /// <summary>Every guest page has the header's login form; it must not read as
+    /// the login page.</summary>
+    [Fact]
+    public void GuestResultsPageStillParses()
+    {
+        var html = AO3PageFixtures.GuestPage("works-search", """
+            <ol class="work index group">
+              <li id="work_12345" class="work blurb group" role="article">
+                <div class="header module"><h4 class="heading"><a href="/works/12345">A Coffee Shop Tale</a></h4></div>
+              </li>
+            </ol>
+            """);
+        Assert.Equal([12345], SearchResultsParser.Parse(html).Works.Select(w => w.Id));
+    }
+
+    [Theory]
+    [InlineData("li.work.blurb")]
+    [InlineData("li.bookmark.blurb")]
+    public void LoginPageThrowsUnauthorized(string selector)
+    {
+        var e = Assert.Throws<AO3Exception>(() => SearchResultsParser.Parse(AO3PageFixtures.LoginPage, selector));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    public static TheoryData<string> GarbagePages =>
+        [AO3PageFixtures.ErrorPage, AO3PageFixtures.ForeignPage, "<html><body></body></html>"];
+
+    [Theory]
+    [MemberData(nameof(GarbagePages))]
+    public void GarbagePageThrowsParseFailed(string html)
+    {
+        var e = Assert.Throws<AO3Exception>(() => SearchResultsParser.Parse(html));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
+}
+
+/// <summary>Page shells for the fail-closed parser tests, cut down from otwarchive's
+/// own templates (<c>layouts/application</c>, <c>users/sessions/new</c>,
+/// <c>public/502.html</c>). AO3 sets <c>#main</c>'s class to the Rails
+/// <c>controller-action</c>. The Swift tests use the same shells.</summary>
+internal static class AO3PageFixtures
+{
+    /// <summary>The header every logged-out page carries, small login form included.</summary>
+    public const string GuestHeader = """
+        <div id="header" class="region" role="banner">
+          <h1 class="heading"><a href="/"><span>Archive of Our Own</span></a></h1>
+          <div id="login" class="dropdown">
+            <p class="user actions"><a id="login-dropdown" href="/users/login?return_to=%2Fworks">Log In</a></p>
+            <div id="small_login" class="simple login">
+              <form class="new_user" id="new_user_session_small" action="/users/login?return_to=%2Fworks" accept-charset="UTF-8" method="post">
+                <dl>
+                  <dt><label for="user_session_login_small">Username or email:</label></dt>
+                  <dd><input autocomplete="on" id="user_session_login_small" type="text" name="user[login]" /></dd>
+                  <dt><label for="user_password">Password:</label></dt>
+                  <dd><input type="password" name="user[password]" id="user_password" /></dd>
+                </dl>
+              </form>
+            </div>
+          </div>
+        </div>
+        """;
+
+    public static string GuestPage(string mainClass, string body) => $"""
+        <html><body><div id="outer" class="wrapper">
+        {GuestHeader}
+        <div id="inner" class="wrapper">
+          <div id="main" class="{mainClass} region" role="main">
+          {body}
+          </div>
+        </div>
+        </div></body></html>
+        """;
+
+    /// <summary>Where AO3 sends a stale session or a guest opening a restricted work.</summary>
+    public static readonly string LoginPage = GuestPage("sessions-new system session", """
+        <h3 class="heading">Sorry!</h3>
+        <p>This work is only available to registered users of the Archive.</p>
+        <div id="loginform">
+          <form class="new_user" id="new_user" action="/users/login" accept-charset="UTF-8" method="post">
+            <dl>
+              <dt><label for="user_login">Username or email:</label></dt>
+              <dd><input type="text" name="user[login]" id="user_login" /></dd>
+              <dt><label for="user_password">Password:</label></dt>
+              <dd><input type="password" name="user[password]" id="user_password" /></dd>
+            </dl>
+          </form>
+        </div>
+        """);
+
+    /// <summary>AO3's static 502 page.</summary>
+    public static readonly string ErrorPage = GuestPage("system errors error-502", """
+        <h2 class="heading">Error 502</h2>
+        <p>The page was responding too slowly.</p>
+        """);
+
+    /// <summary>Not AO3 at all: a captive portal or a proxy's block page.</summary>
+    public const string ForeignPage = """
+        <html><head><title>Sign in to Wi-Fi</title></head>
+        <body><h1>Welcome</h1><a href="/tags/accept/works">Accept and continue</a></body></html>
+        """;
 }

@@ -28,7 +28,7 @@ Every app has the same core features. Open a platform for its screenshots, extra
 | :---: | :---: | :---: | :---: |
 | <img src="apple/docs/screenshots/iphone/02-search-results.png" width="180" alt="Search results on iPhone"> | <img src="apple/docs/screenshots/iphone/03-reader.png" width="180" alt="A story in the reader on iPhone"> | <img src="apple/docs/screenshots/iphone/04-library.png" width="180" alt="The Library on iPhone"> | <img src="apple/docs/screenshots/iphone/05-browse.png" width="180" alt="Browse by fandom on iPhone"> |
 
-Home-screen widgets, the Safari share sheet, and lock-screen controls while a story is read aloud.
+Home-screen and lock-screen widgets, the Safari share sheet, and lock-screen controls while a story is read aloud.
 
 **Docs:** [the Apple app guide](apple/README.md) · [all iPhone screenshots](apple/docs/screenshots/iphone/)
 
@@ -72,7 +72,7 @@ A sidebar beside every screen, two-page spreads in landscape, and hardware keybo
 | :---: | :---: |
 | <img src="apple/screenshots/final/mac/01-search-plain-english.png" width="400" alt="Search on the Mac"> | <img src="apple/screenshots/final/mac/03-customize-every-page.png" width="400" alt="Reader settings on the Mac"> |
 
-A resizable window, ⌘1–9 for the tabs, interface zoom (⌘+ / ⌘− / ⌘0), and arrow keys to turn pages.
+A resizable window, ⌘1–9 for the tabs, interface zoom from the View menu (⇧⌘+ / ⇧⌘− or ⌘+ / ⌘−, ⌘0), and arrow keys to turn pages.
 
 **Docs:** [the Apple app guide](apple/README.md) · [all Mac screenshots](apple/screenshots/final/mac/)
 
@@ -82,11 +82,11 @@ A resizable window, ⌘1–9 for the tabs, interface zoom (⌘+ / ⌘− / ⌘0)
 <summary><b>Windows</b>: WinUI 3, Windows 10 and 11, x64 and ARM64</summary>
 <br>
 
-<img src="docs/screenshots/windows/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
+<img src="windows/docs/screenshots/showcase.jpg" alt="Fanficly on a Windows desktop and tablet">
 
 Widgets on Windows 11, taskbar jump lists, sync through OneDrive or any folder you already sync, keyboard, controller and Narrator support. The backup format matches the Apple app, so a PC and an iPhone can share one library.
 
-**Docs:** [features and setup](windows/README.md) · [build and run](windows/README.md#development) · [accessibility](windows/ACCESSIBILITY.md) · [roadmap](windows/ROADMAP.md) · [privacy](windows/PRIVACY.md) · screenshots: [desktop](docs/screenshots/windows/desktop/), [tablet](docs/screenshots/windows/tablet/), [narrow window](docs/screenshots/windows/compact/)
+**Docs:** [features and setup](windows/README.md) · [build and run](windows/README.md#development) · [accessibility](windows/ACCESSIBILITY.md) · [roadmap](windows/ROADMAP.md) · [privacy](windows/PRIVACY.md) · screenshots: [desktop](windows/docs/screenshots/desktop/), [tablet](windows/docs/screenshots/tablet/), [narrow window](windows/docs/screenshots/compact/)
 
 </details>
 
@@ -109,10 +109,9 @@ apple/        the iPhone, iPad and Mac app (Xcode project from project.yml)
 windows/      the Windows app (Fanficly.Windows.slnx)
 website/      fanficly.app (static site, deployed by Vercel)
 CITATION.cff  machine-readable summary of the app (GitHub's "Cite this repository")
-docs/         shared pictures (docs/screenshots/windows/)
-bin/          repo-wide scripts (roadmap.sh lists both roadmaps)
 .github/      CI: ci.yml for apple/, windows-*.yml for windows/; release.yml and
-              store-assets.yml release the Apple app (apple/docs/RELEASING.md)
+              store-assets.yml release the Apple app (apple/docs/RELEASING.md);
+              scripts/roadmap.sh lists both roadmaps
 ```
 
 CI is split by app: a change under `apple/` runs the Apple workflow, a change under `windows/` runs the Windows ones, and a pull request that touches both runs both.

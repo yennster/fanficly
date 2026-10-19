@@ -5,6 +5,16 @@ enum WorkPageParser {
     static func parse(html: String, workId: Int) throws -> AO3WorkPayload {
         let doc = try SwiftSoup.parse(html)
 
+        // A restricted work or a stale session lands on the login page, and
+        // anything else without the work's own markup (the adult gate, an
+        // error page, drift) would parse to an untitled work with no chapters,
+        // which `WorkPersistence.upsert(payload:)` would save over the
+        // offline copy. Both must be errors.
+        try AO3PageCheck.rejectLoginPage(doc)
+        if try doc.select("#workskin, div#chapters, dl.work.meta").isEmpty() {
+            throw AO3Error.parseFailed(reason: "Not a work page")
+        }
+
         // Strip AO3's screen-reader-only landmark headings ("Chapter Text",
         // "Work Text", "Notes", etc.) so they don't render in the body.
         _ = try? doc.select("h3.landmark, .landmark.heading").remove()
@@ -235,6 +245,26 @@ enum CommentsParser {
         return try comments.array().compactMap(parseComment)
     }
 
+    /// One page of comments plus where it sits in the thread's pagination.
+    /// AO3 renders the comment thread's will_paginate list (`ol.pagination`,
+    /// current page in `<span class="current">`) inside `#comments_placeholder`,
+    /// above and below the thread; with one page there is no list at all.
+    static func parsePage(html: String) throws -> AO3CommentsPage {
+        let doc = try SwiftSoup.parse(html)
+        let comments = try doc.select("li.comment[id^=comment_]").array().compactMap(parseComment)
+        var current = 1
+        var total = 1
+        for li in try doc.select("#comments_placeholder ol.pagination li").array() {
+            guard let num = Int(try li.text().trimmingCharacters(in: .whitespaces)) else { continue }
+            total = max(total, num)
+            // Same "current" check as SearchResultsParser: on the <li> or an inner span.
+            let liIsCurrent = try li.attr("class").contains("current")
+            let innerIsCurrent = try !li.select(".current").array().isEmpty
+            if liIsCurrent || innerIsCurrent { current = num }
+        }
+        return AO3CommentsPage(comments: comments, currentPage: current, totalPages: total)
+    }
+
     private static func parseComment(_ li: Element) throws -> AO3Comment? {
         let idAttr = try li.attr("id")              // e.g. "comment_123456"
         guard idAttr.hasPrefix("comment_") else { return nil }
@@ -336,5 +366,60 @@ enum CommentsParser {
             node = n.parent()
         }
         return false
+    }
+}
+
+/// The work page's kudos button and AO3's answer to it. AO3 renders the
+/// button as `form#new_kudo` (hidden `authenticity_token`,
+/// `kudo[commentable_id]`, `kudo[commentable_type]`) for everyone except the
+/// work's own creators, readers they blocked, and admins.
+enum KudosParser {
+    /// The form's hidden fields, or nil when the page has no kudos button.
+    static func formFields(html: String) -> [String: String]? {
+        guard let doc = try? SwiftSoup.parse(html),
+              let form = try? doc.select("form#new_kudo").first() else { return nil }
+        var fields: [String: String] = [:]
+        if let hidden = try? form.select("input[type=hidden]") {
+            for input in hidden.array() {
+                let name = (try? input.attr("name")) ?? ""
+                guard !name.isEmpty else { continue }
+                fields[name] = (try? input.attr("value")) ?? ""
+            }
+        }
+        guard let id = fields["kudo[commentable_id]"], !id.isEmpty else { return nil }
+        return fields
+    }
+
+    /// Whether the page was served to a signed-in reader: AO3's `nav#greeting`
+    /// links to `/users/<login>` only then, and a signed-out header carries the
+    /// login form. Stricter than `LoginParser.currentUsername`, whose `#header`
+    /// fallback also matches the signed-out `/users/login?return_to=…` link.
+    static func isSignedIn(html: String) -> Bool {
+        guard (try? LoginParser.hasLoginForm(html: html)) == false,
+              let doc = try? SwiftSoup.parse(html),
+              let links = try? doc.select("#greeting a[href^=/users/]") else { return false }
+        return !links.isEmpty()
+    }
+
+    /// The reason in a refused `/kudos.js` POST's `{"error_message": "…"}`.
+    static func errorMessage(json: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let message = object["error_message"] as? String else { return nil }
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// AO3's answer when it refuses the CSRF token (an ended session):
+    /// `{"errors": {"auth_error": "Your current session has expired…"}}`.
+    static func isAuthError(json: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let errors = object["errors"] as? [String: Any] else { return false }
+        return errors["auth_error"] != nil
+    }
+
+    /// AO3's duplicate-kudos answer, "You have already left kudos here. :)",
+    /// the same for a logged-in user (one per account) and a guest (one per IP).
+    static func isAlreadyLeft(message: String) -> Bool {
+        message.range(of: "already left kudos", options: .caseInsensitive) != nil
     }
 }

@@ -116,6 +116,57 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
     }
 
+    // MARK: Result-row badges (RM-002)
+
+    func test_resultBadge_unknownWorkHasNone() {
+        XCTAssertNil(WorkPersistence.resultBadge(inLibrary: false, started: false, progress: nil, isComplete: false))
+        XCTAssertNil(WorkPersistence.resultBadge(inLibrary: false, started: false, progress: 0, isComplete: true))
+    }
+
+    func test_resultBadge_savedWorkReadsInLibrary() {
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: false, progress: nil, isComplete: false), .inLibrary)
+    }
+
+    func test_resultBadge_startedWorkShowsPercent() {
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: true, progress: 0.42, isComplete: false), .percent(42))
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.42, isComplete: true), .percent(42))
+        // A sliver of progress still reads as begun, never 0%.
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.001, isComplete: false), .percent(1))
+        // Opened but no fraction yet.
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: true, progress: nil, isComplete: false), .started)
+    }
+
+    func test_resultBadge_finishedFollowsTheLibraryRule() {
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: true, started: true, progress: 0.99, isComplete: false), .finished)
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 1.4, isComplete: false), .finished)
+        // 95% finishes a complete work but not a work in progress.
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.96, isComplete: true), .finished)
+        XCTAssertEqual(WorkPersistence.resultBadge(inLibrary: false, started: true, progress: 0.96, isComplete: false), .percent(96))
+    }
+
+    func test_resultBadges_lookUpAPageAtOnce() throws {
+        let ctx = try makeContext()
+        // 1: saved, never read. 2: saved and half read. 3: read without saving.
+        // 4: opened without saving, no fraction. 5: unknown.
+        _ = WorkPersistence.upsertMetadata(summary: payload(id: 1, chapters: 1).summary, into: ctx)
+        let half = WorkPersistence.upsertMetadata(summary: payload(id: 2, chapters: 4).summary, into: ctx)
+        half.lastReadProgress = 0.5
+        half.lastReadAt = .now
+        ctx.insert(ReadingProgress(ao3Id: 3, chapterIndex: 2))
+        ctx.insert(ReadingStat(ao3Id: 3, maxProgress: 1, workIsComplete: true))
+        ctx.insert(ReadingProgress(ao3Id: 4))
+        try ctx.save()
+
+        let page = (1...5).map { payload(id: $0, chapters: 1).summary }
+        let badges = WorkPersistence.resultBadges(for: page, in: ctx)
+        XCTAssertEqual(badges[1], .inLibrary)
+        XCTAssertEqual(badges[2], .percent(50))
+        XCTAssertEqual(badges[3], .finished)
+        XCTAssertEqual(badges[4], .started)
+        XCTAssertNil(badges[5])
+        XCTAssertEqual(WorkPersistence.resultBadges(for: [], in: ctx), [:])
+    }
+
     func test_recordViewInsertsBumpsAndTrims() throws {
         let ctx = try makeContext()
         // First view inserts.
@@ -212,6 +263,64 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(all.totalWords, 16_340)
         // Only the two finished works count as stories read.
         XCTAssertEqual(all.storiesRead, 2)
+    }
+
+    // MARK: Yearly reading goal (RM-011)
+
+    private var utcGregorian: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }
+
+    private func utcDate(_ year: Int, _ month: Int, _ dayOfMonth: Int, hour: Int = 0) -> Date {
+        utcGregorian.date(from: DateComponents(year: year, month: month, day: dayOfMonth, hour: hour))!
+    }
+
+    func test_goalProgress_atYearStartIsOnPace() throws {
+        let p = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 0, goal: 52, now: utcDate(2026, 1, 1, hour: 1), calendar: utcGregorian))
+        XCTAssertEqual(p.expected, 0)
+        XCTAssertEqual(p.ahead, 0)
+        XCTAssertEqual(p.fraction, 0, accuracy: 0.0001)
+        XCTAssertFalse(p.isComplete)
+        XCTAssertEqual(p.paceLabel, "On pace")
+    }
+
+    func test_goalProgress_midYearReportsAheadAndBehind() throws {
+        // July 2 2026 00:00 UTC is 182 of 365 days in: an even pace of 24 a
+        // year expects 11 (11.97 rounded down).
+        let mid = utcDate(2026, 7, 2)
+        let onPace = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 11, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(onPace.expected, 11)
+        XCTAssertEqual(onPace.paceLabel, "On pace")
+        XCTAssertEqual(onPace.fraction, 11.0 / 24.0, accuracy: 0.0001)
+
+        let ahead = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 14, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(ahead.ahead, 3)
+        XCTAssertEqual(ahead.paceLabel, "3 ahead")
+
+        let behind = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 9, goal: 24, now: mid, calendar: utcGregorian))
+        XCTAssertEqual(behind.ahead, -2)
+        XCTAssertEqual(behind.paceLabel, "2 behind")
+    }
+
+    func test_goalProgress_pastTheGoalIsCompleteWithAFullRing() throws {
+        let p = try XCTUnwrap(ReadingStatsAggregator.goalProgress(
+            finished: 30, goal: 20, now: utcDate(2026, 9, 1), calendar: utcGregorian))
+        XCTAssertTrue(p.isComplete)
+        XCTAssertEqual(p.fraction, 1, accuracy: 0.0001)
+        XCTAssertEqual(p.paceLabel, "Goal reached")
+    }
+
+    func test_goalProgress_zeroGoalIsHidden() {
+        XCTAssertNil(ReadingStatsAggregator.goalProgress(
+            finished: 5, goal: 0, now: utcDate(2026, 6, 1), calendar: utcGregorian))
+        XCTAssertNil(ReadingStatsAggregator.goalProgress(
+            finished: 5, goal: -3, now: utcDate(2026, 6, 1), calendar: utcGregorian))
     }
 
     func test_backfill_seedsZeroTimeStatsFromHistory() throws {
@@ -896,6 +1005,233 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(work.matches(query: "Snape"))
     }
 
+    // MARK: - Notes and personal tags (RM-009)
+
+    func test_personalTagsParseTrimAndDedupe() {
+        XCTAssertEqual(Work.personalTags(from: " for a bad day, reread at Christmas ,,For a Bad Day, "),
+                       ["for a bad day", "reread at Christmas"])
+        XCTAssertEqual(Work.personalTags(from: "   "), [])
+    }
+
+    func test_notesAndPersonalTagsPersist() throws {
+        let ctx = try makeContext()
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        ctx.insert(work)
+        XCTAssertNil(work.note)
+        XCTAssertEqual(work.personalTags, [])
+
+        work.setNotes(note: "  Comfort read  ", tagsText: "for a bad day, reread at Christmas")
+        try ctx.save()
+        let saved = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(saved.note, "Comfort read")
+        XCTAssertEqual(saved.personalTags, ["for a bad day", "reread at Christmas"])
+
+        // A blank note is stored as nil, not "".
+        saved.setNotes(note: "   ", tagsText: "")
+        try ctx.save()
+        XCTAssertNil(saved.note)
+        XCTAssertEqual(saved.personalTags, [])
+    }
+
+    func test_librarySearchMatchesNoteAndPersonalTags() {
+        let work = Work(ao3Id: 1, title: "Golden Snitch", authorName: "A")
+        work.setNotes(note: "Recommended by Sam", tagsText: "reread at Christmas")
+        XCTAssertTrue(work.matches(query: "sam"))
+        XCTAssertTrue(work.matches(query: "Christmas"))
+        XCTAssertFalse(work.matches(query: "birthday"))
+        XCTAssertFalse(Work(ao3Id: 2, title: "Other", authorName: "B").matches(query: "christmas"))
+    }
+
+    func test_noteAndTagMerge() {
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: nil, other: "cloud"), "cloud")
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: "  ", other: "cloud"), "cloud")
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: "local", other: nil), "local")
+        XCTAssertEqual(iCloudSyncManager.mergedNote(local: "local", other: "cloud"), "local")
+        XCTAssertNil(iCloudSyncManager.mergedNote(local: " ", other: nil))
+        XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: ["x"]), ["x"])
+        XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: [], other: nil), [])
+        XCTAssertEqual(iCloudSyncManager.mergedPersonalTags(local: ["y"], other: ["x"]), ["y"])
+
+        // With edit stamps, the newest side wins outright, a clear included.
+        let older = Date(timeIntervalSince1970: 1_000)
+        let newer = Date(timeIntervalSince1970: 2_000)
+        let filled = WorkNotes(note: "old", personalTags: ["t"], updatedAt: older)
+        let cleared = WorkNotes(note: nil, personalTags: [], updatedAt: newer)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: filled, other: cleared), cleared)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: cleared, other: filled), cleared)
+        // A stamped side beats an unstamped (never edited) one.
+        let never = WorkNotes(note: nil, personalTags: [], updatedAt: nil)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: never, other: filled), filled)
+        // Ties go to local.
+        let same = WorkNotes(note: "other", personalTags: [], updatedAt: older)
+        XCTAssertEqual(iCloudSyncManager.mergedNotes(local: filled, other: same), filled)
+        // Neither stamped: the forward-only fallback.
+        XCTAssertEqual(
+            iCloudSyncManager.mergedNotes(local: never, other: WorkNotes(note: "x", personalTags: ["y"], updatedAt: nil)),
+            WorkNotes(note: "x", personalTags: ["y"], updatedAt: nil))
+    }
+
+    func test_setNotesStampsOnlyRealChanges() {
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        let t1 = Date(timeIntervalSince1970: 1_000)
+        work.setNotes(note: "a", tagsText: "x", now: t1)
+        XCTAssertEqual(work.notesUpdatedAt, t1)
+        work.setNotes(note: " a ", tagsText: "x,", now: Date(timeIntervalSince1970: 2_000))
+        XCTAssertEqual(work.notesUpdatedAt, t1, "saving unchanged text must not look like a newer edit")
+    }
+
+    /// Clearing a note on one device reaches the others: the newer, empty
+    /// value replaces the note in the backup and then on restore.
+    func test_clearedNoteSyncsInsteadOfComingBack() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        // The pad wrote a note an hour ago and backed it up.
+        let pad = try makeContext()
+        let padWork = Work(ao3Id: 1, title: "T", authorName: "A")
+        padWork.setNotes(note: "old note", tagsText: "old", now: Date(timeIntervalSinceNow: -3600))
+        pad.insert(padWork)
+        try pad.save()
+        iCloudSyncManager.shared.backupToiCloud(context: pad)
+
+        // The phone restored it, cleared it just now, and backed up.
+        let phone = try makeContext()
+        let phoneRestored = await iCloudSyncManager.shared.restoreFromiCloud(context: phone)
+        XCTAssertTrue(phoneRestored)
+        let phoneWork = try XCTUnwrap(try phone.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(phoneWork.note, "old note")
+        phoneWork.setNotes(note: "", tagsText: "")
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let backedUp = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertNil(backedUp.note)
+        XCTAssertEqual(backedUp.personalTags, [])
+
+        // The pad's next restore clears its copy too.
+        let padRestored = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(padRestored)
+        XCTAssertNil(padWork.note)
+        XCTAssertEqual(padWork.personalTags, [])
+    }
+
+    /// A device that never edited the note doesn't erase another device's
+    /// note in the backup file, and a later edit replaces it.
+    func test_backupMergeKeepsNotesUntilANewerEdit() throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let phone = try makeContext()
+        let noted = Work(ao3Id: 1, title: "T", authorName: "A")
+        noted.setNotes(note: "phone note", tagsText: "comfort")
+        phone.insert(noted)
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let pad = try makeContext()
+        pad.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try pad.save()
+        iCloudSyncManager.shared.backupToiCloud(context: pad)
+
+        var work = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertEqual(work.note, "phone note")
+        XCTAssertEqual(work.personalTags, ["comfort"])
+
+        let mac = try makeContext()
+        let macWork = Work(ao3Id: 1, title: "T", authorName: "A")
+        macWork.setNotes(note: "mac note", tagsText: "angst")
+        mac.insert(macWork)
+        try mac.save()
+        iCloudSyncManager.shared.backupToiCloud(context: mac)
+
+        work = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertEqual(work.note, "mac note")
+        XCTAssertEqual(work.personalTags, ["angst"])
+    }
+
+    /// Restore fills a never-edited note and tags from the backup, and keeps
+    /// this device's own when they were edited after the backup's.
+    func test_restoreKeepsNewerLocalNotesAndFillsEmptyOnes() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let cloudDevice = try makeContext()
+        for id in 1...2 {
+            let w = Work(ao3Id: id, title: "T\(id)", authorName: "A")
+            w.setNotes(note: "cloud note", tagsText: "cloud tag")
+            cloudDevice.insert(w)
+        }
+        try cloudDevice.save()
+        iCloudSyncManager.shared.backupToiCloud(context: cloudDevice)
+
+        let device = try makeContext()
+        let own = Work(ao3Id: 1, title: "T1", authorName: "A")
+        own.setNotes(note: "my note", tagsText: "my tag")
+        device.insert(own)
+        device.insert(Work(ao3Id: 2, title: "T2", authorName: "A"))
+        try device.save()
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let all = try device.fetch(FetchDescriptor<Work>())
+        let first = try XCTUnwrap(all.first(where: { $0.ao3Id == 1 }))
+        let second = try XCTUnwrap(all.first(where: { $0.ao3Id == 2 }))
+        XCTAssertEqual(first.note, "my note")
+        XCTAssertEqual(first.personalTags, ["my tag"])
+        XCTAssertEqual(second.note, "cloud note")
+        XCTAssertEqual(second.personalTags, ["cloud tag"])
+    }
+
+    /// Backups written before notes and personal tags existed have neither
+    /// key; they must still decode and restore without touching local notes.
+    func test_oldBackupWithoutNoteFieldsDecodesAndRestores() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let old = try makeContext()
+        old.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try old.save()
+        iCloudSyncManager.shared.backupToiCloud(context: old)
+
+        // Strip the new keys, as an older app version would have written it.
+        var json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var works = try XCTUnwrap(json["works"] as? [[String: Any]])
+        works = works.map { var w = $0; w.removeValue(forKey: "note"); w.removeValue(forKey: "personalTags"); return w }
+        json["works"] = works
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let decoded = try XCTUnwrap(decodeBackup(at: url).works.first)
+        XCTAssertNil(decoded.note)
+        XCTAssertNil(decoded.personalTags)
+
+        let device = try makeContext()
+        let local = Work(ao3Id: 1, title: "T", authorName: "A")
+        local.setNotes(note: "keep me", tagsText: "keep")
+        device.insert(local)
+        try device.save()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(work.note, "keep me")
+        XCTAssertEqual(work.personalTags, ["keep"])
+    }
+
     func test_workMultiFolderPersistence() throws {
         let ctx = try makeContext()
         let work = Work(ao3Id: 999, title: "Multi Folder Story", authorName: "author")
@@ -968,5 +1304,81 @@ final class PersistenceTests: XCTestCase {
 
         let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
+    }
+}
+
+/// RM-003: the reading-time estimate's pace (fallback and clamping) and its
+/// formatting at no words, under a minute, minutes and hours.
+@MainActor
+final class ReadingSpeedTests: XCTestCase {
+    private func snap(_ id: Int, words: Int, seconds: Double, progress: Double = 1.0) -> ReadingStatSnapshot {
+        ReadingStatSnapshot(ao3Id: id, title: "", author: "A",
+                            fandoms: [], categories: [], relationships: [],
+                            rating: "", wordCount: words,
+                            firstReadAt: .now, lastReadAt: .now,
+                            totalSeconds: seconds, daySeconds: [:],
+                            maxProgress: progress, workIsComplete: false)
+    }
+
+    func test_wordsPerMinute_fallsBackUntilThreeFinishedTimedWorks() {
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute([]), 250)
+        // Two finished works at 300 wpm aren't enough yet.
+        let two = [snap(1, words: 3_000, seconds: 600), snap(2, words: 3_000, seconds: 600)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(two), 250)
+        // Unfinished and zero-time (backfilled) works don't count toward the three.
+        let padded = two + [snap(3, words: 3_000, seconds: 600, progress: 0.5),
+                            snap(4, words: 3_000, seconds: 0)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(padded), 250)
+        // A third finished, timed work switches to the personal pace.
+        let three = two + [snap(5, words: 3_000, seconds: 600)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(three), 300, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_isTheMedianWorksPace() {
+        // 400, 500 and 200 wpm → 400; an unfinished work's time doesn't count.
+        let snaps = [snap(1, words: 2_000, seconds: 300), snap(2, words: 4_000, seconds: 480),
+                     snap(3, words: 6_000, seconds: 1_800), snap(4, words: 50_000, seconds: 36_000, progress: 0.1)]
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps), 400, accuracy: 0.001)
+        // An even count averages the middle two: 200, 400, 500, 600 → 450.
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(snaps + [snap(5, words: 6_000, seconds: 600)]), 450, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_ignoresASkimAndARereadSwing() {
+        let honest = (1...3).map { snap($0, words: 5_000, seconds: 1_200) }   // 250 wpm each
+        // A 150k-word work jumped to the end in 5 minutes, and a re-read
+        // that doubled a work's time, leave the pace where it was.
+        let skimmed = snap(4, words: 150_000, seconds: 300)
+        let reread = snap(5, words: 5_000, seconds: 4_800)
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(honest + [skimmed]), 250, accuracy: 0.001)
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(honest + [skimmed, reread]), 250, accuracy: 0.001)
+    }
+
+    func test_wordsPerMinute_isClamped() {
+        let fast = (1...3).map { snap($0, words: 10_000, seconds: 60) }      // 10,000 wpm
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(fast), 600)
+        let slow = (1...3).map { snap($0, words: 1_000, seconds: 3_600) }    // ~17 wpm
+        XCTAssertEqual(ReadingSpeed.wordsPerMinute(slow), 120)
+    }
+
+    func test_estimate_formatting() {
+        XCTAssertNil(ReadingSpeed.estimate(words: 0))
+        XCTAssertNil(ReadingSpeed.estimate(words: -5))
+        XCTAssertEqual(ReadingSpeed.estimate(words: 100), "<1 min")          // 0.4 min
+        XCTAssertEqual(ReadingSpeed.estimate(words: 250), "~1 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 11_250), "~45 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 14_900), "~1 hr")        // 59.6 rounds up
+        XCTAssertEqual(ReadingSpeed.estimate(words: 15_000), "~1 hr")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 31_250), "~2 hr 5 min")
+        XCTAssertEqual(ReadingSpeed.estimate(words: 200_000), "~13 hr")      // 13 hr 20 min, minutes dropped
+        // The pace changes the estimate.
+        XCTAssertEqual(ReadingSpeed.estimate(words: 12_000, wordsPerMinute: 400), "~30 min")
+    }
+
+    func test_spokenEstimate() {
+        XCTAssertNil(ReadingSpeed.spokenEstimate(words: 0))
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 100), "Under a minute to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 250), "About 1 minute to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 15_000), "About 1 hour to read")
+        XCTAssertEqual(ReadingSpeed.spokenEstimate(words: 31_250), "About 2 hours 5 minutes to read")
     }
 }

@@ -16,14 +16,18 @@ public sealed class ShortcutsScreen : Screen
 
     protected override FrameworkElement Build()
     {
-        var go = SidebarItems.All.Select(item => (item.ShortcutText(), $"Go to {item.Title()}")).ToList();
+        // Tabs without a shortcut (Marked for Later, AO3 History) are left out, not shown as "Ctrl+10".
+        var go = SidebarItems.All.Where(item => item.ShortcutText() is not null)
+            .Select(item => (item.ShortcutText()!, $"Go to {item.Title()}")).ToList();
 
         var page = UI.UI.VStack(18,
             Group("Go", go),
             Group("View",
             [
-                ("Ctrl+Plus", "Zoom in"),
-                ("Ctrl+Minus", "Zoom out"),
+                ("Ctrl+Plus", "Bigger story text"),
+                ("Ctrl+Minus", "Smaller story text"),
+                ("Ctrl+Shift+Plus", "Zoom in"),
+                ("Ctrl+Shift+Minus", "Zoom out"),
                 ("Ctrl+0", "Actual size"),
                 ("F11", "Full screen"),
             ]),
@@ -62,7 +66,7 @@ public sealed class ShortcutsScreen : Screen
         grid.Children.Add(UI.UI.Text(action).Also(t => t.VerticalAlignment = VerticalAlignment.Center).Col(0));
         var keyCap = new Border
         {
-            Child = UI.UI.Text(keys, Theme.Style.Subheadline, wrap: false),
+            Child = UI.UI.Text(keys, Theme.Style.Subheadline),
             Background = Theme.SubtleFill,
             BorderBrush = Theme.CardStroke,
             BorderThickness = new Thickness(1),
@@ -70,7 +74,9 @@ public sealed class ShortcutsScreen : Screen
             Padding = new Thickness(8, 2, 8, 3),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        grid.Children.Add(keyCap.Col(1));
+        // At most 45 % of the row: at large text sizes a long key cap
+        // ("Ctrl+Left / Ctrl+Right") wraps instead of squeezing its action.
+        grid.Children.Add(keyCap.MaxWidthOf(grid, 0.45).Col(1));
         return grid;
     }
 }

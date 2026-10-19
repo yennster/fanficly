@@ -23,6 +23,7 @@ struct SearchView: View {
     /// The filters the current results came from (for loading more pages).
     @State private var searched: AO3SearchFilters?
     @State private var results: [AO3WorkSummary] = []
+    @State private var badges: [Int: ResultBadge] = [:]
     @State private var totalFound: Int?
     @State private var currentPage = 1
     @State private var totalPages = 1
@@ -353,7 +354,7 @@ struct SearchView: View {
         List {
             ForEach(visibleResults) { work in
                 NavigationLink(value: work) {
-                    WorkRow(work: work)
+                    WorkRow(work: work, badge: badges[work.id])
                         .hoverEffect(.highlight)
                         .help("Read \(work.title)")
                         .contextMenu {
@@ -363,6 +364,7 @@ struct SearchView: View {
 
                             Button {
                                 _ = WorkPersistence.toggleFollow(summary: work, into: context)
+                                badges = WorkPersistence.resultBadges(for: visibleResults, in: context)
                             } label: {
                                 if WorkPersistence.isFollowed(workId: work.id, in: context) {
                                     Label("Remove from Library", systemImage: "bookmark.slash")
@@ -397,6 +399,7 @@ struct SearchView: View {
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
+        .resultBadges(for: visibleResults, into: $badges)
     }
 
     /// Before the first search: recent and saved searches, or a short intro.
@@ -703,6 +706,7 @@ struct SearchView: View {
         case AO3Error.parseFailed(let reason): return "Couldn't read AO3's response: \(reason)"
         case AO3Error.network(let underlying): return "Network: \(underlying)"
         case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
+        case AO3Error.unauthorized: return "AO3 sent its login page instead of results. Log in again in Settings, then try again."
         default: return error.localizedDescription
         }
     }
@@ -749,9 +753,19 @@ struct SearchView: View {
 
     private func consumePendingQuery() {
         guard !pendingQuery.isEmpty else { return }
-        let prompt = pendingQuery
+        let query = pendingQuery
         pendingQuery = ""
-        load(prompt: prompt)
+        guard let saved = AO3SearchFilters.savedFilter(fromRouteQuery: query) else {
+            load(prompt: query)
+            return
+        }
+        // A saved filter runs as saved, sort included. Reading it back as a
+        // prompt would turn keywords like "complete" into filters.
+        userPickedSort = true
+        active = saved
+        text = saved.query
+        searchFocused = false
+        startSearch()
     }
 
     private func suggestName() -> String {
@@ -783,22 +797,44 @@ struct SearchView: View {
 
 struct WorkRow: View {
     let work: AO3WorkSummary
+    /// "In Library", "Finished" or a percent, from the list's one lookup per
+    /// page (`.resultBadges(for:into:)`).
+    var badge: ResultBadge? = nil
     @Environment(\.modelContext) private var context
+    @Environment(\.readingWordsPerMinute) private var wordsPerMinute
     // Reflects the local follow ("bookmark") state; seeded on appear and
     // updated when the inline button is tapped.
     @State private var isFollowed = false
+    // Saving from the inline button puts the work in the Library before the
+    // list's next lookup.
+    @State private var savedHere = false
+
+    private var shownBadge: ResultBadge? {
+        badge ?? (savedHere ? .inLibrary : nil)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(work.title).font(.headline)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(work.title).font(.headline)
+                    if let shownBadge {
+                        ResultBadgeView(badge: shownBadge)
+                    }
+                }
                 Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
-                HStack(spacing: 8) {
+                // Wraps rather than truncating once the reading-time estimate
+                // joins the row on a narrow phone.
+                FlowLayout(spacing: 8, lineSpacing: 2) {
                     if !work.rating.isEmpty {
                         Text(work.rating).font(.caption).foregroundStyle(.secondary)
                     }
                     if work.wordCount > 0 {
                         Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let estimate = ReadingSpeed.estimate(words: work.wordCount, wordsPerMinute: wordsPerMinute) {
+                        Text(estimate).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityLabel(ReadingSpeed.spokenEstimate(words: work.wordCount, wordsPerMinute: wordsPerMinute) ?? estimate)
                     }
                     if work.totalChapters != nil {
                         Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
@@ -838,7 +874,10 @@ struct WorkRow: View {
     private var bookmarkButton: some View {
         Button {
             let newState = WorkPersistence.toggleFollow(summary: work, into: context)
-            withAnimation(.easeInOut(duration: 0.2)) { isFollowed = newState }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isFollowed = newState
+                savedHere = true  // toggling creates the Work; unfollowing keeps it
+            }
         } label: {
             Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
                 .font(.body)
@@ -851,6 +890,59 @@ struct WorkRow: View {
         .buttonStyle(.borderless)
         .accessibilityLabel(isFollowed ? "Remove \(work.title) from Library"
                                        : "Save \(work.title) to Library")
+    }
+}
+
+/// The small capsule a result row shows for a work already read or saved.
+/// It sits inside the row's combined text element, so VoiceOver reads its
+/// label as part of the row.
+struct ResultBadgeView: View {
+    let badge: ResultBadge
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: badge.symbol)
+                .accessibilityHidden(true)
+            Text(badge.text)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.15), in: Capsule())
+        .lineLimit(1)
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(badge.accessibilityLabel)
+    }
+
+    private var tint: Color {
+        badge == .finished ? .green : .accentColor
+    }
+}
+
+extension View {
+    /// Keeps `badges` current for a results list: one lookup for the whole
+    /// page when the results change, and again when the list reappears
+    /// (back from reading a story).
+    func resultBadges(for works: [AO3WorkSummary], into badges: Binding<[Int: ResultBadge]>) -> some View {
+        modifier(ResultBadgesModifier(works: works, badges: badges))
+    }
+}
+
+private struct ResultBadgesModifier: ViewModifier {
+    let works: [AO3WorkSummary]
+    @Binding var badges: [Int: ResultBadge]
+    @Environment(\.modelContext) private var context
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: refresh)
+            .onChange(of: works.map(\.id)) { refresh() }
+    }
+
+    private func refresh() {
+        badges = WorkPersistence.resultBadges(for: works, in: context)
     }
 }
 
@@ -908,6 +1000,7 @@ struct WorkDetailView: View {
     @State private var showingComments: Bool = false
     @State private var currentChapterIndex = 1
     @State private var exporter = WorkExporter()
+    @State private var kudos = KudosGiver()
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -926,7 +1019,8 @@ struct WorkDetailView: View {
                             Button {
                                 followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
                             } label: {
-                                Image(systemName: followed ? "bookmark.fill" : "bookmark")
+                                Label(followed ? "Remove from Library" : "Save to Library",
+                                      systemImage: followed ? "bookmark.fill" : "bookmark")
                             }
                             .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
                             
@@ -957,6 +1051,7 @@ struct WorkDetailView: View {
         .background(readerBackground.ignoresSafeArea())
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
+        .kudosPresentation(kudos, workId: workId)
         .task { await load() }
     }
 
@@ -967,7 +1062,8 @@ struct WorkDetailView: View {
     /// to AO3 (the host/moderator), and hide the work locally so it never
     /// appears in results again. Kept to a single menu so the toolbar matches
     /// the Library reader and the reader's own items (chapters, Aa, minimize)
-    /// fit without the system spilling them into a second "…" overflow.
+    /// fit without the system spilling them into its own overflow. Its symbol
+    /// isn't an ellipsis: Apple keeps that for the system overflow menu.
     private func moreMenu(payload: AO3WorkPayload) -> some View {
         Menu {
             Button {
@@ -975,6 +1071,7 @@ struct WorkDetailView: View {
             } label: {
                 Label("Comments", systemImage: "bubble.left.and.bubble.right")
             }
+            KudosMenuButton(workId: workId, giver: kudos)
 
             Divider()
 
@@ -1007,10 +1104,10 @@ struct WorkDetailView: View {
                 Label("Hide this work", systemImage: "eye.slash")
             }
         } label: {
-            if exporter.isExporting {
+            if exporter.isExporting || kudos.isSending {
                 ProgressView()
             } else {
-                Image(systemName: "ellipsis.circle")
+                Label("Work options", systemImage: "book.circle")
             }
         }
         .accessibilityLabel("Work options")
@@ -1045,6 +1142,109 @@ struct WorkDetailView: View {
 
 }
 
+/// Leaves kudos from a work's options menu (login-gated, once per work).
+/// The screen owns it, like `WorkExporter`, so the result alert has a live
+/// anchor after the menu closes. The POST is never retried: after a dropped
+/// connection a second tap is safe, because AO3 answers a duplicate with
+/// "already left kudos".
+@Observable @MainActor
+final class KudosGiver {
+    var isSending = false
+    var hasLeft = false
+    /// The alert after a tap: a thank-you or AO3's reason for refusing.
+    var result: (title: String, message: String)?
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func refresh(workId: Int, username: String?) {
+        hasLeft = username != nil && KudosStore.hasLeft(workId: workId, defaults: defaults)
+    }
+
+    func leave(workId: Int, username: String?, client: any AO3ClientProtocol) async {
+        guard username != nil, !isSending, !hasLeft else { return }
+        isSending = true
+        defer { isSending = false }
+        do {
+            let outcome = try await client.leaveKudos(workId: workId)
+            KudosStore.markLeft(workId: workId, defaults: defaults)
+            hasLeft = true
+            result = outcome == .left
+                ? (title: "Kudos left", message: "Thank you for leaving kudos!")
+                : (title: "Kudos already left", message: "You've already left kudos on this work.")
+        } catch AO3Error.unauthorized {
+            result = (title: "Couldn't leave kudos", message: "Your AO3 login has expired. Log in again in Settings, then try again.")
+        } catch AO3Error.kudosRejected(let message) {
+            result = (title: "Couldn't leave kudos", message: message)
+        } catch AO3Error.rateLimited {
+            result = (title: "Couldn't leave kudos", message: "AO3 is asking us to slow down. Try again in a few minutes.")
+        } catch AO3Error.http(let status) {
+            result = (title: "Couldn't leave kudos", message: "AO3 returned HTTP \(status). Try again later.")
+        } catch AO3Error.network(let underlying) {
+            result = (title: "Couldn't leave kudos", message: "Network: \(underlying). If the request reached AO3, the kudos may have landed; trying again is safe.")
+        } catch {
+            result = (title: "Couldn't leave kudos", message: "\(error)")
+        }
+    }
+}
+
+/// The "Leave Kudos" item for a work's options menu. Pass the screen's
+/// `KudosGiver` and attach `.kudosPresentation(_:workId:)` to the screen.
+struct KudosMenuButton: View {
+    @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
+    let workId: Int
+    let giver: KudosGiver
+
+    var body: some View {
+        Button {
+            let client = client
+            let username = auth.username
+            Task { await giver.leave(workId: workId, username: username, client: client) }
+        } label: {
+            if giver.isSending {
+                Label("Leaving Kudos…", systemImage: "heart")
+            } else if giver.hasLeft {
+                Label("Kudos Left", systemImage: "heart.fill")
+            } else if auth.username == nil {
+                Label("Log In to Leave Kudos", systemImage: "heart")
+            } else {
+                Label("Leave Kudos", systemImage: "heart")
+            }
+        }
+        .disabled(giver.isSending || giver.hasLeft || auth.username == nil)
+    }
+}
+
+private struct KudosPresentation: ViewModifier {
+    @Environment(AuthState.self) private var auth
+    @Bindable var giver: KudosGiver
+    let workId: Int
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { giver.refresh(workId: workId, username: auth.username) }
+            .onChange(of: auth.username) { _, name in giver.refresh(workId: workId, username: name) }
+            .alert(giver.result?.title ?? "", isPresented: Binding(
+                get: { giver.result != nil },
+                set: { if !$0 { giver.result = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(giver.result?.message ?? "")
+            }
+    }
+}
+
+extension View {
+    /// Loads the remembered kudos state and presents a `KudosGiver`'s result.
+    /// Attach to the screen view that owns the giver, never inside `Menu` content.
+    func kudosPresentation(_ giver: KudosGiver, workId: Int) -> some View {
+        modifier(KudosPresentation(giver: giver, workId: workId))
+    }
+}
+
 /// Reads a work's comment thread and, when logged in, lets you post a comment.
 /// Live-fetched (no caching), presented as a sheet from the reader's options
 /// menu. Posting reuses the proven CSRF-token flow (scrape the work page's
@@ -1064,6 +1264,14 @@ struct CommentsView: View {
     @State private var comments: [AO3Comment] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    /// The last comment page loaded and how many AO3 has, for "Load more".
+    @State private var currentPage = 1
+    @State private var totalPages = 1
+    @State private var isLoadingMore = false
+    @State private var loadMoreError: String?
+    /// Bumped by every page-1 load, so a "Load more" that finishes after a
+    /// refresh or post can't append onto the reloaded list.
+    @State private var loadGeneration = 0
     @State private var draft = ""
     @State private var isPosting = false
     @State private var postError: String?
@@ -1106,6 +1314,9 @@ struct CommentsView: View {
                         ForEach(comments) { comment in
                             CommentRow(comment: comment)
                         }
+                        if currentPage < totalPages {
+                            loadMoreRow
+                        }
                     }
                     .listStyle(.plain)
                 }
@@ -1129,6 +1340,28 @@ struct CommentsView: View {
             .safeAreaInset(edge: .bottom) { composer }
             .task { await load() }
         }
+    }
+
+    private var loadMoreRow: some View {
+        VStack(spacing: 6) {
+            if let loadMoreError {
+                Text(loadMoreError).font(.caption).foregroundStyle(.red)
+            }
+            Button {
+                Task { await loadMore() }
+            } label: {
+                if isLoadingMore {
+                    ProgressView()
+                        .accessibilityLabel("Loading more comments")
+                } else {
+                    Text("Load more comments")
+                }
+            }
+            .disabled(isLoadingMore || isLoading)
+            .accessibilityHint("Page \(currentPage) of \(totalPages)")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 
     private var composer: some View {
@@ -1177,14 +1410,46 @@ struct CommentsView: View {
         }
     }
 
+    /// Loads (or reloads) the first comment page, dropping any later pages.
     private func load() async {
         isLoading = true
         errorMessage = nil
+        loadMoreError = nil
+        loadGeneration += 1
         defer { isLoading = false }
         do {
-            comments = try await client.fetchComments(workId: workId, chapterId: chapterId)
+            let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: 1)
+            comments = page.comments
+            currentPage = page.currentPage
+            totalPages = page.totalPages
         } catch {
             errorMessage = "\(error)"
+        }
+    }
+
+    /// Appends the next comment page. Ids already shown are skipped, since a
+    /// comment posted meanwhile can shift a thread onto the next page.
+    private func loadMore() async {
+        guard !isLoadingMore, !isLoading, currentPage < totalPages else { return }
+        let generation = loadGeneration
+        isLoadingMore = true
+        loadMoreError = nil
+        defer { isLoadingMore = false }
+        do {
+            let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: currentPage + 1)
+            guard generation == loadGeneration else { return }
+            let seen = Set(comments.map(\.id))
+            let added = page.comments.filter { !seen.contains($0.id) }
+            comments += added
+            currentPage = max(currentPage + 1, page.currentPage)
+            totalPages = page.totalPages
+            AccessibilityNotification.Announcement(
+                added.count == 1 ? "Loaded 1 more comment" : "Loaded \(added.count) more comments"
+            ).post()
+        } catch {
+            guard generation == loadGeneration else { return }
+            loadMoreError = "Couldn't load more comments: \(error.localizedDescription)"
+            AccessibilityNotification.Announcement(loadMoreError ?? "").post()
         }
     }
 

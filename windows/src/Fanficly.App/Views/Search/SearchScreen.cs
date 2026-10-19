@@ -645,7 +645,7 @@ public sealed class SearchScreen : Screen
                     MainWindow.Current.Announce("Removed from recent searches");
                     RenderContent();
                 }
-                rows.Add(new ListRow(UI.UI.Label("clock.arrow.circlepath", prompt), prompt, "Runs this search again",
+                rows.Add(new ListRow(UI.UI.Label("clock.arrow.circlepath", prompt, maxLines: UI.UI.LineLimit(1)), prompt, "Runs this search again",
                     () => LoadPrompt(prompt), Remove, UI.UI.MenuItem("Remove", Remove, "trash", isDestructive: true)));
             }
             stack.Children.Add(UI.UI.VStack(2, header, RowList("search.recent", "Recent searches", rows)));
@@ -1019,6 +1019,7 @@ public sealed class SearchScreen : Screen
         AO3Exception { Kind: AO3ErrorKind.ParseFailed } e => $"Couldn't read AO3's response: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.Network } e => $"Network: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.RateLimited } => "AO3 is asking us to slow down. Try again in a minute.",
+        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "AO3 sent its login page instead of results. Log in again in Settings, then try again.",
         _ => error.Message,
     };
 
@@ -1096,7 +1097,20 @@ public sealed class SearchScreen : Screen
         var prompt = KeyValueStores.Default.GetString(DeepLink.PendingSearchQueryKey) ?? "";
         if (prompt.Length == 0) return;
         KeyValueStores.Default.SetString(DeepLink.PendingSearchQueryKey, "");
-        LoadPrompt(DeepLink.SearchPrompt(prompt));
+        if (DeepLink.SavedFilter(prompt) is not { } saved)
+        {
+            LoadPrompt(prompt);
+            return;
+        }
+        // A saved filter runs as saved, sort included. Reading it back as a
+        // prompt would turn keywords like "complete" into filters.
+        _userPickedSort = true;
+        _active = saved;
+        SetText(saved.Query);
+        _suggestionsDismissed = true;
+        UpdateSuggestionKey();
+        StartSearch();
+        RenderHeader();
     }
 
     private string SuggestName()

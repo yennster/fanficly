@@ -70,7 +70,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
         _commentsButton = reader.ToolbarButton("bubble.left.and.bubble.right", "Comments", () => _ = OpenCommentsAsync());
         AutomationProperties.SetAutomationId(_commentsButton, "work.comments");
-        _moreButton = reader.ToolbarButton("ellipsis.circle", "More");
+        _moreButton = reader.ToolbarButton("book.circle", "More");
         AutomationProperties.SetAutomationId(_moreButton, "work.options");
         var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight };
         menu.Opening += (_, _) => FillMore(menu);
@@ -184,7 +184,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         if (_moreButton is null) return;
         _moreButton.Content = _isSavingOffline || _exporter.IsExporting || _kudos.IsSending
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
-            : Symbols.Icon("ellipsis.circle", 16).A11yHidden();
+            : Symbols.Icon("book.circle", 16).A11yHidden();
     }
 
     private void FillMore(MenuFlyout menu)

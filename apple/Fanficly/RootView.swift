@@ -47,21 +47,28 @@ struct RootView: View {
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
 
     var body: some View {
+        let scale = CGFloat(UIZoom.clamped(zoomScale))
         GeometryReader { geo in
             innerBody
-                .frame(width: geo.size.width / CGFloat(zoomScale), height: geo.size.height / CGFloat(zoomScale))
-                .scaleEffect(CGFloat(zoomScale), anchor: .topLeading)
+                .frame(width: geo.size.width / scale, height: geo.size.height / scale)
+                .scaleEffect(scale, anchor: .topLeading)
         }
         .background {
+            // The View menu (FanficlyApp) shows ⇧⌘+, ⇧⌘− and ⌘0. A menu item
+            // takes one shortcut, so the other spellings of the same keys stay
+            // here: ⌘+ / ⌘= / ⌘− as before, ⇧⌘= for layouts where + needs no
+            // shift, and ⇧⌘_ for shift held on the minus key.
             Group {
                 Button(action: { zoom(in: true) }) { EmptyView() }
                     .keyboardShortcut("+", modifiers: [.command])
                 Button(action: { zoom(in: true) }) { EmptyView() }
                     .keyboardShortcut("=", modifiers: [.command])
+                Button(action: { zoom(in: true) }) { EmptyView() }
+                    .keyboardShortcut("=", modifiers: [.command, .shift])
                 Button(action: { zoom(in: false) }) { EmptyView() }
                     .keyboardShortcut("-", modifiers: [.command])
-                Button(action: { resetZoom() }) { EmptyView() }
-                    .keyboardShortcut("0", modifiers: [.command])
+                Button(action: { zoom(in: false) }) { EmptyView() }
+                    .keyboardShortcut("_", modifiers: [.command, .shift])
             }
             .opacity(0)
             .accessibilityHidden(true)
@@ -96,6 +103,7 @@ struct RootView: View {
                     case .recentlyViewed: RecentlyViewedView()
                     case .authors: FollowedAuthorsView()
                     case .bookmarks: BookmarksView()
+                    case .markedForLater: ReadingListView(list: .markedForLater)
                     case .subscriptions: SubscriptionsView()
                     case .settings: SettingsView()
                     }
@@ -274,18 +282,7 @@ struct RootView: View {
     }
 
     private func zoom(in forward: Bool) {
-        let step = 0.1
-        let minScale = 0.5
-        let maxScale = 2.0
-        if forward {
-            zoomScale = min(maxScale, zoomScale + step)
-        } else {
-            zoomScale = max(minScale, zoomScale - step)
-        }
-    }
-
-    private func resetZoom() {
-        zoomScale = 1.0
+        zoomScale = UIZoom.stepped(zoomScale, in: forward)
     }
 
     private func handleIncomingURL(_ url: URL) {
@@ -310,10 +307,7 @@ struct RootView: View {
         }
         
         // Saved Searches Shortcut routing (fanficly://search?query=queryText)
-        if url.host == "search",
-           let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
-           let queryItem = components.queryItems?.first(where: { $0.name == "query" }),
-           let queryValue = queryItem.value {
+        if let queryValue = WidgetSavedSearch.routeQuery(from: url) {
             select(.search)
             UserDefaults.standard.set(queryValue, forKey: "search.pendingQuery")
             return
@@ -491,6 +485,31 @@ private struct ResumeWorkRoute: Hashable {
     let anchor: ReadingAnchor?
 }
 
+/// The global UI zoom (`app.zoomScale`): ⌘/⇧⌘ +/− step it, ⌘0 resets it.
+/// The root view is counter-scaled by it; the reader divides its text sizes by
+/// it so story text keeps its own size. Values snap to tenths so repeated steps
+/// can't drift (1.0 + 0.1 + 0.1 + 0.1 isn't 1.3 in floating point).
+enum UIZoom {
+    static let step = 0.1
+    static let minScale = 0.5
+    static let maxScale = 2.0
+    static let actualSize = 1.0
+
+    /// One step bigger (`forward`) or smaller, clamped to `minScale…maxScale`.
+    /// A stored value outside the range (or not a number) comes back inside it.
+    static func stepped(_ scale: Double, in forward: Bool) -> Double {
+        let current = scale.isFinite ? scale : actualSize
+        let next = ((current + (forward ? step : -step)) * 10).rounded() / 10
+        return min(maxScale, max(minScale, next))
+    }
+
+    /// A stored value as drawn: inside the range, `actualSize` if not a number,
+    /// so a hand-edited 0 can't divide the root view by zero.
+    static func clamped(_ scale: Double) -> Double {
+        scale.isFinite ? min(maxScale, max(minScale, scale)) : actualSize
+    }
+}
+
 /// Decides which anchor (if any) a widget-resume tap may install as reading
 /// progress. The rule: a resume tap must never move saved progress backwards.
 ///
@@ -599,7 +618,7 @@ struct ImportOverlay: View {
 
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case search, browse, popular, library, recentlyViewed, authors, bookmarks, subscriptions, stats, settings
+    case search, browse, popular, library, recentlyViewed, authors, bookmarks, markedForLater, subscriptions, stats, settings
 
     var id: String { rawValue }
 
@@ -613,6 +632,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .recentlyViewed: "Recently Viewed"
         case .authors: "Followed Authors"
         case .bookmarks: "Bookmarks"
+        case .markedForLater: "Marked for Later"
         case .subscriptions: "Subscriptions"
         case .settings: "Settings"
         }
@@ -628,6 +648,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .recentlyViewed: "clock.arrow.circlepath"
         case .authors: "person.2"
         case .bookmarks: "bookmark"
+        case .markedForLater: "clock"
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }

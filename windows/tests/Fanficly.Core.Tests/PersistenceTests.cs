@@ -77,6 +77,64 @@ public sealed class PersistenceTests : IDisposable
         Assert.Single(ctx.All<Work>());
     }
 
+    // MARK: Result-row badges (RM-002)
+
+    [Fact]
+    public void ResultBadge_UnknownWorkHasNone()
+    {
+        Assert.Null(WorkPersistence.ResultBadgeFor(inLibrary: false, started: false, progress: null, isComplete: false));
+        Assert.Null(WorkPersistence.ResultBadgeFor(inLibrary: false, started: false, progress: 0, isComplete: true));
+    }
+
+    [Fact]
+    public void ResultBadge_SavedWorkReadsInLibrary() =>
+        Assert.Equal<ResultBadge?>(ResultBadge.InLibrary, WorkPersistence.ResultBadgeFor(inLibrary: true, started: false, progress: null, isComplete: false));
+
+    [Fact]
+    public void ResultBadge_StartedWorkShowsPercent()
+    {
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(42), WorkPersistence.ResultBadgeFor(inLibrary: true, started: true, progress: 0.42, isComplete: false));
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(42), WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.42, isComplete: true));
+        // A sliver of progress still reads as begun, never 0%.
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(1), WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.001, isComplete: false));
+        // Opened but no fraction yet.
+        Assert.Equal<ResultBadge?>(ResultBadge.Started, WorkPersistence.ResultBadgeFor(inLibrary: true, started: true, progress: null, isComplete: false));
+    }
+
+    [Fact]
+    public void ResultBadge_FinishedFollowsTheLibraryRule()
+    {
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, WorkPersistence.ResultBadgeFor(inLibrary: true, started: true, progress: 0.99, isComplete: false));
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 1.4, isComplete: false));
+        // 95% finishes a complete work but not a work in progress.
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.96, isComplete: true));
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(96), WorkPersistence.ResultBadgeFor(inLibrary: false, started: true, progress: 0.96, isComplete: false));
+    }
+
+    [Fact]
+    public void ResultBadges_LookUpAPage()
+    {
+        using var ctx = MakeContext();
+        // 1: saved, never read. 2: saved and half read. 3: read without saving.
+        // 4: opened without saving, no fraction. 5: unknown.
+        WorkPersistence.UpsertMetadata(Payload(1, 1).Summary, ctx);
+        var half = WorkPersistence.UpsertMetadata(Payload(2, 4).Summary, ctx);
+        half.LastReadProgress = 0.5;
+        half.LastReadAt = DateTimeOffset.Now;
+        ctx.Insert(new ReadingProgress(3, chapterIndex: 2));
+        ctx.Insert(new ReadingStat(3, maxProgress: 1, workIsComplete: true));
+        ctx.Insert(new ReadingProgress(4));
+
+        var page = Enumerable.Range(1, 5).Select(id => Payload(id, 1).Summary).ToList();
+        var badges = WorkPersistence.ResultBadges(page, ctx);
+        Assert.Equal<ResultBadge?>(ResultBadge.InLibrary, badges[1]);
+        Assert.Equal<ResultBadge?>(ResultBadge.Read(50), badges[2]);
+        Assert.Equal<ResultBadge?>(ResultBadge.Finished, badges[3]);
+        Assert.Equal<ResultBadge?>(ResultBadge.Started, badges[4]);
+        Assert.False(badges.ContainsKey(5));
+        Assert.Empty(WorkPersistence.ResultBadges([], ctx));
+    }
+
     [Fact]
     public void ToggleFollowAuthor()
     {
@@ -221,6 +279,63 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(16_340, all.TotalWords);
         // Only the two finished works count as stories read.
         Assert.Equal(2, all.StoriesRead);
+    }
+
+    // MARK: Yearly reading goal (RM-011)
+
+    private static DateTimeOffset Utc(int year, int month, int dayOfMonth, int hour = 0) =>
+        new(year, month, dayOfMonth, hour, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void GoalProgress_AtYearStartIsOnPace()
+    {
+        var p = ReadingStatsAggregator.GoalProgress(0, 52, Utc(2026, 1, 1, hour: 1), TimeZoneInfo.Utc);
+        Assert.NotNull(p);
+        Assert.Equal(0, p.Expected);
+        Assert.Equal(0, p.Ahead);
+        Assert.Equal(0, p.Fraction, 4);
+        Assert.False(p.IsComplete);
+        Assert.Equal("On pace", p.PaceLabel);
+    }
+
+    [Fact]
+    public void GoalProgress_MidYearReportsAheadAndBehind()
+    {
+        // July 2 2026 00:00 UTC is 182 of 365 days in: an even pace of 24 a
+        // year expects 11 (11.97 rounded down).
+        var mid = Utc(2026, 7, 2);
+        var onPace = ReadingStatsAggregator.GoalProgress(11, 24, mid, TimeZoneInfo.Utc);
+        Assert.NotNull(onPace);
+        Assert.Equal(11, onPace.Expected);
+        Assert.Equal("On pace", onPace.PaceLabel);
+        Assert.Equal(11.0 / 24.0, onPace.Fraction, 4);
+
+        var ahead = ReadingStatsAggregator.GoalProgress(14, 24, mid, TimeZoneInfo.Utc);
+        Assert.NotNull(ahead);
+        Assert.Equal(3, ahead.Ahead);
+        Assert.Equal("3 ahead", ahead.PaceLabel);
+
+        var behind = ReadingStatsAggregator.GoalProgress(9, 24, mid, TimeZoneInfo.Utc);
+        Assert.NotNull(behind);
+        Assert.Equal(-2, behind.Ahead);
+        Assert.Equal("2 behind", behind.PaceLabel);
+    }
+
+    [Fact]
+    public void GoalProgress_PastTheGoalIsCompleteWithAFullRing()
+    {
+        var p = ReadingStatsAggregator.GoalProgress(30, 20, Utc(2026, 9, 1), TimeZoneInfo.Utc);
+        Assert.NotNull(p);
+        Assert.True(p.IsComplete);
+        Assert.Equal(1, p.Fraction, 4);
+        Assert.Equal("Goal reached", p.PaceLabel);
+    }
+
+    [Fact]
+    public void GoalProgress_ZeroGoalIsHidden()
+    {
+        Assert.Null(ReadingStatsAggregator.GoalProgress(5, 0, Utc(2026, 6, 1), TimeZoneInfo.Utc));
+        Assert.Null(ReadingStatsAggregator.GoalProgress(5, -3, Utc(2026, 6, 1), TimeZoneInfo.Utc));
     }
 
     [Fact]
@@ -827,5 +942,59 @@ public sealed class PersistenceTests : IDisposable
         await poller.SyncSubscriptionListAsync();
 
         Assert.Equal(new HashSet<string> { "work:1", "user:carol" }, ctx.All<SubscriptionRecord>().Select(r => r.Key).ToHashSet());
+    }
+}
+
+/// <summary>The Spotlight hook follows the library, not the follow flag, as in
+/// Swift's WorkPersistence (RM-016): saving indexes, unfollowing keeps the work
+/// indexed, deleting removes it.</summary>
+[Collection(GlobalStoreCollection.Name)]
+public sealed class SearchIndexHookTests : IDisposable
+{
+    private sealed class RecordingIndexer : IWorkSearchIndexer
+    {
+        public readonly List<string> Calls = [];
+        public void Index(Work work) { lock (Calls) Calls.Add($"index {work.Ao3Id}"); }
+        public void Remove(int ao3Id) { lock (Calls) Calls.Add($"remove {ao3Id}"); }
+        public List<string> For(int id) { lock (Calls) return Calls.Where(c => c.EndsWith($" {id}")).ToList(); }
+    }
+
+    private readonly RecordingIndexer _indexer = new();
+
+    public SearchIndexHookTests() => LibraryHooks.SearchIndexer = _indexer;
+
+    public void Dispose() => LibraryHooks.SearchIndexer = null;
+
+    private static AO3WorkSummary Summary(int id) => new()
+    {
+        Id = id, Title = $"Work {id}", Author = "tester", ChapterCount = 1, TotalChapters = 1,
+    };
+
+    [Fact]
+    public void SavingAnUnfollowedWorkIndexesIt()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.UpsertMetadata(Summary(81001), store);
+        Assert.False(work.IsFollowed);
+        Assert.Equal(["index 81001"], _indexer.For(81001));
+    }
+
+    [Fact]
+    public void UnfollowingKeepsTheWorkIndexed()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        Assert.True(WorkPersistence.ToggleFollow(Summary(81002), store));
+        Assert.False(WorkPersistence.ToggleFollow(Summary(81002), store));
+        WorkPersistence.Unfollow(store.GetWork(81002)!, store);
+        Assert.DoesNotContain("remove 81002", _indexer.For(81002));
+    }
+
+    [Fact]
+    public void DeletingAWorkRemovesItFromTheIndex()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.UpsertMetadata(Summary(81003), store);
+        WorkPersistence.DeleteWork(work, store);
+        Assert.Equal(["index 81003", "remove 81003"], _indexer.For(81003));
     }
 }

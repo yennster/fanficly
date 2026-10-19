@@ -18,7 +18,7 @@ on:
   push:
     tags: ['windows-v*']
     branches: [main]
-    paths: ['windows/**', 'docs/screenshots/windows/**', '.github/workflows/windows-*.yml']
+    paths: ['windows/**', '.github/workflows/windows-*.yml']
   workflow_dispatch:
     inputs:
       version:
@@ -36,6 +36,11 @@ on:
         default: false
       flight_id:
         description: 'Package flight ID (publish to that flight instead of everyone)'
+        type: string
+        required: false
+        default: ''
+      release_notes:
+        description: "What's New text (blank = windows/store/listing/en-us/release_notes.txt). The Release workflow passes the shared notes."
         type: string
         required: false
         default: ''
@@ -259,6 +264,18 @@ jobs:
             Write-Host "::error::msstore publish failed. If this is the app's first release, submit it by hand in Partner Center first (windows/MICROSOFT_STORE.md, 'First submission')."
             exit $LASTEXITCODE
           }
+
+      # The Release workflow releases every platform with one set of notes;
+      # they replace the listing's release_notes.txt for this run only.
+      - name: Use the release's notes
+        if: inputs.release_notes != ''
+        shell: pwsh
+        env:
+          NOTES: ${{ inputs.release_notes }}
+        run: |
+          $notes = $env:NOTES.Trim()
+          if ($notes.Length -gt 1500) { $notes = $notes.Substring(0, 1497).TrimEnd() + '...' }
+          [IO.File]::WriteAllText('windows/store/listing/en-us/release_notes.txt', $notes + "`n", [Text.UTF8Encoding]::new($false))
 
       - name: Update the Store listing
         if: env.FLIGHT_ID == ''

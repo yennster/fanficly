@@ -73,6 +73,7 @@ public sealed class ReaderSettingsScreen : Screen
 
     private readonly Grid _host = new();
     private bool _appearedOnce;
+    private double _shownFontSize;
 
     // Live preview.
     private Border? _preview;
@@ -101,6 +102,7 @@ public sealed class ReaderSettingsScreen : Screen
     public override void OnAppearing()
     {
         Theme.Changed += UpdatePreview;
+        KeyValueStores.Default.Changed += OnSettingChanged;
         // The reader's Aa menu edits the same keys; show its latest values.
         if (_appearedOnce && IsBuilt) Rebuild(restoreOffset: true);
         _appearedOnce = true;
@@ -109,7 +111,20 @@ public sealed class ReaderSettingsScreen : Screen
     public override void OnDisappearing()
     {
         Theme.Changed -= UpdatePreview;
+        KeyValueStores.Default.Changed -= OnSettingChanged;
         SpeechSample.Stop();
+    }
+
+    /// <summary>Ctrl+Plus / Ctrl+Minus (MainWindow) change the text size while
+    /// this page is open; show the new size. The slider's own writes match
+    /// <see cref="_shownFontSize"/> and are skipped.</summary>
+    private void OnSettingChanged(string key)
+    {
+        if (key != FontSizeKey) return;
+        MainWindow.Current?.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (FontSizePt != _shownFontSize) Rebuild(restoreOffset: true);
+        });
     }
 
     /// <summary>Builds the page from the stored values (after a profile switch,
@@ -120,6 +135,7 @@ public sealed class ReaderSettingsScreen : Screen
         var page = SettingsKit.Page(BuildContent(), "settings.reader.page");
         if (restoreOffset && offset > 0)
             page.Loaded += (_, _) => page.ChangeView(null, offset, null, disableAnimation: true);
+        _shownFontSize = FontSizePt;
         _host.Children.Clear();
         _host.Children.Add(page);
         UpdatePreview();
@@ -378,7 +394,7 @@ public sealed class ReaderSettingsScreen : Screen
     private StackPanel SpacingSection() => UI.UI.Section("Text size & spacing",
     [
         SettingsKit.MetricSlider("Text size", "textformat.size", FontSizePt, ReaderMetrics.FontSizeRange, 1, "pt",
-            v => { FontSizePt = v; Changed(); }, "settings.reader.fontSize"),
+            v => { _shownFontSize = v; FontSizePt = v; Changed(); }, "settings.reader.fontSize"),
         SettingsKit.MetricSlider("Line spacing", "arrow.up.and.down.text.horizontal", LineSpacingPt, ReaderMetrics.LineSpacingRange, 1, "pt",
             v => { LineSpacingPt = v; Changed(); }, "settings.reader.lineSpacing"),
         SettingsKit.MetricSlider("Paragraph spacing", "text.justify.left", ParagraphSpacingPt, ReaderMetrics.ParagraphSpacingRange, 2, "pt",
@@ -539,7 +555,7 @@ public sealed class ReaderSettingsScreen : Screen
         if (_sampleButton is null) return;
         _sampleButton.Tag = playing ? "playing" : null;
         var label = playing ? "Stop" : "Play Sample";
-        _sampleButton.Content = UI.UI.Label(playing ? "stop.fill" : "play.fill", label, spacing: 6);
+        _sampleButton.Content = UI.UI.Label(playing ? "stop.fill" : "play.fill", label, spacing: 6, maxLines: UI.UI.LineLimit(1));
         AutomationProperties.SetName(_sampleButton, label);
     }
 

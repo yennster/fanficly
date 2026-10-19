@@ -302,7 +302,7 @@ internal static class LibraryActions
             {
                 var box = new CheckBox
                 {
-                    Content = UI.UI.Label("folder", folder.Name),
+                    Content = UI.UI.Label("folder", folder.Name, maxLines: UI.UI.LineLimit(1)),
                     IsChecked = work.Folders.Contains(folder),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     Padding = new Thickness(8, 6, 8, 6),

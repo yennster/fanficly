@@ -8,12 +8,12 @@ Fanficly is built from standard WinUI controls, so Narrator and other UI Automat
 
 - **Labels.** Every icon-only button has a spoken name, and the same name shows as its tooltip.
 - **Headings.** Screen titles and section headers are marked as headings, so you can move between them with Narrator's heading navigation.
-- **Rows.** A work in a search or browse list is read by its title and author. Its inline save button is a separate item with its own name, so it can still be reached. Progress bars and decorative details in Library rows are hidden from Narrator.
+- **Rows.** A work in a search or browse list is read by its title and author, then whether it's in your Library, how far you've read, or that you finished it. Its inline save button is a separate item with its own name, so it can still be reached. Progress bars and decorative details in Library rows are hidden from Narrator.
 - **Announcements** for things that otherwise happen silently:
   - search results arriving
   - a filter being added from a suggestion
   - switching tabs with a controller's bumpers
-  - changing the zoom
+  - changing the zoom or the story's text size
   - in the reader: changing chapter, showing or hiding the controls, stopping Listen, applying a profile, saving to the Library and hiding a work
   - slow downloads and exports starting
   - messages such as "Downloaded for offline reading"
@@ -38,7 +38,7 @@ Every screen can be used from the keyboard. Settings → Input → Keyboard shor
 - **Library:**
   - Enter opens a work, Delete removes it, F2 renames a folder.
   - Ctrl+F searches the library; Ctrl+Shift+N makes a new folder.
-- **View:** Ctrl+Plus and Ctrl+Minus zoom, Ctrl+0 resets the zoom, and F11 toggles full screen.
+- **View:** Ctrl+Plus and Ctrl+Minus make the story text bigger or smaller, Ctrl+Shift+Plus and Ctrl+Shift+Minus zoom, Ctrl+0 resets the zoom, and F11 toggles full screen.
 
 ## Xbox controller
 
@@ -52,9 +52,10 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 
 ## Seeing the screen
 
-- **Zoom.** The whole interface zooms from 50 % to 200 % in 10 % steps with Ctrl+Plus and Ctrl+Minus. The zoom is remembered between sessions.
+- **Zoom.** The whole interface zooms from 50 % to 200 % in 10 % steps with Ctrl+Shift+Plus and Ctrl+Shift+Minus. The zoom is remembered between sessions.
 - **Light and dark.** Settings → Appearance follows Windows or forces Light or Dark, and the title bar follows suit.
 - **High contrast.** When a Windows contrast theme is on, the app's colours switch to the system's contrast colours, and the brand colours step aside. Reader settings suggests the "Match System" or "Dracula Navy" reading theme so story text stays readable.
+- **Larger text.** Settings → Accessibility → Text size in Windows enlarges the app's text up to 225 %. From 150 % up, titles, authors and other lines that are otherwise cut to one or two lines wrap in full, settings controls move under their labels sooner, and the Library, Stats, Subscriptions and Settings screens keep their text from running off the edge. A Text size change applies to a screen's layout when the screen next rebuilds, for example when you open it again.
 - **Window sizes.** The layout works from a narrow 360-pixel window up to full screen. In a narrow window the sidebar folds into a menu button in the title bar.
 
 ## Reading comfort (the reader)
@@ -65,7 +66,7 @@ The reader's settings are in its Aa menu (quick presets) and in Settings → The
   - Story text goes from 12 to 30 points.
   - Line spacing, paragraph spacing, character spacing and margins each have their own control.
   - **Bold text** gives heavier strokes.
-  - Zooming the interface with Ctrl+Plus doesn't change the story's text size, so you can set the two separately.
+  - Zooming the interface with Ctrl+Shift+Plus doesn't change the story's text size, so you can set the two separately.
 - **Fonts:** a choice of serif, sans-serif, rounded and monospaced faces, including Sitka (designed for reading on screen), Georgia, Segoe UI and Cascadia Mono.
 - **Six reading themes:** Light, Sepia, Dark, OLED Black, Dracula Navy and Match System. They give you a low-glare or true-black page for reading in the dark.
 - **Profiles:** a complete typography setup can be saved under a name, for different readers or different lighting. Windows keeps its own settings, separate from your iPhone, iPad and Mac.

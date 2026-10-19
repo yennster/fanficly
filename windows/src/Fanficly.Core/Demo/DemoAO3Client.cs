@@ -75,6 +75,14 @@ public sealed class DemoAO3Client : IAO3Client
     public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) =>
         Task.FromResult(new AO3SearchResults(DemoCatalog.Works, 1, page));
 
+    // A few catalogue works, so the tab looks lived-in but differs from Bookmarks
+    // (the Swift demo's choice).
+    public Task<AO3SearchResults> FetchMarkedForLaterAsync(string username, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3SearchResults(DemoCatalog.Works.TakeLast(4).ToList(), 1, page));
+
+    public Task<AO3SearchResults> FetchReadingHistoryAsync(string username, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3SearchResults(DemoCatalog.Works.Take(6).ToList(), 1, page));
+
     public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) =>
         Task.FromResult(DemoCatalog.Payload(id));
 
@@ -87,12 +95,12 @@ public sealed class DemoAO3Client : IAO3Client
     public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
         Task.FromResult(DemoCatalog.Subscriptions);
 
-    public Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<AO3Comment>>(
+    public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) =>
+        Task.FromResult(new AO3CommentsPage(
         [
             new AO3Comment("1", "reader_one", "reader_one", "Today", "<p>This was wonderful — thank you for sharing!</p>", 0),
             new AO3Comment("2", "author", "author", "Today", "<p>Thank you so much! 💛</p>", 1),
-        ]);
+        ]));
 
     public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => Task.CompletedTask;
 

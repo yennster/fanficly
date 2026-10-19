@@ -1,3 +1,4 @@
+using Fanficly.App.Platform;
 using Fanficly.App.Shell;
 using Fanficly.Core;
 using Microsoft.UI.Dispatching;
@@ -54,6 +55,7 @@ internal sealed class SpeechController : IDisposable
     private string _workTitle = "";
     private string _author = "";
     private double _rateMultiplier;
+    private bool _throttlingOptedOut;
 
     /// <summary>A chapter is loaded — the reader shows the narration bar.</summary>
     public bool IsActive { get; private set; }
@@ -131,6 +133,8 @@ internal sealed class SpeechController : IDisposable
         _author = author;
         ChapterLabel = chapterLabel;
         IsActive = true;
+        // Narration keeps going with the window minimized; keep synthesis ahead of it.
+        if (!_throttlingOptedOut) { PowerThrottling.SetOptedOut(true); _throttlingOptedOut = true; }
         EnsurePlayer();
         Enqueue(Math.Max(0, paragraph));
     }
@@ -196,6 +200,7 @@ internal sealed class SpeechController : IDisposable
         SpokenCount = 0;
         SpokenPosition = 0;
         ChapterLabel = "";
+        if (_throttlingOptedOut) { PowerThrottling.SetOptedOut(false); _throttlingOptedOut = false; }
         if (_player is not null)
         {
             var smtc = _player.SystemMediaTransportControls;

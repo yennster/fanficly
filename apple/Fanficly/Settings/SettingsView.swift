@@ -72,7 +72,7 @@ struct SettingsView: View {
                     if let date = lastSync {
                         LabeledContent("Last synced", value: date.formatted())
                     } else {
-                        LabeledContent("Last synced", value: "Never")
+                        LabeledContent("Last synced") { Text("Never") }
                     }
                     
                     Button("Sync Now") {
@@ -219,7 +219,7 @@ struct PrivacyTransparencyView: View {
                     "What's stored on your phone",
                     """
                     • Your AO3 session cookie (in iOS Keychain), so you stay logged in.
-                    • Works you've saved offline and your reading position (in app storage).
+                    • Works you've saved offline, your notes and tags on them, and your reading position (in app storage).
                     • Your preferences (theme, font size).
                     • An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled.
                     """
@@ -239,7 +239,7 @@ struct PrivacyTransparencyView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func section(_ title: String, _ body: String) -> some View {
+    private func section(_ title: LocalizedStringKey, _ body: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.headline)
             Text(body).foregroundStyle(.secondary)

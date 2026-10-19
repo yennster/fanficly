@@ -58,8 +58,8 @@ public static class WorkPersistence
         work.UpdatedAt = summary.UpdatedAt;
 
         if (save) store.TrySave();
-        if (work.IsFollowed) IndexWork(work);
-        else DeindexWork(work.Ao3Id);
+        // Every library work is searchable, followed or not (Swift: RM-016).
+        IndexWork(work);
         return work;
     }
 
@@ -79,7 +79,6 @@ public static class WorkPersistence
         {
             work.FollowedAt = DateTimeOffset.Now;
             work.LastSeenChapterCount = summary.ChapterCount;
-            IndexWork(work);
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is the
             // moment to ask for permission, not the login-gated Subscriptions tab.
@@ -88,7 +87,6 @@ public static class WorkPersistence
         else
         {
             work.FollowedAt = null;
-            DeindexWork(work.Ao3Id);
         }
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);
@@ -100,7 +98,6 @@ public static class WorkPersistence
     {
         work.IsFollowed = false;
         work.FollowedAt = null;
-        DeindexWork(work.Ao3Id);
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);
     }
@@ -131,6 +128,7 @@ public static class WorkPersistence
             try { File.Delete(path); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
+        DeindexWork(work.Ao3Id);
         store.Delete(work);
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);
@@ -267,6 +265,55 @@ public static class WorkPersistence
         return true;
     }
 
+    // MARK: - Result-row badges (RM-002)
+
+    /// <summary>Badges for one page of search/browse results, keyed by work id
+    /// (Swift: <c>WorkPersistence.resultBadges(for:in:)</c>). The store is an
+    /// in-memory identity map, so each id is a dictionary lookup, not a query.</summary>
+    public static Dictionary<int, ResultBadge> ResultBadges(IEnumerable<AO3WorkSummary> works, LibraryStore store)
+    {
+        var badges = new Dictionary<int, ResultBadge>();
+        foreach (var work in works)
+        {
+            if (ResultBadgeFor(work, store) is { } badge) badges[work.Id] = badge;
+        }
+        return badges;
+    }
+
+    /// <summary>One result's badge, from its saved <see cref="Work"/>, its
+    /// <see cref="ReadingProgress"/> and, for a story read without saving,
+    /// its <see cref="ReadingStat"/>'s furthest point.</summary>
+    public static ResultBadge? ResultBadgeFor(AO3WorkSummary work, LibraryStore store)
+    {
+        var saved = store.GetWork(work.Id);
+        // The saved position, as the Library row shows it; a story read
+        // without saving only has its stats row's furthest point.
+        double? progress = null;
+        if (saved?.LastReadProgress is { } own && own > 0) progress = own;
+        else if (store.GetReadingStat(work.Id)?.MaxProgress is { } max && max > 0) progress = max;
+        return ResultBadgeFor(
+            inLibrary: saved is not null,
+            started: store.GetReadingProgress(work.Id) is not null || saved?.LastReadAt is not null,
+            progress: progress,
+            isComplete: work.IsComplete);
+    }
+
+    /// <summary>The pure mapping behind a result row's badge (Swift:
+    /// <c>WorkPersistence.resultBadge(inLibrary:started:progress:isComplete:)</c>).
+    /// Reading status wins over "In Library"; "Finished" uses the Library row's
+    /// rule (99%, or 95% of a complete work).</summary>
+    public static ResultBadge? ResultBadgeFor(bool inLibrary, bool started, double? progress, bool isComplete)
+    {
+        if (progress is { } raw && double.IsFinite(raw) && raw > 0)
+        {
+            var p = Math.Min(raw, 1);
+            if (p >= 0.99 || (isComplete && p >= 0.95)) return ResultBadge.Finished;
+            return ResultBadge.Read(Math.Clamp((int)(p * 100), 1, 99));
+        }
+        if (started) return ResultBadge.Started;
+        return inLibrary ? ResultBadge.InLibrary : null;
+    }
+
     // MARK: - EPUB files
 
     /// <summary>Where a work's EPUB is (or will be) stored.</summary>
@@ -279,4 +326,41 @@ public static class WorkPersistence
         var path = EpubTargetPath(workId);
         return File.Exists(path) ? path : null;
     }
+}
+
+public enum ResultBadgeKind { Finished, Percent, Started, InLibrary }
+
+/// <summary>The small status badge on a search or browse result row (Swift:
+/// <c>ResultBadge</c>): Finished, a percent read, Started (opened, no fraction
+/// known yet), or In Library.</summary>
+public readonly record struct ResultBadge(ResultBadgeKind Kind, int Percent = 0)
+{
+    public static ResultBadge Finished => new(ResultBadgeKind.Finished);
+    public static ResultBadge Started => new(ResultBadgeKind.Started);
+    public static ResultBadge InLibrary => new(ResultBadgeKind.InLibrary);
+    public static ResultBadge Read(int percent) => new(ResultBadgeKind.Percent, percent);
+
+    public string Text => Kind switch
+    {
+        ResultBadgeKind.Finished => "Finished",
+        ResultBadgeKind.Percent => $"{Percent}%",
+        ResultBadgeKind.Started => "Started",
+        _ => "In Library",
+    };
+
+    public string AccessibilityLabel => Kind switch
+    {
+        ResultBadgeKind.Finished => "Finished reading",
+        ResultBadgeKind.Percent => $"{Percent} percent read",
+        ResultBadgeKind.Started => "Started reading",
+        _ => "In your Library",
+    };
+
+    /// <summary>SF Symbol name, mapped by the app's <c>Symbols</c>.</summary>
+    public string Symbol => Kind switch
+    {
+        ResultBadgeKind.Finished => "checkmark.circle.fill",
+        ResultBadgeKind.InLibrary => "books.vertical",
+        _ => "book",
+    };
 }

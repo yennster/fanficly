@@ -44,42 +44,43 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ## Now (1.11, small and self-contained)
 
 ### RM-001 — Parser fixture hardening
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** Scraping is the app's only data source. `SubscriptionsParser` already fails closed (login page → `unauthorized`, no list and no shell → `parseFailed`); the other parsers silently return empty arrays on markup drift.
 - **Scope:** Give `SearchResultsParser`, `WorkPageParser`, `MediaCategoryParser` and `WorkFiltersParser` the same treatment: a login or error page throws `AO3Error.unauthorized` or `parseFailed` rather than returning `[]`, and callers that would delete or overwrite data on an empty result keep skipping on a throw. Genuine zero-result pages (AO3's "No results found") must still return `[]`.
 - **Done when:** each parser has tests for a genuine empty page, a login page and a garbage page; no caller regresses (search shows an error, not "No results", for a login page).
 - **Touches:** `Networking/HTMLParsers/*`, `FanficlyTests/*ParserTests.swift`.
 
 ### RM-002 — "Read" and "In Library" badges on result rows
-- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Status:** done · **Size:** S · **Validation:** unit + mac
 - **Why:** Search and Browse can't tell you what you've already read or saved.
 - **Scope:** `WorkRow` shows a small badge ("In Library", "Finished", or a percent) using the existing `Work` and `ReadingProgress` rows. Compute the lookup once per result page as a `[Int: Badge]` from one fetch, not one fetch per row. Put the pure mapping in a testable function.
 - **Done when:** mapping tests cover saved, started, finished and unknown works; VoiceOver reads the badge as part of the row (`.accessibilityElement(children: .combine)` is only safe if the row holds no `Link` or button — it holds the bookmark button, so label the badge instead).
 - **Touches:** `Search/SearchView.swift` (`WorkRow`), `Library/WorkPersistence.swift`.
 
 ### RM-003 — Reading-time estimate
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** Word counts alone are hard to judge. `ReadingStat` already records real active seconds and words read, so a personal words-per-minute exists.
 - **Scope:** A pure `ReadingSpeed` helper: personal WPM from `ReadingStat` (clamped to 120–600, falling back to 250 until there are ≥ 3 finished works), and a formatted "~45 min" string. Show it in `WorkRow` and `WorkHeaderMetadata` next to the word count.
 - **Done when:** tests cover the fallback, clamping, and formatting at 0, < 1 min, minutes, and hours. No new persisted data.
 - **Touches:** `Reader/WorkHeaderMetadata.swift`, `Search/SearchView.swift`, new helper in `Reader/ReadingProgressStore.swift` (don't add a file).
 
 ### RM-004 — Lock-screen widget for last read
-- **Status:** open · **Size:** S · **Validation:** mac
+- **Status:** done · **Size:** S · **Validation:** mac
 - **Why:** None of the six widgets support the lock screen.
 - **Scope:** Add `accessoryRectangular` and `accessoryCircular` families to `FanficlyWidget` showing title and progress, using the same `WidgetProgressStore` data and resume URL. No new data path.
 - **Done when:** previews exist for both families; the tap target is the existing `fanficly://resume/…` URL; the widget target still builds. State in the PR that it needs a look on a device or simulator.
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`.
+- **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no lock screen, so the accessory families never show there. Windows has no lock-screen family of its own; its small "Continue reading" Widgets-board widget is the nearest equivalent (see `windows/ROADMAP.md`).
 
 ### RM-020 — Make the saved-search widget route work
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** AGENTS.md ("Other widgets and shortcut routes") documents that the saved-search widget puts saved-filter JSON in `fanficly://search?query=`, but `SearchView.consumePendingQuery` expects prompt syntax, so tapping a saved search doesn't run it.
 - **Scope:** Have the widget write `AO3SearchFilters.promptText()` (the `key:value` rendering `SearchSyntax.parse` reads back exactly) instead of JSON, or decode JSON explicitly in the consumer; pick one and document the contract. Old widget URLs must not crash the consumer.
 - **Done when:** a round-trip test (saved filters → URL → pending query → parsed filters equal), plus a test that a legacy JSON query degrades to a plain keyword search. Update the "Current limitation" note in AGENTS.md.
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`, `WidgetDataStore.swift`, `Search/SearchView.swift`.
 
 ### RM-005 — Duo-ready toolbar labels
-- **Status:** open · **Size:** M · **Validation:** mac
+- **Status:** done · **Size:** M · **Validation:** mac
 - **Why:** With the 27.1 SDK toolbars go vertical on the iPhone Duo and want a title plus symbol. The Duo ships Oct 23 2026.
 - **Scope:** Convert the reader's toolbar items (chapters, Aa, minimize, export, options) from `Image` to `Label`, with `.labelStyle(.iconOnly)` where the bar is horizontal. Replace the `ellipsis.circle` options symbol with a non-ellipsis one so it stops clashing with the system overflow. Keep the parent to ≤ 2 items.
 - **Done when:** `ReaderLayoutTests` pass on iPhone and iPad; the PR attaches the reader-layout screenshots artifact and says the Duo pose was not checked unless someone ran it.
@@ -109,14 +110,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Networking/*`, `Networking/HTMLParsers/`, `Reader/WorkHeaderMetadata.swift`, `Browse/BrowseView.swift`.
 
 ### RM-008 — Per-chapter comments
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AGENTS.md lists this as a known follow-up: on multi-chapter works, comments are work-level and first-page only. `fetchComments`/`postComment` already take a `chapterId`.
 - **Scope:** Resolve the current chapter's AO3 chapter id (already scraped as `div.chapter[id^=chapter-]`) and pass it through `CommentsView`; add "Load more" for comment pagination (`page=`). Comment posting stays a single non-retried POST.
 - **Done when:** parser/endpoint tests for the chapter-scoped URL and page parameter; `CommentsView` still works for one-shot works with no chapter id.
 - **Touches:** `Search/SearchView.swift` (`CommentsView`), `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`.
 
 ### RM-009 — Notes and personal tags on library works
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AO3 tags describe the story; readers also want "for a bad day" or "reread at Christmas".
 - **Scope:** Optional `note: String?` and `personalTags: [String]` fields on `Work` (additive schema; defaults keep migration automatic). Edit them from the Library row's context menu; Library search matches them. Back up and restore with forward-only semantics: a non-empty value never gets overwritten by an empty one, and when both sides differ, local wins.
 - **Done when:** persistence tests, backup merge tests (old backup without the fields decodes), library search test.
@@ -130,7 +131,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/LibraryView.swift`.
 
 ### RM-011 — Yearly reading goal
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** The Stats tab reports; it doesn't invite.
 - **Scope:** An optional goal (stories finished this year) stored in `@AppStorage`, shown as a progress ring on the Stats tab and in the wrap card. Pure progress/pace function in `ReadingStatsAggregator` ("on pace", "3 ahead").
 - **Done when:** tests for pace at year start, mid-year, past the goal, and a zero goal (hidden). The setting is per-device and not synced, so there's no sync risk.
@@ -144,7 +145,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
 
 ### RM-023 — Marked for Later section (iPhone, iPad, Mac)
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Why:** On the AO3 website a logged-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The app has no way to see it. The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app; the Windows app gets the same section as RM-112 on the `windows` branch, so the two should match in name and behavior.
 - **Scope:** A login-gated "Marked for Later" sidebar tab that lists `/users/<name>/readings?show=to-read`, built like the Bookmarks tab: a paginated `AO3Client.fetchMarkedForLater(username:page:)` (new endpoint builder next to `userBookmarks`) that reuses `SearchResultsParser` with the readings page's blurb selector, a live-fetched list with infinite scroll, `ContentFilter.apply` on the rows, and rows that open the live `WorkDetailView`. Add the tab per "Add a new sidebar tab" in AGENTS.md (enum case with raw value `markedForLater`, which `app.selectedTabRaw` shares with Windows; title + symbol; a Go menu item), placed after Bookmarks. ⌘1–⌘9 are all taken, so the Go menu item gets no ⌘-number shortcut and existing shortcuts are not renumbered; Windows' RM-112 does the same. Put the view in an existing file (`SubscriptionsView.swift`, beside `BookmarksView`) so no `.xcodeproj` regeneration is needed. Read-only: adding or removing a mark is a later item.
 - **Open question:** confirm the readings page's markup (blurb class, where the work id lives) from a real saved page before writing the fixture; don't guess it.
@@ -154,7 +155,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Scope:** A POST to `/kudos` with the scraped token, from the work's options menu, login-gated, once per work and remembered locally so it doesn't invite a double-tap. Same CSRF flow as comments. Never retried.
 - **Open question:** AO3 returns guest-kudos differently from logged-in kudos; confirm against the live site by hand before shipping.
 
@@ -171,7 +172,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Handle `CSSearchableItemActionType` (`work-<id>` identifiers from `WorkPersistence.indexWork`) by routing through the existing resume route; index every saved library work, not only followed ones (deindex on delete); add a "Continue reading" App Shortcut. Index data stays on-device.
 
 ### RM-017 — Localization groundwork
-- **Status:** open · **Size:** M (the groundwork only) · **Validation:** mac
+- **Status:** done · **Size:** M (the groundwork only) · **Validation:** mac
 - **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
 
 ### RM-018 — Split the big view files
@@ -184,12 +185,20 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Walk Library, Stats, Subscriptions and Settings at the largest Dynamic Type size and with VoiceOver; fix truncation and unlabeled controls; add a UI test that asserts labels on a screen's icon-only buttons. One screen per PR.
 
 ### RM-021 — Shift-⌘ +/− to change the Mac UI size
-- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Status:** done · **Size:** S · **Validation:** unit + mac
+- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows gets Ctrl+Shift +/− in its own PR.
 - **Why:** Global UI zoom (`app.zoomScale` in `RootView`) is bound to hidden buttons for ⌘+, ⌘=, ⌘− and ⌘0 only. The request is to also change the interface size with ⇧⌘+ / ⇧⌘− (and ⇧⌘= for keyboards where + needs no shift), and to make the shortcuts discoverable.
 - **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. Keep the existing ⌘ bindings working unless the maintainer says to drop them. Extract the clamp/step into a pure function.
 - **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.
 - **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
 - **Touches:** `RootView.swift`, `FanficlyApp.swift`.
+
+### RM-024 — Move the remaining screens' strings to the String Catalog
+- **Status:** open · **Size:** S per screen family · **Validation:** unit + mac
+- **Why:** RM-017 added `Fanficly/Localizable.xcstrings` and moved Settings (`SettingsView.swift`). Every other screen's strings are still inline only.
+- **Scope:** One screen family per PR, following the convention in AGENTS.md: Search (incl. `WorkFilterSheet`), Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, Auth, the rest of Settings (`ReaderSettingsView`, `ContentSafetyViews`), then the widget and share extension (their own catalogs). Do not translate. AO3 tag and category names stay verbatim.
+- **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
+- **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
 
 ## Engineering health (any release)
 

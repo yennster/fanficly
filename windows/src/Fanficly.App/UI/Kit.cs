@@ -96,16 +96,69 @@ public static class UI
         return icon;
     }
 
-    /// <summary>Icon + text, like SwiftUI's Label.</summary>
-    public static StackPanel Label(string sfSymbol, string text, Theme.Style style = Theme.Style.Body, Brush? foreground = null, double spacing = 8)
+    /// <summary>Icon + text, like SwiftUI's Label. The text wraps when the row
+    /// is too narrow for it (a large Windows text size, a narrow window) rather
+    /// than running past the edge; <paramref name="maxLines"/> caps it (pass
+    /// <see cref="LineLimit"/> for list rows, chips and menus, 0 for no cap).</summary>
+    public static Grid Label(string sfSymbol, string text, Theme.Style style = Theme.Style.Body, Brush? foreground = null, double spacing = 8,
+                             int maxLines = 0)
     {
         var (size, _, _) = Theme.Metrics(style);
         var icon = Icon(sfSymbol, size, foreground);
-        icon.VerticalAlignment = VerticalAlignment.Center;
-        var tb = Text(text, style, foreground, wrap: false);
+        // By the first line when the text wraps.
+        icon.VerticalAlignment = VerticalAlignment.Top;
+        icon.Margin = new Thickness(0, 2, 0, 0);
+        var tb = Text(text, style, foreground, maxLines: maxLines);
         tb.VerticalAlignment = VerticalAlignment.Center;
-        return HStack(spacing, icon, tb);
+        var grid = Grid("Auto,*", columnSpacing: spacing);
+        grid.Children.Add(icon.Col(0));
+        grid.Children.Add(tb.Col(1));
+        return grid;
     }
+
+    // MARK: - Text size
+
+    private static Windows.UI.ViewManagement.UISettings? _uiSettings;
+    private static double _textScale;
+    private static readonly object TextScaleLock = new();
+
+    /// <summary>Windows' Settings → Accessibility → Text size, 1.0 to 2.25
+    /// (SwiftUI's dynamicTypeSize). XAML text scales by it on its own; layouts
+    /// that budget space for text read it here. Read once, then kept current by
+    /// <c>TextScaleFactorChanged</c> (raised off the UI thread, so it only
+    /// updates the cached number); screens pick a change up when they next rebuild.</summary>
+    public static double TextScale
+    {
+        get
+        {
+            var cached = Volatile.Read(ref _textScale);
+            if (cached > 0) return cached;
+            lock (TextScaleLock)
+            {
+                if (_textScale > 0) return _textScale;
+                try
+                {
+                    _uiSettings = new Windows.UI.ViewManagement.UISettings();
+                    _uiSettings.TextScaleFactorChanged += (sender, _) =>
+                    {
+                        try { Volatile.Write(ref _textScale, Math.Max(1, sender.TextScaleFactor)); }
+                        catch (Exception) { }
+                    };
+                    Volatile.Write(ref _textScale, Math.Max(1, _uiSettings.TextScaleFactor));
+                }
+                catch (Exception) { Volatile.Write(ref _textScale, 1); }
+                return _textScale;
+            }
+        }
+    }
+
+    /// <summary>Text is at 150 % or more, the range iOS calls accessibility sizes.</summary>
+    public static bool IsLargeText => TextScale >= 1.5;
+
+    /// <summary>A line limit that lifts at large text sizes, so text wraps in full
+    /// instead of ending in "…" (SwiftUI: <c>lineLimit(isAccessibilitySize ? nil : n)</c>).
+    /// 0 means no limit, as <see cref="Text"/>'s <c>maxLines</c> takes it.</summary>
+    public static int LineLimit(int lines) => IsLargeText ? 0 : lines;
 
     public enum ButtonKind { Standard, Accent, Subtle, Destructive }
 
@@ -336,7 +389,9 @@ public static class UI
                 var stacked = false;
                 grid.SizeChanged += (_, e) =>
                 {
-                    var stack = e.NewSize.Width < StackedRowWidth && t.DesiredSize.Width > e.NewSize.Width * 0.4;
+                    // Larger Windows text makes the label need more room, so the
+                    // width it stacks below grows with the text size.
+                    var stack = e.NewSize.Width < StackedRowWidth * TextScale && t.DesiredSize.Width > e.NewSize.Width * 0.4;
                     if (stack == stacked) return;
                     stacked = stack;
                     Microsoft.UI.Xaml.Controls.Grid.SetRow(t, stack ? 1 : 0);
@@ -469,6 +524,15 @@ public static class ElementExtensions
     public static T A11y<T>(this T e, string name) where T : DependencyObject
     {
         AutomationProperties.SetName(e, name);
+        return e;
+    }
+
+    /// <summary>Caps <paramref name="e"/>'s width at a share of <paramref name="container"/>'s,
+    /// so text in an Auto column wraps instead of crowding out its neighbour
+    /// at large text sizes (key caps, controller buttons).</summary>
+    public static T MaxWidthOf<T>(this T e, FrameworkElement container, double fraction) where T : FrameworkElement
+    {
+        container.SizeChanged += (_, args) => e.MaxWidth = Math.Max(0, args.NewSize.Width * fraction);
         return e;
     }
 
