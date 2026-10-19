@@ -530,7 +530,7 @@ Typography settings are per-device: typography/layout keys go through `ReaderPro
 
 ## Last-read widget
 
-`FanficlyWidget` shows the last-read story with a progress bar. When passed a progress fraction, `ReadingProgressStore.save` also writes to `WidgetProgressStore`, which persists to the `group.io.github.yennster.fanficly` app-group defaults and mirrors to iCloud KVS (debounced ~1.2 s; immediate when the reader closes). `FanficlyApp` installs the KVS observers for `WidgetProgressStore`, `ReaderProfileSyncStore`, and `StreakStore` at launch, skipped in demo and unit-test runs. Tapping the widget opens the resume route above.
+`FanficlyWidget` shows the last-read story with a progress bar. When passed a progress fraction, `ReadingProgressStore.save` also writes to `WidgetProgressStore`, which persists to the `group.io.github.yennster.fanficly` app-group defaults and mirrors to iCloud KVS (debounced ~1.2 s; immediate when the reader closes). `FanficlyApp` installs the KVS observers for `WidgetProgressStore`, `ReaderProfileSyncStore`, and `StreakStore` at launch, skipped in demo and unit-test runs. Tapping the widget opens the resume route above. Besides small and medium it offers the lock-screen `accessoryCircular` and `accessoryRectangular` families (iPhone and iPad; the Mac has no lock screen); they read the same entry, use template colors only, and set the same resume URL.
 
 ## Other widgets and shortcut routes
 
@@ -551,12 +551,18 @@ Keep those shared files free of app-only models/UI dependencies;
 - `fanficly://library?folder=<name>` selects Library, then a deferred
   `PinnedFolderRoute` opens the named folder. Folder identity in this route is
   its name; a missing/renamed folder shows Folder Not Found.
-- `fanficly://search?query=<prompt>` selects Search and writes
+- `fanficly://search?query=<value>` selects Search and writes
   `search.pendingQuery`; `SearchView.consumePendingQuery` consumes/clears it
-  and loads the prompt via `SearchSyntax`. **Current limitation:** the widget
-  also includes saved-filter JSON in this same query field, but the consumer
-  expects prompt syntax, not JSON. Do not assume saved filters round-trip through
-  that route; an implementation change needs an explicit encoding contract/test.
+  and loads it via `SearchSyntax`. **Contract:** the value is a saved search's
+  prompt or a saved filter's `savedJSON()`. `AO3SearchFilters.savedFilter(fromRouteQuery:)`
+  decodes JSON (a value starting with `{`), which runs as saved, sort included,
+  without going through the prompt parser (so a keyword like "complete" stays a
+  keyword); anything else, malformed JSON included, runs as prompt text. Build the link
+  with `WidgetSavedSearch.searchURL`, which also escapes `&`, `=`, `+` and `#`
+  (a ship like "A & B" was cut off at the `&`), and read it with
+  `WidgetSavedSearch.routeQuery(from:)`. The Windows app also decodes the JSON
+  (RM-102), so keep the widget's JSON format. `WidgetDataStoreTests`
+  holds the round trip.
 - Subscription/recommendation widgets use `fanficly://resume/<id>`; unlike
   notification work routes, this can open the saved copy.
 
@@ -660,6 +666,17 @@ the list that taps through to the Stats tab (by setting `app.selectedTabRaw`).
 The Stats screen's toolbar Share button renders `WrapShareCard` (a portrait
 wrap-up image for the selected period on the indigo brand canvas) via
 `ImageRenderer` and presents it through the shared `ShareSheet`.
+
+**Yearly reading goal** (RM-011): an optional count of stories to finish this
+year in `@AppStorage(ReadingGoal.storageKey)` (`reading.yearlyGoal`, 0 = no
+goal), per-device and deliberately not in the iCloud backup. The Stats tab shows
+a `ReadingGoalCard` ring (or a "Set a 2026 Reading Goal" button, also on the
+empty state) on All Time and the current year only, and `WrapShareCard` adds a
+goal row for those scopes. "This year's finished" is `summarize(…, interval:
+<this year>).storiesRead`, the wrap's rule; with no finish date stored, a story
+finished last year and reopened this year counts too. Pace is
+the pure `ReadingStatsAggregator.goalProgress` (an even spread across the year,
+rounded down, so January 1st is "On pace"), tested in `PersistenceTests`.
 
 `ReadingStat` is registered in `FanficlyApp.sharedModelContainer`'s `Schema`
 (and `PersistenceTests`' in-memory schema), included in `iCloudSyncManager`
