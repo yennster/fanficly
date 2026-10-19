@@ -20,7 +20,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
   - folders, stars and pins
   - reading positions, recently viewed works and reading stats
   - followed works and authors, and the list of your AO3 subscriptions
-  - saved searches and filters, and works you've hidden
+  - saved searches and filters, works you've hidden, and tags and authors you've blocked
 - **Downloads.** EPUB files you downloaded for offline reading, in a `Downloads` folder next to the library.
 - **Your preferences** (theme, reader profiles and typography, sort order, voice and so on) are kept in a settings file. That file also holds:
   - your last 10 searches, which are never synced or backed up;
@@ -42,7 +42,7 @@ Sync is **off** until you turn it on in Settings → Sync and choose a folder. T
   - your saved works, including downloaded chapter text
   - folders, reading positions and reading stats
   - your AO3 bookmarks and subscriptions lists
-  - saved searches and filters, and hidden works
+  - saved searches and filters, hidden works, and blocked tags and authors
   - your reader settings, your content settings, and whether you confirmed you're 17 or older
 - **`library_backup.prev.json`.** The previous `library_backup.json`, kept each time Fanficly replaces it, so a bad write can be undone.
 - **`fanficly-settings-sync.json`.** It holds:

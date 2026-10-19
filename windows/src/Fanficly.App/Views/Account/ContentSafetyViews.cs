@@ -48,12 +48,49 @@ public static class ContentSafetyViews
             [
                 UI.UI.SettingsRow("Filter mature & explicit works", toggle),
                 UI.UI.NavRow(UI.UI.Text("Hidden works"), OpenHiddenWorks, "Hidden works").Id("settings.hiddenWorks"),
+                UI.UI.NavRow(UI.UI.Text("Blocked tags & authors"), OpenBlockedTerms, "Blocked tags & authors").Id("settings.blockedTerms"),
                 UI.UI.NavRow(UI.UI.Text("Content policy"), OpenContentPolicy, "Content policy").Id("settings.contentPolicy"),
             ],
-            footer: "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results.");
+            footer: "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results; blocking a tag or author removes every work that has it.");
     }
 
     public static void OpenHiddenWorks() => MainWindow.Current.Navigator.Push(new HiddenWorksScreen());
+
+    public static void OpenBlockedTerms() => MainWindow.Current.Navigator.Push(new BlockedTermsScreen());
+
+    /// <summary>
+    /// The right-click / long-press menu that blocks or unblocks a tag or author
+    /// (BlockTermMenu, RM-006), for the reader's tag chips and byline. Its item
+    /// is rebuilt each time it opens, so it always reflects the current state.
+    /// </summary>
+    public static MenuFlyout BlockMenu(BlockedTermKind kind, string value)
+    {
+        var flyout = new MenuFlyout();
+        flyout.Opening += (_, _) =>
+        {
+            flyout.Items.Clear();
+            var noun = kind == BlockedTermKind.Tag ? "tag" : "author";
+            if (BlocklistStore.IsBlocked(kind, value, AppHost.Library))
+            {
+                flyout.Items.Add(UI.UI.MenuItem($"Unblock this {noun}", () =>
+                {
+                    BlocklistStore.Unblock(kind, value, AppHost.Library);
+                    LibrarySyncManager.QueueBackupShared(AppHost.Library);
+                    MainWindow.Current.Announce($"{value} unblocked");
+                }, "eye"));
+            }
+            else
+            {
+                flyout.Items.Add(UI.UI.MenuItem($"Block this {noun}", () =>
+                {
+                    BlocklistStore.Block(kind, value, AppHost.Library);
+                    LibrarySyncManager.QueueBackupShared(AppHost.Library);
+                    MainWindow.Current.Announce($"{value} blocked");
+                }, "eye.slash", isDestructive: true));
+            }
+        };
+        return flyout;
+    }
 
     public static void OpenContentPolicy() => MainWindow.Current.Navigator.Push(new ContentPolicyScreen());
 
@@ -191,7 +228,7 @@ public static class ContentSafetyViews
             Part("Where the writing comes from",
                 "Fanficly is a reader for works published on Archive of Our Own (AO3). All stories are created and hosted by AO3 and its users. Fanficly is not affiliated with AO3 or the Organization for Transformative Works, and does not host, edit, or moderate the works itself."),
             Part("No objectionable content",
-                "We do not tolerate content that is illegal or that sexualizes minors. Works are rated by their authors; Fanficly lets you filter Mature and Explicit ratings and hide any individual work."),
+                "We do not tolerate content that is illegal or that sexualizes minors. Works are rated by their authors; Fanficly lets you filter Mature and Explicit ratings, hide any individual work, and block tags and authors."),
             Part("Reporting",
                 "Every work has a “Report this work” action (in the … menu) that opens AO3's official abuse-report form — AO3 is the host and can remove content. You can also email us, and we review reports about the app within 24 hours."),
             Part("Your controls",
@@ -289,5 +326,113 @@ public sealed class HiddenWorksScreen : Screen
         HiddenWorkStore.Unhide(item.Ao3Id, AppHost.Library);
         Render();
         MainWindow.Current.Announce($"{title} unhidden");
+    }
+}
+
+/// <summary>
+/// Settings → Content &amp; Safety → Blocked tags &amp; authors (BlockedTermsView):
+/// add a tag or author by name, and the blocklist grouped into tags and
+/// authors, newest first. Unblock is a button on each row, the row's context
+/// menu and the Delete key (the Mac's swipe action).
+/// </summary>
+public sealed class BlockedTermsScreen : Screen
+{
+    private readonly StackPanel _lists = new() { Spacing = 16 };
+    private readonly TextBox _value = new() { PlaceholderText = "Tag name, as on AO3" };
+    private readonly ComboBox _kind = new() { MinWidth = 110 };
+
+    public BlockedTermsScreen()
+    {
+        Title = "Blocked tags & authors";
+    }
+
+    protected override FrameworkElement Build()
+    {
+        _kind.Items.Add(new ComboBoxItem { Content = "Tag" });
+        _kind.Items.Add(new ComboBoxItem { Content = "Author" });
+        _kind.SelectedIndex = 0;
+        AutomationProperties.SetName(_kind, "Block");
+        _kind.SelectionChanged += (_, _) =>
+            _value.PlaceholderText = SelectedKind == BlockedTermKind.Tag ? "Tag name, as on AO3" : "Author's AO3 username";
+        AutomationProperties.SetName(_value, "Tag or author to block");
+        _value.Id("blockedTerms.value");
+        _value.KeyDown += (_, e) =>
+        {
+            if (e.Key == VirtualKey.Enter) { e.Handled = true; Add(); }
+        };
+        var add = UI.UI.Button("Add", Add, "plus").Id("blockedTerms.add");
+
+        var row = UI.UI.Grid("Auto,*,Auto", columnSpacing: 8);
+        row.Padding = new Thickness(14, 10, 14, 10);
+        row.Children.Add(_kind.Col(0));
+        row.Children.Add(_value.Col(1));
+        row.Children.Add(add.Col(2));
+
+        var page = UI.UI.VStack(16,
+            UI.UI.Section(null, [row],
+                footer: "Works with a blocked tag or by a blocked author are left out of search and browse results. They still open from links, your Library, and your AO3 subscriptions and bookmarks. You can also right-click a tag or byline on a work to block it."),
+            _lists);
+        Render();
+        return UI.UI.Scroll(page, maxWidth: 860);
+    }
+
+    public override void OnAppearing()
+    {
+        if (IsBuilt) Render();
+    }
+
+    private BlockedTermKind SelectedKind => _kind.SelectedIndex == 1 ? BlockedTermKind.Author : BlockedTermKind.Tag;
+
+    private void Render()
+    {
+        _lists.Children.Clear();
+        var terms = AppHost.Library.All<BlockedTerm>().OrderByDescending(t => t.CreatedAt).ToList();
+        foreach (var (kind, header) in new[] { (BlockedTermKind.Tag, "Tags"), (BlockedTermKind.Author, "Authors") })
+        {
+            var items = terms.Where(t => t.Kind == BlockedTerm.KindName(kind)).ToList();
+            if (items.Count == 0) continue;
+            _lists.Children.Add(UI.UI.Section(header, items.Select(t => BuildRow(kind, t))));
+        }
+    }
+
+    private UIElement BuildRow(BlockedTermKind kind, BlockedTerm item)
+    {
+        var when = $"Blocked {AccountKit.RelativeNamed(item.CreatedAt)}";
+        var unblock = UI.UI.Button("Unblock", () => Unblock(kind, item), "eye");
+        AutomationProperties.SetName(unblock, $"Unblock {item.Value}");
+        unblock.VerticalAlignment = VerticalAlignment.Center;
+
+        var labels = UI.UI.VStack(2, UI.UI.Text(item.Value), UI.UI.Caption(when));
+        labels.VerticalAlignment = VerticalAlignment.Center;
+        var row = UI.UI.Grid("*,Auto", columnSpacing: 12);
+        row.Padding = new Thickness(14, 10, 14, 10);
+        row.Children.Add(labels.Col(0));
+        row.Children.Add(unblock.Col(1));
+        row.ContextFlyout = UI.UI.Menu(UI.UI.MenuItem("Unblock", () => Unblock(kind, item), "eye"));
+        AutomationProperties.SetName(row, $"{item.Value}, {when}");
+        row.KeyDown += (_, e) =>
+        {
+            if (e.Key == VirtualKey.Delete) { e.Handled = true; Unblock(kind, item); }
+        };
+        return row;
+    }
+
+    private void Add()
+    {
+        var value = _value.Text.Trim();
+        if (value.Length == 0) return;
+        BlocklistStore.Block(SelectedKind, value, AppHost.Library);
+        LibrarySyncManager.QueueBackupShared(AppHost.Library);
+        _value.Text = "";
+        Render();
+        MainWindow.Current.Announce($"{value} blocked");
+    }
+
+    private void Unblock(BlockedTermKind kind, BlockedTerm item)
+    {
+        BlocklistStore.Unblock(kind, item.Value, AppHost.Library);
+        LibrarySyncManager.QueueBackupShared(AppHost.Library);
+        Render();
+        MainWindow.Current.Announce($"{item.Value} unblocked");
     }
 }

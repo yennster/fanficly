@@ -70,26 +70,39 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    merge it. Apple build numbers are automatic (one past the highest on
    TestFlight for iOS or Mac, or `CURRENT_PROJECT_VERSION`), and both Apple
    platforms share it.
-2. Write the What's New text from what merged since the last release:
-   `apple/bin/release-notes.sh` (needs `gh`) lists the merged PRs and closed
-   issues since the last `v*` tag into `apple/build/release/changes.md`.
-   Windows takes at most 1,500 characters of it.
-3. Run **Release** with lane `release`, platform `all`, and the notes:
+2. The What's New text writes itself: the Release run's first job runs
+   `apple/bin/release-notes.py`, which reads everything that landed on `main`
+   since the last `v*` tag (every merged PR, any commit pushed without one,
+   and every issue closed as completed) and writes into
+   `apple/build/release/`:
+   - `notes.txt`, the App Store "What's New": the PRs that changed the Apple
+     app's code (`apple/Fanficly*/`);
+   - `notes-windows.txt`, the Microsoft Store's (1,500 characters at most):
+     the PRs that changed `windows/src/`;
+   - `changes.md`, the full list, for the GitHub release.
+   Tests, docs, CI and website changes stay out of the store notes. Each line
+   is the PR title, tidied, and a feature that landed in both apps is listed
+   once. When a title doesn't read well in a store, give the PR a line
+   `Release note: <text>` in its description, or add it to
+   `.github/release-notes.tsv` (`none` leaves it out). Check the notes before
+   releasing with `GITHUB_REPOSITORY=yennster/fanficly apple/bin/release-notes.py`
+   (needs `gh`), or on the run's summary page.
+3. Run **Release** with lane `release` and platform `all`:
    ```bash
-   gh workflow run release.yml -f lane=release -f platform=all -F notes=@notes.txt
+   gh workflow run release.yml -f lane=release -f platform=all
    ```
+   `-f notes="…"` replaces the generated text in every store.
    Approve the runs as GitHub asks (`app-store`, then `microsoft-store`). It:
    - builds and uploads the iPhone/iPad and Mac apps and pushes the store
      copy with the new What's New (no App Store submit);
-   - starts **Windows Store release** (with the same notes when you wrote
-     them; blank keeps `windows/store/listing/en-us/release_notes.txt`), which submits to
-     the Microsoft Store for certification;
+   - starts **Windows Store release** with the Windows notes, which submits
+     to the Microsoft Store for certification;
    - starts **Windows screenshots** and **Store assets** (which uploads the
      new Apple store art) onto a `release-docs/vX.Y.Z` branch;
-   - tags `vX.Y.Z` and publishes the GitHub release (the notes plus the
-     merged PRs and closed issues).
-   Left blank, the notes default to the merged PR titles. Platform `apple`,
-   `ios`, `mac` or `windows` releases just that part.
+   - tags `vX.Y.Z` and publishes the GitHub release (both stores' notes plus
+     `changes.md`). That tag is where the next release's notes start, for
+     every app.
+   Platform `apple`, `ios`, `mac` or `windows` releases just that part.
 4. Submit for review in App Store Connect. No lane submits there.
 5. When both screenshot runs finish, update any doc text that changed with
    the release on the `release-docs/vX.Y.Z` branch, and merge it with a PR.

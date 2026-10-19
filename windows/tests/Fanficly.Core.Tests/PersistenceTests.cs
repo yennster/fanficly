@@ -726,6 +726,52 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal([9], laptop.GetFollowedAuthor("other")!.KnownWorkIds);
     }
 
+    /// <summary>Blocked tags and authors from two devices union in the backup
+    /// (the same term in different case counts once), and restoring the merged
+    /// file gives either device the whole list (RM-006).</summary>
+    [Fact]
+    public async Task BackupUnionsBlockedTermsAcrossDevices()
+    {
+        var path = MakeTempBackupPath();
+
+        using var phone = MakeContext();
+        BlocklistStore.Block(BlockedTermKind.Tag, "Major Character Death", phone);
+        BlocklistStore.Block(BlockedTermKind.Author, "writer", phone);
+        MakeSync(path).Backup(phone);
+
+        using var pc = MakeContext();
+        BlocklistStore.Block(BlockedTermKind.Tag, "major character death", pc);
+        BlocklistStore.Block(BlockedTermKind.Tag, "Angst", pc);
+        MakeSync(path).Backup(pc);
+
+        Assert.Equal(["author:writer", "tag:angst", "tag:major character death"],
+                     DecodeBackup(path).Blocked!.Select(b => b.Key));
+
+        Assert.True(await MakeSync(path).RestoreAsync(pc));
+        Assert.Equal(["author:writer", "tag:angst", "tag:major character death"],
+                     pc.All<BlockedTerm>().Select(t => t.Key).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void BackupsWithoutBlockedTermsStillDecode()
+    {
+        var json = """{"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z"}""";
+        Assert.Null(LibraryBackupJson.Decode(System.Text.Encoding.UTF8.GetBytes(json)).Blocked);
+    }
+
+    /// <summary>The Swift app writes the blocklist under "blocked" as
+    /// {kind, value, createdAt}; Windows reads and writes the same keys.</summary>
+    [Fact]
+    public void BlockedTermsRoundTripInTheSwiftFormat()
+    {
+        var json = """{"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[],"blocked":[{"kind":"tag","value":"Angst","createdAt":"2026-01-02T03:04:05Z"}],"timestamp":"2026-01-01T00:00:00Z"}""";
+        var backup = LibraryBackupJson.Decode(System.Text.Encoding.UTF8.GetBytes(json));
+        var term = Assert.Single(backup.Blocked!);
+        Assert.Equal(("tag", "Angst", "tag:angst"), (term.Kind, term.Value, term.Key));
+        Assert.Contains("\"blocked\":[{\"kind\":\"tag\",\"value\":\"Angst\",\"createdAt\":\"2026-01-02T03:04:05Z\"}]",
+                        System.Text.Encoding.UTF8.GetString(LibraryBackupJson.Encode(backup)));
+    }
+
     [Fact]
     public void BackupsWithoutFollowedAuthorsStillDecode()
     {

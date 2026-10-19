@@ -50,7 +50,11 @@ internal sealed partial class ReaderView
         {
             if (_authorUsername.Length == 0)
             {
-                stack.Children.Add(new TextBlock { Text = $"by {_author}", FontSize = t.FontSize, Foreground = _brushes.Fg65, TextWrapping = TextWrapping.Wrap });
+                stack.Children.Add(new TextBlock
+                {
+                    Text = $"by {_author}", FontSize = t.FontSize, Foreground = _brushes.Fg65, TextWrapping = TextWrapping.Wrap,
+                    ContextFlyout = Account.ContentSafetyViews.BlockMenu(BlockedTermKind.Author, _author),
+                });
             }
             else
             {
@@ -71,6 +75,7 @@ internal sealed partial class ReaderView
                 ToolTipService.SetToolTip(byline, $"More by {_author}");
                 var author = new AuthorRef(_authorUsername, _author);
                 byline.Click += (_, _) => Routes.OpenAuthor(author);
+                byline.ContextFlyout = Account.ContentSafetyViews.BlockMenu(BlockedTermKind.Author, _authorUsername);
                 stack.Children.Add(byline);
             }
         }

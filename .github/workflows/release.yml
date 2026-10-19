@@ -33,7 +33,7 @@ on:
         default: all
         options: [all, apple, ios, mac, windows]
       notes:
-        description: What's New text (blank = the titles of the PRs merged since the last release)
+        description: What's New text for every store (blank = built from the PRs merged since the last release)
         type: string
         required: false
 
@@ -64,6 +64,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       notes: ${{ steps.collect.outputs.notes }}
+      windows_notes: ${{ steps.collect.outputs.windows_notes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,10 +89,17 @@ jobs:
         env:
           NOTES: ${{ inputs.notes }}
         run: |
-          bin/release-notes.sh
+          bin/release-notes.py
           delim="NOTES_$(openssl rand -hex 8)"
-          { echo "notes<<$delim"; cat build/release/notes.txt; echo "$delim"; } >> "$GITHUB_OUTPUT"
-          { echo "## What's New"; echo; cat build/release/notes.txt; echo; cat build/release/changes.md; } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "notes<<$delim"; cat build/release/notes.txt; echo "$delim"
+            echo "windows_notes<<$delim"; cat build/release/notes-windows.txt; echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## What's New (App Store)"; echo; cat build/release/notes.txt; echo
+            echo "## What's New (Microsoft Store)"; echo; cat build/release/notes-windows.txt; echo
+            cat build/release/changes.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -213,12 +221,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          # Written notes go to every store. Left blank, the generated fallback
-          # lists Apple changes only, so Windows keeps the What's New in
-          # windows/store/listing/en-us/release_notes.txt instead.
-          NOTES: ${{ inputs.notes }}
+          # The Windows What's New from bin/release-notes.py: the written notes
+          # when given, else the Windows changes merged since the last release.
+          # Empty (no Windows changes) keeps windows/store/listing/en-us/release_notes.txt.
+          NOTES: ${{ needs.notes.outputs.windows_notes }}
         run: |
-          if [ -n "$NOTES" ]; then
+          if [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
             gh workflow run windows-store.yml --ref main -f submit=true -f release_notes="$NOTES"
           else
             gh workflow run windows-store.yml --ref main -f submit=true
@@ -292,8 +300,18 @@ jobs:
           {
             echo "## What's new in $VERSION"
             echo
+            echo "### iPhone, iPad and Mac"
+            echo
             cat notes/notes.txt
             echo
+            # The tag marks where every app's next notes start, so only list
+            # Windows when this run shipped it too.
+            if [ "$PLATFORM" = all ] && [ -n "$(tr -d '[:space:]' < notes/notes-windows.txt)" ]; then
+              echo "### Windows"
+              echo
+              cat notes/notes-windows.txt
+              echo
+            fi
             cat notes/changes.md
             echo "App Store: version $VERSION, build $BUILD ($where). Submit for review in App Store Connect."
           } > github-release.md

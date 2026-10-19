@@ -25,6 +25,7 @@ internal sealed record PagedWorksTexts(
 internal sealed class PagedWorksList
 {
     private readonly Func<int, CancellationToken, Task<AO3SearchResults>> _fetch;
+    private readonly Func<Blocklist>? _blocklist;
     private readonly PagedWorksTexts _texts;
     private readonly VirtualList<AO3WorkSummary> _list;
     private readonly Grid _host = new();
@@ -37,9 +38,13 @@ internal sealed class PagedWorksList
     private string? _loadMoreError;
     private List<int> _shownIds = [];
 
-    public PagedWorksList(Func<int, CancellationToken, Task<AO3SearchResults>> fetch, PagedWorksTexts texts, string automationId, string listName)
+    /// <param name="blocklist">The blocked tags and authors to leave out, read
+    /// each time the list filters; null shows them (the user's own bookmarks).</param>
+    public PagedWorksList(Func<int, CancellationToken, Task<AO3SearchResults>> fetch, PagedWorksTexts texts, string automationId, string listName,
+                          Func<Blocklist>? blocklist = null)
     {
         _fetch = fetch;
+        _blocklist = blocklist;
         _texts = texts;
         // A hairline between stories, as in Search and Browse results.
         _list = new VirtualList<AO3WorkSummary>((work, _) => UI.UI.VStack(0, WorkRow.Build(work), UI.UI.Divider(14)), maxWidth: 980)
@@ -49,6 +54,8 @@ internal sealed class PagedWorksList
         _list.Element.Id(automationId);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_list.Element, listName);
     }
+
+    private IReadOnlyList<AO3WorkSummary> Visible() => AccountKit.Visible(_works, _blocklist?.Invoke());
 
     /// <summary>The element to put on screen.</summary>
     public FrameworkElement Element => _host;
@@ -161,10 +168,13 @@ internal sealed class PagedWorksList
         }
         else
         {
-            var visible = AccountKit.Visible(_works);
+            var visible = Visible();
             if (visible.Count == 0)
             {
-                content = UI.UI.EmptyState("eye.slash", "Nothing to show", _texts.FilteredMessage);
+                // Rows are what ask for the next page, so offer it here.
+                content = _currentPage < _totalPages && !_isLoadingMore
+                    ? UI.UI.EmptyState("eye.slash", "Nothing to show", _texts.FilteredMessage, "Load more results", () => _ = LoadMoreAsync())
+                    : UI.UI.EmptyState("eye.slash", "Nothing to show", _texts.FilteredMessage);
                 _shownIds = [];
             }
             else
@@ -215,17 +225,18 @@ internal sealed class PagedWorksList
         _isLoadingMore = true;
         _loadMoreError = null;
         UpdateFooter();
+        Render();
         try
         {
             for (var attempt = 0; attempt < 3 && _currentPage < _totalPages; attempt++)
             {
-                var before = AccountKit.Visible(_works).Count;
+                var before = Visible().Count;
                 var result = await _fetch(_currentPage + 1, cts.Token);
                 if (cts.IsCancellationRequested) return;
                 AppendUnique(result.Works);
                 _currentPage = result.CurrentPage;
                 _totalPages = result.TotalPages;
-                if (AccountKit.Visible(_works).Count > before) break;
+                if (Visible().Count > before) break;
             }
         }
         catch (Exception) when (cts.IsCancellationRequested)
