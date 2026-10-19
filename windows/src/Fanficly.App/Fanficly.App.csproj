@@ -57,6 +57,20 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" />
   </ItemGroup>
 
+  <!-- HTTP/3 needs msquic.dll beside the exe: .NET loads it from the app's own
+       folder, and Windows doesn't ship it. Native AOT drops every native file of
+       the runtime pack, msquic.dll included, so the Store build ran with "QUIC
+       (HTTP/3) not available" and every request fell back to HTTP/2, where AO3
+       answers with 525s and 30 s timeouts. Put it back, and fail the build if
+       the runtime pack ever stops carrying it. -->
+  <Target Name="KeepMsQuicForHttp3" AfterTargets="ComputeLinkedFilesToPublish" Condition="'$(PublishAot)' == 'true'">
+    <ItemGroup>
+      <_FanficlyMsQuic Include="@(_AssembliesToSkipPublish)" Condition="'%(Filename)%(Extension)' == 'msquic.dll'" />
+      <_ResolvedCopyLocalPublishAssets Include="@(_FanficlyMsQuic)" />
+    </ItemGroup>
+    <Error Condition="'@(_FanficlyMsQuic)' == ''" Text="msquic.dll isn't in the .NET runtime pack for $(RuntimeIdentifier), so this build would have no HTTP/3." />
+  </Target>
+
   <ItemGroup>
     <ProjectReference Include="..\Fanficly.Core\Fanficly.Core.csproj" />
   </ItemGroup>
