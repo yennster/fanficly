@@ -250,7 +250,7 @@ private enum LibraryFileAlert: String, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var title: LocalizedStringKey {
         switch self {
         case .imported: "Library Imported"
         case .importFailed: "Import Failed"
@@ -258,7 +258,7 @@ private enum LibraryFileAlert: String, Identifiable {
         }
     }
 
-    var message: String {
+    var message: LocalizedStringKey {
         switch self {
         case .imported: "The file's works, reading progress and stats have been added to your library, and its settings applied."
         case .importFailed: "That file couldn't be imported. Make sure it's a Fanficly library file and try again."
