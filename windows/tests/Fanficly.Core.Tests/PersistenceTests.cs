@@ -764,6 +764,19 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncNowLeavesAnUnreadableBackupAlone()
+    {
+        var path = MakeTempBackupPath();
+        File.WriteAllText(path, "not json");
+        using var pc = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), pc);
+        var pcSync = MakeSync(path);
+        Assert.Equal(new SyncNowResult(false, BackupOutcome.Unreadable), await pcSync.SyncNowAsync(pc));
+        Assert.Equal("not json", File.ReadAllText(path));
+        Assert.True(pcSync.CloudBackupHasUnappliedChanges);
+    }
+
+    [Fact]
     public async Task FollowedAuthorsSyncBetweenDevices()
     {
         var path = MakeTempBackupPath();

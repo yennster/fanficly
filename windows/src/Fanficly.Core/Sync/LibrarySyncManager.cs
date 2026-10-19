@@ -435,7 +435,17 @@ public sealed class LibrarySyncManager
     /// writes.</summary>
     public async Task<SyncNowResult> SyncNowAsync(LibraryStore store, CancellationToken ct = default)
     {
-        var restored = IsBackupAvailable && CloudBackupHasUnappliedChanges && await RestoreAsync(store, ct);
+        var restored = false;
+        try
+        {
+            restored = IsBackupAvailable && CloudBackupHasUnappliedChanges && await RestoreAsync(store, ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // Still back up this PC's changes; the stamp didn't move, so the
+            // next launch or Sync Now tries the restore again.
+            LibraryHooks.Log?.Invoke($"Sync Now's restore failed: {e.Message}");
+        }
         return new SyncNowResult(restored, Backup(store));
     }
 

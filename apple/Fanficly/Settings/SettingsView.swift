@@ -20,6 +20,7 @@ struct SettingsView: View {
     @State private var showingRestoreSuccess = false
     @State private var showingRestoreFailure = false
     @State private var isRestoring = false
+    @State private var isSyncing = false
     private let syncManager = iCloudSyncManager.shared
 
     /// Pre-filled feedback email (subject percent-encoded so it survives the mailto).
@@ -67,7 +68,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || isSyncing)
                 
                 if iCloudSyncEnabled {
                     if let date = lastSync {
@@ -86,19 +87,29 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 
-                    Button("Sync Now") {
-                        isRestoring = true
+                    Button {
+                        isSyncing = true
                         Task {
                             let restored = await syncManager.syncNow(context: context)
-                            isRestoring = false
+                            isSyncing = false
                             lastSync = syncManager.lastBackupDate
                             lastBackupFailure = syncManager.lastBackupFailure
                             if restored {
                                 RestoreDownloadCenter.shared.proposeRedownload(context: context)
                             }
                         }
+                    } label: {
+                        if isSyncing {
+                            HStack {
+                                Text("Syncing...")
+                                Spacer()
+                                ProgressView()
+                            }
+                        } else {
+                            Text("Sync Now")
+                        }
                     }
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || isSyncing)
                     
                     if syncManager.isBackupAvailable || isRestoring {
                         Button {
@@ -125,7 +136,7 @@ struct SettingsView: View {
                                 Text("Restore from iCloud")
                             }
                         }
-                        .disabled(isRestoring)
+                        .disabled(isRestoring || isSyncing)
                     }
                     
                     Button("Clear iCloud Data", role: .destructive) {
@@ -133,7 +144,7 @@ struct SettingsView: View {
                         lastSync = nil
                         lastBackupFailure = nil
                     }
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || isSyncing)
                 } else {
                     Button {
                         isRestoring = true
@@ -160,7 +171,7 @@ struct SettingsView: View {
                             Text("Restore Library from iCloud")
                         }
                     }
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || isSyncing)
                 }
             }
             Section {

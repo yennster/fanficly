@@ -26,6 +26,9 @@ public sealed class SyncSettingsScreen : Screen
 {
     private readonly Grid _host = new();
     private bool _isRestoring;
+    private bool _isSyncing;
+    /// <summary>A restore or a Sync Now is running.</summary>
+    private bool Busy => _isRestoring || _isSyncing;
 
     public SyncSettingsScreen() => Title = "Sync";
 
@@ -58,7 +61,7 @@ public sealed class SyncSettingsScreen : Screen
     {
         var enabled = IsEnabled;
         var toggle = UI.UI.Toggle(enabled, on => _ = SetEnabledAsync(on), "Sync across devices");
-        toggle.IsEnabled = !_isRestoring;
+        toggle.IsEnabled = !Busy;
         AutomationProperties.SetAutomationId(toggle, "settings.sync.toggle");
         var rows = new List<UIElement>
         {
@@ -71,12 +74,12 @@ public sealed class SyncSettingsScreen : Screen
             var last = Sync.LastBackupDate;
             rows.Add(UI.UI.SettingsRow("Last synced",
                 UI.UI.Secondary(last is { } d ? d.ToLocalTime().ToString("g") : "Never", Theme.Style.Body)));
-            rows.Add(SettingsKit.ActionRow("Sync Now", () => _ = SyncNowAsync(), "arrow.triangle.2.circlepath", automationId: "settings.sync.backup")
-                .Also(b => b.IsEnabled = !_isRestoring && Sync.SyncFolder is not null));
+            rows.Add(SettingsKit.ActionRow(_isSyncing ? "Syncing…" : "Sync Now", () => _ = SyncNowAsync(), "arrow.triangle.2.circlepath", automationId: "settings.sync.backup")
+                .Also(b => b.IsEnabled = !Busy && Sync.SyncFolder is not null));
             if (Sync.IsBackupAvailable || _isRestoring)
                 rows.Add(RestoreRow("Restore Now", enableAfter: false));
             rows.Add(SettingsKit.ActionRow("Clear Synced Data", () => _ = ClearAsync(), "trash", destructive: true,
-                automationId: "settings.sync.clear").Also(b => b.IsEnabled = !_isRestoring && Sync.IsBackupAvailable));
+                automationId: "settings.sync.clear").Also(b => b.IsEnabled = !Busy && Sync.IsBackupAvailable));
         }
         else
         {
@@ -101,6 +104,7 @@ public sealed class SyncSettingsScreen : Screen
         else
         {
             row = SettingsKit.ActionRow(title, () => _ = RestoreAsync(enableAfter), "icloud.and.arrow.down");
+            row.IsEnabled = !_isSyncing;
         }
         AutomationProperties.SetAutomationId(row, "settings.sync.restore");
         return row;
@@ -110,7 +114,7 @@ public sealed class SyncSettingsScreen : Screen
     {
         var folder = Sync.SyncFolder;
         var choose = UI.UI.Button("Choose…", () => _ = ChooseFolderAsync(), "folder");
-        choose.IsEnabled = !_isRestoring;
+        choose.IsEnabled = !Busy;
         AutomationProperties.SetAutomationId(choose, "settings.sync.chooseFolder");
         AutomationProperties.SetName(choose, "Choose sync folder");
         var suggestions = SuggestedFolders();
@@ -123,7 +127,7 @@ public sealed class SyncSettingsScreen : Screen
         {
             if (string.Equals(path, folder, StringComparison.OrdinalIgnoreCase)) continue;
             rows.Add(SettingsKit.ActionRow($"Use {label}", () => _ = UseFolderAsync(path, create: true), "folder.fill",
-                tooltip: path).Also(b => b.IsEnabled = !_isRestoring));
+                tooltip: path).Also(b => b.IsEnabled = !Busy));
         }
         if (folder is not null)
         {
@@ -281,13 +285,14 @@ public sealed class SyncSettingsScreen : Screen
     /// Sync Now).</summary>
     private async Task SyncNowAsync()
     {
-        if (_isRestoring) return;
-        _isRestoring = true;
+        if (Busy) return;
+        _isSyncing = true;
         Render();
+        MainWindow.Current.Announce("Syncing library");
         try
         {
             var result = await Sync.SyncNowAsync(AppHost.Library);
-            _isRestoring = false;
+            _isSyncing = false;
             if (result.Restored) RestoreDownloadCenter.Shared.ProposeRedownload(AppHost.Library);
             switch (result.Backup)
             {
@@ -319,7 +324,7 @@ public sealed class SyncSettingsScreen : Screen
         }
         catch (Exception e)
         {
-            _isRestoring = false;
+            _isSyncing = false;
             AppHost.Log($"Sync failed: {e.Message}");
             _ = Dialogs.AlertAsync("Backup Failed", "Couldn't write to the sync folder. Make sure it's available and try again.");
         }
@@ -328,7 +333,7 @@ public sealed class SyncSettingsScreen : Screen
 
     private async Task RestoreAsync(bool enableAfter)
     {
-        if (_isRestoring) return;
+        if (Busy) return;
         if (Sync.SyncFolder is null && !await PickFolderAsync())
         {
             Render();
