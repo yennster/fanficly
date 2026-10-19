@@ -44,7 +44,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ## Now (1.11, small and self-contained)
 
 ### RM-001 — Parser fixture hardening
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** Scraping is the app's only data source. `SubscriptionsParser` already fails closed (login page → `unauthorized`, no list and no shell → `parseFailed`); the other parsers silently return empty arrays on markup drift.
 - **Scope:** Give `SearchResultsParser`, `WorkPageParser`, `MediaCategoryParser` and `WorkFiltersParser` the same treatment: a login or error page throws `AO3Error.unauthorized` or `parseFailed` rather than returning `[]`, and callers that would delete or overwrite data on an empty result keep skipping on a throw. Genuine zero-result pages (AO3's "No results found") must still return `[]`.
 - **Done when:** each parser has tests for a genuine empty page, a login page and a garbage page; no caller regresses (search shows an error, not "No results", for a login page).
@@ -65,11 +65,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Reader/WorkHeaderMetadata.swift`, `Search/SearchView.swift`, new helper in `Reader/ReadingProgressStore.swift` (don't add a file).
 
 ### RM-004 — Lock-screen widget for last read
-- **Status:** open · **Size:** S · **Validation:** mac
+- **Status:** done · **Size:** S · **Validation:** mac
 - **Why:** None of the six widgets support the lock screen.
 - **Scope:** Add `accessoryRectangular` and `accessoryCircular` families to `FanficlyWidget` showing title and progress, using the same `WidgetProgressStore` data and resume URL. No new data path.
 - **Done when:** previews exist for both families; the tap target is the existing `fanficly://resume/…` URL; the widget target still builds. State in the PR that it needs a look on a device or simulator.
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`.
+- **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no lock screen, so the accessory families never show there. Windows has no lock-screen family of its own; its small "Continue reading" Widgets-board widget is the nearest equivalent (see `windows/ROADMAP.md`).
 
 ### RM-020 — Make the saved-search widget route work
 - **Status:** open · **Size:** S · **Validation:** unit
@@ -79,7 +80,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`, `WidgetDataStore.swift`, `Search/SearchView.swift`.
 
 ### RM-005 — Duo-ready toolbar labels
-- **Status:** open · **Size:** M · **Validation:** mac
+- **Status:** done · **Size:** M · **Validation:** mac
 - **Why:** With the 27.1 SDK toolbars go vertical on the iPhone Duo and want a title plus symbol. The Duo ships Oct 23 2026.
 - **Scope:** Convert the reader's toolbar items (chapters, Aa, minimize, export, options) from `Image` to `Label`, with `.labelStyle(.iconOnly)` where the bar is horizontal. Replace the `ellipsis.circle` options symbol with a non-ellipsis one so it stops clashing with the system overflow. Keep the parent to ≤ 2 items.
 - **Done when:** `ReaderLayoutTests` pass on iPhone and iPad; the PR attaches the reader-layout screenshots artifact and says the Duo pose was not checked unless someone ran it.
@@ -109,7 +110,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Networking/*`, `Networking/HTMLParsers/`, `Reader/WorkHeaderMetadata.swift`, `Browse/BrowseView.swift`.
 
 ### RM-008 — Per-chapter comments
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AGENTS.md lists this as a known follow-up: on multi-chapter works, comments are work-level and first-page only. `fetchComments`/`postComment` already take a `chapterId`.
 - **Scope:** Resolve the current chapter's AO3 chapter id (already scraped as `div.chapter[id^=chapter-]`) and pass it through `CommentsView`; add "Load more" for comment pagination (`page=`). Comment posting stays a single non-retried POST.
 - **Done when:** parser/endpoint tests for the chapter-scoped URL and page parameter; `CommentsView` still works for one-shot works with no chapter id.
@@ -130,7 +131,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/LibraryView.swift`.
 
 ### RM-011 — Yearly reading goal
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** The Stats tab reports; it doesn't invite.
 - **Scope:** An optional goal (stories finished this year) stored in `@AppStorage`, shown as a progress ring on the Stats tab and in the wrap card. Pure progress/pace function in `ReadingStatsAggregator` ("on pace", "3 ahead").
 - **Done when:** tests for pace at year start, mid-year, past the goal, and a zero goal (hidden). The setting is per-device and not synced, so there's no sync risk.
@@ -171,7 +172,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Handle `CSSearchableItemActionType` (`work-<id>` identifiers from `WorkPersistence.indexWork`) by routing through the existing resume route; index every saved library work, not only followed ones (deindex on delete); add a "Continue reading" App Shortcut. Index data stays on-device.
 
 ### RM-017 — Localization groundwork
-- **Status:** open · **Size:** M (the groundwork only) · **Validation:** mac
+- **Status:** done · **Size:** M (the groundwork only) · **Validation:** mac
 - **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
 
 ### RM-018 — Split the big view files
@@ -191,6 +192,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.
 - **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
 - **Touches:** `RootView.swift`, `FanficlyApp.swift`.
+
+### RM-024 — Move the remaining screens' strings to the String Catalog
+- **Status:** open · **Size:** S per screen family · **Validation:** unit + mac
+- **Why:** RM-017 added `Fanficly/Localizable.xcstrings` and moved Settings (`SettingsView.swift`). Every other screen's strings are still inline only.
+- **Scope:** One screen family per PR, following the convention in AGENTS.md: Search (incl. `WorkFilterSheet`), Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, Auth, the rest of Settings (`ReaderSettingsView`, `ContentSafetyViews`), then the widget and share extension (their own catalogs). Do not translate. AO3 tag and category names stay verbatim.
+- **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
+- **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
 
 ## Engineering health (any release)
 
