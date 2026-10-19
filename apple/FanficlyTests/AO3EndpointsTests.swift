@@ -115,6 +115,13 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertEqual(p2.absoluteString, "https://archiveofourown.org/users/reader/readings?show=to-read&page=2")
     }
 
+    func test_userReadingHistoryURL_paginates() throws {
+        let p1 = try AO3Endpoints.userReadingHistory(name: "reader", page: 1, base: base)
+        XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/reader/readings")
+        let p4 = try AO3Endpoints.userReadingHistory(name: "reader", page: 4, base: base)
+        XCTAssertEqual(p4.absoluteString, "https://archiveofourown.org/users/reader/readings?page=4")
+    }
+
     func test_userSubscriptionsURL_paginates() throws {
         let p1 = try AO3Endpoints.userSubscriptions(name: "reader", page: 1, base: base)
         XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/reader/subscriptions")
