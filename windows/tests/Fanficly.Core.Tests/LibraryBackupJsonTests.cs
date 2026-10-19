@@ -107,6 +107,33 @@ public sealed class LibraryBackupJsonTests
         Assert.Equal("Night", decoded.GetString("activeProfileWindows"));
     }
 
+    /// <summary>Every key the encoder writes is in BackupUnknownKeys' known
+    /// sets. A key missing there would be taken for an unknown one and
+    /// overwritten with the file's old value whenever this device omits it
+    /// (a cleared optional), so add new fields to both.</summary>
+    [Fact]
+    public void KnownKeySetsCoverEverythingTheEncoderWrites()
+    {
+        var b = LibraryBackupJson.Decode(SwiftFixture);
+        b = b with
+        {
+            Works = [b.Works[0] with { PublishedAt = Utc(2026, 1, 1) }],
+            FollowedAuthors = [new AuthorBackup("writer", "Writer", Utc(2026, 1, 1), [1], Utc(2026, 1, 2))],
+        };
+        using var doc = JsonDocument.Parse(LibraryBackupJson.Encode(b));
+        var root = doc.RootElement;
+        Assert.Subset(BackupUnknownKeys.TopLevelKeys, root.EnumerateObject().Select(p => p.Name).ToHashSet());
+        foreach (var (array, _, known, _) in BackupUnknownKeys.Records)
+        {
+            var records = root.GetProperty(array).EnumerateArray().ToList();
+            Assert.NotEmpty(records);
+            foreach (var r in records) Assert.Subset(known, r.EnumerateObject().Select(p => p.Name).ToHashSet());
+        }
+        var chapters = root.GetProperty("works")[0].GetProperty("chapters").EnumerateArray().ToList();
+        Assert.Contains(chapters, c => c.TryGetProperty("aoId", out _));
+        foreach (var c in chapters) Assert.Subset(BackupUnknownKeys.ChapterKeys, c.EnumerateObject().Select(p => p.Name).ToHashSet());
+    }
+
     [Fact]
     public void ReencodingSwiftOutputGivesTheSameJson()
     {
