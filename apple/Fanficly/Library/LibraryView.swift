@@ -291,6 +291,7 @@ struct LibraryView: View {
         if let url = WorkPersistence.epubURL(workId: work.ao3Id) {
             try? FileManager.default.removeItem(at: url)
         }
+        WorkPersistence.deindexWork(ao3Id: work.ao3Id)
         context.delete(work)
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)

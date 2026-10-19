@@ -57,32 +57,96 @@ enum WorkPersistence {
         work.updatedAt = summary.updatedAt
 
         if save { try? context.save() }
-        if work.isFollowed {
-            indexWork(work)
-        } else {
-            deindexWork(ao3Id: work.ao3Id)
-        }
+        // Every library work is findable in Spotlight, followed or not.
+        indexWork(work)
         return work
+    }
+
+    // MARK: - Spotlight
+
+    /// Core Spotlight domain for library works. The index is on-device; a tap
+    /// on a result reaches `RootView`'s `CSSearchableItemActionType` handler,
+    /// which opens the work through the resume route.
+    static let spotlightDomain = "io.github.yennster.fanficly.works"
+
+    /// Set once the launch task has rebuilt the index from the whole library.
+    static let spotlightReindexedKey = "spotlight.reindexed.v1"
+
+    /// What Spotlight shows for one library work. A Sendable value so items
+    /// can be built off the main actor, in the index's completion handler.
+    struct SpotlightEntry: Sendable, Equatable {
+        let ao3Id: Int
+        let title: String
+        let author: String
+        let summary: String
+        let keywords: [String]
+    }
+
+    static func spotlightIdentifier(ao3Id: Int) -> String {
+        "work-\(ao3Id)"
+    }
+
+    /// The AO3 work id in a `work-<id>` Spotlight identifier, or nil for
+    /// anything else.
+    static func workId(fromSpotlightIdentifier identifier: String) -> Int? {
+        guard identifier.hasPrefix("work-") else { return nil }
+        guard let id = Int(identifier.dropFirst("work-".count)), id > 0 else { return nil }
+        return id
+    }
+
+    @MainActor
+    static func spotlightEntry(for work: Work) -> SpotlightEntry {
+        SpotlightEntry(
+            ao3Id: work.ao3Id,
+            title: work.title,
+            author: work.authorName,
+            summary: work.summary,
+            keywords: work.fandoms + work.relationships + work.characters
+        )
+    }
+
+    static func searchableItem(for entry: SpotlightEntry) -> CSSearchableItem {
+        let attributeSet = CSSearchableItemAttributeSet(contentType: .text)
+        attributeSet.title = entry.title
+        attributeSet.contentDescription = entry.summary
+        attributeSet.artist = entry.author
+        attributeSet.keywords = entry.keywords
+        return CSSearchableItem(
+            uniqueIdentifier: spotlightIdentifier(ao3Id: entry.ao3Id),
+            domainIdentifier: spotlightDomain,
+            attributeSet: attributeSet
+        )
     }
 
     @MainActor
     static func indexWork(_ work: Work) {
-        let attributeSet = CSSearchableItemAttributeSet(contentType: .text)
-        attributeSet.title = work.title
-        attributeSet.contentDescription = work.summary
-        attributeSet.artist = work.authorName
-        
-        let item = CSSearchableItem(
-            uniqueIdentifier: "work-\(work.ao3Id)",
-            domainIdentifier: "io.github.yennster.fanficly.works",
-            attributeSet: attributeSet
-        )
-        CSSearchableIndex.default().indexSearchableItems([item], completionHandler: nil)
+        // Demo mode's library is in memory, but the index is the device's own.
+        guard !FanficlyApp.isDemoMode else { return }
+        CSSearchableIndex.default().indexSearchableItems(
+            [searchableItem(for: spotlightEntry(for: work))], completionHandler: nil)
     }
 
     @MainActor
     static func deindexWork(ao3Id: Int) {
-        CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: ["work-\(ao3Id)"], completionHandler: nil)
+        CSSearchableIndex.default().deleteSearchableItems(
+            withIdentifiers: [spotlightIdentifier(ao3Id: ao3Id)], completionHandler: nil)
+    }
+
+    /// Rebuilds the Spotlight index from the whole library: clears the domain,
+    /// then indexes every saved work. Run once at launch (works saved before
+    /// every library work was indexed, when only followed ones were) and after
+    /// an iCloud restore (restored works skip `upsertMetadata`).
+    @MainActor
+    static func reindexLibrary(context: ModelContext) {
+        let entries = ((try? context.fetch(FetchDescriptor<Work>())) ?? []).map { spotlightEntry(for: $0) }
+        let index = CSSearchableIndex.default()
+        index.deleteSearchableItems(withDomainIdentifiers: [spotlightDomain]) { @Sendable _ in
+            // Explicitly @Sendable: CoreSpotlight calls this off the main
+            // actor, so it must not inherit this function's isolation.
+            guard !entries.isEmpty else { return }
+            CSSearchableIndex.default().indexSearchableItems(
+                entries.map(searchableItem(for:)), completionHandler: nil)
+        }
     }
 
     @MainActor
@@ -101,7 +165,6 @@ enum WorkPersistence {
         if work.isFollowed {
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
-            indexWork(work)
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is
             // the moment to ask for permission, not the login-gated
@@ -109,7 +172,6 @@ enum WorkPersistence {
             NotificationsAuthorization.requestAfterFollow()
         } else {
             work.followedAt = nil
-            deindexWork(ao3Id: work.ao3Id)
         }
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)

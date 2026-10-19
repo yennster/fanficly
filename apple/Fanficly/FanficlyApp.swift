@@ -153,6 +153,14 @@ struct FanficlyApp: App {
                     // restore above; demo mode seeds its own stats.
                     if !Self.isDemoMode {
                         ReadingStatsBackfill.runIfNeeded(in: context)
+                        // One-time: index works saved before every library work
+                        // was indexed (only followed ones were). Not every launch:
+                        // a rebuild empties Fanficly's Spotlight results while
+                        // it runs and drops what Spotlight learned about them.
+                        if !UserDefaults.standard.bool(forKey: WorkPersistence.spotlightReindexedKey) {
+                            WorkPersistence.reindexLibrary(context: context)
+                            UserDefaults.standard.set(true, forKey: WorkPersistence.spotlightReindexedKey)
+                        }
                     }
                 }
         }

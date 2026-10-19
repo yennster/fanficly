@@ -221,6 +221,7 @@ struct PrivacyTransparencyView: View {
                     • Your AO3 session cookie (in iOS Keychain), so you stay logged in.
                     • Works you've saved offline and your reading position (in app storage).
                     • Your preferences (theme, font size).
+                    • The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.
                     • An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled.
                     """
                 )

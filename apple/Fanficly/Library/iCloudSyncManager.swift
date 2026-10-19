@@ -731,6 +731,8 @@ final class iCloudSyncManager {
 
             try context.save()
             markCloudBackupApplied()
+            // Restored works skip upsertMetadata, so they reach Spotlight here.
+            WorkPersistence.reindexLibrary(context: context)
             return true
         } catch {
             print("Failed to restore from iCloud: \(error)")
