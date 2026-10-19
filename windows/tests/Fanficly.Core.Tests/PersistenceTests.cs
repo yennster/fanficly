@@ -790,6 +790,166 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(["Faves"], work.Folders.Select(f => f.Name));
     }
 
+    // MARK: - Library file export and import (RM-113, the Apple app's RM-012)
+
+    private static LibrarySyncManager MakeFileSync() => new(new InMemoryKeyValueStore());
+
+    /// <summary>Exporting a library file and importing it into an empty library
+    /// brings back every work (with its chapters and folders), reading
+    /// position, stat, bookmark, subscription, saved search and followed author.</summary>
+    [Fact]
+    public void LibraryFileRoundTripsIntoEmptyStore()
+    {
+        var read = new DateTimeOffset(2026, 9, 21, 9, 41, 0, TimeSpan.Zero);
+        using var source = MakeContext();
+        var folder = new CustomFolder("Faves", read);
+        source.Insert(folder);
+        var work = WorkPersistence.Upsert(Payload(1, 3), source);
+        work.IsStarred = true;
+        work.IsFollowed = true;
+        work.LastSeenChapterCount = 3;
+        work.LastReadAt = read;
+        work.LastReadChapter = 2;
+        work.LastReadProgress = 0.5;
+        work.Folders.Add(folder);
+        source.Insert(new Work(2, "Metadata only", "B"));
+        source.Insert(new ReadingProgress(1, 2, 14, "Test Work 1", "tester", read));
+        source.Insert(new ReadingStat(1, "Test Work 1", "tester", fandoms: ["Harry Potter - J. K. Rowling"],
+            wordCount: 5000, firstReadAt: read, lastReadAt: read, totalSeconds: 600,
+            daySeconds: new Dictionary<string, double> { ["2026-09-21"] = 600 }, maxProgress: 0.5, workIsComplete: true));
+        source.Insert(new BookmarkRecord(77, 1, "reread", ["comfort"], read));
+        source.Insert(new SubscriptionRecord("work:1", "work", "Test Work 1", "tester") { LastSeenChapterCount = 3 });
+        source.Insert(new SavedSearch("Slow burn", "tag:\"Slow Burn\"", savedAt: read));
+        source.Insert(new FollowedAuthor("tester", "Tester", read, knownWorkIds: [1]));
+        source.Save();
+
+        var file = MakeFileSync().ExportLibraryFile(source);
+
+        using var target = MakeContext();
+        MakeFileSync().ImportLibraryFile(file, target);
+
+        Assert.Equal([1, 2], target.All<Work>().Select(w => w.Ao3Id).OrderBy(i => i));
+        var restored = target.GetWork(1)!;
+        Assert.Equal("Test Work 1", restored.Title);
+        Assert.Equal(["<p>Body 1</p>", "<p>Body 2</p>", "<p>Body 3</p>"],
+            target.ChaptersOf(restored).OrderBy(c => c.Index).Select(c => c.BodyHtml));
+        Assert.True(restored.IsStarred);
+        Assert.True(restored.IsFollowed);
+        Assert.Equal(3, restored.LastSeenChapterCount);
+        Assert.Equal(read, restored.LastReadAt);
+        Assert.Equal(2, restored.LastReadChapter);
+        Assert.Equal(["Faves"], restored.Folders.Select(f => f.Name));
+        Assert.Empty(target.ChaptersOf(target.GetWork(2)!));
+
+        var progress = target.GetReadingProgress(1)!;
+        Assert.Equal(2, progress.ChapterIndex);
+        Assert.Equal(14, progress.ParagraphIndex);
+        Assert.Equal(read, progress.UpdatedAt);
+
+        var stat = target.GetReadingStat(1)!;
+        Assert.Equal(600, stat.TotalSeconds, 3);
+        Assert.Equal(0.5, stat.MaxProgress, 3);
+        Assert.True(stat.WorkIsComplete);
+
+        var bookmark = target.GetBookmark(77)!;
+        Assert.Equal("reread", bookmark.Notes);
+        Assert.Equal(["comfort"], bookmark.Tags);
+        Assert.Equal(3, target.GetSubscription("work:1")?.LastSeenChapterCount);
+        Assert.NotNull(target.GetSavedSearch("Slow burn"));
+        Assert.Equal([1], target.GetFollowedAuthor("tester")!.KnownWorkIds);
+    }
+
+    /// <summary>Importing a file exported earlier, after reading further, never
+    /// moves progress backwards: the reading position, the work's last-read
+    /// chapter, the stat's furthest progress and a subscription's notification
+    /// baseline all keep the newer values.</summary>
+    [Fact]
+    public void ImportingOlderLibraryFileNeverMovesProgressBackwards()
+    {
+        var earlier = new DateTimeOffset(2026, 9, 21, 9, 41, 0, TimeSpan.Zero);
+        var later = earlier.AddDays(1);
+
+        // The file was exported when the reader was on chapter 2.
+        using var old = MakeContext();
+        old.Insert(new Work(1, "T", "A") { LastReadAt = earlier, LastReadChapter = 2, LastReadProgress = 0.2 });
+        old.Insert(new ReadingProgress(1, 2, 3, "T", "A", earlier));
+        old.Insert(new ReadingStat(1, "T", "A", firstReadAt: earlier, lastReadAt: earlier, totalSeconds: 100,
+            daySeconds: new Dictionary<string, double> { ["2026-09-21"] = 100 }, maxProgress: 0.2));
+        old.Insert(new SubscriptionRecord("work:1", "work", "T", "A") { LastSeenChapterCount = 2, LastCheckedAt = earlier });
+        old.Save();
+        var file = MakeFileSync().ExportLibraryFile(old);
+
+        // Since then this library read on to chapter 7.
+        using var device = MakeContext();
+        device.Insert(new Work(1, "T", "A") { LastReadAt = later, LastReadChapter = 7, LastReadProgress = 0.7 });
+        device.Insert(new ReadingProgress(1, 7, 0, "T", "A", later));
+        device.Insert(new ReadingStat(1, "T", "A", firstReadAt: earlier, lastReadAt: later, totalSeconds: 900,
+            daySeconds: new Dictionary<string, double> { ["2026-09-21"] = 100, ["2026-09-22"] = 800 }, maxProgress: 0.7));
+        device.Insert(new SubscriptionRecord("work:1", "work", "T", "A") { LastSeenChapterCount = 7, LastCheckedAt = later });
+        device.Save();
+
+        MakeFileSync().ImportLibraryFile(file, device);
+
+        var progress = device.GetReadingProgress(1)!;
+        Assert.Equal(7, progress.ChapterIndex);
+        Assert.Equal(later, progress.UpdatedAt);
+        var work = device.GetWork(1)!;
+        Assert.Equal(7, work.LastReadChapter);
+        Assert.Equal(0.7, work.LastReadProgress ?? 0, 3);
+        var stat = device.GetReadingStat(1)!;
+        Assert.Equal(0.7, stat.MaxProgress, 3);
+        Assert.Equal(900, stat.TotalSeconds, 3);
+        Assert.Equal(later, stat.LastReadAt);
+        var sub = device.GetSubscription("work:1")!;
+        Assert.Equal(7, sub.LastSeenChapterCount); // an old file must not re-fire chapter alerts
+        Assert.Equal(later, sub.LastCheckedAt);
+    }
+
+    /// <summary>A file that isn't a library backup is refused and changes nothing.</summary>
+    [Fact]
+    public void ImportingNonLibraryFileThrowsAndChangesNothing()
+    {
+        using var device = MakeContext();
+        device.Insert(new Work(1, "T", "A"));
+        device.Save();
+
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() =>
+            MakeFileSync().ImportLibraryFile("{\"hello\": \"world\"}"u8.ToArray(), device));
+        Assert.Equal([1], device.All<Work>().Select(w => w.Ao3Id));
+    }
+
+    /// <summary>The Apple apps write the same file without the Windows-only
+    /// keys (no followedAuthors, no Windows reader settings); it imports.</summary>
+    [Fact]
+    public void ImportsAppleLibraryFile()
+    {
+        var json = """
+        {"works":[{"ao3Id":5,"title":"From iPhone","authorName":"I","authorUsername":"i",
+        "summary":"","rating":"General Audiences","warnings":[],"categories":[],"fandoms":[],
+        "characters":[],"relationships":[],"freeforms":[],"language":"English","wordCount":10,
+        "chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,
+        "isComplete":true,"savedAt":"2026-10-16T09:41:00Z","isFollowed":false,
+        "chapters":[{"index":1,"title":"One","bodyHTML":"<p>Hi</p>","aoId":42}],
+        "folderNames":[]}],
+        "bookmarks":[],"subscriptions":[],"searches":[],
+        "progress":[{"ao3Id":5,"chapterIndex":1,"paragraphIndex":2,"title":"From iPhone",
+        "author":"I","updatedAt":"2026-10-16T09:41:00Z"}],
+        "filters":[],"hidden":[],"timestamp":"2026-10-16T09:41:00Z"}
+        """;
+        using var device = MakeContext();
+        MakeFileSync().ImportLibraryFile(System.Text.Encoding.UTF8.GetBytes(json), device);
+
+        var work = device.GetWork(5)!;
+        Assert.Equal("From iPhone", work.Title);
+        Assert.Equal(42, Assert.Single(device.ChaptersOf(work)).AoId);
+        Assert.Equal(2, device.GetReadingProgress(5)?.ParagraphIndex);
+    }
+
+    [Fact]
+    public void ExportFileNameIsDated() =>
+        Assert.Equal("Fanficly Library 2026-10-18.json",
+            LibrarySyncManager.ExportFileName(new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero)));
+
     /// <summary>Only works with restored chapter text (downloaded on the device
     /// that made the backup) and no local EPUB file are offered for re-download.</summary>
     [Fact]
