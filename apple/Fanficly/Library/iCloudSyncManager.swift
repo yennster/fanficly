@@ -678,6 +678,21 @@ final class iCloudSyncManager {
         )
     }
 
+    /// Settings → Sync Now: first brings in what other devices backed up
+    /// since this device last applied the file (the same forward-only restore
+    /// the launch runs), then backs up. Restoring first means the backup's
+    /// merge finds nothing unapplied, so it stamps the file it writes.
+    /// Returns true when it restored other devices' changes.
+    @discardableResult
+    func syncNow(context: ModelContext) async -> Bool {
+        var restored = false
+        if isBackupAvailable && cloudBackupHasUnappliedChanges {
+            restored = await restoreFromiCloud(context: context)
+        }
+        backupToiCloud(context: context)
+        return restored
+    }
+
     /// Restores all records from iCloud backup. Returns true if successful.
     @discardableResult
     func restoreFromiCloud(context: ModelContext) async -> Bool {

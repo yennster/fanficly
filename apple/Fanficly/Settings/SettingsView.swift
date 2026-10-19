@@ -87,9 +87,16 @@ struct SettingsView: View {
                     }
 
                     Button("Sync Now") {
-                        syncManager.backupToiCloud(context: context)
-                        lastSync = syncManager.lastBackupDate
-                        lastBackupFailure = syncManager.lastBackupFailure
+                        isRestoring = true
+                        Task {
+                            let restored = await syncManager.syncNow(context: context)
+                            isRestoring = false
+                            lastSync = syncManager.lastBackupDate
+                            lastBackupFailure = syncManager.lastBackupFailure
+                            if restored {
+                                RestoreDownloadCenter.shared.proposeRedownload(context: context)
+                            }
+                        }
                     }
                     .disabled(isRestoring)
                     

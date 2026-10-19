@@ -737,6 +737,33 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public async Task SyncNowBringsInAnotherDevicesChangesThenBacksUp()
+    {
+        var path = MakeTempBackupPath();
+        using var pc = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), pc);
+        var pcSync = MakeSync(path);
+
+        // Nothing in the folder yet: Sync Now just backs up.
+        Assert.Equal(new SyncNowResult(false, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+
+        // The iPad backs up two works; the PC's Sync Now pulls them in before
+        // it backs up, and stamps the file it wrote.
+        using var pad = MakeContext();
+        WorkPersistence.Upsert(Payload(10, 1), pad);
+        WorkPersistence.Upsert(Payload(11, 1), pad);
+        MakeSync(path).Backup(pad);
+        File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(5));
+        Assert.Equal(new SyncNowResult(true, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+        Assert.Equal([1, 10, 11], pc.All<Work>().Select(w => w.Ao3Id).Order());
+        Assert.Equal(3, DecodeBackup(path).Works.Count);
+        Assert.False(pcSync.CloudBackupHasUnappliedChanges);
+
+        // With nothing new, it doesn't restore again.
+        Assert.Equal(new SyncNowResult(false, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+    }
+
+    [Fact]
     public async Task FollowedAuthorsSyncBetweenDevices()
     {
         var path = MakeTempBackupPath();

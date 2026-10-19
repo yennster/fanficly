@@ -865,6 +865,50 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(sync.cloudBackupHasUnappliedChanges)
     }
 
+    /// Sync Now brings in other devices' changes before it backs up, and
+    /// stamps the file it writes.
+    func test_syncNowBringsInAnotherDevicesChangesThenBacksUp() async throws {
+        let url = makeTempBackupURL()
+        let stampKey = iCloudSyncManager.lastRestoredStampKey
+        let defaults = UserDefaults.standard
+        let originalStamp = defaults.object(forKey: stampKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalStamp, forKey: stampKey)
+        }
+        let sync = iCloudSyncManager.shared
+
+        // Nothing in iCloud yet: Sync Now just backs up.
+        defaults.removeObject(forKey: stampKey)
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: phone)
+        let first = await sync.syncNow(context: phone)
+        XCTAssertFalse(first)
+        let phoneStamp = try XCTUnwrap(defaults.object(forKey: stampKey) as? Date)
+
+        // The iPad (its own stamp) backs up two works.
+        defaults.removeObject(forKey: stampKey)
+        let pad = try makeContext()
+        for id in 10...11 { _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: pad) }
+        sync.backupToiCloud(context: pad)
+        try FileManager.default.setAttributes([.modificationDate: phoneStamp.addingTimeInterval(5)],
+                                              ofItemAtPath: url.path)
+
+        // The phone's Sync Now pulls them in, then backs up and stamps.
+        defaults.set(phoneStamp, forKey: stampKey)
+        let second = await sync.syncNow(context: phone)
+        XCTAssertTrue(second)
+        XCTAssertEqual(try phone.fetch(FetchDescriptor<Work>()).map(\.ao3Id).sorted(), [1, 10, 11])
+        XCTAssertEqual(try decodeBackup(at: url).works.count, 3)
+        XCTAssertFalse(sync.cloudBackupHasUnappliedChanges)
+
+        // With nothing new, it doesn't restore again.
+        let third = await sync.syncNow(context: phone)
+        XCTAssertFalse(third)
+    }
+
     /// Restoring a metadata-only backup (chapters: []) must not delete a
     /// fuller offline download — the Downloaded badge keys off the epub file,
     /// so wiping chapters here would silently strand it.

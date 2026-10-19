@@ -71,7 +71,7 @@ public sealed class SyncSettingsScreen : Screen
             var last = Sync.LastBackupDate;
             rows.Add(UI.UI.SettingsRow("Last synced",
                 UI.UI.Secondary(last is { } d ? d.ToLocalTime().ToString("g") : "Never", Theme.Style.Body)));
-            rows.Add(SettingsKit.ActionRow("Back Up Now", BackUpNow, "icloud.and.arrow.up", automationId: "settings.sync.backup")
+            rows.Add(SettingsKit.ActionRow("Sync Now", () => _ = SyncNowAsync(), "arrow.triangle.2.circlepath", automationId: "settings.sync.backup")
                 .Also(b => b.IsEnabled = !_isRestoring && Sync.SyncFolder is not null));
             if (Sync.IsBackupAvailable || _isRestoring)
                 rows.Add(RestoreRow("Restore Now", enableAfter: false));
@@ -277,14 +277,24 @@ public sealed class SyncSettingsScreen : Screen
         }
     }
 
-    private void BackUpNow()
+    /// <summary>Brings in other devices' changes, then backs up (the Mac's
+    /// Sync Now).</summary>
+    private async Task SyncNowAsync()
     {
+        if (_isRestoring) return;
+        _isRestoring = true;
+        Render();
         try
         {
-            switch (Sync.Backup(AppHost.Library))
+            var result = await Sync.SyncNowAsync(AppHost.Library);
+            _isRestoring = false;
+            if (result.Restored) RestoreDownloadCenter.Shared.ProposeRedownload(AppHost.Library);
+            switch (result.Backup)
             {
                 case BackupOutcome.Written:
-                    MainWindow.Current.ShowMessage("Backed Up", "Your library was saved to the sync folder.");
+                    MainWindow.Current.ShowMessage("Synced", result.Restored
+                        ? "Changes from your other devices were added to your library, and it was saved to the sync folder."
+                        : "Your library was saved to the sync folder.");
                     break;
                 case BackupOutcome.NotDownloaded:
                     _ = Dialogs.AlertAsync("Not Backed Up Yet",
@@ -309,7 +319,8 @@ public sealed class SyncSettingsScreen : Screen
         }
         catch (Exception e)
         {
-            AppHost.Log($"Backup failed: {e.Message}");
+            _isRestoring = false;
+            AppHost.Log($"Sync failed: {e.Message}");
             _ = Dialogs.AlertAsync("Backup Failed", "Couldn't write to the sync folder. Make sure it's available and try again.");
         }
         Render();
