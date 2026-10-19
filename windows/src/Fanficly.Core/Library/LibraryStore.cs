@@ -126,6 +126,7 @@ public sealed class LibraryStore : IDisposable
         ReadTable("subscriptions", SubscriptionRecord.Columns, SubscriptionRecord.Read);
         ReadTable("followed_authors", FollowedAuthor.Columns, FollowedAuthor.Read);
         ReadTable("reading_stats", ReadingStat.Columns, ReadingStat.Read);
+        ReadTable("blocked_terms", BlockedTerm.Columns, BlockedTerm.Read);
 
         using (var cmd = _conn.CreateCommand())
         {
@@ -294,6 +295,7 @@ public sealed class LibraryStore : IDisposable
     public ReadingStat? GetReadingStat(int ao3Id) => FindUnique<ReadingStat>(ao3Id);
     public RecentlyViewed? GetRecentlyViewed(int ao3Id) => FindUnique<RecentlyViewed>(ao3Id);
     public HiddenWork? GetHiddenWork(int ao3Id) => FindUnique<HiddenWork>(ao3Id);
+    public BlockedTerm? GetBlockedTerm(BlockedTermKind kind, string value) => FindUnique<BlockedTerm>(BlockedTerm.KeyFor(kind, value));
     public BookmarkRecord? GetBookmark(int ao3Id) => FindUnique<BookmarkRecord>(ao3Id);
     public SubscriptionRecord? GetSubscription(string key) => FindUnique<SubscriptionRecord>(key);
     public FollowedAuthor? GetFollowedAuthor(string username) => FindUnique<FollowedAuthor>(username);

@@ -103,10 +103,12 @@ internal static class AccountKit
     public static TextBlock ListSectionHeader(string text) =>
         UI.UI.SectionHeader(text).Also(t => t.Margin = new Thickness(14, 16, 0, 4));
 
-    /// <summary>The rows' own content filter (Search/Browse/Author/Bookmarks share it).</summary>
-    public static IReadOnlyList<AO3WorkSummary> Visible(IEnumerable<AO3WorkSummary> works) =>
+    /// <summary>The rows' own content filter (Search/Browse/Author/Bookmarks share it).
+    /// Pass the blocklist for lists the user didn't ask for by name; the user's
+    /// own bookmarks leave it out.</summary>
+    public static IReadOnlyList<AO3WorkSummary> Visible(IEnumerable<AO3WorkSummary> works, Blocklist? blocklist = null) =>
         ContentFilter.Apply(works, HiddenWorkStore.Ids(AppHost.Library),
-                            KeyValueStores.Default.GetBool(Core.ContentControl.FilterMatureKey, true));
+                            KeyValueStores.Default.GetBool(Core.ContentControl.FilterMatureKey, true), blocklist);
 
     /// <summary>Runs <paramref name="action"/> on the UI thread (library change
     /// events arrive on whichever thread saved).</summary>
