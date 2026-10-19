@@ -65,7 +65,7 @@ Servers or accounts of our own, ads, telemetry, a "trending" feed we'd have to s
 
 ## How items are written
 
-Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `bin/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
+Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `.github/scripts/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
 
 - **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), `done`, or `exception` (an Apple feature Windows can't support; the item says why, and it isn't built).
 - **Size:** `S` is about one file plus tests, `M` is a few files plus tests. Anything bigger is split into new `S`/`M` items before it's started.
@@ -190,7 +190,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Revisit when:** Windows offers a public search-provider API for packaged apps, or `AppContentIndex` leaves limited access and its results reach Windows Search.
 
 ### RM-109 — Localization groundwork
-- **Status:** open · **Size:** M · **Validation:** windows
+- **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Every string is English and inline in C#.
 - **Scope:**
   - Add a `.resw` resource file and a small lookup helper.
@@ -199,6 +199,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - Check it under Native AOT and in the MSIX (MakePri runs only on Windows).
 - **Done when:** the About screen reads its strings from resources in the packaged Release build, with no change in English.
 - **Touches:** `windows/src/Fanficly.App/Views/Settings/AboutScreen.cs`, a new resource file, `Fanficly.App.csproj` if needed.
+
+### RM-117 — Move the remaining screens' strings to the resource table
+- **Status:** open · **Size:** M (one screen per PR) · **Validation:** unit + windows
+- **Why:** RM-109 added `Strings/en-US/Resources.resw` and `Strings.Get`, and moved Settings → About. Every other screen's text is still inline C#.
+- **Scope:** One screen (or screen family) per PR, following the convention in AGENTS.md: the rest of Settings, Search and its filters, Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, sign-in, dialogs, toasts and the widget. Do not translate. AO3 tag and category names stay verbatim.
+- **Done when:** each screen's user-facing literals are `Strings.Get` keys with entries in the table, `ResourceStringsTests` passes, and English reads the same.
+- **Touches:** the screen's file under `src/Fanficly.App/Views/`, `Strings/en-US/Resources.resw`.
+- **Apple counterpart:** RM-024 (after RM-017).
 
 ### RM-110 — Move the Windows app onto `main` (one branch, a folder per platform)
 - **Status:** done · maintainer only · **Size:** M · **Validation:** windows
@@ -239,4 +247,4 @@ Not features, but worth doing. Add them as items when started.
 - Release housekeeping is done by the maintainer through `MICROSOFT_STORE.md`, never by a roadmap PR. That covers:
   - the version in `windows/store/version.txt`;
   - Store listing text and screenshots in `windows/store/`;
-  - the README screenshots in `docs/screenshots/windows/` and the Store pictures, which the manual **Windows screenshots** workflow (`.github/workflows/windows-screenshots.yml`) captures and commits.
+  - the README screenshots in `windows/docs/screenshots/` and the Store pictures, which the manual **Windows screenshots** workflow (`.github/workflows/windows-screenshots.yml`) captures and commits.

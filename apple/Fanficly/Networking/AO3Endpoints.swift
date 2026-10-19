@@ -53,6 +53,23 @@ enum AO3Endpoints {
         return url
     }
 
+    /// The user's Marked for Later list: AO3's readings page filtered to
+    /// works marked "to read".
+    static func userMarkedForLater(name: String, page: Int = 1, base: URL) throws -> URL {
+        try userReadings(name: name, page: page, markedForLater: true, base: base)
+    }
+
+    private static func userReadings(name: String, page: Int, markedForLater: Bool, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/users/\(name)/readings"),
+                                       resolvingAgainstBaseURL: false)
+        var items: [URLQueryItem] = []
+        if markedForLater { items.append(URLQueryItem(name: "show", value: "to-read")) }
+        if page > 1 { items.append(URLQueryItem(name: "page", value: String(page))) }
+        if !items.isEmpty { components?.queryItems = items }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad readings URL") }
+        return url
+    }
+
     static func userSubscriptions(name: String, page: Int = 1, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/users/\(name)/subscriptions"),
                                        resolvingAgainstBaseURL: false)
@@ -65,12 +82,11 @@ enum AO3Endpoints {
         base.appending(path: "/users/login")
     }
 
-    static func workComments(id: Int, base: URL) throws -> URL {
+    /// `page` is the comment page (AO3 shows a chapter's threads a page at a
+    /// time); page 1 sends no `page=`.
+    static func workComments(id: Int, page: Int = 1, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "view_adult", value: "true"),
-            URLQueryItem(name: "show_comments", value: "true"),
-        ]
+        components?.queryItems = commentsQuery(page: page)
         components?.fragment = "comments"
         guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad comments URL") }
         return url
@@ -79,16 +95,22 @@ enum AO3Endpoints {
     /// A single chapter's page with its comment thread shown — AO3 threads
     /// comments per chapter, so this is what we read/post against when the
     /// reader knows which chapter id it's on.
-    static func chapterComments(workId: Int, chapterId: Int, base: URL) throws -> URL {
+    static func chapterComments(workId: Int, chapterId: Int, page: Int = 1, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/works/\(workId)/chapters/\(chapterId)"),
                                        resolvingAgainstBaseURL: false)
-        components?.queryItems = [
-            URLQueryItem(name: "view_adult", value: "true"),
-            URLQueryItem(name: "show_comments", value: "true"),
-        ]
+        components?.queryItems = commentsQuery(page: page)
         components?.fragment = "comments"
         guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad chapter comments URL") }
         return url
+    }
+
+    private static func commentsQuery(page: Int) -> [URLQueryItem] {
+        var items = [
+            URLQueryItem(name: "view_adult", value: "true"),
+            URLQueryItem(name: "show_comments", value: "true"),
+        ]
+        if page > 1 { items.append(URLQueryItem(name: "page", value: String(page))) }
+        return items
     }
 
     static func workSubscriptions(id: Int, base: URL) throws -> URL {

@@ -35,6 +35,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
+    func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
     func fetchWork(id: Int) async throws -> AO3WorkPayload {
         AO3WorkPayload(summary: .stub(id: id, title: "x"), chapters: [])
     }
@@ -42,7 +45,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
-    func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
+    func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
+        AO3CommentsPage(comments: [], currentPage: page)
+    }
     func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     func fetchPopularSnapshot() async throws -> PopularSnapshot {

@@ -16,7 +16,7 @@ Writes:
   windows/store/images/en-us/PromotionalArt16x9.png  3840x2160 hero image
   windows/store/images/en-us/StoreLogoSquare.png     2160x2160 box art
   windows/store/images/en-us/StoreLogo9x16.png       1440x2160 poster art
-  docs/screenshots/windows/showcase.jpg        README strip of the first three
+  windows/docs/screenshots/showcase.jpg        README strip of the first three
 windows/scripts/store/Publish-StoreScreenshots.ps1 uploads the first two folders.
 
 Run (Python 3 with Pillow, and Google Chrome or Chromium):
@@ -46,7 +46,7 @@ ART = WINDOWS / "store-art"
 ICON = REPO / "apple" / "Fanficly" / "Assets.xcassets" / "AppIcon.appiconset" / "icon-1024.png"
 SHOTS_OUT = WINDOWS / "store" / "screenshots" / "en-us"
 IMAGES_OUT = WINDOWS / "store" / "images" / "en-us"
-SHOWCASE = REPO / "docs" / "screenshots" / "windows" / "showcase.jpg"
+SHOWCASE = WINDOWS / "docs" / "screenshots" / "showcase.jpg"
 
 SIZE = (3840, 2160)
 PAD = 200  # extra window size, cropped off (see render)

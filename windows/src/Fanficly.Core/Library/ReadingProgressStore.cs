@@ -525,6 +525,105 @@ public static class ReadingStatsBackfill
     }
 }
 
+/// <summary>Reading-time estimates ("~45 min") from the reader's own pace
+/// (Swift <c>ReadingSpeed</c>, RM-003). Computed from <see cref="ReadingStat"/>
+/// on the fly, so nothing new is persisted.</summary>
+public static class ReadingSpeed
+{
+    /// <summary>The pace used until there's enough of the reader's own reading.</summary>
+    public const double DefaultWordsPerMinute = 250;
+    /// <summary>Personal paces outside 120–600 are almost always a reader left
+    /// open or skimmed, so they're clamped rather than trusted.</summary>
+    public const double MinWordsPerMinute = 120, MaxWordsPerMinute = 600;
+    /// <summary>Finished works with recorded time needed before the personal pace is used.</summary>
+    public const int MinimumFinishedWorks = 3;
+
+    /// <summary>Personal words per minute: the median of each finished work's own
+    /// pace (words read over active minutes, clamped to 120–600), counting only
+    /// works with recorded time (backfilled reads have none). Per work, so one
+    /// long work skimmed to the end or a re-read can't swing every estimate.
+    /// <see cref="DefaultWordsPerMinute"/> until there are
+    /// <see cref="MinimumFinishedWorks"/> such works.</summary>
+    public static double WordsPerMinute(IEnumerable<ReadingStatSnapshot> snapshots)
+    {
+        var paces = snapshots
+            .Where(s => s.IsFinished && s.TotalSeconds > 0 && s.WordsRead > 0)
+            .Select(s => Math.Clamp(s.WordsRead / (s.TotalSeconds / 60), MinWordsPerMinute, MaxWordsPerMinute))
+            .Order()
+            .ToList();
+        if (paces.Count < MinimumFinishedWorks) return DefaultWordsPerMinute;
+        var mid = paces.Count / 2;
+        return paces.Count % 2 == 0 ? (paces[mid - 1] + paces[mid]) / 2 : paces[mid];
+    }
+
+    private sealed record CachedPace(LibraryStore Store, int Version, double Pace);
+    private static readonly object s_gate = new();
+    private static LibraryStore? s_watched;
+    private static int s_version;
+    private static CachedPace? s_cached;
+
+    /// <summary>The pace from every stat in the library, cached until the
+    /// library next saves a <see cref="ReadingStat"/> (Swift sets it once near
+    /// the root), so result rows don't each copy every stat.</summary>
+    public static double WordsPerMinute(LibraryStore store)
+    {
+        lock (s_gate)
+        {
+            if (!ReferenceEquals(store, s_watched))
+            {
+                if (s_watched is not null) s_watched.Changed -= Invalidate;
+                s_watched = store;
+                store.Changed += Invalidate;
+                Interlocked.Increment(ref s_version);
+            }
+        }
+        var version = Volatile.Read(ref s_version);
+        if (s_cached is { } cached && cached.Version == version && ReferenceEquals(cached.Store, store)) return cached.Pace;
+        var pace = WordsPerMinute(store.All<ReadingStat>().Select(s => s.Snapshot));
+        s_cached = new CachedPace(store, version, pace);
+        return pace;
+    }
+
+    // Raised on the saving thread, possibly under the store's lock, so it only
+    // bumps the version and never takes s_gate.
+    private static void Invalidate(LibraryEntityKinds kinds)
+    {
+        if ((kinds & LibraryEntityKinds.ReadingStats) != 0) Interlocked.Increment(ref s_version);
+    }
+
+    /// <summary>Whole minutes to read <paramref name="words"/> (rounded), null for no words.</summary>
+    public static int? Minutes(int words, double wordsPerMinute)
+    {
+        if (words <= 0) return null;
+        var pace = wordsPerMinute > 0 ? wordsPerMinute : DefaultWordsPerMinute;
+        return (int)Math.Round(words / pace, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>"&lt;1 min", "~45 min", "~2 hr 5 min", or "~12 hr" (past ten
+    /// hours the minutes are noise). Null when there's no word count.</summary>
+    public static string? Estimate(int words, double wordsPerMinute = DefaultWordsPerMinute)
+    {
+        if (Minutes(words, wordsPerMinute) is not { } total) return null;
+        if (total < 1) return "<1 min";
+        if (total < 60) return $"~{total} min";
+        int hours = total / 60, rest = total % 60;
+        return rest == 0 || hours >= 10 ? $"~{hours} hr" : $"~{hours} hr {rest} min";
+    }
+
+    /// <summary>The Narrator form of <see cref="Estimate"/>: "About 2 hours 5 minutes to read".</summary>
+    public static string? SpokenEstimate(int words, double wordsPerMinute = DefaultWordsPerMinute)
+    {
+        if (Minutes(words, wordsPerMinute) is not { } total) return null;
+        if (total < 1) return "Under a minute to read";
+        static string Unit(int n, string name) => $"{n} {name}{(n == 1 ? "" : "s")}";
+        if (total < 60) return $"About {Unit(total, "minute")} to read";
+        int hours = total / 60, rest = total % 60;
+        return rest == 0 || hours >= 10
+            ? $"About {Unit(hours, "hour")} to read"
+            : $"About {Unit(hours, "hour")} {Unit(rest, "minute")} to read";
+    }
+}
+
 /// <summary>The Stats screen's number formats (Swift <c>StatsView.formatDuration</c>
 /// / <c>formatWords</c>).</summary>
 public static class StatsFormat

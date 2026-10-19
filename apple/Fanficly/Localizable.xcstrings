@@ -1,0 +1,436 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "About" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About"
+          }
+        }
+      }
+    },
+    "Account" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Account"
+          }
+        }
+      }
+    },
+    "AO3 Login" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AO3 Login"
+          }
+        }
+      }
+    },
+    "Clear iCloud Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear iCloud Data"
+          }
+        }
+      }
+    },
+    "Content & Safety" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content & Safety"
+          }
+        }
+      }
+    },
+    "Content policy" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content policy"
+          }
+        }
+      }
+    },
+    "Could not restore backup from iCloud. Please make sure you are logged into iCloud and try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not restore backup from iCloud. Please make sure you are logged into iCloud and try again."
+          }
+        }
+      }
+    },
+    "Delete the app. iOS will erase all on-device storage including the session cookie. There's no server to wipe — there's no server." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the app. iOS will erase all on-device storage including the session cookie. There's no server to wipe — there's no server."
+          }
+        }
+      }
+    },
+    "Fanficly has no servers. Everything happens on your phone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fanficly has no servers. Everything happens on your phone."
+          }
+        }
+      }
+    },
+    "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results."
+          }
+        }
+      }
+    },
+    "Filter mature & explicit works" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter mature & explicit works"
+          }
+        }
+      }
+    },
+    "Hidden works" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hidden works"
+          }
+        }
+      }
+    },
+    "How to delete everything" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How to delete everything"
+          }
+        }
+      }
+    },
+    "iCloud Sync" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud Sync"
+          }
+        }
+      }
+    },
+    "Last synced" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last synced"
+          }
+        }
+      }
+    },
+    "Library" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library"
+          }
+        }
+      }
+    },
+    "Library Restored" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Restored"
+          }
+        }
+      }
+    },
+    "Never" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Never"
+          }
+        }
+      }
+    },
+    "Nothing. No analytics, no crash reports, no device IDs, no telemetry." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing. No analytics, no crash reports, no device IDs, no telemetry."
+          }
+        }
+      }
+    },
+    "OK" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        }
+      }
+    },
+    "Privacy" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privacy"
+          }
+        }
+      }
+    },
+    "Rate Fanficly on the App Store" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rate Fanficly on the App Store"
+          }
+        }
+      }
+    },
+    "Reader" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reader"
+          }
+        }
+      }
+    },
+    "Requests to archiveofourown.org so you can read, search, and log in. We never send your data anywhere else." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Requests to archiveofourown.org so you can read, search, and log in. We never send your data anywhere else."
+          }
+        }
+      }
+    },
+    "Restore Failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore Failed"
+          }
+        }
+      }
+    },
+    "Restore from iCloud" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore from iCloud"
+          }
+        }
+      }
+    },
+    "Restore Library from iCloud" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore Library from iCloud"
+          }
+        }
+      }
+    },
+    "Restoring..." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restoring..."
+          }
+        }
+      }
+    },
+    "Send feedback" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send feedback"
+          }
+        }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        }
+      }
+    },
+    "Show reading progress" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show reading progress"
+          }
+        }
+      }
+    },
+    "Shows a progress bar and percentage on works you've started. Your reading position is always saved — this only hides the display." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows a progress bar and percentage on works you've started. Your reading position is always saved — this only hides the display."
+          }
+        }
+      }
+    },
+    "Source on GitHub" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source on GitHub"
+          }
+        }
+      }
+    },
+    "Sync Library to iCloud" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync Library to iCloud"
+          }
+        }
+      }
+    },
+    "Sync Now" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync Now"
+          }
+        }
+      }
+    },
+    "Theme & typography" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Theme & typography"
+          }
+        }
+      }
+    },
+    "Version" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version"
+          }
+        }
+      }
+    },
+    "What goes off your phone" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What goes off your phone"
+          }
+        }
+      }
+    },
+    "What this app sees and stores" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What this app sees and stores"
+          }
+        }
+      }
+    },
+    "What we collect" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What we collect"
+          }
+        }
+      }
+    },
+    "What's stored on your phone" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What's stored on your phone"
+          }
+        }
+      }
+    },
+    "Your library and settings have been successfully restored from iCloud." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your library and settings have been successfully restored from iCloud."
+          }
+        }
+      }
+    },
+    "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

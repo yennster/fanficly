@@ -33,10 +33,13 @@ final class SpeechController: NSObject {
     private(set) var spokenPosition = 0
     /// Label for the loaded chapter (shown in the mini-player / lock screen).
     private(set) var chapterLabel = ""
-    /// Bumped when a chapter finishes so the reader can advance to the next
-    /// one. A published signal (rather than a stored completion closure) avoids
-    /// the retain cycle a closure capturing the reading view would create.
-    private(set) var finishedTick = 0
+    /// Called when a chapter finishes so the reader can advance to the next
+    /// one (or `stop()`). A direct call rather than an observed signal: SwiftUI
+    /// doesn't run a backgrounded view's `onChange`, so with the app minimized
+    /// or the phone locked an observed tick left narration stuck at the end of
+    /// the chapter. The closure captures the reading view, so `stop()` (which
+    /// the reader calls whenever it closes) drops it to break that cycle.
+    @ObservationIgnored var onChapterFinished: (@MainActor () -> Void)?
 
     static let rateKey = "reader.ttsRate"
     static let voiceKey = "reader.ttsVoiceId"
@@ -73,6 +76,13 @@ final class SpeechController: NSObject {
     private var workTitle = ""
     private var author = ""
     private var commandTargets: [(MPRemoteCommand, Any)] = []
+    /// Held while a chapter is loaded so macOS's App Nap doesn't throttle the
+    /// app once its window is minimized or hidden: the synthesizer's callbacks
+    /// (paragraph tracking, the next chapter) would otherwise stall.
+    private var narrationActivity: NSObjectProtocol?
+    /// An interruption paused narration that was playing; only then does its
+    /// end resume it (narration you paused yourself stays paused).
+    private var pausedByInterruption = false
 
     override init() {
         super.init()
@@ -89,6 +99,12 @@ final class SpeechController: NSObject {
             self,
             selector: #selector(handleUserDefaultsChange),
             name: UserDefaults.didChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
             object: nil
         )
     }
@@ -136,6 +152,11 @@ final class SpeechController: NSObject {
         self.chapterLabel = chapterLabel
         isActive = true
         activateSession()
+        if narrationActivity == nil {
+            narrationActivity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Reading a chapter aloud")
+        }
         wireRemoteCommands()
         enqueue(from: max(0, paragraph))
     }
@@ -154,6 +175,9 @@ final class SpeechController: NSObject {
 
     func resume() {
         guard isActive else { return }
+        // An interruption (a call, Siri, an alarm) deactivates the session;
+        // speaking from the background needs it active again.
+        activateSession()
         if synthesizer.isPaused {
             synthesizer.continueSpeaking()
         } else if !synthesizer.isSpeaking {
@@ -191,6 +215,12 @@ final class SpeechController: NSObject {
         spokenCount = 0
         spokenPosition = 0
         chapterLabel = ""
+        onChapterFinished = nil
+        pausedByInterruption = false
+        if let narrationActivity {
+            ProcessInfo.processInfo.endActivity(narrationActivity)
+            self.narrationActivity = nil
+        }
         unwireRemoteCommands()
         clearNowPlaying()
         deactivateSession()
@@ -224,7 +254,7 @@ final class SpeechController: NSObject {
     private func finishChapter() {
         synthesizer.stopSpeaking(at: .immediate)
         isPlaying = false
-        finishedTick &+= 1  // reader decides whether to advance or stop()
+        onChapterFinished?()  // reader decides whether to advance or stop()
     }
 
     // MARK: - Audio session
@@ -237,6 +267,35 @@ final class SpeechController: NSObject {
 
     private func deactivateSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// A phone call, Siri or another app's audio took over: the system pauses
+    /// the synthesizer, so show it paused, and pick up again afterwards when
+    /// the system says to (it does after a call, even with the app in the
+    /// background or the screen locked). Posted off the main thread, so only
+    /// the raw values cross to the main actor.
+    @objc nonisolated private func handleAudioInterruption(_ note: Notification) {
+        guard let rawType = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+        let rawOptions = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+        let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume)
+        Task { @MainActor in
+            guard isActive else { return }
+            switch type {
+            case .began:
+                if isPlaying {
+                    synthesizer.pauseSpeaking(at: .word)
+                    isPlaying = false
+                    pausedByInterruption = true
+                    updateNowPlaying()
+                }
+            case .ended:
+                if pausedByInterruption && shouldResume { resume() }
+                pausedByInterruption = false
+            @unknown default:
+                break
+            }
+        }
     }
 
     // MARK: - Lock-screen / Control Center
