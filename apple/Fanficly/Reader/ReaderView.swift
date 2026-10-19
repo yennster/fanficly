@@ -419,8 +419,11 @@ struct ReaderView: View {
                 .accessibilityHint("Hides the toolbar. To bring it back, use the Show Reader Controls action on the story text.")
             }
         }
-        // When a chapter finishes narrating, roll on to the next (or stop).
-        .onChange(of: speech.finishedTick) { _, _ in advanceNarration() }
+        // Chapters can arrive after narration started; the chapter-end
+        // handler should see them (see narrate(chapter:from:)).
+        .onChange(of: chapters.count) { _, _ in
+            if speech.isActive { speech.onChapterFinished = { advanceNarration() } }
+        }
         // Keep a parent informed of the chapter being read (for its Comments
         // action). A ViewModifier so its onChange/onAppear are type-checked
         // outside this already-long chain (which otherwise times out).
@@ -522,6 +525,9 @@ struct ReaderView: View {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
         listeningChapter = index
+        // When the chapter finishes, roll on to the next (or stop). Called by
+        // the controller directly so it works with the app in the background.
+        speech.onChapterFinished = { advanceNarration() }
         speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
                     workTitle: title, author: author, chapterLabel: label, from: paragraph)
     }
@@ -1997,7 +2003,7 @@ struct ReaderView: View {
                 }
             }
         } label: {
-            Image(systemName: "list.bullet")
+            Label("Chapters", systemImage: "list.bullet")
         }
         .accessibilityLabel("Chapters")
     }
@@ -2109,7 +2115,7 @@ struct ReaderView: View {
                 ], icon: "arrow.left.and.right.square")
             }
         } label: {
-            Image(systemName: "textformat")
+            Label("Reader settings", systemImage: "textformat")
         }
         .accessibilityLabel("Reader settings")
         .accessibilityIdentifier("reader_settings_button")

@@ -33,20 +33,33 @@ public static class AO3Endpoints
     public static Uri UserBookmarks(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/bookmarks", PageItems(page));
 
+    /// <summary>The user's Marked for Later list: AO3's readings page filtered to
+    /// works marked "to read".</summary>
+    public static Uri UserMarkedForLater(string name, int page, Uri baseUri) =>
+        Build(baseUri, $"/users/{EscapePathSegment(name)}/readings", [new("show", "to-read"), .. PageItems(page)]);
+
+    /// <summary>The user's AO3 reading history: the unfiltered readings page.</summary>
+    public static Uri UserReadingHistory(string name, int page, Uri baseUri) =>
+        Build(baseUri, $"/users/{EscapePathSegment(name)}/readings", PageItems(page));
+
     public static Uri UserSubscriptions(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/subscriptions", PageItems(page));
 
     public static Uri Login(Uri baseUri) => Build(baseUri, "/users/login");
 
-    public static Uri WorkComments(int id, Uri baseUri) =>
-        Build(baseUri, $"/works/{id}", [new("view_adult", "true"), new("show_comments", "true")], "comments");
+    /// <summary>A one-shot's (or first chapter's) comment thread. <paramref name="page"/>
+    /// is the comment page; page 1 sends no <c>page=</c>.</summary>
+    public static Uri WorkComments(int id, Uri baseUri, int page = 1) =>
+        Build(baseUri, $"/works/{id}", CommentsQuery(page), "comments");
 
     /// <summary>A single chapter's page with its comment thread shown — AO3 threads
     /// comments per chapter, so this is what we read/post against when the reader
     /// knows which chapter id it's on.</summary>
-    public static Uri ChapterComments(int workId, int chapterId, Uri baseUri) =>
-        Build(baseUri, $"/works/{workId}/chapters/{chapterId}",
-            [new("view_adult", "true"), new("show_comments", "true")], "comments");
+    public static Uri ChapterComments(int workId, int chapterId, Uri baseUri, int page = 1) =>
+        Build(baseUri, $"/works/{workId}/chapters/{chapterId}", CommentsQuery(page), "comments");
+
+    private static IReadOnlyList<KeyValuePair<string, string>> CommentsQuery(int page) =>
+        [new("view_adult", "true"), new("show_comments", "true"), .. PageItems(page)];
 
     public static Uri WorkSubscriptions(int id, Uri baseUri) => Build(baseUri, $"/works/{id}/subscriptions");
 

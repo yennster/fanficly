@@ -85,16 +85,17 @@ struct SavedWorkReader: View {
                     if isResolvingComments {
                         ProgressView()
                     } else {
-                        Image(systemName: "bubble.left.and.bubble.right")
+                        Label("Comments", systemImage: "bubble.left.and.bubble.right")
                     }
                 }
                 .disabled(isResolvingComments)
                 .accessibilityLabel("Comments")
 
-                // Share + Save-offline live in one "…" menu so this plus the
+                // Share + Save-offline live in one More menu so this plus the
                 // reader's own items (chapters, Aa, minimize) stay within the
                 // ~5 trailing icons the iPhone nav bar fits before it spills
-                // into its own overflow (a confusing second ellipsis).
+                // into its own overflow. Not an ellipsis symbol: Apple keeps
+                // that for the system overflow (iPhone Duo's vertical strip).
                 Menu {
                     WorkExportButton(workId: work.ao3Id, title: work.title,
                                      exporter: exporter, useTextLabel: true)
@@ -109,7 +110,7 @@ struct SavedWorkReader: View {
                     if isSavingOffline || exporter.isExporting {
                         ProgressView()
                     } else {
-                        Image(systemName: "ellipsis.circle")
+                        Label("More", systemImage: "book.circle")
                     }
                 }
                 .accessibilityLabel("More")

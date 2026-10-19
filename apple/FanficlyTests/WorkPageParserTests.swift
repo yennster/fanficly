@@ -170,6 +170,49 @@ final class WorkPageParserTests: XCTestCase {
         let payload = try WorkPageParser.parse(html: html, workId: 12345)
         XCTAssertNil(payload.chapters[0].aoId)
     }
+
+    // MARK: - Failing closed (RM-001)
+
+    /// A real work page whose only chapter has no text still parses: the guest
+    /// header's login form doesn't make it the login page.
+    func test_guestWorkPageWithEmptyChapter_parses() throws {
+        let html = AO3PageFixtures.guestPage(mainClass: "works-show", body: """
+        <div class="wrapper"><dl class="work meta group">
+          <dt class="rating tags">Rating:</dt><dd class="rating tags"><ul class="commas"><li><a class="tag" href="/tags/General%20Audiences/works">General Audiences</a></li></ul></dd>
+        </dl></div>
+        <div id="workskin">
+          <div class="preface group"><h2 class="title heading">Blank Page</h2></div>
+          <div id="chapters" role="article"><div class="userstuff"></div></div>
+        </div>
+        """)
+        let payload = try WorkPageParser.parse(html: html, workId: 7)
+        XCTAssertEqual(payload.summary.title, "Blank Page")
+        XCTAssertEqual(payload.summary.rating, "General Audiences")
+    }
+
+    func test_restrictedWorkLoginPage_throwsUnauthorized() {
+        XCTAssertThrowsError(try WorkPageParser.parse(html: AO3PageFixtures.loginPage, workId: 7)) { error in
+            XCTAssertEqual(error as? AO3Error, .unauthorized)
+        }
+    }
+
+    /// Anything without the work's markup (an error page, the adult gate, a
+    /// foreign page) would otherwise parse to an untitled work with no
+    /// chapters and overwrite a saved copy.
+    func test_garbagePage_throwsParseFailed() {
+        let adultGate = AO3PageFixtures.guestPage(mainClass: "works-show", body: """
+        <p class="caution notice">This work could have adult content. If you continue, you have agreed that you are willing to see such content.</p>
+        <ul class="actions"><li><a href="/works/7?view_adult=true">Yes, Continue</a></li></ul>
+        """)
+        for html in [AO3PageFixtures.errorPage, AO3PageFixtures.foreignPage, adultGate] {
+            XCTAssertThrowsError(try WorkPageParser.parse(html: html, workId: 7)) { error in
+                guard case AO3Error.parseFailed = error else {
+                    return XCTFail("Expected parseFailed, got \(error)")
+                }
+            }
+        }
+    }
+
 }
 
 final class CommentsParserTests: XCTestCase {
@@ -274,6 +317,75 @@ final class CommentsParserTests: XCTestCase {
         XCTAssertEqual(comments[0].commenterName, "zed")
         XCTAssertEqual(comments[0].depth, 0)
         XCTAssertTrue(comments[0].bodyHTML.contains("Great chapter"))
+    }
+
+    /// AO3's comment pagination (will_paginate's list renderer): an
+    /// `ol.pagination.actions` above and below the thread in
+    /// `#comments_placeholder`, the current page as `<span class="current">`.
+    private func pagedHTML(current: Int, total: Int) -> String {
+        let pages = (1...total).map { n in
+            n == current
+                ? "<li><span class=\"current\">\(n)</span></li>"
+                : "<li><a href=\"/works/1/chapters/2?page=\(n)&amp;show_comments=true#comments\">\(n)</a></li>"
+        }.joined()
+        let nav = """
+        <h4 class="landmark heading">Pages Navigation</h4>
+        <ol class="pagination actions" role="navigation" title="pagination">
+          <li class="previous" title="previous"><span class="disabled">← Previous</span></li>
+          \(pages)
+          <li class="next" title="next"><a rel="next" href="/works/1/chapters/2?page=2&amp;show_comments=true#comments">Next →</a></li>
+        </ol>
+        """
+        return """
+        <html><body>
+        <div id="comments" class="comments"></div>
+        <div id="comments_placeholder">
+          \(nav)
+          <ol class="thread">
+            <li class="odd comment group" id="comment_\(current)00" role="article">
+              <h4 class="heading byline"><a href="/users/zed/pseuds/zed">zed</a></h4>
+              <blockquote class="userstuff"><p>Page \(current).</p></blockquote>
+            </li>
+          </ol>
+          \(nav)
+        </div>
+        </body></html>
+        """
+    }
+
+    func test_parsePage_readsCommentPagination() throws {
+        let page = try CommentsParser.parsePage(html: pagedHTML(current: 2, total: 4))
+        XCTAssertEqual(page.currentPage, 2)
+        XCTAssertEqual(page.totalPages, 4)
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.comments.map(\.id), ["200"])
+
+        let last = try CommentsParser.parsePage(html: pagedHTML(current: 4, total: 4))
+        XCTAssertEqual(last.currentPage, 4)
+        XCTAssertFalse(last.hasMore)
+    }
+
+    func test_parsePage_singlePageHasNoMore() throws {
+        // A one-shot (or a short thread) has no pagination list at all.
+        let page = try CommentsParser.parsePage(html: html)
+        XCTAssertEqual(page.comments.count, 3)
+        XCTAssertEqual(page.currentPage, 1)
+        XCTAssertEqual(page.totalPages, 1)
+        XCTAssertFalse(page.hasMore)
+    }
+
+    func test_parsePage_ignoresPaginationOutsideTheThread() throws {
+        let html = """
+        <html><body>
+        <ol class="pagination actions"><li><span class="current">1</span></li><li><a href="#">9</a></li></ol>
+        <div id="comments_placeholder"><ol class="thread">
+          <li class="comment group" id="comment_1"><blockquote class="userstuff"><p>Hi</p></blockquote></li>
+        </ol></div>
+        </body></html>
+        """
+        let page = try CommentsParser.parsePage(html: html)
+        XCTAssertEqual(page.totalPages, 1)
+        XCTAssertFalse(page.hasMore)
     }
 
     func test_defaultPseudId() {

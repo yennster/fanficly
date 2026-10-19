@@ -58,8 +58,8 @@ public static class WorkPersistence
         work.UpdatedAt = summary.UpdatedAt;
 
         if (save) store.TrySave();
-        if (work.IsFollowed) IndexWork(work);
-        else DeindexWork(work.Ao3Id);
+        // Every library work is searchable, followed or not (Swift: RM-016).
+        IndexWork(work);
         return work;
     }
 
@@ -79,7 +79,6 @@ public static class WorkPersistence
         {
             work.FollowedAt = DateTimeOffset.Now;
             work.LastSeenChapterCount = summary.ChapterCount;
-            IndexWork(work);
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is the
             // moment to ask for permission, not the login-gated Subscriptions tab.
@@ -88,7 +87,6 @@ public static class WorkPersistence
         else
         {
             work.FollowedAt = null;
-            DeindexWork(work.Ao3Id);
         }
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);
@@ -100,7 +98,6 @@ public static class WorkPersistence
     {
         work.IsFollowed = false;
         work.FollowedAt = null;
-        DeindexWork(work.Ao3Id);
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);
     }
@@ -131,6 +128,7 @@ public static class WorkPersistence
             try { File.Delete(path); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
+        DeindexWork(work.Ao3Id);
         store.Delete(work);
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);

@@ -559,6 +559,32 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchCommentsRequestsTheChapterPageAndReadsItsPagination()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="comments_placeholder">
+              <ol class="pagination actions" role="navigation" title="pagination">
+                <li class="previous" title="previous"><a rel="prev" href="/works/12/chapters/34?page=1&amp;show_comments=true#comments">← Previous</a></li>
+                <li><a href="/works/12/chapters/34?page=1&amp;show_comments=true#comments">1</a></li>
+                <li><span class="current">2</span></li>
+                <li><a href="/works/12/chapters/34?page=3&amp;show_comments=true#comments">3</a></li>
+                <li class="next" title="next"><a rel="next" href="/works/12/chapters/34?page=3&amp;show_comments=true#comments">Next →</a></li>
+              </ol>
+              <ol class="thread"><li class="comment group" id="comment_5"><blockquote class="userstuff"><p>Hi</p></blockquote></li></ol>
+            </div></body></html>
+            """));
+
+        var page = await MakeClient().FetchCommentsAsync(12, 34, 2);
+
+        Assert.Equal("https://archiveofourown.org/works/12/chapters/34?view_adult=true&show_comments=true&page=2#comments",
+            Assert.Single(_handler.Requests).Uri.AbsoluteUri);
+        Assert.Equal("5", Assert.Single(page.Comments).Id);
+        Assert.Equal(2, page.CurrentPage);
+        Assert.Equal(3, page.TotalPages);
+        Assert.True(page.HasMore);
+    }
+
+    [Fact]
     public async Task PostCommentReplaysThePagesOwnForm()
     {
         _handler.Respond(
@@ -744,6 +770,46 @@ public sealed class AO3ClientTests : IDisposable
             <ol class="bookmark index group"></ol></body></html>
             """));
         var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchBookmarksAsync("reader", 1));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task MarkedForLaterReadsTheReadingsPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="main" class="readings-index dashboard region">
+            <ol class="reading work index group">
+              <li id="work_4242" class="reading work blurb group"><div class="header module">
+                <h4 class="heading"><a href="/works/4242">Saved</a></h4></div></li>
+            </ol></div></body></html>
+            """));
+        var result = await MakeClient().FetchMarkedForLaterAsync("reader", 2);
+        Assert.Equal([4242], result.Works.Select(w => w.Id));
+        Assert.Equal("https://archiveofourown.org/users/reader/readings?show=to-read&page=2", _handler.Requests[0].Uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task ReadingHistoryReadsTheUnfilteredReadingsPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="main" class="readings-index dashboard region">
+            <ol class="reading work index group">
+              <li id="work_11" class="reading work blurb group"><div class="header module">
+                <h4 class="heading"><a href="/works/11">Visited</a></h4></div></li>
+            </ol></div></body></html>
+            """));
+        var result = await MakeClient().FetchReadingHistoryAsync("reader", 1);
+        Assert.Equal([11], result.Works.Select(w => w.Id));
+        Assert.Equal("https://archiveofourown.org/users/reader/readings", _handler.Requests[0].Uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task MarkedForLaterSignedOutAsksForASignIn()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="login"><form id="new_user" action="/users/login"></form></div></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchMarkedForLaterAsync("reader", 1));
         Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
     }
 
