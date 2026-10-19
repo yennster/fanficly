@@ -28,7 +28,7 @@ Every app has the same core features. Open a platform for its screenshots, extra
 | :---: | :---: | :---: | :---: |
 | <img src="apple/docs/screenshots/iphone/02-search-results.png" width="180" alt="Search results on iPhone"> | <img src="apple/docs/screenshots/iphone/03-reader.png" width="180" alt="A story in the reader on iPhone"> | <img src="apple/docs/screenshots/iphone/04-library.png" width="180" alt="The Library on iPhone"> | <img src="apple/docs/screenshots/iphone/05-browse.png" width="180" alt="Browse by fandom on iPhone"> |
 
-Home-screen widgets, the Safari share sheet, and lock-screen controls while a story is read aloud.
+Home-screen and lock-screen widgets, the Safari share sheet, and lock-screen controls while a story is read aloud.
 
 **Docs:** [the Apple app guide](apple/README.md) · [all iPhone screenshots](apple/docs/screenshots/iphone/)
 

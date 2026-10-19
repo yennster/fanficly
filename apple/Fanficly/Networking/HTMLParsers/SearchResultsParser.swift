@@ -8,7 +8,13 @@ enum SearchResultsParser {
     /// that instead and reuses everything else.
     static func parse(html: String, blurbSelector: String = "li.work.blurb") throws -> AO3SearchResults {
         let doc = try SwiftSoup.parse(html)
+        try AO3PageCheck.rejectLoginPage(doc)
         let blurbs = try doc.select(blurbSelector)
+        // No blurbs only means "no results" on a real listing; a stray error
+        // page or markup drift must not read as an empty search.
+        if blurbs.isEmpty(), try !isListingPage(doc) {
+            throw AO3Error.parseFailed(reason: "Not a works listing")
+        }
         let works = try blurbs.compactMap(parseBlurb)
 
         let pagination = try doc.select("ol.pagination li")
@@ -29,6 +35,22 @@ enum SearchResultsParser {
 
         return AO3SearchResults(works: works, totalPages: totalPages, currentPage: currentPage,
                                 totalFound: try totalFound(in: doc))
+    }
+
+    /// A works or bookmarks listing, even an empty one: the index `<ol>` that
+    /// author, tag and bookmark pages always render, the Rails controller-action
+    /// class on `#main`, or the "No results found" line search shows instead of
+    /// the list.
+    private static func isListingPage(_ doc: Document) throws -> Bool {
+        if try !doc.select("ol.work.index, ol.bookmark.index").isEmpty() { return true }
+        if AO3PageCheck.mainHasClass(doc, ["works-search", "works-index", "works-collected",
+                                           "bookmarks-search", "bookmarks-index"]) {
+            return true
+        }
+        for p in try doc.select("#main p").array() {
+            if try p.text().contains("No results found") { return true }
+        }
+        return false
     }
 
     /// The `<h3 class="heading">126,555 Found …</h3>` count on search pages.
@@ -175,5 +197,29 @@ enum SearchResultsParser {
 
     private static func isCategory(_ s: String) -> Bool {
         ["F/F", "F/M", "Gen", "M/M", "Multi", "Other"].contains(s)
+    }
+}
+
+/// Fail-closed checks shared by the parsers of pages a guest can open. They
+/// can't reuse `SubscriptionsParser`'s "any login form" test: every page AO3
+/// serves a logged-out reader carries the header's small login form.
+enum AO3PageCheck {
+    /// AO3's login page, where it redirects a stale session or a guest opening
+    /// a restricted work (URLSession follows the redirect, so it arrives as a
+    /// 200). Only the login page has a login form inside `#main`.
+    static func isLoginPage(_ doc: Document) -> Bool {
+        let hits = try? doc.select("div#main.sessions-new, #main #loginform, #main form[action*=/users/login]")
+        return !(hits?.isEmpty() ?? true)
+    }
+
+    static func rejectLoginPage(_ doc: Document) throws {
+        if isLoginPage(doc) { throw AO3Error.unauthorized }
+    }
+
+    /// Whether `div#main` carries one of these classes (AO3 sets it to the
+    /// Rails `controller-action`, e.g. `works-search`).
+    static func mainHasClass(_ doc: Document, _ classes: [String]) -> Bool {
+        guard let main = try? doc.select("div#main").first() else { return false }
+        return classes.contains { main.hasClass($0) }
     }
 }

@@ -72,6 +72,20 @@ public sealed partial class SmokeTests
     }
 
     [Fact]
+    public void AboutReadsItsStringsFromTheResourceTable()
+    {
+        using var s = AppSession.Launch(Laptop);
+        Assert.True(s.OpenTab("settings"));
+        var about = s.ById("settings.about");
+        Assert.NotNull(about);
+        s.Activate(about!);
+        // A missing table or entry would show its key (About_Title) instead.
+        Assert.True(s.WaitForHeader("About"), $"About's header reads \"{s.HeaderTitle}\".");
+        Assert.Equal("Rate Fanficly in the Microsoft Store", s.ById("settings.rate")?.Name);
+        Assert.Equal("Source on GitHub", s.ById("settings.source")?.Name);
+    }
+
+    [Fact]
     public void LaunchArgumentOpensATab()
     {
         using var s = AppSession.Launch(Laptop, "-tab", "popular");
