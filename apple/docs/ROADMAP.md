@@ -65,11 +65,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Reader/WorkHeaderMetadata.swift`, `Search/SearchView.swift`, new helper in `Reader/ReadingProgressStore.swift` (don't add a file).
 
 ### RM-004 — Lock-screen widget for last read
-- **Status:** open · **Size:** S · **Validation:** mac
+- **Status:** done · **Size:** S · **Validation:** mac
 - **Why:** None of the six widgets support the lock screen.
 - **Scope:** Add `accessoryRectangular` and `accessoryCircular` families to `FanficlyWidget` showing title and progress, using the same `WidgetProgressStore` data and resume URL. No new data path.
 - **Done when:** previews exist for both families; the tap target is the existing `fanficly://resume/…` URL; the widget target still builds. State in the PR that it needs a look on a device or simulator.
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`.
+- **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no lock screen, so the accessory families never show there. Windows has no lock-screen family of its own; its small "Continue reading" Widgets-board widget is the nearest equivalent (see `windows/ROADMAP.md`).
 
 ### RM-020 — Make the saved-search widget route work
 - **Status:** open · **Size:** S · **Validation:** unit
