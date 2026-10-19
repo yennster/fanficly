@@ -71,4 +71,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         kudosCalls.append(workId)
         return try kudosResult.get()
     }
+    func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+    func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }

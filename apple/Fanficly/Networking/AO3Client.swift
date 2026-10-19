@@ -31,6 +31,11 @@ public protocol AO3ClientProtocol: Sendable {
     /// Throws `.unauthorized` when the session isn't logged in, so a stale
     /// cookie can't quietly leave a guest kudo instead.
     func leaveKudos(workId: Int) async throws -> KudosOutcome
+    /// The signed-in user's bookmark form for a work, prefilled when they
+    /// already bookmarked it. Throws `.unauthorized` when signed out.
+    func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm
+    /// Creates or updates the bookmark by posting `form` back to AO3.
+    func saveBookmark(_ form: AO3BookmarkForm) async throws
 }
 
 /// What AO3 said to a kudos POST. AO3 allows one kudo per user per work and
@@ -230,6 +235,53 @@ public struct AO3Comment: Sendable, Identifiable, Hashable {
         self.dateText = dateText
         self.bodyHTML = bodyHTML
         self.depth = depth
+    }
+}
+
+/// The bookmark form AO3 renders on a work page for the signed-in user
+/// (`#bookmark_form_placement`). Saving replays it: `action` is
+/// `/works/<id>/bookmarks` for a new bookmark or `/bookmarks/<id>` (with a
+/// hidden `_method=put`) for an existing one, and `hiddenFields` carries the
+/// CSRF token and the pseud, so neither is hardcoded.
+public struct AO3BookmarkForm: Sendable, Equatable {
+    public let action: URL
+    public let hiddenFields: [String: String]
+    /// True when the work is already bookmarked, so saving updates it.
+    public let isExisting: Bool
+    /// Notes may contain AO3's allowed HTML; they're sent back as typed.
+    public var notes: String
+    /// The bookmarker's own tags, comma separated, as AO3's field takes them.
+    public var tags: String
+    /// Collections the bookmark is in, kept as-is (not edited in the app);
+    /// nil when the form had no such field, so nothing is sent for it.
+    public var collections: String?
+    public var isPrivate: Bool
+    public var isRec: Bool
+
+    public init(action: URL, hiddenFields: [String: String], isExisting: Bool,
+                notes: String = "", tags: String = "", collections: String? = nil,
+                isPrivate: Bool = false, isRec: Bool = false) {
+        self.action = action
+        self.hiddenFields = hiddenFields
+        self.isExisting = isExisting
+        self.notes = notes
+        self.tags = tags
+        self.collections = collections
+        self.isPrivate = isPrivate
+        self.isRec = isRec
+    }
+
+    /// The urlencoded fields to POST: the hidden inputs plus the edited
+    /// values, with the checkboxes sent as Rails' `0`/`1`.
+    public var postFields: [String: String] {
+        var fields = hiddenFields
+        fields["bookmark[bookmarker_notes]"] = notes
+        fields["bookmark[tag_string]"] = tags
+        if let collections { fields["bookmark[collection_names]"] = collections }
+        fields["bookmark[private]"] = isPrivate ? "1" : "0"
+        fields["bookmark[rec]"] = isRec ? "1" : "0"
+        fields["commit"] = isExisting ? "Update" : "Create"
+        return fields
     }
 }
 
@@ -774,6 +826,59 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
 
+    public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        await throttle.wait()
+        let pageURL = try AO3Endpoints.workPage(id: workId, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Work page not UTF-8")
+        }
+        guard let form = BookmarkFormParser.parse(html: html, base: baseURL) else {
+            // AO3 only renders the form for a signed-in user; a page without it
+            // that isn't signed out is an error page or changed markup.
+            if (try? LoginParser.hasLoginForm(html: html)) == true || (try? LoginParser.currentUsername(html: html)) == nil {
+                throw AO3Error.unauthorized
+            }
+            throw AO3Error.parseFailed(reason: "bookmark form not found on the work page")
+        }
+        return form
+    }
+
+    public func saveBookmark(_ form: AO3BookmarkForm) async throws {
+        await throttle.wait()
+        var request = URLRequest(url: form.action)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue(form.action.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        if let token = form.hiddenFields["authenticity_token"] {
+            request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        }
+        request.httpBody = encodeForm(form.postFields).data(using: .utf8)
+
+        // AO3 redirects a saved bookmark (new or updated) to `/bookmarks/<id>`.
+        // A rejected one re-renders the form with an `#error` list, an expired
+        // session lands on the login form, and a refused account or pseud is
+        // redirected elsewhere with an error flash. URLSession follows the
+        // redirect, so judge by the final page.
+        let (data, response) = try await performRequest(request)
+        let html = String(data: data, encoding: .utf8) ?? ""
+        if (try? LoginParser.hasLoginForm(html: html)) == true {
+            throw AO3Error.unauthorized
+        }
+        // A failed update re-renders on `/bookmarks/<id>` too, so form errors
+        // come first; a flash on the saved bookmark's page (say, a collection
+        // it couldn't join) doesn't undo the save.
+        let errors = BookmarkFormParser.saveErrors(html: html)
+        if !errors.isEmpty {
+            throw AO3Error.parseFailed(reason: errors.joined(separator: " "))
+        }
+        guard BookmarkFormParser.isBookmarkPage(path: response.url?.path ?? "") else {
+            let flash = BookmarkFormParser.flashErrors(html: html)
+            throw AO3Error.parseFailed(reason: flash.isEmpty ? "AO3 didn't save the bookmark." : flash.joined(separator: " "))
+        }
+    }
+
     private var cookiesLoaded = false
 
     private func ensureCookiesLoaded() {
@@ -946,4 +1051,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
     public func subscribeToWork(workId: Int) async throws {}
     public func leaveKudos(workId: Int) async throws -> KudosOutcome { .left }
+    public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+    public func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }

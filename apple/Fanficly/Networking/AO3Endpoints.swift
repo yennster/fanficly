@@ -20,6 +20,15 @@ enum AO3Endpoints {
         return url
     }
 
+    /// The work's own page without `view_full_work`: enough for the bookmark
+    /// form, without downloading every chapter of a long work.
+    static func workPage(id: Int, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad work URL") }
+        return url
+    }
+
     static func epub(workId: Int, base: URL) throws -> URL {
         base.appending(path: "/downloads/\(workId)/work.epub")
     }

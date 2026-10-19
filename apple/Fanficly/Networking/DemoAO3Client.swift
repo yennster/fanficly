@@ -139,6 +139,13 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
 
     public func subscribeToWork(workId: Int) async throws {}
     public func leaveKudos(workId: Int) async throws -> KudosOutcome { .left }
+
+    public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+
+    public func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }
 
 // MARK: - Curated demo catalog
