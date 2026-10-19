@@ -689,8 +689,15 @@ final class PersistenceTests: XCTestCase {
     /// A backup that merges in another device's records puts them in the
     /// file, not in this library, so it must not stamp the file as applied
     /// here: the next launch sync still has to restore them (#124). Each
-    /// "device" has its own stamp, simulated by swapping the stamp key.
+    /// "device" has its own stamp, simulated by swapping the stamp's value.
+    /// The iPad's file can arrive dated after the phone's last write or, when
+    /// it was written offline or by a device whose clock runs behind, before it.
     func test_backupAfterAnotherDeviceStillRestoresItsRecordsAtLaunch() async throws {
+        try await assertBackupAfterAnotherDeviceStillRestores(padFileOffset: 5)
+        try await assertBackupAfterAnotherDeviceStillRestores(padFileOffset: -60)
+    }
+
+    private func assertBackupAfterAnotherDeviceStillRestores(padFileOffset: TimeInterval) async throws {
         let url = makeTempBackupURL()
         let stampKey = iCloudSyncManager.lastRestoredStampKey
         let defaults = UserDefaults.standard
@@ -716,7 +723,7 @@ final class PersistenceTests: XCTestCase {
         let pad = try makeContext()
         for id in 10...14 { _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: pad) }
         sync.backupToiCloud(context: pad)
-        try FileManager.default.setAttributes([.modificationDate: phoneStamp.addingTimeInterval(5)],
+        try FileManager.default.setAttributes([.modificationDate: phoneStamp.addingTimeInterval(padFileOffset)],
                                               ofItemAtPath: url.path)
 
         // Back on the phone: starring something backs up again, merging the

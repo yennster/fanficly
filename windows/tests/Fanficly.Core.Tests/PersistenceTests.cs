@@ -599,9 +599,13 @@ public sealed class PersistenceTests : IDisposable
 
     /// <summary>A backup that merges in another device's records puts them in
     /// the file, not in this library, so it must not stamp the file as applied
-    /// here: the next launch sync still has to restore them (#124).</summary>
-    [Fact]
-    public async Task BackupAfterAnotherDeviceStillRestoresItsRecordsAtLaunch()
+    /// here: the next launch sync still has to restore them (#124). The iPad's
+    /// file can arrive dated after the PC's last write or, when it was written
+    /// offline or by a device whose clock runs behind, before it.</summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(-60)]
+    public async Task BackupAfterAnotherDeviceStillRestoresItsRecordsAtLaunch(int padFileOffsetSeconds)
     {
         var path = MakeTempBackupPath();
 
@@ -611,12 +615,13 @@ public sealed class PersistenceTests : IDisposable
         var pcSync = MakeSync(path);
         pcSync.Backup(pc);
         Assert.False(pcSync.CloudBackupHasUnappliedChanges);
+        var pcStamp = pcSync.LastBackupDate!.Value;
 
         // The iPad saves five works and backs up later.
         using var pad = MakeContext();
         for (var id = 10; id <= 14; id++) WorkPersistence.Upsert(Payload(id, 1), pad);
         MakeSync(path).Backup(pad);
-        File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(5));
+        File.SetLastWriteTimeUtc(path, pcStamp.UtcDateTime.AddSeconds(padFileOffsetSeconds));
 
         // Back on the PC (still open): starring something backs up again,
         // merging the iPad's works into the file but not into the PC's library.

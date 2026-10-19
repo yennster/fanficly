@@ -261,18 +261,25 @@ public sealed class LibrarySyncManager
     /// wrote) it — the launch auto-sync's cheap "anything new?" check. True when
     /// we can't tell (no stamp yet, or no readable date): restore is a
     /// conservative merge, so restoring once too often is safe; skipping a real
-    /// change is not.</summary>
+    /// change is not. Any date other than the stamp counts, not just a later
+    /// one: sync apps keep the writing device's modification date, so a backup
+    /// written offline (or on a PC whose clock runs behind) can arrive older
+    /// than this device's last write.</summary>
     public bool CloudBackupHasUnappliedChanges
     {
         get
         {
             if (_settings.GetDate(LastRestoredStampKey) is not { } applied || LastBackupDate is not { } cloudDate) return true;
-            return cloudDate > applied;
+            return cloudDate != applied;
         }
     }
 
-    private void MarkCloudBackupApplied() =>
-        _settings.SetDate(LastRestoredStampKey, LastBackupDate ?? DateTimeOffset.Now);
+    /// <summary>Stamps <paramref name="date"/> (the file's modification date
+    /// when it was read, or just after it was written) as applied here. A
+    /// restore passes the date from before its read, so a file another device
+    /// swaps in while the restore runs isn't marked applied unread.</summary>
+    private void MarkCloudBackupApplied(DateTimeOffset? date = null) =>
+        _settings.SetDate(LastRestoredStampKey, date ?? LastBackupDate ?? DateTimeOffset.Now);
 
     /// <summary>Unions a freshly-built local backup with the one already in the
     /// sync folder. Records only the other device holds are kept; on conflicts
@@ -420,12 +427,13 @@ public sealed class LibrarySyncManager
 
         if (!File.Exists(path)) return false;
 
+        var readDate = LastBackupDate;
         try
         {
             var backup = LibraryBackupJson.Decode(await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false));
             Apply(backup, store);
             store.Save();
-            MarkCloudBackupApplied();
+            MarkCloudBackupApplied(readDate);
             return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException

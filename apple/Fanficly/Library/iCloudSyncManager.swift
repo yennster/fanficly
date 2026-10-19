@@ -298,14 +298,22 @@ final class iCloudSyncManager {
     /// True when we can't tell (no stamp yet, or an undownloaded placeholder
     /// with no readable date): restore is a conservative merge, so restoring
     /// once too often is safe; skipping a real change is not.
+    /// Any date other than the stamp counts, not just a later one: iCloud
+    /// keeps the writing device's modification date, so a backup written
+    /// offline (or on a device whose clock runs behind) can arrive older
+    /// than this device's last write.
     var cloudBackupHasUnappliedChanges: Bool {
         guard let applied = UserDefaults.standard.object(forKey: Self.lastRestoredStampKey) as? Date,
               let cloudDate = lastBackupDate else { return true }
-        return cloudDate > applied
+        return cloudDate != applied
     }
 
-    private func markCloudBackupApplied() {
-        UserDefaults.standard.set(lastBackupDate ?? Date(), forKey: Self.lastRestoredStampKey)
+    /// Stamps `date` (the file's modification date when it was read, or just
+    /// after it was written) as applied here. Pass the date from before a
+    /// restore's read, so a file another device swaps in while the restore
+    /// runs isn't marked applied unread.
+    private func markCloudBackupApplied(date: Date? = nil) {
+        UserDefaults.standard.set(date ?? lastBackupDate ?? Date(), forKey: Self.lastRestoredStampKey)
     }
 
     /// Unions a freshly-built local backup with the backup already in iCloud.
@@ -480,6 +488,7 @@ final class iCloudSyncManager {
         guard fileManager.fileExists(atPath: url.path) else {
             return false
         }
+        let readDate = lastBackupDate
         
         do {
             let data = try Data(contentsOf: url)
@@ -792,7 +801,7 @@ final class iCloudSyncManager {
             }
 
             try context.save()
-            markCloudBackupApplied()
+            markCloudBackupApplied(date: readDate)
             return true
         } catch {
             print("Failed to restore from iCloud: \(error)")
