@@ -144,7 +144,11 @@ public sealed class LibrarySyncManager
             // 3. Union with the backup already there. A file that's present but
             // unreadable (still hydrating, locked by the sync client) is the
             // placeholder case: skip and retry later. An undecodable file falls
-            // back to writing the local snapshot, as the Swift app does.
+            // back to writing the local snapshot, as the Swift app does. Note
+            // whether that file held changes this device hasn't applied yet:
+            // they go into the file, not into this library, so the file we
+            // write isn't "applied here" until a restore pulls them in.
+            var mergedUnappliedChanges = false;
             if (File.Exists(path))
             {
                 byte[] existing;
@@ -159,7 +163,9 @@ public sealed class LibrarySyncManager
                 }
                 try
                 {
-                    backup = MergedBackup(backup, LibraryBackupJson.Decode(existing));
+                    var cloud = LibraryBackupJson.Decode(existing);
+                    mergedUnappliedChanges = CloudBackupHasUnappliedChanges;
+                    backup = MergedBackup(backup, cloud);
                 }
                 catch (JsonException) { }
             }
@@ -170,9 +176,12 @@ public sealed class LibrarySyncManager
             var tmp = path + ".tmp";
             File.WriteAllBytes(tmp, data);
             File.Move(tmp, path, overwrite: true);
-            // We just wrote the file, so its content is already applied here —
-            // stamp it so the launch auto-sync doesn't re-restore our own backup.
-            MarkCloudBackupApplied();
+            // When everything in the file came from this library (or was
+            // already applied here), stamp it so the launch auto-sync doesn't
+            // re-restore our own backup. When we merged in another device's
+            // unapplied records, leave the stamp alone: the next launch sees
+            // the file as changed and restores them into this library.
+            if (!mergedUnappliedChanges) MarkCloudBackupApplied();
             return BackupOutcome.Written;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
@@ -253,18 +262,25 @@ public sealed class LibrarySyncManager
     /// wrote) it — the launch auto-sync's cheap "anything new?" check. True when
     /// we can't tell (no stamp yet, or no readable date): restore is a
     /// conservative merge, so restoring once too often is safe; skipping a real
-    /// change is not.</summary>
+    /// change is not. Any date other than the stamp counts, not just a later
+    /// one: sync apps keep the writing device's modification date, so a backup
+    /// written offline (or on a PC whose clock runs behind) can arrive older
+    /// than this device's last write.</summary>
     public bool CloudBackupHasUnappliedChanges
     {
         get
         {
             if (_settings.GetDate(LastRestoredStampKey) is not { } applied || LastBackupDate is not { } cloudDate) return true;
-            return cloudDate > applied;
+            return cloudDate != applied;
         }
     }
 
-    private void MarkCloudBackupApplied() =>
-        _settings.SetDate(LastRestoredStampKey, LastBackupDate ?? DateTimeOffset.Now);
+    /// <summary>Stamps <paramref name="date"/> (the file's modification date
+    /// when it was read, or just after it was written) as applied here. A
+    /// restore passes the date from before its read, so a file another device
+    /// swaps in while the restore runs isn't marked applied unread.</summary>
+    private void MarkCloudBackupApplied(DateTimeOffset? date = null) =>
+        _settings.SetDate(LastRestoredStampKey, date ?? LastBackupDate ?? DateTimeOffset.Now);
 
     /// <summary>Unions a freshly-built local backup with the one already in the
     /// sync folder. Records only the other device holds are kept; on conflicts
@@ -418,12 +434,13 @@ public sealed class LibrarySyncManager
 
         if (!File.Exists(path)) return false;
 
+        var readDate = LastBackupDate;
         try
         {
             var backup = LibraryBackupJson.Decode(await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false));
             Apply(backup, store);
             store.Save();
-            MarkCloudBackupApplied();
+            MarkCloudBackupApplied(readDate);
             return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException

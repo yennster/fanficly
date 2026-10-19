@@ -686,6 +686,68 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(stat.totalSeconds, 3000, accuracy: 0.001)
     }
 
+    /// A backup that merges in another device's records puts them in the
+    /// file, not in this library, so it must not stamp the file as applied
+    /// here: the next launch sync still has to restore them (#124). Each
+    /// "device" has its own stamp, simulated by swapping the stamp's value.
+    /// The iPad's file can arrive dated after the phone's last write or, when
+    /// it was written offline or by a device whose clock runs behind, before it.
+    func test_backupAfterAnotherDeviceStillRestoresItsRecordsAtLaunch() async throws {
+        try await assertBackupAfterAnotherDeviceStillRestores(padFileOffset: 5)
+        try await assertBackupAfterAnotherDeviceStillRestores(padFileOffset: -60)
+    }
+
+    private func assertBackupAfterAnotherDeviceStillRestores(padFileOffset: TimeInterval) async throws {
+        let url = makeTempBackupURL()
+        let stampKey = iCloudSyncManager.lastRestoredStampKey
+        let defaults = UserDefaults.standard
+        let originalStamp = defaults.object(forKey: stampKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalStamp, forKey: stampKey)
+        }
+        let sync = iCloudSyncManager.shared
+
+        // The phone backs up first and stamps the file it wrote.
+        defaults.removeObject(forKey: stampKey)
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: phone)
+        sync.backupToiCloud(context: phone)
+        XCTAssertFalse(sync.cloudBackupHasUnappliedChanges, "a device's own backup is applied there")
+        let phoneStamp = try XCTUnwrap(defaults.object(forKey: stampKey) as? Date)
+
+        // The iPad (its own stamp) saves five works and backs up later.
+        defaults.removeObject(forKey: stampKey)
+        let pad = try makeContext()
+        for id in 10...14 { _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: pad) }
+        sync.backupToiCloud(context: pad)
+        try FileManager.default.setAttributes([.modificationDate: phoneStamp.addingTimeInterval(padFileOffset)],
+                                              ofItemAtPath: url.path)
+
+        // Back on the phone: starring something backs up again, merging the
+        // iPad's works into the file but not into the phone's library.
+        defaults.set(phoneStamp, forKey: stampKey)
+        let starred = try XCTUnwrap(try phone.fetch(FetchDescriptor<Work>()).first)
+        starred.isStarred = true
+        try phone.save()
+        sync.backupToiCloud(context: phone)
+        XCTAssertEqual(try decodeBackup(at: url).works.count, 6)
+        XCTAssertEqual(try phone.fetchCount(FetchDescriptor<Work>()), 1)
+
+        // So the phone's next launch still restores, and gets the iPad's works.
+        XCTAssertTrue(sync.cloudBackupHasUnappliedChanges)
+        let restored = await sync.restoreFromiCloud(context: phone)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(try phone.fetch(FetchDescriptor<Work>()).map(\.ao3Id).sorted(), [1, 10, 11, 12, 13, 14])
+        XCTAssertFalse(sync.cloudBackupHasUnappliedChanges)
+
+        // Once applied, the phone's own backups stamp the file again.
+        sync.backupToiCloud(context: phone)
+        XCTAssertFalse(sync.cloudBackupHasUnappliedChanges)
+    }
+
     /// Blocked tags and authors from two devices union in the backup file
     /// (the same term in different case counts once), and restoring the
     /// merged file gives either device the whole list (RM-006).
