@@ -597,6 +597,47 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal([1, 2, 3, 4], DecodeBackup(path).Works.Select(w => w.Ao3Id));
     }
 
+    /// <summary>A backup that merges in another device's records puts them in
+    /// the file, not in this library, so it must not stamp the file as applied
+    /// here: the next launch sync still has to restore them (#124).</summary>
+    [Fact]
+    public async Task BackupAfterAnotherDeviceStillRestoresItsRecordsAtLaunch()
+    {
+        var path = MakeTempBackupPath();
+
+        // The PC backs up first and stamps the file it wrote.
+        using var pc = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), pc);
+        var pcSync = MakeSync(path);
+        pcSync.Backup(pc);
+        Assert.False(pcSync.CloudBackupHasUnappliedChanges);
+
+        // The iPad saves five works and backs up later.
+        using var pad = MakeContext();
+        for (var id = 10; id <= 14; id++) WorkPersistence.Upsert(Payload(id, 1), pad);
+        MakeSync(path).Backup(pad);
+        File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(5));
+
+        // Back on the PC (still open): starring something backs up again,
+        // merging the iPad's works into the file but not into the PC's library.
+        var starred = pc.GetWork(1)!;
+        starred.IsStarred = true;
+        pc.Save();
+        Assert.Equal(BackupOutcome.Written, pcSync.Backup(pc));
+        Assert.Equal(6, DecodeBackup(path).Works.Count);
+        Assert.Single(pc.All<Work>());
+
+        // So the PC's next launch still restores, and gets the iPad's works.
+        Assert.True(pcSync.CloudBackupHasUnappliedChanges);
+        Assert.True(await pcSync.RestoreAsync(pc));
+        Assert.Equal([1, 10, 11, 12, 13, 14], pc.All<Work>().Select(w => w.Ao3Id).Order());
+        Assert.False(pcSync.CloudBackupHasUnappliedChanges);
+
+        // Once applied, the PC's own backups stamp the file again.
+        pcSync.Backup(pc);
+        Assert.False(pcSync.CloudBackupHasUnappliedChanges);
+    }
+
     [Fact]
     public async Task FollowedAuthorsSyncBetweenDevices()
     {

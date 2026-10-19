@@ -144,7 +144,11 @@ public sealed class LibrarySyncManager
             // 3. Union with the backup already there. A file that's present but
             // unreadable (still hydrating, locked by the sync client) is the
             // placeholder case: skip and retry later. An undecodable file falls
-            // back to writing the local snapshot, as the Swift app does.
+            // back to writing the local snapshot, as the Swift app does. Note
+            // whether that file held changes this device hasn't applied yet:
+            // they go into the file, not into this library, so the file we
+            // write isn't "applied here" until a restore pulls them in.
+            var mergedUnappliedChanges = false;
             if (File.Exists(path))
             {
                 byte[] existing;
@@ -159,7 +163,9 @@ public sealed class LibrarySyncManager
                 }
                 try
                 {
-                    backup = MergedBackup(backup, LibraryBackupJson.Decode(existing));
+                    var cloud = LibraryBackupJson.Decode(existing);
+                    mergedUnappliedChanges = CloudBackupHasUnappliedChanges;
+                    backup = MergedBackup(backup, cloud);
                 }
                 catch (JsonException) { }
             }
@@ -170,9 +176,12 @@ public sealed class LibrarySyncManager
             var tmp = path + ".tmp";
             File.WriteAllBytes(tmp, data);
             File.Move(tmp, path, overwrite: true);
-            // We just wrote the file, so its content is already applied here —
-            // stamp it so the launch auto-sync doesn't re-restore our own backup.
-            MarkCloudBackupApplied();
+            // When everything in the file came from this library (or was
+            // already applied here), stamp it so the launch auto-sync doesn't
+            // re-restore our own backup. When we merged in another device's
+            // unapplied records, leave the stamp alone: the next launch sees
+            // the file as changed and restores them into this library.
+            if (!mergedUnappliedChanges) MarkCloudBackupApplied();
             return BackupOutcome.Written;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)

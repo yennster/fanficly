@@ -258,10 +258,15 @@ final class iCloudSyncManager {
 
             // 3. Union with the backup already in the cloud (an undecodable or
             // absent file falls back to writing the local snapshot as before).
+            // Note whether that file held changes this device hasn't applied
+            // yet: they go into the file, not into this library, so the file
+            // we write isn't "applied here" until a restore pulls them in.
+            var mergedUnappliedChanges = false
             if let existingData = try? Data(contentsOf: url) {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 if let cloudBackup = try? decoder.decode(LibraryBackup.self, from: existingData) {
+                    mergedUnappliedChanges = cloudBackupHasUnappliedChanges
                     backup = Self.mergedBackup(local: backup, cloud: cloudBackup)
                 }
             }
@@ -271,10 +276,14 @@ final class iCloudSyncManager {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(backup)
             try data.write(to: url, options: .atomic)
-            // We just wrote the cloud file, so its content is already applied
-            // here — stamp it so the launch auto-sync doesn't re-restore our
-            // own backup.
-            markCloudBackupApplied()
+            // When everything in the file came from this library (or was
+            // already applied here), stamp it so the launch auto-sync doesn't
+            // re-restore our own backup. When we merged in another device's
+            // unapplied records, leave the stamp alone: the next launch sees
+            // the file as changed and restores them into this library.
+            if !mergedUnappliedChanges {
+                markCloudBackupApplied()
+            }
         } catch {
             print("Failed to backup to iCloud: \(error)")
         }
