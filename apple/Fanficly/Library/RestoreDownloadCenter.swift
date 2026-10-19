@@ -60,35 +60,88 @@ final class RestoreDownloadCenter {
         guard !ids.isEmpty, downloadTask == nil else { return }
         proposedIds = nil
         lastProposal = []
+        start(ids: ids, kind: .restore) { id in _ = try await client.downloadEPUB(workId: id) }
+    }
+
+    // MARK: - Folder "Download All"
+
+    /// What the current (or last) run is for; it picks the banner's and
+    /// VoiceOver's wording.
+    enum Kind: Equatable {
+        case restore
+        case folder
+    }
+
+    private(set) var kind: Kind = .restore
+
+    /// The works in a folder that aren't downloaded yet, in the order given
+    /// (the folder's on-screen order), each once. `isDownloaded` defaults to
+    /// the EPUB file check that drives the Downloaded badge.
+    static func folderDownloadCandidates(
+        _ works: [Work],
+        isDownloaded: (Int) -> Bool = { WorkPersistence.epubURL(workId: $0) != nil }
+    ) -> [Int] {
+        var seen = Set<Int>()
+        return works
+            .map(\.ao3Id)
+            .filter { !isDownloaded($0) && seen.insert($0).inserted }
+    }
+
+    /// Downloads a folder's stories one after another. `download` does the
+    /// per-work save (offline text if missing, then the EPUB), exactly what
+    /// the per-work Save Offline does. Ignored while another run is going.
+    func startFolderDownload(ids: [Int], download: @escaping @MainActor (Int) async throws -> Void) {
+        guard !ids.isEmpty, downloadTask == nil else { return }
+        start(ids: ids, kind: .folder, download: download)
+    }
+
+    // MARK: - The queue
+
+    private func start(ids: [Int], kind: Kind, download: @escaping @MainActor (Int) async throws -> Void) {
+        self.kind = kind
         progress = Progress(done: 0, failed: 0, total: ids.count, finished: false)
         UIAccessibility.post(notification: .announcement,
                              argument: "Downloading \(ids.count) stories for offline reading.")
         downloadTask = Task {
-            var done = 0
-            var failed = 0
-            for id in ids {
-                if Task.isCancelled { break }
-                do {
-                    _ = try await client.downloadEPUB(workId: id)
-                    done += 1
-                } catch is CancellationError {
-                    break
-                } catch {
-                    // Skip and move on — a deleted work mustn't stall the rest.
-                    failed += 1
-                }
-                if Task.isCancelled { break }
-                progress = Progress(done: done, failed: failed, total: ids.count, finished: false)
+            let tally = await Self.runQueue(ids: ids, download: download) { [weak self] in
+                self?.progress = $0
             }
-            if Task.isCancelled { return }
+            guard let tally, !Task.isCancelled else { return }
             downloadTask = nil
-            progress = Progress(done: done, failed: failed, total: ids.count, finished: true)
-            UIAccessibility.post(notification: .announcement, argument: failed == 0
-                ? "Downloaded \(done) stories for offline reading."
-                : "Downloads finished. \(done) succeeded, \(failed) failed.")
+            progress = tally
+            UIAccessibility.post(notification: .announcement, argument: tally.failed == 0
+                ? "Downloaded \(tally.done) stories for offline reading."
+                : "Downloads finished. \(tally.done) succeeded, \(tally.failed) failed.")
             try? await Task.sleep(for: .seconds(4))
             if progress?.finished == true { progress = nil }
         }
+    }
+
+    /// Runs `download` for each id in turn, never in parallel. A failure is
+    /// counted and skipped (a deleted work mustn't stall the rest). Returns
+    /// the finished tally, or nil when the surrounding task was cancelled;
+    /// works downloaded before the cancel stay downloaded, since nothing
+    /// here undoes them. `report` gets the tally after each work.
+    static func runQueue(
+        ids: [Int],
+        download: @MainActor (Int) async throws -> Void,
+        report: @MainActor (Progress) -> Void
+    ) async -> Progress? {
+        var tally = Progress(done: 0, failed: 0, total: ids.count, finished: false)
+        for id in ids {
+            if Task.isCancelled { return nil }
+            do {
+                try await download(id)
+                tally = tally.recording(succeeded: true)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                tally = tally.recording(succeeded: false)
+            }
+            if Task.isCancelled { return nil }
+            report(tally)
+        }
+        return tally.finishing()
     }
 
     /// Stops the downloads; everything already restored (and already
@@ -97,8 +150,25 @@ final class RestoreDownloadCenter {
         downloadTask?.cancel()
         downloadTask = nil
         progress = nil
-        UIAccessibility.post(notification: .announcement,
-                             argument: "Downloads canceled. Your restored library is unaffected.")
+        UIAccessibility.post(notification: .announcement, argument: kind == .restore
+            ? "Downloads canceled. Your restored library is unaffected."
+            : "Downloads canceled. Stories already downloaded stay downloaded.")
+    }
+}
+
+extension RestoreDownloadCenter.Progress {
+    /// The tally after one more work finished (or failed).
+    func recording(succeeded: Bool) -> Self {
+        var next = self
+        if succeeded { next.done += 1 } else { next.failed += 1 }
+        return next
+    }
+
+    /// The same tally, marked finished.
+    func finishing() -> Self {
+        var next = self
+        next.finished = true
+        return next
     }
 }
 
@@ -132,7 +202,9 @@ private struct RestoreDownloadBanner: View {
                 if !p.finished {
                     Button("Cancel") { center.cancel() }
                         .font(.footnote.weight(.semibold))
-                        .accessibilityHint("Stops the downloads. Everything else stays restored.")
+                        .accessibilityHint(center.kind == .restore
+                            ? "Stops the downloads. Everything else stays restored."
+                            : "Stops the downloads. Stories already downloaded stay.")
                 }
             }
             .padding(14)

@@ -610,6 +610,8 @@ struct FolderDetailView: View {
     @State private var editMode: EditMode = .inactive
     @State private var selectedWorkIds = Set<PersistentIdentifier>()
     @State private var workEditingNotes: Work?
+    @Environment(\.ao3Client) private var client
+    @State private var pendingDownloadIds: [Int]?
 
     init(folder: CustomFolder, initialSearchText: String = "") {
         self.folder = folder
@@ -620,6 +622,9 @@ struct FolderDetailView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let filteredWorks = query.isEmpty ? folder.works : folder.works.filter { $0.matches(query: query) }
         let sortedWorks = LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(filteredWorks)
+        // Any run's progress (it also re-renders the rows as each download
+        // lands, so their Downloaded badges update).
+        let downloadProgress = RestoreDownloadCenter.shared.progress
 
         VStack(spacing: 0) {
             List(selection: $selectedWorkIds) {
@@ -729,12 +734,45 @@ struct FolderDetailView: View {
         .sheet(item: $workEditingNotes) { work in
             WorkNotesSheet(work: work)
         }
+        .confirmationDialog(downloadPromptTitle, isPresented: Binding(
+            get: { pendingDownloadIds != nil },
+            set: { if !$0 { pendingDownloadIds = nil } }), titleVisibility: .visible,
+            presenting: pendingDownloadIds) { ids in
+            // `presenting` hands the ids in, so it works whichever order
+            // SwiftUI clears the binding and runs the action.
+            Button("Download") {
+                let client = client
+                let context = context
+                RestoreDownloadCenter.shared.startFolderDownload(ids: ids) { id in
+                    try await Self.saveOffline(workId: id, client: client, context: context)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Stories download one at a time. You can cancel anytime, and the ones already downloaded stay.")
+        }
         .overlay {
             if !query.isEmpty && filteredWorks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
         }
         .toolbar {
+            if editMode != .active {
+                ToolbarItem(placement: .topBarTrailing) {
+                    let downloadIds = RestoreDownloadCenter.folderDownloadCandidates(
+                        LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folder.works))
+                    Button {
+                        pendingDownloadIds = downloadIds
+                    } label: {
+                        Label("Download All", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(downloadIds.isEmpty || downloadProgress != nil)
+                    .help(downloadIds.isEmpty ? "Every story here is downloaded" : "Download every story in this folder for offline reading")
+                    .accessibilityHint(downloadIds.isEmpty
+                        ? "Every story in this folder is already downloaded."
+                        : "Saves \(downloadIds.count) \(downloadIds.count == 1 ? "story" : "stories") for offline reading, one at a time.")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(editMode == .active ? "Done" : "Edit") {
                     withAnimation {
@@ -748,6 +786,26 @@ struct FolderDetailView: View {
                 }
             }
         }
+    }
+
+    /// Saves one folder story for offline reading, like the reader's Save
+    /// Offline: the chapter text first when it isn't stored yet, then the EPUB.
+    @MainActor
+    private static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        // Removed from the library mid-run: nothing to save it for.
+        guard let work = try? context.fetch(descriptor).first else { return }
+        if work.chapters.isEmpty {
+            let payload = try await client.fetchWork(id: workId)
+            _ = WorkPersistence.upsert(payload: payload, into: context)
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
+        _ = try await client.downloadEPUB(workId: workId)
+    }
+
+    private var downloadPromptTitle: String {
+        let n = pendingDownloadIds?.count ?? 0
+        return "Download \(n) \(n == 1 ? "story" : "stories") for offline reading?"
     }
 
     private func removeSelectedWorks() {
