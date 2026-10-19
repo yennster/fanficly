@@ -141,19 +141,11 @@ h1 em, h2 em { font-style: italic; font-weight: 400; }
 .hero h1 em { color: var(--gold); }
 .lede { max-width: 640px; margin: 28px auto 0; font-size: clamp(17px, 1.6vw, 20px); line-height: 1.55; color: rgba(255, 255, 255, .84); }
 
-.stores { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin-top: 36px; }
-.store {
-  display: inline-flex; align-items: center; gap: 12px;
-  padding: 11px 22px 11px 18px; min-width: 196px; border-radius: 14px;
-  text-decoration: none; color: #fff; background: rgba(12, 6, 40, .55);
-  border: 1px solid rgba(255, 255, 255, .22);
-  box-shadow: 0 10px 30px rgba(10, 5, 45, .25), inset 0 1px 0 rgba(255, 255, 255, .12);
-  transition: transform .2s, background .2s;
-}
-.store:hover { transform: translateY(-2px); background: rgba(12, 6, 40, .75); }
-.store svg { width: 22px; height: 22px; flex: none; }
-.store span { display: flex; flex-direction: column; font: 600 19px/1.1 var(--sans); letter-spacing: -.01em; text-align: left; }
-.store small { font: 500 11px/1.3 var(--sans); letter-spacing: .02em; opacity: .75; }
+.stores { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 14px; margin-top: 36px; }
+/* The official store badges, both at one height as their guidelines ask. */
+.badge { display: block; border-radius: 9px; transition: transform .2s; box-shadow: 0 10px 30px rgba(10, 5, 45, .25); }
+.badge:hover { transform: translateY(-2px); }
+.badge img { height: 50px; width: auto; }
 .fineprint { margin: 18px 0 0; font-size: 14px; color: rgba(255, 255, 255, .6); }
 
 .hero-stage {
