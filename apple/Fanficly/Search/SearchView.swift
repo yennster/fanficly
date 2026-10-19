@@ -10,6 +10,7 @@ struct SearchView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
     @Query private var hiddenWorks: [HiddenWork]
+    @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("search.pendingQuery") private var pendingQuery: String = ""
     @AppStorage(RecentSearches.storageKey) private var recentRaw: String = ""
@@ -284,9 +285,11 @@ struct SearchView: View {
 
     // MARK: - Content
 
-    /// Results minus hidden works and (optionally) Mature/Explicit-rated ones.
+    /// Results minus hidden works, blocked tags and authors (except ones this
+    /// search asked for by name) and (optionally) Mature/Explicit-rated ones.
     private var visibleResults: [AO3WorkSummary] {
-        ContentFilter.apply(results, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+        ContentFilter.apply(results, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature,
+                            blocklist: Blocklist(blockedTerms).lifting(searched ?? active))
     }
 
     @ViewBuilder
@@ -319,8 +322,9 @@ struct SearchView: View {
                 }
             }
         } else if visibleResults.isEmpty {
-            ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                description: Text("Every match is hidden or filtered out by your content settings."))
+            FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
+                            canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                            loadMore: loadMore)
         } else {
             resultsList
         }

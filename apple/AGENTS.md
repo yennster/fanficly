@@ -112,7 +112,7 @@ to attributed paragraphs and drawn natively. `ReaderPaginator` and
 | Library metadata and text | `Models/Work.swift`: `Work` → `Chapter` (cascade delete), `CustomFolder` relationships | `upsertMetadata` preserves chapter bodies; `upsert(payload:)` replaces them. |
 | Local activity | `ReadingProgress`, `RecentlyViewed`, `ReadingStat` | Keyed by AO3 work ID independently of a saved `Work`; reading unsaved stories still records progress/stats. |
 | Follows/account records | `Work.isFollowed`, `FollowedAuthor`, `SubscriptionRecord`, `BookmarkRecord` | Remote Bookmarks UI fetches live; these model types do not imply every AO3 record is cached. |
-| Search/safety records | `SavedSearch`, `SavedFilter`, `HiddenWork`, `TagRecord` | Saved filters encode `AO3SearchFilters` as JSON; saved search prompts round-trip through `SearchSyntax`. |
+| Search/safety records | `SavedSearch`, `SavedFilter`, `HiddenWork`, `BlockedTerm`, `TagRecord` | Saved filters encode `AO3SearchFilters` as JSON; saved search prompts round-trip through `SearchSyntax`. |
 | EPUB files | `Documents/library/<workId>.epub`, via `AO3Client.downloadEPUB` | `WorkPersistence.epubURL` checks file existence, not `Work.epubLocalPath`. Offline chapter text and the Downloaded badge are separate. |
 | Export files | Temporary directory via `AO3Client.exportWork` / `WorkExporter` | Exporting a format is not saving chapter text into the library. |
 | Settings/cache | `UserDefaults` / `@AppStorage` | Reader typography uses per-device keys; popular snapshot and recent searches are not SwiftData models. |
@@ -120,7 +120,7 @@ to attributed paragraphs and drawn natively. `ReaderPaginator` and
 | Widget snapshots | App-group defaults (`group.io.github.yennster.fanficly`) | Extension reads Codable snapshots, not the app's SwiftData database. |
 | Cross-device sync | `iCloudSyncManager` file backup; separate KVS stores for profiles, last-read progress, streak | Library backup is opt-in; its switch is not a master switch for the KVS channels. |
 
-All 13 SwiftData types are registered in `FanficlyApp.sharedModelContainer`.
+All 14 SwiftData types are registered in `FanficlyApp.sharedModelContainer`.
 Adding a model requires checking the test schema, backup DTOs and merge/restore,
 demo seed, deletion behavior, and any widget snapshot it affects. Registration
 alone does not add backup coverage: currently `TagRecord`, `RecentlyViewed`, and
@@ -720,11 +720,18 @@ or remote logging. See `../PRIVACY.md` and `Fanficly/PrivacyInfo.xcprivacy`.
 
 `RootView` presents the 17+ confirmation until `ContentControl.ageConfirmedKey`
 is set (demo mode bypasses it). `ContentFilter.apply` removes local hidden work
-IDs and, by default, Mature/Explicit ratings from result lists. This is
+IDs, blocked tags and authors (`BlockedTerm` → `Blocklist`), and, by default,
+Mature/Explicit ratings from result lists. This is
 **display-layer filtering**, not an AO3 query filter or a universal reader access
 gate; result totals can exceed the number of visible rows. New result-list
 surfaces should preserve this policy. `HiddenWorkStore` owns local hide/unhide;
-Settings exposes hidden works and the content policy. AO3 hosts and moderates the
+Settings exposes hidden works, the blocklist and the content policy. The
+blocklist applies only to lists the user didn't ask for by name: Search and
+Browse lift any blocked tag or creator their filters name (`Blocklist.lifting`),
+an author's page lifts that author, and the reader, Library, Subscriptions and
+Bookmarks never apply it. Tags match by exact AO3 name, ignoring case. Blocks
+are added from a tag chip's or byline's long-press menu (`.blockTermMenu`) or
+in Settings, and back up as a union like hidden works. AO3 hosts and moderates the
 stories; Fanficly does not host them.
 
 Use the `DesignSystem` helpers and existing native controls. Keep VoiceOver
