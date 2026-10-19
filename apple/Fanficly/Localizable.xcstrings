@@ -81,6 +81,26 @@
         }
       }
     },
+    "Export Failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Failed"
+          }
+        }
+      }
+    },
+    "Export Library File…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Library File…"
+          }
+        }
+      }
+    },
     "Fanficly has no servers. Everything happens on your phone." : {
       "localizations" : {
         "en" : {
@@ -141,6 +161,26 @@
         }
       }
     },
+    "Import Failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Failed"
+          }
+        }
+      }
+    },
+    "Import Library File…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Library File…"
+          }
+        }
+      }
+    },
     "Last synced" : {
       "localizations" : {
         "en" : {
@@ -157,6 +197,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Library"
+          }
+        }
+      }
+    },
+    "Library File" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library File"
+          }
+        }
+      }
+    },
+    "Library Imported" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Imported"
           }
         }
       }
@@ -281,6 +341,16 @@
         }
       }
     },
+    "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards, and uses the file's reader and content settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards, and uses the file's reader and content settings."
+          }
+        }
+      }
+    },
     "Send feedback" : {
       "localizations" : {
         "en" : {
@@ -351,6 +421,26 @@
         }
       }
     },
+    "That file couldn't be imported. Make sure it's a Fanficly library file and try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That file couldn't be imported. Make sure it's a Fanficly library file and try again."
+          }
+        }
+      }
+    },
+    "The file's works, reading progress and stats have been added to your library, and its settings applied." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file's works, reading progress and stats have been added to your library, and its settings applied."
+          }
+        }
+      }
+    },
     "Theme & typography" : {
       "localizations" : {
         "en" : {
@@ -417,6 +507,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Your library and settings have been successfully restored from iCloud."
+          }
+        }
+      }
+    },
+    "Your library couldn't be written to a file. Please try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your library couldn't be written to a file. Please try again."
           }
         }
       }

@@ -863,6 +863,189 @@ final class PersistenceTests: XCTestCase {
                        "total must be Σ daySeconds (3000), not max of device totals (2000)")
     }
 
+    // MARK: - Library file export and import (RM-012)
+
+    /// Exporting a library file and importing it into an empty library brings
+    /// back every work (with its chapters and folders), reading position,
+    /// stat, bookmark, subscription and saved search.
+    func test_libraryFileRoundTripsIntoEmptyContainer() throws {
+        let read = Date(timeIntervalSince1970: 1_790_000_000)
+        let source = try makeContext()
+        let folder = CustomFolder(name: "Faves", createdAt: read)
+        source.insert(folder)
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 3), into: source)
+        let work = try XCTUnwrap(try source.fetch(FetchDescriptor<Work>()).first)
+        work.isStarred = true
+        work.isFollowed = true
+        work.lastSeenChapterCount = 3
+        work.lastReadAt = read
+        work.lastReadChapter = 2
+        work.lastReadProgress = 0.5
+        work.folders.append(folder)
+        source.insert(Work(ao3Id: 2, title: "Metadata only", authorName: "B"))
+        source.insert(ReadingProgress(ao3Id: 1, chapterIndex: 2, paragraphIndex: 14,
+                                      title: "Test Work 1", author: "tester", updatedAt: read))
+        source.insert(ReadingStat(ao3Id: 1, title: "Test Work 1", author: "tester",
+                                  fandoms: ["Harry Potter - J. K. Rowling"], wordCount: 5000,
+                                  firstReadAt: read, lastReadAt: read,
+                                  totalSeconds: 600, daySeconds: ["2026-09-21": 600],
+                                  maxProgress: 0.5, workIsComplete: true))
+        source.insert(BookmarkRecord(ao3Id: 77, workAo3Id: 1, notes: "reread", tags: ["comfort"], savedAt: read))
+        let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Test Work 1", authorName: "tester")
+        sub.lastSeenChapterCount = 3
+        source.insert(sub)
+        source.insert(SavedSearch(name: "Slow burn", prompt: "tag:\"Slow Burn\"", savedAt: read))
+        try source.save()
+
+        let url = try iCloudSyncManager.shared.exportLibraryFile(context: source)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(url.pathExtension, "json")
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("Fanficly Library "))
+
+        let target = try makeContext()
+        try iCloudSyncManager.shared.importLibraryFile(at: url, context: target)
+
+        let works = try target.fetch(FetchDescriptor<Work>()).sorted { $0.ao3Id < $1.ao3Id }
+        XCTAssertEqual(works.map(\.ao3Id), [1, 2])
+        let restored = works[0]
+        XCTAssertEqual(restored.title, "Test Work 1")
+        XCTAssertEqual(restored.chapters.sorted { $0.index < $1.index }.map(\.bodyHTML),
+                       ["<p>Body 1</p>", "<p>Body 2</p>", "<p>Body 3</p>"])
+        XCTAssertTrue(restored.isStarred)
+        XCTAssertTrue(restored.isFollowed)
+        XCTAssertEqual(restored.lastSeenChapterCount, 3)
+        XCTAssertEqual(restored.lastReadAt, read)
+        XCTAssertEqual(restored.lastReadChapter, 2)
+        XCTAssertEqual(restored.folders.map(\.name), ["Faves"])
+        XCTAssertTrue(works[1].chapters.isEmpty)
+
+        let progress = try XCTUnwrap(try target.fetch(FetchDescriptor<ReadingProgress>()).first)
+        XCTAssertEqual(progress.chapterIndex, 2)
+        XCTAssertEqual(progress.paragraphIndex, 14)
+        XCTAssertEqual(progress.updatedAt, read)
+
+        let stat = try XCTUnwrap(try target.fetch(FetchDescriptor<ReadingStat>()).first)
+        XCTAssertEqual(stat.totalSeconds, 600, accuracy: 0.001)
+        XCTAssertEqual(stat.maxProgress, 0.5, accuracy: 0.001)
+        XCTAssertTrue(stat.workIsComplete)
+
+        let bookmark = try XCTUnwrap(try target.fetch(FetchDescriptor<BookmarkRecord>()).first)
+        XCTAssertEqual(bookmark.notes, "reread")
+        XCTAssertEqual(bookmark.tags, ["comfort"])
+        let restoredSub = try XCTUnwrap(try target.fetch(FetchDescriptor<SubscriptionRecord>()).first)
+        XCTAssertEqual(restoredSub.key, "work:1")
+        XCTAssertEqual(restoredSub.lastSeenChapterCount, 3)
+        XCTAssertEqual(try target.fetch(FetchDescriptor<SavedSearch>()).map(\.name), ["Slow burn"])
+    }
+
+    /// Importing a file exported earlier, after reading further, never moves
+    /// progress backwards: the reading position, the work's last-read
+    /// chapter, the stat's furthest progress and a subscription's
+    /// notification baseline all keep the newer values.
+    func test_importingOlderLibraryFileNeverMovesProgressBackwards() throws {
+        let earlier = Date(timeIntervalSince1970: 1_790_000_000)
+        let later = earlier.addingTimeInterval(86_400)
+
+        // The file was exported when the reader was on chapter 2.
+        let old = try makeContext()
+        let oldWork = Work(ao3Id: 1, title: "T", authorName: "A")
+        oldWork.lastReadAt = earlier
+        oldWork.lastReadChapter = 2
+        oldWork.lastReadProgress = 0.2
+        old.insert(oldWork)
+        old.insert(ReadingProgress(ao3Id: 1, chapterIndex: 2, paragraphIndex: 3,
+                                   title: "T", author: "A", updatedAt: earlier))
+        old.insert(ReadingStat(ao3Id: 1, title: "T", author: "A",
+                               firstReadAt: earlier, lastReadAt: earlier,
+                               totalSeconds: 100, daySeconds: ["2026-09-21": 100], maxProgress: 0.2))
+        let oldSub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "T", authorName: "A")
+        oldSub.lastSeenChapterCount = 2
+        oldSub.lastCheckedAt = earlier
+        old.insert(oldSub)
+        try old.save()
+        let url = try iCloudSyncManager.shared.exportLibraryFile(context: old)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Since then this library read on to chapter 7.
+        let device = try makeContext()
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        work.lastReadAt = later
+        work.lastReadChapter = 7
+        work.lastReadProgress = 0.7
+        device.insert(work)
+        device.insert(ReadingProgress(ao3Id: 1, chapterIndex: 7, paragraphIndex: 0,
+                                      title: "T", author: "A", updatedAt: later))
+        device.insert(ReadingStat(ao3Id: 1, title: "T", author: "A",
+                                  firstReadAt: earlier, lastReadAt: later,
+                                  totalSeconds: 900, daySeconds: ["2026-09-21": 100, "2026-09-22": 800],
+                                  maxProgress: 0.7))
+        let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "T", authorName: "A")
+        sub.lastSeenChapterCount = 7
+        sub.lastCheckedAt = later
+        device.insert(sub)
+        try device.save()
+
+        try iCloudSyncManager.shared.importLibraryFile(at: url, context: device)
+
+        let progress = try XCTUnwrap(try device.fetch(FetchDescriptor<ReadingProgress>()).first)
+        XCTAssertEqual(progress.chapterIndex, 7)
+        XCTAssertEqual(progress.updatedAt, later)
+        let restored = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(restored.lastReadChapter, 7)
+        XCTAssertEqual(restored.lastReadProgress ?? 0, 0.7, accuracy: 0.001)
+        let stat = try XCTUnwrap(try device.fetch(FetchDescriptor<ReadingStat>()).first)
+        XCTAssertEqual(stat.maxProgress, 0.7, accuracy: 0.001)
+        XCTAssertEqual(stat.totalSeconds, 900, accuracy: 0.001)
+        XCTAssertEqual(stat.lastReadAt, later)
+        let restoredSub = try XCTUnwrap(try device.fetch(FetchDescriptor<SubscriptionRecord>()).first)
+        XCTAssertEqual(restoredSub.lastSeenChapterCount, 7, "an old file must not re-fire chapter alerts")
+        XCTAssertEqual(restoredSub.lastCheckedAt, later)
+    }
+
+    /// A file that isn't a library backup is refused and changes nothing.
+    func test_importingNonLibraryFileThrowsAndChangesNothing() throws {
+        let url = makeTempBackupURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(#"{"hello": "world"}"#.utf8).write(to: url)
+
+        let device = try makeContext()
+        device.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try device.save()
+
+        XCTAssertThrowsError(try iCloudSyncManager.shared.importLibraryFile(at: url, context: device))
+        XCTAssertEqual(try device.fetch(FetchDescriptor<Work>()).map(\.ao3Id), [1])
+    }
+
+    /// The Windows app writes the same file, with an extra `followedAuthors`
+    /// list the Apple backup doesn't carry yet; it must still import.
+    func test_importsWindowsLibraryFile() throws {
+        let url = makeTempBackupURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let json = """
+        {"works":[{"ao3Id":5,"title":"From Windows","authorName":"W","authorUsername":"w",
+        "summary":"","rating":"General Audiences","warnings":[],"categories":[],"fandoms":[],
+        "characters":[],"relationships":[],"freeforms":[],"language":"English","wordCount":10,
+        "chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,
+        "isComplete":true,"savedAt":"2026-10-16T09:41:00Z","isFollowed":false,
+        "chapters":[{"index":1,"title":"One","bodyHTML":"<p>Hi</p>","aoId":42}],
+        "folderNames":[]}],
+        "bookmarks":[],"subscriptions":[],"searches":[],
+        "progress":[{"ao3Id":5,"chapterIndex":1,"paragraphIndex":2,"title":"From Windows",
+        "author":"W","updatedAt":"2026-10-16T09:41:00Z"}],
+        "filters":[],"hidden":[],"timestamp":"2026-10-16T09:41:00Z",
+        "followedAuthors":[{"username":"w","displayName":"W","followedAt":"2026-10-16T09:41:00Z","knownWorkIds":[5]}]}
+        """
+        try Data(json.utf8).write(to: url)
+
+        let device = try makeContext()
+        try iCloudSyncManager.shared.importLibraryFile(at: url, context: device)
+
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(work.title, "From Windows")
+        XCTAssertEqual(work.chapters.first?.aoId, 42)
+        XCTAssertEqual(try device.fetch(FetchDescriptor<ReadingProgress>()).first?.paragraphIndex, 2)
+    }
+
     func test_profileDeletionTombstonesAndSurvivesMerge() {
         let t0 = Date(timeIntervalSince1970: 1_000)
         let t1 = Date(timeIntervalSince1970: 2_000)
