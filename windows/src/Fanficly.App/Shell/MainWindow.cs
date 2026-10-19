@@ -163,9 +163,10 @@ public sealed partial class MainWindow : Window
                 Icon = Symbols.Icon(item.Symbol()),
                 Tag = item.RawValue(),
             };
-            ToolTipService.SetToolTip(navItem, $"{item.Title()} ({item.ShortcutText()})");
+            var shortcut = item.ShortcutText();
+            ToolTipService.SetToolTip(navItem, shortcut is null ? item.Title() : $"{item.Title()} ({shortcut})");
             AutomationProperties.SetAutomationId(navItem, $"sidebar.{item.RawValue()}");
-            AutomationProperties.SetAcceleratorKey(navItem, item.ShortcutText());
+            if (shortcut is not null) AutomationProperties.SetAcceleratorKey(navItem, shortcut);
             _navItems[item] = navItem;
             if (item == SidebarItem.Settings) _nav.FooterMenuItems.Add(navItem);
             else _nav.MenuItems.Add(navItem);
@@ -213,7 +214,7 @@ public sealed partial class MainWindow : Window
             if (props.IsXButton1Pressed) { e.Handled = GoBack(); }
         };
 
-        _zoom = Math.Clamp(KeyValueStores.Default.GetDouble(ZoomKey, 1), 0.5, 2.0);
+        _zoom = UiZoom.Clamped(KeyValueStores.Default.GetDouble(ZoomKey, UiZoom.ActualSize));
         RestoreBounds();
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -361,13 +362,13 @@ public sealed partial class MainWindow : Window
             text, "fanficly.announcement");
     }
 
-    // MARK: - Zoom (the Mac app's ⌘+ / ⌘− / ⌘0)
+    // MARK: - Zoom (the Mac app's ⌘ / ⇧⌘ +/− and ⌘0)
 
     public double Zoom => _zoom;
 
-    public void ZoomIn() => SetZoom(Math.Min(2.0, Math.Round((_zoom + 0.1) * 10) / 10));
-    public void ZoomOut() => SetZoom(Math.Max(0.5, Math.Round((_zoom - 0.1) * 10) / 10));
-    public void ResetZoom() => SetZoom(1.0);
+    public void ZoomIn() => SetZoom(UiZoom.Stepped(_zoom, forward: true));
+    public void ZoomOut() => SetZoom(UiZoom.Stepped(_zoom, forward: false));
+    public void ResetZoom() => SetZoom(UiZoom.ActualSize);
 
     private void SetZoom(double value)
     {
@@ -409,14 +410,20 @@ public sealed partial class MainWindow : Window
         }
         foreach (var item in SidebarItems.All)
         {
-            var (key, mods) = item.Shortcut();
-            Add(key, mods, () => Select(item));
+            if (item.Shortcut() is not { } shortcut) continue;
+            Add(shortcut.Key, shortcut.Modifiers, () => Select(item));
         }
+        // Zoom, with or without Shift (the Mac app's ⌘ and ⇧⌘ +/−): the Plus key
+        // (VK_OEM_PLUS, = on US layouts), the Minus key and the number pad's.
+        var ctrlShift = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift;
         Add((VirtualKey)187, VirtualKeyModifiers.Control, ZoomIn);   // Ctrl+= / Ctrl++
+        Add((VirtualKey)187, ctrlShift, ZoomIn);
         Add(VirtualKey.Add, VirtualKeyModifiers.Control, ZoomIn);
-        Add((VirtualKey)187, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift, ZoomIn);
+        Add(VirtualKey.Add, ctrlShift, ZoomIn);
         Add((VirtualKey)189, VirtualKeyModifiers.Control, ZoomOut);  // Ctrl+-
+        Add((VirtualKey)189, ctrlShift, ZoomOut);
         Add(VirtualKey.Subtract, VirtualKeyModifiers.Control, ZoomOut);
+        Add(VirtualKey.Subtract, ctrlShift, ZoomOut);
         Add(VirtualKey.Number0, VirtualKeyModifiers.Control, ResetZoom);
         Add(VirtualKey.NumberPad0, VirtualKeyModifiers.Control, ResetZoom);
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => GoBack());

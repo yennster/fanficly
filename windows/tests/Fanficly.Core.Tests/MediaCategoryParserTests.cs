@@ -91,6 +91,49 @@ public class MediaCategoryParserTests
         Assert.Equal(42, MediaCategoryParser.TrailingCount("Foo (Bar) (42)"));
         Assert.Null(MediaCategoryParser.TrailingCount("No count here"));
     }
+
+    // Failing closed (RM-001)
+
+    [Fact]
+    public void NoFandomsFoundReturnsEmpty()
+    {
+        var html = AO3PageFixtures.GuestPage("fandoms-index", """
+            <h2 class="heading"><a href="/media">Fandoms</a> &gt; Music &amp; Bands</h2>
+            <h3 class="heading">No fandoms found</h3>
+            """);
+        Assert.Empty(MediaCategoryParser.Parse(html));
+    }
+
+    [Fact]
+    public void GuestFandomsPageStillParses()
+    {
+        var html = AO3PageFixtures.GuestPage("fandoms-index", """
+            <ol class="alphabet fandom index group">
+              <li id="letter-M" class="letter listbox group"><ul class="tags index group">
+                <li><a class="tag" href="/tags/Marvel/works">Marvel</a> (12345)</li>
+              </ul></li>
+            </ol>
+            """);
+        Assert.Equal(["Marvel"], MediaCategoryParser.Parse(html).Select(f => f.CanonicalName));
+    }
+
+    [Fact]
+    public void LoginPageThrowsUnauthorized()
+    {
+        var e = Assert.Throws<AO3Exception>(() => MediaCategoryParser.Parse(AO3PageFixtures.LoginPage));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    public static TheoryData<string> GarbagePages =>
+        [AO3PageFixtures.ErrorPage, "<html><body><p>Nothing here</p></body></html>"];
+
+    [Theory]
+    [MemberData(nameof(GarbagePages))]
+    public void GarbagePageThrowsParseFailed(string html)
+    {
+        var e = Assert.Throws<AO3Exception>(() => MediaCategoryParser.Parse(html));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+    }
 }
 
 public class WorkFiltersParserTests
@@ -238,5 +281,40 @@ public class WorkFiltersParserTests
         var filters = WorkFiltersParser.Parse(LiveHtml);
         // The exclude half repeats every tag and must not double-count.
         Assert.Single(filters.Relationships, f => f.Name == "Sherlock Holmes/John Watson");
+    }
+
+    // Failing closed (RM-001)
+
+    /// <summary>A tag with no works renders the works index without the filter form.</summary>
+    [Fact]
+    public void TagWithNoWorksReturnsNoFacets()
+    {
+        var html = AO3PageFixtures.GuestPage("works-index", """
+            <h2 class="heading">0 Works in Some Rare Tag</h2>
+            <h3 class="landmark heading">Listing Works</h3>
+            <ol class="work index group"></ol>
+            """);
+        var filters = WorkFiltersParser.Parse(html);
+        Assert.Empty(filters.Relationships);
+        Assert.Empty(filters.Characters);
+        Assert.Empty(filters.Fandoms);
+        Assert.Empty(filters.Freeforms);
+    }
+
+    [Fact]
+    public void LoginPageThrowsUnauthorized()
+    {
+        var e = Assert.Throws<AO3Exception>(() => WorkFiltersParser.Parse(AO3PageFixtures.LoginPage));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    public static TheoryData<string> GarbagePages => [AO3PageFixtures.ErrorPage, AO3PageFixtures.ForeignPage];
+
+    [Theory]
+    [MemberData(nameof(GarbagePages))]
+    public void GarbagePageThrowsParseFailed(string html)
+    {
+        var e = Assert.Throws<AO3Exception>(() => WorkFiltersParser.Parse(html));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
     }
 }

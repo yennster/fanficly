@@ -40,13 +40,28 @@ internal sealed partial class Segmented : Grid
         {
             var (title, symbol, id) = items[i];
             ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var label = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            // One line with "…" below 150 % Windows text size, as before; from
+            // 150 % the title wraps (breaking inside a long word if it must)
+            // rather than ending in "…".
+            var large = UI.IsLargeText;
+            var label = new TextBlock
+            {
+                Text = title,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = large ? TextWrapping.Wrap : TextWrapping.NoWrap,
+                TextTrimming = large ? TextTrimming.None : TextTrimming.CharacterEllipsis,
+            };
             UIElement content = label;
             if (symbol is not null)
             {
                 var icon = UI.Icon(symbol, 14);
+                icon.VerticalAlignment = VerticalAlignment.Center;
                 _icons.Add(icon);
-                content = UI.HStack(6, icon, label);
+                var row = UI.Grid("Auto,*", columnSpacing: 6);
+                row.Children.Add(icon.Col(0));
+                row.Children.Add(label.Col(1));
+                content = row;
             }
             var button = new Button
             {
@@ -80,7 +95,8 @@ internal sealed partial class Segmented : Grid
         // on a phone-width window), as the Mac's segmented picker drops them.
         SizeChanged += (_, e) =>
         {
-            var compact = items.Count > 0 && e.NewSize.Width / items.Count < IconlessSegmentWidth;
+            // Larger text needs more room per title, so the icons go sooner.
+            var compact = items.Count > 0 && e.NewSize.Width / items.Count < IconlessSegmentWidth * UI.TextScale;
             foreach (var icon in _icons) icon.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         };
     }

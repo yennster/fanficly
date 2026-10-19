@@ -29,7 +29,7 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 - **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage, with options to manually backup/restore or purge backups. Settings → Library File also exports the library as a plain JSON file and imports one, from another device or Fanficly for Windows, with the same never-backwards merge.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3, PDF, or HTML through the iOS share sheet (AirDrop, Books, Files, …).
 - **AO3 account (optional)** — log in to subscribe on AO3 and sync your subscriptions, browse your AO3 bookmarks (including private ones), and post comments. Credentials never stored; only the session cookie, in the Keychain.
-- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom (⌘+ / ⌘− / ⌘0). Resizing never loses your place: rotating, iPad multitasking, or unfolding iPhone Duo keeps the story and paragraph you were on, and lines stay a comfortable length on wide screens.
+- **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with global interface zoom in the View menu (⇧⌘+ / ⇧⌘−, or ⌘+ / ⌘−; ⌘0 for actual size). Resizing never loses your place: rotating, iPad multitasking, or unfolding iPhone Duo keeps the story and paragraph you were on, and lines stay a comfortable length on wide screens.
 - **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
 
 ## Tech

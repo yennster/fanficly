@@ -539,7 +539,7 @@ public sealed class ReaderSettingsScreen : Screen
         if (_sampleButton is null) return;
         _sampleButton.Tag = playing ? "playing" : null;
         var label = playing ? "Stop" : "Play Sample";
-        _sampleButton.Content = UI.UI.Label(playing ? "stop.fill" : "play.fill", label, spacing: 6);
+        _sampleButton.Content = UI.UI.Label(playing ? "stop.fill" : "play.fill", label, spacing: 6, maxLines: UI.UI.LineLimit(1));
         AutomationProperties.SetName(_sampleButton, label);
     }
 

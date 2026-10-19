@@ -61,24 +61,38 @@ are in the repo root's `.github/workflows/` and run every step from `apple/`.
 
 ## Cutting a release
 
-Only when the maintainer asks for one.
+Only when the maintainer asks for one. One release ships every app with one
+set of notes: iPhone, iPad and Mac through App Store Connect, Windows through
+the Microsoft Store, and a refresh of every platform's screenshots and docs.
 
-1. Bump `MARKETING_VERSION` in `project.yml` in a PR and merge it. The
-   build number is automatic (one past the highest on TestFlight for iOS or
-   Mac, or `CURRENT_PROJECT_VERSION`), and both platforms share it.
+1. Bump `MARKETING_VERSION` in `apple/project.yml` (and
+   `windows/store/version.txt` if Windows moves to a new version) in a PR and
+   merge it. Apple build numbers are automatic (one past the highest on
+   TestFlight for iOS or Mac, or `CURRENT_PROJECT_VERSION`), and both Apple
+   platforms share it.
 2. Write the What's New text from what merged since the last release:
-   `bin/release-notes.sh` (needs `gh`) lists the merged PRs and closed
-   issues since the last `v*` tag into `build/release/changes.md`.
-3. Run **Release** with lane `release`, platform `both`, and the notes:
+   `apple/bin/release-notes.sh` (needs `gh`) lists the merged PRs and closed
+   issues since the last `v*` tag into `apple/build/release/changes.md`.
+   Windows takes at most 1,500 characters of it.
+3. Run **Release** with lane `release`, platform `all`, and the notes:
    ```bash
-   gh workflow run release.yml -f lane=release -f platform=both -F notes=@notes.txt
+   gh workflow run release.yml -f lane=release -f platform=all -F notes=@notes.txt
    ```
-   Approve the job when GitHub asks. It builds and uploads both apps, pushes
-   the metadata and screenshots with the new What's New text, then tags
-   `vX.Y.Z` and publishes the GitHub release (the notes plus the list of
-   merged PRs and closed issues). Left blank, the notes default to the merged
-   PR titles.
-4. Submit for review in App Store Connect. No lane submits.
+   Approve the runs as GitHub asks (`app-store`, then `microsoft-store`). It:
+   - builds and uploads the iPhone/iPad and Mac apps and pushes the store
+     copy with the new What's New (no App Store submit);
+   - starts **Windows Store release** (with the same notes when you wrote
+     them; blank keeps `windows/store/listing/en-us/release_notes.txt`), which submits to
+     the Microsoft Store for certification;
+   - starts **Windows screenshots** and **Store assets** (which uploads the
+     new Apple store art) onto a `release-docs/vX.Y.Z` branch;
+   - tags `vX.Y.Z` and publishes the GitHub release (the notes plus the
+     merged PRs and closed issues).
+   Left blank, the notes default to the merged PR titles. Platform `apple`,
+   `ios`, `mac` or `windows` releases just that part.
+4. Submit for review in App Store Connect. No lane submits there.
+5. When both screenshot runs finish, update any doc text that changed with
+   the release on the `release-docs/vX.Y.Z` branch, and merge it with a PR.
 
 Lane `beta` builds and uploads to TestFlight only, with the same notes as
 the TestFlight "What to Test", and doesn't tag. `metadata_only` pushes copy

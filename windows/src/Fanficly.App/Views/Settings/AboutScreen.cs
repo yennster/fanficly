@@ -27,18 +27,22 @@ public sealed class AboutScreen : Screen
             () => _ = StoreReviewRequester.OpenStoreReviewPageAsync(), "star", automationId: "settings.rate", chevron: false);
         ToolTipService.SetToolTip(rate, "Opens Fanficly's page in the Microsoft Store");
 
+        // A grid, not a horizontal stack, so the tagline wraps beside the icon
+        // (at large text sizes and in narrow windows) instead of being cut off.
+        var header = UI.UI.Grid("Auto,*", columnSpacing: 14);
+        header.Children.Add(new Image
+        {
+            Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Square44x44Logo.targetsize-64.png")),
+            Width = 56,
+            Height = 56,
+        }.A11yHidden().Col(0));
+        header.Children.Add(UI.UI.VStack(2,
+            UI.UI.Text("Fanficly", Theme.Style.Title2).A11yHeading(),
+            UI.UI.Secondary("A reader for Archive of Our Own. No servers, no tracking.", Theme.Style.Body))
+            .Also(s => s.VerticalAlignment = VerticalAlignment.Center).Col(1));
+
         var page = UI.UI.VStack(18,
-            UI.UI.HStack(14,
-                new Image
-                {
-                    Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/Square44x44Logo.targetsize-64.png")),
-                    Width = 56,
-                    Height = 56,
-                }.A11yHidden(),
-                UI.UI.VStack(2,
-                    UI.UI.Text("Fanficly", Theme.Style.Title2).A11yHeading(),
-                    UI.UI.Secondary("A reader for Archive of Our Own. No servers, no tracking.", Theme.Style.Body))
-                    .Also(s => s.VerticalAlignment = VerticalAlignment.Center)),
+            header,
             UI.UI.Section("About",
             [
                 UI.UI.SettingsRow("Version", version),

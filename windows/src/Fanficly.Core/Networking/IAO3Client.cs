@@ -11,6 +11,16 @@ public interface IAO3Client
     Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default);
+    /// <summary>One page of the user's AO3 Marked for Later list. Needs login.
+    /// The default throws, so a client that doesn't forward it can't show an
+    /// empty list; test fakes that never open the tab need nothing.</summary>
+    Task<AO3SearchResults> FetchMarkedForLaterAsync(string username, int page, CancellationToken ct = default) =>
+        throw new NotSupportedException(nameof(FetchMarkedForLaterAsync));
+    /// <summary>One page of the user's AO3 reading history, most recently visited
+    /// first. Needs login and History turned on in AO3's preferences. The default
+    /// throws, as <see cref="FetchMarkedForLaterAsync"/> does.</summary>
+    Task<AO3SearchResults> FetchReadingHistoryAsync(string username, int page, CancellationToken ct = default) =>
+        throw new NotSupportedException(nameof(FetchReadingHistoryAsync));
     Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default);
     /// <summary>One chapter of a work, as AO3 pages it by default: chapter
     /// <paramref name="chapter"/> (one-based) when it exists, else the first.
@@ -21,8 +31,9 @@ public interface IAO3Client
     Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
     /// <summary>Comments for a specific chapter (AO3 threads comments per chapter).
     /// <paramref name="chapterId"/> null fetches the work-level page (the first
-    /// chapter's thread), the fallback when the id is unknown.</summary>
-    Task<IReadOnlyList<AO3Comment>> FetchCommentsAsync(int workId, int? chapterId, CancellationToken ct = default);
+    /// chapter's thread), the fallback when the id is unknown. <paramref name="page"/>
+    /// is the 1-based comment page.</summary>
+    Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default);
     Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default);
     Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default);
     Task<PopularSnapshot> FetchPopularSnapshotAsync(CancellationToken ct = default);
