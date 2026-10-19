@@ -59,6 +59,8 @@ public static class LibraryRow
             pills.Children.Add(Pill(text, isFolder));
             spoken.Add(isFolder ? $"in folder {text}" : text);
         }
+        // The Swift app tints personal tags purple; here they keep the
+        // secondary pill colours and a tag icon, which Theme already has.
         foreach (var tag in work.PersonalTags)
         {
             pills.Children.Add(Pill(tag, isFolder: false, symbol: "tag"));

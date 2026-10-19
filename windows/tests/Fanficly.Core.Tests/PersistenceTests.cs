@@ -893,6 +893,25 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public void SetNotesTreatsTextBoxLineEndingsAsUnchanged()
+    {
+        // A note written on an iPhone uses "\n"; WinUI's TextBox reads it back
+        // with "\r". Saving it untouched must not count as an edit.
+        var work = new Work(1, "T", "A");
+        var earlier = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+        work.SetNotes("line one\nline two", "", earlier);
+        Assert.Equal(earlier, work.NotesUpdatedAt);
+
+        work.SetNotes("line one\rline two", "", earlier.AddHours(1));
+        Assert.Equal("line one\nline two", work.Note);
+        Assert.Equal(earlier, work.NotesUpdatedAt);
+
+        work.SetNotes("line one\r\nline three", "", earlier.AddHours(2));
+        Assert.Equal("line one\nline three", work.Note);
+        Assert.Equal(earlier.AddHours(2), work.NotesUpdatedAt);
+    }
+
+    [Fact]
     public void LibrarySearchMatchesNoteAndPersonalTags()
     {
         var work = new Work(1, "Golden Snitch", "A");

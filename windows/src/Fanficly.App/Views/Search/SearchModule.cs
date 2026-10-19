@@ -24,7 +24,6 @@ internal static class SearchModule
     {
         if (_symbolsAdded) return;
         _symbolsAdded = true;
-        if (!Symbols.Has("tag")) Symbols.Add("tag", '');           // Tag
         if (!Symbols.Has("1.circle")) Symbols.Add("1.circle", ''); // Page: a single-chapter work
         if (!Symbols.Has("scope")) Symbols.Add("scope", '');       // Bullseye
     }

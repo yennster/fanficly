@@ -555,9 +555,9 @@ public sealed class LibrarySyncManager
             var notes = MergedNotes(
                 new WorkNotes(work.Note, work.PersonalTags, work.NotesUpdatedAt),
                 new WorkNotes(w.Note, w.PersonalTags ?? [], w.NotesUpdatedAt));
-            work.Note = notes.Note;
-            work.PersonalTags = notes.PersonalTags;
-            work.NotesUpdatedAt = notes.UpdatedAt;
+            if (notes.Note != work.Note) work.Note = notes.Note;
+            if (!notes.PersonalTags.SequenceEqual(work.PersonalTags)) work.PersonalTags = notes.PersonalTags;
+            if (notes.UpdatedAt != work.NotesUpdatedAt) work.NotesUpdatedAt = notes.UpdatedAt;
 
             work.Folder = null; // clear the legacy single-folder reference
             // Folders union, not replace: a launch sync must not drop an

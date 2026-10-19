@@ -304,7 +304,10 @@ public sealed class Work : LibraryEntity, ILibrarySortable
     /// (Swift's <c>setNotes(note:tagsText:now:)</c>).</summary>
     public void SetNotes(string note, string tagsText, DateTimeOffset? now = null)
     {
-        var trimmed = note.Trim();
+        // One line ending everywhere: WinUI's TextBox hands back "\r", and
+        // the Swift app stores "\n", so an untouched note must compare equal
+        // (a false edit would get a new stamp and win the next merge).
+        var trimmed = note.ReplaceLineEndings("\n").Trim();
         var newNote = trimmed.Length == 0 ? null : trimmed;
         var newTags = ParsePersonalTags(tagsText);
         if (newNote == Note && newTags.SequenceEqual(PersonalTags)) return;

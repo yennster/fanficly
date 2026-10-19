@@ -131,8 +131,8 @@ internal static class LibraryActions
             Text = work.Note ?? "",
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
-            MinHeight = 90,
-            MaxHeight = 220,
+            MinHeight = 90 * UI.UI.TextScale,
+            MaxHeight = 220 * UI.UI.TextScale,
         };
         AutomationProperties.SetAutomationId(note, "notes.note");
         var tags = new TextBox
@@ -152,6 +152,8 @@ internal static class LibraryActions
             DefaultButton = ContentDialogButton.Primary,
         };
         dialog.Opened += (_, _) => note.Focus(FocusState.Programmatic);
+        // Esc is an explicit Cancel here, so unlike the Swift sheet (which
+        // blocks swipe-down while there are edits) it simply discards them.
         if (await Dialogs.ShowAsync(dialog) != ContentDialogResult.Primary || !work.IsInserted) return;
         WorkPersistence.SetNotes(work, note.Text, tags.Text, Store);
         MainWindow.Current?.Announce($"Saved note and tags for {work.Title}");
