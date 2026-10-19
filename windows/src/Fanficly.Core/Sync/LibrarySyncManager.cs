@@ -748,11 +748,16 @@ public sealed class LibrarySyncManager
     /// <summary>Deletes the backup file (and the copy of the previous one) from the sync folder.</summary>
     public bool Clear()
     {
-        if (BackupPath is not { } path || !File.Exists(path)) return false;
+        if (BackupPath is not { } path) return false;
+        try { File.Delete(PreviousBackupPath(path)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            LibraryHooks.Log?.Invoke($"Failed to clear the previous library backup: {e.Message}");
+        }
+        if (!File.Exists(path)) return false;
         try
         {
             File.Delete(path);
-            File.Delete(PreviousBackupPath(path));
             return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
