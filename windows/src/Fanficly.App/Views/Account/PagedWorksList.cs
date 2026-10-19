@@ -277,7 +277,7 @@ internal sealed class PagedWorksList
         var cts = _cts ??= new CancellationTokenSource();
         _loadMoreError = null;
         await LoadMoreAsync();
-        await LoadPastHiddenPagesAsync(cts);
+        if (LoadsPastHiddenPages) await LoadPastHiddenPagesAsync(cts);
     }
 
     private void UpdateFooter()
