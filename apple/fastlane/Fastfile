@@ -253,7 +253,10 @@ platform :ios do
         output_directory: BUILD_DIR,
         output_name: "Fanficly-#{p}",
         clean: true,
-        xcargs: "CURRENT_PROJECT_VERSION=#{build}"
+        # On the command line because XcodeGen's iOS preset puts
+        # CODE_SIGN_IDENTITY = "iPhone Developer" on the app target itself,
+        # which beats the Signing.xcconfig written above.
+        xcargs: "CURRENT_PROJECT_VERSION=#{build} CODE_SIGN_IDENTITY='Apple Distribution'"
       }
       if p == "ios"
         build_app(**common,
