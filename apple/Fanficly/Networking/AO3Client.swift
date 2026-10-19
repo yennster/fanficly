@@ -10,6 +10,9 @@ public protocol AO3ClientProtocol: Sendable {
     func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults
     /// One page of the user's AO3 Marked for Later list. Login required.
     func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults
+    /// One page of the user's AO3 reading history, most recently visited
+    /// first. Login required, and the reader must have History turned on.
+    func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     /// One page of a series (`/series/<id>`): its title, creators and works in
@@ -515,6 +518,17 @@ public actor AO3Client: AO3ClientProtocol {
         return try SearchResultsParser.parseReadings(html: html)
     }
 
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
+        await throttle.wait()
+        let url = try AO3Endpoints.userReadingHistory(name: username, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "History response not UTF-8")
+        }
+        return try SearchResultsParser.parseReadings(html: html)
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         await throttle.wait()
         let url = try AO3Endpoints.work(id: id, base: baseURL)
@@ -1012,6 +1026,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {

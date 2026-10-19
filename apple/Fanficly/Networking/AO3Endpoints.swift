@@ -68,6 +68,11 @@ enum AO3Endpoints {
         try userReadings(name: name, page: page, markedForLater: true, base: base)
     }
 
+    /// The user's AO3 reading history: the unfiltered readings page.
+    static func userReadingHistory(name: String, page: Int = 1, base: URL) throws -> URL {
+        try userReadings(name: name, page: page, markedForLater: false, base: base)
+    }
+
     private static func userReadings(name: String, page: Int, markedForLater: Bool, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/users/\(name)/readings"),
                                        resolvingAgainstBaseURL: false)
