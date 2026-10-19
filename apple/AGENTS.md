@@ -156,7 +156,7 @@ Fanficly/
   RootView.swift               # NavigationSplitView sidebar (Search, Browse,
                                #   Popular, Library, Stats, Recently Viewed,
                                #   Authors, Bookmarks, Subscriptions, Settings);
-                               #   global ⌘ zoom (app.zoomScale); deep links
+                               #   global zoom (app.zoomScale, UIZoom); deep links
                                #   (import, resume, folder, search) + notifications
   AO3ClientEnvironment.swift   # @Environment(\.ao3Client) key
   WidgetProgressStore.swift    # last-read progress for the widget: app-group
@@ -579,7 +579,7 @@ The Duo (5.4" outer, 7.6" inner, iOS 27.1, ships Oct 23 2026) is the **phone** i
 
 ## Mac Catalyst
 
-The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale`, bound to ⌘+/⌘=/⌘−/⌘0 — by counter-scaling the root view. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).
+The app also builds for the Mac via Catalyst (`TARGETED_DEVICE_FAMILY: "1,2,6"`, `SUPPORTS_MACCATALYST: YES` in project.yml). `RootView` implements a global UI zoom — `app.zoomScale` — by counter-scaling the root view. Step and clamp live in the pure `UIZoom` (0.5–2.0 in tenths, `UIZoomTests`). The View menu (`CommandGroup(after: .sidebar)` in `FanficlyApp`, not a `CommandMenu("View")`, which would add a second View menu) shows Zoom In ⇧⌘+, Zoom Out ⇧⌘− and Actual Size ⌘0; a menu item takes one shortcut, so `RootView` keeps the other spellings (⌘+, ⌘=, ⇧⌘=, ⌘−, ⇧⌘_) as hidden buttons. The reader handles hardware arrow-key page turns via `ReaderKeyPressModifier` (`.onKeyPress`), with `.focusEffectDisabled()` so no focus ring is drawn. There is no Mac Catalyst simulator: Mac screenshots are captured on a landscape iPad Pro 13-inch sim instead (see Screenshots).
 
 
 ## Screenshots
