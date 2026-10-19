@@ -5,7 +5,7 @@ using Fanficly.Core;
 
 namespace Fanficly.App.Views.Authors;
 
-/// <summary>Registers the Authors tab, the author-works route and the
+/// <summary>Registers the Authors tab, the author-works and series routes and the
 /// notification-permission step of the follow flow.</summary>
 internal static class AuthorsModule
 {
@@ -18,6 +18,7 @@ internal static class AuthorsModule
     {
         Tabs.Register(SidebarItem.Authors, () => new FollowedAuthorsScreen());
         Routes.AuthorWorks = author => new AuthorWorksScreen(author);
+        Routes.Series = (id, title) => new SeriesScreen(id, title);
         NotificationsAuthorization.Request ??= RequestNotificationsAsync;
     }
 

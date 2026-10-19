@@ -16,6 +16,6 @@ public static class WorkMetadataParser
         var stats = doc.SelectFirst("dl.stats");
         var (current, total) = HtmlDom.ParseChapterFraction(stats?.SelectFirst("dd.chapters")?.Text() ?? "1/1");
         var updatedAt = HtmlDom.ParseDate(stats?.SelectFirst("dd.status")?.Text() ?? "", "yyyy-MM-dd");
-        return new AO3WorkMetadata(workId, current, total, updatedAt);
+        return new AO3WorkMetadata(workId, current, total, updatedAt) { Series = SeriesParser.Parts(doc) };
     }
 }

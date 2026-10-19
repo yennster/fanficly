@@ -23,6 +23,9 @@ public static class Routes
     /// <summary>One author's works (AuthorWorksView).</summary>
     public static Func<AuthorRef, Screen>? AuthorWorks { get; set; }
 
+    /// <summary>A series' works in order (SeriesView): its id and title.</summary>
+    public static Func<int, string, Screen>? Series { get; set; }
+
     /// <summary>Works matching filters under a title (FandomWorksView driven by filters).</summary>
     public static Func<AO3SearchFilters, string, Screen>? FilteredWorks { get; set; }
 
@@ -58,6 +61,9 @@ public static class Routes
 
     public static void OpenAuthor(AuthorRef author) =>
         Nav.Push(AuthorWorks?.Invoke(author) ?? Missing(author.DisplayName));
+
+    public static void OpenSeries(int seriesId, string title) =>
+        Nav.Push(Series?.Invoke(seriesId, title) ?? Missing(title));
 
     public static void OpenFilteredWorks(AO3SearchFilters filters, string title) =>
         Nav.Push(FilteredWorks?.Invoke(filters, title) ?? Missing(title));

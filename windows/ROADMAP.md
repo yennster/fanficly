@@ -187,6 +187,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** `AO3ClientTests` and `KudosTests` cover the POST, the duplicate answer, a refusal, a signed-out page, no kudos button and no retry; the PR lists what to check on Windows.
 - **Touches:** `windows/src/Fanficly.Core/Networking/`, `Parsing/WorkPageParser.cs`, `Library/Kudos.cs`, `windows/src/Fanficly.App/Views/Reader/{WorkKudos,WorkDetailScreen,SavedWorkReaderScreen}.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`.
 
+### RM-118 — Series page and "next in series"
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** The Windows port of the Apple app's RM-007 (#79: `SeriesParser`, `AO3Client.fetchSeries`, `SeriesView`), so a work in a series shows where it sits and opens the rest.
+- **Scope:** `SeriesParser.Parts` reads a work page's "Part N of <series>" spans into `AO3WorkSummary.Series` and `AO3WorkMetadata.Series`; `SeriesParser.Parse` reads `/series/<id>` (title, creators, description, work count, complete, works in order, pagination; unrevealed "Mystery Work" entries dropped; fails closed). `FetchSeriesAsync` on `IAO3Client` through the throttle. The reader's work header shows "Part N of <series> ›", which opens `SeriesScreen` (`Routes.OpenSeries`), and "Next in series →" when AO3 links a next work.
+- **Done when:** `SeriesParserTests` (one work, several in order, a mystery entry, co-creators, a work in one and in two series, the end-of-work module not duplicating, no series), endpoint, client and demo tests; a smoke step opening the series from demo work 90003; the PR lists what to check on Windows.
+- **Touches:** `windows/src/Fanficly.Core/Networking/`, `Parsing/{SeriesParser,WorkMetadataParser,WorkPageParser}.cs`, `Demo/DemoAO3Client.cs`, `windows/src/Fanficly.App/Views/{Routes.cs,Authors/SeriesScreen.cs,Authors/AuthorsModule.cs,Account/PagedWorksList.cs,Reader/WorkHeaderMetadataView.cs}`, `windows/tests/Fanficly.Core.Tests/`, `windows/tests/Fanficly.UITests/SmokeTests.cs`.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find library works from Windows Search
@@ -249,7 +256,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 
 ## Ideas from the Apple roadmap
 
-The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages, bulk download for a folder, notes and personal tags, and creating AO3 bookmarks (kudos is RM-115). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+The Apple app's roadmap on `main` has features that apply here too once they ship there: bulk download for a folder, notes and personal tags, and creating AO3 bookmarks (kudos is RM-115, series pages are RM-118). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 

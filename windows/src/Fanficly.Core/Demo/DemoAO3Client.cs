@@ -92,6 +92,24 @@ public sealed class DemoAO3Client : IAO3Client
         return Task.FromResult(new AO3WorkMetadata(id, w.ChapterCount, w.TotalChapters, w.UpdatedAt));
     }
 
+    // The Swift demo's series: the first three catalogue works, complete.
+    public Task<AO3Series> FetchSeriesAsync(int id, int page, CancellationToken ct = default)
+    {
+        var works = DemoCatalog.Works.Take(3).ToList();
+        return Task.FromResult(new AO3Series
+        {
+            Id = id,
+            Title = "The Lighthouse Letters",
+            Creator = works.FirstOrDefault()?.Author ?? "",
+            CreatorUsername = works.FirstOrDefault()?.AuthorUsername ?? "",
+            DescriptionHtml = "<p>Three stories from the same stretch of coast.</p>",
+            WorkCount = works.Count,
+            IsComplete = true,
+            Works = works,
+            CurrentPage = page,
+        });
+    }
+
     public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
         Task.FromResult(DemoCatalog.Subscriptions);
 
@@ -228,8 +246,19 @@ public static class DemoCatalog
         var chapters = Enumerable.Range(1, count)
             .Select(idx => new AO3ChapterPayload(idx, ChapterTitles[(idx - 1) % ChapterTitles.Length], ChapterHtml(idx)))
             .ToList();
-        return new AO3WorkPayload(s, chapters);
+        return new AO3WorkPayload(s with { Series = SeriesParts(id) }, chapters);
     }
+
+    /// <summary>"Of Maps and Mistakes" is part 3 of the demo series, so its work page
+    /// shows the series row (the smoke test opens the series from it). Only the work
+    /// page carries it, as on AO3; listings don't.</summary>
+    private static IReadOnlyList<AO3SeriesPart> SeriesParts(int id)
+    {
+        if (id != 90003) return [];
+        return [new AO3SeriesPart(DemoSeriesId, "The Lighthouse Letters", 3, PreviousWorkId: 90002)];
+    }
+
+    public const int DemoSeriesId = 5;
 
     private static readonly string[] ChapterTitles = ["Landfall", "What the Tide Brought", "The Long Way Home"];
 

@@ -57,6 +57,29 @@ internal sealed class PagedWorksList
 
     private IReadOnlyList<AO3WorkSummary> Visible() => AccountKit.Visible(_works, _blocklist?.Invoke());
 
+    private FrameworkElement? _header;
+    private bool _headerInList;
+
+    /// <summary>Content above the rows, scrolling with them (a series' header). It
+    /// stays on screen above the "no works" and "filtered out" states too.</summary>
+    public FrameworkElement? Header
+    {
+        set
+        {
+            Detach(_header);
+            if (_headerInList) _list.Header = null;
+            _headerInList = false;
+            _header = value;
+            Render(force: true);
+        }
+    }
+
+    /// <summary>When page 1 has nothing to show (every work hidden, or entries with
+    /// nothing to open), load the next pages until one does or none remain, so the
+    /// list can't stop with more pages it never asks for (SeriesView's
+    /// <c>loadPastHiddenPages</c>).</summary>
+    public bool LoadsPastHiddenPages { get; init; }
+
     /// <summary>The element to put on screen.</summary>
     public FrameworkElement Element => _host;
 
@@ -105,6 +128,18 @@ internal sealed class PagedWorksList
             if (_cts == cts) SetLoading(false);
         }
         Render(force: true);
+        if (LoadsPastHiddenPages) await LoadPastHiddenPagesAsync(cts);
+    }
+
+    private async Task LoadPastHiddenPagesAsync(CancellationTokenSource cts)
+    {
+        while (!cts.IsCancellationRequested && _errorMessage is null && _loadMoreError is null
+               && _currentPage < _totalPages && Visible().Count == 0)
+        {
+            var page = _currentPage;
+            await LoadMoreAsync();
+            if (_currentPage <= page) break;
+        }
     }
 
     /// <summary>Drops everything and loads page 1 again (the toolbar's Refresh).</summary>
@@ -162,9 +197,19 @@ internal sealed class PagedWorksList
             content = UI.UI.EmptyState("exclamationmark.triangle", _texts.ErrorTitle, _errorMessage,
                                        "Retry", () => _ = LoadFirstAsync());
         }
+        else if (_isLoadingMore && Visible().Count == 0)
+        {
+            // Loading on past a page with nothing to show.
+            content = WithHeader(UI.UI.Loading(_texts.Loading));
+        }
+        else if (_works.Count == 0 && _loadMoreError is not null && _currentPage < _totalPages)
+        {
+            content = WithHeader(UI.UI.EmptyState("exclamationmark.triangle", _texts.ErrorTitle, _loadMoreError,
+                                                  "Retry", () => _ = RetryHiddenPagesAsync()));
+        }
         else if (_works.Count == 0)
         {
-            content = UI.UI.EmptyState(_texts.EmptySymbol, _texts.EmptyTitle, _texts.EmptyMessage);
+            content = WithHeader(UI.UI.EmptyState(_texts.EmptySymbol, _texts.EmptyTitle, _texts.EmptyMessage));
         }
         else
         {
@@ -172,9 +217,13 @@ internal sealed class PagedWorksList
             if (visible.Count == 0)
             {
                 // Rows are what ask for the next page, so offer it here.
-                content = _currentPage < _totalPages && !_isLoadingMore
-                    ? UI.UI.EmptyState("eye.slash", "Nothing to show", _texts.FilteredMessage, "Load more results", () => _ = LoadMoreAsync())
-                    : UI.UI.EmptyState("eye.slash", "Nothing to show", _texts.FilteredMessage);
+                content = _loadMoreError is not null && _currentPage < _totalPages
+                    ? WithHeader(UI.UI.EmptyState("exclamationmark.triangle", _texts.ErrorTitle, _loadMoreError,
+                                                  "Retry", () => _ = RetryHiddenPagesAsync()))
+                    : _currentPage < _totalPages && !_isLoadingMore
+                        ? WithHeader(UI.UI.EmptyState("eye.slash", "Nothing to show", _texts.FilteredMessage,
+                                                      "Load more results", () => _ = LoadMoreAsync()))
+                        : WithHeader(UI.UI.EmptyState("eye.slash", "Nothing to show", _texts.FilteredMessage));
                 _shownIds = [];
             }
             else
@@ -191,6 +240,12 @@ internal sealed class PagedWorksList
                 }
                 _list.HasMore = _currentPage < _totalPages;
                 UpdateFooter();
+                if (_header is not null && !_headerInList)
+                {
+                    Detach(_header);
+                    _list.Header = _header;
+                    _headerInList = true;
+                }
                 content = _list.Element;
             }
         }
@@ -199,6 +254,30 @@ internal sealed class PagedWorksList
             _host.Children.Clear();
             _host.Children.Add(content);
         }
+    }
+
+    /// <summary>An empty or error state under the header, scrolling together
+    /// (the header leaves the list while the list isn't shown).</summary>
+    private FrameworkElement WithHeader(FrameworkElement state)
+    {
+        if (_header is null) return state;
+        if (_headerInList) { _list.Header = null; _headerInList = false; }
+        Detach(_header);
+        var panel = new StackPanel { Padding = new Thickness(16, 4, 16, 24), MaxWidth = 980, Children = { _header, state } };
+        return new ScrollViewer { Content = panel };
+    }
+
+    private static void Detach(FrameworkElement? element)
+    {
+        if (element?.Parent is Panel parent) parent.Children.Remove(element);
+    }
+
+    private async Task RetryHiddenPagesAsync()
+    {
+        var cts = _cts ??= new CancellationTokenSource();
+        _loadMoreError = null;
+        await LoadMoreAsync();
+        if (LoadsPastHiddenPages) await LoadPastHiddenPagesAsync(cts);
     }
 
     private void UpdateFooter()
