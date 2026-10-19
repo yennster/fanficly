@@ -168,6 +168,11 @@ public static class WorkExportFormatExtensions
     };
 }
 
+/// <summary>What AO3 said to a kudos POST (Swift's <c>KudosOutcome</c>). AO3 allows
+/// one kudo per user per work and answers a second with "You have already left
+/// kudos here. :)", which is still a kudo on the work.</summary>
+public enum KudosOutcome { Left, AlreadyLeft }
+
 public enum AO3ErrorKind { LoginFailed, RateLimited, Unauthorized, ParseFailed, Http, Network, Rejected }
 
 /// <summary>Every failure the AO3 client surfaces (Swift's <c>AO3Error</c>).</summary>

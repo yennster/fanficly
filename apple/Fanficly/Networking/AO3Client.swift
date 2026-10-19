@@ -24,11 +24,23 @@ public protocol AO3ClientProtocol: Sendable {
     func downloadEPUB(workId: Int) async throws -> URL
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL
     func subscribeToWork(workId: Int) async throws
+    /// Leaves kudos on a work as the logged-in user: one POST, never retried.
+    /// Throws `.unauthorized` when the session isn't logged in, so a stale
+    /// cookie can't quietly leave a guest kudo instead.
+    func leaveKudos(workId: Int) async throws -> KudosOutcome
     /// The signed-in user's bookmark form for a work, prefilled when they
     /// already bookmarked it. Throws `.unauthorized` when signed out.
     func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm
     /// Creates or updates the bookmark by posting `form` back to AO3.
     func saveBookmark(_ form: AO3BookmarkForm) async throws
+}
+
+/// What AO3 said to a kudos POST. AO3 allows one kudo per user per work and
+/// answers a second one with "You have already left kudos here. :)", which
+/// is still a kudo on the work, so the app remembers it the same way.
+public enum KudosOutcome: Sendable, Equatable {
+    case left
+    case alreadyLeft
 }
 
 public struct AO3SearchResults: Sendable, Equatable {
@@ -268,6 +280,9 @@ public enum AO3Error: Error, Sendable, Equatable {
     case parseFailed(reason: String)
     case http(status: Int)
     case network(underlying: String)
+    /// AO3 refused a kudo, with its own reason ("You can't leave kudos on your
+    /// own work.", a block, a suspended account).
+    case kudosRejected(message: String)
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -678,6 +693,64 @@ public actor AO3Client: AO3ClientProtocol {
         }
     }
 
+    public func leaveKudos(workId: Int) async throws -> KudosOutcome {
+        // Read the work page first: it carries the kudos form (absent on your
+        // own work or one whose creator blocked you) and shows whether the
+        // session is still logged in. AO3 takes guest kudos too, so posting
+        // with an expired cookie would silently leave one as a guest.
+        await throttle.wait()
+        let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
+        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let pageHTML = String(data: pageData, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Work page not UTF-8")
+        }
+        guard KudosParser.isSignedIn(html: pageHTML) else {
+            throw AO3Error.unauthorized
+        }
+        guard var fields = KudosParser.formFields(html: pageHTML) else {
+            throw AO3Error.kudosRejected(message: "AO3 doesn't offer kudos on this work. It may be your own, or its creator may have blocked you.")
+        }
+        // The page-wide token (`<meta name="csrf-token">`), as comments and
+        // subscribe use. AO3 has Rails' per-form tokens on, so the form's own
+        // token only validates for a POST to `/kudos`, not `/kudos.js`; AO3's
+        // script gets through because it also sends the meta token.
+        guard let token = try? LoginParser.authenticityToken(html: pageHTML) else {
+            throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
+        }
+        fields["authenticity_token"] = token
+
+        // Post the form the way AO3's own script does (`/kudos.js`): it
+        // answers 201 on success and 422 with `{"error_message": …}` otherwise,
+        // instead of a redirect whose flash we'd have to scrape.
+        let kudosURL = try AO3Endpoints.kudos(base: baseURL)
+        await throttle.wait()
+        var request = URLRequest(url: kudosURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        request.httpBody = encodeForm(fields).data(using: .utf8)
+
+        let (data, response) = try await performRequest(request, passing: [422])
+        switch response.statusCode {
+        case 201:
+            return .left
+        case 422:
+            // A refused token (the session ended between the two requests)
+            // answers `{"errors": {"auth_error": …}}` instead.
+            if KudosParser.isAuthError(json: data) { throw AO3Error.unauthorized }
+            let message = KudosParser.errorMessage(json: data) ?? ""
+            if KudosParser.isAlreadyLeft(message: message) { return .alreadyLeft }
+            throw AO3Error.kudosRejected(message: message.isEmpty ? "AO3 didn't accept the kudos." : message)
+        default:
+            // Anything else (a maintenance page, a proxy) isn't AO3's kudos
+            // answer, so it mustn't be remembered as a kudo.
+            throw AO3Error.kudosRejected(message: "AO3 gave an unexpected answer (HTTP \(response.statusCode)), so the kudos may not have been left. Trying again is safe.")
+        }
+    }
+
 
     public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
         await throttle.wait()
@@ -754,8 +827,11 @@ public actor AO3Client: AO3ClientProtocol {
     /// rate-limit) is retried before it surfaces to the caller.
     private static let maxRetries = 2
 
+    /// `passing` lists error statuses the caller reads itself (the kudos
+    /// POST's 422 carries AO3's reason) instead of having them thrown.
     private func performRequest(_ request: URLRequest, attempt: Int = 0,
-                                maxRetries: Int = AO3Client.maxRetries) async throws -> (Data, HTTPURLResponse) {
+                                maxRetries: Int = AO3Client.maxRetries,
+                                passing: Set<Int> = []) async throws -> (Data, HTTPURLResponse) {
         ensureCookiesLoaded()
         // Only auto-retry idempotent reads. Replaying a POST (login, comment,
         // subscribe) after a timeout could double-submit — e.g. a comment that
@@ -767,6 +843,7 @@ public actor AO3Client: AO3ClientProtocol {
             guard let http = response as? HTTPURLResponse else {
                 throw AO3Error.network(underlying: "Non-HTTP response")
             }
+            if passing.contains(http.statusCode) { return (data, http) }
             switch http.statusCode {
             case 200..<300, 302: return (data, http)
             case 401, 403:        throw AO3Error.unauthorized
@@ -782,7 +859,7 @@ public actor AO3Client: AO3ClientProtocol {
                    retryAfter <= Self.maxPoliteRetryAfter {
                     try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
                     await throttle.wait()
-                    return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries)
+                    return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries, passing: passing)
                 }
                 throw AO3Error.rateLimited
             default:              throw AO3Error.http(status: http.statusCode)
@@ -795,7 +872,7 @@ public actor AO3Client: AO3ClientProtocol {
             // the whole load.
             try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
             await throttle.wait()
-            return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries)
+            return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries, passing: passing)
         } catch {
             throw AO3Error.network(underlying: error.localizedDescription)
         }
@@ -896,6 +973,7 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
     public func subscribeToWork(workId: Int) async throws {}
+    public func leaveKudos(workId: Int) async throws -> KudosOutcome { .left }
     public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
         AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
                         hiddenFields: [:], isExisting: false)

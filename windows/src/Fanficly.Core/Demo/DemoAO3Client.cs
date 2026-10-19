@@ -131,6 +131,8 @@ public sealed class DemoAO3Client : IAO3Client
         Task.FromResult(Path.Combine(Path.GetTempPath(), $"{filename}.{format.Ext()}"));
 
     public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) => Task.FromResult(KudosOutcome.Left);
 }
 
 /// <summary>The curated demo catalog.</summary>
