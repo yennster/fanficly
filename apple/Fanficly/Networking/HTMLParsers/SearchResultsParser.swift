@@ -37,20 +37,42 @@ enum SearchResultsParser {
                                 totalFound: try totalFound(in: doc))
     }
 
-    /// A works or bookmarks listing, even an empty one: the index `<ol>` that
+    /// A works, bookmarks or readings listing, even an empty one: the index `<ol>` that
     /// author, tag and bookmark pages always render, the Rails controller-action
     /// class on `#main`, or the "No results found" line search shows instead of
     /// the list.
     private static func isListingPage(_ doc: Document) throws -> Bool {
         if try !doc.select("ol.work.index, ol.bookmark.index").isEmpty() { return true }
         if AO3PageCheck.mainHasClass(doc, ["works-search", "works-index", "works-collected",
-                                           "bookmarks-search", "bookmarks-index"]) {
+                                           "bookmarks-search", "bookmarks-index", "readings-index"]) {
             return true
         }
         for p in try doc.select("#main p").array() {
             if try p.text().contains("No results found") { return true }
         }
         return false
+    }
+
+    /// AO3's readings page (`/users/<name>/readings`, which with
+    /// `?show=to-read` is Marked for Later). Each entry is
+    /// `li.reading.work.blurb` with id `work_<id>` around the usual work blurb;
+    /// deleted works keep an entry with no id and no title link, so
+    /// `parseBlurb` skips them. Fails closed: the page is login-only, so a
+    /// login form means the session expired, and a page without the
+    /// `readings-index` shell (AO3 sends readers with history turned off to
+    /// their preferences) is never read as an empty list.
+    static func parseReadings(html: String) throws -> AO3SearchResults {
+        let doc = try SwiftSoup.parse(html)
+        if SubscriptionsParser.looksLikeLoginPage(doc) {
+            throw AO3Error.unauthorized
+        }
+        if try doc.select("div.readings-index").isEmpty() {
+            if try !doc.select("div.preferences-index").isEmpty() {
+                throw AO3Error.parseFailed(reason: "Your AO3 reading history is turned off. Check \"Turn on History\" in your AO3 preferences to see this list.")
+            }
+            throw AO3Error.parseFailed(reason: "AO3 sent a page that isn't your readings list. Try again, or check the list on the AO3 website.")
+        }
+        return try parse(html: html, blurbSelector: "li.reading.work.blurb")
     }
 
     /// The `<h3 class="heading">126,555 Found …</h3>` count on search pages.

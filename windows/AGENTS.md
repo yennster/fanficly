@@ -93,11 +93,10 @@ Mutations go through `WorkPersistence` (Upsert, UpsertMetadata, ToggleFollow, Un
 apple/                         # the Swift app: reference implementation, not built
                                #   by the Windows workflows (its own AGENTS.md;
                                #   its backlog is apple/docs/ROADMAP.md)
-docs/
-  screenshots/windows/         # README shots from ScreenshotTests (desktop/tablet/compact)
-                               #   + showcase.jpg, committed by windows-screenshots.yml
 windows/
   README.md, AGENTS.md, …      # the Windows app's docs (CLAUDE.md imports AGENTS.md)
+  docs/screenshots/            # README shots from ScreenshotTests (desktop/tablet/compact)
+                               #   + showcase.jpg, committed by windows-screenshots.yml
   ROADMAP.md                   # Windows backlog (RM-101 onward)
   MICROSOFT_STORE.md           # packaging, listing, release tags
   Fanficly.Windows.slnx        # the solution (four projects)
@@ -106,7 +105,7 @@ windows/
   Directory.Packages.props     # every package version (central management)
   scripts/
     Capture-Screen.ps1         # launch the app in demo mode and save the window
-    Copy-Screenshots.ps1       # screenshots workflow: UI-test shots into docs/
+    Copy-Screenshots.ps1       # screenshots workflow: UI-test shots into windows/docs/
     Chart-IconFont.py          # CI: chart which glyphs the system icon fonts have
     Install-IconFont.ps1       # CI: install Segoe Fluent Icons on Server images
     make_store_art.py          # Store screenshots + hero/box/poster from the 4K
@@ -331,7 +330,7 @@ When you add a feature, add its Core tests, and a smoke step if it adds a tab or
 - **Typeahead:** 350 ms after typing stops, the trailing words go to `/autocomplete/tag` (backing off a word at a time), re-ranked by `SearchSuggestions.RankTags`, memoized in `TagSuggestionCache`.
 - **AO3 search is slow:** 20–30 s to first byte is normal. `SearchAsync` uses a 60 s timeout and one retry (other requests 30 s, resource limit 90 s). `SearchScreen` keeps one cancellable search and offers Cancel after 5 s.
 - **Filter-only searches sort by kudos** (`SearchSyntax.AutomaticSort`) until the user picks a sort.
-- **Saved searches, recents and `fanficly://search?query=`** store `AO3SearchFilters.PromptText()`, which `SearchSyntax.Parse` reads back exactly. The Saved Searches widget sends a saved filter's JSON instead, as the Swift widget does: `DeepLink.SearchPrompt` turns a query that starts with `{` and decodes as filters into their prompt text and passes anything else through, so `SearchScreen` runs both.
+- **Saved searches, recents and `fanficly://search?query=`** store `AO3SearchFilters.PromptText()`, which `SearchSyntax.Parse` reads back exactly. The Saved Searches widget sends a saved filter's JSON instead, as the Swift widget does: `DeepLink.SavedFilter` decodes a query that starts with `{`, and `SearchScreen` runs those filters as saved (sort included, and a keyword like "complete" stays a keyword, which reading it back as a prompt would break); anything else, malformed JSON included, runs as a prompt.
 - **Popular** is derived from cumulative counts (`FetchPopularSnapshotAsync`: fandom counts from the media pages, ships and characters from the works-filter sidebar of the top fandoms via `WorkFiltersParser`, selector `label[for^='include_'][for*='_{kind}_ids_']`). `PopularStore` caches it (`popular.snapshot.v1`) and refreshes at most daily; the screen falls back to the curated `PopularTags` when a list is empty.
 - **Retries:** `AO3Client` retries idempotent GETs only (up to 2 times, 0.5 s then 1 s backoff) on timeouts, dropped connections, and 429 with `Retry-After` of 10 s or less, and never while offline. AO3 being unavailable (502, 503, 504, Cloudflare's 520–526) retries too, after 2 s then 5 s, and then shows "AO3 isn't responding right now". All requests ask for HTTP/3 outright from the first one (`PreferHttp3`, `RequestVersionExact`); where it can't connect (QUIC missing or blocked, a proxy) the request goes again over HTTP/2 and HTTP/2 is used for 10 minutes, and until HTTP/3 has answered once a GET waits at most 5 s for it (two misses also switch to HTTP/2): AO3's Cloudflare edge served HTTP/1.1 and HTTP/2 clients far slower (and with 503/525s) than HTTP/3 browsers. `Fanficly.App.csproj` sets `Http3Support` to true: the trimming targets (pulled in by `IsAotCompatible`, so even Debug) default it to false, which silently kept every request on HTTP/2. Don't remove it. Each request logs one line (method, path, status, HTTP version, time; never the query) to the app's local log, plus once a run what AO3's Alt-Svc header offered on an answer that wasn't HTTP/3, and why HTTP/3 failed when it falls back. Never retry a POST.
 - **Throttle:** `Throttle.WaitAsync` reserves the caller's slot before it waits, so simultaneous callers are spaced out rather than released in a burst (a burst is what trips AO3's tarpit).
@@ -358,7 +357,7 @@ Toasts need no permission on Windows, but the user can turn them off in Windows 
 - `fanficly://resume/<id>?chapter=&paragraph=` (widgets, jump list): replaces the current path with `Routes.Resume`. `ReaderModule.InstallResumeProgress` asks `ResumeProgressPolicy.AnchorToInstall` what to install: a resume never moves saved progress backwards; only a strictly fresher `WidgetProgressStore` entry from another device may override local progress, and then the store's anchor installs, never the one in the URL. It then opens the saved reader when the work is in the Library, else the live work page, and the reader restores from the installed progress.
 - `fanficly://import?url=<AO3 url>`: `ImportOverlay` fetches the work, saves it as followed, downloads the EPUB and opens the saved reader. The share target turns a shared link or text into this route (`DeepLink.WorkIdFromText`); a non-AO3 link shows a warning.
 - `fanficly://library?folder=<name>`: selects Library, then opens the folder.
-- `fanficly://search?query=<prompt>`: stores the query under `search.pendingQuery`, selects Search and raises `Routes.RequestSearch`; `SearchScreen` runs it through `DeepLink.SearchPrompt` (saved-filter JSON from the widget becomes prompt text).
+- `fanficly://search?query=<prompt>`: stores the query under `search.pendingQuery`, selects Search and raises `Routes.RequestSearch`; `SearchScreen` runs saved-filter JSON from the widget as those filters (`DeepLink.SavedFilter`) and anything else as a prompt.
 
 ## Windows integrations
 
@@ -432,14 +431,14 @@ The app stores nothing off the PC except, when the user turns sync on, the backu
 
 ## CI
 
-`.github/workflows/windows-ci.yml` runs on pull requests to `main` and pushes to `main` that touch `windows/`, `docs/screenshots/windows/` or the Windows workflows. The Apple `ci.yml` runs only for `apple/**`, so a PR builds just the app it changes. A newer push waits for the running build rather than cancelling it.
+`.github/workflows/windows-ci.yml` runs on pull requests to `main` and pushes to `main` that touch `windows/` or the Windows workflows. The Apple `ci.yml` runs only for `apple/**`, so a PR builds just the app it changes. A newer push waits for the running build rather than cancelling it.
 
 - **Core tests:** `dotnet test` in Release on `windows-latest`, results as `core-test-results`.
 - **App (x64, ARM64):** unpackaged self-contained Debug builds; the x64 build is launched in demo mode and photographed (`launch-screenshot`).
 - **UI tests and screenshots:** builds the app and UI tests, sets a 1920×1200 display, installs the Windows 11 icon font, runs `SmokeTests`, then `ScreenshotTests` (the three sizes, the store sizes, the reader pages and the icon gallery), then `ReaderLayoutTests`, charts the icon fonts, builds the Store art into `ui-screenshots/store-art/` (not committed) with `make_store_art.py --out`, prints the pictures into the log and uploads `ui-screenshots` (including `icons/` and `reader-layout/`) and `ui-test-results`. The screenshot and reader layout steps run even when an earlier step failed.
 - **MSIX bundle:** after Core tests and App pass, MSBuild builds the Release (Native AOT) x64 + ARM64 Store upload (`msix-bundle`). This is the only job that compiles with AOT, so it's where trim and AOT problems surface.
 
-`windows-screenshots.yml` (`contents: write`; a push to `main` whose message contains `[screenshots]`, or a manual run from the Actions tab) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `docs/screenshots/windows/{desktop,tablet,compact}/`, builds the Store art with `windows/scripts/make_store_art.py` (ten 3840×2160 slides with `captions.txt` in `windows/store/screenshots/en-us/`, the hero, box and poster in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`), and commits them to the branch it ran on (a manual run on a PR branch commits there; on `main` it pushes straight to `main`, so branch protection on `main` must let the workflow push). That's release housekeeping: a maintainer runs it, roadmap PRs don't.
+`windows-screenshots.yml` (`contents: write`; a push to `main` whose message contains `[screenshots]`, or a manual run from the Actions tab) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `windows/docs/screenshots/{desktop,tablet,compact}/`, builds the Store art with `windows/scripts/make_store_art.py` (ten 3840×2160 slides with `captions.txt` in `windows/store/screenshots/en-us/`, the hero, box and poster in `windows/store/images/en-us/`, and `windows/docs/screenshots/showcase.jpg`), and commits them to the branch it ran on (a manual run on a PR branch commits there; on `main` it pushes straight to `main`, so branch protection on `main` must let the workflow push). That's release housekeeping: a maintainer runs it, roadmap PRs don't.
 
 `windows-store.yml` (a `windows-v*` tag or a manual run) builds, runs the Windows App Certification Kit, submits to the Store (environment `microsoft-store`) and makes a GitHub release; see `MICROSOFT_STORE.md`. CI picks the runner image's tools; don't hard-code machine-specific paths.
 
@@ -449,16 +448,16 @@ The backlog is [`windows/ROADMAP.md`](ROADMAP.md). Windows items are numbered fr
 
 **Hard rules**
 - Never merge a PR, enable auto-merge, approve your own PR, push to `main`, force-push a branch you didn't create, or edit CI to make it pass.
-- Never touch release housekeeping: `windows/store/` (version, listing, screenshots), the manifest's `Identity` and version, `docs/screenshots/`, signing settings, the Store workflow.
+- Never touch release housekeeping: `windows/store/` (version, listing, screenshots), the manifest's `Identity` and version, `windows/docs/screenshots/`, signing settings, the Store workflow.
 - Don't change the Apple app's sources in a Windows PR; they are the reference. One roadmap item per PR, one agent per item; don't start an item that's claimed.
 - Don't reformat or refactor what the item doesn't need. Don't add dependencies.
 - Don't create GitHub issues, labels or releases. Anything outward-facing beyond the one PR needs the user's say-so.
 
 **The loop**
 1. **Orient.** `git fetch origin && git checkout -b tmp origin/main`; read Conventions, "Things to know about AO3" and the roadmap's principles.
-2. **Pick.** `bin/roadmap.sh free windows` (needs `gh`) lists open, unclaimed items from the Windows roadmap. Take the lowest-numbered `S` or `M` item unless the user named one; prefer `Validation: unit` when you can't run Windows. If nothing is free, stop and say so.
+2. **Pick.** `.github/scripts/roadmap.sh free windows` (needs `gh`) lists open, unclaimed items from the Windows roadmap. Take the lowest-numbered `S` or `M` item unless the user named one; prefer `Validation: unit` when you can't run Windows. If nothing is free, stop and say so.
 3. **Verify it's real.** Read the files the item names. If it's already done, wrong, or bigger than `M`, open a roadmap-only PR that fixes or splits it, or report back.
-4. **Claim before coding.** Branch `roadmap/RM-1nn-short-slug` from `origin/main`, push, and open a **draft PR against `main`** (`gh pr create --draft`) titled `RM-1nn: <title>`. Re-run `bin/roadmap.sh`; if another claim for the same ID appeared, close yours and pick again.
+4. **Claim before coding.** Branch `roadmap/RM-1nn-short-slug` from `origin/main`, push, and open a **draft PR against `main`** (`gh pr create --draft`) titled `RM-1nn: <title>`. Re-run `.github/scripts/roadmap.sh`; if another claim for the same ID appeared, close yours and pick again.
 5. **Implement the smallest slice** that meets "Done when", following the Conventions (the client seam, pure parsers, `KeyValueStores`, Narrator names, AOT rules).
 6. **Test.** Core tests for every behaviour change; a smoke step for a new tab or route.
 7. **Validate honestly** (below).

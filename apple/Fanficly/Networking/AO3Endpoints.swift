@@ -53,6 +53,23 @@ enum AO3Endpoints {
         return url
     }
 
+    /// The user's Marked for Later list: AO3's readings page filtered to
+    /// works marked "to read".
+    static func userMarkedForLater(name: String, page: Int = 1, base: URL) throws -> URL {
+        try userReadings(name: name, page: page, markedForLater: true, base: base)
+    }
+
+    private static func userReadings(name: String, page: Int, markedForLater: Bool, base: URL) throws -> URL {
+        var components = URLComponents(url: base.appending(path: "/users/\(name)/readings"),
+                                       resolvingAgainstBaseURL: false)
+        var items: [URLQueryItem] = []
+        if markedForLater { items.append(URLQueryItem(name: "show", value: "to-read")) }
+        if page > 1 { items.append(URLQueryItem(name: "page", value: String(page))) }
+        if !items.isEmpty { components?.queryItems = items }
+        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad readings URL") }
+        return url
+    }
+
     static func userSubscriptions(name: String, page: Int = 1, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/users/\(name)/subscriptions"),
                                        resolvingAgainstBaseURL: false)

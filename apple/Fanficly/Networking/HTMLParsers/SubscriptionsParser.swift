@@ -86,7 +86,7 @@ enum SubscriptionsParser {
 
     /// A logged-in-only page can never legitimately contain a login form, so
     /// its presence means the session cookie expired and AO3 redirected us.
-    private static func looksLikeLoginPage(_ doc: Document) -> Bool {
+    static func looksLikeLoginPage(_ doc: Document) -> Bool {
         let forms = (try? doc.select("form").array()) ?? []
         return forms.contains { form in
             let action = (try? form.attr("action")) ?? ""

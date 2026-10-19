@@ -264,6 +264,7 @@ struct FandomWorksView: View {
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     let title: String
     @State private var works: [AO3WorkSummary] = []
+    @State private var badges: [Int: ResultBadge] = [:]
     @State private var currentPage: Int = 1
     @State private var totalPages: Int = 1
     @State private var isLoading: Bool = false
@@ -327,7 +328,7 @@ struct FandomWorksView: View {
                 List {
                     Section {
                         ForEach(visibleWorks) { work in
-                            NavigationLink(value: work) { WorkRow(work: work) }
+                            NavigationLink(value: work) { WorkRow(work: work, badge: badges[work.id]) }
                                 // Infinite scroll: when the last loaded row comes
                                 // into view, pull the next page automatically.
                                 .onAppear {
@@ -350,6 +351,7 @@ struct FandomWorksView: View {
                     }
                 }
                 .listStyle(.plain)
+                .resultBadges(for: visibleWorks, into: $badges)
             }
         }
         // When re-filtering with results already showing, dim + spin so it's
