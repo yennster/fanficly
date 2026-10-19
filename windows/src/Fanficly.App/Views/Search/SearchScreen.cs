@@ -1097,7 +1097,20 @@ public sealed class SearchScreen : Screen
         var prompt = KeyValueStores.Default.GetString(DeepLink.PendingSearchQueryKey) ?? "";
         if (prompt.Length == 0) return;
         KeyValueStores.Default.SetString(DeepLink.PendingSearchQueryKey, "");
-        LoadPrompt(DeepLink.SearchPrompt(prompt));
+        if (DeepLink.SavedFilter(prompt) is not { } saved)
+        {
+            LoadPrompt(prompt);
+            return;
+        }
+        // A saved filter runs as saved, sort included. Reading it back as a
+        // prompt would turn keywords like "complete" into filters.
+        _userPickedSort = true;
+        _active = saved;
+        SetText(saved.Query);
+        _suggestionsDismissed = true;
+        UpdateSuggestionKey();
+        StartSearch();
+        RenderHeader();
     }
 
     private string SuggestName()
