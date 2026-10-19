@@ -645,6 +645,51 @@ public sealed class PersistenceTests : IDisposable
         Assert.False(File.Exists(prev));
     }
 
+    /// <summary>The Apple app writes fields this one doesn't know (notes and
+    /// personal tags, newer settings, whatever comes later). A PC backup that
+    /// merges with its file keeps them, while the PC's own values still win
+    /// where it has them (#126).</summary>
+    [Fact]
+    public void BackupKeepsKeysOnlyTheOtherAppKnows()
+    {
+        var path = MakeTempBackupPath();
+        File.WriteAllText(path, """
+            {"works":[{"ao3Id":1,"title":"Mac Title","authorName":"A","authorUsername":"","summary":"","rating":"Not Rated","warnings":[],"categories":[],"fandoms":[],"characters":[],"relationships":[],"freeforms":[],"language":"en","wordCount":0,"chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,"isComplete":false,"savedAt":"2026-01-01T00:00:00Z","isFollowed":false,"note":"Reread before the sequel","personalTags":["comfort","reread"],"notesUpdatedAt":"2026-06-01T00:00:00Z","chapters":[{"index":1,"title":"Ch","bodyHTML":"<p>x<\/p>","futureChapterField":7}]},
+              {"ao3Id":2,"title":"Mac Only","authorName":"B","authorUsername":"","summary":"","rating":"Not Rated","warnings":[],"categories":[],"fandoms":[],"characters":[],"relationships":[],"freeforms":[],"language":"en","wordCount":0,"chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,"isComplete":false,"savedAt":"2026-01-01T00:00:00Z","isFollowed":false,"note":"Mac-only note","chapters":[]}],
+             "bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[{"ao3Id":9,"title":"Nope","hiddenAt":"2026-01-01T00:00:00Z","futureReason":"spoilers"}],
+             "settings":{"themePhone":"sepia","fontSizePtMac":18,"futureSetting":true,"theme":"night"},
+             "futureList":[{"id":1}],"timestamp":"2026-01-01T00:00:00Z"}
+            """);
+
+        using var pc = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), pc); // "Test Work 1": the PC's title wins
+        pc.Insert(new HiddenWork(9, "Nope", DateTimeOffset.UnixEpoch));
+        pc.Save();
+        var settings = new InMemoryKeyValueStore();
+        settings.SetString("reader.theme", "dracula");
+        Assert.Equal(BackupOutcome.Written, MakeSync(path, settings).Backup(pc));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(path));
+        var root = doc.RootElement;
+        var works = root.GetProperty("works").EnumerateArray().ToList();
+        var shared = works.Single(w => w.GetProperty("ao3Id").GetInt32() == 1);
+        Assert.Equal("Test Work 1", shared.GetProperty("title").GetString());
+        Assert.Equal("Reread before the sequel", shared.GetProperty("note").GetString());
+        Assert.Equal(["comfort", "reread"], shared.GetProperty("personalTags").EnumerateArray().Select(t => t.GetString()));
+        Assert.Equal("2026-06-01T00:00:00Z", shared.GetProperty("notesUpdatedAt").GetString());
+        Assert.Equal(7, shared.GetProperty("chapters")[0].GetProperty("futureChapterField").GetInt32());
+        Assert.Equal("Mac-only note", works.Single(w => w.GetProperty("ao3Id").GetInt32() == 2).GetProperty("note").GetString());
+        Assert.Equal("spoilers", root.GetProperty("hidden")[0].GetProperty("futureReason").GetString());
+        var merged = root.GetProperty("settings");
+        Assert.Equal("dracula", merged.GetProperty("theme").GetString());
+        Assert.Equal("sepia", merged.GetProperty("themePhone").GetString());
+        Assert.Equal(18, merged.GetProperty("fontSizePtMac").GetInt32());
+        Assert.True(merged.GetProperty("futureSetting").GetBoolean());
+        Assert.Equal(1, root.GetProperty("futureList")[0].GetProperty("id").GetInt32());
+        // And the file still reads back.
+        Assert.Equal(2, DecodeBackup(path).Works.Count);
+    }
+
     /// <summary>A backup that merges in another device's records puts them in
     /// the file, not in this library, so it must not stamp the file as applied
     /// here: the next launch sync still has to restore them (#124). The iPad's

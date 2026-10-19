@@ -160,6 +160,7 @@ public sealed class LibrarySyncManager
             // they go into the file, not into this library, so the file we
             // write isn't "applied here" until a restore pulls them in.
             var mergedUnappliedChanges = false;
+            byte[]? mergedWith = null;
             if (File.Exists(path))
             {
                 byte[] existing;
@@ -185,10 +186,13 @@ public sealed class LibrarySyncManager
                 }
                 mergedUnappliedChanges = CloudBackupHasUnappliedChanges;
                 backup = MergedBackup(backup, cloud);
+                mergedWith = existing;
             }
 
-            // 4. Serialize and write atomically.
+            // 4. Serialize, keeping the keys this app doesn't know from the file
+            // it merged with (the Apple app's newer fields), and write atomically.
             var data = LibraryBackupJson.Encode(backup);
+            if (mergedWith is not null) data = BackupUnknownKeys.Preserve(data, mergedWith);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllBytes(tmp, data);

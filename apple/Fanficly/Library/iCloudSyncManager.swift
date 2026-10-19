@@ -288,6 +288,7 @@ final class iCloudSyncManager {
             // so a file another device delivers can't land in between.
             var mergedUnappliedChanges = false
             var readError: (any Error)?
+            var mergedWith: Data?
             try Self.updateBackup(at: url) { existing in
                 switch existing {
                 case .missing:
@@ -295,14 +296,19 @@ final class iCloudSyncManager {
                 case .unreadable(let error):
                     readError = error
                     return nil
-                case .backup(let cloudBackup):
+                case .backup(let cloudBackup, let cloudData):
                     mergedUnappliedChanges = cloudBackupHasUnappliedChanges
                     backup = Self.mergedBackup(local: backup, cloud: cloudBackup)
+                    mergedWith = cloudData
                 }
-                // 4. Serialize to JSON for the write
+                // 4. Serialize to JSON for the write, keeping the keys this app
+                // doesn't know from the file it merged with (the Windows
+                // app's fields, or a newer version's).
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
-                return try encoder.encode(backup)
+                let data = try encoder.encode(backup)
+                guard let mergedWith else { return data }
+                return try Self.preservingUnknownKeys(in: data, from: mergedWith, merged: backup)
             }
             if let readError {
                 print("Skipped the iCloud backup, the existing backup can't be read: \(readError)")
@@ -330,7 +336,8 @@ final class iCloudSyncManager {
     enum BackupRead {
         /// There's no file (and no placeholder) at all.
         case missing
-        case backup(LibraryBackup)
+        /// The decoded backup and the file's bytes as read.
+        case backup(LibraryBackup, Data)
         /// There's a file, but it couldn't be read or decoded.
         case unreadable(any Error)
     }
@@ -401,6 +408,111 @@ final class iCloudSyncManager {
         if let bodyError { throw bodyError }
     }
 
+    // MARK: - Keys the other app wrote
+
+    /// `encoded` (a merged backup) with the keys `cloudData` (the file it
+    /// merged with) holds that this app doesn't know. The Apple and Windows
+    /// apps add fields at different times (the Windows reader settings and
+    /// followed authors, notes and tags before Windows had them), and a
+    /// backup that dropped every key it couldn't decode would erase the other
+    /// app's data from the file. The Windows app's `BackupUnknownKeys` does
+    /// the same.
+    /// - Top-level keys this app doesn't know are copied over whole.
+    /// - Each record (and each work's chapter) the file also has, matched by
+    ///   its identity key, gets back the keys this app doesn't know. Keys it
+    ///   does know are never copied: a missing one can mean "cleared" (the
+    ///   encoder omits nil optionals).
+    /// - `settings` merge key by key: a key the file has and this device
+    ///   doesn't is kept, known or not, because settings are only ever set,
+    ///   never cleared.
+    /// The known keys are each backup struct's stored properties (none of them
+    /// customizes `CodingKeys`, so those are its JSON keys).
+    nonisolated static func preservingUnknownKeys(in encoded: Data, from cloudData: Data, merged: LibraryBackup) throws -> Data {
+        guard var output = try JSONSerialization.jsonObject(with: encoded) as? [String: Any],
+              let file = (try? JSONSerialization.jsonObject(with: cloudData)) as? [String: Any] else { return encoded }
+        var changed = false
+
+        let topLevelKeys = propertyNames(of: merged)
+        for (key, value) in file where !topLevelKeys.contains(key) && output[key] == nil {
+            output[key] = value
+            changed = true
+        }
+
+        if let fileSettings = file["settings"] as? [String: Any] {
+            var settings = output["settings"] as? [String: Any] ?? [:]
+            for (key, value) in fileSettings where settings[key] == nil {
+                settings[key] = value
+                changed = true
+            }
+            output["settings"] = settings
+        }
+
+        let chapterKeys = merged.works.lazy.compactMap(\.chapters.first).first.map(propertyNames(of:))
+        let records: [(array: String, id: String, known: Set<String>?)] = [
+            ("works", "ao3Id", merged.works.first.map(propertyNames(of:))),
+            ("bookmarks", "ao3Id", merged.bookmarks.first.map(propertyNames(of:))),
+            ("subscriptions", "key", merged.subscriptions.first.map(propertyNames(of:))),
+            ("searches", "name", merged.searches.first.map(propertyNames(of:))),
+            ("progress", "ao3Id", merged.progress.first.map(propertyNames(of:))),
+            ("filters", "name", merged.filters.first.map(propertyNames(of:))),
+            ("hidden", "ao3Id", merged.hidden.first.map(propertyNames(of:))),
+            ("folders", "name", merged.folders?.first.map(propertyNames(of:))),
+            ("stats", "ao3Id", merged.stats?.first.map(propertyNames(of:))),
+        ]
+        for (array, id, known) in records {
+            guard let known,
+                  var outRecords = output[array] as? [[String: Any]],
+                  let fileRecords = file[array] as? [[String: Any]] else { continue }
+            var fileById: [String: [String: Any]] = [:]
+            for record in fileRecords {
+                if let key = identity(record[id]), fileById[key] == nil { fileById[key] = record }
+            }
+            for i in outRecords.indices {
+                guard let key = identity(outRecords[i][id]), let fileRecord = fileById[key] else { continue }
+                if copyUnknownKeys(into: &outRecords[i], from: fileRecord, known: known) { changed = true }
+                guard array == "works", let chapterKeys,
+                      var chapters = outRecords[i]["chapters"] as? [[String: Any]],
+                      let fileChapters = fileRecord["chapters"] as? [[String: Any]] else { continue }
+                var fileByIndex: [String: [String: Any]] = [:]
+                for chapter in fileChapters {
+                    if let index = identity(chapter["index"]), fileByIndex[index] == nil { fileByIndex[index] = chapter }
+                }
+                var chaptersChanged = false
+                for j in chapters.indices {
+                    guard let index = identity(chapters[j]["index"]), let fileChapter = fileByIndex[index] else { continue }
+                    if copyUnknownKeys(into: &chapters[j], from: fileChapter, known: chapterKeys) { chaptersChanged = true }
+                }
+                if chaptersChanged {
+                    outRecords[i]["chapters"] = chapters
+                    changed = true
+                }
+            }
+            output[array] = outRecords
+        }
+
+        guard changed else { return encoded }
+        return try JSONSerialization.data(withJSONObject: output, options: [.withoutEscapingSlashes])
+    }
+
+    private nonisolated static func propertyNames(of value: Any) -> Set<String> {
+        Set(Mirror(reflecting: value).children.compactMap(\.label))
+    }
+
+    private nonisolated static func identity(_ value: Any?) -> String? {
+        if let string = value as? String { return string }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private nonisolated static func copyUnknownKeys(into record: inout [String: Any], from fileRecord: [String: Any], known: Set<String>) -> Bool {
+        var changed = false
+        for (key, value) in fileRecord where !known.contains(key) && record[key] == nil {
+            record[key] = value
+            changed = true
+        }
+        return changed
+    }
+
     /// Reads and decodes the backup at a URL a coordinator handed out.
     private nonisolated static func decodedBackup(at url: URL) -> BackupRead {
         guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
@@ -408,7 +520,7 @@ final class iCloudSyncManager {
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            return .backup(try decoder.decode(LibraryBackup.self, from: data))
+            return .backup(try decoder.decode(LibraryBackup.self, from: data), data)
         } catch {
             return .unreadable(error)
         }
@@ -620,7 +732,7 @@ final class iCloudSyncManager {
         case .unreadable(let error):
             print("Failed to restore from iCloud: \(error)")
             return false
-        case .backup(let read):
+        case .backup(let read, _):
             backup = read
         }
 
