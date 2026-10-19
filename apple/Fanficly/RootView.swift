@@ -45,7 +45,6 @@ struct RootView: View {
     @State private var pendingNotificationRoute: NotificationRoute?
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
 
     var body: some View {
         let scale = CGFloat(UIZoom.clamped(zoomScale))
@@ -55,14 +54,12 @@ struct RootView: View {
                 .scaleEffect(scale, anchor: .topLeading)
         }
         .background {
-            // The menus (FanficlyApp) show ⌘+ / ⌘− (Reader: text size),
+            // The menus (FanficlyApp) show ⌘= / ⌘− (Reader: text size),
             // ⇧⌘+ / ⇧⌘− and ⌘0 (View: interface zoom). A menu item takes one
-            // shortcut, so the other spellings of the same keys stay here:
-            // ⌘= for text where + needs Shift, ⇧⌘= for layouts where + needs
-            // no Shift, and ⇧⌘_ for Shift held on the minus key.
+            // shortcut, so the other spellings of the zoom keys stay here:
+            // ⇧⌘= for layouts where + needs no Shift, and ⇧⌘_ for Shift held
+            // on the minus key.
             Group {
-                Button(action: { fontSizePt = ReaderMetrics.steppedFontSize(fontSizePt, bigger: true) }) { EmptyView() }
-                    .keyboardShortcut("=", modifiers: [.command])
                 Button(action: { zoom(in: true) }) { EmptyView() }
                     .keyboardShortcut("=", modifiers: [.command, .shift])
                 Button(action: { zoom(in: false) }) { EmptyView() }

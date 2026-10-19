@@ -186,12 +186,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 
 ### RM-021 — Shift-⌘ +/− to change the Mac UI size
 - **Status:** done · **Size:** S · **Validation:** unit + mac
-- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows gets Ctrl+Shift +/− in its own PR.
+- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows does the same in its own PRs.
 - **Why:** Global UI zoom (`app.zoomScale` in `RootView`) is bound to hidden buttons for ⌘+, ⌘=, ⌘− and ⌘0 only. The request is to also change the interface size with ⇧⌘+ / ⇧⌘− (and ⇧⌘= for keyboards where + needs no shift), and to make the shortcuts discoverable.
-- **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. Keep the existing ⌘ bindings working unless the maintainer says to drop them. Extract the clamp/step into a pure function.
-- **Maintainer's answer (2026-10-19):** ⌘+/− change the reader's text size; only ⇧⌘+/− change the interface size. Windows does the same with Ctrl+/− and Ctrl+Shift+/−.
+- **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. ⌘+/− moved to the reader's text size (see the answer below). Extract the clamp/step into a pure function.
+- **Maintainer's answer (2026-10-19):** ⌘+/− change the reader's text size; only ⇧⌘+/− change the interface size. Windows does the same with Ctrl+/− and Ctrl+Shift+/−. On the Mac, Bigger Text shows as ⌘= (the ⌘+ key on a US layout), since "+" with ⌘ is typed as ⇧⌘=, Zoom In's keystroke.
 - **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
-- **Touches:** `RootView.swift`, `FanficlyApp.swift`.
+- **Touches:** `RootView.swift`, `FanficlyApp.swift`, `Reader/ReaderTheme.swift`, `ReaderMetricsTests.swift`.
 
 ### RM-024 — Move the remaining screens' strings to the String Catalog
 - **Status:** open · **Size:** S per screen family · **Validation:** unit + mac

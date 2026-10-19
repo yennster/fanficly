@@ -276,12 +276,13 @@ struct FanficlyApp: App {
                 Divider()
 
                 // The same text size the Aa menu and Settings → Reader set on
-                // this device. ⌘= (RootView) does Bigger Text too, for layouts
-                // where + needs Shift.
+                // this device. Bigger Text is ⌘=, not ⌘+: on a US layout ⌘+ is
+                // typed as ⇧⌘=, which is Zoom In's key, so "+" here would
+                // claim the same keystroke as Zoom In.
                 Button("Bigger Text") {
                     fontSizePt = ReaderMetrics.steppedFontSize(fontSizePt, bigger: true)
                 }
-                .keyboardShortcut("+", modifiers: [.command])
+                .keyboardShortcut("=", modifiers: [.command])
 
                 Button("Smaller Text") {
                     fontSizePt = ReaderMetrics.steppedFontSize(fontSizePt, bigger: false)

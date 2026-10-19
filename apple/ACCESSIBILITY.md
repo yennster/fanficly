@@ -45,7 +45,7 @@ to readers who need **larger text** or a **darker interface**.
   iPhone, iPad, and Mac each keep their own settings — useful when different
   readers (or different lighting conditions) need very different text.
 - **Keyboard support**: arrow keys turn pages in the reader with a hardware
-  keyboard, and the Mac app has a global interface zoom in the View menu (⇧⌘+ / ⇧⌘−; ⌘0 for actual size), separate from the story's text size (⌘+ / ⌘− in the Reader menu).
+  keyboard, and the Mac app has a global interface zoom in the View menu (⇧⌘+ / ⇧⌘−; ⌘0 for actual size), separate from the story's text size (⌘= / ⌘− in the Reader menu).
 - All reading preferences persist across the app and between sessions.
 
 ## Native by design
