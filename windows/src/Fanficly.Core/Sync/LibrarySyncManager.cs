@@ -434,6 +434,28 @@ public sealed class LibrarySyncManager
             WorkIsComplete: local.WorkIsComplete == true || cloud.WorkIsComplete == true);
     }
 
+    /// <summary>Settings → Sync → Sync Now (the Swift app's
+    /// <c>iCloudSyncManager.syncNow</c>): first brings in what other devices
+    /// backed up since this PC last applied the file (the same forward-only
+    /// restore the launch runs), then backs up. Restoring first means the
+    /// backup's merge finds nothing unapplied, so it stamps the file it
+    /// writes.</summary>
+    public async Task<SyncNowResult> SyncNowAsync(LibraryStore store, CancellationToken ct = default)
+    {
+        var restored = false;
+        try
+        {
+            restored = IsBackupAvailable && CloudBackupHasUnappliedChanges && await RestoreAsync(store, ct);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // Still back up this PC's changes; the stamp didn't move, so the
+            // next launch or Sync Now tries the restore again.
+            LibraryHooks.Log?.Invoke($"Sync Now's restore failed: {e.Message}");
+        }
+        return new SyncNowResult(restored, Backup(store));
+    }
+
     // MARK: - Restore
 
     /// <summary>Restores every record from the backup as a strictly forward
@@ -783,6 +805,10 @@ public sealed class LibrarySyncManager
         }
     }
 }
+
+/// <summary>What Sync Now did: whether it restored other devices' changes
+/// into the library, and how the backup after it went.</summary>
+public readonly record struct SyncNowResult(bool Restored, BackupOutcome Backup);
 
 /// <summary>What <see cref="LibrarySyncManager.Backup"/> did.</summary>
 public enum BackupOutcome
