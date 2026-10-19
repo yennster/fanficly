@@ -187,7 +187,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** `AO3ClientTests` and `KudosTests` cover the POST, the duplicate answer, a refusal, a signed-out page, no kudos button and no retry; the PR lists what to check on Windows.
 - **Touches:** `windows/src/Fanficly.Core/Networking/`, `Parsing/WorkPageParser.cs`, `Library/Kudos.cs`, `windows/src/Fanficly.App/Views/Reader/{WorkKudos,WorkDetailScreen,SavedWorkReaderScreen}.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`.
 
-### RM-113 — Bulk download for a folder
+### RM-116 — Bulk download for a folder
 - **Status:** done · **Size:** M · **Validation:** unit + windows
 - **Why:** Offline reading before a flight means downloading each work from its menu. Follows the Apple app's RM-010 (PR #93).
 - **Scope:** "Download All" on a custom folder through `RestoreDownloadCenter`'s sequential, cancellable queue (candidates: works with no `EpubPath`), each saved like Save Offline (chapters when none are stored, then the EPUB). The `RestoreBanner` shows progress; cancel keeps what finished. The throttle paces it; no parallelism.
