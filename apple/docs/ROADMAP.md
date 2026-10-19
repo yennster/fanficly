@@ -176,7 +176,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
 
 ### RM-018 — Split the big view files
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** `SearchView.swift` holds search, `WorkDetailView` and `CommentsView`.
 - **Scope:** Move types verbatim to their own files. This needs `xcodegen generate` and a committed `.xcodeproj`, which is why it isn't done in passing. Do it as the only change in the PR, with no behavior edits.
 
