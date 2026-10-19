@@ -9,7 +9,7 @@ namespace Fanficly.App.Views.Shared;
 
 /// <summary>
 /// One search / browse / author result (SearchView's WorkRow): title, author,
-/// rating · words · chapters · kudos, a three-line summary, and an inline
+/// rating · words · reading time · chapters · kudos, a three-line summary, and an inline
 /// bookmark button that saves the work to the Library without opening it.
 /// Clicking the row opens the work.
 /// </summary>
@@ -22,6 +22,13 @@ public static class WorkRow
         void Stat(string text) => stats.Children.Add(UI.UI.Caption(text));
         if (work.Rating.Length > 0) Stat(work.Rating);
         if (work.WordCount > 0) Stat($"{work.WordCount.ToString("N0", CultureInfo.CurrentCulture)} words");
+        var wordsPerMinute = ReadingSpeed.WordsPerMinute(AppHost.Library);
+        if (ReadingSpeed.Estimate(work.WordCount, wordsPerMinute) is { } estimate)
+        {
+            var caption = UI.UI.Caption(estimate);
+            AutomationProperties.SetName(caption, ReadingSpeed.SpokenEstimate(work.WordCount, wordsPerMinute) ?? estimate);
+            stats.Children.Add(caption);
+        }
         if (work.TotalChapters is { } total) Stat($"{work.ChapterCount}/{total}");
         else if (work.ChapterCount > 0) Stat($"{work.ChapterCount}/?");
         if (work.Kudos > 0)

@@ -150,7 +150,7 @@ internal sealed class BrowseScreen : Screen
 
     private UIElement SavedFilterRow(SavedFilter saved)
     {
-        var label = UI.UI.Label("line.3.horizontal.decrease.circle", saved.Name, foreground: null);
+        var label = UI.UI.Label("line.3.horizontal.decrease.circle", saved.Name, foreground: null, maxLines: UI.UI.LineLimit(1));
         var row = UI.UI.NavRow(label, () => Open(saved), saved.Name);
         AutomationProperties.SetAutomationId(row, $"browse.savedFilter.{saved.Name}");
         AutomationProperties.SetHelpText(row, "Press Delete to remove this saved filter.");

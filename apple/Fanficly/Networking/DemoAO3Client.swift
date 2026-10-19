@@ -94,13 +94,13 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         DemoCatalog.subscriptions
     }
 
-    public func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] {
-        [
+    public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
+        AO3CommentsPage(comments: [
             AO3Comment(id: "1", commenterName: "reader_one", commenterUsername: "reader_one",
                        dateText: "Today", bodyHTML: "<p>This was wonderful — thank you for sharing!</p>", depth: 0),
             AO3Comment(id: "2", commenterName: "author", commenterUsername: "author",
                        dateText: "Today", bodyHTML: "<p>Thank you so much! 💛</p>", depth: 1),
-        ]
+        ])
     }
 
     public func postComment(workId: Int, chapterId: Int?, text: String) async throws {}

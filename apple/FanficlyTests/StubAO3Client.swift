@@ -45,7 +45,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3Series(id: id, title: "x", creator: "x", works: [], currentPage: page)
     }
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
-    func fetchComments(workId: Int, chapterId: Int?) async throws -> [AO3Comment] { [] }
+    func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
+        AO3CommentsPage(comments: [], currentPage: page)
+    }
     func postComment(workId: Int, chapterId: Int?, text: String) async throws {}
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     func fetchPopularSnapshot() async throws -> PopularSnapshot {

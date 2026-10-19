@@ -44,7 +44,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ## Now (1.11, small and self-contained)
 
 ### RM-001 — Parser fixture hardening
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** Scraping is the app's only data source. `SubscriptionsParser` already fails closed (login page → `unauthorized`, no list and no shell → `parseFailed`); the other parsers silently return empty arrays on markup drift.
 - **Scope:** Give `SearchResultsParser`, `WorkPageParser`, `MediaCategoryParser` and `WorkFiltersParser` the same treatment: a login or error page throws `AO3Error.unauthorized` or `parseFailed` rather than returning `[]`, and callers that would delete or overwrite data on an empty result keep skipping on a throw. Genuine zero-result pages (AO3's "No results found") must still return `[]`.
 - **Done when:** each parser has tests for a genuine empty page, a login page and a garbage page; no caller regresses (search shows an error, not "No results", for a login page).
@@ -79,7 +79,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`, `WidgetDataStore.swift`, `Search/SearchView.swift`.
 
 ### RM-005 — Duo-ready toolbar labels
-- **Status:** open · **Size:** M · **Validation:** mac
+- **Status:** done · **Size:** M · **Validation:** mac
 - **Why:** With the 27.1 SDK toolbars go vertical on the iPhone Duo and want a title plus symbol. The Duo ships Oct 23 2026.
 - **Scope:** Convert the reader's toolbar items (chapters, Aa, minimize, export, options) from `Image` to `Label`, with `.labelStyle(.iconOnly)` where the bar is horizontal. Replace the `ellipsis.circle` options symbol with a non-ellipsis one so it stops clashing with the system overflow. Keep the parent to ≤ 2 items.
 - **Done when:** `ReaderLayoutTests` pass on iPhone and iPad; the PR attaches the reader-layout screenshots artifact and says the Duo pose was not checked unless someone ran it.
@@ -109,7 +109,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Networking/*`, `Networking/HTMLParsers/`, `Reader/WorkHeaderMetadata.swift`, `Browse/BrowseView.swift`.
 
 ### RM-008 — Per-chapter comments
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AGENTS.md lists this as a known follow-up: on multi-chapter works, comments are work-level and first-page only. `fetchComments`/`postComment` already take a `chapterId`.
 - **Scope:** Resolve the current chapter's AO3 chapter id (already scraped as `div.chapter[id^=chapter-]`) and pass it through `CommentsView`; add "Load more" for comment pagination (`page=`). Comment posting stays a single non-retried POST.
 - **Done when:** parser/endpoint tests for the chapter-scoped URL and page parameter; `CommentsView` still works for one-shot works with no chapter id.
@@ -171,7 +171,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Handle `CSSearchableItemActionType` (`work-<id>` identifiers from `WorkPersistence.indexWork`) by routing through the existing resume route; index every saved library work, not only followed ones (deindex on delete); add a "Continue reading" App Shortcut. Index data stays on-device.
 
 ### RM-017 — Localization groundwork
-- **Status:** open · **Size:** M (the groundwork only) · **Validation:** mac
+- **Status:** done · **Size:** M (the groundwork only) · **Validation:** mac
 - **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
 
 ### RM-018 — Split the big view files
@@ -184,12 +184,20 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Walk Library, Stats, Subscriptions and Settings at the largest Dynamic Type size and with VoiceOver; fix truncation and unlabeled controls; add a UI test that asserts labels on a screen's icon-only buttons. One screen per PR.
 
 ### RM-021 — Shift-⌘ +/− to change the Mac UI size
-- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Status:** done · **Size:** S · **Validation:** unit + mac
+- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows gets Ctrl+Shift +/− in its own PR.
 - **Why:** Global UI zoom (`app.zoomScale` in `RootView`) is bound to hidden buttons for ⌘+, ⌘=, ⌘− and ⌘0 only. The request is to also change the interface size with ⇧⌘+ / ⇧⌘− (and ⇧⌘= for keyboards where + needs no shift), and to make the shortcuts discoverable.
 - **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. Keep the existing ⌘ bindings working unless the maintainer says to drop them. Extract the clamp/step into a pure function.
 - **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.
 - **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
 - **Touches:** `RootView.swift`, `FanficlyApp.swift`.
+
+### RM-024 — Move the remaining screens' strings to the String Catalog
+- **Status:** open · **Size:** S per screen family · **Validation:** unit + mac
+- **Why:** RM-017 added `Fanficly/Localizable.xcstrings` and moved Settings (`SettingsView.swift`). Every other screen's strings are still inline only.
+- **Scope:** One screen family per PR, following the convention in AGENTS.md: Search (incl. `WorkFilterSheet`), Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, Auth, the rest of Settings (`ReaderSettingsView`, `ContentSafetyViews`), then the widget and share extension (their own catalogs). Do not translate. AO3 tag and category names stay verbatim.
+- **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
+- **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
 
 ## Engineering health (any release)
 

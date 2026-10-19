@@ -73,6 +73,27 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertEqual(url.fragment, "comments")
     }
 
+    func test_chapterCommentsURL_isChapterScoped() throws {
+        let url = try AO3Endpoints.chapterComments(workId: 5, chapterId: 77, base: base)
+        XCTAssertEqual(url.path, "/works/5/chapters/77")
+        XCTAssertTrue(url.absoluteString.contains("show_comments=true"))
+        XCTAssertTrue(url.absoluteString.contains("view_adult=true"))
+        XCTAssertFalse(url.absoluteString.contains("page="))
+        XCTAssertEqual(url.fragment, "comments")
+    }
+
+    func test_commentsURLs_paginate() throws {
+        let chapter = try AO3Endpoints.chapterComments(workId: 5, chapterId: 77, page: 3, base: base)
+        XCTAssertEqual(chapter.absoluteString,
+                       "https://archiveofourown.org/works/5/chapters/77?view_adult=true&show_comments=true&page=3#comments")
+        // A one-shot has no chapter id; its work-level thread paginates the same way.
+        let work = try AO3Endpoints.workComments(id: 5, page: 2, base: base)
+        XCTAssertEqual(work.absoluteString,
+                       "https://archiveofourown.org/works/5?view_adult=true&show_comments=true&page=2#comments")
+        let first = try AO3Endpoints.workComments(id: 5, page: 1, base: base)
+        XCTAssertFalse(first.absoluteString.contains("page="))
+    }
+
     func test_searchURL_paginates() throws {
         var filters = AO3SearchFilters()
         filters.freeformNames = ["Fluff"]

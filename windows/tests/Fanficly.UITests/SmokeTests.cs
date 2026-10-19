@@ -6,7 +6,7 @@ namespace Fanficly.UITests;
 
 /// <summary>Launch, navigation and window-level behaviour, at a laptop-sized
 /// window (the sidebar expanded) and a narrow one (the sidebar folded away).</summary>
-public sealed class SmokeTests
+public sealed partial class SmokeTests
 {
     private static readonly FormFactor Laptop = new("laptop", 1280, 800);
 
@@ -48,6 +48,29 @@ public sealed class SmokeTests
         Assert.True(s.WaitForHeader("Library"));
     }
 
+    /// <summary>Marked for Later and AO3 History have no Ctrl+number (Ctrl+1–9 are taken, as ⌘1–9
+    /// are on the Mac), so they open from the sidebar and from <c>-tab</c>; demo mode
+    /// is signed in, so it shows the demo list.</summary>
+    [Fact]
+    public void TabsWithoutAShortcutOpenFromTheSidebarAndLaunchArgument()
+    {
+        foreach (var raw in AppSession.TabsWithoutShortcut)
+        {
+            using (var s = AppSession.Launch(Laptop))
+            {
+                var item = s.ById($"sidebar.{raw}");
+                Assert.NotNull(item);
+                s.Activate(item!);
+                Assert.True(Retry.WhileFalse(() => s.IsTabSelected(raw), TimeSpan.FromSeconds(4)).Result, $"The sidebar didn't open {raw}.");
+                Assert.NotNull(s.ById($"{raw}.list", 8));
+            }
+            using (var s = AppSession.Launch(Laptop, "-tab", raw))
+            {
+                Assert.True(Retry.WhileFalse(() => s.IsTabSelected(raw), TimeSpan.FromSeconds(6)).Result, $"-tab didn't open {raw}.");
+            }
+        }
+    }
+
     [Fact]
     public void LaunchArgumentOpensATab()
     {
@@ -74,6 +97,8 @@ public sealed class SmokeTests
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.OEM_PLUS);
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.OEM_PLUS);
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.OEM_MINUS);
+        s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.SHIFT, VirtualKeyShort.OEM_PLUS);
+        s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.SHIFT, VirtualKeyShort.OEM_MINUS);
         s.Keys(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_0);
         s.Keys(VirtualKeyShort.F11);
         s.Keys(VirtualKeyShort.F11);
