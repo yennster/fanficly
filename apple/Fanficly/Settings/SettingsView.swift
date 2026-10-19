@@ -284,7 +284,7 @@ struct PrivacyTransparencyView: View {
                     "What's stored on your phone",
                     """
                     • Your AO3 session cookie (in iOS Keychain), so you stay logged in.
-                    • Works you've saved offline and your reading position (in app storage).
+                    • Works you've saved offline, your notes and tags on them, and your reading position (in app storage).
                     • Your preferences (theme, font size).
                     • An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled.
                     """

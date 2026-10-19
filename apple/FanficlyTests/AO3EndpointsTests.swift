@@ -96,6 +96,13 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertTrue(page3.absoluteString.contains("page=3"))
     }
 
+    func test_userMarkedForLaterURL_paginates() throws {
+        let p1 = try AO3Endpoints.userMarkedForLater(name: "reader", page: 1, base: base)
+        XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/reader/readings?show=to-read")
+        let p2 = try AO3Endpoints.userMarkedForLater(name: "reader", page: 2, base: base)
+        XCTAssertEqual(p2.absoluteString, "https://archiveofourown.org/users/reader/readings?show=to-read&page=2")
+    }
+
     func test_userSubscriptionsURL_paginates() throws {
         let p1 = try AO3Endpoints.userSubscriptions(name: "reader", page: 1, base: base)
         XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/reader/subscriptions")

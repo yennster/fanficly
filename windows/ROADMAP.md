@@ -65,7 +65,7 @@ Servers or accounts of our own, ads, telemetry, a "trending" feed we'd have to s
 
 ## How items are written
 
-Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `bin/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
+Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that `.github/scripts/roadmap.sh` reads. IDs are permanent: never renumber, never reuse. New ideas get the next free number from RM-101 up.
 
 - **Status:** `open` (free to claim), `claimed` (an open PR or `roadmap/RM-nnn-*` branch exists; the PR is the claim, not this file), `done`, or `exception` (an Apple feature Windows can't support; the item says why, and it isn't built).
 - **Size:** `S` is about one file plus tests, `M` is a few files plus tests. Anything bigger is split into new `S`/`M` items before it's started.
@@ -247,4 +247,4 @@ Not features, but worth doing. Add them as items when started.
 - Release housekeeping is done by the maintainer through `MICROSOFT_STORE.md`, never by a roadmap PR. That covers:
   - the version in `windows/store/version.txt`;
   - Store listing text and screenshots in `windows/store/`;
-  - the README screenshots in `docs/screenshots/windows/` and the Store pictures, which the manual **Windows screenshots** workflow (`.github/workflows/windows-screenshots.yml`) captures and commits.
+  - the README screenshots in `windows/docs/screenshots/` and the Store pictures, which the manual **Windows screenshots** workflow (`.github/workflows/windows-screenshots.yml`) captures and commits.

@@ -207,6 +207,121 @@ final class SearchResultsParserTests: XCTestCase {
         XCTAssertEqual(work.totalChapters, 5)
     }
 
+    // MARK: - Readings page (Marked for Later)
+
+    /// Markup from AO3's readings templates (otwarchive
+    /// `readings/index.html.erb` + `_reading_blurb.html.erb`): each entry is
+    /// `li.reading.work.blurb` with id `work_<id>`, wrapping the usual work
+    /// blurb plus a "Last visited" module; a deleted work keeps an entry with
+    /// no id and no title link. Pagination is AO3's pagy nav.
+    private let readingsHTML = """
+    <html><body>
+    <div id="main" class="readings-index dashboard region" role="main">
+    <h2 class="heading">Marked for Later</h2>
+    <h4 class="landmark heading">Pages Navigation</h4>
+    <ol class="pagination actions pagy" role="navigation">
+      <li class="previous"><a href="/users/me/readings?page=1&amp;show=to-read">← Previous</a></li>
+      <li><a href="/users/me/readings?page=1&amp;show=to-read">1</a></li>
+      <li><a role="link" aria-disabled="true" aria-current="page" class="current">2</a></li>
+      <li><a href="/users/me/readings?page=3&amp;show=to-read">3</a></li>
+      <li class="next"><a href="/users/me/readings?page=3&amp;show=to-read">Next →</a></li>
+    </ol>
+    <h3 class="landmark heading">List of Marked for Later Items</h3>
+    <ol class="reading work index group">
+      <li id="work_4242" class="reading work blurb group work-4242 user-1" role="article">
+        <div class="header module">
+          <h4 class="heading">
+            <a href="/works/4242">Saved For Later</a>
+            by
+            <a rel="author" href="/users/erin/pseuds/erin">erin</a>
+          </h4>
+          <h5 class="fandoms heading">
+            <a class="tag" href="/tags/Good%20Omens/works">Good Omens</a>
+          </h5>
+          <ul class="required-tags">
+            <li><a><span class="text">General Audiences</span></a></li>
+            <li><a><span class="text">No Archive Warnings Apply</span></a></li>
+            <li><a><span class="text">Work in Progress</span></a></li>
+          </ul>
+          <p class="datetime">12 Oct 2026</p>
+        </div>
+        <dl class="stats">
+          <dt class="words">Words:</dt><dd class="words">2,500</dd>
+          <dt class="chapters">Chapters:</dt><dd class="chapters">2/?</dd>
+        </dl>
+        <div class="user module group">
+          <h4 class="viewed heading">
+            <span>Last visited:</span> 14 Oct 2026
+            (Latest version.)
+            Visited once
+            (Marked for Later.)
+          </h4>
+          <ul class="actions"><li><form action="/users/me/readings/9" method="post"><input type="submit" value="Delete from History"></form></li></ul>
+        </div>
+      </li>
+      <li class="deleted reading work blurb group" role="article">
+        <div class="user module group">
+          <h4 class="viewed heading">(Deleted work, last visited 01 Jan 2026)</h4>
+        </div>
+      </li>
+    </ol>
+    </div>
+    </body></html>
+    """
+
+    func test_readingsParseListsWorksAndSkipsDeleted() throws {
+        let result = try SearchResultsParser.parseReadings(html: readingsHTML)
+        XCTAssertEqual(result.works.count, 1, "the deleted entry has no work and is skipped")
+        let work = result.works[0]
+        XCTAssertEqual(work.id, 4242)
+        XCTAssertEqual(work.title, "Saved For Later")
+        XCTAssertEqual(work.author, "erin")
+        XCTAssertEqual(work.authorUsername, "erin")
+        XCTAssertEqual(work.fandoms, ["Good Omens"])
+        XCTAssertEqual(work.wordCount, 2500)
+        XCTAssertEqual(work.chapterCount, 2)
+        XCTAssertNil(work.totalChapters)
+        XCTAssertEqual(result.currentPage, 2)
+        XCTAssertEqual(result.totalPages, 3)
+    }
+
+    func test_readingsParseEmptyList() throws {
+        // AO3 renders no list and no pagination when nothing is marked.
+        let empty = """
+        <html><body><div id="main" class="readings-index dashboard region" role="main">
+        <h2 class="heading">Marked for Later</h2>
+        <h3 class="landmark heading">List of Marked for Later Items</h3>
+        </div></body></html>
+        """
+        let result = try SearchResultsParser.parseReadings(html: empty)
+        XCTAssertTrue(result.works.isEmpty)
+        XCTAssertEqual(result.totalPages, 1)
+    }
+
+    func test_readingsParseLoginPageFailsClosed() {
+        // An expired session: AO3 redirects to the login form, served as a 200.
+        let login = """
+        <html><body><div id="main" class="user_sessions-new region">
+        <form id="new_user_session_small" action="/users/login" method="post">
+          <input name="user[login]"><input name="user[password]" type="password">
+        </form></div></body></html>
+        """
+        XCTAssertThrowsError(try SearchResultsParser.parseReadings(html: login)) { error in
+            XCTAssertEqual(error as? AO3Error, .unauthorized)
+        }
+    }
+
+    func test_readingsParseOtherPageFailsClosed() {
+        // History turned off: AO3 redirects to the preferences page.
+        let prefs = "<html><body><div id=\"main\" class=\"preferences-index dashboard region\"></div></body></html>"
+        XCTAssertThrowsError(try SearchResultsParser.parseReadings(html: prefs)) { error in
+            guard case AO3Error.parseFailed(let reason) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(reason.contains("Turn on History"), reason)
+        }
+        // Anything else (markup drift, an error page) is never an empty list.
+        XCTAssertThrowsError(try SearchResultsParser.parseReadings(html: "<html><body><p>Oops</p></body></html>"))
+    }
+
     func test_workIdFromHref() {
         XCTAssertEqual(SearchResultsParser.workId(fromHref: "/works/12345"), 12345)
         XCTAssertEqual(SearchResultsParser.workId(fromHref: "/works/12345/chapters/678"), 12345)

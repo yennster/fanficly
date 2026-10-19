@@ -8,7 +8,7 @@ Fanficly is built from standard WinUI controls, so Narrator and other UI Automat
 
 - **Labels.** Every icon-only button has a spoken name, and the same name shows as its tooltip.
 - **Headings.** Screen titles and section headers are marked as headings, so you can move between them with Narrator's heading navigation.
-- **Rows.** A work in a search or browse list is read by its title and author. Its inline save button is a separate item with its own name, so it can still be reached. Progress bars and decorative details in Library rows are hidden from Narrator.
+- **Rows.** A work in a search or browse list is read by its title and author, then whether it's in your Library, how far you've read, or that you finished it. Its inline save button is a separate item with its own name, so it can still be reached. Progress bars and decorative details in Library rows are hidden from Narrator.
 - **Announcements** for things that otherwise happen silently:
   - search results arriving
   - a filter being added from a suggestion

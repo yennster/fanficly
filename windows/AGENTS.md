@@ -93,11 +93,10 @@ Mutations go through `WorkPersistence` (Upsert, UpsertMetadata, ToggleFollow, Un
 apple/                         # the Swift app: reference implementation, not built
                                #   by the Windows workflows (its own AGENTS.md;
                                #   its backlog is apple/docs/ROADMAP.md)
-docs/
-  screenshots/windows/         # README shots from ScreenshotTests (desktop/tablet/compact)
-                               #   + showcase.jpg, committed by windows-screenshots.yml
 windows/
   README.md, AGENTS.md, …      # the Windows app's docs (CLAUDE.md imports AGENTS.md)
+  docs/screenshots/            # README shots from ScreenshotTests (desktop/tablet/compact)
+                               #   + showcase.jpg, committed by windows-screenshots.yml
   ROADMAP.md                   # Windows backlog (RM-101 onward)
   MICROSOFT_STORE.md           # packaging, listing, release tags
   Fanficly.Windows.slnx        # the solution (four projects)
@@ -106,7 +105,7 @@ windows/
   Directory.Packages.props     # every package version (central management)
   scripts/
     Capture-Screen.ps1         # launch the app in demo mode and save the window
-    Copy-Screenshots.ps1       # screenshots workflow: UI-test shots into docs/
+    Copy-Screenshots.ps1       # screenshots workflow: UI-test shots into windows/docs/
     Chart-IconFont.py          # CI: chart which glyphs the system icon fonts have
     Install-IconFont.ps1       # CI: install Segoe Fluent Icons on Server images
     make_store_art.py          # Store screenshots + hero/box/poster from the 4K
@@ -432,14 +431,14 @@ The app stores nothing off the PC except, when the user turns sync on, the backu
 
 ## CI
 
-`.github/workflows/windows-ci.yml` runs on pull requests to `main` and pushes to `main` that touch `windows/`, `docs/screenshots/windows/` or the Windows workflows. The Apple `ci.yml` runs only for `apple/**`, so a PR builds just the app it changes. A newer push waits for the running build rather than cancelling it.
+`.github/workflows/windows-ci.yml` runs on pull requests to `main` and pushes to `main` that touch `windows/` or the Windows workflows. The Apple `ci.yml` runs only for `apple/**`, so a PR builds just the app it changes. A newer push waits for the running build rather than cancelling it.
 
 - **Core tests:** `dotnet test` in Release on `windows-latest`, results as `core-test-results`.
 - **App (x64, ARM64):** unpackaged self-contained Debug builds; the x64 build is launched in demo mode and photographed (`launch-screenshot`).
 - **UI tests and screenshots:** builds the app and UI tests, sets a 1920×1200 display, installs the Windows 11 icon font, runs `SmokeTests`, then `ScreenshotTests` (the three sizes, the store sizes, the reader pages and the icon gallery), then `ReaderLayoutTests`, charts the icon fonts, builds the Store art into `ui-screenshots/store-art/` (not committed) with `make_store_art.py --out`, prints the pictures into the log and uploads `ui-screenshots` (including `icons/` and `reader-layout/`) and `ui-test-results`. The screenshot and reader layout steps run even when an earlier step failed.
 - **MSIX bundle:** after Core tests and App pass, MSBuild builds the Release (Native AOT) x64 + ARM64 Store upload (`msix-bundle`). This is the only job that compiles with AOT, so it's where trim and AOT problems surface.
 
-`windows-screenshots.yml` (`contents: write`; a push to `main` whose message contains `[screenshots]`, or a manual run from the Actions tab) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `docs/screenshots/windows/{desktop,tablet,compact}/`, builds the Store art with `windows/scripts/make_store_art.py` (ten 3840×2160 slides with `captions.txt` in `windows/store/screenshots/en-us/`, the hero, box and poster in `windows/store/images/en-us/`, and `docs/screenshots/windows/showcase.jpg`), and commits them to the branch it ran on (a manual run on a PR branch commits there; on `main` it pushes straight to `main`, so branch protection on `main` must let the workflow push). That's release housekeeping: a maintainer runs it, roadmap PRs don't.
+`windows-screenshots.yml` (`contents: write`; a push to `main` whose message contains `[screenshots]`, or a manual run from the Actions tab) builds the app, runs `ScreenshotTests`, copies the pictures with `windows/scripts/Copy-Screenshots.ps1` to `windows/docs/screenshots/{desktop,tablet,compact}/`, builds the Store art with `windows/scripts/make_store_art.py` (ten 3840×2160 slides with `captions.txt` in `windows/store/screenshots/en-us/`, the hero, box and poster in `windows/store/images/en-us/`, and `windows/docs/screenshots/showcase.jpg`), and commits them to the branch it ran on (a manual run on a PR branch commits there; on `main` it pushes straight to `main`, so branch protection on `main` must let the workflow push). That's release housekeeping: a maintainer runs it, roadmap PRs don't.
 
 `windows-store.yml` (a `windows-v*` tag or a manual run) builds, runs the Windows App Certification Kit, submits to the Store (environment `microsoft-store`) and makes a GitHub release; see `MICROSOFT_STORE.md`. CI picks the runner image's tools; don't hard-code machine-specific paths.
 
@@ -449,16 +448,16 @@ The backlog is [`windows/ROADMAP.md`](ROADMAP.md). Windows items are numbered fr
 
 **Hard rules**
 - Never merge a PR, enable auto-merge, approve your own PR, push to `main`, force-push a branch you didn't create, or edit CI to make it pass.
-- Never touch release housekeeping: `windows/store/` (version, listing, screenshots), the manifest's `Identity` and version, `docs/screenshots/`, signing settings, the Store workflow.
+- Never touch release housekeeping: `windows/store/` (version, listing, screenshots), the manifest's `Identity` and version, `windows/docs/screenshots/`, signing settings, the Store workflow.
 - Don't change the Apple app's sources in a Windows PR; they are the reference. One roadmap item per PR, one agent per item; don't start an item that's claimed.
 - Don't reformat or refactor what the item doesn't need. Don't add dependencies.
 - Don't create GitHub issues, labels or releases. Anything outward-facing beyond the one PR needs the user's say-so.
 
 **The loop**
 1. **Orient.** `git fetch origin && git checkout -b tmp origin/main`; read Conventions, "Things to know about AO3" and the roadmap's principles.
-2. **Pick.** `bin/roadmap.sh free windows` (needs `gh`) lists open, unclaimed items from the Windows roadmap. Take the lowest-numbered `S` or `M` item unless the user named one; prefer `Validation: unit` when you can't run Windows. If nothing is free, stop and say so.
+2. **Pick.** `.github/scripts/roadmap.sh free windows` (needs `gh`) lists open, unclaimed items from the Windows roadmap. Take the lowest-numbered `S` or `M` item unless the user named one; prefer `Validation: unit` when you can't run Windows. If nothing is free, stop and say so.
 3. **Verify it's real.** Read the files the item names. If it's already done, wrong, or bigger than `M`, open a roadmap-only PR that fixes or splits it, or report back.
-4. **Claim before coding.** Branch `roadmap/RM-1nn-short-slug` from `origin/main`, push, and open a **draft PR against `main`** (`gh pr create --draft`) titled `RM-1nn: <title>`. Re-run `bin/roadmap.sh`; if another claim for the same ID appeared, close yours and pick again.
+4. **Claim before coding.** Branch `roadmap/RM-1nn-short-slug` from `origin/main`, push, and open a **draft PR against `main`** (`gh pr create --draft`) titled `RM-1nn: <title>`. Re-run `.github/scripts/roadmap.sh`; if another claim for the same ID appeared, close yours and pick again.
 5. **Implement the smallest slice** that meets "Done when", following the Conventions (the client seam, pure parsers, `KeyValueStores`, Narrator names, AOT rules).
 6. **Test.** Core tests for every behaviour change; a smoke step for a new tab or route.
 7. **Validate honestly** (below).
