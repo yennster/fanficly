@@ -318,7 +318,7 @@ platform :ios do
   end
 
   # The App Store "What's New" and TestFlight text the release workflow
-  # collected (bin/release-notes.sh), or nil to keep what's in metadata/.
+  # collected (bin/release-notes.py), or nil to keep what's in metadata/.
   def release_notes
     file = ENV["RELEASE_NOTES_FILE"].to_s
     file.empty? || !File.exist?(file) ? nil : File.read(file).strip
