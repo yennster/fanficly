@@ -127,7 +127,9 @@ public sealed partial class FanficlyWidgetProvider : IWidgetProvider
         if (AppHost.IsDemoMode) return;
         try
         {
-            foreach (var info in WidgetManager.GetDefault().GetWidgetInfos())
+            // GetWidgetInfos returns null, not an empty array, while no
+            // Fanficly widget is pinned.
+            foreach (var info in WidgetManager.GetDefault().GetWidgetInfos() ?? [])
             {
                 var ctx = info.WidgetContext;
                 Update(ctx.Id, ctx.DefinitionId, SizeName(ctx.Size));
