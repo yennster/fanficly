@@ -109,7 +109,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Networking/*`, `Networking/HTMLParsers/`, `Reader/WorkHeaderMetadata.swift`, `Browse/BrowseView.swift`.
 
 ### RM-008 — Per-chapter comments
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AGENTS.md lists this as a known follow-up: on multi-chapter works, comments are work-level and first-page only. `fetchComments`/`postComment` already take a `chapterId`.
 - **Scope:** Resolve the current chapter's AO3 chapter id (already scraped as `div.chapter[id^=chapter-]`) and pass it through `CommentsView`; add "Load more" for comment pagination (`page=`). Comment posting stays a single non-retried POST.
 - **Done when:** parser/endpoint tests for the chapter-scoped URL and page parameter; `CommentsView` still works for one-shot works with no chapter id.

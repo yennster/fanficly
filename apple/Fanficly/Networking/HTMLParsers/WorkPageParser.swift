@@ -245,6 +245,26 @@ enum CommentsParser {
         return try comments.array().compactMap(parseComment)
     }
 
+    /// One page of comments plus where it sits in the thread's pagination.
+    /// AO3 renders the comment thread's will_paginate list (`ol.pagination`,
+    /// current page in `<span class="current">`) inside `#comments_placeholder`,
+    /// above and below the thread; with one page there is no list at all.
+    static func parsePage(html: String) throws -> AO3CommentsPage {
+        let doc = try SwiftSoup.parse(html)
+        let comments = try doc.select("li.comment[id^=comment_]").array().compactMap(parseComment)
+        var current = 1
+        var total = 1
+        for li in try doc.select("#comments_placeholder ol.pagination li").array() {
+            guard let num = Int(try li.text().trimmingCharacters(in: .whitespaces)) else { continue }
+            total = max(total, num)
+            // Same "current" check as SearchResultsParser: on the <li> or an inner span.
+            let liIsCurrent = try li.attr("class").contains("current")
+            let innerIsCurrent = try !li.select(".current").array().isEmpty
+            if liIsCurrent || innerIsCurrent { current = num }
+        }
+        return AO3CommentsPage(comments: comments, currentPage: current, totalPages: total)
+    }
+
     private static func parseComment(_ li: Element) throws -> AO3Comment? {
         let idAttr = try li.attr("id")              // e.g. "comment_123456"
         guard idAttr.hasPrefix("comment_") else { return nil }
