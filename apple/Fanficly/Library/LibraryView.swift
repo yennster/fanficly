@@ -1472,7 +1472,8 @@ private struct LibraryStatsStrip: View {
                 Text(value)
                     .font(.headline)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    // Stacked, there's room for the full size; the audit flagged the shrink.
+                    .minimumScaleFactor(stacked ? 1 : 0.6)
             }
             Text(label)
                 .font(.caption2)
