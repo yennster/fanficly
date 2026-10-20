@@ -170,16 +170,17 @@ public static partial class AppHost
     private static void ReportSettingsProblem()
     {
         if (KeyValueStores.Default is not JsonFileKeyValueStore s) return;
-        var (title, message) = (s.Problem, s.LoadedFromBackup) switch
+        var fallback = s.LoadedFromBackup ? "its last good copy of your settings" : "default settings";
+        var (title, message) = s.Problem switch
         {
-            (SettingsFileProblem.Damaged, true) => ("Your settings file was damaged",
-                $"Fanficly restored your settings from the last good copy and kept the damaged file as {Path.GetFileName(s.DamagedCopyPath)}."),
-            (SettingsFileProblem.Damaged, false) => ("Your settings file was damaged",
-                $"Fanficly started with default settings and kept the damaged file as {Path.GetFileName(s.DamagedCopyPath)}."),
-            (SettingsFileProblem.Unreadable, true) => ("Couldn't read your settings",
-                "Another program was using settings.json, so Fanficly is using its last good copy of your settings. Your changes are saved once the file can be read."),
-            (SettingsFileProblem.Unreadable, false) => ("Couldn't read your settings",
-                "Another program was using settings.json, so Fanficly is using default settings for now. Your file was left alone, and your changes are added to it once it can be read."),
+            SettingsFileProblem.Damaged when s.DamagedCopyPath is { } aside => ("Your settings file was damaged",
+                $"Fanficly is using {fallback} and kept the damaged file as {Path.GetFileName(aside)}."),
+            SettingsFileProblem.Damaged => ("Your settings file was damaged",
+                $"Fanficly couldn't move settings.json aside, so it's using {fallback} this time and left the file alone."),
+            // Already read and saved by now: nothing to warn about.
+            SettingsFileProblem.Unreadable when !s.IsWaitingForFile => (null, null),
+            SettingsFileProblem.Unreadable => ("Couldn't read your settings",
+                $"Another program was using settings.json, so Fanficly is using {fallback} for now. Your file was left alone, and your changes are added to it once it can be read."),
             _ => (null, null),
         };
         if (title is null) return;

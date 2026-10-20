@@ -46,10 +46,12 @@ public sealed class JsonFileKeyValueStoreTests : IDisposable
     {
         WriteSettings(("ageGate", "true"));
         var held = Lock();
-        var release = Task.Run(async () => { await Task.Delay(150); held.Dispose(); });
+        // A dedicated thread: the pool can be starved while the test thread sleeps.
+        var release = new Thread(() => { Thread.Sleep(150); held.Dispose(); });
+        release.Start();
 
-        using var store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 20, retryDelay: TimeSpan.FromMilliseconds(50));
-        release.Wait();
+        using var store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 200, retryDelay: TimeSpan.FromMilliseconds(50));
+        release.Join();
 
         Assert.Equal(SettingsFileProblem.None, store.Problem);
         Assert.Equal("true", store.GetString("ageGate"));
@@ -115,6 +117,108 @@ public sealed class JsonFileKeyValueStoreTests : IDisposable
         var after = ReadFile(SettingsPath);
         Assert.Equal("true", after["ageGate"]);
         Assert.False(after.ContainsKey("syncFolder"));
+    }
+
+    [Fact]
+    public void FileDeletedWhileUnreadableKeepsTheFallbackAndTheBackup()
+    {
+        WriteSettings(("ageGate", "true"), ("syncFolder", @"C:\Sync"));
+
+        JsonFileKeyValueStore store;
+        using (Lock())
+        {
+            store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 1, retryDelay: TimeSpan.Zero);
+            store.SetString("theme", "sepia");
+        }
+        File.Delete(SettingsPath);
+        store.Dispose();
+
+        foreach (var path in new[] { SettingsPath, SettingsPath + ".bak" })
+        {
+            var after = ReadFile(path);
+            Assert.Equal("true", after["ageGate"]);
+            Assert.Equal(@"C:\Sync", after["syncFolder"]);
+            Assert.Equal("sepia", after["theme"]);
+        }
+    }
+
+    [Fact]
+    public void RecoveryRaisesChangedForValuesTheFileHeld()
+    {
+        WriteSettings(("ageGate", "true"));
+        File.Delete(SettingsPath + ".bak");
+
+        JsonFileKeyValueStore store;
+        var changed = new List<string>();
+        using (Lock())
+        {
+            store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 1, retryDelay: TimeSpan.Zero);
+            store.SetString("theme", "sepia");
+            store.Changed += changed.Add;
+        }
+        store.Flush();
+
+        Assert.False(store.IsWaitingForFile);
+        Assert.Equal("true", store.GetString("ageGate"));
+        Assert.Equal(["ageGate"], changed);
+        store.Dispose();
+    }
+
+    [Fact]
+    public void MissingFileLoadsTheBackup()
+    {
+        WriteSettings(("ageGate", "true"));
+        File.Delete(SettingsPath);
+
+        using var store = new JsonFileKeyValueStore(SettingsPath);
+
+        Assert.True(store.LoadedFromBackup);
+        Assert.Equal("true", store.GetString("ageGate"));
+    }
+
+    [Fact]
+    public void BackupThatCantBeReadIsNeverWrittenOver()
+    {
+        WriteSettings(("ageGate", "true"));
+        File.WriteAllText(SettingsPath, "not json");
+        var backup = SettingsPath + ".bak";
+        var before = File.ReadAllText(backup);
+
+        using (new FileStream(backup, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            using var store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 1, retryDelay: TimeSpan.Zero);
+            Assert.False(store.LoadedFromBackup);
+            store.SetString("theme", "dark");
+            store.Flush();
+        }
+
+        Assert.Equal(before, File.ReadAllText(backup));
+        Assert.Equal("dark", ReadFile(SettingsPath)["theme"]);
+    }
+
+    [Fact]
+    public void DeferredFlushRetriesOnItsOwn()
+    {
+        WriteSettings(("ageGate", "true"));
+
+        JsonFileKeyValueStore store;
+        using (Lock())
+        {
+            store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 1, retryDelay: TimeSpan.Zero)
+            {
+                RetryFlushAfter = TimeSpan.FromMilliseconds(50),
+            };
+            store.SetString("theme", "sepia");
+            store.Flush();
+        }
+
+        // No further change and no explicit flush: the retry timer saves it.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (store.IsWaitingForFile && DateTime.UtcNow < deadline) Thread.Sleep(20);
+        Assert.False(store.IsWaitingForFile);
+        store.Dispose();
+        Assert.Equal("sepia", ReadFile(SettingsPath)["theme"]);
+        Assert.Equal("true", ReadFile(SettingsPath)["ageGate"]);
     }
 
     [Theory]
