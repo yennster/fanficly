@@ -66,7 +66,7 @@ Widgets COM server / background task (separate processes) → same Core stores
 | Data | Where | Notes |
 | --- | --- | --- |
 | Library records | `LibraryStore` over `library.sqlite` (`AppPaths.Database`) | Identity map loaded at open (chapter bodies lazily). Mutate, `Insert`/`Delete`, then `Save` (one transaction, diffed against what was last written), which raises `Changed` with `LibraryEntityKinds`. |
-| Settings (the `@AppStorage` stand-in) | `KeyValueStores.Default` = `JsonFileKeyValueStore(AppPaths.Settings)` (`settings.json`, flushed after 300 ms) | Reader typography keys are per device: always `ReaderProfile.DeviceKey(...)` (suffix `.windows` here). |
+| Settings (the `@AppStorage` stand-in) | `KeyValueStores.Default` = `JsonFileKeyValueStore(AppPaths.Settings)` (`settings.json`, flushed after 300 ms; each good flush also copies it to `settings.json.bak`) | Reader typography keys are per device: always `ReaderProfile.DeviceKey(...)` (suffix `.windows` here). A file still locked after three reads is never written over: the run uses the `.bak` and adds its changes once the file reads. A damaged file is moved aside as `settings.json.damaged-<timestamp>` and the `.bak` loaded, as it is when the file is missing; a locked or damaged file shows a banner at launch. `group.json` and `synced.json` use the same store (the widget server opens `group.json` read-only). |
 | Synced settings (the iCloud key-value stand-in) | `KeyValueStores.Synced` = `SyncFolderKeyValueStore` (`Shared/synced.json`, copied to `<sync folder>/fanficly-settings-sync.json`) | Push debounced 1 s, pull 500 ms after the file changes; last writer wins per key. Carries reader profiles, last-read progress and the streak. Only reaches the folder while sync is on, unlike iOS where key-value sync is always on. |
 | Widget data (the app-group stand-in) | `AppGroupStore.Shared` = `Shared/group.json` (`WidgetStorage.SharedStorePath`) | Read by the widgets COM server, which re-reads from disk before every update. |
 | AO3 login | `ProtectedCookieVault`: `Credentials/ao3_username.bin` and `ao3_cookies.bin`, DPAPI-encrypted for the current Windows user | Passwords are never stored. |
@@ -225,7 +225,7 @@ windows/
                                #   SpeechController (Listen), WorkExporter,
                                #   WorkHeaderMetadataView, ReaderPrefs, ReaderBrushes
   tests/
-    Fanficly.Core.Tests/       # xUnit, 643 cases, fixture-based, no network
+    Fanficly.Core.Tests/       # xUnit, 665 cases, fixture-based, no network
     Fanficly.UITests/          # FlaUI: SmokeTests, ScreenshotTests,
                                #   ReaderLayoutTests (Windows only)
 ```
@@ -256,14 +256,14 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 ## Tests
 
-**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 643 cases in 43 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
+**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 665 cases in 44 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
 - **Parsers:** `SearchResultsParserTests` (incl. the bookmarks page), `WorkPageParserTests` (incl. login, comments and bookmark-form parsing), `KudosParserTests` and `KudosGiverTests` (in `KudosTests.cs`), `SubscriptionsParserTests` (fails closed), `MediaCategoryParserTests`, `WorkMetadataParserTests`, `HtmlDomTests`.
 - **Networking:** `AO3ClientTests` (through a fake `HttpMessageHandler`: retries, cookies, redirects, timeouts, form posts), `AO3EndpointsTests`, `ThrottleTests` (spacing, and concurrent waiters serialized), `DemoAO3ClientTests`.
 - **Search:** `SearchSyntaxTests`, `SearchSuggestionsTests`, `AO3SearchFiltersTests`, `TagResolverTests` (with `StubAO3Client`), `FandomCatalogTests`, `BrowseModelsTests`, `PopularStoreTests`.
 - **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
 - **Reader logic:** `HTMLToAttributedTests`, `ChapterTrackingTests`, `ReaderMetricsTests` (spread rule, page-area tracking, and `ReaderPaginator` across a device matrix with `FakeTextMeasurer`), `ReaderProfileTests` (merge, tombstones, per-device keys).
 - **Routing and widgets:** `DeepLinkTests`, `NotificationRouteTests`, `ResumeProgressPolicyTests`, `WidgetDataStoreTests`, `WidgetProgressStoreTests`.
-- **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`), `AuthStateTests`, `ContentSafetyTests`, `ReviewPromptTests`.
+- **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`), `JsonFileKeyValueStoreTests` (locked and damaged settings files), `AuthStateTests`, `ContentSafetyTests`, `ReviewPromptTests`.
 
 Tests that touch the static stores (`KeyValueStores`, `AppGroupStore`, …) join `[Collection(GlobalStoreCollection.Name)]` so they don't run in parallel. Core's internals are visible to the test project, so make a helper `internal` (not `public`) when it needs direct testing.
 

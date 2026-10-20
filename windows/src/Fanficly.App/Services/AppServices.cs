@@ -47,6 +47,7 @@ public static partial class AppHost
         else
         {
             var shared = new JsonFileKeyValueStore(WidgetStorage.SharedStorePath);
+            LogSettingsProblem(shared, WidgetStorage.SharedStorePath);
             WidgetStorage.MirrorStreak(KeyValueStores.Default, shared);
             AppGroupStore.Shared = shared;
             CredentialStore.Shared = new ProtectedCookieVault(Path.Combine(AppPaths.LocalData, "Credentials"));
@@ -164,11 +165,34 @@ public static partial class AppHost
         }).ToList(),
         store.Subscriptions().Select(s => new WidgetSubscriptionSource(s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt)).ToList());
 
+    /// <summary>Says so when settings.json was damaged or couldn't be read at
+    /// launch, so a run on fallback settings is never silent.</summary>
+    private static void ReportSettingsProblem()
+    {
+        if (KeyValueStores.Default is not JsonFileKeyValueStore s) return;
+        var fallback = s.LoadedFromBackup ? "its last good copy of your settings" : "default settings";
+        var (title, message) = s.Problem switch
+        {
+            SettingsFileProblem.Damaged when s.DamagedCopyPath is { } aside => ("Your settings file was damaged",
+                $"Fanficly is using {fallback} and kept the damaged file as {Path.GetFileName(aside)}."),
+            SettingsFileProblem.Damaged => ("Your settings file was damaged",
+                $"Fanficly couldn't move settings.json aside, so it's using {fallback} this time and left the file alone."),
+            // Already read and saved by now: nothing to warn about.
+            SettingsFileProblem.Unreadable when !s.IsWaitingForFile => (null, null),
+            SettingsFileProblem.Unreadable => ("Couldn't read your settings",
+                $"Another program was using settings.json, so Fanficly is using {fallback} for now. Your file was left alone, and your changes are added to it once it can be read."),
+            _ => (null, null),
+        };
+        if (title is null) return;
+        MainWindow.Current?.ShowMessage(title, message, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning, seconds: 15);
+    }
+
     /// <summary>The launch task (FanficlyApp's .task): restore from the sync
     /// folder when it changed elsewhere, then backfill stats.</summary>
     public static async Task RunLaunchTasksAsync()
     {
         if (IsDemoMode) return;
+        ReportSettingsProblem();
         if (LibraryOpenFailed is { } why)
         {
             MainWindow.Current?.ShowMessage("Couldn't open your library",
