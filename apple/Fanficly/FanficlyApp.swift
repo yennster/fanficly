@@ -132,6 +132,12 @@ struct FanficlyApp: App {
                         }
                     }
 
+                    // One-time: drop login or error pages older builds saved
+                    // as EPUBs, so those works stop showing as Downloaded.
+                    if !Self.isDemoMode {
+                        WorkPersistence.removeInvalidEPUBsIfNeeded()
+                    }
+
                     let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                     if iCloudEnabled && !Self.isDemoMode {
                         let sync = iCloudSyncManager.shared
