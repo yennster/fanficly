@@ -92,20 +92,26 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    gh workflow run release.yml -f lane=release -f platform=all
    ```
    `-f notes="…"` replaces the generated text in every store.
-   Approve the runs as GitHub asks (`app-store`, then `microsoft-store`). It:
+   Approve the runs as GitHub asks: `app-store` for the builds, `app-store`
+   again for the store art upload, then `microsoft-store`. In that order, it:
    - builds and uploads the iPhone/iPad and Mac apps and pushes the store
      copy with the new What's New (no App Store submit);
-   - starts **Windows Store release** with the Windows notes, which submits
-     to the Microsoft Store for certification;
-   - starts **Windows screenshots** and **Store assets** (which uploads the
-     new Apple store art) onto a `release-docs/vX.Y.Z` branch;
+   - starts **Windows screenshots** and **Store assets** onto a
+     `release-docs/vX.Y.Z` branch and waits for both; Store assets uploads
+     the new Apple screenshots, previews and art to the editable versions;
+   - starts **Windows Store release** from that branch with the Windows notes
+     and the new screenshots, which submits to the Microsoft Store for
+     certification;
    - tags `vX.Y.Z` and publishes the GitHub release (both stores' notes plus
      `changes.md`). That tag is where the next release's notes start, for
      every app.
-   Platform `apple`, `ios`, `mac` or `windows` releases just that part.
-4. Submit for review in App Store Connect. No lane submits there.
-5. When both screenshot runs finish, update any doc text that changed with
-   the release on the `release-docs/vX.Y.Z` branch, and merge it with a PR.
+   Platform `apple`, `ios`, `mac` or `windows` releases just that part, with
+   no art refresh.
+4. Once the Store assets upload has finished, Submit for Review in App Store
+   Connect (iOS and macOS). No lane submits there, and submitting earlier
+   locks the version before the new art is on it.
+5. Update any doc text that changed with the release on the
+   `release-docs/vX.Y.Z` branch, and merge it with a PR.
 
 Lane `beta` builds and uploads to TestFlight only, with the same notes as
 the TestFlight "What to Test", and doesn't tag. `metadata_only` pushes copy

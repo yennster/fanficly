@@ -173,7 +173,9 @@ In the repository: **Settings → Environments → New environment**, name it
 - Under **Deployment protection rules**, tick **Required reviewers** and add
   yourself. Every publish then waits for your click in the Actions tab, so a
   stray tag can't ship anything. (Optionally also limit **Deployment branches
-  and tags** to `main` and `windows-v*`.)
+  and tags** to `main`, `windows-v*` and `release-docs/*`: a full Release
+  submits from its `release-docs/vX.Y.Z` branch so the new screenshots go up
+  with it.)
 - Under **Environment secrets**, add the five secrets above. As environment
   secrets, only the publish job can read them, and only after approval.
 
