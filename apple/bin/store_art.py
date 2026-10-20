@@ -62,18 +62,21 @@ def render(html_path: str, width: int, height: int, out_png: str, transparent: b
     if transparent:
         args.append("--default-background-color=00000000")
     args.append("file://" + os.path.abspath(html_path))
-    # Headless Chrome now and then hangs on a page that renders fine on the
-    # next try: give each try its own profile and retry a hang twice.
+    # Headless Chrome on the CI runners now and then hangs or exits non-zero
+    # on a page that renders fine on the next try: give each try its own
+    # profile and retry either failure twice.
     for attempt in range(3):
         with tempfile.TemporaryDirectory(prefix="store-art-chrome-", ignore_cleanup_errors=True) as profile:
             try:
                 subprocess.run(args[:-1] + [f"--user-data-dir={profile}", args[-1]], check=True,
                                capture_output=True, timeout=120)
                 break
-            except subprocess.TimeoutExpired:
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as err:
                 if attempt == 2:
                     raise
-                print(f"  … Chrome hung on {os.path.basename(html_path)}; retrying", flush=True)
+                what = "hung" if isinstance(err, subprocess.TimeoutExpired) else f"exited {err.returncode}"
+                tail = (err.stderr or b"").decode(errors="replace").strip().splitlines()[-3:]
+                print(f"  … Chrome {what} on {os.path.basename(html_path)}; retrying", *tail, sep="\n    ", flush=True)
     img = Image.open(out_png)
     if img.size != (width, height):
         raise RuntimeError(f"{html_path} rendered at {img.size}, wanted {(width, height)}")
