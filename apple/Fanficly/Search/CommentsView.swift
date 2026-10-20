@@ -223,7 +223,7 @@ struct CommentsView: View {
         } catch AO3Error.unauthorized {
             postError = "Couldn't post: your AO3 login has expired. Log in again in Settings, then post again. Your comment is still here."
         } catch AO3Error.commentRejected(let message) {
-            postError = "AO3 didn't post your comment: \(message)"
+            postError = message
         } catch {
             postError = "Couldn't post: \(error.localizedDescription). Your comment may be awaiting moderation, or try again."
         }

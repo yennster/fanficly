@@ -485,6 +485,74 @@ public class CommentsParserTests
         Assert.Null(CommentsParser.NewCommentForm("<html><body><p>no form</p></body></html>",
             new Uri("https://archiveofourown.org")));
     }
+
+    [Fact]
+    public void NewCommentForm_MarksTheGuestForm()
+    {
+        var baseUri = new Uri("https://archiveofourown.org");
+        var guest = CommentsParser.NewCommentForm("""
+            <form action="/works/12/comments" method="post">
+              <input type="hidden" name="authenticity_token" value="T">
+              <input type="text" name="comment[name]"><input type="text" name="comment[email]">
+              <textarea name="comment[comment_content]"></textarea>
+            </form>
+            """, baseUri);
+        Assert.True(guest!.IsGuest);
+        var signedIn = CommentsParser.NewCommentForm("""
+            <form action="/works/12/comments" method="post">
+              <input type="hidden" name="comment[pseud_id]" value="20">
+              <textarea name="comment[comment_content]"></textarea>
+            </form>
+            """, baseUri);
+        Assert.False(signedIn!.IsGuest);
+    }
+
+    // PostOutcome: otwarchive's CommentsController#create answers.
+    private static readonly Uri CommentAction = new("https://archiveofourown.org/works/12/chapters/34/comments");
+
+    private static CommentPostOutcome Outcome(string html, string path) =>
+        CommentsParser.PostOutcome(html, new Uri("https://archiveofourown.org" + path), CommentAction);
+
+    [Fact]
+    public void PostOutcome_PostedOnTheCommentNotice() =>
+        Assert.Equal(CommentPostStatus.Posted,
+            Outcome("""<div id="main"><div class="flash comment_notice">Comment created!</div></div>""", "/works/12/chapters/34").Status);
+
+    [Fact]
+    public void PostOutcome_PostedOnTheModeratedCommentsPage() =>
+        Assert.Equal(CommentPostStatus.Posted, Outcome("""<div id="main"></div>""", "/comments/987").Status);
+
+    [Fact]
+    public void PostOutcome_RejectedWhenTheFormIsReRendered()
+    {
+        var withErrors = Outcome("""
+            <div id="main"><div class="flash error">Couldn't save comment!</div>
+            <div id="error" class="error"><ul><li>Comment content can't be blank.</li></ul></div></div>
+            """, "/works/12/chapters/34/comments");
+        Assert.Equal(new CommentPostOutcome(CommentPostStatus.Rejected, "Couldn't save comment! Comment content can't be blank."), withErrors);
+        Assert.Equal(new CommentPostOutcome(CommentPostStatus.Rejected, "AO3 didn't save the comment."),
+            Outcome("""<div id="main"></div>""", "/works/12/chapters/34/comments"));
+    }
+
+    [Fact]
+    public void PostOutcome_RejectedOnARedirectWithAnError() =>
+        Assert.Equal(new CommentPostOutcome(CommentPostStatus.Rejected, "Sorry, you have been blocked by one or more of this work's creators."),
+            Outcome("""<div id="main"><div class="flash comment_error">Sorry, you have been blocked by one or more of this work's creators.</div></div>""", "/works/12/chapters/34"));
+
+    [Fact]
+    public void PostOutcome_SignedOutOnTheLoginOrSessionExpiredPage()
+    {
+        const string login = """<div id="main" class="sessions-new"><form id="new_user" action="/users/login"></form></div>""";
+        Assert.Equal(CommentPostStatus.SignedOut, Outcome(login, "/users/login").Status);
+        Assert.Equal(CommentPostStatus.SignedOut, Outcome(login, "/works/12").Status);
+        // A stale CSRF token: AO3's display_auth_error page.
+        Assert.Equal(CommentPostStatus.SignedOut, Outcome("""<div id="main"><h2>Session Expired</h2></div>""", "/auth_error").Status);
+    }
+
+    [Fact]
+    public void PostOutcome_UnconfirmedOtherwise() =>
+        Assert.Equal(new CommentPostOutcome(CommentPostStatus.Rejected, CommentPostOutcome.Unconfirmed),
+            Outcome("""<div id="main"><p>Work text</p></div>""", "/works/12/chapters/34"));
 }
 
 public class LoginParserTests

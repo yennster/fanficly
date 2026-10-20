@@ -493,6 +493,8 @@ final class CommentsParserTests: XCTestCase {
         let html = #"<div id="main" class="sessions-new"><form id="new_user" action="/users/login"></form></div>"#
         XCTAssertEqual(outcome(html, at: "/users/login"), .signedOut)
         XCTAssertEqual(outcome(html, at: "/works/12"), .signedOut)
+        // A stale CSRF token: AO3's `display_auth_error` page.
+        XCTAssertEqual(outcome("<div id=\"main\"><h2>Session Expired</h2></div>", at: "/auth_error"), .signedOut)
     }
 
     func test_postOutcome_unconfirmedOtherwise() {

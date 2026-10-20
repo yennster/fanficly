@@ -372,12 +372,15 @@ public static class CommentsParser
     /// re-renders the form at the POST URL with a 200 (<c>div#error</c>, "Couldn't
     /// save comment!"), or a check before saving (blocked, frozen, a pseud that isn't
     /// yours) redirects with <c>div.flash.error</c> or <c>div.flash.comment_error</c>.
+    /// A stale CSRF token redirects to <c>/auth_error</c> ("Session Expired").
     /// Anything else isn't counted as posted.</summary>
     public static CommentPostOutcome PostOutcome(string html, Uri finalUri, Uri formAction)
     {
         var path = finalUri.AbsolutePath;
         var doc = HtmlDom.Parse(html);
-        if (path.StartsWith("/users/login", StringComparison.Ordinal) || AO3PageCheck.IsLoginPage(doc))
+        if (path.StartsWith("/users/login", StringComparison.Ordinal)
+            || path.StartsWith("/auth_error", StringComparison.Ordinal)
+            || AO3PageCheck.IsLoginPage(doc))
             return new(CommentPostStatus.SignedOut);
         var errors = doc.Select("div.flash.error, div.flash.comment_error, div#error li")
             .Select(e => e.Text().TrimSwiftWhitespaces()).Where(t => t.Length > 0).Distinct().ToList();

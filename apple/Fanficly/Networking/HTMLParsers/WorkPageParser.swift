@@ -233,7 +233,7 @@ enum WorkPageParser {
 /// AO3's answer to a comment POST (`CommentsParser.postOutcome`).
 enum CommentPostOutcome: Equatable {
     case posted
-    /// The session ended: AO3 sent the login page.
+    /// The session ended: AO3 sent the login page or its "Session Expired" page.
     case signedOut
     case rejected(message: String)
 
@@ -375,13 +375,16 @@ enum CommentsParser {
     /// re-renders the form at the POST URL with a 200 (`div#error`, "Couldn't
     /// save comment!"), or a check before saving (blocked, frozen, a pseud
     /// that isn't yours) redirects with `div.flash.error` or
-    /// `div.flash.comment_error`. Anything else isn't counted as posted.
+    /// `div.flash.comment_error`. A stale CSRF token redirects to `/auth_error`
+    /// ("Session Expired"). Anything else isn't counted as posted.
     static func postOutcome(html: String, finalURL: URL?, formAction: URL) -> CommentPostOutcome {
         let path = finalURL?.path ?? ""
         guard let doc = try? SwiftSoup.parse(html) else {
             return .rejected(message: CommentPostOutcome.unconfirmed)
         }
-        if path.hasPrefix("/users/login") || AO3PageCheck.isLoginPage(doc) { return .signedOut }
+        if path.hasPrefix("/users/login") || path.hasPrefix("/auth_error") || AO3PageCheck.isLoginPage(doc) {
+            return .signedOut
+        }
         let errors = ((try? doc.select("div.flash.error, div.flash.comment_error, div#error li").array()) ?? [])
             .compactMap { try? $0.text().trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }

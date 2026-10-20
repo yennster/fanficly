@@ -426,7 +426,7 @@ public sealed class CommentsScreen : Screen
         }
         catch (AO3Exception e) when (e is { Kind: AO3ErrorKind.Rejected, Reason: { Length: > 0 } })
         {
-            _postError = $"AO3 didn't post your comment: {e.Reason}";
+            _postError = e.Reason;
             MainWindow.Current.Announce(_postError);
         }
         catch (Exception e)
