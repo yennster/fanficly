@@ -238,6 +238,22 @@ enum AO3PageCheck {
         if isLoginPage(doc) { throw AO3Error.unauthorized }
     }
 
+    /// `isLoginPage` for a body that isn't parsed yet (a download).
+    static func isLoginPage(html: String) -> Bool {
+        guard let doc = try? SwiftSoup.parse(html) else { return false }
+        return isLoginPage(doc)
+    }
+
+    /// Whether an HTML download is the work itself: AO3's download template
+    /// wraps the text in `div#chapters`, which neither the login page nor an
+    /// AO3 or Cloudflare error page has. Throws `unauthorized` for the login
+    /// page.
+    static func isWorkDownload(html: String) throws -> Bool {
+        guard let doc = try? SwiftSoup.parse(html) else { return false }
+        try rejectLoginPage(doc)
+        return !((try? doc.select("div#chapters").isEmpty()) ?? true)
+    }
+
     /// Whether `div#main` carries one of these classes (AO3 sets it to the
     /// Rails `controller-action`, e.g. `works-search`).
     static func mainHasClass(_ doc: Document, _ classes: [String]) -> Bool {
