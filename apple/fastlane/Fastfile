@@ -128,7 +128,12 @@ platform :ios do
 
   desc "Record the app-preview videos (iPhone, iPad, Mac) and write a contact sheet of each."
   lane :previews do
-    UI.user_error!("Need the #{IPHONE_SIM} and #{IPAD_SIM} simulators") unless simulator(IPHONE_SIM) && simulator(IPAD_SIM)
+    iphone = simulator(IPHONE_SIM)
+    ipad = simulator(IPAD_SIM)
+    UI.user_error!("Need the #{IPHONE_SIM} and #{IPAD_SIM} simulators") unless iphone && ipad
+    # The same simulators the screenshots used, not the script's own pick.
+    ENV["IPHONE_UDID"] = iphone
+    ENV["IPAD_UDID"] = ipad
     sh(File.join(ROOT, "bin/record-app-previews.sh"))
     # Caption timings are tuned to the recordings; a contact sheet per video
     # makes drift easy to spot before uploading.
