@@ -93,7 +93,7 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    ```
    `-f notes="…"` replaces the generated text in every store.
    Approve the runs as GitHub asks: `app-store` for the builds, `app-store`
-   again for the store art upload, then `microsoft-store`. In that order, it:
+   again for the store art upload, then `microsoft-store`. It:
    - builds and uploads the iPhone/iPad and Mac apps and pushes the store
      copy with the new What's New (no App Store submit);
    - starts **Windows screenshots** and **Store assets** onto a
@@ -102,8 +102,8 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    - starts **Windows Store release** from that branch with the Windows notes
      and the new screenshots, which submits to the Microsoft Store for
      certification;
-   - tags `vX.Y.Z` and publishes the GitHub release (both stores' notes plus
-     `changes.md`). That tag is where the next release's notes start, for
+   - meanwhile, once the Apple builds are up, tags `vX.Y.Z` and publishes the
+     GitHub release (both stores' notes plus `changes.md`). That tag is where the next release's notes start, for
      every app.
    Platform `apple`, `ios`, `mac` or `windows` releases just that part, with
    no art refresh.

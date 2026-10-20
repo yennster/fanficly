@@ -234,25 +234,39 @@ jobs:
         run: |
           branch="release-docs/v$VERSION"
           if gh api "repos/$GH_REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
-            echo "$branch already exists; adding to it"
+            # A re-run of the same version: the Windows package is built from
+            # this branch, so it must hold this release's code. Keep it only
+            # when it's already built on this commit.
+            status=$(gh api "repos/$GH_REPO/compare/$GITHUB_SHA...$branch" --jq .status)
+            if [ "$status" = ahead ] || [ "$status" = identical ]; then
+              echo "$branch already exists on this commit; adding to it"
+            else
+              echo "$branch is from an older commit; moving it to $GITHUB_SHA"
+              gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$branch" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            fi
           else
             gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null
           fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # gh workflow run doesn't say which run it started: note the runs
+          # that already exist, and take the first new one after starting.
+          existing() {
+            gh run list --workflow "$1" --event workflow_dispatch --limit 20 --json databaseId --jq '[.[].databaseId]' || echo '[]'
+          }
+          before_win=$(existing windows-screenshots.yml)
+          before_art=$(existing store-assets.yml)
           # Windows screenshots commit to the branch they run on.
           gh workflow run windows-screenshots.yml --ref "$branch"
           # Apple: regenerate on main, upload to the App Store versions this
           # release just made (approval in app-store), and push to the branch.
           gh workflow run store-assets.yml --ref main -f what=store_art -f upload=true \
             -f push_branch=true -f branch="$branch" -f sha="$GITHUB_SHA"
-          # gh workflow run doesn't say which run it started: take the newest
-          # dispatch of each workflow since just before starting them.
           for wf in windows-screenshots.yml store-assets.yml; do
+            if [ "$wf" = store-assets.yml ]; then before=$before_art; else before=$before_win; fi
             id=""
             for _ in $(seq 30); do
-              id=$(gh run list --workflow "$wf" --event workflow_dispatch --limit 5 \
-                --json databaseId,createdAt --jq "[.[] | select(.createdAt >= \"$since\")][0].databaseId // empty")
+              id=$(gh run list --workflow "$wf" --event workflow_dispatch --limit 20 \
+                --json databaseId --jq "[.[].databaseId | select(IN($before[]) | not)] | min // empty" || true)
               [ -n "$id" ] && break
               sleep 10
             done
@@ -270,7 +284,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh run watch "${{ steps.start.outputs.windows-screenshots }}" --exit-status --interval 60 > /dev/null
+        run: |
+          # Poll rather than gh run watch: one API error mid-wait would stop
+          # watch and skip the Windows release while the run is fine.
+          wait_for() {
+            local id=$1 state="" errors=0
+            while :; do
+              if state=$(gh run view "$id" --json status,conclusion --jq '.status + " " + .conclusion'); then
+                errors=0
+                case "$state" in completed*) break ;; esac
+              elif [ $((errors += 1)) -ge 10 ]; then
+                echo "::error::Couldn't read run $id"; return 1
+              fi
+              sleep 60
+            done
+            [ "$state" = "completed success" ] || { echo "::error::Run $id ended: ${state#completed }"; return 1; }
+          }
+          wait_for "${{ steps.start.outputs.windows-screenshots }}"
 
       - name: Wait for the App Store art upload
         working-directory: .
@@ -278,7 +308,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh run watch "${{ steps.start.outputs.store-assets }}" --exit-status --interval 60 > /dev/null
+          # Poll rather than gh run watch: one API error mid-wait would stop
+          # watch and skip the Windows release while the run is fine.
+          wait_for() {
+            local id=$1 state="" errors=0
+            while :; do
+              if state=$(gh run view "$id" --json status,conclusion --jq '.status + " " + .conclusion'); then
+                errors=0
+                case "$state" in completed*) break ;; esac
+              elif [ $((errors += 1)) -ge 10 ]; then
+                echo "::error::Couldn't read run $id"; return 1
+              fi
+              sleep 60
+            done
+            [ "$state" = "completed success" ] || { echo "::error::Run $id ended: ${state#completed }"; return 1; }
+          }
+          wait_for "${{ steps.start.outputs.store-assets }}"
           {
             echo
             echo "The new App Store screenshots and art are uploaded: **Submit for Review** in App Store Connect now."
