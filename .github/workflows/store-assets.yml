@@ -149,6 +149,9 @@ jobs:
           case "$branch" in main|refs/*|*..*) echo "::error::Refusing to push to '$branch'"; exit 1 ;; esac
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -m "Refresh the App Store screenshots (store-assets run ${{ github.run_number }})"
+          # The lanes leave other tracked files edited (the rebase refuses to
+          # run over them); only the screenshots commit is pushed, so drop them.
+          git reset -q --hard HEAD
           # The branch may already exist with other commits (the Release
           # workflow's Windows screenshots push to it too): rebase onto it.
           # Only this run's commit is replayed (the checkout is shallow).
