@@ -102,6 +102,10 @@ def upload(library: str, path: Path, category: str, name: str, video: bool = Fal
     """Reserve, upload, commit and wait for one image or video; returns its attributes + id."""
     kind = "appAssetLibraryVideos" if video else "appAssetLibraryImages"
     data = path.read_bytes()
+    # Reference names are unique across the library, and an asset the live
+    # version still shows outlives its placement on the new one, so stamp
+    # each upload rather than reuse the last release's name.
+    name = f"{name} · {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())}"
     attrs = {"fileName": path.name, "fileSize": len(data), "category": category, "referenceName": name}
     if video and preview_frame:
         attrs["previewFrameTimeCode"] = preview_frame
