@@ -377,8 +377,9 @@ submission into certification.
 
 ### Doing a release from your own machine
 
-Everything the workflow does works locally too. Install the CLI once and sign in (reconfigure comes first: until it has run,
-every other msstore command stops with "SellerId is not set"):
+Everything the workflow does works locally too. Install the CLI once and
+sign in (reconfigure comes first: until it has run, msstore settings stops
+with "SellerId is not set"):
 
 ```powershell
 winget install "Microsoft Store Developer CLI"

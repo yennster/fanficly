@@ -245,8 +245,9 @@ jobs:
           AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
           AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
         run: |
-          # reconfigure comes first: on a fresh runner every other msstore
-          # command, settings included, stops with "SellerId is not set".
+          # reconfigure comes first: on a fresh runner msstore settings stops
+          # with "SellerId is not set" until it has run. That one command runs
+          # before telemetry is off; it's Microsoft's CI tool, not the app.
           msstore reconfigure --tenantId $env:AZURE_AD_TENANT_ID --sellerId $env:SELLER_ID `
             --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID --clientSecret $env:AZURE_AD_APPLICATION_SECRET
           if ($LASTEXITCODE) {
