@@ -758,8 +758,7 @@ public actor AO3Client: AO3ClientProtocol {
         if finalURL?.path.hasPrefix("/users/login") == true { throw AO3Error.unauthorized }
         let matches: Bool
         switch format {
-        // AO3's EPUB is a zip; its AZW3 and MOBI are Mobipocket files.
-        case .epub, .azw3, .mobi: matches = isZip(data) || isMobipocket(data)
+        case .epub, .azw3, .mobi: matches = isEbook(data)
         case .pdf: matches = isPDF(data)
         case .html: matches = try AO3PageCheck.isWorkDownload(html: String(decoding: data, as: UTF8.self))
         }
@@ -768,6 +767,11 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.unauthorized
         }
         throw AO3Error.parseFailed(reason: "AO3 didn't send the \(format.displayName) file")
+    }
+
+    /// AO3's EPUB is a zip; its AZW3 and MOBI are Mobipocket files.
+    static func isEbook(_ data: Data) -> Bool {
+        isZip(data) || isMobipocket(data)
     }
 
     private static func isZip(_ data: Data) -> Bool {

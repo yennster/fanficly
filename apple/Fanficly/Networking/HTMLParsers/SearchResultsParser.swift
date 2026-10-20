@@ -245,13 +245,18 @@ enum AO3PageCheck {
     }
 
     /// Whether an HTML download is the work itself: AO3's download template
-    /// wraps the text in `div#chapters`, which neither the login page nor an
-    /// AO3 or Cloudflare error page has. Throws `unauthorized` for the login
+    /// wraps the text in `div#chapters` with no site chrome around it. The
+    /// login page and AO3 or Cloudflare error pages have no `div#chapters`;
+    /// the work page, where AO3 redirects a download it won't serve
+    /// (downloads off, a draft, a hidden work, a render failure), has one
+    /// inside `div#main` and `#workskin`. Throws `unauthorized` for the login
     /// page.
     static func isWorkDownload(html: String) throws -> Bool {
         guard let doc = try? SwiftSoup.parse(html) else { return false }
         try rejectLoginPage(doc)
-        return !((try? doc.select("div#chapters").isEmpty()) ?? true)
+        let hasChapters = !((try? doc.select("div#chapters").isEmpty()) ?? true)
+        let hasSiteChrome = !((try? doc.select("div#main, #workskin").isEmpty()) ?? true)
+        return hasChapters && !hasSiteChrome
     }
 
     /// Whether `div#main` carries one of these classes (AO3 sets it to the

@@ -20,6 +20,12 @@ final class DownloadedFileCheckTests: XCTestCase {
     <div id="afterword"></div>
     </body></html>
     """.utf8)
+    /// The work page, where AO3 redirects a download it won't serve: it has
+    /// a `div#chapters` too, but inside `#workskin` and `div#main`.
+    private static let workPage = Data(AO3PageFixtures.guestPage(mainClass: "works-show", body: """
+    <div id="workskin"><div class="preface group"><h2 class="title heading">A Fic</h2></div>
+    <div id="chapters" role="article"><div class="userstuff"><p>Once upon a time.</p></div></div></div>
+    """).utf8)
     private static let loginPage = Data(AO3PageFixtures.loginPage.utf8)
     private static let errorPage = Data("""
     <html><body><div id="main" class="region"><h2>Error 502</h2>
@@ -61,6 +67,12 @@ final class DownloadedFileCheckTests: XCTestCase {
             assertThrows(.parseFailed(reason: "AO3 didn't send the \(format.displayName) file"), format.displayName) {
                 try AO3Client.ensureDownloadedFile(Self.errorPage, finalURL: nil, format: format)
             }
+        }
+    }
+
+    func test_workPage_isNotAnHTMLDownload() {
+        assertThrows(.parseFailed(reason: "AO3 didn't send the HTML file")) {
+            try AO3Client.ensureDownloadedFile(Self.workPage, finalURL: nil, format: .html)
         }
     }
 
@@ -127,6 +139,35 @@ final class DownloadedFileCheckTests: XCTestCase {
             _ = try await self.client().exportWork(workId: Self.workId, format: .html, filename: title)
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: html.path))
+    }
+
+    // MARK: - Files older builds saved
+
+    func test_invalidEPUBSweep_removesOnlyNonEbooks_once() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("epub-sweep-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let defaults = UserDefaults(suiteName: "test.epubSweep.\(UUID().uuidString)")!
+        let login = dir.appendingPathComponent("1.epub")
+        let epub = dir.appendingPathComponent("2.epub")
+        let mobi = dir.appendingPathComponent("3.epub")
+        let other = dir.appendingPathComponent("notes.txt")
+        try Self.loginPage.write(to: login)
+        try Self.zip.write(to: epub)
+        try Self.mobi.write(to: mobi)
+        try Self.errorPage.write(to: other)
+
+        let removed = WorkPersistence.removeInvalidEPUBsIfNeeded(defaults: defaults, directory: dir)
+        XCTAssertEqual(removed.map(\.lastPathComponent), ["1.epub"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: login.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: epub.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: mobi.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: other.path))
+
+        try Self.loginPage.write(to: login)
+        XCTAssertEqual(WorkPersistence.removeInvalidEPUBsIfNeeded(defaults: defaults, directory: dir), [])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: login.path))
     }
 
     // MARK: - Helpers

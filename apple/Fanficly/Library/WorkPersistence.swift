@@ -233,6 +233,36 @@ enum WorkPersistence {
         return inLibrary ? .inLibrary : nil
     }
 
+    static let invalidEPUBSweepKey = "library.invalidEPUBSweep.v1"
+
+    /// One-time: deletes `library/<id>.epub` files that aren't an e-book.
+    /// Before downloads failed closed (#128), AO3's login page or an error
+    /// page could be saved there, and `epubURL` only checks the file exists,
+    /// so the work showed as Downloaded and nothing ever re-downloaded it.
+    /// Returns the files it removed.
+    @discardableResult
+    static func removeInvalidEPUBsIfNeeded(defaults: UserDefaults = .standard,
+                                           directory: URL? = nil) -> [URL] {
+        guard !defaults.bool(forKey: invalidEPUBSweepKey) else { return [] }
+        defaults.set(true, forKey: invalidEPUBSweepKey)
+        let fm = FileManager.default
+        guard let dir = directory ?? (try? fm.url(
+            for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ))?.appendingPathComponent("library", isDirectory: true),
+              let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return [] }
+        var removed: [URL] = []
+        for file in files where file.pathExtension == "epub" {
+            guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
+            let head = (try? handle.read(upToCount: 68)) ?? Data()
+            try? handle.close()
+            if !AO3Client.isEbook(head), (try? fm.removeItem(at: file)) != nil {
+                removed.append(file)
+            }
+        }
+        return removed
+    }
+
     static func epubURL(workId: Int) -> URL? {
         guard let docs = try? FileManager.default.url(
             for: .documentDirectory, in: .userDomainMask,
