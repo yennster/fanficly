@@ -230,6 +230,16 @@ enum WorkPageParser {
     }
 }
 
+/// AO3's answer to a comment POST (`CommentsParser.postOutcome`).
+enum CommentPostOutcome: Equatable {
+    case posted
+    /// The session ended: AO3 sent the login page.
+    case signedOut
+    case rejected(message: String)
+
+    static let unconfirmed = "AO3 didn't confirm the comment was posted. Check the comments before posting it again."
+}
+
 /// Parses the comment thread (and the comment-form pseud id) from a work page
 /// fetched with `?show_comments=true`. Comments nest via `ol.thread` inside
 /// each `li.comment`; depth drives the reply indentation in the UI.
@@ -332,8 +342,9 @@ enum CommentsParser {
     /// action plus the form's hidden inputs (CSRF token, any `commentable`
     /// fields) and the default pseud is enough to post to the right chapter.
     /// Returns nil when no composer is present (e.g. logged out). `base`
-    /// resolves a relative action.
-    static func newCommentForm(html: String, base: URL) -> (action: URL, fields: [String: String])? {
+    /// resolves a relative action. `isGuest` marks AO3's guest form (name and
+    /// email fields instead of a pseud), which a signed-in page never shows.
+    static func newCommentForm(html: String, base: URL) -> (action: URL, fields: [String: String], isGuest: Bool)? {
         guard let doc = try? SwiftSoup.parse(html),
               let forms = try? doc.select("form[action*=/comments]") else { return nil }
         let composers = forms.array().filter { hasCommentTextarea($0) }
@@ -352,7 +363,38 @@ enum CommentsParser {
             }
         }
         if let pseud = defaultPseudId(html: html) { fields["comment[pseud_id]"] = pseud }
-        return (action, fields)
+        let guestFields = try? form.select("input[name='comment[name]'], input[name='comment[email]']")
+        return (action, fields, !(guestFields?.isEmpty() ?? true))
+    }
+
+    /// How AO3 answered a comment POST, judged by the page URLSession landed on
+    /// after following redirects (otwarchive's `CommentsController#create`).
+    /// A saved comment redirects to the work or chapter with a
+    /// `div.flash.comment_notice` ("Comment created!", or the moderation
+    /// notice), or to `/comments/<id>` when it awaits moderation. A refused one
+    /// re-renders the form at the POST URL with a 200 (`div#error`, "Couldn't
+    /// save comment!"), or a check before saving (blocked, frozen, a pseud
+    /// that isn't yours) redirects with `div.flash.error` or
+    /// `div.flash.comment_error`. Anything else isn't counted as posted.
+    static func postOutcome(html: String, finalURL: URL?, formAction: URL) -> CommentPostOutcome {
+        let path = finalURL?.path ?? ""
+        guard let doc = try? SwiftSoup.parse(html) else {
+            return .rejected(message: CommentPostOutcome.unconfirmed)
+        }
+        if path.hasPrefix("/users/login") || AO3PageCheck.isLoginPage(doc) { return .signedOut }
+        let errors = ((try? doc.select("div.flash.error, div.flash.comment_error, div#error li").array()) ?? [])
+            .compactMap { try? $0.text().trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !errors.isEmpty {
+            var seen = Set<String>()
+            return .rejected(message: errors.filter { seen.insert($0).inserted }.joined(separator: " "))
+        }
+        if path == formAction.path { return .rejected(message: "AO3 didn't save the comment.") }
+        let notice = (try? doc.select("div.flash.comment_notice").isEmpty()) == false
+        if notice || path.range(of: #"^/comments/\d+"#, options: .regularExpression) != nil {
+            return .posted
+        }
+        return .rejected(message: CommentPostOutcome.unconfirmed)
     }
 
     private static func hasCommentTextarea(_ form: Element) -> Bool {

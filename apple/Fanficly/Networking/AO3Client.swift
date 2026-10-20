@@ -349,6 +349,8 @@ public enum AO3Error: Error, Sendable, Equatable {
     /// AO3 refused a kudo, with its own reason ("You can't leave kudos on your
     /// own work.", a block, a suspended account).
     case kudosRejected(message: String)
+    /// AO3 didn't post a comment, with its own reason when it gave one.
+    case commentRejected(message: String)
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -611,7 +613,7 @@ public actor AO3Client: AO3ClientProtocol {
 
     public func postComment(workId: Int, chapterId: Int?, text: String) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { throw AO3Error.commentRejected(message: "The comment is empty.") }
 
         // Load the chapter's (or work's) comment page and replay its actual
         // new-comment form: the form's hidden inputs carry the CSRF token and the
@@ -624,8 +626,13 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.parseFailed(reason: "Comment page not UTF-8")
         }
         guard let form = CommentsParser.newCommentForm(html: pageHTML, base: baseURL) else {
-            throw AO3Error.parseFailed(reason: "comment form not found (login required?)")
+            if !KudosParser.isSignedIn(html: pageHTML) { throw AO3Error.unauthorized }
+            throw AO3Error.parseFailed(reason: "comment form not found")
         }
+        // AO3 shows its guest form (name and email) once the session has
+        // ended. Posting it without them is refused, and posting as a guest
+        // isn't what a signed-in reader meant.
+        guard !form.isGuest else { throw AO3Error.unauthorized }
 
         await throttle.wait()
         var request = URLRequest(url: form.action)
@@ -641,9 +648,14 @@ public actor AO3Client: AO3ClientProtocol {
         fields["commit"] = "Comment"
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
-        let (_, response) = try await performRequest(request)
-        guard response.statusCode < 400 else {
-            throw AO3Error.http(status: response.statusCode)
+        // AO3 answers a refused comment with a 200 page (or a redirect that
+        // URLSession follows), never an error status, so judge by the page.
+        let (data, response) = try await performRequest(request)
+        let html = String(data: data, encoding: .utf8) ?? ""
+        switch CommentsParser.postOutcome(html: html, finalURL: response.url, formAction: form.action) {
+        case .posted: return
+        case .signedOut: throw AO3Error.unauthorized
+        case .rejected(let message): throw AO3Error.commentRejected(message: message)
         }
     }
 

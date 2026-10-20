@@ -220,6 +220,10 @@ struct CommentsView: View {
             composerFocused = false
             // Re-fetch so the new comment shows (AO3 may hold it for moderation).
             await load()
+        } catch AO3Error.unauthorized {
+            postError = "Couldn't post: your AO3 login has expired. Log in again in Settings, then post again. Your comment is still here."
+        } catch AO3Error.commentRejected(let message) {
+            postError = "AO3 didn't post your comment: \(message)"
         } catch {
             postError = "Couldn't post: \(error.localizedDescription). Your comment may be awaiting moderation, or try again."
         }

@@ -245,8 +245,19 @@ public static partial class WorkPageParser
 }
 
 /// <summary>The page's top-level new-comment form: where it posts and its hidden
-/// fields (CSRF token, the <c>commentable</c> fields, the default pseud).</summary>
-public sealed record CommentForm(Uri Action, IReadOnlyDictionary<string, string> Fields);
+/// fields (CSRF token, the <c>commentable</c> fields, the default pseud).
+/// <c>IsGuest</c> marks AO3's guest form (name and email fields instead of a
+/// pseud), which a signed-in page never shows.</summary>
+public sealed record CommentForm(Uri Action, IReadOnlyDictionary<string, string> Fields, bool IsGuest = false);
+
+public enum CommentPostStatus { Posted, SignedOut, Rejected }
+
+/// <summary>AO3's answer to a comment POST (<see cref="CommentsParser.PostOutcome"/>);
+/// <c>Message</c> is set when it was rejected.</summary>
+public sealed record CommentPostOutcome(CommentPostStatus Status, string? Message = null)
+{
+    public const string Unconfirmed = "AO3 didn't confirm the comment was posted. Check the comments before posting it again.";
+}
 
 /// <summary>Parses the comment thread (and the comment-form pseud id) from a work
 /// page fetched with <c>?show_comments=true</c>. Comments nest via <c>ol.thread</c>
@@ -349,7 +360,32 @@ public static class CommentsParser
             fields[name] = input.Attr("value");
         }
         if (DefaultPseudId(doc) is { } pseud) fields["comment[pseud_id]"] = pseud;
-        return new CommentForm(action, fields);
+        var isGuest = form.SelectFirst("input[name='comment[name]'], input[name='comment[email]']") is not null;
+        return new CommentForm(action, fields, isGuest);
+    }
+
+    /// <summary>How AO3 answered a comment POST, judged by the page the HTTP client
+    /// landed on after following redirects (otwarchive's <c>CommentsController#create</c>).
+    /// A saved comment redirects to the work or chapter with a
+    /// <c>div.flash.comment_notice</c> ("Comment created!", or the moderation notice),
+    /// or to <c>/comments/&lt;id&gt;</c> when it awaits moderation. A refused one
+    /// re-renders the form at the POST URL with a 200 (<c>div#error</c>, "Couldn't
+    /// save comment!"), or a check before saving (blocked, frozen, a pseud that isn't
+    /// yours) redirects with <c>div.flash.error</c> or <c>div.flash.comment_error</c>.
+    /// Anything else isn't counted as posted.</summary>
+    public static CommentPostOutcome PostOutcome(string html, Uri finalUri, Uri formAction)
+    {
+        var path = finalUri.AbsolutePath;
+        var doc = HtmlDom.Parse(html);
+        if (path.StartsWith("/users/login", StringComparison.Ordinal) || AO3PageCheck.IsLoginPage(doc))
+            return new(CommentPostStatus.SignedOut);
+        var errors = doc.Select("div.flash.error, div.flash.comment_error, div#error li")
+            .Select(e => e.Text().TrimSwiftWhitespaces()).Where(t => t.Length > 0).Distinct().ToList();
+        if (errors.Count > 0) return new(CommentPostStatus.Rejected, string.Join(" ", errors));
+        if (path == formAction.AbsolutePath) return new(CommentPostStatus.Rejected, "AO3 didn't save the comment.");
+        if (doc.SelectFirst("div.flash.comment_notice") is not null || Regex.IsMatch(path, @"^/comments/\d+"))
+            return new(CommentPostStatus.Posted);
+        return new(CommentPostStatus.Rejected, CommentPostOutcome.Unconfirmed);
     }
 
     private static bool HasCommentTextarea(IElement form) =>
