@@ -314,7 +314,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     public async Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default)
     {
         var trimmed = text.Trim();
-        if (trimmed.Length == 0) return;
+        if (trimmed.Length == 0) throw AO3Exception.Rejected("The comment is empty.");
 
         // Load the chapter's (or work's) comment page and replay its actual
         // new-comment form: the form's hidden inputs carry the CSRF token and the
@@ -325,7 +325,13 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
         var pageHtml = Decode(page.Body, "Comment page");
         var form = CommentsParser.NewCommentForm(pageHtml, _baseUri)
-            ?? throw AO3Exception.ParseFailed("comment form not found (login required?)");
+            ?? throw (KudosParser.IsSignedIn(pageHtml)
+                ? AO3Exception.ParseFailed("comment form not found")
+                : AO3Exception.Unauthorized());
+        // AO3 shows its guest form (name and email) once the session has ended.
+        // Posting it without them is refused, and posting as a guest isn't what a
+        // signed-in reader meant.
+        if (form.IsGuest) throw AO3Exception.Unauthorized();
 
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var headers = new List<KeyValuePair<string, string>>
@@ -341,12 +347,15 @@ public sealed class AO3Client : IAO3Client, IDisposable
         };
         var response = await PerformRequestAsync(Post(form.Action, fields.ToList(), headers), ct: ct).ConfigureAwait(false);
         if (response.Status >= 400) throw AO3Exception.Http(response.Status);
-        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
-        // A saved comment redirects to it (or to the comments); a refused one
-        // (spam check, validation, guest name) re-renders the form in place with
-        // a 200, which must not read as posted, or the draft would be cleared.
-        if (response.FinalUri.AbsolutePath == form.Action.AbsolutePath)
-            throw AO3Exception.Rejected(PageError(response) ?? "the comment wasn't saved");
+        // AO3 answers a refused comment with a 200 page (or a redirect the client
+        // follows), never an error status, so judge by the page: reading a refusal
+        // as posted would clear the draft.
+        var outcome = CommentsParser.PostOutcome(TryDecode(response.Body) ?? "", response.FinalUri, form.Action);
+        switch (outcome.Status)
+        {
+            case CommentPostStatus.SignedOut: throw AO3Exception.Unauthorized();
+            case CommentPostStatus.Rejected: throw AO3Exception.Rejected(outcome.Message ?? CommentPostOutcome.Unconfirmed);
+        }
     }
 
     // MARK: - Browse & popular
