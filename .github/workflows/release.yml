@@ -242,7 +242,11 @@ jobs:
               echo "$branch already exists on this commit; adding to it"
             else
               echo "$branch is from an older commit; moving it to $GITHUB_SHA"
-              gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$branch" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+              # A token without the workflows permission can't move a ref
+              # across workflow changes; recreating it from this commit can.
+              gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$branch" -f sha="$GITHUB_SHA" -F force=true >/dev/null ||
+                { gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$branch" &&
+                  gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null; }
             fi
           else
             gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null
@@ -251,7 +255,7 @@ jobs:
           # gh workflow run doesn't say which run it started: note the runs
           # that already exist, and take the first new one after starting.
           existing() {
-            gh run list --workflow "$1" --event workflow_dispatch --limit 20 --json databaseId --jq '[.[].databaseId]' || echo '[]'
+            gh run list --workflow "$1" --event workflow_dispatch --limit 20 --json databaseId --jq '[.[].databaseId]'
           }
           before_win=$(existing windows-screenshots.yml)
           before_art=$(existing store-assets.yml)
@@ -279,7 +283,7 @@ jobs:
             echo "Regenerating every platform's screenshots onto \`$branch\`. Approve **app-store** on the Store assets run when it asks, to upload the new App Store art."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Wait for the Windows screenshots
+      - name: Wait for the screenshots and the App Store art upload
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
@@ -301,28 +305,6 @@ jobs:
             [ "$state" = "completed success" ] || { echo "::error::Run $id ended: ${state#completed }"; return 1; }
           }
           wait_for "${{ steps.start.outputs.windows-screenshots }}"
-
-      - name: Wait for the App Store art upload
-        working-directory: .
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          # Poll rather than gh run watch: one API error mid-wait would stop
-          # watch and skip the Windows release while the run is fine.
-          wait_for() {
-            local id=$1 state="" errors=0
-            while :; do
-              if state=$(gh run view "$id" --json status,conclusion --jq '.status + " " + .conclusion'); then
-                errors=0
-                case "$state" in completed*) break ;; esac
-              elif [ $((errors += 1)) -ge 10 ]; then
-                echo "::error::Couldn't read run $id"; return 1
-              fi
-              sleep 60
-            done
-            [ "$state" = "completed success" ] || { echo "::error::Run $id ended: ${state#completed }"; return 1; }
-          }
           wait_for "${{ steps.start.outputs.store-assets }}"
           {
             echo

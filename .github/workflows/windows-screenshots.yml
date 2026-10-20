@@ -91,10 +91,15 @@ jobs:
           # The branch may have moved on while the run captured (the Release
           # workflow's Store assets run pushes to it too); put the pictures on
           # top of it (they only touch picture folders) and retry if it moves.
+          # -X theirs keeps these new pictures where an earlier run's differ.
           foreach ($attempt in 1..3) {
-            git pull --rebase origin ${{ github.ref_name }}
-            git push origin HEAD:${{ github.ref_name }}
-            if ($LASTEXITCODE -eq 0) { exit 0 }
+            git pull --rebase -X theirs origin ${{ github.ref_name }}
+            if ($LASTEXITCODE -ne 0) {
+              git rebase --abort
+            } else {
+              git push origin HEAD:${{ github.ref_name }}
+              if ($LASTEXITCODE -eq 0) { exit 0 }
+            }
             Start-Sleep -Seconds ($attempt * 10)
           }
           Write-Host "::error::Couldn't push to ${{ github.ref_name }}"
