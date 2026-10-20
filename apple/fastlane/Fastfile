@@ -12,10 +12,15 @@ require "fileutils"
 
 default_platform(:ios)
 
-ROOT = File.expand_path("..", __dir__)
+# fastlane evals this file with a relative name, so __dir__ is "." here, and
+# actions run from apple/ while lanes run from apple/fastlane/. Every path is
+# absolute so both agree (a relative metadata_path once made deliver upload
+# no store text at all).
+FASTLANE_DIR = File.expand_path(__dir__)
+ROOT = File.dirname(FASTLANE_DIR)
 PROJECT = File.join(ROOT, "Fanficly.xcodeproj")
 SCHEME = "Fanficly"
-API_KEY_JSON = File.join(__dir__, "api_key.json")
+API_KEY_JSON = File.join(FASTLANE_DIR, "api_key.json")
 SIGNING_XCCONFIG = File.join(ROOT, "Signing.xcconfig")
 BUILD_DIR = File.join(ROOT, "build", "release")
 
@@ -27,8 +32,8 @@ TARGETS = {
   "FanficlyWidget" => "io.github.yennster.fanficly.widget"
 }.freeze
 
-METADATA = { "ios" => File.join(__dir__, "metadata"), "osx" => File.join(__dir__, "metadata-mac") }.freeze
-SCREENSHOTS = { "ios" => File.join(__dir__, "screenshots"), "osx" => File.join(__dir__, "screenshots-mac") }.freeze
+METADATA = { "ios" => File.join(FASTLANE_DIR, "metadata"), "osx" => File.join(FASTLANE_DIR, "metadata-mac") }.freeze
+SCREENSHOTS = { "ios" => File.join(FASTLANE_DIR, "screenshots"), "osx" => File.join(FASTLANE_DIR, "screenshots-mac") }.freeze
 
 # Simulators the store art is captured on: the 6.9" iPhone and 13" iPad are
 # the required App Store sizes, and the landscape 13" iPad stands in for the
@@ -129,7 +134,7 @@ platform :ios do
     # makes drift easy to spot before uploading.
     sheets = File.join(ROOT, "build", "preview-contact-sheets")
     FileUtils.mkdir_p(sheets)
-    Dir.glob(File.join(__dir__, "previews", "en-US", "*.mp4")).each do |mp4|
+    Dir.glob(File.join(FASTLANE_DIR, "previews", "en-US", "*.mp4")).each do |mp4|
       sh("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", mp4,
          "-vf", "fps=1,scale=240:-2,tile=6x5", "-frames:v", "1",
          File.join(sheets, "#{File.basename(mp4, '.mp4')}.png"))
@@ -160,9 +165,9 @@ platform :ios do
         run_precheck_before_submit: false
       )
     end
-    sh(python, File.join(ROOT, "bin/upload-app-previews.py"), "--replace") if Dir.exist?(File.join(__dir__, "previews", "en-US"))
-    sh(python, File.join(ROOT, "bin/upload-duo-assets.py")) if Dir.exist?(File.join(__dir__, "screenshots-duo", "en-US"))
-    sh(python, File.join(ROOT, "bin/upload-creative-assets.py"), "--replace") if Dir.exist?(File.join(__dir__, "creative", "en-US"))
+    sh(python, File.join(ROOT, "bin/upload-app-previews.py"), "--replace") if Dir.exist?(File.join(FASTLANE_DIR, "previews", "en-US"))
+    sh(python, File.join(ROOT, "bin/upload-duo-assets.py")) if Dir.exist?(File.join(FASTLANE_DIR, "screenshots-duo", "en-US"))
+    sh(python, File.join(ROOT, "bin/upload-creative-assets.py"), "--replace") if Dir.exist?(File.join(FASTLANE_DIR, "creative", "en-US"))
   end
 
   # ------------------------------------------------------------------ tests
@@ -310,6 +315,20 @@ platform :ios do
       run_precheck_before_submit: false,
       precheck_include_in_app_purchases: false
     )
+    verify_store_text(p)
+  end
+
+  # deliver skips text it can't find without a word, so check that the
+  # editable version really has its What's New and Promotional Text.
+  def verify_store_text(p)
+    app = Spaceship::ConnectAPI::App.find(TARGETS["Fanficly"])
+    version = app.get_edit_app_store_version(platform: Spaceship::ConnectAPI::Platform.map(p))
+    UI.user_error!("No editable #{p} version on App Store Connect") unless version
+    loc = version.get_app_store_version_localizations.find { |l| l.locale == "en-US" }
+    missing = { "What's New" => loc&.whats_new, "Promotional Text" => loc&.promotional_text }
+              .select { |_, v| v.to_s.strip.empty? }.keys
+    UI.user_error!("#{p} #{version.version_string} en-US has no #{missing.join(' or ')} on App Store Connect") unless missing.empty?
+    UI.success("#{p} #{version.version_string}: What's New and Promotional Text are set")
   end
 
   # The ipa:/pkg: option for an upload. pilot and deliver default ipa: to the
@@ -371,7 +390,7 @@ platform :ios do
       "key_id" => ENV["ASC_KEY_ID"], "issuer_id" => ENV["ASC_ISSUER_ID"],
       "key" => ENV["ASC_KEY_P8"], "in_house" => false
     ))
-    File.write(File.join(__dir__, "AuthKey_#{ENV['ASC_KEY_ID']}.p8"), ENV["ASC_KEY_P8"])
+    File.write(File.join(FASTLANE_DIR, "AuthKey_#{ENV['ASC_KEY_ID']}.p8"), ENV["ASC_KEY_P8"])
   end
 
   def python

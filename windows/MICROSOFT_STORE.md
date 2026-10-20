@@ -377,12 +377,14 @@ submission into certification.
 
 ### Doing a release from your own machine
 
-Everything the workflow does works locally too. Install the CLI once:
+Everything the workflow does works locally too. Install the CLI once and
+sign in (reconfigure comes first: until it has run, msstore settings stops
+with "SellerId is not set"):
 
 ```powershell
 winget install "Microsoft Store Developer CLI"
-msstore settings --enableTelemetry false
 msstore reconfigure --tenantId <tenant> --sellerId <seller> --clientId <client> --clientSecret <secret>
+msstore settings --enableTelemetry false
 ```
 
 Build the package as in [the first submission](#the-first-submission-by-hand)
