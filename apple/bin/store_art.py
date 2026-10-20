@@ -62,7 +62,18 @@ def render(html_path: str, width: int, height: int, out_png: str, transparent: b
     if transparent:
         args.append("--default-background-color=00000000")
     args.append("file://" + os.path.abspath(html_path))
-    subprocess.run(args, check=True, capture_output=True, timeout=180)
+    # Headless Chrome now and then hangs on a page that renders fine on the
+    # next try: give each try its own profile and retry a hang twice.
+    for attempt in range(3):
+        with tempfile.TemporaryDirectory(prefix="store-art-chrome-", ignore_cleanup_errors=True) as profile:
+            try:
+                subprocess.run(args[:-1] + [f"--user-data-dir={profile}", args[-1]], check=True,
+                               capture_output=True, timeout=120)
+                break
+            except subprocess.TimeoutExpired:
+                if attempt == 2:
+                    raise
+                print(f"  … Chrome hung on {os.path.basename(html_path)}; retrying", flush=True)
     img = Image.open(out_png)
     if img.size != (width, height):
         raise RuntimeError(f"{html_path} rendered at {img.size}, wanted {(width, height)}")
