@@ -140,6 +140,9 @@ jobs:
 
       - name: Push the refreshed tracked screenshots
         if: inputs.push_branch
+        # The docs copy is a convenience: a failed push mustn't hold back
+        # the App Store upload (the art is already in the artifact).
+        continue-on-error: true
         env:
           BRANCH: ${{ inputs.branch }}
         run: |
@@ -154,12 +157,14 @@ jobs:
           git reset -q --hard HEAD
           # The branch may already exist with other commits (the Release
           # workflow's Windows screenshots push to it too): rebase onto it.
-          # Only this run's commit is replayed (the checkout is shallow).
+          # Only this run's commit is replayed (the checkout is shallow), and
+          # where an earlier run already pushed the same screenshot, this
+          # run's copy wins (-X theirs is the replayed commit in a rebase).
           pushed=0
           for attempt in 1 2 3; do
             if git fetch -q origin "refs/heads/$branch" 2>/dev/null; then
               git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-                rebase -q --onto FETCH_HEAD HEAD~1
+                rebase -q -X theirs --onto FETCH_HEAD HEAD~1 || { git rebase --abort 2>/dev/null || true; }
             fi
             git push origin "HEAD:refs/heads/$branch" && { pushed=1; break; }
             sleep $((attempt * 10))
