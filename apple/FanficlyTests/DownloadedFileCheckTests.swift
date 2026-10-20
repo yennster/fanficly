@@ -148,7 +148,9 @@ final class DownloadedFileCheckTests: XCTestCase {
             .appendingPathComponent("epub-sweep-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let defaults = UserDefaults(suiteName: "test.epubSweep.\(UUID().uuidString)")!
+        let suite = "test.epubSweep.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
         let login = dir.appendingPathComponent("1.epub")
         let epub = dir.appendingPathComponent("2.epub")
         let mobi = dir.appendingPathComponent("3.epub")

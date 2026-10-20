@@ -244,13 +244,15 @@ enum WorkPersistence {
     static func removeInvalidEPUBsIfNeeded(defaults: UserDefaults = .standard,
                                            directory: URL? = nil) -> [URL] {
         guard !defaults.bool(forKey: invalidEPUBSweepKey) else { return [] }
-        defaults.set(true, forKey: invalidEPUBSweepKey)
         let fm = FileManager.default
         guard let dir = directory ?? (try? fm.url(
             for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false
         ))?.appendingPathComponent("library", isDirectory: true),
               let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
         else { return [] }
+        // Only once the folder could be listed, so a launch that can't read
+        // it (or before the first download) doesn't use up the sweep.
+        defaults.set(true, forKey: invalidEPUBSweepKey)
         var removed: [URL] = []
         for file in files where file.pathExtension == "epub" {
             guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
