@@ -1626,6 +1626,47 @@ final class PersistenceTests: XCTestCase {
         let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
     }
+
+    // A check that gets an error or Cloudflare page instead of the work must
+    // leave the new-chapter baselines alone; overwriting them with 1 would
+    // send "N new chapters" on the next real check.
+    func test_pollOfErrorPage_keepsChapterBaselines() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        followed.lastSeenChapterCount = 11
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body><h1>Retry later</h1></body></html>"
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let subAlerts = await poller.checkForNewChapters()
+        let workAlerts = await poller.checkFollowedWorks()
+
+        XCTAssertEqual(subAlerts + workAlerts, 0)
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 5)
+        XCTAssertNotNil(rec?.lastCheckedAt)
+        XCTAssertEqual(followed.lastSeenChapterCount, 11)
+    }
+
+    // A real work page still moves the baseline forward.
+    func test_pollOfWorkPage_updatesChapterBaseline() async throws {
+        let ctx = try makeContext()
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">7/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        _ = await poller.checkFollowedWorks()
+
+        XCTAssertEqual(followed.lastSeenChapterCount, 7)
+    }
 }
 
 /// RM-003: the reading-time estimate's pace (fallback and clamping) and its

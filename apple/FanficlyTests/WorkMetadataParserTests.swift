@@ -29,9 +29,28 @@ final class WorkMetadataParserTests: XCTestCase {
         XCTAssertNil(meta.totalChapters)
     }
 
-    func test_missingStatsDefaults() throws {
-        let meta = try WorkMetadataParser.parse(html: "<html></html>", workId: 2)
-        XCTAssertEqual(meta.chapterCount, 1)
+    /// A page with no chapter count (Cloudflare, "Retry later", an error
+    /// page) must throw, never read as a one-chapter work: that would reset
+    /// the poller's baseline and send a false "new chapters" alert later.
+    func test_pageWithoutChapterCount_failsClosed() {
+        for html in [
+            "<html></html>",
+            #"<html><body><div id="main" class="errors-404"><h2 class="heading">Error 404</h2></div></body></html>"#,
+            "<html><body><h1>Retry later</h1><p>Too many requests.</p></body></html>",
+            #"<html><body><dl class="stats"><dt class="words">Words:</dt><dd class="words">1,200</dd></dl></body></html>"#,
+        ] {
+            XCTAssertThrowsError(try WorkMetadataParser.parse(html: html, workId: 2)) { error in
+                guard case AO3Error.parseFailed = error else { return XCTFail("expected parseFailed, got \(error)") }
+            }
+        }
+    }
+
+    /// A restricted work opened signed out lands on the login page.
+    func test_loginPage_throwsUnauthorized() {
+        let html = #"<html><body><div id="main" class="sessions-new"><form id="loginform" action="/users/login"></form></div></body></html>"#
+        XCTAssertThrowsError(try WorkMetadataParser.parse(html: html, workId: 2)) { error in
+            guard case AO3Error.unauthorized = error else { return XCTFail("expected unauthorized, got \(error)") }
+        }
     }
 
     // MARK: - Series (markup from otwarchive's series/show.html.erb,

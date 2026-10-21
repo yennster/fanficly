@@ -13,11 +13,18 @@ public struct AO3WorkMetadata: Sendable, Equatable {
 enum WorkMetadataParser {
     static func parse(html: String, workId: Int) throws -> AO3WorkMetadata {
         let doc = try SwiftSoup.parse(html)
-        let stats = try doc.select("dl.stats").first()
-        let chaptersText = try stats?.select("dd.chapters").first()?.text() ?? "1/1"
+        try AO3PageCheck.rejectLoginPage(doc)
+        // Fail closed: a Cloudflare challenge, AO3's "Retry later" page or an
+        // error page has no chapter count, and reading it as "1/1" would reset
+        // the poller's new-chapter baseline and send a false alert on the next
+        // real check.
+        guard let stats = try doc.select("dl.stats").first(),
+              let chaptersText = try stats.select("dd.chapters").first()?.text() else {
+            throw AO3Error.parseFailed(reason: "No chapter count on the work page")
+        }
         let (current, total) = parseChapterFraction(chaptersText)
 
-        let statusText = try stats?.select("dd.status").first()?.text() ?? ""
+        let statusText = try stats.select("dd.status").first()?.text() ?? ""
         let updatedAt = parseAO3Date(statusText)
 
         return AO3WorkMetadata(
