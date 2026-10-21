@@ -1626,6 +1626,33 @@ final class PersistenceTests: XCTestCase {
         let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
     }
+
+    // Signed in, a guest page leaves out restricted works: the check is
+    // skipped and the baseline waits for a signed-in page (#131).
+    func test_followedAuthor_guestPageWhileSignedIn_keepsTheBaseline() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "locked", displayName: "Locked", knownWorkIds: [1])
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(works: [.stub(id: 1, title: ""), .stub(id: 2, title: "")],
+                                                      totalPages: 1, currentPage: 1, servedAsGuest: true)
+
+        let signedIn = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let notified = await signedIn.checkFollowedAuthors()
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(author.knownWorkIds, [1])
+
+        // Signed out, the guest page is all there is (no baseline yet, so no alert).
+        let guestCtx = try makeContext()
+        let followed = FollowedAuthor(username: "locked", displayName: "Locked")
+        guestCtx.insert(followed)
+        try guestCtx.save()
+        let guest = SubscriptionPoller(client: client, context: guestCtx, username: nil)
+        let guestNotified = await guest.checkFollowedAuthors()
+        XCTAssertEqual(guestNotified, 0)
+        XCTAssertEqual(Set(followed.knownWorkIds), [1, 2])
+    }
 }
 
 /// RM-003: the reading-time estimate's pace (fallback and clamping) and its

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Fanficly.App.Shell;
 using Fanficly.App.UI;
+using Fanficly.App.Views.Account;
 using Fanficly.App.Views.Shared;
 using Fanficly.Core;
 using Microsoft.UI.Xaml;
@@ -44,6 +45,8 @@ public sealed class SearchScreen : Screen
     private bool _hasSearched;
     private bool _isLoadingMore;
     private string? _errorMessage;
+    /// <summary>The error is an expired AO3 session (#131): offer Sign In Again.</summary>
+    private bool _sessionExpired;
     private CancellationTokenSource? _searchCts;
     /// <summary>Bumped by every search and cancel: a response from an older
     /// search can never overwrite the results asked for last.</summary>
@@ -543,6 +546,10 @@ public sealed class SearchScreen : Screen
         {
             view = SearchingView();
         }
+        else if (_errorMessage is { } expired && _sessionExpired && !AppHost.Auth.HasSession)
+        {
+            view = SessionExpiry.EmptyState(expired);
+        }
         else if (_errorMessage is { } error)
         {
             view = UI.UI.EmptyState("exclamationmark.triangle", "Search failed", error, "Try Again", StartSearch);
@@ -960,6 +967,7 @@ public sealed class SearchScreen : Screen
     private async Task PerformSearchAsync(AO3SearchFilters requested, int generation, CancellationToken ct)
     {
         _errorMessage = null;
+        _sessionExpired = false;
         _isSearching = true;
         _slowNoteVisible = false;
         StartSlowTimer(generation);
@@ -981,6 +989,7 @@ public sealed class SearchScreen : Screen
 
             var result = await Client.SearchAsync(filters, 1, ct);
             if (generation != _searchGeneration) return;
+            SessionExpiry.Check(result);
             _results = result.Works.ToList();
             _totalFound = result.TotalFound;
             _totalPages = result.TotalPages;
@@ -999,7 +1008,8 @@ public sealed class SearchScreen : Screen
         }
         catch (Exception e)
         {
-            _errorMessage = Message(e);
+            _sessionExpired = SessionExpiry.Explains(e);
+            _errorMessage = _sessionExpired ? SessionExpiry.MessageFor(e) : Message(e);
         }
         _slowTimer?.Stop();
         _isSearching = false;
@@ -1026,7 +1036,7 @@ public sealed class SearchScreen : Screen
         AO3Exception { Kind: AO3ErrorKind.ParseFailed } e => $"Couldn't read AO3's response: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.Network } e => $"Network: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.RateLimited } => "AO3 is asking us to slow down. Try again in a minute.",
-        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "AO3 sent its login page instead of results. Log in again in Settings, then try again.",
+        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "AO3 sent its login page instead of results. Sign in again, then try again.",
         _ => error.Message,
     };
 
@@ -1046,6 +1056,7 @@ public sealed class SearchScreen : Screen
             {
                 var result = await Client.SearchAsync(searched, _currentPage + 1, ct);
                 if (generation != _searchGeneration) return; // a new search started meanwhile
+                SessionExpiry.Check(result);
                 var existing = _results.Select(w => w.Id).ToHashSet();
                 var added = result.Works.Where(w => !existing.Contains(w.Id)).ToList();
                 _results.AddRange(added);
@@ -1063,7 +1074,8 @@ public sealed class SearchScreen : Screen
         }
         catch (Exception e)
         {
-            _errorMessage = $"Couldn't load more: {Message(e)}";
+            _sessionExpired = SessionExpiry.Explains(e);
+            _errorMessage = _sessionExpired ? SessionExpiry.MessageFor(e) : $"Couldn't load more: {Message(e)}";
             RenderHeader();
         }
         finally

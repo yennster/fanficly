@@ -135,6 +135,32 @@ public sealed class SubscriptionPollerTests
         Assert.Equal("Prolific", note.Payload["authorName"]);
     }
 
+    /// <summary>Signed in, a guest page leaves out restricted works: the check
+    /// fails and the baseline waits for a signed-in page (#131).</summary>
+    [Fact]
+    public async Task GuestAuthorPageWhileSignedInFailsTheCheckAndKeepsTheBaseline()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new FollowedAuthor("locked", "Locked", knownWorkIds: [1]));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.AuthorWorks["locked"] = [Summary(1), Summary(2)];
+        client.GuestAuthorPages.Add("locked");
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, "reader", notifier);
+
+        Assert.Equal(0, await poller.CheckFollowedAuthorsAsync());
+        Assert.Empty(notifier.Posted);
+        Assert.Equal(1, poller.FailedChecks);
+        Assert.True(poller.SessionExpired);
+        Assert.Equal([1], store.GetFollowedAuthor("locked")!.KnownWorkIds);
+
+        // Signed out, the guest page is all there is.
+        var guest = new SubscriptionPoller(client, store, null, notifier);
+        Assert.Equal(1, await guest.CheckFollowedAuthorsAsync());
+        Assert.False(guest.SessionExpired);
+    }
+
     [Fact]
     public async Task CancellationStopsAfterTheCurrentRecordAndKeepsItsStamp()
     {

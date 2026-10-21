@@ -192,6 +192,9 @@ struct SubscriptionPoller {
         defer { author.lastCheckedAt = .now }
         do {
             let result = try await client.fetchAuthorWorks(username: author.username, page: 1)
+            // Signed in but served the guest page: the session expired and the
+            // page leaves out restricted works, so it can't stand as "no news".
+            if username != nil, result.servedAsGuest { throw AO3Error.unauthorized }
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
             var notifyCount = 0

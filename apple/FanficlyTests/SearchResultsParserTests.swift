@@ -401,6 +401,34 @@ final class SearchResultsParserTests: XCTestCase {
         XCTAssertEqual(try SearchResultsParser.parse(html: html).works.map(\.id), [12345])
     }
 
+    // MARK: An expired session (#131)
+
+    private let oneResult = """
+    <ol class="work index group">
+      <li id="work_12345" class="work blurb group" role="article">
+        <div class="header module"><h4 class="heading"><a href="/works/12345">A Coffee Shop Tale</a></h4></div>
+      </li>
+    </ol>
+    """
+
+    /// A guest's listing leaves out restricted works, so it says so.
+    func test_guestListings_areMarkedServedAsGuest() throws {
+        XCTAssertTrue(try SearchResultsParser.parse(html: AO3PageFixtures.guestPage(mainClass: "works-search", body: oneResult)).servedAsGuest)
+        XCTAssertTrue(try SearchResultsParser.parse(html: AO3PageFixtures.guestPage(mainClass: "works-index dashboard", body: oneResult)).servedAsGuest)
+    }
+
+    func test_signedInListings_areNotServedAsGuest() throws {
+        let results = try SearchResultsParser.parse(html: AO3PageFixtures.signedInPage(mainClass: "works-search", body: oneResult))
+        XCTAssertFalse(results.servedAsGuest)
+        XCTAssertEqual(results.works.map(\.id), [12345])
+    }
+
+    /// Without AO3's header there's no telling, so it never reads as a guest page.
+    func test_listingsWithoutTheHeader_areNotServedAsGuest() throws {
+        let html = "<html><body><div id=\"main\" class=\"works-search\">\(oneResult)</div></body></html>"
+        XCTAssertFalse(try SearchResultsParser.parse(html: html).servedAsGuest)
+    }
+
     func test_loginPage_throwsUnauthorized() {
         for selector in ["li.work.blurb", "li.bookmark.blurb"] {
             XCTAssertThrowsError(try SearchResultsParser.parse(html: AO3PageFixtures.loginPage, blurbSelector: selector)) { error in
@@ -444,6 +472,24 @@ enum AO3PageFixtures {
     </div>
     """
 
+    /// The header a signed-in reader gets: the greeting, no login form.
+    static let signedInHeader = """
+    <div id="header" class="region" role="banner">
+      <h1 class="heading"><a href="/"><span>Archive of Our Own</span></a></h1>
+      <ul class="primary navigation actions" role="navigation"></ul>
+      <nav id="greeting" aria-label="User">
+        <ul class="user navigation actions">
+          <li class="dropdown"><a class="dropdown-toggle" href="/users/reader">Hi, reader!</a></li>
+          <li><a href="/users/logout">Log Out</a></li>
+        </ul>
+      </nav>
+    </div>
+    """
+
+    static func signedInPage(mainClass: String, body: String) -> String {
+        guestPage(mainClass: mainClass, body: body).replacingOccurrences(of: guestHeader, with: signedInHeader)
+    }
+
     static func guestPage(mainClass: String, body: String) -> String {
         """
         <html><body><div id="outer" class="wrapper">
@@ -484,4 +530,65 @@ enum AO3PageFixtures {
     <html><head><title>Sign in to Wi-Fi</title></head>
     <body><h1>Welcome</h1><a href="/tags/accept/works">Accept and continue</a></body></html>
     """
+}
+
+/// An expired AO3 session (#131): signed in, but AO3 answers with its login
+/// page or a listing rendered for a guest, which leaves out restricted works.
+@MainActor
+final class AuthStateSessionTests: XCTestCase {
+    private func signedIn() -> AuthState {
+        let auth = AuthState()
+        auth.username = "reader"
+        return auth
+    }
+
+    private let guestSearchPage = AO3PageFixtures.guestPage(mainClass: "works-search", body: """
+    <ol class="work index group">
+      <li id="work_1" class="work blurb group" role="article">
+        <div class="header module"><h4 class="heading"><a href="/works/1">Public</a></h4></div>
+      </li>
+    </ol>
+    """)
+
+    func test_guestRenderedSearchPageWhileSignedIn_expiresTheSession() throws {
+        let auth = signedIn()
+        XCTAssertTrue(auth.noteListing(try SearchResultsParser.parse(html: guestSearchPage)))
+        XCTAssertTrue(auth.isSessionExpired)
+        XCTAssertFalse(auth.hasSession)
+        XCTAssertTrue(auth.isLoggedIn)  // the username stays, to prefill the sign-in form
+        XCTAssertThrowsError(try auth.check(try SearchResultsParser.parse(html: guestSearchPage))) { error in
+            XCTAssertTrue(error is SessionExpiry.GuestListing)
+            XCTAssertEqual(AuthState.message(for: error), SessionExpiry.listingMessage)
+        }
+    }
+
+    func test_guestRenderedSearchPageWhileSignedOut_isJustAGuestSearch() throws {
+        let auth = AuthState()
+        auth.username = nil
+        let results = try SearchResultsParser.parse(html: guestSearchPage)
+        XCTAssertFalse(auth.noteListing(results))
+        XCTAssertEqual(try auth.check(results).works.map(\.id), [1])
+        XCTAssertFalse(auth.isSessionExpired)
+    }
+
+    func test_signedInSearchPage_keepsTheSession() throws {
+        let auth = signedIn()
+        let page = guestSearchPage.replacingOccurrences(of: AO3PageFixtures.guestHeader, with: AO3PageFixtures.signedInHeader)
+        XCTAssertFalse(auth.noteListing(try SearchResultsParser.parse(html: page)))
+        XCTAssertTrue(auth.hasSession)
+    }
+
+    func test_unauthorizedWhileSignedIn_expiresTheSession() {
+        let auth = signedIn()
+        XCTAssertFalse(auth.explains(AO3Error.rateLimited))
+        XCTAssertFalse(auth.isSessionExpired)
+        XCTAssertTrue(auth.explains(AO3Error.unauthorized))
+        XCTAssertTrue(auth.isSessionExpired)
+
+        let guest = AuthState()
+        guest.username = nil
+        XCTAssertFalse(guest.noteFailure(AO3Error.unauthorized))
+        guest.markSessionExpired()
+        XCTAssertFalse(guest.isSessionExpired)
+    }
 }

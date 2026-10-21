@@ -311,6 +311,16 @@
         }
       }
     },
+    "Session expired for %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session expired for %@"
+          }
+        }
+      }
+    },
     "Settings" : {
       "localizations" : {
         "en" : {

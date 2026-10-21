@@ -25,6 +25,8 @@ struct AO3BookmarkSheet: View {
                         description: Text("Log in to AO3 (Settings) to bookmark this work on AO3."))
                 } else if let binding = Binding($form) {
                     editor(binding)
+                } else if let loadError, auth.isSessionExpired {
+                    SessionExpiredView(message: loadError)
                 } else if let loadError {
                     ContentUnavailableView {
                         Label("Couldn't load your bookmark", systemImage: "exclamationmark.triangle")
@@ -105,6 +107,7 @@ struct AO3BookmarkSheet: View {
         do {
             form = try await client.fetchBookmarkForm(workId: workId)
         } catch {
+            auth.noteFailure(error)
             loadError = Self.message(for: error)
         }
     }
@@ -120,6 +123,7 @@ struct AO3BookmarkSheet: View {
                                  argument: form.isExisting ? "Bookmark updated" : "Bookmarked on AO3")
             dismiss()
         } catch {
+            auth.noteFailure(error)
             saveError = "Couldn't save: \(Self.message(for: error))"
             // Not when AO3 asked us to slow down or the session is gone.
             if case AO3Error.rateLimited = error { return }

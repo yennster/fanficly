@@ -6,7 +6,12 @@ public sealed record AO3SearchResults(
     int TotalPages,
     int CurrentPage,
     /// <summary>The search page's "126,555 Found" total; null on listings without one.</summary>
-    int? TotalFound = null);
+    int? TotalFound = null,
+    /// <summary>AO3 rendered the page for a signed-out reader (the header's login
+    /// form, no greeting). A guest listing leaves out restricted (archive-locked)
+    /// works, so a signed-in reader getting one has an expired session; see
+    /// <see cref="AuthState.NoteListing"/>.</summary>
+    bool ServedAsGuest = false);
 
 /// <summary>A work as listed in a blurb or read from its work page.</summary>
 public sealed record AO3WorkSummary

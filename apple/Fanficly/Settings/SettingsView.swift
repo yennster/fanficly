@@ -34,7 +34,9 @@ struct SettingsView: View {
             Section("Account") {
                 NavigationLink(value: SettingsRoute.login) {
                     if let username = auth.username {
-                        LabeledContent("AO3 Login", value: username)
+                        // An expired session (#131): the sign-in form is one tap away.
+                        LabeledContent("AO3 Login", value: auth.isSessionExpired
+                                       ? String(localized: "Session expired for \(username)") : username)
                     } else {
                         Text("AO3 Login")
                     }

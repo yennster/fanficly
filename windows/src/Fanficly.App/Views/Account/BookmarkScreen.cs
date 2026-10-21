@@ -114,6 +114,7 @@ public sealed class BookmarkScreen : Screen
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Unauthorized)
         {
+            SessionExpiry.Explains(e);
             _loadError = "Your AO3 session has expired. Sign in again to bookmark this work.";
             _loadNeedsSignIn = true;
         }
@@ -156,7 +157,7 @@ public sealed class BookmarkScreen : Screen
         var retry = UI.UI.Button("Retry", () => _ = LoadAsync(),
             kind: _loadNeedsSignIn ? UI.UI.ButtonKind.Standard : UI.UI.ButtonKind.Accent).Id("bookmark.retry");
         var actions = _loadNeedsSignIn
-            ? UI.UI.HStack(8, UI.UI.Button("Log In", Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent).Id("bookmark.login"), retry)
+            ? UI.UI.HStack(8, UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent).Id("bookmark.login"), retry)
             : UI.UI.HStack(8, retry);
         actions.HorizontalAlignment = HorizontalAlignment.Center;
         actions.Margin = new Thickness(0, 6, 0, 0);
@@ -286,6 +287,7 @@ public sealed class BookmarkScreen : Screen
             MainWindow.Current.Announce(_saveError);
             if (e is AO3Exception { Kind: AO3ErrorKind.Unauthorized })
             {
+                SessionExpiry.Explains(e);
                 // Signed out: a sign-in loads a fresh form for the new session.
                 _form = null;
                 _loadError = "Your AO3 session has expired. Sign in again to bookmark this work.";
@@ -331,7 +333,7 @@ public sealed class BookmarkScreen : Screen
 
     private static string Message(Exception error) => error switch
     {
-        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "Your AO3 session has expired. Log in again.",
+        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "Your AO3 session has expired. Sign in again.",
         AO3Exception { Kind: AO3ErrorKind.Rejected or AO3ErrorKind.ParseFailed, Reason: { Length: > 0 } reason } => reason,
         AO3Exception { Kind: AO3ErrorKind.Http, Status: { } status } => $"AO3 returned HTTP {status}.",
         AO3Exception { Kind: AO3ErrorKind.Network, Reason: { } reason } => $"Network: {reason}",

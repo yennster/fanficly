@@ -55,12 +55,19 @@ public struct AO3SearchResults: Sendable, Equatable {
     public let currentPage: Int
     /// The search page's "126,555 Found" total; nil on listings without one.
     public let totalFound: Int?
+    /// AO3 rendered the page for a signed-out reader (the header's login form,
+    /// no greeting). A guest listing leaves out restricted (archive-locked)
+    /// works, so a signed-in reader getting one has an expired session; see
+    /// `AuthState.noteListing(_:)`.
+    public let servedAsGuest: Bool
 
-    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil) {
+    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil,
+                servedAsGuest: Bool = false) {
         self.works = works
         self.totalPages = totalPages
         self.currentPage = currentPage
         self.totalFound = totalFound
+        self.servedAsGuest = servedAsGuest
     }
 }
 

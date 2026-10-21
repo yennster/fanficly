@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// AO3 sign-in. Logged out: username, password and Log in. Logged in: who you
+/// are and Log out. Session expired (#131): the form again, with the username
+/// filled in and a note saying why.
 struct LoginView: View {
     @Environment(\.ao3Client) private var client
     @Environment(AuthState.self) private var auth
@@ -9,7 +12,7 @@ struct LoginView: View {
 
     var body: some View {
         Form {
-            if let current = auth.username {
+            if let current = auth.username, !auth.isSessionExpired {
                 Section {
                     LabeledContent("Logged in as", value: current)
                     Button("Log out", role: .destructive) {
@@ -19,6 +22,12 @@ struct LoginView: View {
                     Text("Logging out clears the session cookie from your Keychain. Your offline library stays on the device.")
                 }
             } else {
+                if auth.isSessionExpired {
+                    Section {
+                        Label("\(SessionExpiry.title). Sign in again to keep using your AO3 bookmarks, subscriptions and comments, and to see restricted works.",
+                              systemImage: "person.crop.circle.badge.questionmark")
+                    }
+                }
                 Section {
                     TextField("Username", text: $username)
                         .textContentType(.username)
@@ -41,7 +50,7 @@ struct LoginView: View {
                     Button {
                         Task {
                             await auth.login(using: client, username: username, password: password)
-                            if auth.isLoggedIn { dismiss() }
+                            if auth.hasSession { dismiss() }
                         }
                     } label: {
                         if auth.isAuthenticating {
@@ -55,7 +64,28 @@ struct LoginView: View {
             }
         }
         .navigationTitle("AO3 Login")
+        .onAppear {
+            // The username is known when the session expired.
+            if username.isEmpty, auth.isSessionExpired, let stored = auth.username { username = stored }
+        }
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// The full-page state for an expired session: retrying can't help, so it
+/// offers Sign In Again, which opens the sign-in form with the username filled in.
+struct SessionExpiredView: View {
+    var message: String = SessionExpiry.message
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(SessionExpiry.title, systemImage: "person.crop.circle.badge.questionmark")
+        } description: {
+            Text(message)
+        } actions: {
+            NavigationLink { LoginView() } label: { Text(SessionExpiry.actionTitle) }
+                .buttonStyle(.borderedProminent)
+        }
     }
 }
 
