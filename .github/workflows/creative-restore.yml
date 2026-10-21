@@ -13,7 +13,7 @@ on:
       apply:
         description: Put them on the editable iOS version (unchecked = only download and push them)
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
