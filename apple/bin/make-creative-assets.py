@@ -46,12 +46,12 @@ SEARCH_CHIPS = [
     ("Fluff", "far small", 1620, 2007, 0), ("Enemies to Lovers", "", 978, 2139, 3),
 ]
 
-# kind, file, size, safe area, label, label class, headline, sub, chips,
+# kind, file, size, safe area, label, label class, headline, sub ("|" breaks), chips,
 # the iPhones front to back as (capture, theme)
 ASSETS = [
     ("header", "header-3840x1646.png", (3840, 1646), (1646, 661),
      "A calm place to read", "", "Lose yourself|in a good *fic.*",
-     "Search, save and read fanfiction — offline, ad-free and private.", HEADER_CHIPS,
+     "Search, save and read fanfiction.|Offline, ad-free and private.", HEADER_CHIPS,
      [("03-reader", "sepia"), ("09-tts", "dark")]),
     ("search", "search-3840x2560.png", (3840, 2560), (2168, 1030),
      "Search · Save · Read · Listen", "bare", "Find your|next *fic.*",
@@ -100,7 +100,7 @@ def main() -> None:
             fh.write(store_art.fill(
                 "creative.html", kind=kind, w=str(w), h=str(h), safe_w=str(sw), safe_h=str(sh),
                 label=html.escape(label), label_class=label_class,
-                headline=store_art.headline_html(headline), sub=html.escape(sub),
+                headline=store_art.headline_html(headline), sub=html.escape(sub).replace("|", "<br>"),
                 chips=chips_html(chips),
                 pages=store_art.pages_html(seed=len(kind) * 11, width=w, height=h, count=14),
                 **fields))
