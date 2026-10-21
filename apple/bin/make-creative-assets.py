@@ -60,15 +60,18 @@ ASSETS = [
 ]
 
 SEPIA = (247, 236, 214)  # the reader's sepia page
+INK = (62, 42, 24)       # and its brown text
 
 
 def themed(shot: Image.Image, theme: str) -> Image.Image:
-    """A light capture as the reader's sepia or dark theme: sepia multiplies the
-    page colour in (black text stays black, the blue accents stay blue); dark
-    inverts the brightness but keeps each hue, onto a near-black page."""
+    """A light capture as the reader's sepia or dark theme: sepia maps each
+    channel from brown ink (black) to the sepia page (white), so the blue
+    accents stay blue; dark inverts the brightness but keeps each hue, onto a
+    near-black page."""
     shot = shot.convert("RGB")
     if theme == "sepia":
-        return ImageChops.multiply(shot, Image.new("RGB", shot.size, SEPIA))
+        return Image.merge("RGB", [band.point(lambda x, lo=lo, hi=hi: lo + x * (hi - lo) // 255)
+                                   for band, lo, hi in zip(shot.split(), INK, SEPIA)])
     if theme == "dark":
         h, s, v = ImageChops.invert(shot).convert("HSV").split()
         inverted = Image.merge("HSV", (h.point(lambda x: (x + 128) % 256), s, v)).convert("RGB")
