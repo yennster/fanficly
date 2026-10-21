@@ -9,6 +9,7 @@ request, so merging never ships anything.
 | --- | --- | --- |
 | **Release** (`release.yml`) | Signed builds to TestFlight or the App Store version, metadata, signing setup | yes, after approval |
 | **Store assets** (`store-assets.yml`) | Regenerates screenshots, app previews and creative art; optionally uploads them | only the optional upload job |
+| **Restore the creative art** (`creative-restore.yml`) | Downloads the live iOS version's header and search-results art, keeps it in git, and puts it back on the editable version | yes, after approval |
 
 Every job that touches secrets runs in the **`app-store` environment**: it
 waits until the repo owner approves it, and only runs from `main`. The
