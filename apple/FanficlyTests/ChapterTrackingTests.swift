@@ -152,6 +152,7 @@ final class ChapterTrackingTests: XCTestCase {
     /// Opening the saved copy with an anchor in chapter 13: page-by-page has
     /// a chapter to paginate (it used to get none and spin forever), the
     /// page holding the place exists, and the place doesn't read as 0%.
+    @MainActor
     func test_savedWorkWithAnAnchorPastItsLastChapter_producesPagesAndKeepsProgress() {
         let saved = ReadingAnchor(chapter: 13, paragraph: 4)
         let paragraphCount = ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false).count

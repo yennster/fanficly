@@ -537,6 +537,8 @@ internal sealed partial class ReaderView
 
     private void SaveProgress(ReadingAnchor anchor, bool force = false, bool syncWidgetImmediately = false)
     {
+        // Reading on from the moved place: it's a real place again from now on.
+        if (anchor != _clampedRestoreAnchor) _clampedRestoreAnchor = null;
         if (_summary is not { } summary || anchor == _clampedRestoreAnchor
             || ReadingProgressFraction(anchor) is not { } progress) return;
         var now = DateTimeOffset.Now;

@@ -860,6 +860,8 @@ struct ReaderView: View {
     }
 
     private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false, syncWidgetImmediately: Bool = false) {
+        // Reading on from the moved place: it's a real place again from now on.
+        if anchor != clampedRestoreAnchor { clampedRestoreAnchor = nil }
         guard let id = summary?.id, anchor != clampedRestoreAnchor,
               let progress = readingProgressFraction(for: anchor) else { return }
         let now = Date()
@@ -887,7 +889,7 @@ struct ReaderView: View {
               // Only convert (cached, but not free) once the last chapter's
               // anchors are actually being laid out near the viewport.
               offsets.keys.contains(where: { $0.hasPrefix("c\(last.index)-p") }) else { return nil }
-        let lastParagraph = HTMLToAttributed.convertParagraphs(last.bodyHTML).count - 1
+        let lastParagraph = paragraphCount(ofChapter: last.index) - 1
         return ChapterTracking.endOfContentAnchor(
             offsets,
             lastChapter: last.index,
