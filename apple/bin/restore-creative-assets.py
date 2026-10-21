@@ -9,7 +9,8 @@ exist in App Store Connect:
        bin/upload-creative-assets.py uses, so they can be kept in git.
     3. With --apply, put those same library assets on the editable version in
        place of whatever is there (the same as Remove, then Browse Assets, in
-       App Store Connect). Nothing is re-uploaded and nothing submits.
+       App Store Connect). The replaced assets stay in the library. Nothing is
+       re-uploaded and nothing submits.
 
 Run with the repo venv:  bin/.venv/bin/python bin/restore-creative-assets.py [--apply]
 """
@@ -65,32 +66,42 @@ def download(image_id: str, path: Path) -> None:
     print(f"    saved {path.name} ({asset['width']}x{asset['height']}, {len(r.content) // 1024} KB)")
 
 
+def image_id(placement: dict) -> str | None:
+    return ((placement.get("relationships", {}).get("image") or {}).get("data") or {}).get("id")
+
+
 def main() -> None:
     app = asc.app_id()
     live = live_localization(app)
-    editable = asc.editable_localization(app) if APPLY else None
+    # Download both first, so they're kept even if the editable version
+    # can't take them (already submitted, say).
+    old = {}
     for placement_type, name in SLOTS:
         print(f"==> {placement_type}")
-        old = asc.placements(live, placement_type)
-        if not old:
-            sys.exit("    the live version has none")
-        image = (old[0].get("relationships", {}).get("image") or {}).get("data")
-        if not image:
-            sys.exit("    the live placement isn't an image")
-        download(image["id"], CREATIVE / name)
-        if not APPLY:
-            continue
+        current = asc.placements(live, placement_type)
+        old[placement_type] = image_id(current[0]) if current else None
+        if not old[placement_type]:
+            sys.exit("    the live version has no image there")
+        download(old[placement_type], CREATIVE / name)
+    if not APPLY:
+        print("Done. Pass --apply to put them on the editable version.")
+        return
+    editable = asc.editable_localization(app)
+    for placement_type, _ in SLOTS:
+        print(f"==> {placement_type} on the editable version")
         current = asc.placements(editable, placement_type)
-        if any((p.get("relationships", {}).get("image") or {}).get("data", {}).get("id") == image["id"]
-               for p in current):
-            print("    already on the editable version")
+        if any(image_id(p) == old[placement_type] for p in current):
+            print("    already there")
             continue
+        # Only the placements go; the rendered assets stay in the library
+        # (Browse Assets can still pick them).
         for placement in current:
-            asc.remove_placement(placement)
-        placement = asc.place({"kind": "appAssetLibraryImages", "id": image["id"]},
+            asc.req("DELETE", f"{asc.API}/appAssetLibraryPlacements/{placement['id']}")
+            print(f"    removed placement {placement['id']}")
+        placement = asc.place({"kind": "appAssetLibraryImages", "id": old[placement_type]},
                               editable, placement_type, GROUP)
-        print(f"    placed on the editable version ({placement['attributes']['state']})")
-    print("Done." + ("" if APPLY else " Pass --apply to put them on the editable version."))
+        print(f"    placed ({placement['attributes']['state']})")
+    print("Done. Nothing was submitted.")
 
 
 if __name__ == "__main__":
