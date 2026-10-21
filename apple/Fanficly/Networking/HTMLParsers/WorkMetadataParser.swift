@@ -13,25 +13,35 @@ public struct AO3WorkMetadata: Sendable, Equatable {
 enum WorkMetadataParser {
     static func parse(html: String, workId: Int) throws -> AO3WorkMetadata {
         let doc = try SwiftSoup.parse(html)
-        let stats = try doc.select("dl.stats").first()
-        let chaptersText = try stats?.select("dd.chapters").first()?.text() ?? "1/1"
-        let (current, total) = parseChapterFraction(chaptersText)
+        try AO3PageCheck.rejectLoginPage(doc)
+        // Fail closed: a Cloudflare challenge, AO3's "Retry later" page or an
+        // error page has no chapter count, and reading it as "1/1" would reset
+        // the poller's new-chapter baseline and send a false alert on the next
+        // real check.
+        guard let stats = try doc.select("dl.stats").first(),
+              let chaptersText = try stats.select("dd.chapters").first()?.text() else {
+            throw AO3Error.parseFailed(reason: "No chapter count on the work page")
+        }
+        guard let chapters = parseChapterFraction(chaptersText) else {
+            throw AO3Error.parseFailed(reason: "Unreadable chapter count on the work page")
+        }
 
-        let statusText = try stats?.select("dd.status").first()?.text() ?? ""
+        let statusText = try stats.select("dd.status").first()?.text() ?? ""
         let updatedAt = parseAO3Date(statusText)
 
         return AO3WorkMetadata(
             id: workId,
-            chapterCount: current,
-            totalChapters: total,
+            chapterCount: chapters.current,
+            totalChapters: chapters.total,
             updatedAt: updatedAt,
             series: SeriesParser.parts(in: doc)
         )
     }
 
-    private static func parseChapterFraction(_ s: String) -> (current: Int, total: Int?) {
+    /// Nil when the posted count isn't a number, so drift can't read as 1.
+    private static func parseChapterFraction(_ s: String) -> (current: Int, total: Int?)? {
         let parts = s.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
-        let current = Int(parts.first ?? "1") ?? 1
+        guard let current = parts.first.flatMap({ Int($0) }) else { return nil }
         let total: Int?
         if parts.count > 1, parts[1] == "?" {
             total = nil
