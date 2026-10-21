@@ -22,23 +22,26 @@ enum WorkMetadataParser {
               let chaptersText = try stats.select("dd.chapters").first()?.text() else {
             throw AO3Error.parseFailed(reason: "No chapter count on the work page")
         }
-        let (current, total) = parseChapterFraction(chaptersText)
+        guard let chapters = parseChapterFraction(chaptersText) else {
+            throw AO3Error.parseFailed(reason: "Unreadable chapter count on the work page")
+        }
 
         let statusText = try stats.select("dd.status").first()?.text() ?? ""
         let updatedAt = parseAO3Date(statusText)
 
         return AO3WorkMetadata(
             id: workId,
-            chapterCount: current,
-            totalChapters: total,
+            chapterCount: chapters.current,
+            totalChapters: chapters.total,
             updatedAt: updatedAt,
             series: SeriesParser.parts(in: doc)
         )
     }
 
-    private static func parseChapterFraction(_ s: String) -> (current: Int, total: Int?) {
+    /// Nil when the posted count isn't a number, so drift can't read as 1.
+    private static func parseChapterFraction(_ s: String) -> (current: Int, total: Int?)? {
         let parts = s.split(separator: "/").map { $0.trimmingCharacters(in: .whitespaces) }
-        let current = Int(parts.first ?? "1") ?? 1
+        guard let current = parts.first.flatMap({ Int($0) }) else { return nil }
         let total: Int?
         if parts.count > 1, parts[1] == "?" {
             total = nil

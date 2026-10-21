@@ -38,6 +38,7 @@ final class WorkMetadataParserTests: XCTestCase {
             #"<html><body><div id="main" class="errors-404"><h2 class="heading">Error 404</h2></div></body></html>"#,
             "<html><body><h1>Retry later</h1><p>Too many requests.</p></body></html>",
             #"<html><body><dl class="stats"><dt class="words">Words:</dt><dd class="words">1,200</dd></dl></body></html>"#,
+            #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters"></dd></dl></body></html>"#,
         ] {
             XCTAssertThrowsError(try WorkMetadataParser.parse(html: html, workId: 2)) { error in
                 guard case AO3Error.parseFailed = error else { return XCTFail("expected parseFailed, got \(error)") }
