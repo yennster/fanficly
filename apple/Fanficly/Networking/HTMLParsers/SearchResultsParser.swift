@@ -34,7 +34,8 @@ enum SearchResultsParser {
         }
 
         return AO3SearchResults(works: works, totalPages: totalPages, currentPage: currentPage,
-                                totalFound: try totalFound(in: doc))
+                                totalFound: try totalFound(in: doc),
+                                servedAsGuest: AO3PageCheck.isGuestPage(doc))
     }
 
     /// A works, bookmarks or readings listing, even an empty one: the index `<ol>` that
@@ -232,6 +233,16 @@ enum AO3PageCheck {
     static func isLoginPage(_ doc: Document) -> Bool {
         let hits = try? doc.select("div#main.sessions-new, #main #loginform, #main form[action*=/users/login]")
         return !(hits?.isEmpty() ?? true)
+    }
+
+    /// A page AO3 rendered for a signed-out reader: the header's small login
+    /// form and no `#greeting` link to `/users/<login>`. Both are required, so a
+    /// page without AO3's header (a test fixture, markup drift) never reads as
+    /// a guest page.
+    static func isGuestPage(_ doc: Document) -> Bool {
+        let noGreeting = (try? doc.select("#greeting a[href^=/users/]").isEmpty()) ?? true
+        let noLoginForm = (try? doc.select("form#new_user, input[name=user[login]], #loginform").isEmpty()) ?? true
+        return noGreeting && !noLoginForm
     }
 
     static func rejectLoginPage(_ doc: Document) throws {

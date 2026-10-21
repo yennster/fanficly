@@ -2,6 +2,7 @@ using Fanficly.Core;
 
 namespace Fanficly.Core.Tests;
 
+[Collection(GlobalStoreCollection.Name)] // logout and account switches clear KudosStore
 public class AuthStateTests
 {
     /// <summary>A scriptable login: throws <see cref="LoginError"/> when set.</summary>
@@ -99,6 +100,109 @@ public class AuthStateTests
         Assert.Null(auth.Username);
         Assert.Null(vault.StoredUsername());
         Assert.Empty(vault.LoadCookies());
+    }
+
+    // An expired session (#131)
+
+    private static AuthState SignedIn(InMemoryCookieVault? vault = null)
+    {
+        vault ??= new InMemoryCookieVault();
+        vault.SetUsername("reader");
+        return new AuthState(vault);
+    }
+
+    private static readonly string GuestSearchPage = AO3PageFixtures.GuestPage("works-search", """
+        <ol class="work index group">
+          <li id="work_1" class="work blurb group" role="article">
+            <div class="header module"><h4 class="heading"><a href="/works/1">Public</a></h4></div>
+          </li>
+        </ol>
+        """);
+
+    [Fact]
+    public void GuestRenderedSearchPageWhileSignedInExpiresTheSession()
+    {
+        var auth = SignedIn();
+        var changed = new List<string?>();
+        auth.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        Assert.True(auth.NoteListing(SearchResultsParser.Parse(GuestSearchPage)));
+
+        Assert.True(auth.IsSessionExpired);
+        Assert.False(auth.HasSession);
+        Assert.True(auth.IsLoggedIn); // the username stays, to prefill the sign-in form
+        Assert.Contains(nameof(AuthState.IsSessionExpired), changed);
+    }
+
+    [Fact]
+    public void GuestRenderedSearchPageWhileSignedOutIsJustAGuestSearch()
+    {
+        var auth = new AuthState(new InMemoryCookieVault());
+        Assert.False(auth.NoteListing(SearchResultsParser.Parse(GuestSearchPage)));
+        Assert.False(auth.IsSessionExpired);
+    }
+
+    [Fact]
+    public void SignedInSearchPageKeepsTheSession()
+    {
+        var auth = SignedIn();
+        var page = GuestSearchPage.Replace(AO3PageFixtures.GuestHeader, AO3PageFixtures.SignedInHeader, StringComparison.Ordinal);
+        Assert.False(auth.NoteListing(SearchResultsParser.Parse(page)));
+        Assert.True(auth.HasSession);
+    }
+
+    [Fact]
+    public void UnauthorizedWhileSignedInExpiresTheSession()
+    {
+        var auth = SignedIn();
+        Assert.False(auth.NoteFailure(AO3Exception.RateLimited()));
+        Assert.False(auth.IsSessionExpired);
+        Assert.True(auth.NoteFailure(AO3Exception.Unauthorized()));
+        Assert.True(auth.IsSessionExpired);
+
+        var guest = new AuthState(new InMemoryCookieVault());
+        Assert.False(guest.NoteFailure(AO3Exception.Unauthorized()));
+        guest.MarkSessionExpired();
+        Assert.False(guest.IsSessionExpired);
+    }
+
+    [Fact]
+    public async Task SigningInAgainClearsTheExpiredSession()
+    {
+        var auth = SignedIn();
+        auth.MarkSessionExpired();
+
+        await auth.LoginAsync(new ClientTestDouble { LoginError = AO3Exception.LoginFailed("Incorrect username or password.") }, "reader", "bad");
+        Assert.True(auth.IsSessionExpired);
+
+        await auth.LoginAsync(new ClientTestDouble(), "reader", "pw");
+        Assert.False(auth.IsSessionExpired);
+        Assert.True(auth.HasSession);
+    }
+
+    [Fact]
+    public async Task SigningInAsSomeoneElseClearsTheirKudos()
+    {
+        KudosStore.Clear();
+        KudosStore.MarkLeft(7);
+        var auth = SignedIn();
+        auth.MarkSessionExpired();
+        await auth.LoginAsync(new ClientTestDouble(), "reader", "pw");
+        Assert.True(KudosStore.HasLeft(7));
+
+        auth.MarkSessionExpired();
+        await auth.LoginAsync(new ClientTestDouble(), "someone-else", "pw");
+        Assert.False(KudosStore.HasLeft(7));
+    }
+
+    [Fact]
+    public async Task SigningOutClearsTheExpiredSession()
+    {
+        var auth = SignedIn();
+        auth.MarkSessionExpired();
+        await auth.LogoutAsync(new ClientTestDouble());
+        Assert.False(auth.IsSessionExpired);
+        Assert.False(auth.IsLoggedIn);
     }
 
     [Fact]

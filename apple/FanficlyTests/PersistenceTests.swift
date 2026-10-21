@@ -1627,6 +1627,24 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
     }
 
+    // Signed in, a guest page means the session expired (#131): its public
+    // works still join the baseline, so restricted ones alert once a
+    // signed-in poll sees them. (No baseline yet, so no alert is posted.)
+    func test_followedAuthor_guestPageWhileSignedIn_keepsThePublicWorks() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "locked", displayName: "Locked")
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(works: [.stub(id: 1, title: ""), .stub(id: 2, title: "")],
+                                                      totalPages: 1, currentPage: 1, servedAsGuest: true)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(Set(author.knownWorkIds), [1, 2])
+    }
+
     // A check that gets an error or Cloudflare page instead of the work must
     // leave the new-chapter baselines alone; overwriting them with 1 would
     // send "N new chapters" on the next real check.

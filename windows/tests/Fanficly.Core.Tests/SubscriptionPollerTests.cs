@@ -135,6 +135,31 @@ public sealed class SubscriptionPollerTests
         Assert.Equal("Prolific", note.Payload["authorName"]);
     }
 
+    /// <summary>Signed in, a guest page means the session expired (#131): the
+    /// public works still alert, and the poller says so.</summary>
+    [Fact]
+    public async Task GuestAuthorPageWhileSignedInFlagsTheExpiredSession()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new FollowedAuthor("locked", "Locked", knownWorkIds: [1]));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.AuthorWorks["locked"] = [Summary(1), Summary(2)];
+        client.GuestAuthorPages.Add("locked");
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, "reader", notifier);
+
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Single(notifier.Posted);
+        Assert.True(poller.SessionExpired);
+        Assert.Equal([1, 2], store.GetFollowedAuthor("locked")!.KnownWorkIds.Order());
+
+        // Signed out, the guest page is all there is.
+        var guest = new SubscriptionPoller(client, store, null, notifier);
+        await guest.CheckFollowedAuthorsAsync();
+        Assert.False(guest.SessionExpired);
+    }
+
     [Fact]
     public async Task CancellationStopsAfterTheCurrentRecordAndKeepsItsStamp()
     {

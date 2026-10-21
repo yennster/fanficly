@@ -11,6 +11,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     private(set) var autocompleteCalls: [String] = []
     /// Scripted subscriptions-list response (SubscriptionPoller tests).
     var subscriptionsResponse: [AO3Subscription] = []
+    /// Scripted author works page (SubscriptionPoller tests); empty when nil.
+    var authorWorksResponse: AO3SearchResults?
     /// Scripted work page for `fetchWorkMetadata`, run through the real
     /// parser (SubscriptionPoller tests); nil returns a one-chapter work.
     var workMetadataHTML: String?
@@ -36,7 +38,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
-        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+        authorWorksResponse ?? AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)

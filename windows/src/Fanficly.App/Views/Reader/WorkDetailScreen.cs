@@ -264,7 +264,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Unauthorized)
         {
-            if (await Dialogs.ConfirmAsync("Sign in to AO3", "Your AO3 session has expired. Sign in again to subscribe.", "Sign In"))
+            Account.SessionExpiry.Explains(e);
+            if (await Dialogs.ConfirmAsync("Sign in to AO3", "Your AO3 session has expired. Sign in again to subscribe.", Account.SessionExpiry.ActionTitle))
                 Routes.OpenLogin();
         }
         catch (Exception e)
