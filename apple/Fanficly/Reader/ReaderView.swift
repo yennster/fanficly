@@ -49,6 +49,10 @@ struct ReaderView: View {
     @State private var visibleChapterIndex: Int = 1
     @State private var currentAnchor: ReadingAnchor?
     @State private var loadedFromDisk = false
+    /// Where a saved position past the loaded chapters was moved to (see
+    /// `ChapterTracking.clampedAnchor`). Never saved: opening a shorter copy
+    /// mustn't overwrite the real place. Reading on from it saves as usual.
+    @State private var clampedRestoreAnchor: ReadingAnchor?
     @State private var isRestoring = false
     @State private var lastSaveAt: Date = .distantPast
     // Paginated-mode one-shot paragraph restore.
@@ -790,9 +794,13 @@ struct ReaderView: View {
     private func loadAnchorIfNeeded() -> ReadingAnchor? {
         if !loadedFromDisk {
             loadedFromDisk = true
-            if let id = summary?.id, let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext) {
-                currentAnchor = saved
-                selectedChapterIndex = saved.chapter
+            if let id = summary?.id, let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext),
+               let anchor = ChapterTracking.clampedAnchor(
+                   saved, toChapters: chapters.map(\.index),
+                   lastParagraph: { paragraphCount(ofChapter: $0) - 1 }) {
+                if anchor != saved { clampedRestoreAnchor = anchor }
+                currentAnchor = anchor
+                selectedChapterIndex = anchor.chapter
             }
         }
         return currentAnchor
@@ -824,7 +832,9 @@ struct ReaderView: View {
         let capped = min(elapsed, 4 * 3600)
         // Credit only as far as the reader has actually read, so words-read and
         // "finished" status track real progress rather than the work's length.
-        let progress = currentAnchor.map(readingProgressFraction(for:)) ?? 0
+        let progress = currentAnchor.flatMap { anchor in
+            anchor == clampedRestoreAnchor ? nil : readingProgressFraction(for: anchor)
+        } ?? 0
         let justFinished = ReadingStatsStore.record(
             ao3Id: summary.id,
             title: title,
@@ -850,7 +860,8 @@ struct ReaderView: View {
     }
 
     private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false, syncWidgetImmediately: Bool = false) {
-        guard let id = summary?.id else { return }
+        guard let id = summary?.id, anchor != clampedRestoreAnchor,
+              let progress = readingProgressFraction(for: anchor) else { return }
         let now = Date()
         if !force && now.timeIntervalSince(lastSaveAt) < 1.5 { return }
         lastSaveAt = now
@@ -860,7 +871,7 @@ struct ReaderView: View {
             anchor: anchor,
             title: title,
             author: author,
-            progress: readingProgressFraction(for: anchor),
+            progress: progress,
             syncWidgetImmediately: syncWidgetImmediately,
             in: modelContext
         )
@@ -885,19 +896,16 @@ struct ReaderView: View {
         )
     }
 
-    private func readingProgressFraction(for anchor: ReadingAnchor) -> Double {
-        let orderedChapters = chapters.sorted { $0.index < $1.index }
-        guard !orderedChapters.isEmpty,
-              let chapterOffset = orderedChapters.firstIndex(where: { $0.index == anchor.chapter }) else {
-            return 0
-        }
+    private func readingProgressFraction(for anchor: ReadingAnchor) -> Double? {
+        ChapterTracking.progressFraction(for: anchor, chapters: chapters.map(\.index),
+                                         paragraphCount: paragraphCount(ofChapter:))
+    }
 
-        let chapter = orderedChapters[chapterOffset]
-        let paragraphCount = max(HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: showImages).count, 1)
-        let paragraphDenominator = max(paragraphCount - 1, 1)
-        let paragraphProgress = min(max(Double(anchor.paragraph) / Double(paragraphDenominator), 0), 1)
-        let rawProgress = (Double(chapterOffset) + paragraphProgress) / Double(orderedChapters.count)
-        return min(max(rawProgress, 0), 1)
+    /// Paragraphs in a loaded chapter as the reader renders them (0 if it
+    /// isn't loaded); the conversion is cached.
+    private func paragraphCount(ofChapter index: Int) -> Int {
+        guard let chapter = chapters.first(where: { $0.index == index }) else { return 0 }
+        return HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: showImages).count
     }
 
     private func nearbyChapterIndexes(current: Int) -> Set<Int> {
