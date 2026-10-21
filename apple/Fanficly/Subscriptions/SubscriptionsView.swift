@@ -320,7 +320,7 @@ struct BookmarksView: View {
     }
 
     private func loadFirst() async {
-        guard let username = auth.username, works.isEmpty else { return }
+        guard let username = auth.username, works.isEmpty, !isLoading else { return }
         isLoading = true
         errorMessage = nil
         sessionExpired = false
@@ -532,7 +532,7 @@ struct ReadingListView: View {
     }
 
     private func loadFirst() async {
-        guard let username = auth.username, works.isEmpty else { return }
+        guard let username = auth.username, works.isEmpty, !isLoading else { return }
         isLoading = true
         errorMessage = nil
         sessionExpired = false

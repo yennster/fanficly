@@ -119,7 +119,8 @@ public sealed class SubscriptionPoller
     public int FailedChecks { get; private set; }
 
     /// <summary>A check found the session expired: signed in, but AO3 served a
-    /// followed author's works as a guest page (see <c>AuthState.MarkSessionExpired</c>).</summary>
+    /// followed author's works as a guest page, without restricted works (see
+    /// <c>AuthState.MarkSessionExpired</c>).</summary>
     public bool SessionExpired { get; private set; }
 
     public async Task<int> CheckForNewChaptersAsync(CancellationToken ct = default)
@@ -258,13 +259,10 @@ public sealed class SubscriptionPoller
         try
         {
             var result = await _client.FetchAuthorWorksAsync(author.Username, 1, ct).ConfigureAwait(false);
-            // Signed in but served the guest page: the session expired and the
-            // page leaves out restricted works, so it can't stand as "no news".
-            if (Username is not null && result.ServedAsGuest)
-            {
-                SessionExpired = true;
-                throw AO3Exception.Unauthorized();
-            }
+            // Signed in but served the guest page: the session expired. The
+            // public works still alert; restricted ones aren't in the baseline
+            // yet, so they alert once a signed-in poll sees them.
+            if (Username is not null && result.ServedAsGuest) SessionExpired = true;
             var latestIds = result.Works.Select(w => w.Id);
             var known = author.KnownWorkIds.ToHashSet();
             var notifyCount = 0;

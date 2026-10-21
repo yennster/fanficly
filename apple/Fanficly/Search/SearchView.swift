@@ -301,6 +301,15 @@ struct SearchView: View {
             searchingView
         } else if let error = errorMessage, sessionExpired, !auth.hasSession {
             SessionExpiredView(message: error)
+        } else if errorMessage != nil, sessionExpired {
+            // Signed in again since: the expiry note no longer stands.
+            ContentUnavailableView {
+                Label("Signed in again", systemImage: "magnifyingglass")
+            } description: {
+                Text("Search again to see every result, restricted works included.")
+            } actions: {
+                Button("Try Again") { startSearch() }
+            }
         } else if let error = errorMessage {
             ContentUnavailableView {
                 Label("Search failed", systemImage: "exclamationmark.triangle")
@@ -812,4 +821,5 @@ struct SearchView: View {
 #Preview {
     NavigationStack { SearchView() }
         .environment(\.ao3Client, MockAO3Client())
+        .environment(AuthState())
 }

@@ -91,6 +91,9 @@ public sealed class AuthState : INotifyPropertyChanged
         try
         {
             await client.LoginAsync(username, password, ct);
+            // Signing in as someone else from the expired-session form skips
+            // logout, so drop the previous account's kudos here.
+            if (Username is { } previous && !string.Equals(previous, username, StringComparison.OrdinalIgnoreCase)) KudosStore.Clear();
             Username = username;
             _vault.SetUsername(username);
             IsSessionExpired = false;

@@ -61,6 +61,15 @@ struct LoginView: View {
                     }
                     .disabled(auth.isAuthenticating || username.isEmpty || password.isEmpty)
                 }
+
+                // An expired session can still be removed from this device.
+                if auth.isSessionExpired {
+                    Section {
+                        Button("Log out", role: .destructive) {
+                            Task { await auth.logout(using: client) }
+                        }
+                    }
+                }
             }
         }
         .navigationTitle("AO3 Login")

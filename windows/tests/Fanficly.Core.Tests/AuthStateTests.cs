@@ -2,6 +2,7 @@ using Fanficly.Core;
 
 namespace Fanficly.Core.Tests;
 
+[Collection(GlobalStoreCollection.Name)] // logout and account switches clear KudosStore
 public class AuthStateTests
 {
     /// <summary>A scriptable login: throws <see cref="LoginError"/> when set.</summary>
@@ -177,6 +178,21 @@ public class AuthStateTests
         await auth.LoginAsync(new ClientTestDouble(), "reader", "pw");
         Assert.False(auth.IsSessionExpired);
         Assert.True(auth.HasSession);
+    }
+
+    [Fact]
+    public async Task SigningInAsSomeoneElseClearsTheirKudos()
+    {
+        KudosStore.Clear();
+        KudosStore.MarkLeft(7);
+        var auth = SignedIn();
+        auth.MarkSessionExpired();
+        await auth.LoginAsync(new ClientTestDouble(), "reader", "pw");
+        Assert.True(KudosStore.HasLeft(7));
+
+        auth.MarkSessionExpired();
+        await auth.LoginAsync(new ClientTestDouble(), "someone-else", "pw");
+        Assert.False(KudosStore.HasLeft(7));
     }
 
     [Fact]

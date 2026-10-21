@@ -192,9 +192,12 @@ struct SubscriptionPoller {
         defer { author.lastCheckedAt = .now }
         do {
             let result = try await client.fetchAuthorWorks(username: author.username, page: 1)
-            // Signed in but served the guest page: the session expired and the
-            // page leaves out restricted works, so it can't stand as "no news".
-            if username != nil, result.servedAsGuest { throw AO3Error.unauthorized }
+            // Signed in but served the guest page: the session expired. The
+            // public works still alert; restricted ones aren't in the baseline
+            // yet, so they alert once a signed-in poll sees them.
+            if username != nil, result.servedAsGuest {
+                logger.warning("Author \(author.username, privacy: .public) came back as a guest page: the AO3 session expired")
+            }
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
             var notifyCount = 0

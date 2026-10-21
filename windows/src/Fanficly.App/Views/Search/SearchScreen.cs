@@ -550,6 +550,11 @@ public sealed class SearchScreen : Screen
         {
             view = SessionExpiry.EmptyState(expired);
         }
+        else if (_errorMessage is not null && _sessionExpired)
+        {
+            // Signed in again since: the expiry note no longer stands.
+            view = UI.UI.EmptyState("magnifyingglass", "Signed in again", "Search again to see every result, restricted works included.", "Try Again", StartSearch);
+        }
         else if (_errorMessage is { } error)
         {
             view = UI.UI.EmptyState("exclamationmark.triangle", "Search failed", error, "Try Again", StartSearch);

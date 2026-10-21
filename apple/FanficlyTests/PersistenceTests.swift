@@ -1627,31 +1627,22 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
     }
 
-    // Signed in, a guest page leaves out restricted works: the check is
-    // skipped and the baseline waits for a signed-in page (#131).
-    func test_followedAuthor_guestPageWhileSignedIn_keepsTheBaseline() async throws {
+    // Signed in, a guest page means the session expired (#131): its public
+    // works still join the baseline, so restricted ones alert once a
+    // signed-in poll sees them. (No baseline yet, so no alert is posted.)
+    func test_followedAuthor_guestPageWhileSignedIn_keepsThePublicWorks() async throws {
         let ctx = try makeContext()
-        let author = FollowedAuthor(username: "locked", displayName: "Locked", knownWorkIds: [1])
+        let author = FollowedAuthor(username: "locked", displayName: "Locked")
         ctx.insert(author)
         try ctx.save()
         let client = StubAO3Client()
         client.authorWorksResponse = AO3SearchResults(works: [.stub(id: 1, title: ""), .stub(id: 2, title: "")],
                                                       totalPages: 1, currentPage: 1, servedAsGuest: true)
 
-        let signedIn = SubscriptionPoller(client: client, context: ctx, username: "reader")
-        let notified = await signedIn.checkFollowedAuthors()
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let notified = await poller.checkFollowedAuthors()
         XCTAssertEqual(notified, 0)
-        XCTAssertEqual(author.knownWorkIds, [1])
-
-        // Signed out, the guest page is all there is (no baseline yet, so no alert).
-        let guestCtx = try makeContext()
-        let followed = FollowedAuthor(username: "locked", displayName: "Locked")
-        guestCtx.insert(followed)
-        try guestCtx.save()
-        let guest = SubscriptionPoller(client: client, context: guestCtx, username: nil)
-        let guestNotified = await guest.checkFollowedAuthors()
-        XCTAssertEqual(guestNotified, 0)
-        XCTAssertEqual(Set(followed.knownWorkIds), [1, 2])
+        XCTAssertEqual(Set(author.knownWorkIds), [1, 2])
     }
 }
 

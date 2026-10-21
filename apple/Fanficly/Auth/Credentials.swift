@@ -105,6 +105,9 @@ final class AuthState {
         defer { isAuthenticating = false }
         do {
             try await client.login(username: username, password: password)
+            // Signing in as someone else from the expired-session form skips
+            // logout, so drop the previous account's kudos here.
+            if let previous = self.username, previous.caseInsensitiveCompare(username) != .orderedSame { KudosStore.clear() }
             self.username = username
             CredentialStore.shared.setUsername(username)
             isSessionExpired = false

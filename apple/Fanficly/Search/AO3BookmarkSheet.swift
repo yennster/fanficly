@@ -14,6 +14,8 @@ struct AO3BookmarkSheet: View {
     @State private var form: AO3BookmarkForm?
     @State private var isLoading = false
     @State private var loadError: String?
+    /// The load failed because the AO3 session expired (#131).
+    @State private var loadSessionExpired = false
     @State private var isSaving = false
     @State private var saveError: String?
 
@@ -25,7 +27,7 @@ struct AO3BookmarkSheet: View {
                         description: Text("Log in to AO3 (Settings) to bookmark this work on AO3."))
                 } else if let binding = Binding($form) {
                     editor(binding)
-                } else if let loadError, auth.isSessionExpired {
+                } else if let loadError, loadSessionExpired, !auth.hasSession {
                     SessionExpiredView(message: loadError)
                 } else if let loadError {
                     ContentUnavailableView {
@@ -107,7 +109,7 @@ struct AO3BookmarkSheet: View {
         do {
             form = try await client.fetchBookmarkForm(workId: workId)
         } catch {
-            auth.noteFailure(error)
+            loadSessionExpired = auth.noteFailure(error)
             loadError = Self.message(for: error)
         }
     }
