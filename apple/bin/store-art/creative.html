@@ -1,66 +1,70 @@
 <!doctype html>
 <!-- App Store creative assets (product-page header, search results), filled
      in and rendered by bin/make-creative-assets.py ($placeholders are
-     string.Template fields). Headline and devices stay inside Apple's
-     centered safe area ($safe_w x $safe_h); open with ?guides=1 to see it. -->
+     string.Template fields). The headline sits inside Apple's centered safe
+     area ($safe_w x $safe_h); open with ?guides=1 to see it. Big iPhones run
+     off the canvas edges, with trope chips floating around the headline. -->
 <html>
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="$css">
 <style>
   :root { --w: ${w}px; --h: ${h}px; --sw: ${safe_w}px; --sh: ${safe_h}px; }
-  .safe {
-    position: absolute; left: calc((var(--w) - var(--sw)) / 2); top: calc((var(--h) - var(--sh)) / 2);
-    width: var(--sw); height: var(--sh);
-  }
-  .text {
-    position: absolute; left: 0; right: 0; top: var(--text-top);
-    display: flex; flex-direction: column; align-items: center; gap: var(--gap); text-align: center;
-    z-index: 3;
-  }
-  h1 { font-size: var(--hs); line-height: 1.02; white-space: nowrap; }
-  .dev {
-    position: absolute; transform: translate(-50%, -50%) rotate(var(--r, 0deg));
-    filter: drop-shadow(0 calc(var(--dw) * .05) calc(var(--dw) * .07) rgba(10, 5, 45, .55))
-            drop-shadow(0 calc(var(--dw) * .012) calc(var(--dw) * .02) rgba(10, 5, 45, .3));
-    width: var(--dw); z-index: 2;
-  }
-  .dev img { width: 100%; display: block; }
-  .halo {
-    position: absolute; transform: translate(-50%, -50%); aspect-ratio: 1; z-index: 1;
-    background: radial-gradient(circle, rgba(150, 132, 255, .38), rgba(150, 132, 255, .12) 40%, transparent 66%);
-  }
-  .spark { position: absolute; z-index: 4; transform: translate(-50%, -50%); }
+  .text { position: absolute; display: flex; flex-direction: column; z-index: 3; }
+  .phone { --pw: 1050px; }
+  .phone.back { filter: drop-shadow(0 50px 70px rgba(10, 5, 45, .6)) brightness(.97); }
+  .label.bare::before, .label.bare::after { display: none; }
+  .chip.small { font-size: 38px; padding: 20px 38px; }
 
-  /* Header: the headline fills the small safe area; the iPad and iPhone sit
-     either side of it, inside the safe area's height. */
-  body.header { --text-top: 150px; --gap: 36px; --hs: 150px; }
-  body.header .label { font-size: 40px; }
-  body.header #d1 { left: calc(50% - 1150px); top: 50%; --dw: 560px; --r: -6deg; }
-  body.header #d2 { left: calc(50% + 1150px); top: 50%; --dw: 330px; --r: 6deg; }
-  body.header #d3 { display: none; }
-  body.header .halo { left: 50%; top: 50%; width: 2600px; }
+  /* Header: a reader iPhone either side, cut by the canvas edge, and the
+     headline centered between them. */
+  body.header .text { left: 0; right: 0; top: 520px; align-items: center; gap: 44px; text-align: center; }
+  body.header h1 { --hs: 186px; line-height: 1.04; }
+  body.header .sub { --ss: 52px; margin-top: 4px; white-space: nowrap; }
+  body.header #p1 { left: 545px; top: 1220px; --r: -8deg; }
+  body.header #p2 { left: 3330px; top: 470px; --r: 8deg; }
+  body.header #p3, body.header .bar { display: none; }
 
-  /* Search results: headline across the top of the safe area, the Mac with the
-     iPad and iPhone in front of it below. */
-  body.search { --text-top: 40px; --gap: 30px; --hs: 132px; }
+  /* Search results: the headline, copy and a search bar on the left; the
+     search, reader and dark reader iPhones fanned out to the right edge. */
+  body.search .text { left: 861px; top: 790px; align-items: flex-start; gap: 0; }
   body.search .label { font-size: 40px; }
-  body.search #d3 { left: 50%; top: calc(50% + 300px); --dw: 1240px; }
-  body.search #d1 { left: calc(50% - 760px); top: calc(50% + 330px); --dw: 420px; --r: -4deg; z-index: 3; }
-  body.search #d2 { left: calc(50% + 780px); top: calc(50% + 370px); --dw: 220px; --r: 4deg; z-index: 3; }
-  body.search .halo { left: 50%; top: calc(50% + 200px); width: 2400px; }
+  body.search h1 { --hs: 228px; line-height: 1.0; margin-top: 60px; }
+  body.search .sub { --ss: 54px; width: 860px; margin-top: 70px; text-wrap: pretty; }
+  body.search .phone { --pw: 990px; }
+  body.search #p1 { left: 2475px; top: 1335px; --r: -2deg; z-index: 4; }
+  body.search #p2 { left: 3195px; top: 1290px; --r: 4deg; z-index: 3; }
+  body.search #p3 { left: 3800px; top: 1230px; --r: 9deg; z-index: 2; }
+
+  .bar {
+    margin-top: 80px; display: flex; align-items: center; gap: 22px;
+    padding: 26px 40px; border-radius: 999px; width: 1000px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .07));
+    border: 2px solid rgba(255, 255, 255, .26);
+    box-shadow: 0 30px 60px rgba(12, 6, 50, .4), inset 0 1px 0 rgba(255, 255, 255, .25);
+    font: 500 46px/1 "SFD", system-ui; color: #fff; white-space: nowrap;
+  }
+  .bar svg { width: 48px; height: 48px; flex: none; }
+  .bar .tag { position: static; transform: none; padding: 18px 30px; font-size: 42px; box-shadow: none; }
+  .bar .tag::after { content: " \00D7"; opacity: .6; }
+  .bar .typed::after { content: ""; display: inline-block; width: 4px; height: 52px; margin-left: 8px;
+                       vertical-align: -10px; background: rgba(255, 255, 255, .85); }
 </style>
 </head>
 <body class="$kind">
 $pages
-  <div class="halo"></div>
-  <div class="dev" id="d1"><img src="$ipad_png"></div>
-  <div class="dev" id="d2"><img src="$iphone_png"></div>
-  <div class="dev" id="d3"><img src="$mac_png"></div>
-  <div class="safe">
-    <div class="text">
-      <div class="label">$label</div>
-      <h1>$headline</h1>
+$chips
+  <div class="phone" id="p1"><img src="$phone1"></div>
+  <div class="phone back" id="p2"><img src="$phone2"></div>
+  <div class="phone back" id="p3"><img src="$phone3"></div>
+  <div class="text">
+    <div class="label $label_class">$label</div>
+    <h1>$headline</h1>
+    <div class="sub">$sub</div>
+    <div class="bar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>
+      <span class="chip warm tag">Slow Burn</span><span class="chip accent tag">Complete</span>
+      <span class="typed">found fam</span>
     </div>
   </div>
   <div class="guide" style="left: calc((var(--w) - var(--sw)) / 2); top: calc((var(--h) - var(--sh)) / 2); width: var(--sw); height: var(--sh);"></div>
@@ -69,22 +73,18 @@ $pages
 <script>
 if (location.search.includes("guides=1")) document.body.classList.add("guides");
 document.fonts.ready.then(() => {
-  // Shrink the one-line headline until it fits the safe area's width.
-  const h1 = document.querySelector("h1");
-  const safe = document.querySelector(".safe").getBoundingClientRect().width;
-  let size = parseFloat(getComputedStyle(h1).fontSize);
-  while (h1.scrollWidth > safe - 40 && size > 60) { size -= 4; h1.style.fontSize = size + "px"; }
+  // Two sparkles off the gold accent's last line, sized to the headline.
   const em = document.querySelector("h1 em");
+  const size = parseFloat(getComputedStyle(document.querySelector("h1")).fontSize);
   const place = (el, dx, dy, d) => {
     if (!em) { el.remove(); return; }
     const rects = em.getClientRects();
     const r = rects[rects.length - 1];
     Object.assign(el.style, { left: (r.right + dx * size) + "px", top: (r.top + dy * size) + "px",
-                              width: d * size + "px", height: d * size + "px",
-                              filter: "drop-shadow(0 0 " + (size * .1) + "px rgba(255,216,163,.7))" });
+                              width: d * size + "px", height: d * size + "px" });
   };
-  place(document.getElementById("s1"), .2, .3, .36);
-  place(document.getElementById("s2"), .5, .64, .17);
+  place(document.getElementById("s1"), .2, .2, .24);
+  place(document.getElementById("s2"), .32, .55, .12);
 });
 </script>
 </body>
