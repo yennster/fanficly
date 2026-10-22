@@ -143,6 +143,8 @@ public static class WorkPersistence
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
         DeindexWork(work.Ao3Id);
+        // A work saved again later starts fresh: another device's chapters may restore.
+        SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: false);
         store.Delete(work);
     }
 

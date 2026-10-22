@@ -230,7 +230,7 @@ internal static class LibraryActions
     }
 
     /// <summary>Renames a folder (a folder's name is its identity, so this makes
-    /// a new folder with the same works and creation date). Returns the new
+    /// a new folder with the same works, stamped now). Returns the new
     /// name, or null when nothing changed.</summary>
     public static async Task<string?> RenameFolderAsync(CustomFolder folder)
     {
@@ -242,7 +242,9 @@ internal static class LibraryActions
             await Dialogs.AlertAsync("Name Already Used", $"There's already a folder named “{name}”.");
             return null;
         }
-        var renamed = new CustomFolder(name, folder.CreatedAt);
+        // Stamped now, not with the old folder's date: renaming back to a name
+        // deleted (or renamed away) since then must beat that name's marker.
+        var renamed = new CustomFolder(name);
         Store.Insert(renamed);
         foreach (var work in folder.Works.ToList()) work.Folders.Add(renamed);
         // The old name is gone: without a marker, another device's copy of the
