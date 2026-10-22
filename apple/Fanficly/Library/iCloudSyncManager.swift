@@ -668,21 +668,20 @@ final class iCloudSyncManager {
     }
 
     /// Settings merge key by key. This device's own keys and the shared ones
-    /// take its value; another device's per-device keys keep the file's,
-    /// because this device's copies of them are only what an earlier restore
-    /// brought in, and writing those back would revert that device's newer
-    /// choices. A key only one side has is kept.
+    /// take its value (a key only the file has is kept); another device's
+    /// per-device keys always come from the file, because any copies this
+    /// device holds are only what an earlier restore brought in, and writing
+    /// those back would revert that device's newer choices.
     nonisolated static func mergedSettings(
         local: SettingsBackup?, cloud: SettingsBackup?, deviceSuffix: String
     ) -> SettingsBackup? {
         guard let local else { return cloud }
-        guard let cloud else { return local }
         let encoder = JSONEncoder()
-        guard let localKeys = (try? JSONSerialization.jsonObject(with: encoder.encode(local))) as? [String: Any],
-              var merged = (try? JSONSerialization.jsonObject(with: encoder.encode(cloud))) as? [String: Any]
+        guard let localKeys = (try? JSONSerialization.jsonObject(with: encoder.encode(local))) as? [String: Any]
         else { return local }
+        var merged = cloud.flatMap { (try? JSONSerialization.jsonObject(with: encoder.encode($0))) as? [String: Any] } ?? [:]
         for (key, value) in localKeys {
-            if let device = SettingsBackup.deviceSuffix(of: key), device != deviceSuffix, merged[key] != nil { continue }
+            if let device = SettingsBackup.deviceSuffix(of: key), device != deviceSuffix { continue }
             merged[key] = value
         }
         guard let data = try? JSONSerialization.data(withJSONObject: merged),

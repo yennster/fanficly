@@ -645,11 +645,15 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(merged.fontSizePtPad, 16, "the iPad's own value stays")
         XCTAssertEqual(merged.themePad, "night")
         XCTAssertEqual(merged.themeMac, "sepia")
-        XCTAssertEqual(merged.boldTextPad, true, "a key the file lacks is kept")
+        XCTAssertNil(merged.boldTextPad, "another device's keys only ever come from the file")
         XCTAssertEqual(merged.fontSizePtPhone, 20, "this device's own key wins")
         XCTAssertEqual(merged.ttsRate, 0.6, "a shared key takes this device's value")
         XCTAssertNil(iCloudSyncManager.mergedSettings(local: nil, cloud: nil, deviceSuffix: "Phone"))
         XCTAssertEqual(iCloudSyncManager.mergedSettings(local: nil, cloud: cloud, deviceSuffix: "Phone")?.themePad, "night")
+        // With no file yet, only this device's own and shared keys are written.
+        let first = try XCTUnwrap(iCloudSyncManager.mergedSettings(local: local, cloud: nil, deviceSuffix: "Phone"))
+        XCTAssertNil(first.fontSizePtPad)
+        XCTAssertEqual(first.fontSizePtPhone, 20)
     }
 
     /// The issue's example: the iPad sets 16 pt and backs up, the iPhone
@@ -667,6 +671,49 @@ final class PersistenceTests: XCTestCase {
                                     has: ["reader.fontSizePt.pad", "content.filterMatureExplicit", "reader.activeProfile.pad"])
         XCTAssertTrue(padRestore.isEmpty, "the iPad keeps every setting it has: \(padRestore)")
         XCTAssertNil(padRestore["reader.fontSizePt.phone"], "and never takes the iPhone's")
+    }
+
+    /// The same through the real backup and restore: this device sets its
+    /// text size and backs up, another device's backup holding a stale copy
+    /// of it lands in the file, and this device's next restore keeps its own.
+    func test_aNewerSettingSurvivesAnotherDevicesBackupThroughTheFile() async throws {
+        let url = makeTempBackupURL()
+        let defaults = UserDefaults.standard
+        let fontSizeKey = ReaderProfile.deviceKey("reader.fontSizePt")
+        let fontSizeJSONKey = "fontSizePt" + iCloudSyncManager.backupDeviceSuffix
+        let other = iCloudSyncManager.backupDeviceSuffix == "Pad" ? "Phone" : "Pad"
+        let originalSize = defaults.object(forKey: fontSizeKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: iCloudSyncManager.previousBackupURL(for: url))
+            defaults.set(originalSize, forKey: fontSizeKey)
+        }
+        let ctx = try makeContext()
+        defaults.set(16.0, forKey: fontSizeKey)
+        iCloudSyncManager.shared.backupToiCloud(context: ctx)
+        XCTAssertNil(iCloudSyncManager.shared.lastBackupFailure)
+
+        // The other device merges its backup, with a stale 14 for this device's key.
+        let file = try decodeBackup(at: url)
+        let stale = try settingsBackup(#"{"\#(fontSizeJSONKey)":14,"fontSizePt\#(other)":21}"#)
+        let otherBackup = LibraryBackup(
+            works: file.works, bookmarks: file.bookmarks, subscriptions: file.subscriptions,
+            searches: file.searches, progress: file.progress, filters: file.filters, hidden: file.hidden,
+            settings: stale, folders: file.folders, stats: file.stats, blocked: file.blocked, timestamp: .now)
+        let written = iCloudSyncManager.mergedBackup(local: otherBackup, cloud: file, deviceSuffix: other)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(written).write(to: url)
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let fileSettings = try XCTUnwrap(root["settings"] as? [String: Any])
+        XCTAssertEqual(fileSettings[fontSizeJSONKey] as? Double, 16, "the file keeps this device's value")
+        XCTAssertEqual(fileSettings["fontSizePt" + other] as? Double, 21)
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: ctx)
+        XCTAssertTrue(success)
+        XCTAssertEqual(defaults.double(forKey: fontSizeKey), 16)
     }
 
     // MARK: - iCloud backup/restore merge rules
