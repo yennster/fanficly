@@ -624,9 +624,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2, 3, 4])
     }
 
-    /// On a per-work conflict the backing-up device's record wins, but the
-    /// cloud copy's chapters survive when the local copy is metadata-only.
-    func test_backupMergeLocalWinsButKeepsCloudChapters() throws {
+    /// On a per-work conflict the fresher metadata wins, and the cloud copy's
+    /// chapters survive when the local copy is metadata-only.
+    func test_backupMergeFresherMetadataWinsAndKeepsCloudChapters() throws {
         let url = makeTempBackupURL()
         iCloudSyncManager.overrideBackupURL = url
         defer {
@@ -647,7 +647,9 @@ final class PersistenceTests: XCTestCase {
 
         // …device B holds a metadata-only copy with fresher metadata.
         let b = try makeContext()
-        b.insert(Work(ao3Id: 1, title: "New Title", authorName: "A"))
+        let fresher = Work(ao3Id: 1, title: "New Title", authorName: "A")
+        fresher.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        b.insert(fresher)
         try b.save()
         iCloudSyncManager.shared.backupToiCloud(context: b)
 
@@ -1085,8 +1087,7 @@ final class PersistenceTests: XCTestCase {
     }
 
     /// Two devices backing up in either order end with the same file: the
-    /// newest reading position, the fresher AO3 metadata, OR'd flags, both
-    /// folders, and the highest notification baselines and latest check, so
+    /// newest reading position, the fresher AO3 metadata, both folders, and the highest notification baselines and latest check, so
     /// the device that backs up second can't move anything backwards.
     func test_backupMergeEitherOrderKeepsNewestPositionAndHighestBaseline() throws {
         let older = Date(timeIntervalSince1970: 1_700_000_000)
@@ -1164,14 +1165,49 @@ final class PersistenceTests: XCTestCase {
             XCTAssertEqual(work.lastReadAt, newer)
             XCTAssertEqual(work.lastReadChapter, 7)
             XCTAssertEqual(work.lastReadProgress, 0.7)
-            XCTAssertTrue(work.isFollowed)
-            XCTAssertEqual(work.isStarred, true)
+            // Flags are the one exception: the device backing up second keeps
+            // its own, so an un-follow can reach the file (restore ORs them).
+            XCTAssertEqual(work.isFollowed, !aFirst)
+            XCTAssertEqual(work.isStarred, !aFirst)
             XCTAssertEqual(work.lastSeenChapterCount, 10)
             XCTAssertEqual(Set(work.folderNames ?? []), ["A shelf", "B shelf"])
             let sub = try XCTUnwrap(merged.subscriptions.first)
             XCTAssertEqual(sub.lastSeenChapterCount, 10, "aFirst: \(aFirst)")
             XCTAssertEqual(sub.lastCheckedAt, newer)
         }
+    }
+
+    /// An un-follow, un-star or un-pin reaches the file through this device's
+    /// own backup, so restoring that file (a reinstall) doesn't bring them back.
+    func test_unfollowSurvivesTheBackupMergeAndARestore() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+        let device = try makeContext()
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        work.isFollowed = true
+        work.isStarred = true
+        work.isPinned = true
+        device.insert(work)
+        try device.save()
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+
+        work.isFollowed = false
+        work.isStarred = false
+        work.isPinned = false
+        try device.save()
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+
+        let reinstalled = try makeContext()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: reinstalled)
+        XCTAssertTrue(success)
+        let restored = try XCTUnwrap(try reinstalled.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertFalse(restored.isFollowed)
+        XCTAssertFalse(restored.isStarred)
+        XCTAssertFalse(restored.isPinned)
     }
 
     /// Restoring an older backup never lowers a baseline, clears one with nil,

@@ -567,7 +567,12 @@ final class iCloudSyncManager {
     nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup) -> LibraryBackup {
         var worksById = Dictionary(cloud.works.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for w in local.works {
-            worksById[w.ao3Id] = worksById[w.ao3Id].map { mergedWork(local: w, other: $0) } ?? w
+            guard let cloudWork = worksById[w.ao3Id] else { worksById[w.ao3Id] = w; continue }
+            // Follow, star and pin keep this device's values here (restore ORs
+            // them): the file is the only record of an un-follow, and without an
+            // edit stamp an OR would bring every un-followed work back on a restore.
+            let m = mergedWork(local: w, other: cloudWork)
+            worksById[w.ao3Id] = m.withFlags(of: w)
         }
 
         var bookmarksById = Dictionary(cloud.bookmarks.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -633,6 +638,8 @@ final class iCloudSyncManager {
     ///   fresher copy (`hasFresherMetadata`); `savedAt` keeps the later date.
     /// - The reading position (`lastRead*`) comes from the copy read last.
     /// - Follow, star and pin are an OR; `followedAt` keeps local's when set.
+    ///   (`mergedBackup` then puts local's flags back, so an un-follow reaches
+    ///   the file.)
     /// - `lastSeenChapterCount` keeps the higher count, so an older copy never
     ///   re-announces chapters (nil only when both are nil).
     /// - Note and personal tags take the newest edit (`mergedNotes`).
@@ -1337,11 +1344,11 @@ struct WorkBackup: Codable {
     let lastReadAt: Date?
     let lastReadChapter: Int?
     let lastReadProgress: Double?
-    let isFollowed: Bool
-    let followedAt: Date?
+    var isFollowed: Bool
+    var followedAt: Date?
     let lastSeenChapterCount: Int?
-    let isStarred: Bool?
-    let isPinned: Bool?
+    var isStarred: Bool?
+    var isPinned: Bool?
     /// Optional so backups from before notes and personal tags still decode;
     /// `var` so the backup merge can take the cloud copy's when it's newer.
     var note: String?
@@ -1352,6 +1359,18 @@ struct WorkBackup: Codable {
     var chapters: [ChapterBackup]
     let folderName: String?
     let folderNames: [String]?
+}
+
+extension WorkBackup {
+    /// This record with `other`'s follow, star and pin.
+    func withFlags(of other: WorkBackup) -> WorkBackup {
+        var copy = self
+        copy.isFollowed = other.isFollowed
+        copy.followedAt = other.followedAt
+        copy.isStarred = other.isStarred
+        copy.isPinned = other.isPinned
+        return copy
+    }
 }
 
 /// A work's note, personal tags and when they were last edited, merged as
