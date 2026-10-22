@@ -198,14 +198,7 @@ internal static class LibraryActions
             "The story stays in your Library and loads from AO3 when you read it.",
             "Remove Download", destructive: true);
         if (!ok || !work.IsInserted) return;
-        if (WorkPersistence.EpubPath(work.Ao3Id) is { } path)
-        {
-            try { File.Delete(path); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { AppHost.Log($"Removing {path} failed: {e.Message}"); }
-        }
-        foreach (var chapter in work.Chapters.ToList()) Store.Delete(chapter);
-        Store.TrySave();
-        LibrarySyncManager.QueueBackupShared(Store);
+        WorkPersistence.RemoveDownload(work, Store);
         FilesChanged?.Invoke();
         MainWindow.Current?.Announce($"Removed the download of {work.Title}");
     }
@@ -252,6 +245,9 @@ internal static class LibraryActions
         var renamed = new CustomFolder(name, folder.CreatedAt);
         Store.Insert(renamed);
         foreach (var work in folder.Works.ToList()) work.Folders.Add(renamed);
+        // The old name is gone: without a marker, another device's copy of the
+        // folder would bring it back beside the renamed one.
+        LibrarySyncManager.RecordDeletionShared(DeletionKind.Folder, folder.Name);
         Store.Delete(folder);
         Store.TrySave();
         LibrarySyncManager.QueueBackupShared(Store);

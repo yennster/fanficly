@@ -48,6 +48,20 @@ public sealed class LibrarySyncManager
         else LibraryHooks.UpdateWidgetData?.Invoke(store);
     }
 
+    /// <summary>The settings <see cref="Shared"/> keeps its deletion markers
+    /// in (the app-wide store until the app sets it).</summary>
+    public static IKeyValueStore SharedSettings => Shared?._settings ?? KeyValueStores.Default;
+
+    /// <summary>Remembers on this device that a record was deleted, so the next
+    /// backup carries the deletion to the other devices (#135).</summary>
+    public static void RecordDeletionShared(DeletionKind kind, string key) => SyncDeletions.Record(SharedSettings, kind, key);
+
+    public static void RecordDeletionShared(DeletionKind kind, int ao3Id) => SyncDeletions.Record(SharedSettings, kind, ao3Id);
+
+    /// <summary>This device's settings, where its deletion markers and removed
+    /// downloads live.</summary>
+    public IKeyValueStore Settings => _settings;
+
     public LibrarySyncManager(IKeyValueStore? settings = null)
     {
         _settings = settings ?? KeyValueStores.Default;
@@ -284,7 +298,8 @@ public sealed class LibrarySyncManager
             Timestamp: DateTimeOffset.Now,
             FollowedAuthors: store.All<FollowedAuthor>().Where(a => a.Username.Length > 0).Select(a => new AuthorBackup(
                 a.Username, a.DisplayName, a.FollowedAt, a.KnownWorkIds, a.LastCheckedAt)).ToList(),
-            Blocked: store.All<BlockedTerm>().Select(t => new BlockedBackup(t.Kind, t.Value, t.CreatedAt)).ToList());
+            Blocked: store.All<BlockedTerm>().Select(t => new BlockedBackup(t.Kind, t.Value, t.CreatedAt)).ToList(),
+            Deleted: SyncDeletions.Pruned(SyncDeletions.Local(_settings), DateTimeOffset.Now) is { Count: > 0 } deleted ? deleted : null);
     }
 
     // MARK: - Launch auto-sync bookkeeping
@@ -317,7 +332,10 @@ public sealed class LibrarySyncManager
     /// sync folder. Records only the other device holds are kept; on conflicts
     /// the local record wins (this device just produced it), except that
     /// chapters survive from whichever side has more, reading positions keep
-    /// the newer one, and reading stats merge conservatively.</summary>
+    /// the newer one, and reading stats merge conservatively. Deletion markers
+    /// from both sides are kept, and a work, hidden work, folder, saved search
+    /// or filter that a newer marker covers is left out, so a delete doesn't
+    /// come back from another device's copy (#135).</summary>
     public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud)
     {
         var worksById = FirstByKey(cloud.Works, w => w.Ao3Id);
@@ -375,16 +393,24 @@ public sealed class LibrarySyncManager
                 }
                 : a;
 
+        // Deletion markers from both sides remove the records they're newer
+        // than, whichever side still held them (#135).
+        var deleted = SyncDeletions.Pruned((cloud.Deleted ?? []).Concat(local.Deleted ?? []), local.Timestamp);
+        var tombstones = new DeletionIndex(deleted);
+
         return new LibraryBackup(
-            Works: worksById.Values.OrderBy(w => w.Ao3Id).ToList(),
+            Works: worksById.Values.Where(w => !tombstones.Removes(DeletionKind.Work, w.Ao3Id, w.SavedAt)).OrderBy(w => w.Ao3Id).ToList(),
             Bookmarks: bookmarksById.Values.OrderBy(b => b.Ao3Id).ToList(),
             Subscriptions: subscriptionsByKey.Values.OrderBy(s => s.Key, StringComparer.Ordinal).ToList(),
-            Searches: searchesByName.Values.OrderBy(s => s.Name, StringComparer.Ordinal).ToList(),
+            Searches: searchesByName.Values.Where(s => !tombstones.Removes(DeletionKind.Search, s.Name, s.SavedAt))
+                .OrderBy(s => s.Name, StringComparer.Ordinal).ToList(),
             Progress: progressById.Values.OrderBy(p => p.Ao3Id).ToList(),
-            Filters: filtersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
-            Hidden: hiddenById.Values.OrderBy(h => h.Ao3Id).ToList(),
+            Filters: filtersByName.Values.Where(f => !tombstones.Removes(DeletionKind.Filter, f.Name, f.SavedAt))
+                .OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
+            Hidden: hiddenById.Values.Where(h => !tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)).OrderBy(h => h.Ao3Id).ToList(),
             Settings: local.Settings ?? cloud.Settings,
-            Folders: foldersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
+            Folders: foldersByName.Values.Where(f => !tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt))
+                .OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Stats: statsById.Values.OrderBy(s => s.Ao3Id).ToList(),
             Timestamp: local.Timestamp,
             FollowedAuthors: local.FollowedAuthors is null && cloud.FollowedAuthors is null
@@ -392,7 +418,8 @@ public sealed class LibrarySyncManager
                 : authorsByName.Values.OrderBy(a => a.Username, StringComparer.Ordinal).ToList(),
             Blocked: local.Blocked is null && cloud.Blocked is null
                 ? null
-                : blockedByKey.Values.OrderBy(b => b.Key, StringComparer.Ordinal).ToList());
+                : blockedByKey.Values.OrderBy(b => b.Key, StringComparer.Ordinal).ToList(),
+            Deleted: deleted.Count == 0 ? null : deleted);
     }
 
     /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
@@ -506,6 +533,15 @@ public sealed class LibrarySyncManager
 
     private void Apply(LibraryBackup backup, LibraryStore store)
     {
+        // Deletion markers: the file's (every device's) and this device's own,
+        // which the file may not hold yet. A record they cover isn't restored,
+        // and this device's copy of it is deleted at the end (#135).
+        var tombstones = new DeletionIndex(SyncDeletions.Pruned(
+            (backup.Deleted ?? []).Concat(SyncDeletions.Local(_settings)), DateTimeOffset.Now));
+        // Works whose download was removed on this device keep their chapters
+        // out: another device's copy mustn't bring the download back.
+        var removedDownloads = SyncDeletions.RemovedDownloads(_settings);
+
         // 0. Settings and themes.
         if (backup.Settings is { } s)
         {
@@ -537,11 +573,12 @@ public sealed class LibrarySyncManager
 
         // 0.5. Folders.
         foreach (var f in backup.Folders ?? [])
-            if (store.GetFolder(f.Name) is null) store.Insert(new CustomFolder(f.Name, f.CreatedAt));
+            if (!tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt) && store.GetFolder(f.Name) is null) store.Insert(new CustomFolder(f.Name, f.CreatedAt));
 
         // 1. Works and their chapters.
         foreach (var w in backup.Works)
         {
+            if (tombstones.Removes(DeletionKind.Work, w.Ao3Id, w.SavedAt)) continue;
             var work = store.GetWork(w.Ao3Id);
             if (work is null)
             {
@@ -605,7 +642,7 @@ public sealed class LibrarySyncManager
             // Replace chapters only when the backup carries more than we hold: a
             // metadata-only backup (chapters: []) or a stale partial download
             // must not wipe a fuller offline download.
-            if (w.Chapters.Count > work.Chapters.Count)
+            if (w.Chapters.Count > work.Chapters.Count && !removedDownloads.Contains(w.Ao3Id))
             {
                 foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
                 foreach (var ch in w.Chapters)
@@ -653,6 +690,7 @@ public sealed class LibrarySyncManager
         // 4. Saved searches.
         foreach (var search in backup.Searches)
         {
+            if (tombstones.Removes(DeletionKind.Search, search.Name, search.SavedAt)) continue;
             if (store.GetSavedSearch(search.Name) is { } existing)
             {
                 existing.Prompt = search.Prompt;
@@ -690,6 +728,7 @@ public sealed class LibrarySyncManager
         // 6. Saved filters.
         foreach (var f in backup.Filters)
         {
+            if (tombstones.Removes(DeletionKind.Filter, f.Name, f.SavedAt)) continue;
             if (store.GetSavedFilter(f.Name) is { } existing)
             {
                 existing.FiltersJson = f.FiltersJson;
@@ -704,6 +743,7 @@ public sealed class LibrarySyncManager
         // 7. Hidden works.
         foreach (var h in backup.Hidden)
         {
+            if (tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)) continue;
             if (store.GetHiddenWork(h.Ao3Id) is { } existing)
             {
                 existing.Title = h.Title;
@@ -781,6 +821,44 @@ public sealed class LibrarySyncManager
                     a.FollowedAt, a.LastCheckedAt, a.KnownWorkIds));
             }
         }
+
+        // 10. Deletions made on other devices: remove this device's copy of a
+        // record a marker covers, unless the file holds a newer copy (saved
+        // again since), which the steps above applied.
+        ApplyDeletions(tombstones, backup, store);
+    }
+
+    /// <summary>Deletes this device's records that a deletion marker covers:
+    /// ones stamped no later than the marker, when the backup has no newer copy.</summary>
+    private static void ApplyDeletions(DeletionIndex tombstones, LibraryBackup backup, LibraryStore store)
+    {
+        var liveWorks = backup.Works.Where(w => !tombstones.Removes(DeletionKind.Work, w.Ao3Id, w.SavedAt)).Select(w => w.Ao3Id).ToHashSet();
+        foreach (var work in store.All<Work>().ToList())
+            if (!liveWorks.Contains(work.Ao3Id) && tombstones.Removes(DeletionKind.Work, work.Ao3Id, work.SavedAt))
+                WorkPersistence.RemoveWork(work, store);
+
+        var liveHidden = backup.Hidden.Where(h => !tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)).Select(h => h.Ao3Id).ToHashSet();
+        foreach (var hidden in store.All<HiddenWork>().ToList())
+            if (!liveHidden.Contains(hidden.Ao3Id) && tombstones.Removes(DeletionKind.Hidden, hidden.Ao3Id, hidden.HiddenAt))
+                store.Delete(hidden);
+
+        var liveFolders = (backup.Folders ?? []).Where(f => !tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt))
+            .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var folder in store.All<CustomFolder>().ToList())
+            if (!liveFolders.Contains(folder.Name) && tombstones.Removes(DeletionKind.Folder, folder.Name, folder.CreatedAt))
+                store.Delete(folder);
+
+        var liveSearches = backup.Searches.Where(s => !tombstones.Removes(DeletionKind.Search, s.Name, s.SavedAt))
+            .Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var search in store.All<SavedSearch>().ToList())
+            if (!liveSearches.Contains(search.Name) && tombstones.Removes(DeletionKind.Search, search.Name, search.SavedAt))
+                store.Delete(search);
+
+        var liveFilters = backup.Filters.Where(f => !tombstones.Removes(DeletionKind.Filter, f.Name, f.SavedAt))
+            .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var filter in store.All<SavedFilter>().ToList())
+            if (!liveFilters.Contains(filter.Name) && tombstones.Removes(DeletionKind.Filter, filter.Name, filter.SavedAt))
+                store.Delete(filter);
     }
 
     /// <summary>Deletes the backup file (and the copy of the previous one) from the sync folder.</summary>

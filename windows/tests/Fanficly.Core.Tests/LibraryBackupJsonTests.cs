@@ -157,6 +157,26 @@ public sealed class LibraryBackupJsonTests
         Assert.True(Fields(typeof(LibraryBackup)).SetEquals(BackupUnknownKeys.TopLevelKeys));
     }
 
+    /// <summary>Deletion markers (#135) are written in the Swift app's shape
+    /// (<c>DeletionBackup</c>: kind, key, deletedAt) and read back; backups from
+    /// before them have none.</summary>
+    [Fact]
+    public void DeletionMarkersRoundTripInTheSwiftFormat()
+    {
+        Assert.Null(LibraryBackupJson.Decode(OlderSwiftFixture).Deleted);
+        var b = LibraryBackupJson.Decode(SwiftFixture) with
+        {
+            Deleted = [new DeletionBackup("work", "42", Utc(2026, 1, 1)), new DeletionBackup("folder", "Faves", Utc(2026, 1, 2))],
+        };
+        var bytes = LibraryBackupJson.Encode(b);
+        using var doc = JsonDocument.Parse(bytes);
+        var first = doc.RootElement.GetProperty("deleted")[0];
+        Assert.Equal("work", first.GetProperty("kind").GetString());
+        Assert.Equal("42", first.GetProperty("key").GetString());
+        Assert.Equal("2026-01-01T00:00:00Z", first.GetProperty("deletedAt").GetString());
+        Assert.Equal(b.Deleted, LibraryBackupJson.Decode(bytes).Deleted);
+    }
+
     [Fact]
     public void ReencodingSwiftOutputGivesTheSameJson()
     {
