@@ -298,7 +298,7 @@ final class iCloudSyncManager {
                     return nil
                 case .backup(let cloudBackup, let cloudData):
                     mergedUnappliedChanges = cloudBackupHasUnappliedChanges
-                    backup = Self.mergedBackup(local: backup, cloud: cloudBackup)
+                    backup = Self.mergedBackup(local: backup, cloud: cloudBackup, deviceSuffix: Self.backupDeviceSuffix)
                     mergedWith = cloudData
                 }
                 // 4. Serialize to JSON for the write, keeping the keys this app
@@ -557,9 +557,11 @@ final class iCloudSyncManager {
     /// Records the other device backed up but this one doesn't hold are kept;
     /// on conflicts the local record wins (this device just produced it), with
     /// the exceptions mirroring the restore rules: chapters survive from
-    /// whichever side has more, reading positions keep the newer one, and
-    /// reading stats merge conservatively.
-    nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup) -> LibraryBackup {
+    /// whichever side has more, reading positions keep the newer one,
+    /// reading stats merge conservatively, and settings merge key by key
+    /// (`mergedSettings`; `deviceSuffix` is this device's, see
+    /// `backupDeviceSuffix`).
+    nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup, deviceSuffix: String) -> LibraryBackup {
         var worksById = Dictionary(cloud.works.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for var w in local.works {
             if let cloudWork = worksById[w.ao3Id] {
@@ -621,12 +623,78 @@ final class iCloudSyncManager {
             progress: progressById.values.sorted { $0.ao3Id < $1.ao3Id },
             filters: filtersByName.values.sorted { $0.name < $1.name },
             hidden: hiddenById.values.sorted { $0.ao3Id < $1.ao3Id },
-            settings: local.settings ?? cloud.settings,
+            settings: mergedSettings(local: local.settings, cloud: cloud.settings, deviceSuffix: deviceSuffix),
             folders: foldersByName.values.sorted { $0.name < $1.name },
             stats: statsById.values.sorted { $0.ao3Id < $1.ao3Id },
             blocked: blockedByKey.values.sorted { $0.key < $1.key },
             timestamp: local.timestamp
         )
+    }
+
+    // MARK: - Settings (#133)
+
+    /// This device's suffix on the backup's per-device settings keys
+    /// (`themePhone`, `fontSizePtPad`, `boldTextMac`).
+    static var backupDeviceSuffix: String {
+        switch ReaderProfile.deviceKey("") {
+        case ".mac": "Mac"
+        case ".pad": "Pad"
+        default: "Phone"
+        }
+    }
+
+    /// The settings a restore writes here, as UserDefaults keys and values:
+    /// every field the backup holds that is shared or carries this device's
+    /// suffix, skipping keys this device already has (`isSet`). Settings only
+    /// seed a fresh install. After that each device keeps its own, so a stale
+    /// copy another device backed up can't revert them. Profiles merge
+    /// separately and aren't included.
+    nonisolated static func settingsToSeed(
+        from settings: SettingsBackup, deviceSuffix: String, isSet: (String) -> Bool
+    ) -> [(key: String, value: Any)] {
+        var seeds: [(key: String, value: Any)] = []
+        for child in Mirror(reflecting: settings).children {
+            guard let name = child.label, name != "profiles", let value = unwrapped(child.value) else { continue }
+            let key: String
+            if let device = SettingsBackup.deviceSuffix(of: name) {
+                guard device == deviceSuffix else { continue }
+                key = SettingsBackup.defaultsKey(for: String(name.dropLast(device.count))) + "." + device.lowercased()
+            } else {
+                key = SettingsBackup.defaultsKey(for: name)
+            }
+            if !isSet(key) { seeds.append((key, value)) }
+        }
+        return seeds
+    }
+
+    /// Settings merge key by key. This device's own keys and the shared ones
+    /// take its value; another device's per-device keys keep the file's,
+    /// because this device's copies of them are only what an earlier restore
+    /// brought in, and writing those back would revert that device's newer
+    /// choices. A key only one side has is kept.
+    nonisolated static func mergedSettings(
+        local: SettingsBackup?, cloud: SettingsBackup?, deviceSuffix: String
+    ) -> SettingsBackup? {
+        guard let local else { return cloud }
+        guard let cloud else { return local }
+        let encoder = JSONEncoder()
+        guard let localKeys = (try? JSONSerialization.jsonObject(with: encoder.encode(local))) as? [String: Any],
+              var merged = (try? JSONSerialization.jsonObject(with: encoder.encode(cloud))) as? [String: Any]
+        else { return local }
+        for (key, value) in localKeys {
+            if let device = SettingsBackup.deviceSuffix(of: key), device != deviceSuffix, merged[key] != nil { continue }
+            merged[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: merged),
+              let result = try? JSONDecoder().decode(SettingsBackup.self, from: data)
+        else { return local }
+        return result
+    }
+
+    private nonisolated static func unwrapped(_ value: Any) -> Any? {
+        let mirror = Mirror(reflecting: value)
+        guard mirror.displayStyle == .optional else { return value }
+        return mirror.children.first?.value
     }
 
     /// A work's note and personal tags merge as one value. The side edited
@@ -752,29 +820,15 @@ final class iCloudSyncManager {
         }
 
         do {
-            // 0. Restore settings and themes
+            // 0. Restore settings and themes. Restore only fills in what this
+            // device hasn't set (a fresh install) and never copies another
+            // device's per-device keys, so each device keeps its own (#133).
             if let s = backup.settings {
                 let defaults = UserDefaults.standard
-                if let theme = s.theme { defaults.set(theme, forKey: "reader.theme") }
-                if let fontFamily = s.fontFamily { defaults.set(fontFamily, forKey: "reader.fontFamily") }
-                if let width = s.width { defaults.set(width, forKey: "reader.width") }
-                if let widthPercent = s.widthPercent { defaults.set(widthPercent, forKey: "reader.widthPercent") }
-                if let mode = s.mode { defaults.set(mode, forKey: "reader.mode") }
-                if let fontSizePt = s.fontSizePt { defaults.set(fontSizePt, forKey: "reader.fontSizePt") }
-                if let lineSpacingPt = s.lineSpacingPt { defaults.set(lineSpacingPt, forKey: "reader.lineSpacingPt") }
-                if let paragraphSpacingPt = s.paragraphSpacingPt { defaults.set(paragraphSpacingPt, forKey: "reader.paragraphSpacingPt") }
-                if let pageTurnHaptics = s.pageTurnHaptics { defaults.set(pageTurnHaptics, forKey: "reader.pageTurnHaptics") }
-                if let pageTurnAnimations = s.pageTurnAnimations { defaults.set(pageTurnAnimations, forKey: "reader.pageTurnAnimations") }
-                if let kerningPt = s.kerningPt { defaults.set(kerningPt, forKey: "reader.kerningPt") }
-                if let boldText = s.boldText { defaults.set(boldText, forKey: "reader.boldText") }
-                if let ttsRate = s.ttsRate { defaults.set(ttsRate, forKey: "reader.ttsRate") }
-                if let ttsVoiceId = s.ttsVoiceId { defaults.set(ttsVoiceId, forKey: "reader.ttsVoiceId") }
-                if let filterMatureExplicit = s.filterMatureExplicit { defaults.set(filterMatureExplicit, forKey: "content.filterMatureExplicit") }
-                if let ageConfirmed = s.ageConfirmed { defaults.set(ageConfirmed, forKey: "content.ageConfirmed") }
-                if let activeProfile = s.activeProfile { defaults.set(activeProfile, forKey: "reader.activeProfile") }
-                if let activeProfilePhone = s.activeProfilePhone { defaults.set(activeProfilePhone, forKey: "reader.activeProfile.phone") }
-                if let activeProfileMac = s.activeProfileMac { defaults.set(activeProfileMac, forKey: "reader.activeProfile.mac") }
-                if let activeProfilePad = s.activeProfilePad { defaults.set(activeProfilePad, forKey: "reader.activeProfile.pad") }
+                let seeds = Self.settingsToSeed(from: s, deviceSuffix: Self.backupDeviceSuffix) {
+                    defaults.object(forKey: $0) != nil
+                }
+                for seed in seeds { defaults.set(seed.value, forKey: seed.key) }
                 if let profiles = s.profiles {
                     let mergedProfiles = ReaderProfile.mergedProfiles(
                         localJSON: defaults.string(forKey: "reader.profiles"),
@@ -783,42 +837,6 @@ final class iCloudSyncManager {
                     defaults.set(mergedProfiles, forKey: "reader.profiles")
                     ReaderProfileSyncStore.publishLocalProfiles(mergedProfiles)
                 }
-
-                // Device-specific settings
-                if let themePhone = s.themePhone { defaults.set(themePhone, forKey: "reader.theme.phone") }
-                if let themeMac = s.themeMac { defaults.set(themeMac, forKey: "reader.theme.mac") }
-                if let themePad = s.themePad { defaults.set(themePad, forKey: "reader.theme.pad") }
-                if let fontFamilyPhone = s.fontFamilyPhone { defaults.set(fontFamilyPhone, forKey: "reader.fontFamily.phone") }
-                if let fontFamilyMac = s.fontFamilyMac { defaults.set(fontFamilyMac, forKey: "reader.fontFamily.mac") }
-                if let fontFamilyPad = s.fontFamilyPad { defaults.set(fontFamilyPad, forKey: "reader.fontFamily.pad") }
-                if let widthPercentPhone = s.widthPercentPhone { defaults.set(widthPercentPhone, forKey: "reader.widthPercent.phone") }
-                if let widthPercentMac = s.widthPercentMac { defaults.set(widthPercentMac, forKey: "reader.widthPercent.mac") }
-                if let widthPercentPad = s.widthPercentPad { defaults.set(widthPercentPad, forKey: "reader.widthPercent.pad") }
-                if let modePhone = s.modePhone { defaults.set(modePhone, forKey: "reader.mode.phone") }
-                if let modeMac = s.modeMac { defaults.set(modeMac, forKey: "reader.mode.mac") }
-                if let modePad = s.modePad { defaults.set(modePad, forKey: "reader.mode.pad") }
-                if let fontSizePtPhone = s.fontSizePtPhone { defaults.set(fontSizePtPhone, forKey: "reader.fontSizePt.phone") }
-                if let fontSizePtMac = s.fontSizePtMac { defaults.set(fontSizePtMac, forKey: "reader.fontSizePt.mac") }
-                if let fontSizePtPad = s.fontSizePtPad { defaults.set(fontSizePtPad, forKey: "reader.fontSizePt.pad") }
-                if let lineSpacingPtPhone = s.lineSpacingPtPhone { defaults.set(lineSpacingPtPhone, forKey: "reader.lineSpacingPt.phone") }
-                if let lineSpacingPtMac = s.lineSpacingPtMac { defaults.set(lineSpacingPtMac, forKey: "reader.lineSpacingPt.mac") }
-                if let lineSpacingPtPad = s.lineSpacingPtPad { defaults.set(lineSpacingPtPad, forKey: "reader.lineSpacingPt.pad") }
-                if let paragraphSpacingPtPhone = s.paragraphSpacingPtPhone { defaults.set(paragraphSpacingPtPhone, forKey: "reader.paragraphSpacingPt.phone") }
-                if let paragraphSpacingPtMac = s.paragraphSpacingPtMac { defaults.set(paragraphSpacingPtMac, forKey: "reader.paragraphSpacingPt.mac") }
-                if let paragraphSpacingPtPad = s.paragraphSpacingPtPad { defaults.set(paragraphSpacingPtPad, forKey: "reader.paragraphSpacingPt.pad") }
-                if let pageTurnHapticsPhone = s.pageTurnHapticsPhone { defaults.set(pageTurnHapticsPhone, forKey: "reader.pageTurnHaptics.phone") }
-                if let pageTurnHapticsMac = s.pageTurnHapticsMac { defaults.set(pageTurnHapticsMac, forKey: "reader.pageTurnHaptics.mac") }
-                if let pageTurnHapticsPad = s.pageTurnHapticsPad { defaults.set(pageTurnHapticsPad, forKey: "reader.pageTurnHaptics.pad") }
-                if let pageTurnAnimationsPhone = s.pageTurnAnimationsPhone { defaults.set(pageTurnAnimationsPhone, forKey: "reader.pageTurnAnimations.phone") }
-                if let pageTurnAnimationsMac = s.pageTurnAnimationsMac { defaults.set(pageTurnAnimationsMac, forKey: "reader.pageTurnAnimations.mac") }
-                if let pageTurnAnimationsPad = s.pageTurnAnimationsPad { defaults.set(pageTurnAnimationsPad, forKey: "reader.pageTurnAnimations.pad") }
-                
-                if let kerningPtPhone = s.kerningPtPhone { defaults.set(kerningPtPhone, forKey: "reader.kerningPt.phone") }
-                if let kerningPtMac = s.kerningPtMac { defaults.set(kerningPtMac, forKey: "reader.kerningPt.mac") }
-                if let kerningPtPad = s.kerningPtPad { defaults.set(kerningPtPad, forKey: "reader.kerningPt.pad") }
-                if let boldTextPhone = s.boldTextPhone { defaults.set(boldTextPhone, forKey: "reader.boldText.phone") }
-                if let boldTextMac = s.boldTextMac { defaults.set(boldTextMac, forKey: "reader.boldText.mac") }
-                if let boldTextPad = s.boldTextPad { defaults.set(boldTextPad, forKey: "reader.boldText.pad") }
             }
             
             // 0.5. Restore CustomFolders
@@ -1208,6 +1226,26 @@ struct SettingsBackup: Codable {
     let boldTextPhone: Bool?
     let boldTextMac: Bool?
     let boldTextPad: Bool?
+}
+
+extension SettingsBackup {
+    /// The suffixes of per-device keys, the Windows app's included.
+    static let deviceSuffixes = ["Phone", "Pad", "Mac", "Windows"]
+
+    /// The device a backup key belongs to (`fontSizePtPad` → `Pad`), or nil
+    /// for a shared key.
+    static func deviceSuffix(of key: String) -> String? {
+        deviceSuffixes.first { key.hasSuffix($0) && key.count > $0.count }
+    }
+
+    /// The UserDefaults key of a shared backup key (`fontSizePt` →
+    /// `reader.fontSizePt`).
+    static func defaultsKey(for name: String) -> String {
+        switch name {
+        case "filterMatureExplicit", "ageConfirmed": "content.\(name)"
+        default: "reader.\(name)"
+        }
+    }
 }
 
 struct WorkBackup: Codable {

@@ -514,6 +514,11 @@ final class PersistenceTests: XCTestCase {
             try? FileManager.default.removeItem(at: testBackupURL)
         }
         
+        // This device's own keys: the tests run on an iPhone, an iPad and a Mac.
+        let themeKey = ReaderProfile.deviceKey("reader.theme")
+        let fontSizeKey = ReaderProfile.deviceKey("reader.fontSizePt")
+        let profileKey = ReaderProfile.deviceActiveProfileKey
+
         // 1. Set some settings in UserDefaults
         let defaults = UserDefaults.standard
         defer {
@@ -523,9 +528,9 @@ final class PersistenceTests: XCTestCase {
                 "reader.width",
                 "reader.fontSizePt",
                 "reader.profiles",
-                "reader.theme.pad",
-                "reader.activeProfile.pad",
-                "reader.fontSizePt.pad",
+                themeKey,
+                profileKey,
+                fontSizeKey,
                 "content.filterMatureExplicit"
             ].forEach { defaults.removeObject(forKey: $0) }
         }
@@ -536,9 +541,9 @@ final class PersistenceTests: XCTestCase {
         defaults.set(true, forKey: "content.filterMatureExplicit")
         
         // Device-specific settings
-        defaults.set("dracula", forKey: "reader.theme.pad")
-        defaults.set("compact", forKey: "reader.activeProfile.pad")
-        defaults.set(18.0, forKey: "reader.fontSizePt.pad")
+        defaults.set("dracula", forKey: themeKey)
+        defaults.set("compact", forKey: profileKey)
+        defaults.set(18.0, forKey: fontSizeKey)
 
         let macProfile = readerProfile(name: "Mac", theme: "dracula", fontSize: 24.0)
         defaults.set(ReaderProfile.saveProfiles([ReaderProfile.defaultProfiles[0], macProfile]),
@@ -548,42 +553,120 @@ final class PersistenceTests: XCTestCase {
         let syncManager = iCloudSyncManager.shared
         syncManager.backupToiCloud(context: ctx)
         
-        // 3. Reset settings in UserDefaults
+        // 3. Reset settings in UserDefaults, all but one: a setting this
+        // device has is its own, so restore leaves it alone (#133).
         defaults.removeObject(forKey: "reader.theme")
         defaults.removeObject(forKey: "reader.fontFamily")
         defaults.removeObject(forKey: "reader.width")
         defaults.removeObject(forKey: "reader.fontSizePt")
         defaults.removeObject(forKey: "content.filterMatureExplicit")
         
-        defaults.removeObject(forKey: "reader.theme.pad")
-        defaults.removeObject(forKey: "reader.activeProfile.pad")
-        defaults.removeObject(forKey: "reader.fontSizePt.pad")
+        defaults.removeObject(forKey: themeKey)
+        defaults.removeObject(forKey: profileKey)
+        defaults.set(15.0, forKey: fontSizeKey)
 
         let phoneProfile = readerProfile(name: "iPhone", theme: "system", fontSize: 20.0)
         defaults.set(ReaderProfile.saveProfiles([ReaderProfile.defaultProfiles[0], phoneProfile]),
                      forKey: "reader.profiles")
         
         XCTAssertNil(defaults.string(forKey: "reader.theme"))
-        XCTAssertNil(defaults.string(forKey: "reader.theme.pad"))
+        XCTAssertNil(defaults.string(forKey: themeKey))
         
         // 4. Restore from backup
         let success = await syncManager.restoreFromiCloud(context: ctx)
         XCTAssertTrue(success)
         
-        // 5. Verify they are restored
+        // 5. Verify the missing ones are restored and the set one is kept
         XCTAssertEqual(defaults.string(forKey: "reader.theme"), "sepia")
         XCTAssertEqual(defaults.string(forKey: "reader.fontFamily"), "rounded")
         XCTAssertEqual(defaults.string(forKey: "reader.width"), "wide")
         XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt"), 22.0)
         XCTAssertTrue(defaults.bool(forKey: "content.filterMatureExplicit"))
         
-        XCTAssertEqual(defaults.string(forKey: "reader.theme.pad"), "dracula")
-        XCTAssertEqual(defaults.string(forKey: "reader.activeProfile.pad"), "compact")
-        XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt.pad"), 18.0)
+        XCTAssertEqual(defaults.string(forKey: themeKey), "dracula")
+        XCTAssertEqual(defaults.string(forKey: profileKey), "compact")
+        XCTAssertEqual(defaults.double(forKey: fontSizeKey), 15.0)
 
         let restoredProfiles = ReaderProfile.loadProfiles(from: defaults.string(forKey: "reader.profiles") ?? "")
         XCTAssertEqual(restoredProfiles.first(where: { $0.name == "Mac" })?.fontSizePt, 24.0)
         XCTAssertEqual(restoredProfiles.first(where: { $0.name == "iPhone" })?.fontSizePt, 20.0)
+    }
+
+    // MARK: - Per-device settings across devices (#133)
+
+    private func settingsBackup(_ json: String) throws -> SettingsBackup {
+        try JSONDecoder().decode(SettingsBackup.self, from: Data(json.utf8))
+    }
+
+    private func seededKeys(_ settings: SettingsBackup, device: String, has local: Set<String> = []) -> [String: String] {
+        var seeded: [String: String] = [:]
+        for seed in iCloudSyncManager.settingsToSeed(from: settings, deviceSuffix: device, isSet: local.contains) {
+            seeded[seed.key] = "\(seed.value)"
+        }
+        return seeded
+    }
+
+    func test_restoreSeedsOnlyThisDevicesMissingSettings() throws {
+        let backup = try settingsBackup("""
+            {"theme":"sepia","ttsRate":0.5,"filterMatureExplicit":true,"ageConfirmed":true,
+             "activeProfilePad":"Couch","activeProfilePhone":"Train",
+             "fontSizePtPad":16,"fontSizePtPhone":14,"fontSizePtMac":18,"boldTextPad":true,
+             "profiles":"[]"}
+            """)
+
+        // A fresh iPad takes the shared keys and its own, never the iPhone's or the Mac's.
+        XCTAssertEqual(seededKeys(backup, device: "Pad"), [
+            "reader.theme": "sepia",
+            "reader.ttsRate": "0.5",
+            "content.filterMatureExplicit": "true",
+            "content.ageConfirmed": "true",
+            "reader.activeProfile.pad": "Couch",
+            "reader.fontSizePt.pad": "16.0",
+            "reader.boldText.pad": "true",
+        ])
+        XCTAssertEqual(seededKeys(backup, device: "Phone")["reader.fontSizePt.phone"], "14.0")
+        XCTAssertEqual(seededKeys(backup, device: "Mac")["reader.fontSizePt.mac"], "18.0")
+
+        // An iPad that already set them keeps its own.
+        let seeded = seededKeys(backup, device: "Pad",
+                                has: ["reader.fontSizePt.pad", "content.filterMatureExplicit", "reader.activeProfile.pad"])
+        XCTAssertNil(seeded["reader.fontSizePt.pad"])
+        XCTAssertNil(seeded["content.filterMatureExplicit"])
+        XCTAssertNil(seeded["reader.activeProfile.pad"])
+        XCTAssertEqual(seeded["reader.boldText.pad"], "true")
+    }
+
+    func test_settingsMergeKeepsTheFilesValuesForOtherDevices() throws {
+        let cloud = try settingsBackup(#"{"fontSizePtPad":16,"themePad":"night","themeMac":"sepia","ttsRate":0.4}"#)
+        // This iPhone holds stale copies of the iPad's keys from an earlier restore.
+        let local = try settingsBackup(#"{"fontSizePtPad":14,"themePad":"day","boldTextPad":true,"fontSizePtPhone":20,"ttsRate":0.6}"#)
+
+        let merged = try XCTUnwrap(iCloudSyncManager.mergedSettings(local: local, cloud: cloud, deviceSuffix: "Phone"))
+        XCTAssertEqual(merged.fontSizePtPad, 16, "the iPad's own value stays")
+        XCTAssertEqual(merged.themePad, "night")
+        XCTAssertEqual(merged.themeMac, "sepia")
+        XCTAssertEqual(merged.boldTextPad, true, "a key the file lacks is kept")
+        XCTAssertEqual(merged.fontSizePtPhone, 20, "this device's own key wins")
+        XCTAssertEqual(merged.ttsRate, 0.6, "a shared key takes this device's value")
+        XCTAssertNil(iCloudSyncManager.mergedSettings(local: nil, cloud: nil, deviceSuffix: "Phone"))
+        XCTAssertEqual(iCloudSyncManager.mergedSettings(local: nil, cloud: cloud, deviceSuffix: "Phone")?.themePad, "night")
+    }
+
+    /// The issue's example: the iPad sets 16 pt and backs up, the iPhone
+    /// (holding 14 from an earlier restore) backs up, and the iPad's next
+    /// restore keeps 16.
+    func test_aNewerSettingOnOneDeviceSurvivesAnotherDevicesBackupAndRestore() throws {
+        let pad = try settingsBackup(#"{"fontSizePtPad":16,"filterMatureExplicit":true,"activeProfilePad":"Couch"}"#)
+        let phone = try settingsBackup(#"{"fontSizePtPad":14,"fontSizePtPhone":20,"filterMatureExplicit":false,"activeProfilePad":"Default"}"#)
+
+        let file = try XCTUnwrap(iCloudSyncManager.mergedSettings(local: phone, cloud: pad, deviceSuffix: "Phone"))
+        XCTAssertEqual(file.fontSizePtPad, 16)
+        XCTAssertEqual(file.activeProfilePad, "Couch")
+
+        let padRestore = seededKeys(file, device: "Pad",
+                                    has: ["reader.fontSizePt.pad", "content.filterMatureExplicit", "reader.activeProfile.pad"])
+        XCTAssertTrue(padRestore.isEmpty, "the iPad keeps every setting it has: \(padRestore)")
+        XCTAssertNil(padRestore["reader.fontSizePt.phone"], "and never takes the iPhone's")
     }
 
     // MARK: - iCloud backup/restore merge rules
@@ -693,13 +776,16 @@ final class PersistenceTests: XCTestCase {
     func test_backupKeepsKeysOnlyTheOtherAppKnows() throws {
         let url = makeTempBackupURL()
         let defaults = UserDefaults.standard
-        let originalThemeMac = defaults.object(forKey: "reader.theme.mac")
+        // This device's own theme key (the tests run on an iPhone, an iPad and a Mac).
+        let themeKey = ReaderProfile.deviceKey("reader.theme")
+        let themeJSONKey = "theme" + iCloudSyncManager.backupDeviceSuffix
+        let originalTheme = defaults.object(forKey: themeKey)
         iCloudSyncManager.overrideBackupURL = url
         defer {
             iCloudSyncManager.overrideBackupURL = nil
             try? FileManager.default.removeItem(at: url)
             try? FileManager.default.removeItem(at: iCloudSyncManager.previousBackupURL(for: url))
-            defaults.set(originalThemeMac, forKey: "reader.theme.mac")
+            defaults.set(originalTheme, forKey: themeKey)
         }
         let work = #"""
             "authorName":"A","authorUsername":"","summary":"","rating":"Not Rated","warnings":[],"categories":[],"fandoms":[],"characters":[],"relationships":[],"freeforms":[],"language":"en","wordCount":0,"chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,"isComplete":false,"savedAt":"2026-01-01T00:00:00Z","isFollowed":false
@@ -708,14 +794,14 @@ final class PersistenceTests: XCTestCase {
             {"works":[{"ao3Id":1,"title":"PC Title",\(work),"note":"Old note","notesUpdatedAt":"2026-01-01T00:00:00Z","futureWorkField":"kept","chapters":[{"index":1,"title":"Ch","bodyHTML":"<p>x</p>","futureChapterField":7}]},
                       {"ao3Id":2,"title":"PC Only",\(work),"futureWorkField":"pc only","chapters":[]}],
              "bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[{"ao3Id":9,"title":"Nope","hiddenAt":"2026-01-01T00:00:00Z","futureReason":"spoilers"}],
-             "settings":{"themeMac":"sepia","themeWindows":"night","activeProfileWindows":"Desk","fontSizePtWindows":19},
+             "settings":{"\(themeJSONKey)":"sepia","themeWindows":"night","activeProfileWindows":"Desk","fontSizePtWindows":19},
              "followedAuthors":[{"username":"writer","displayName":"Writer","followedAt":"2026-01-01T00:00:00Z","knownWorkIds":[1]}],
              "timestamp":"2026-01-01T00:00:00Z"}
             """
         try Data(windowsFile.utf8).write(to: url)
 
         // This Mac holds work 1 with a newer title and the note cleared later.
-        defaults.set("dracula", forKey: "reader.theme.mac")
+        defaults.set("dracula", forKey: themeKey)
         let mac = try makeContext()
         let local = Work(ao3Id: 1, title: "Mac Title", authorName: "A")
         local.notesUpdatedAt = ISO8601DateFormatter().date(from: "2026-06-01T00:00:00Z")
@@ -737,7 +823,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(works.first { ($0["ao3Id"] as? Int) == 2 }?["futureWorkField"] as? String, "pc only")
         XCTAssertEqual((root["hidden"] as? [[String: Any]])?.first?["futureReason"] as? String, "spoilers")
         let settings = try XCTUnwrap(root["settings"] as? [String: Any])
-        XCTAssertEqual(settings["themeMac"] as? String, "dracula")
+        XCTAssertEqual(settings[themeJSONKey] as? String, "dracula")
         XCTAssertEqual(settings["themeWindows"] as? String, "night")
         XCTAssertEqual(settings["activeProfileWindows"] as? String, "Desk")
         XCTAssertEqual(settings["fontSizePtWindows"] as? Int, 19)
