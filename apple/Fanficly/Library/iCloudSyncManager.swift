@@ -260,6 +260,7 @@ final class iCloudSyncManager {
                 BlockedBackup(kind: $0.kind, value: $0.value, createdAt: $0.createdAt)
             }
 
+            let localDeletions = Self.prunedDeletions(Self.localDeletions(), now: .now)
             var backup = LibraryBackup(
                 works: workBackups,
                 bookmarks: bookmarkBackups,
@@ -272,6 +273,7 @@ final class iCloudSyncManager {
                 folders: folderBackups,
                 stats: statBackups,
                 blocked: blockedBackups,
+                deleted: localDeletions.isEmpty ? nil : localDeletions,
                 timestamp: .now
             )
 
@@ -553,12 +555,61 @@ final class iCloudSyncManager {
         UserDefaults.standard.set(date ?? lastBackupDate ?? Date(), forKey: Self.lastRestoredStampKey)
     }
 
+    // MARK: - Deletion markers
+
+    /// This device's own deletion markers, kept here until they age out so
+    /// every backup carries them (the file may be cleared, or written by an
+    /// app version that doesn't know them). Not synced itself.
+    nonisolated static let deletionsKey = "sync.deletions"
+
+    /// How long a deletion marker is kept: a device offline longer than this
+    /// can bring a deleted record back, the same trade-off as profiles.
+    nonisolated static let deletionLifetime: TimeInterval = 90 * 24 * 60 * 60
+
+    /// Remembers that this device deleted a record, so the next backup
+    /// carries the deletion to the file and to the other devices. Called by
+    /// every delete of a work, hidden work, folder, saved search or filter,
+    /// whether or not sync is on.
+    nonisolated static func recordDeletion(_ kind: DeletionKind, key: String, at date: Date = .now) {
+        let others = localDeletions().filter { !($0.kind == kind.rawValue && $0.key == key) }
+        saveLocalDeletions(prunedDeletions(others + [DeletionBackup(kind: kind.rawValue, key: key, deletedAt: date)], now: date))
+    }
+
+    nonisolated static func localDeletions() -> [DeletionBackup] {
+        guard let data = UserDefaults.standard.data(forKey: deletionsKey) else { return [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try? decoder.decode([DeletionBackup].self, from: data)) ?? []
+    }
+
+    private nonisolated static func saveLocalDeletions(_ deletions: [DeletionBackup]) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        UserDefaults.standard.set(try? encoder.encode(deletions), forKey: deletionsKey)
+    }
+
+    /// The newest marker per record from both lists, without the ones older
+    /// than `deletionLifetime`.
+    nonisolated static func prunedDeletions(_ deletions: [DeletionBackup], now: Date) -> [DeletionBackup] {
+        let cutoff = now.addingTimeInterval(-deletionLifetime)
+        var newest: [String: DeletionBackup] = [:]
+        for d in deletions where d.deletedAt >= cutoff {
+            let id = "\(d.kind)\u{1F}\(d.key)"
+            if let existing = newest[id], existing.deletedAt >= d.deletedAt { continue }
+            newest[id] = d
+        }
+        return newest.values.sorted { ($0.kind, $0.key) < ($1.kind, $1.key) }
+    }
+
     /// Unions a freshly-built local backup with the backup already in iCloud.
     /// Records the other device backed up but this one doesn't hold are kept;
     /// on conflicts the local record wins (this device just produced it), with
     /// the exceptions mirroring the restore rules: chapters survive from
     /// whichever side has more, reading positions keep the newer one, and
-    /// reading stats merge conservatively.
+    /// reading stats merge conservatively. Deletion markers from both sides
+    /// are kept, and a work, hidden work, folder, saved search or filter that
+    /// a newer marker covers is left out, so a delete doesn't come back from
+    /// another device's copy (#135).
     nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup) -> LibraryBackup {
         var worksById = Dictionary(cloud.works.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for var w in local.works {
@@ -613,6 +664,16 @@ final class iCloudSyncManager {
             }
         }
 
+        // Deletion markers from both sides remove the records they're newer
+        // than, whichever side still held them (#135).
+        let deleted = prunedDeletions((cloud.deleted ?? []) + (local.deleted ?? []), now: local.timestamp)
+        let tombstones = DeletionIndex(deleted)
+        worksById = worksById.filter { !tombstones.removes(.work, String($0.key), stamp: $0.value.savedAt) }
+        hiddenById = hiddenById.filter { !tombstones.removes(.hidden, String($0.key), stamp: $0.value.hiddenAt) }
+        foldersByName = foldersByName.filter { !tombstones.removes(.folder, $0.key, stamp: $0.value.createdAt) }
+        searchesByName = searchesByName.filter { !tombstones.removes(.search, $0.key, stamp: $0.value.savedAt) }
+        filtersByName = filtersByName.filter { !tombstones.removes(.filter, $0.key, stamp: $0.value.savedAt) }
+
         return LibraryBackup(
             works: worksById.values.sorted { $0.ao3Id < $1.ao3Id },
             bookmarks: bookmarksById.values.sorted { $0.ao3Id < $1.ao3Id },
@@ -625,6 +686,7 @@ final class iCloudSyncManager {
             folders: foldersByName.values.sorted { $0.name < $1.name },
             stats: statsById.values.sorted { $0.ao3Id < $1.ao3Id },
             blocked: blockedByKey.values.sorted { $0.key < $1.key },
+            deleted: deleted.isEmpty ? nil : deleted,
             timestamp: local.timestamp
         )
     }
@@ -751,6 +813,11 @@ final class iCloudSyncManager {
             backup = read
         }
 
+        // Deletion markers: the file's (every device's) and this device's
+        // own, which the file may not hold yet. A record they cover isn't
+        // restored, and this device's copy of it is deleted below (#135).
+        let tombstones = DeletionIndex(Self.prunedDeletions((backup.deleted ?? []) + Self.localDeletions(), now: .now))
+
         do {
             // 0. Restore settings and themes
             if let s = backup.settings {
@@ -823,7 +890,7 @@ final class iCloudSyncManager {
             
             // 0.5. Restore CustomFolders
             if let customFolders = backup.folders {
-                for f in customFolders {
+                for f in customFolders where !tombstones.removes(.folder, f.name, stamp: f.createdAt) {
                     let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == f.name })
                     let existing = (try? context.fetch(descriptor))?.first
                     if existing == nil {
@@ -833,7 +900,7 @@ final class iCloudSyncManager {
             }
             
             // 1. Restore Works and their Chapters
-            for w in backup.works {
+            for w in backup.works where !tombstones.removes(.work, String(w.ao3Id), stamp: w.savedAt) {
                 let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == w.ao3Id })
                 let existing = (try? context.fetch(descriptor))?.first
                 
@@ -961,7 +1028,7 @@ final class iCloudSyncManager {
             }
             
             // 4. Restore SavedSearches
-            for s in backup.searches {
+            for s in backup.searches where !tombstones.removes(.search, s.name, stamp: s.savedAt) {
                 let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == s.name })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
@@ -993,7 +1060,7 @@ final class iCloudSyncManager {
             }
             
             // 6. Restore SavedFilters
-            for f in backup.filters {
+            for f in backup.filters where !tombstones.removes(.filter, f.name, stamp: f.savedAt) {
                 let descriptor = FetchDescriptor<SavedFilter>(predicate: #Predicate { $0.name == f.name })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
@@ -1005,7 +1072,7 @@ final class iCloudSyncManager {
             }
             
             // 7. Restore HiddenWorks
-            for h in backup.hidden {
+            for h in backup.hidden where !tombstones.removes(.hidden, String(h.ao3Id), stamp: h.hiddenAt) {
                 let descriptor = FetchDescriptor<HiddenWork>(predicate: #Predicate { $0.ao3Id == h.ao3Id })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
@@ -1067,6 +1134,11 @@ final class iCloudSyncManager {
                 }
             }
 
+            // 10. Deletions made on other devices: remove this device's copy
+            // of a record a marker covers, unless the file holds a newer
+            // copy (saved again since), which the steps above applied.
+            Self.applyDeletions(tombstones, backup: backup, context: context)
+
             try context.save()
             markCloudBackupApplied(date: readDate)
             return true
@@ -1076,6 +1148,36 @@ final class iCloudSyncManager {
         }
     }
     
+    /// Deletes this device's records that a deletion marker covers: ones
+    /// stamped no later than the marker, when the backup has no newer copy.
+    private static func applyDeletions(_ tombstones: DeletionIndex, backup: LibraryBackup, context: ModelContext) {
+        let liveWorks = Set(backup.works.filter { !tombstones.removes(.work, String($0.ao3Id), stamp: $0.savedAt) }.map(\.ao3Id))
+        for work in (try? context.fetch(FetchDescriptor<Work>())) ?? []
+        where !liveWorks.contains(work.ao3Id) && tombstones.removes(.work, String(work.ao3Id), stamp: work.savedAt) {
+            WorkPersistence.delete(work, in: context)
+        }
+        let liveHidden = Set(backup.hidden.filter { !tombstones.removes(.hidden, String($0.ao3Id), stamp: $0.hiddenAt) }.map(\.ao3Id))
+        for hidden in (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
+        where !liveHidden.contains(hidden.ao3Id) && tombstones.removes(.hidden, String(hidden.ao3Id), stamp: hidden.hiddenAt) {
+            context.delete(hidden)
+        }
+        let liveFolders = Set((backup.folders ?? []).filter { !tombstones.removes(.folder, $0.name, stamp: $0.createdAt) }.map(\.name))
+        for folder in (try? context.fetch(FetchDescriptor<CustomFolder>())) ?? []
+        where !liveFolders.contains(folder.name) && tombstones.removes(.folder, folder.name, stamp: folder.createdAt) {
+            context.delete(folder)
+        }
+        let liveSearches = Set(backup.searches.filter { !tombstones.removes(.search, $0.name, stamp: $0.savedAt) }.map(\.name))
+        for search in (try? context.fetch(FetchDescriptor<SavedSearch>())) ?? []
+        where !liveSearches.contains(search.name) && tombstones.removes(.search, search.name, stamp: search.savedAt) {
+            context.delete(search)
+        }
+        let liveFilters = Set(backup.filters.filter { !tombstones.removes(.filter, $0.name, stamp: $0.savedAt) }.map(\.name))
+        for filter in (try? context.fetch(FetchDescriptor<SavedFilter>())) ?? []
+        where !liveFilters.contains(filter.name) && tombstones.removes(.filter, filter.name, stamp: filter.savedAt) {
+            context.delete(filter)
+        }
+    }
+
     /// Deletes the backup file (and the copy of the previous one) from iCloud.
     @discardableResult
     func clearFromiCloud() -> Bool {
@@ -1116,7 +1218,56 @@ struct LibraryBackup: Codable {
     /// Blocked tags and authors (RM-006). Optional so older backups still
     /// decode; defaulted so existing initializer calls still compile.
     var blocked: [BlockedBackup]? = nil
+    /// Deletion markers (#135). Optional so older backups still decode, and
+    /// older app versions keep the key as one they don't know.
+    var deleted: [DeletionBackup]? = nil
     let timestamp: Date
+}
+
+/// What a deletion marker removes. The raw values are the backup's `kind`
+/// strings, shared with the Windows app.
+enum DeletionKind: String, CaseIterable, Sendable {
+    case work, hidden, folder, search, filter
+}
+
+/// A record some device deleted: a library work, a hidden work, a folder, a
+/// saved search or a saved filter, by its identity key (the AO3 id, or the
+/// name). The union merge would otherwise bring it back from any other
+/// device's copy (#135). A record whose own stamp is newer than the marker
+/// (saved, hidden or created again since) wins over it, and markers are
+/// dropped after 90 days, like reader profile tombstones.
+struct DeletionBackup: Codable, Equatable, Sendable {
+    let kind: String
+    let key: String
+    let deletedAt: Date
+}
+
+/// The newest deletion marker per record, for looking records up against.
+struct DeletionIndex: Sendable {
+    private var markers: [String: Date] = [:]
+
+    init(_ deletions: [DeletionBackup]) {
+        for d in deletions {
+            let id = Self.id(d.kind, d.key)
+            if let existing = markers[id], existing >= d.deletedAt { continue }
+            markers[id] = d.deletedAt
+        }
+    }
+
+    private static func id(_ kind: String, _ key: String) -> String { "\(kind)\u{1F}\(key)" }
+
+    func deletedAt(_ kind: DeletionKind, _ key: String) -> Date? {
+        markers[Self.id(kind.rawValue, key)]
+    }
+
+    /// Whether a marker removes a record stamped `stamp` (saved, hidden or
+    /// created then). Compared in whole seconds, the backup file's precision,
+    /// and a tie goes to the marker: on one device a delete always comes
+    /// after the save it removes.
+    func removes(_ kind: DeletionKind, _ key: String, stamp: Date) -> Bool {
+        guard let deletedAt = deletedAt(kind, key) else { return false }
+        return stamp.timeIntervalSince1970.rounded(.down) <= deletedAt.timeIntervalSince1970.rounded(.down)
+    }
 }
 
 struct BlockedBackup: Codable {

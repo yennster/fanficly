@@ -72,6 +72,7 @@ struct WorkFilterSheet: View {
                 }
                 .swipeActions {
                     Button(role: .destructive) {
+                        iCloudSyncManager.recordDeletion(.filter, key: saved.name)
                         context.delete(saved)
                         try? context.save()
                         iCloudSyncManager.shared.queueBackup(context: context)

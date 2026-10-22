@@ -16,6 +16,7 @@ struct BrowseView: View {
                         }
                         .swipeActions {
                             Button(role: .destructive) {
+                                iCloudSyncManager.recordDeletion(.filter, key: saved.name)
                                 context.delete(saved); try? context.save()
                             } label: { Label("Delete", systemImage: "trash") }
                         }

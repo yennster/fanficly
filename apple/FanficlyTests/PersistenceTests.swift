@@ -9,7 +9,7 @@ final class PersistenceTests: XCTestCase {
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
             RecentlyViewed.self, CustomFolder.self, FollowedAuthor.self,
-            ReadingStat.self, BlockedTerm.self,
+            ReadingStat.self, BlockedTerm.self, HiddenWork.self, SavedFilter.self,
         ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, configurations: [config])
@@ -1082,6 +1082,257 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(work.isFollowed)
         XCTAssertEqual(work.lastSeenChapterCount, 8)
         XCTAssertEqual(work.folders.map(\.name), ["Faves"])
+    }
+
+    // MARK: - Deletions (#135)
+
+    /// Two simulated devices on one backup file. The sync manager is shared,
+    /// so each device's own deletion markers (the per-device state these
+    /// tests need) are swapped in and out of their defaults key around its
+    /// turn. The phone saves works 1 and 2, a hidden work, a folder, a saved
+    /// search and a saved filter an hour ago and backs up; the iPad restores
+    /// them.
+    @MainActor
+    private final class TwoDevices {
+        let phone: ModelContext
+        let pad: ModelContext
+        private var markers: [ObjectIdentifier: Any] = [:]
+        private var current: ObjectIdentifier?
+
+        init(phone: ModelContext, pad: ModelContext) {
+            self.phone = phone
+            self.pad = pad
+        }
+
+        /// Makes `context`'s device the one whose markers are in defaults.
+        func use(_ context: ModelContext) {
+            let defaults = UserDefaults.standard
+            let key = iCloudSyncManager.deletionsKey
+            if let current { markers[current] = defaults.object(forKey: key) }
+            defaults.set(markers[ObjectIdentifier(context)], forKey: key)
+            current = ObjectIdentifier(context)
+        }
+    }
+
+    private static let anHourAgo = Date.now.addingTimeInterval(-3600)
+
+    private func twoSyncedDevices() async throws -> TwoDevices {
+        let phone = try makeContext()
+        for id in [1, 2] {
+            WorkPersistence.upsert(payload: payload(id: id, chapters: 2), into: phone).savedAt = Self.anHourAgo
+        }
+        phone.insert(HiddenWork(ao3Id: 5, title: "Hidden", hiddenAt: Self.anHourAgo))
+        phone.insert(CustomFolder(name: "Faves", createdAt: Self.anHourAgo))
+        phone.insert(SavedSearch(name: "Angst", prompt: "angst", savedAt: Self.anHourAgo))
+        phone.insert(SavedFilter(name: "Long", filtersJSON: "{}", savedAt: Self.anHourAgo))
+        try phone.save()
+        let devices = TwoDevices(phone: phone, pad: try makeContext())
+        devices.use(phone)
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        devices.use(devices.pad)
+        let restored = await iCloudSyncManager.shared.restoreFromiCloud(context: devices.pad)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(try devices.pad.fetchCount(FetchDescriptor<Work>()), 2)
+        return devices
+    }
+
+    /// Runs `body` with a temporary backup file and this test's own deletion
+    /// markers, putting back whatever was there before.
+    private func withDeletionTest(_ body: (URL) async throws -> Void) async throws {
+        let url = makeTempBackupURL()
+        let defaults = UserDefaults.standard
+        let key = iCloudSyncManager.deletionsKey
+        let originalMarkers = defaults.object(forKey: key)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalMarkers, forKey: key)
+        }
+        defaults.removeObject(forKey: key)
+        try await body(url)
+    }
+
+    private func work(_ id: Int, in context: ModelContext) throws -> Work? {
+        try context.fetch(FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == id })).first
+    }
+
+    /// The bug: a delete on one device came back on that device as soon as
+    /// another device backed up its copy. Now the deletion marker keeps it
+    /// out of the file, the deleting device's next restore leaves it deleted,
+    /// and the other device's restore deletes its copy too.
+    func test_deletedWorkStaysDeletedAfterAnotherDevicesBackup() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            // The phone deletes work 1 and backs up.
+            devices.use(devices.phone)
+            iCloudSyncManager.recordDeletion(.work, key: "1")
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.phone)), in: devices.phone)
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+            XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [2])
+
+            // The iPad, which hasn't restored since, backs up its copy of
+            // work 1: the marker keeps it out of the file.
+            devices.use(devices.pad)
+            sync.backupToiCloud(context: devices.pad)
+            let file = try decodeBackup(at: url)
+            XCTAssertEqual(file.works.map(\.ao3Id), [2])
+            XCTAssertEqual(file.deleted?.map { [$0.kind, $0.key] }, [["work", "1"]])
+
+            // The phone's next launch sync doesn't bring it back…
+            devices.use(devices.phone)
+            let phoneRestored = await sync.restoreFromiCloud(context: devices.phone)
+            XCTAssertTrue(phoneRestored)
+            XCTAssertNil(try work(1, in: devices.phone))
+
+            // …and the iPad's deletes its copy.
+            devices.use(devices.pad)
+            let padRestored = await sync.restoreFromiCloud(context: devices.pad)
+            XCTAssertTrue(padRestored)
+            XCTAssertNil(try work(1, in: devices.pad))
+            XCTAssertNotNil(try work(2, in: devices.pad))
+        }
+    }
+
+    /// Un-hiding, and deleting a folder, a saved search or a saved filter,
+    /// sticks the same way.
+    func test_unhiddenWorkAndDeletedFolderSearchAndFilterStayDeleted() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            devices.use(devices.phone)
+            HiddenWorkStore.unhide(ao3Id: 5, in: devices.phone)
+            iCloudSyncManager.recordDeletion(.folder, key: "Faves")
+            iCloudSyncManager.recordDeletion(.search, key: "Angst")
+            iCloudSyncManager.recordDeletion(.filter, key: "Long")
+            for folder in try devices.phone.fetch(FetchDescriptor<CustomFolder>()) { devices.phone.delete(folder) }
+            for search in try devices.phone.fetch(FetchDescriptor<SavedSearch>()) { devices.phone.delete(search) }
+            for filter in try devices.phone.fetch(FetchDescriptor<SavedFilter>()) { devices.phone.delete(filter) }
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+
+            devices.use(devices.pad)
+            sync.backupToiCloud(context: devices.pad)
+            let file = try decodeBackup(at: url)
+            XCTAssertTrue(file.hidden.isEmpty)
+            XCTAssertEqual(file.folders?.isEmpty, true)
+            XCTAssertTrue(file.searches.isEmpty)
+            XCTAssertTrue(file.filters.isEmpty)
+
+            for device in [devices.phone, devices.pad] {
+                devices.use(device)
+                let restored = await sync.restoreFromiCloud(context: device)
+                XCTAssertTrue(restored)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<HiddenWork>()), 0)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<CustomFolder>()), 0)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<SavedSearch>()), 0)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<SavedFilter>()), 0)
+            }
+        }
+    }
+
+    /// A record saved again after the delete is newer than the marker, so
+    /// it comes back everywhere, and a restore doesn't delete it.
+    func test_workSavedAgainAfterADeleteComesBack() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            devices.use(devices.phone)
+            iCloudSyncManager.recordDeletion(.work, key: "1", at: Self.anHourAgo.addingTimeInterval(600))
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.phone)), in: devices.phone)
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+
+            // The iPad saves work 1 again (a fresh download, stamped now).
+            devices.use(devices.pad)
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.pad)), in: devices.pad)
+            try devices.pad.save()
+            _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 3), into: devices.pad)
+            sync.backupToiCloud(context: devices.pad)
+            XCTAssertTrue(try decodeBackup(at: url).works.contains { $0.ao3Id == 1 })
+
+            devices.use(devices.phone)
+            let phoneRestored = await sync.restoreFromiCloud(context: devices.phone)
+            XCTAssertTrue(phoneRestored)
+            XCTAssertEqual(try work(1, in: devices.phone)?.chapters.count, 3)
+            devices.use(devices.pad)
+            let padRestored = await sync.restoreFromiCloud(context: devices.pad)
+            XCTAssertTrue(padRestored)
+            XCTAssertNotNil(try work(1, in: devices.pad))
+        }
+    }
+
+    /// An app version without deletion markers writes the deleted work back
+    /// into the file (keeping the markers as a key it doesn't know); the
+    /// deleting device still doesn't restore it.
+    func test_olderAppWritingADeletedWorkBackDoesNotRestoreIt() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            devices.use(devices.phone)
+            iCloudSyncManager.recordDeletion(.work, key: "1")
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.phone)), in: devices.phone)
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+
+            // The older app: the file with work 1 added back, markers kept.
+            var json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            var works = try XCTUnwrap(json["works"] as? [[String: Any]])
+            var stale = try XCTUnwrap(works.first)
+            stale["ao3Id"] = 1
+            stale["savedAt"] = ISO8601DateFormatter().string(from: Self.anHourAgo)
+            works.append(stale)
+            json["works"] = works
+            try JSONSerialization.data(withJSONObject: json).write(to: url)
+            XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id).sorted(), [1, 2])
+
+            let restored = await sync.restoreFromiCloud(context: devices.phone)
+            XCTAssertTrue(restored)
+            XCTAssertNil(try work(1, in: devices.phone))
+
+            // And the phone's next backup takes it out of the file again.
+            sync.backupToiCloud(context: devices.phone)
+            XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [2])
+        }
+    }
+
+    /// Markers live 90 days; the newest one per record is kept.
+    func test_deletionMarkersArePrunedAfterNinetyDays() {
+        let now = Date.now
+        let day: TimeInterval = 24 * 60 * 60
+        let pruned = iCloudSyncManager.prunedDeletions([
+            DeletionBackup(kind: "work", key: "1", deletedAt: now.addingTimeInterval(-91 * day)),
+            DeletionBackup(kind: "work", key: "2", deletedAt: now.addingTimeInterval(-89 * day)),
+            DeletionBackup(kind: "work", key: "2", deletedAt: now.addingTimeInterval(-100 * day)),
+        ], now: now)
+        XCTAssertEqual(pruned, [DeletionBackup(kind: "work", key: "2", deletedAt: now.addingTimeInterval(-89 * day))])
+    }
+
+    /// A backup written before deletion markers has no `deleted` key and
+    /// must still decode; one with markers decodes them in the shared format.
+    func test_backupDeletionMarkersDecodeAndAreOptional() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let old = """
+        {"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],
+         "filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z"}
+        """
+        XCTAssertNil(try decoder.decode(LibraryBackup.self, from: Data(old.utf8)).deleted)
+        let new = """
+        {"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],
+         "filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z",
+         "deleted":[{"kind":"folder","key":"Faves","deletedAt":"2026-01-01T00:00:00Z"}]}
+        """
+        let deleted = try XCTUnwrap(try decoder.decode(LibraryBackup.self, from: Data(new.utf8)).deleted)
+        XCTAssertEqual(deleted.map(\.kind), ["folder"])
+        XCTAssertEqual(deleted.map(\.key), ["Faves"])
     }
 
     /// Only works with restored chapter text (i.e. downloaded on the device
