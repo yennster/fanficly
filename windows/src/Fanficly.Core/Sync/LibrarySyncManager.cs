@@ -317,8 +317,13 @@ public sealed class LibrarySyncManager
     /// sync folder. Records only the other device holds are kept; on conflicts
     /// the local record wins (this device just produced it), except that
     /// chapters survive from whichever side has more, reading positions keep
-    /// the newer one, and reading stats merge conservatively.</summary>
-    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud)
+    /// the newer one, reading stats merge conservatively, and settings merge key
+    /// by key (<see cref="SettingsBackup.Merged"/>, for this device).</summary>
+    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud) =>
+        MergedBackup(local, cloud, ReaderProfile.CurrentDevice);
+
+    /// <inheritdoc cref="MergedBackup(LibraryBackup, LibraryBackup)"/>
+    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud, ReaderDevice device)
     {
         var worksById = FirstByKey(cloud.Works, w => w.Ao3Id);
         foreach (var w in local.Works)
@@ -383,7 +388,7 @@ public sealed class LibrarySyncManager
             Progress: progressById.Values.OrderBy(p => p.Ao3Id).ToList(),
             Filters: filtersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Hidden: hiddenById.Values.OrderBy(h => h.Ao3Id).ToList(),
-            Settings: local.Settings ?? cloud.Settings,
+            Settings: SettingsBackup.Merged(local.Settings, cloud.Settings, device),
             Folders: foldersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Stats: statsById.Values.OrderBy(s => s.Ao3Id).ToList(),
             Timestamp: local.Timestamp,
@@ -506,12 +511,15 @@ public sealed class LibrarySyncManager
 
     private void Apply(LibraryBackup backup, LibraryStore store)
     {
-        // 0. Settings and themes.
+        // 0. Settings and themes. Restore only fills in what this device hasn't
+        // set (a fresh install) and never copies another device's per-device
+        // keys, so each device keeps its own (#133).
         if (backup.Settings is { } s)
         {
             foreach (var field in SettingsBackup.Fields)
             {
                 if (field.JsonKey == SettingsBackup.ProfilesJsonKey) continue;
+                if (!SettingsBackup.AppliesTo(field, ReaderProfile.CurrentDevice) || _settings.Contains(field.DefaultsKey)) continue;
                 switch (field.Kind)
                 {
                     case SettingKind.String when s.GetString(field.JsonKey) is { } str:
