@@ -608,11 +608,15 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(16, merged.GetDouble("fontSizePtPad"));
         Assert.Equal("night", merged.GetString("themePad"));
         Assert.Equal("sepia", merged.GetString("themeMac"));
-        Assert.True(merged.GetBool("boldTextPad")); // a key the file lacks is kept
+        Assert.Null(merged.GetBool("boldTextPad")); // another device's keys only ever come from the file
         Assert.Equal(20, merged.GetDouble("fontSizePtWindows")); // this device's own key wins
         Assert.Equal(0.6, merged.GetDouble("ttsRate")); // a shared key takes this device's value
         Assert.Null(SettingsBackup.Merged(null, null, ReaderDevice.Windows));
         Assert.Equal("night", SettingsBackup.Merged(null, cloud, ReaderDevice.Windows)!.GetString("themePad"));
+        // With no file yet, only this device's own and shared keys are written.
+        var first = SettingsBackup.Merged(local, null, ReaderDevice.Windows)!;
+        Assert.Null(first.GetDouble("fontSizePtPad"));
+        Assert.Equal(20, first.GetDouble("fontSizePtWindows"));
     }
 
     [Fact]

@@ -194,19 +194,20 @@ public sealed class SettingsBackup
     }
 
     /// <summary>Settings merge key by key (the Swift <c>mergedSettings</c>). This
-    /// device's own keys and the shared ones take its value; another device's
-    /// per-device keys keep the file's, because this device's copies of them are
-    /// only what an earlier restore brought in, and writing those back would
-    /// revert that device's newer choices (#133). A key only one side has is kept.</summary>
+    /// device's own keys and the shared ones take its value (a key only the file
+    /// has is kept); another device's per-device keys always come from the file,
+    /// because any copies this device holds are only what an earlier restore
+    /// brought in, and writing those back would revert that device's newer
+    /// choices (#133).</summary>
     public static SettingsBackup? Merged(SettingsBackup? local, SettingsBackup? cloud, ReaderDevice device)
     {
         if (local is null) return cloud;
-        if (cloud is null) return local;
         var merged = new SettingsBackup();
-        foreach (var (key, value) in cloud.Values) merged.Values[key] = value;
+        if (cloud is not null)
+            foreach (var (key, value) in cloud.Values) merged.Values[key] = value;
         foreach (var (key, value) in local.Values)
         {
-            if (DeviceOf(key) is { } owner && owner != device && merged.Values.ContainsKey(key)) continue;
+            if (DeviceOf(key) is { } owner && owner != device) continue;
             merged.Values[key] = value;
         }
         return merged;
