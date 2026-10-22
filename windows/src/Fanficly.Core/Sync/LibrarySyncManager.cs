@@ -226,45 +226,51 @@ public sealed class LibrarySyncManager
     /// <summary>Why the last backup that failed to write failed.</summary>
     public string? LastBackupError { get; private set; }
 
+    /// <summary>A work as its backup record. Restore passes no chapters to merge
+    /// a local work with the backup's copy by the backup's rules
+    /// (<see cref="MergedWork"/>) without copying its chapter text.</summary>
+    internal static WorkBackup ToBackup(Work work, IReadOnlyList<ChapterBackup> chapters) => new(
+        Ao3Id: work.Ao3Id,
+        Title: work.Title,
+        AuthorName: work.AuthorName,
+        AuthorUsername: work.AuthorUsername,
+        Summary: work.Summary,
+        Rating: work.Rating,
+        Warnings: work.Warnings,
+        Categories: work.Categories,
+        Fandoms: work.Fandoms,
+        Characters: work.Characters,
+        Relationships: work.Relationships,
+        Freeforms: work.Freeforms,
+        Language: work.Language,
+        WordCount: work.WordCount,
+        ChapterCount: work.ChapterCount,
+        TotalChapters: work.TotalChapters,
+        Kudos: work.Kudos,
+        Hits: work.Hits,
+        BookmarksCount: work.BookmarksCount,
+        CommentsCount: work.CommentsCount,
+        IsComplete: work.IsComplete,
+        PublishedAt: work.PublishedAt,
+        UpdatedAt: work.UpdatedAt,
+        SavedAt: work.SavedAt,
+        LastReadAt: work.LastReadAt,
+        LastReadChapter: work.LastReadChapter,
+        LastReadProgress: work.LastReadProgress,
+        IsFollowed: work.IsFollowed,
+        FollowedAt: work.FollowedAt,
+        LastSeenChapterCount: work.LastSeenChapterCount,
+        IsStarred: work.IsStarred,
+        IsPinned: work.IsPinned,
+        Chapters: chapters,
+        FolderName: work.Folders.FirstOrDefault()?.Name,
+        FolderNames: work.Folders.Select(f => f.Name).ToList());
+
     /// <summary>The library as a backup, mapping every record type.</summary>
     internal LibraryBackup MakeLocalBackup(LibraryStore store)
     {
-        var works = store.All<Work>().Select(work => new WorkBackup(
-            Ao3Id: work.Ao3Id,
-            Title: work.Title,
-            AuthorName: work.AuthorName,
-            AuthorUsername: work.AuthorUsername,
-            Summary: work.Summary,
-            Rating: work.Rating,
-            Warnings: work.Warnings,
-            Categories: work.Categories,
-            Fandoms: work.Fandoms,
-            Characters: work.Characters,
-            Relationships: work.Relationships,
-            Freeforms: work.Freeforms,
-            Language: work.Language,
-            WordCount: work.WordCount,
-            ChapterCount: work.ChapterCount,
-            TotalChapters: work.TotalChapters,
-            Kudos: work.Kudos,
-            Hits: work.Hits,
-            BookmarksCount: work.BookmarksCount,
-            CommentsCount: work.CommentsCount,
-            IsComplete: work.IsComplete,
-            PublishedAt: work.PublishedAt,
-            UpdatedAt: work.UpdatedAt,
-            SavedAt: work.SavedAt,
-            LastReadAt: work.LastReadAt,
-            LastReadChapter: work.LastReadChapter,
-            LastReadProgress: work.LastReadProgress,
-            IsFollowed: work.IsFollowed,
-            FollowedAt: work.FollowedAt,
-            LastSeenChapterCount: work.LastSeenChapterCount,
-            IsStarred: work.IsStarred,
-            IsPinned: work.IsPinned,
-            Chapters: store.ChaptersOf(work).Select(ch => new ChapterBackup(ch.Index, ch.Title, ch.BodyHtml, ch.AoId)).ToList(),
-            FolderName: work.Folders.FirstOrDefault()?.Name,
-            FolderNames: work.Folders.Select(f => f.Name).ToList())).ToList();
+        var works = store.All<Work>().Select(work => ToBackup(work,
+            store.ChaptersOf(work).Select(ch => new ChapterBackup(ch.Index, ch.Title, ch.BodyHtml, ch.AoId)).ToList())).ToList();
 
         return new LibraryBackup(
             Works: works,
@@ -315,10 +321,12 @@ public sealed class LibrarySyncManager
 
     /// <summary>Unions a freshly-built local backup with the one already in the
     /// sync folder. Records only the other device holds are kept; on conflicts
-    /// the local record wins (this device just produced it), except that
-    /// chapters survive from whichever side has more, reading positions keep
-    /// the newer one, reading stats merge conservatively, and settings merge key
-    /// by key (<see cref="SettingsBackup.Merged"/>, for this device).</summary>
+    /// the local record wins (this device just produced it), except where a
+    /// field only moves forward: works and subscriptions merge by the restore's
+    /// rules (<see cref="MergedWork"/>, <see cref="MergedSubscription"/>),
+    /// reading positions keep the newer one, reading stats merge
+    /// conservatively, and settings merge key by key
+    /// (<see cref="SettingsBackup.Merged"/>, for this device).</summary>
     public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud) =>
         MergedBackup(local, cloud, ReaderProfile.CurrentDevice);
 
@@ -328,17 +336,22 @@ public sealed class LibrarySyncManager
         var worksById = FirstByKey(cloud.Works, w => w.Ao3Id);
         foreach (var w in local.Works)
         {
-            var merged = w;
-            if (worksById.TryGetValue(w.Ao3Id, out var cloudWork) && cloudWork.Chapters.Count > w.Chapters.Count)
-                merged = w with { Chapters = cloudWork.Chapters };
-            worksById[w.Ao3Id] = merged;
+            if (!worksById.TryGetValue(w.Ao3Id, out var cloudWork)) { worksById[w.Ao3Id] = w; continue; }
+            // Follow, star and pin keep this PC's values here (restore ORs them):
+            // the file is the only record of an un-follow, and without an edit
+            // stamp an OR would bring every un-followed work back on a restore.
+            worksById[w.Ao3Id] = MergedWork(w, cloudWork) with
+            {
+                IsFollowed = w.IsFollowed, FollowedAt = w.FollowedAt, IsStarred = w.IsStarred, IsPinned = w.IsPinned,
+            };
         }
 
         var bookmarksById = FirstByKey(cloud.Bookmarks, b => b.Ao3Id);
         foreach (var b in local.Bookmarks) bookmarksById[b.Ao3Id] = b;
 
         var subscriptionsByKey = FirstByKey(cloud.Subscriptions, s => s.Key);
-        foreach (var s in local.Subscriptions) subscriptionsByKey[s.Key] = s;
+        foreach (var s in local.Subscriptions)
+            subscriptionsByKey[s.Key] = subscriptionsByKey.TryGetValue(s.Key, out var cloudSub) ? MergedSubscription(s, cloudSub) : s;
 
         var searchesByName = FirstByKey(cloud.Searches, s => s.Name);
         foreach (var s in local.Searches) searchesByName[s.Name] = s;
@@ -400,11 +413,76 @@ public sealed class LibrarySyncManager
                 : blockedByKey.Values.OrderBy(b => b.Key, StringComparer.Ordinal).ToList());
     }
 
-    /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
-    /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
+    /// <summary>Two copies of one work merged so nothing moves backwards,
+    /// whichever device merges first: the backup merge passes this device's
+    /// record as <paramref name="local"/> and the file's as
+    /// <paramref name="other"/>, and restore passes this device's work and the
+    /// backup's copy the same way. The Swift app's
+    /// <c>iCloudSyncManager.mergedWork</c> applies the same rules:
+    /// AO3 metadata (Title through UpdatedAt) comes whole from the fresher copy
+    /// (<see cref="HasFresherMetadata"/>) and SavedAt keeps the later date; the
+    /// reading position comes from the copy read last; follow, star and pin are
+    /// an OR (FollowedAt keeps local's when set; the backup merge then puts
+    /// local's flags back, see <see cref="MergedBackup"/>); LastSeenChapterCount keeps the
+    /// higher count, so an older copy never re-announces chapters; chapters come
+    /// from the copy with more, and folders union.</summary>
+    public static WorkBackup MergedWork(WorkBackup local, WorkBackup other)
+    {
+        var meta = HasFresherMetadata(other, local) ? other : local;
+        var position = (other.LastReadAt ?? DateTimeOffset.MinValue) > (local.LastReadAt ?? DateTimeOffset.MinValue) ? other : local;
+        var localFolders = local.FolderNames ?? (local.FolderName is { } lf ? [lf] : []);
+        var otherFolders = other.FolderNames ?? (other.FolderName is { } of ? [of] : []);
+        var folders = localFolders.Concat(otherFolders.Where(f => !localFolders.Contains(f))).ToList();
+        return meta with
+        {
+            Ao3Id = local.Ao3Id,
+            SavedAt = local.SavedAt > other.SavedAt ? local.SavedAt : other.SavedAt,
+            LastReadAt = position.LastReadAt,
+            LastReadChapter = position.LastReadChapter,
+            LastReadProgress = position.LastReadProgress,
+            IsFollowed = local.IsFollowed || other.IsFollowed,
+            FollowedAt = local.FollowedAt ?? other.FollowedAt,
+            LastSeenChapterCount = Higher(local.LastSeenChapterCount, other.LastSeenChapterCount),
+            IsStarred = (local.IsStarred ?? false) || (other.IsStarred ?? false),
+            IsPinned = (local.IsPinned ?? false) || (other.IsPinned ?? false),
+            Chapters = other.Chapters.Count > local.Chapters.Count ? other.Chapters : local.Chapters,
+            FolderName = folders.FirstOrDefault(),
+            FolderNames = folders,
+        };
+    }
+
+    /// <summary>Whether <paramref name="other"/> carries newer AO3 metadata than
+    /// <paramref name="local"/>: a later UpdatedAt (AO3's "Updated" date), then,
+    /// on the same date, more chapters, then more hits (they only grow, so the
+    /// copy fetched last has the most). A full tie keeps local.</summary>
+    public static bool HasFresherMetadata(WorkBackup other, WorkBackup local)
+    {
+        var otherDate = other.UpdatedAt ?? DateTimeOffset.MinValue;
+        var localDate = local.UpdatedAt ?? DateTimeOffset.MinValue;
+        if (otherDate != localDate) return otherDate > localDate;
+        if (other.ChapterCount != local.ChapterCount) return other.ChapterCount > local.ChapterCount;
+        return other.Hits > local.Hits;
+    }
+
+    /// <summary>A subscription's two copies merged: the notification baseline
+    /// keeps the higher count and LastCheckedAt the later date, so an older copy
+    /// can't re-announce chapters or turn alerts off with a null baseline. Its
+    /// kind and names come from <paramref name="local"/>.</summary>
+    public static SubscriptionBackup MergedSubscription(SubscriptionBackup local, SubscriptionBackup other) =>
+        local with
+        {
+            LastSeenChapterCount = Higher(local.LastSeenChapterCount, other.LastSeenChapterCount),
+            LastCheckedAt = Later(local.LastCheckedAt, other.LastCheckedAt),
+        };
+
+    private static int? Higher(int? a, int? b) =>
+        a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
+
     private static DateTimeOffset? Later(DateTimeOffset? a, DateTimeOffset? b) =>
         a is null ? b : b is null ? a : a > b ? a : b;
 
+    /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
+    /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
     private static Dictionary<TKey, T> FirstByKey<TKey, T>(IEnumerable<T> items, Func<T, TKey> key) where TKey : notnull
     {
         var d = new Dictionary<TKey, T>();
@@ -550,60 +628,59 @@ public sealed class LibrarySyncManager
         // 1. Works and their chapters.
         foreach (var w in backup.Works)
         {
+            // Merge with the local copy by the backup's rules (MergedWork), so a
+            // background launch sync never rewinds this device to an older
+            // backup: fresher AO3 metadata, the position read last, OR'd flags
+            // and the higher notification baseline (regressing it would re-fire
+            // "new chapter" alerts).
             var work = store.GetWork(w.Ao3Id);
+            var m = w;
             if (work is null)
             {
                 work = new Work(w.Ao3Id, w.Title, w.AuthorName);
                 store.Insert(work);
             }
-
-            work.Title = w.Title;
-            work.AuthorName = w.AuthorName;
-            work.AuthorUsername = w.AuthorUsername;
-            work.Summary = w.Summary;
-            work.Rating = w.Rating;
-            work.Warnings = w.Warnings;
-            work.Categories = w.Categories;
-            work.Fandoms = w.Fandoms;
-            work.Characters = w.Characters;
-            work.Relationships = w.Relationships;
-            work.Freeforms = w.Freeforms;
-            work.Language = w.Language;
-            work.WordCount = w.WordCount;
-            work.ChapterCount = w.ChapterCount;
-            work.TotalChapters = w.TotalChapters;
-            work.Kudos = w.Kudos;
-            work.Hits = w.Hits;
-            work.BookmarksCount = w.BookmarksCount;
-            work.CommentsCount = w.CommentsCount;
-            work.IsComplete = w.IsComplete;
-            work.PublishedAt = w.PublishedAt;
-            work.UpdatedAt = w.UpdatedAt;
-            work.SavedAt = w.SavedAt;
-            // Reading position: keep whichever side read more recently. Restore
-            // runs as a background launch sync, which must never rewind this
-            // device to an older backup.
-            if ((w.LastReadAt ?? DateTimeOffset.MinValue) > (work.LastReadAt ?? DateTimeOffset.MinValue))
+            else
             {
-                work.LastReadAt = w.LastReadAt;
-                work.LastReadChapter = w.LastReadChapter;
-                work.LastReadProgress = w.LastReadProgress;
+                m = MergedWork(ToBackup(work, []), w);
             }
-            // Follow/star/pin merge as an OR: the cloud union can lag a flag set
-            // locally moments ago, and un-flagging deliberately doesn't propagate.
-            work.IsFollowed = work.IsFollowed || w.IsFollowed;
-            work.FollowedAt ??= w.FollowedAt;
-            // Notification baseline only advances — regressing it would re-fire
-            // "new chapter" alerts for chapters already seen.
-            if (w.LastSeenChapterCount is { } cloudSeen)
-                work.LastSeenChapterCount = Math.Max(work.LastSeenChapterCount ?? 0, cloudSeen);
-            work.IsStarred = work.IsStarred || (w.IsStarred ?? false);
-            work.IsPinned = work.IsPinned || (w.IsPinned ?? false);
+
+            work.Title = m.Title;
+            work.AuthorName = m.AuthorName;
+            work.AuthorUsername = m.AuthorUsername;
+            work.Summary = m.Summary;
+            work.Rating = m.Rating;
+            work.Warnings = m.Warnings;
+            work.Categories = m.Categories;
+            work.Fandoms = m.Fandoms;
+            work.Characters = m.Characters;
+            work.Relationships = m.Relationships;
+            work.Freeforms = m.Freeforms;
+            work.Language = m.Language;
+            work.WordCount = m.WordCount;
+            work.ChapterCount = m.ChapterCount;
+            work.TotalChapters = m.TotalChapters;
+            work.Kudos = m.Kudos;
+            work.Hits = m.Hits;
+            work.BookmarksCount = m.BookmarksCount;
+            work.CommentsCount = m.CommentsCount;
+            work.IsComplete = m.IsComplete;
+            work.PublishedAt = m.PublishedAt;
+            work.UpdatedAt = m.UpdatedAt;
+            work.SavedAt = m.SavedAt;
+            work.LastReadAt = m.LastReadAt;
+            work.LastReadChapter = m.LastReadChapter;
+            work.LastReadProgress = m.LastReadProgress;
+            work.IsFollowed = m.IsFollowed;
+            work.FollowedAt = m.FollowedAt;
+            work.LastSeenChapterCount = m.LastSeenChapterCount;
+            work.IsStarred = m.IsStarred ?? false;
+            work.IsPinned = m.IsPinned ?? false;
 
             work.Folder = null; // clear the legacy single-folder reference
             // Folders union, not replace: a launch sync must not drop an
             // assignment made locally since the last backup.
-            var folderNames = w.FolderNames ?? (w.FolderName is { } single ? [single] : []);
+            var folderNames = m.FolderNames ?? (m.FolderName is { } single ? [single] : []);
             foreach (var name in folderNames)
             {
                 if (work.Folders.Any(f => f.Name == name)) continue;
@@ -642,11 +719,17 @@ public sealed class LibrarySyncManager
         {
             if (store.GetSubscription(sub.Key) is { } existing)
             {
-                existing.Kind = sub.Kind;
-                existing.DisplayName = sub.DisplayName;
-                existing.AuthorName = sub.AuthorName;
-                existing.LastSeenChapterCount = sub.LastSeenChapterCount;
-                existing.LastCheckedAt = sub.LastCheckedAt;
+                // The baseline and last check only move forward: an older backup
+                // must not re-announce chapters, and a null baseline must not
+                // switch alerts off until the next poll. Names come from the backup.
+                var m = MergedSubscription(sub, new SubscriptionBackup(
+                    existing.Key, existing.Kind, existing.DisplayName, existing.AuthorName,
+                    existing.LastSeenChapterCount, existing.LastCheckedAt));
+                existing.Kind = m.Kind;
+                existing.DisplayName = m.DisplayName;
+                existing.AuthorName = m.AuthorName;
+                existing.LastSeenChapterCount = m.LastSeenChapterCount;
+                existing.LastCheckedAt = m.LastCheckedAt;
             }
             else
             {

@@ -961,10 +961,10 @@ public sealed class PersistenceTests : IDisposable
         Assert.Null(LibraryBackupJson.Decode(System.Text.Encoding.UTF8.GetBytes(json)).FollowedAuthors);
     }
 
-    /// <summary>On a per-work conflict the backing-up device's record wins, but
-    /// the cloud copy's chapters survive when the local copy is metadata-only.</summary>
+    /// <summary>On a per-work conflict the fresher metadata wins, and the cloud
+    /// copy's chapters survive when the local copy is metadata-only.</summary>
     [Fact]
-    public void BackupMergeLocalWinsButKeepsCloudChapters()
+    public void BackupMergeFresherMetadataWinsAndKeepsCloudChapters()
     {
         var path = MakeTempBackupPath();
 
@@ -978,7 +978,7 @@ public sealed class PersistenceTests : IDisposable
 
         // …device B holds a metadata-only copy with fresher metadata.
         using var b = MakeContext();
-        b.Insert(new Work(1, "New Title", "A"));
+        b.Insert(new Work(1, "New Title", "A") { UpdatedAt = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000) });
         b.Save();
         MakeSync(path).Backup(b);
 
@@ -1110,6 +1110,150 @@ public sealed class PersistenceTests : IDisposable
         Assert.True(work.IsFollowed);
         Assert.Equal(8, work.LastSeenChapterCount);
         Assert.Equal(["Faves"], work.Folders.Select(f => f.Name));
+    }
+
+    /// <summary>Two devices backing up in either order end with the same file:
+    /// the newest reading position, the fresher AO3 metadata, both folders, and the highest notification baselines and latest check, so the
+    /// device that backs up second can't move anything backwards.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BackupMergeEitherOrderKeepsNewestPositionAndHighestBaseline(bool aFirst)
+    {
+        var path = MakeTempBackupPath();
+        var older = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+        var newer = DateTimeOffset.FromUnixTimeSeconds(1_700_090_000);
+
+        // Device A: fresher metadata, starred and followed, baseline 10.
+        using var a = MakeContext();
+        var aShelf = new CustomFolder("A shelf");
+        a.Insert(aShelf);
+        var aWork = new Work(1, "New Title", "A")
+        {
+            UpdatedAt = newer, ChapterCount = 10, Kudos = 50, SavedAt = older,
+            LastReadAt = older, LastReadChapter = 2, LastReadProgress = 0.2,
+            IsFollowed = true, IsStarred = true, LastSeenChapterCount = 10,
+        };
+        a.Insert(aWork);
+        aWork.Folders.Add(aShelf);
+        a.Insert(new SubscriptionRecord("work:1", "work", "Fic") { LastSeenChapterCount = 10, LastCheckedAt = newer });
+        a.Save();
+
+        // Device B: read more recently, but older metadata, no flags, a lower work
+        // baseline and a null subscription baseline.
+        using var b = MakeContext();
+        var bShelf = new CustomFolder("B shelf");
+        b.Insert(bShelf);
+        var bWork = new Work(1, "Old Title", "A")
+        {
+            UpdatedAt = older, ChapterCount = 8, Kudos = 5, SavedAt = newer,
+            LastReadAt = newer, LastReadChapter = 7, LastReadProgress = 0.7,
+            LastSeenChapterCount = 4,
+        };
+        b.Insert(bWork);
+        bWork.Folders.Add(bShelf);
+        b.Insert(new SubscriptionRecord("work:1", "work", "Fic") { LastCheckedAt = older });
+        b.Save();
+
+        var (first, second) = aFirst ? (a, b) : (b, a);
+        MakeSync(path).Backup(first);
+        MakeSync(path).Backup(second);
+
+        var merged = DecodeBackup(path);
+        var work = Assert.Single(merged.Works);
+        Assert.Equal("New Title", work.Title);
+        Assert.Equal(10, work.ChapterCount);
+        Assert.Equal(50, work.Kudos);
+        Assert.Equal(newer, work.UpdatedAt);
+        Assert.Equal(newer, work.SavedAt);
+        Assert.Equal(newer, work.LastReadAt);
+        Assert.Equal(7, work.LastReadChapter);
+        Assert.Equal(0.7, work.LastReadProgress);
+        // Flags are the one exception: the device backing up second keeps its
+        // own, so an un-follow can reach the file (restore ORs them instead).
+        Assert.Equal(!aFirst, work.IsFollowed);
+        Assert.Equal(!aFirst, work.IsStarred);
+        Assert.Equal(10, work.LastSeenChapterCount);
+        Assert.Equal(["A shelf", "B shelf"], (work.FolderNames ?? []).Order());
+        var sub = Assert.Single(merged.Subscriptions);
+        Assert.Equal(10, sub.LastSeenChapterCount);
+        Assert.Equal(newer, sub.LastCheckedAt);
+    }
+
+    /// <summary>An un-follow, un-star or un-pin reaches the file through this
+    /// device's own backup, so restoring that file (a reinstall) doesn't bring
+    /// them back.</summary>
+    [Fact]
+    public async Task UnfollowSurvivesTheBackupMergeAndARestore()
+    {
+        var path = MakeTempBackupPath();
+        using var device = MakeContext();
+        var work = new Work(1, "T", "A") { IsFollowed = true, IsStarred = true, IsPinned = true };
+        device.Insert(work);
+        device.Save();
+        MakeSync(path).Backup(device);
+
+        work.IsFollowed = false;
+        work.IsStarred = false;
+        work.IsPinned = false;
+        device.Save();
+        MakeSync(path).Backup(device);
+
+        using var reinstalled = MakeContext();
+        Assert.True(await MakeSync(path).RestoreAsync(reinstalled));
+        var restored = reinstalled.GetWork(1)!;
+        Assert.False(restored.IsFollowed);
+        Assert.False(restored.IsStarred);
+        Assert.False(restored.IsPinned);
+    }
+
+    /// <summary>Restoring an older backup never lowers a baseline, clears one with
+    /// null, or puts back older AO3 metadata; a newer backup still advances them.</summary>
+    [Fact]
+    public async Task RestoreOlderBackupNeverLowersBaselinesOrMetadata()
+    {
+        var path = MakeTempBackupPath();
+        var older = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+        var newer = DateTimeOffset.FromUnixTimeSeconds(1_700_090_000);
+
+        // The backup is behind on work 1 and both subscriptions, ahead on work 2.
+        using var cloudDevice = MakeContext();
+        cloudDevice.Insert(new Work(1, "Old Title", "A")
+        {
+            UpdatedAt = older, ChapterCount = 3, Kudos = 5, SavedAt = older, LastSeenChapterCount = 3,
+        });
+        cloudDevice.Insert(new Work(2, "Newer Title", "A") { UpdatedAt = newer, ChapterCount = 6, LastSeenChapterCount = 6 });
+        cloudDevice.Insert(new SubscriptionRecord("work:1", "work", "Fic") { LastSeenChapterCount = 2, LastCheckedAt = older });
+        cloudDevice.Insert(new SubscriptionRecord("work:2", "work", "Other"));
+        cloudDevice.Save();
+        MakeSync(path).Backup(cloudDevice);
+
+        using var device = MakeContext();
+        device.Insert(new Work(1, "New Title", "A")
+        {
+            UpdatedAt = newer, ChapterCount = 8, Kudos = 50, SavedAt = newer, LastSeenChapterCount = 8,
+        });
+        device.Insert(new Work(2, "Older Title", "A") { UpdatedAt = older, ChapterCount = 4, LastSeenChapterCount = 4 });
+        device.Insert(new SubscriptionRecord("work:1", "work", "Fic") { LastSeenChapterCount = 9, LastCheckedAt = newer });
+        device.Insert(new SubscriptionRecord("work:2", "work", "Other") { LastSeenChapterCount = 5 });
+        device.Save();
+
+        Assert.True(await MakeSync(path).RestoreAsync(device));
+        var w1 = device.GetWork(1)!;
+        Assert.Equal("New Title", w1.Title);
+        Assert.Equal(8, w1.ChapterCount);
+        Assert.Equal(50, w1.Kudos);
+        Assert.Equal(newer, w1.UpdatedAt);
+        Assert.Equal(newer, w1.SavedAt);
+        Assert.Equal(8, w1.LastSeenChapterCount);
+        var w2 = device.GetWork(2)!;
+        Assert.Equal("Newer Title", w2.Title);
+        Assert.Equal(6, w2.ChapterCount);
+        Assert.Equal(6, w2.LastSeenChapterCount);
+        Assert.Equal(9, device.GetSubscription("work:1")!.LastSeenChapterCount);
+        Assert.Equal(newer, device.GetSubscription("work:1")!.LastCheckedAt);
+        // A null baseline in the backup must not switch alerts off.
+        Assert.Equal(5, device.GetSubscription("work:2")!.LastSeenChapterCount);
     }
 
     /// <summary>Only works with restored chapter text (downloaded on the device
