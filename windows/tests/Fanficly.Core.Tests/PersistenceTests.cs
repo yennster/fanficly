@@ -864,10 +864,10 @@ public sealed class PersistenceTests : IDisposable
         Assert.Null(LibraryBackupJson.Decode(System.Text.Encoding.UTF8.GetBytes(json)).FollowedAuthors);
     }
 
-    /// <summary>On a per-work conflict the backing-up device's record wins, but
-    /// the cloud copy's chapters survive when the local copy is metadata-only.</summary>
+    /// <summary>On a per-work conflict the fresher metadata wins, and the cloud
+    /// copy's chapters survive when the local copy is metadata-only.</summary>
     [Fact]
-    public void BackupMergeLocalWinsButKeepsCloudChapters()
+    public void BackupMergeFresherMetadataWinsAndKeepsCloudChapters()
     {
         var path = MakeTempBackupPath();
 
@@ -881,7 +881,7 @@ public sealed class PersistenceTests : IDisposable
 
         // …device B holds a metadata-only copy with fresher metadata.
         using var b = MakeContext();
-        b.Insert(new Work(1, "New Title", "A"));
+        b.Insert(new Work(1, "New Title", "A") { UpdatedAt = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000) });
         b.Save();
         MakeSync(path).Backup(b);
 
@@ -1016,8 +1016,7 @@ public sealed class PersistenceTests : IDisposable
     }
 
     /// <summary>Two devices backing up in either order end with the same file:
-    /// the newest reading position, the fresher AO3 metadata, OR'd flags, both
-    /// folders, and the highest notification baselines and latest check, so the
+    /// the newest reading position, the fresher AO3 metadata, both folders, and the highest notification baselines and latest check, so the
     /// device that backs up second can't move anything backwards.</summary>
     [Theory]
     [InlineData(true)]
@@ -1073,13 +1072,42 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(newer, work.LastReadAt);
         Assert.Equal(7, work.LastReadChapter);
         Assert.Equal(0.7, work.LastReadProgress);
-        Assert.True(work.IsFollowed);
-        Assert.True(work.IsStarred);
+        // Flags are the one exception: the device backing up second keeps its
+        // own, so an un-follow can reach the file (restore ORs them instead).
+        Assert.Equal(!aFirst, work.IsFollowed);
+        Assert.Equal(!aFirst, work.IsStarred);
         Assert.Equal(10, work.LastSeenChapterCount);
         Assert.Equal(["A shelf", "B shelf"], (work.FolderNames ?? []).Order());
         var sub = Assert.Single(merged.Subscriptions);
         Assert.Equal(10, sub.LastSeenChapterCount);
         Assert.Equal(newer, sub.LastCheckedAt);
+    }
+
+    /// <summary>An un-follow, un-star or un-pin reaches the file through this
+    /// device's own backup, so restoring that file (a reinstall) doesn't bring
+    /// them back.</summary>
+    [Fact]
+    public async Task UnfollowSurvivesTheBackupMergeAndARestore()
+    {
+        var path = MakeTempBackupPath();
+        using var device = MakeContext();
+        var work = new Work(1, "T", "A") { IsFollowed = true, IsStarred = true, IsPinned = true };
+        device.Insert(work);
+        device.Save();
+        MakeSync(path).Backup(device);
+
+        work.IsFollowed = false;
+        work.IsStarred = false;
+        work.IsPinned = false;
+        device.Save();
+        MakeSync(path).Backup(device);
+
+        using var reinstalled = MakeContext();
+        Assert.True(await MakeSync(path).RestoreAsync(reinstalled));
+        var restored = reinstalled.GetWork(1)!;
+        Assert.False(restored.IsFollowed);
+        Assert.False(restored.IsStarred);
+        Assert.False(restored.IsPinned);
     }
 
     /// <summary>Restoring an older backup never lowers a baseline, clears one with

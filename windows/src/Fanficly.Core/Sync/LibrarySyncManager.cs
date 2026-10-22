@@ -330,7 +330,16 @@ public sealed class LibrarySyncManager
     {
         var worksById = FirstByKey(cloud.Works, w => w.Ao3Id);
         foreach (var w in local.Works)
-            worksById[w.Ao3Id] = worksById.TryGetValue(w.Ao3Id, out var cloudWork) ? MergedWork(w, cloudWork) : w;
+        {
+            if (!worksById.TryGetValue(w.Ao3Id, out var cloudWork)) { worksById[w.Ao3Id] = w; continue; }
+            // Follow, star and pin keep this PC's values here (restore ORs them):
+            // the file is the only record of an un-follow, and without an edit
+            // stamp an OR would bring every un-followed work back on a restore.
+            worksById[w.Ao3Id] = MergedWork(w, cloudWork) with
+            {
+                IsFollowed = w.IsFollowed, FollowedAt = w.FollowedAt, IsStarred = w.IsStarred, IsPinned = w.IsPinned,
+            };
+        }
 
         var bookmarksById = FirstByKey(cloud.Bookmarks, b => b.Ao3Id);
         foreach (var b in local.Bookmarks) bookmarksById[b.Ao3Id] = b;
@@ -408,7 +417,8 @@ public sealed class LibrarySyncManager
     /// AO3 metadata (Title through UpdatedAt) comes whole from the fresher copy
     /// (<see cref="HasFresherMetadata"/>) and SavedAt keeps the later date; the
     /// reading position comes from the copy read last; follow, star and pin are
-    /// an OR (FollowedAt keeps local's when set); LastSeenChapterCount keeps the
+    /// an OR (FollowedAt keeps local's when set; the backup merge then puts
+    /// local's flags back, see <see cref="MergedBackup"/>); LastSeenChapterCount keeps the
     /// higher count, so an older copy never re-announces chapters; chapters come
     /// from the copy with more, and folders union.</summary>
     public static WorkBackup MergedWork(WorkBackup local, WorkBackup other)
@@ -463,11 +473,11 @@ public sealed class LibrarySyncManager
     private static int? Higher(int? a, int? b) =>
         a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
 
-    /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
-    /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
     private static DateTimeOffset? Later(DateTimeOffset? a, DateTimeOffset? b) =>
         a is null ? b : b is null ? a : a > b ? a : b;
 
+    /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
+    /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
     private static Dictionary<TKey, T> FirstByKey<TKey, T>(IEnumerable<T> items, Func<T, TKey> key) where TKey : notnull
     {
         var d = new Dictionary<TKey, T>();
