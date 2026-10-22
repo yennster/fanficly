@@ -624,9 +624,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2, 3, 4])
     }
 
-    /// On a per-work conflict the backing-up device's record wins, but the
-    /// cloud copy's chapters survive when the local copy is metadata-only.
-    func test_backupMergeLocalWinsButKeepsCloudChapters() throws {
+    /// On a per-work conflict the fresher metadata wins, and the cloud copy's
+    /// chapters survive when the local copy is metadata-only.
+    func test_backupMergeFresherMetadataWinsAndKeepsCloudChapters() throws {
         let url = makeTempBackupURL()
         iCloudSyncManager.overrideBackupURL = url
         defer {
@@ -647,7 +647,9 @@ final class PersistenceTests: XCTestCase {
 
         // …device B holds a metadata-only copy with fresher metadata.
         let b = try makeContext()
-        b.insert(Work(ao3Id: 1, title: "New Title", authorName: "A"))
+        let fresher = Work(ao3Id: 1, title: "New Title", authorName: "A")
+        fresher.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        b.insert(fresher)
         try b.save()
         iCloudSyncManager.shared.backupToiCloud(context: b)
 
@@ -1333,6 +1335,208 @@ final class PersistenceTests: XCTestCase {
         let deleted = try XCTUnwrap(try decoder.decode(LibraryBackup.self, from: Data(new.utf8)).deleted)
         XCTAssertEqual(deleted.map(\.kind), ["folder"])
         XCTAssertEqual(deleted.map(\.key), ["Faves"])
+    }
+
+    /// Two devices backing up in either order end with the same file: the
+    /// newest reading position, the fresher AO3 metadata, both folders, and the highest notification baselines and latest check, so
+    /// the device that backs up second can't move anything backwards.
+    func test_backupMergeEitherOrderKeepsNewestPositionAndHighestBaseline() throws {
+        let older = Date(timeIntervalSince1970: 1_700_000_000)
+        let newer = Date(timeIntervalSince1970: 1_700_090_000)
+
+        // Device A: fresher metadata, starred and followed, baseline 10.
+        func deviceA() throws -> ModelContext {
+            let ctx = try makeContext()
+            let folder = CustomFolder(name: "A shelf")
+            ctx.insert(folder)
+            let work = Work(ao3Id: 1, title: "New Title", authorName: "A")
+            work.updatedAt = newer
+            work.chapterCount = 10
+            work.kudos = 50
+            work.savedAt = older
+            work.lastReadAt = older
+            work.lastReadChapter = 2
+            work.lastReadProgress = 0.2
+            work.isFollowed = true
+            work.isStarred = true
+            work.lastSeenChapterCount = 10
+            ctx.insert(work)
+            work.folders.append(folder)
+            let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+            sub.lastSeenChapterCount = 10
+            sub.lastCheckedAt = newer
+            ctx.insert(sub)
+            try ctx.save()
+            return ctx
+        }
+        // Device B: read more recently, but older metadata, no flags, a lower
+        // work baseline and a nil subscription baseline.
+        func deviceB() throws -> ModelContext {
+            let ctx = try makeContext()
+            let folder = CustomFolder(name: "B shelf")
+            ctx.insert(folder)
+            let work = Work(ao3Id: 1, title: "Old Title", authorName: "A")
+            work.updatedAt = older
+            work.chapterCount = 8
+            work.kudos = 5
+            work.savedAt = newer
+            work.lastReadAt = newer
+            work.lastReadChapter = 7
+            work.lastReadProgress = 0.7
+            work.lastSeenChapterCount = 4
+            ctx.insert(work)
+            work.folders.append(folder)
+            let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+            sub.lastCheckedAt = older
+            ctx.insert(sub)
+            try ctx.save()
+            return ctx
+        }
+
+        for aFirst in [true, false] {
+            let url = makeTempBackupURL()
+            iCloudSyncManager.overrideBackupURL = url
+            defer {
+                iCloudSyncManager.overrideBackupURL = nil
+                try? FileManager.default.removeItem(at: url)
+            }
+            let a = try deviceA()
+            let b = try deviceB()
+            let (first, second) = aFirst ? (a, b) : (b, a)
+            iCloudSyncManager.shared.backupToiCloud(context: first)
+            iCloudSyncManager.shared.backupToiCloud(context: second)
+
+            let merged = try decodeBackup(at: url)
+            let work = try XCTUnwrap(merged.works.first)
+            XCTAssertEqual(work.title, "New Title", "aFirst: \(aFirst)")
+            XCTAssertEqual(work.chapterCount, 10)
+            XCTAssertEqual(work.kudos, 50)
+            XCTAssertEqual(work.updatedAt, newer)
+            XCTAssertEqual(work.savedAt, newer)
+            XCTAssertEqual(work.lastReadAt, newer)
+            XCTAssertEqual(work.lastReadChapter, 7)
+            XCTAssertEqual(work.lastReadProgress, 0.7)
+            // Flags are the one exception: the device backing up second keeps
+            // its own, so an un-follow can reach the file (restore ORs them).
+            XCTAssertEqual(work.isFollowed, !aFirst)
+            XCTAssertEqual(work.isStarred, !aFirst)
+            XCTAssertEqual(work.lastSeenChapterCount, 10)
+            XCTAssertEqual(Set(work.folderNames ?? []), ["A shelf", "B shelf"])
+            let sub = try XCTUnwrap(merged.subscriptions.first)
+            XCTAssertEqual(sub.lastSeenChapterCount, 10, "aFirst: \(aFirst)")
+            XCTAssertEqual(sub.lastCheckedAt, newer)
+        }
+    }
+
+    /// An un-follow, un-star or un-pin reaches the file through this device's
+    /// own backup, so restoring that file (a reinstall) doesn't bring them back.
+    func test_unfollowSurvivesTheBackupMergeAndARestore() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+        let device = try makeContext()
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        work.isFollowed = true
+        work.isStarred = true
+        work.isPinned = true
+        device.insert(work)
+        try device.save()
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+
+        work.isFollowed = false
+        work.isStarred = false
+        work.isPinned = false
+        try device.save()
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+
+        let reinstalled = try makeContext()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: reinstalled)
+        XCTAssertTrue(success)
+        let restored = try XCTUnwrap(try reinstalled.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertFalse(restored.isFollowed)
+        XCTAssertFalse(restored.isStarred)
+        XCTAssertFalse(restored.isPinned)
+    }
+
+    /// Restoring an older backup never lowers a baseline, clears one with nil,
+    /// or puts back older AO3 metadata; a newer backup still advances them.
+    func test_restoreOlderBackupNeverLowersBaselinesOrMetadata() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+        let older = Date(timeIntervalSince1970: 1_700_000_000)
+        let newer = Date(timeIntervalSince1970: 1_700_090_000)
+
+        // The backup is behind on work 1 and subscriptions a and b, ahead on work 2.
+        let cloudDevice = try makeContext()
+        let stale = Work(ao3Id: 1, title: "Old Title", authorName: "A")
+        stale.updatedAt = older
+        stale.chapterCount = 3
+        stale.kudos = 5
+        stale.savedAt = older
+        stale.lastSeenChapterCount = 3
+        cloudDevice.insert(stale)
+        let fresh = Work(ao3Id: 2, title: "Newer Title", authorName: "A")
+        fresh.updatedAt = newer
+        fresh.chapterCount = 6
+        fresh.lastSeenChapterCount = 6
+        cloudDevice.insert(fresh)
+        let subA = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+        subA.lastSeenChapterCount = 2
+        subA.lastCheckedAt = older
+        cloudDevice.insert(subA)
+        cloudDevice.insert(SubscriptionRecord(key: "work:2", kind: "work", displayName: "Other"))
+        try cloudDevice.save()
+        iCloudSyncManager.shared.backupToiCloud(context: cloudDevice)
+
+        let device = try makeContext()
+        let local1 = Work(ao3Id: 1, title: "New Title", authorName: "A")
+        local1.updatedAt = newer
+        local1.chapterCount = 8
+        local1.kudos = 50
+        local1.savedAt = newer
+        local1.lastSeenChapterCount = 8
+        device.insert(local1)
+        let local2 = Work(ao3Id: 2, title: "Older Title", authorName: "A")
+        local2.updatedAt = older
+        local2.chapterCount = 4
+        local2.lastSeenChapterCount = 4
+        device.insert(local2)
+        let localA = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+        localA.lastSeenChapterCount = 9
+        localA.lastCheckedAt = newer
+        device.insert(localA)
+        let localB = SubscriptionRecord(key: "work:2", kind: "work", displayName: "Other")
+        localB.lastSeenChapterCount = 5
+        device.insert(localB)
+        try device.save()
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let works = try device.fetch(FetchDescriptor<Work>())
+        let w1 = try XCTUnwrap(works.first(where: { $0.ao3Id == 1 }))
+        XCTAssertEqual(w1.title, "New Title")
+        XCTAssertEqual(w1.chapterCount, 8)
+        XCTAssertEqual(w1.kudos, 50)
+        XCTAssertEqual(w1.updatedAt, newer)
+        XCTAssertEqual(w1.savedAt, newer)
+        XCTAssertEqual(w1.lastSeenChapterCount, 8)
+        let w2 = try XCTUnwrap(works.first(where: { $0.ao3Id == 2 }))
+        XCTAssertEqual(w2.title, "Newer Title")
+        XCTAssertEqual(w2.chapterCount, 6)
+        XCTAssertEqual(w2.lastSeenChapterCount, 6)
+        let subs = try device.fetch(FetchDescriptor<SubscriptionRecord>())
+        let a = try XCTUnwrap(subs.first(where: { $0.key == "work:1" }))
+        XCTAssertEqual(a.lastSeenChapterCount, 9)
+        XCTAssertEqual(a.lastCheckedAt, newer)
+        let b = try XCTUnwrap(subs.first(where: { $0.key == "work:2" }))
+        XCTAssertEqual(b.lastSeenChapterCount, 5, "a nil baseline in the backup must not switch alerts off")
     }
 
     /// Only works with restored chapter text (i.e. downloaded on the device
