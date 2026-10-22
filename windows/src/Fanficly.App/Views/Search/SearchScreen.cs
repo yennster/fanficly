@@ -674,6 +674,7 @@ public sealed class SearchScreen : Screen
             {
                 void Delete()
                 {
+                    LibrarySyncManager.RecordDeletionShared(DeletionKind.Search, s.Name);
                     Store.Delete(s);
                     Store.TrySave();
                     MainWindow.Current.Announce($"Deleted {s.Name}");

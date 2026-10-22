@@ -61,7 +61,10 @@ public static class HiddenWorkStore
 
     public static void Unhide(int ao3Id, LibraryStore store)
     {
-        foreach (var record in store.Where<HiddenWork>(h => h.Ao3Id == ao3Id)) store.Delete(record);
+        var records = store.Where<HiddenWork>(h => h.Ao3Id == ao3Id).ToList();
+        if (records.Count == 0) return;
+        LibrarySyncManager.RecordDeletionShared(DeletionKind.Hidden, ao3Id);
+        foreach (var record in records) store.Delete(record);
         store.TrySave();
     }
 }

@@ -1198,6 +1198,238 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(3000, row.TotalSeconds, 3);
     }
 
+    // MARK: - Deletions (#135)
+
+    private static readonly DateTimeOffset AnHourAgo = DateTimeOffset.Now.AddHours(-1);
+
+    /// <summary>Two devices on one backup, both holding works 1 and 2, a hidden
+    /// work, a folder, a saved search and a saved filter, all made an hour ago
+    /// on the PC and restored onto the iPad.</summary>
+    private (LibraryStore Pc, LibrarySyncManager PcSync, LibraryStore Pad, LibrarySyncManager PadSync) TwoSyncedDevices(string path)
+    {
+        var pc = MakeContext();
+        foreach (var id in new[] { 1, 2 }) WorkPersistence.Upsert(Payload(id, 2), pc).SavedAt = AnHourAgo;
+        pc.Insert(new HiddenWork(5, "Hidden", AnHourAgo));
+        pc.Insert(new CustomFolder("Faves", AnHourAgo));
+        pc.Insert(new SavedSearch("Angst", "angst", savedAt: AnHourAgo));
+        pc.Insert(new SavedFilter("Long", "{}", AnHourAgo));
+        pc.Save();
+        var pcSync = MakeSync(path);
+        Assert.Equal(BackupOutcome.Written, pcSync.Backup(pc));
+
+        var pad = MakeContext();
+        var padSync = MakeSync(path);
+        Assert.True(padSync.RestoreAsync(pad).GetAwaiter().GetResult());
+        Assert.Equal(2, pad.All<Work>().Count);
+        return (pc, pcSync, pad, padSync);
+    }
+
+    /// <summary>The bug: a delete on one device came back on that device as soon
+    /// as another device backed up its copy. Now the deletion marker keeps it out
+    /// of the file, the deleting device's next restore leaves it deleted, and the
+    /// other device's restore deletes its copy too.</summary>
+    [Fact]
+    public async Task DeletedWorkStaysDeletedAfterAnotherDevicesBackup()
+    {
+        var path = MakeTempBackupPath();
+        var (pc, pcSync, pad, padSync) = TwoSyncedDevices(path);
+        using var _pc = pc;
+        using var _pad = pad;
+
+        // The PC deletes work 1 and backs up.
+        SyncDeletions.Record(pcSync.Settings, DeletionKind.Work, 1);
+        WorkPersistence.RemoveWork(pc.GetWork(1)!, pc);
+        pc.Save();
+        pcSync.Backup(pc);
+        Assert.Equal([2], DecodeBackup(path).Works.Select(w => w.Ao3Id));
+
+        // The iPad, which hasn't restored since, backs up its copy of work 1:
+        // the marker keeps it out of the file.
+        padSync.Backup(pad);
+        var file = DecodeBackup(path);
+        Assert.Equal([2], file.Works.Select(w => w.Ao3Id));
+        var marker = Assert.Single(file.Deleted!);
+        Assert.Equal(("work", "1"), (marker.Kind, marker.Key));
+
+        // The PC's next launch sync doesn't bring it back…
+        Assert.True(await pcSync.RestoreAsync(pc));
+        Assert.Null(pc.GetWork(1));
+
+        // …and the iPad's deletes its copy.
+        Assert.True(await padSync.RestoreAsync(pad));
+        Assert.Null(pad.GetWork(1));
+        Assert.NotNull(pad.GetWork(2));
+    }
+
+    /// <summary>Un-hiding, and deleting a folder, a saved search or a saved
+    /// filter, sticks the same way.</summary>
+    [Fact]
+    public async Task UnhiddenWorkAndDeletedFolderSearchAndFilterStayDeleted()
+    {
+        var path = MakeTempBackupPath();
+        var (pc, pcSync, pad, padSync) = TwoSyncedDevices(path);
+        using var _pc = pc;
+        using var _pad = pad;
+
+        SyncDeletions.Record(pcSync.Settings, DeletionKind.Hidden, 5);
+        SyncDeletions.Record(pcSync.Settings, DeletionKind.Folder, "Faves");
+        SyncDeletions.Record(pcSync.Settings, DeletionKind.Search, "Angst");
+        SyncDeletions.Record(pcSync.Settings, DeletionKind.Filter, "Long");
+        pc.Delete(pc.GetHiddenWork(5)!);
+        pc.Delete(pc.GetFolder("Faves")!);
+        pc.Delete(pc.GetSavedSearch("Angst")!);
+        pc.Delete(pc.GetSavedFilter("Long")!);
+        pc.Save();
+        pcSync.Backup(pc);
+        padSync.Backup(pad);
+
+        var file = DecodeBackup(path);
+        Assert.Empty(file.Hidden);
+        Assert.Empty(file.Folders!);
+        Assert.Empty(file.Searches);
+        Assert.Empty(file.Filters);
+
+        Assert.True(await pcSync.RestoreAsync(pc));
+        Assert.Null(pc.GetHiddenWork(5));
+        Assert.Null(pc.GetFolder("Faves"));
+        Assert.Null(pc.GetSavedSearch("Angst"));
+        Assert.Null(pc.GetSavedFilter("Long"));
+
+        Assert.True(await padSync.RestoreAsync(pad));
+        Assert.Null(pad.GetHiddenWork(5));
+        Assert.Null(pad.GetFolder("Faves"));
+        Assert.Null(pad.GetSavedSearch("Angst"));
+        Assert.Null(pad.GetSavedFilter("Long"));
+    }
+
+    /// <summary>A record saved again after the delete is newer than the marker,
+    /// so it comes back everywhere, and a restore doesn't delete it.</summary>
+    [Fact]
+    public async Task WorkSavedAgainAfterADeleteComesBack()
+    {
+        var path = MakeTempBackupPath();
+        var (pc, pcSync, pad, padSync) = TwoSyncedDevices(path);
+        using var _pc = pc;
+        using var _pad = pad;
+
+        SyncDeletions.Record(pcSync.Settings, DeletionKind.Work, 1, AnHourAgo.AddMinutes(10));
+        WorkPersistence.RemoveWork(pc.GetWork(1)!, pc);
+        pc.Save();
+        pcSync.Backup(pc);
+
+        // The iPad saves work 1 again (a fresh download, stamped now).
+        WorkPersistence.RemoveWork(pad.GetWork(1)!, pad);
+        WorkPersistence.Upsert(Payload(1, 3), pad);
+        padSync.Backup(pad);
+        Assert.Contains(1, DecodeBackup(path).Works.Select(w => w.Ao3Id));
+
+        Assert.True(await pcSync.RestoreAsync(pc));
+        Assert.Equal(3, pc.GetWork(1)!.Chapters.Count);
+        Assert.True(await padSync.RestoreAsync(pad));
+        Assert.NotNull(pad.GetWork(1));
+    }
+
+    /// <summary>An app version without deletion markers writes the deleted work
+    /// back into the file (and keeps the markers as a key it doesn't know); the
+    /// deleting device still doesn't restore it.</summary>
+    [Fact]
+    public async Task OlderAppWritingADeletedWorkBackDoesNotRestoreIt()
+    {
+        var path = MakeTempBackupPath();
+        var (pc, pcSync, pad, _) = TwoSyncedDevices(path);
+        using var _pc = pc;
+        using var _pad = pad;
+
+        SyncDeletions.Record(pcSync.Settings, DeletionKind.Work, 1);
+        WorkPersistence.RemoveWork(pc.GetWork(1)!, pc);
+        pc.Save();
+        pcSync.Backup(pc);
+
+        // The older app: its own records unioned in, the markers kept as-is.
+        var file = DecodeBackup(path);
+        var older = new LibrarySyncManager(new InMemoryKeyValueStore()).MakeLocalBackup(pad);
+        File.WriteAllBytes(path, LibraryBackupJson.Encode(older with { Deleted = file.Deleted }));
+        Assert.Contains(1, DecodeBackup(path).Works.Select(w => w.Ao3Id));
+
+        Assert.True(await pcSync.RestoreAsync(pc));
+        Assert.Null(pc.GetWork(1));
+    }
+
+    /// <summary>Markers live 90 days; an older one no longer removes anything.</summary>
+    [Fact]
+    public void DeletionMarkersArePrunedAfterNinetyDays()
+    {
+        var now = DateTimeOffset.Now;
+        var pruned = SyncDeletions.Pruned(
+        [
+            new DeletionBackup("work", "1", now.AddDays(-91)),
+            new DeletionBackup("work", "2", now.AddDays(-89)),
+            new DeletionBackup("work", "2", now.AddDays(-100)),
+        ], now);
+        var kept = Assert.Single(pruned);
+        Assert.Equal("2", kept.Key);
+        Assert.Equal(now.AddDays(-89), kept.DeletedAt);
+    }
+
+    /// <summary>The library actions record their deletions in the app's settings.</summary>
+    [Fact]
+    public void DeletingAWorkFolderOrHiddenWorkRecordsADeletion()
+    {
+        using var store = MakeContext();
+        var work = WorkPersistence.Upsert(Payload(731_001, 1), store);
+        var folder = WorkPersistence.CreateFolder("Deletion test 731001", store)!;
+        HiddenWorkStore.Hide(731_002, "Hidden", store);
+
+        WorkPersistence.DeleteWork(work, store);
+        WorkPersistence.DeleteFolder(folder, store);
+        HiddenWorkStore.Unhide(731_002, store);
+        HiddenWorkStore.Unhide(731_003, store); // never hidden: nothing to record
+
+        var recorded = new DeletionIndex(SyncDeletions.Local(LibrarySyncManager.SharedSettings));
+        Assert.NotNull(recorded.DeletedAt(DeletionKind.Work, "731001"));
+        Assert.NotNull(recorded.DeletedAt(DeletionKind.Folder, "Deletion test 731001"));
+        Assert.NotNull(recorded.DeletedAt(DeletionKind.Hidden, "731002"));
+        Assert.Null(recorded.DeletedAt(DeletionKind.Hidden, "731003"));
+    }
+
+    /// <summary>"Remove Download" on one PC: a restore of another device's full
+    /// copy doesn't put the chapters back (so there's nothing to offer to
+    /// re-download), while the file keeps that device's download.</summary>
+    [Fact]
+    public async Task RemovedDownloadStaysRemovedAfterARestore()
+    {
+        var path = MakeTempBackupPath();
+        var (pc, pcSync, pad, padSync) = TwoSyncedDevices(path);
+        using var _pc = pc;
+        using var _pad = pad;
+
+        SyncDeletions.SetDownloadRemoved(pcSync.Settings, 1, removed: true);
+        foreach (var chapter in pc.GetWork(1)!.Chapters.ToList()) pc.Delete(chapter);
+        pc.Save();
+        pcSync.Backup(pc);
+        padSync.Backup(pad);
+        Assert.Equal(2, DecodeBackup(path).Works.Single(w => w.Ao3Id == 1).Chapters.Count);
+
+        Assert.True(await pcSync.RestoreAsync(pc));
+        Assert.Empty(pc.GetWork(1)!.Chapters);
+        Assert.DoesNotContain(1, RestoreDownloadCenter.RedownloadCandidates(pc));
+    }
+
+    /// <summary>Removing a download marks it on this device; saving the work
+    /// offline again clears the mark.</summary>
+    [Fact]
+    public void RemoveDownloadMarksTheWorkUntilItIsSavedAgain()
+    {
+        using var store = MakeContext();
+        var work = WorkPersistence.Upsert(Payload(731_010, 2), store);
+        WorkPersistence.RemoveDownload(work, store);
+        Assert.Empty(work.Chapters);
+        Assert.Contains(731_010, SyncDeletions.RemovedDownloads(LibrarySyncManager.SharedSettings));
+
+        WorkPersistence.Upsert(Payload(731_010, 2), store);
+        Assert.DoesNotContain(731_010, SyncDeletions.RemovedDownloads(LibrarySyncManager.SharedSettings));
+    }
+
     [Fact]
     public void WorkMatchesSearchQuery()
     {

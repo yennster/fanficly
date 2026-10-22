@@ -28,7 +28,7 @@ internal static class BackupUnknownKeys
     internal static readonly HashSet<string> TopLevelKeys =
     [
         "works", "bookmarks", "subscriptions", "searches", "progress", "filters", "hidden",
-        "settings", "folders", "stats", "followedAuthors", "blocked", "timestamp",
+        "settings", "folders", "stats", "followedAuthors", "blocked", "deleted", "timestamp",
     ];
 
     internal static readonly HashSet<string> WorkKeys =
