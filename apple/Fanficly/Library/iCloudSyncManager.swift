@@ -105,50 +105,7 @@ final class iCloudSyncManager {
             let blockedTerms = (try? context.fetch(FetchDescriptor<BlockedTerm>())) ?? []
             
             // 2. Map them to Codable structures
-            let workBackups = works.map { work in
-                WorkBackup(
-                    ao3Id: work.ao3Id,
-                    title: work.title,
-                    authorName: work.authorName,
-                    authorUsername: work.authorUsername,
-                    summary: work.summary,
-                    rating: work.rating,
-                    warnings: work.warnings,
-                    categories: work.categories,
-                    fandoms: work.fandoms,
-                    characters: work.characters,
-                    relationships: work.relationships,
-                    freeforms: work.freeforms,
-                    language: work.language,
-                    wordCount: work.wordCount,
-                    chapterCount: work.chapterCount,
-                    totalChapters: work.totalChapters,
-                    kudos: work.kudos,
-                    hits: work.hits,
-                    bookmarksCount: work.bookmarksCount,
-                    commentsCount: work.commentsCount,
-                    isComplete: work.isComplete,
-                    publishedAt: work.publishedAt,
-                    updatedAt: work.updatedAt,
-                    savedAt: work.savedAt,
-                    lastReadAt: work.lastReadAt,
-                    lastReadChapter: work.lastReadChapter,
-                    lastReadProgress: work.lastReadProgress,
-                    isFollowed: work.isFollowed,
-                    followedAt: work.followedAt,
-                    lastSeenChapterCount: work.lastSeenChapterCount,
-                    isStarred: work.isStarred,
-                    isPinned: work.isPinned,
-                    note: work.note,
-                    personalTags: work.personalTags,
-                    notesUpdatedAt: work.notesUpdatedAt,
-                    chapters: work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
-                        ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
-                    },
-                    folderName: work.folders.first?.name,
-                    folderNames: work.folders.map(\.name)
-                )
-            }
+            let workBackups = works.map { Self.workBackup($0) }
             
             let bookmarkBackups = bookmarks.map {
                 BookmarkBackup(ao3Id: $0.ao3Id, workAo3Id: $0.workAo3Id, notes: $0.notes, tags: $0.tags, savedAt: $0.savedAt)
@@ -328,6 +285,54 @@ final class iCloudSyncManager {
             print("Failed to backup to iCloud: \(error)")
             lastBackupFailure = error.localizedDescription
         }
+    }
+
+    /// A work as its backup record. Restore passes `includeChapters: false`
+    /// to merge a local work with the backup's copy by the same rules as a
+    /// backup (`mergedWork`) without encoding its chapter text.
+    static func workBackup(_ work: Work, includeChapters: Bool = true) -> WorkBackup {
+        WorkBackup(
+            ao3Id: work.ao3Id,
+            title: work.title,
+            authorName: work.authorName,
+            authorUsername: work.authorUsername,
+            summary: work.summary,
+            rating: work.rating,
+            warnings: work.warnings,
+            categories: work.categories,
+            fandoms: work.fandoms,
+            characters: work.characters,
+            relationships: work.relationships,
+            freeforms: work.freeforms,
+            language: work.language,
+            wordCount: work.wordCount,
+            chapterCount: work.chapterCount,
+            totalChapters: work.totalChapters,
+            kudos: work.kudos,
+            hits: work.hits,
+            bookmarksCount: work.bookmarksCount,
+            commentsCount: work.commentsCount,
+            isComplete: work.isComplete,
+            publishedAt: work.publishedAt,
+            updatedAt: work.updatedAt,
+            savedAt: work.savedAt,
+            lastReadAt: work.lastReadAt,
+            lastReadChapter: work.lastReadChapter,
+            lastReadProgress: work.lastReadProgress,
+            isFollowed: work.isFollowed,
+            followedAt: work.followedAt,
+            lastSeenChapterCount: work.lastSeenChapterCount,
+            isStarred: work.isStarred,
+            isPinned: work.isPinned,
+            note: work.note,
+            personalTags: work.personalTags,
+            notesUpdatedAt: work.notesUpdatedAt,
+            chapters: includeChapters ? work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
+                ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+            } : [],
+            folderName: work.folders.first?.name,
+            folderNames: work.folders.map(\.name)
+        )
     }
 
     // MARK: - Coordinated file access
@@ -555,33 +560,23 @@ final class iCloudSyncManager {
 
     /// Unions a freshly-built local backup with the backup already in iCloud.
     /// Records the other device backed up but this one doesn't hold are kept;
-    /// on conflicts the local record wins (this device just produced it), with
-    /// the exceptions mirroring the restore rules: chapters survive from
-    /// whichever side has more, reading positions keep the newer one, and
-    /// reading stats merge conservatively.
+    /// on conflicts the local record wins (this device just produced it),
+    /// except where a field only moves forward: works and subscriptions merge
+    /// by the restore's rules (`mergedWork`, `mergedSubscription`), reading
+    /// positions keep the newer one, and reading stats merge conservatively.
     nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup) -> LibraryBackup {
         var worksById = Dictionary(cloud.works.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
-        for var w in local.works {
-            if let cloudWork = worksById[w.ao3Id] {
-                if cloudWork.chapters.count > w.chapters.count {
-                    w.chapters = cloudWork.chapters
-                }
-                let notes = mergedNotes(
-                    local: WorkNotes(note: w.note, personalTags: w.personalTags ?? [], updatedAt: w.notesUpdatedAt),
-                    other: WorkNotes(note: cloudWork.note, personalTags: cloudWork.personalTags ?? [], updatedAt: cloudWork.notesUpdatedAt)
-                )
-                w.note = notes.note
-                w.personalTags = notes.personalTags
-                w.notesUpdatedAt = notes.updatedAt
-            }
-            worksById[w.ao3Id] = w
+        for w in local.works {
+            worksById[w.ao3Id] = worksById[w.ao3Id].map { mergedWork(local: w, other: $0) } ?? w
         }
 
         var bookmarksById = Dictionary(cloud.bookmarks.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for b in local.bookmarks { bookmarksById[b.ao3Id] = b }
 
         var subscriptionsByKey = Dictionary(cloud.subscriptions.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-        for s in local.subscriptions { subscriptionsByKey[s.key] = s }
+        for s in local.subscriptions {
+            subscriptionsByKey[s.key] = subscriptionsByKey[s.key].map { mergedSubscription(local: s, other: $0) } ?? s
+        }
 
         var searchesByName = Dictionary(cloud.searches.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         for s in local.searches { searchesByName[s.name] = s }
@@ -627,6 +622,110 @@ final class iCloudSyncManager {
             blocked: blockedByKey.values.sorted { $0.key < $1.key },
             timestamp: local.timestamp
         )
+    }
+
+    /// Two copies of one work merged so nothing moves backwards, whichever
+    /// device merges first: the backup merge passes this device's record as
+    /// `local` and the cloud's as `other`, and restore passes this device's
+    /// work and the backup's copy the same way. The Windows app's
+    /// `LibrarySyncManager.MergedWork` applies the same rules.
+    /// - AO3 metadata (title through `updatedAt`) comes whole from the
+    ///   fresher copy (`hasFresherMetadata`); `savedAt` keeps the later date.
+    /// - The reading position (`lastRead*`) comes from the copy read last.
+    /// - Follow, star and pin are an OR; `followedAt` keeps local's when set.
+    /// - `lastSeenChapterCount` keeps the higher count, so an older copy never
+    ///   re-announces chapters (nil only when both are nil).
+    /// - Note and personal tags take the newest edit (`mergedNotes`).
+    /// - Chapters come from the copy with more; folders union.
+    nonisolated static func mergedWork(local: WorkBackup, other: WorkBackup) -> WorkBackup {
+        let meta = hasFresherMetadata(other, than: local) ? other : local
+        let position = (other.lastReadAt ?? .distantPast) > (local.lastReadAt ?? .distantPast) ? other : local
+        let notes = mergedNotes(
+            local: WorkNotes(note: local.note, personalTags: local.personalTags ?? [], updatedAt: local.notesUpdatedAt),
+            other: WorkNotes(note: other.note, personalTags: other.personalTags ?? [], updatedAt: other.notesUpdatedAt)
+        )
+        let localFolders = local.folderNames ?? local.folderName.map { [$0] } ?? []
+        let otherFolders = other.folderNames ?? other.folderName.map { [$0] } ?? []
+        let folders = localFolders + otherFolders.filter { !localFolders.contains($0) }
+        return WorkBackup(
+            ao3Id: local.ao3Id,
+            title: meta.title,
+            authorName: meta.authorName,
+            authorUsername: meta.authorUsername,
+            summary: meta.summary,
+            rating: meta.rating,
+            warnings: meta.warnings,
+            categories: meta.categories,
+            fandoms: meta.fandoms,
+            characters: meta.characters,
+            relationships: meta.relationships,
+            freeforms: meta.freeforms,
+            language: meta.language,
+            wordCount: meta.wordCount,
+            chapterCount: meta.chapterCount,
+            totalChapters: meta.totalChapters,
+            kudos: meta.kudos,
+            hits: meta.hits,
+            bookmarksCount: meta.bookmarksCount,
+            commentsCount: meta.commentsCount,
+            isComplete: meta.isComplete,
+            publishedAt: meta.publishedAt,
+            updatedAt: meta.updatedAt,
+            savedAt: max(local.savedAt, other.savedAt),
+            lastReadAt: position.lastReadAt,
+            lastReadChapter: position.lastReadChapter,
+            lastReadProgress: position.lastReadProgress,
+            isFollowed: local.isFollowed || other.isFollowed,
+            followedAt: local.followedAt ?? other.followedAt,
+            lastSeenChapterCount: higher(local.lastSeenChapterCount, other.lastSeenChapterCount),
+            isStarred: (local.isStarred ?? false) || (other.isStarred ?? false),
+            isPinned: (local.isPinned ?? false) || (other.isPinned ?? false),
+            note: notes.note,
+            personalTags: notes.personalTags,
+            notesUpdatedAt: notes.updatedAt,
+            chapters: other.chapters.count > local.chapters.count ? other.chapters : local.chapters,
+            folderName: folders.first,
+            folderNames: folders
+        )
+    }
+
+    /// Whether `other` carries newer AO3 metadata than `local`: a later
+    /// `updatedAt` (AO3's "Updated" date), then, on the same date, more
+    /// chapters, then more hits (they only grow, so the copy fetched last
+    /// has the most). A full tie keeps local.
+    nonisolated static func hasFresherMetadata(_ other: WorkBackup, than local: WorkBackup) -> Bool {
+        let otherDate = other.updatedAt ?? .distantPast
+        let localDate = local.updatedAt ?? .distantPast
+        if otherDate != localDate { return otherDate > localDate }
+        if other.chapterCount != local.chapterCount { return other.chapterCount > local.chapterCount }
+        return other.hits > local.hits
+    }
+
+    /// A subscription's two copies merged: the notification baseline keeps
+    /// the higher count and `lastCheckedAt` the later date, so an older copy
+    /// can't re-announce chapters or turn alerts off with a nil baseline.
+    /// Its kind and names come from `local`.
+    nonisolated static func mergedSubscription(local: SubscriptionBackup, other: SubscriptionBackup) -> SubscriptionBackup {
+        SubscriptionBackup(
+            key: local.key,
+            kind: local.kind,
+            displayName: local.displayName,
+            authorName: local.authorName,
+            lastSeenChapterCount: higher(local.lastSeenChapterCount, other.lastSeenChapterCount),
+            lastCheckedAt: later(local.lastCheckedAt, other.lastCheckedAt)
+        )
+    }
+
+    private nonisolated static func higher(_ a: Int?, _ b: Int?) -> Int? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return max(a, b)
+    }
+
+    private nonisolated static func later(_ a: Date?, _ b: Date?) -> Date? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return max(a, b)
     }
 
     /// A work's note and personal tags merge as one value. The side edited
@@ -837,63 +936,55 @@ final class iCloudSyncManager {
                 let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == w.ao3Id })
                 let existing = (try? context.fetch(descriptor))?.first
                 
+                // Merge with the local copy by the backup's rules
+                // (`mergedWork`), so restore also runs as a background launch
+                // sync that never rewinds this device to an older backup:
+                // fresher AO3 metadata, the position read last, OR'd flags, the
+                // higher notification baseline (regressing it would re-fire
+                // "new chapter" alerts) and the newest note edit.
                 let work: Work
+                let m: WorkBackup
                 if let existing {
                     work = existing
+                    m = Self.mergedWork(local: Self.workBackup(existing, includeChapters: false), other: w)
                 } else {
                     work = Work(ao3Id: w.ao3Id, title: w.title, authorName: w.authorName)
                     context.insert(work)
+                    m = w
                 }
-                
-                work.title = w.title
-                work.authorName = w.authorName
-                work.authorUsername = w.authorUsername
-                work.summary = w.summary
-                work.rating = w.rating
-                work.warnings = w.warnings
-                work.categories = w.categories
-                work.fandoms = w.fandoms
-                work.characters = w.characters
-                work.relationships = w.relationships
-                work.freeforms = w.freeforms
-                work.language = w.language
-                work.wordCount = w.wordCount
-                work.chapterCount = w.chapterCount
-                work.totalChapters = w.totalChapters
-                work.kudos = w.kudos
-                work.hits = w.hits
-                work.bookmarksCount = w.bookmarksCount
-                work.commentsCount = w.commentsCount
-                work.isComplete = w.isComplete
-                work.publishedAt = w.publishedAt
-                work.updatedAt = w.updatedAt
-                work.savedAt = w.savedAt
-                // Reading position: keep whichever side read more recently.
-                // Restore also runs as a background launch sync now, which
-                // must never rewind this device to an older backup.
-                if (w.lastReadAt ?? .distantPast) > (work.lastReadAt ?? .distantPast) {
-                    work.lastReadAt = w.lastReadAt
-                    work.lastReadChapter = w.lastReadChapter
-                    work.lastReadProgress = w.lastReadProgress
-                }
-                // Follow/star/pin merge as an OR: the cloud union can lag a
-                // flag set locally moments ago, and un-flagging deliberately
-                // doesn't propagate (same rule as mergedBackup).
-                work.isFollowed = work.isFollowed || w.isFollowed
-                if work.followedAt == nil { work.followedAt = w.followedAt }
-                // Notification baseline only advances — regressing it would
-                // re-fire "new chapter" alerts for chapters already seen.
-                if let cloudSeen = w.lastSeenChapterCount {
-                    work.lastSeenChapterCount = max(work.lastSeenChapterCount ?? 0, cloudSeen)
-                }
-                work.isStarred = work.isStarred || (w.isStarred ?? false)
-                work.isPinned = work.isPinned || (w.isPinned ?? false)
-                // Note and personal tags: the newest edit wins (see
-                // mergedNotes), so an older backup never undoes an edit here.
-                let notes = Self.mergedNotes(
-                    local: WorkNotes(note: work.note, personalTags: work.personalTags, updatedAt: work.notesUpdatedAt),
-                    other: WorkNotes(note: w.note, personalTags: w.personalTags ?? [], updatedAt: w.notesUpdatedAt)
-                )
+
+                work.title = m.title
+                work.authorName = m.authorName
+                work.authorUsername = m.authorUsername
+                work.summary = m.summary
+                work.rating = m.rating
+                work.warnings = m.warnings
+                work.categories = m.categories
+                work.fandoms = m.fandoms
+                work.characters = m.characters
+                work.relationships = m.relationships
+                work.freeforms = m.freeforms
+                work.language = m.language
+                work.wordCount = m.wordCount
+                work.chapterCount = m.chapterCount
+                work.totalChapters = m.totalChapters
+                work.kudos = m.kudos
+                work.hits = m.hits
+                work.bookmarksCount = m.bookmarksCount
+                work.commentsCount = m.commentsCount
+                work.isComplete = m.isComplete
+                work.publishedAt = m.publishedAt
+                work.updatedAt = m.updatedAt
+                work.savedAt = m.savedAt
+                work.lastReadAt = m.lastReadAt
+                work.lastReadChapter = m.lastReadChapter
+                work.lastReadProgress = m.lastReadProgress
+                work.isFollowed = m.isFollowed
+                work.followedAt = m.followedAt
+                work.lastSeenChapterCount = m.lastSeenChapterCount
+                work.isStarred = m.isStarred ?? false
+                work.isPinned = m.isPinned ?? false
+                let notes = WorkNotes(note: m.note, personalTags: m.personalTags ?? [], updatedAt: m.notesUpdatedAt)
                 if notes != WorkNotes(note: work.note, personalTags: work.personalTags, updatedAt: work.notesUpdatedAt) {
                     work.note = notes.note
                     work.personalTags = notes.personalTags
@@ -903,7 +994,7 @@ final class iCloudSyncManager {
                 work.folder = nil // clear legacy single folder reference
                 // Folders union, not replace: a launch sync must not drop an
                 // assignment made locally since the last backup.
-                let folderNames = w.folderNames ?? w.folderName.map { [$0] } ?? []
+                let folderNames = m.folderNames ?? m.folderName.map { [$0] } ?? []
                 for fName in folderNames where !work.folders.contains(where: { $0.name == fName }) {
                     let folderDescriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == fName })
                     if let folder = (try? context.fetch(folderDescriptor))?.first {
@@ -942,16 +1033,24 @@ final class iCloudSyncManager {
                 }
             }
             
-            // 3. Restore SubscriptionRecords
+            // 3. Restore SubscriptionRecords. The baseline and last check
+            // only move forward (`mergedSubscription`): an older backup must
+            // not re-announce chapters, and a nil baseline must not switch
+            // alerts off until the next poll. Names come from the backup.
             for s in backup.subscriptions {
                 let descriptor = FetchDescriptor<SubscriptionRecord>(predicate: #Predicate { $0.key == s.key })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
-                    existing.kind = s.kind
-                    existing.displayName = s.displayName
-                    existing.authorName = s.authorName
-                    existing.lastSeenChapterCount = s.lastSeenChapterCount
-                    existing.lastCheckedAt = s.lastCheckedAt
+                    let m = Self.mergedSubscription(local: s, other: SubscriptionBackup(
+                        key: existing.key, kind: existing.kind, displayName: existing.displayName,
+                        authorName: existing.authorName, lastSeenChapterCount: existing.lastSeenChapterCount,
+                        lastCheckedAt: existing.lastCheckedAt
+                    ))
+                    existing.kind = m.kind
+                    existing.displayName = m.displayName
+                    existing.authorName = m.authorName
+                    existing.lastSeenChapterCount = m.lastSeenChapterCount
+                    existing.lastCheckedAt = m.lastCheckedAt
                 } else {
                     let rec = SubscriptionRecord(key: s.key, kind: s.kind, displayName: s.displayName, authorName: s.authorName)
                     rec.lastSeenChapterCount = s.lastSeenChapterCount
