@@ -110,9 +110,10 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    no art refresh.
 4. Once the Store assets upload has finished, Submit for Review in App Store
    Connect (iOS and macOS). No lane submits there, and submitting earlier
-   locks the version before the new art is on it. The release lanes set
-   the version to release automatically, so it goes live as soon as App
-   Review approves it.
+   locks the version before the new art is on it. The `release` and
+   `metadata_only` lanes set the version to release automatically, so it
+   goes live to everyone as soon as App Review approves it (they also turn
+   off phased release).
 5. Update any doc text that changed with the release on the
    `release-docs/vX.Y.Z` branch, and merge it with a PR.
 
