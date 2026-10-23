@@ -383,6 +383,8 @@ public sealed class LibraryStore : IDisposable
                     }
                     foreach (var w in writes)
                     {
+                        if (w.Insert && w.Entity.UniqueKey is not null)
+                            changed |= ReplaceOtherWritersRow(w.Entity.GetType(), w.Table, w.Columns[0], w.Row[0]);
                         WriteRow(w.Table, w.Columns, w.Entity.RowId, w.Row, w.Insert);
                         changed |= w.Kind;
                     }
@@ -451,6 +453,34 @@ public sealed class LibraryStore : IDisposable
             foreach (var e in fresh) e.RowId = ++next;
             _lastId[t.Type] = next;
         }
+    }
+
+    /// <summary>A new record's unique key may already be in the table, written
+    /// by another process since this store loaded (the background task saving
+    /// a subscription the app's own poll then inserts too). Inserting it would
+    /// break the UNIQUE constraint, roll back, and fail every save after; so the
+    /// new record replaces that row, as <see cref="Insert"/> replaces a stored
+    /// record with the same key. A unique record's key is its first column.
+    /// Rows this store owns are left alone.</summary>
+    private LibraryEntityKinds ReplaceOtherWritersRow(Type type, string table, string keyColumn, object? key)
+    {
+        using var find = _conn.CreateCommand();
+        find.CommandText = $"SELECT id FROM {table} WHERE {keyColumn} = $k";
+        find.Parameters.AddWithValue("$k", key ?? DBNull.Value);
+        if (find.ExecuteScalar() is not long id) return LibraryEntityKinds.None;
+        if (_live[type].Any(e => e.PersistedRow is not null && e.RowId == id)) return LibraryEntityKinds.None;
+
+        var kind = LibrarySchema.Tables.First(t => t.Type == type).Kind;
+        Execute($"DELETE FROM {table} WHERE id = $id", ("$id", id));
+        if (table == "works")
+        {
+            Execute("DELETE FROM chapters WHERE work_id = $id", ("$id", id));
+            Execute($"DELETE FROM {LibrarySchema.LinkTable} WHERE work_id = $id", ("$id", id));
+            kind |= LibraryEntityKinds.Chapters;
+        }
+        if (table == "custom_folders") Execute($"DELETE FROM {LibrarySchema.LinkTable} WHERE folder_id = $id", ("$id", id));
+        LibraryHooks.Log?.Invoke($"Library: a new {table} row replaced one another process saved with the same key");
+        return kind;
     }
 
     /// <summary>Inserts chapters and folders reachable from live records that
