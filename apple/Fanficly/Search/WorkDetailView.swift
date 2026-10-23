@@ -17,6 +17,8 @@ struct WorkDetailView: View {
     @State private var showingComments: Bool = false
     @State private var showingBookmark: Bool = false
     @State private var currentChapterIndex = 1
+    /// The reader is in full screen: its back arrow is the only toolbar item.
+    @State private var readerFullScreen = false
     @State private var exporter = WorkExporter()
     @State private var kudos = KudosGiver()
 
@@ -32,17 +34,20 @@ struct WorkDetailView: View {
         Group {
             if let payload {
                 ReaderView(payload: payload, currentChapter: $currentChapterIndex)
+                    .onPreferenceChange(ReaderFullScreenKey.self) { readerFullScreen = $0 }
                     .toolbar {
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            Button {
-                                followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
-                            } label: {
-                                Label(followed ? "Remove from Library" : "Save to Library",
-                                      systemImage: followed ? "bookmark.fill" : "bookmark")
-                            }
-                            .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
+                        if !readerFullScreen {
+                            ToolbarItemGroup(placement: .topBarTrailing) {
+                                Button {
+                                    followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
+                                } label: {
+                                    Label(followed ? "Remove from Library" : "Save to Library",
+                                          systemImage: followed ? "bookmark.fill" : "bookmark")
+                                }
+                                .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
                             
-                            moreMenu(payload: payload)
+                                moreMenu(payload: payload)
+                            }
                         }
                     }
                     .sheet(isPresented: $showingReport) {

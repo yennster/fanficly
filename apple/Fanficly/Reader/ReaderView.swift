@@ -401,26 +401,45 @@ struct ReaderView: View {
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbarBackground(bg, for: .navigationBar)
-        .toolbarBackground(duoBookLayout ? .hidden : .visible, for: .navigationBar)
-        .toolbar(isUIMinimized ? .hidden : .visible, for: .navigationBar)
+        // Full screen hides the toolbar's items and background but keeps one
+        // back arrow, a native Liquid Glass button (on iPhone Duo, in the
+        // vertical strip on the side), which leaves full screen and brings
+        // the toolbar back. Hiding the whole bar left nothing but an
+        // invisible tap to get out, and on the Duo that tap could fail,
+        // trapping the reader until the app was force-quit. Before iOS 26 the
+        // bar has no glass, so it keeps its background there and text never
+        // scrolls under a bare icon. The hosting screen drops its own items
+        // via ReaderFullScreenKey.
+        .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
+                           for: .navigationBar)
+        .navigationBarBackButtonHidden(isUIMinimized)
+        .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
+        .preference(key: ReaderFullScreenKey.self, value: isUIMinimized)
         .toolbar {
-            if chapters.count > 1 {
-                ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
-            }
-            ToolbarItem(placement: .topBarTrailing) { typographyMenu }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isUIMinimized = true
+            if isUIMinimized {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        toggleChromeAccessibly()
+                    } label: {
+                        Label("Exit full screen", systemImage: "chevron.backward")
                     }
-                } label: {
-                    Label("Hide reader controls", systemImage: "arrow.up.left.and.arrow.down.right")
+                    .accessibilityIdentifier("reader.fullScreenBack")
+                    .accessibilityHint("Shows the reader's toolbar again.")
                 }
-                // Hiding the toolbar removes every visible way back for
-                // VoiceOver users; the custom "Show reader controls" action on
-                // the reader body (readerChromeAccessibilityActions) is the
-                // escape hatch — keep them in sync.
-                .accessibilityHint("Hides the toolbar. To bring it back, use the Show Reader Controls action on the story text.")
+            } else {
+                if chapters.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
+                }
+                ToolbarItem(placement: .topBarTrailing) { typographyMenu }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        toggleChromeAccessibly()
+                    } label: {
+                        Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .accessibilityIdentifier("reader.fullScreenToggle")
+                    .accessibilityHint("Hides the toolbar. The back arrow brings it back.")
+                }
             }
         }
         // Chapters can arrive after narration started; the chapter-end
@@ -684,6 +703,11 @@ struct ReaderView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .coordinateSpace(name: scrollSpace)
+                // Full screen: the text runs edge to edge, past the home
+                // indicator's inset, as it already does at the top. Clipped
+                // there, it was cut off under a blank band at the bottom.
+                // The scroll content still ends clear of the home indicator.
+                .scrollClipDisabled(isUIMinimized)
                 // Rotation, an iPhone Duo fold/unfold or a Split View resize
                 // reflows the text, and the old offset would land on a
                 // different paragraph — put the one you were on back on top.
@@ -1083,6 +1107,8 @@ struct ReaderView: View {
                 // Each page has its own scroll space; the handler below only sees
                 // this page's paragraph anchors.
                 .coordinateSpace(name: scrollSpace)
+                // Full screen: edge to edge, as in continuous mode.
+                .scrollClipDisabled(isUIMinimized)
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
                     guard chapter.index == selectedChapterIndex else { return }
                     // A resize (rotation, iPhone Duo fold, Split View) reflows the
@@ -1335,8 +1361,8 @@ struct ReaderView: View {
                     // narration bar closing, or a moment's smaller area (a
                     // transition) passing. Hiding the controls fills their room
                     // at once, or the old pages sit over a blank band while the
-                    // bars slide away; the short wait only joins the Mac's two
-                    // steps (page footer, then toolbar).
+                    // footer slides away; the short wait joins the steps of
+                    // one toggle (the page footer, the bar's background).
                     let toggled = areaSample.controlsUp != settledControlsUp
                     try? await Task.sleep(nanoseconds: toggled ? 50_000_000 : 300_000_000)
                     guard !Task.isCancelled else { return }
@@ -1381,11 +1407,18 @@ struct ReaderView: View {
     /// On iPhone Duo the top bar holds only the sidebar button (the reader's
     /// other controls sit in the vertical strip) and the left page's text
     /// starts well clear of it, so the pages use the bar's height instead of
-    /// leaving it blank. With the controls hidden the bar's inset goes to zero;
-    /// shifting down then keeps the text from jumping up to the display's edge.
+    /// leaving it blank. The bar stays in full screen (only its background
+    /// and items go, leaving the back arrow), so its inset is the same with
+    /// the controls up or hidden.
     private func bookTopShift(_ geo: GeometryProxy) -> CGFloat {
         guard isDuoBook(geo) else { return 0 }
         return geo.safeAreaInsets.top - Self.duoTopMargin
+    }
+
+    /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
+    private static var hasGlassBars: Bool {
+        if #available(iOS 26.0, *) { return true }
+        return false
     }
 
     /// Where an open-book spread's pages start on iPhone Duo: clear of the
@@ -1682,7 +1715,7 @@ struct ReaderView: View {
     private func toggleChromeAccessibly() {
         withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized.toggle() }
         UIAccessibility.post(notification: .announcement,
-                             argument: isUIMinimized ? "Reader controls hidden" : "Reader controls shown")
+                             argument: isUIMinimized ? "Full screen" : "Reader controls shown")
     }
 
     private func accessibilityTurnChapter(forward: Bool) {
@@ -1704,7 +1737,7 @@ struct ReaderView: View {
 
     /// The chrome toggle, as a custom action whose name tracks the state.
     private func chromeAccessibilityActionName() -> String {
-        isUIMinimized ? "Show reader controls" : "Hide reader controls"
+        isUIMinimized ? "Exit full screen" : "Full screen"
     }
 
     /// Where `page`'s text begins (nil for the work's title page).
