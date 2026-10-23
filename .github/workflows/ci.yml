@@ -36,6 +36,7 @@ jobs:
       - name: Parse the scripts
         run: |
           python3 -m py_compile bin/xcode_cloud.py bin/xcode-cloud-ci.py bin/xcode-cloud-release.py \
-            bin/xcode-cloud-duo.py bin/asc_assets.py bin/release-notes.py
+            bin/xcode-cloud-store-art.py bin/xcode-cloud-duo.py bin/asc_assets.py bin/release-notes.py
           ruby -c fastlane/Fastfile
           sh -n ci_scripts/ci_post_clone.sh
+          sh -n ci_scripts/ci_pre_xcodebuild.sh

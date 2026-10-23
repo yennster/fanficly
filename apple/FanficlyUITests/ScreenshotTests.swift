@@ -36,8 +36,10 @@ final class ScreenshotTests: XCTestCase {
             .deletingLastPathComponent)
         shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
             .appendingPathComponent(device)
+        // try?: Xcode Cloud's test machine has no checkout to write to; the
+        // shots also go into the result bundle (snap).
         if device != "duo" {
-            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
         }
 
         // US formatting ("48,213 words") whatever the simulator's region is.
@@ -85,7 +87,7 @@ final class ScreenshotTests: XCTestCase {
             let frame = app.windows.firstMatch.frame
             let display = min(frame.width, frame.height) >= 600 ? "duo-inner" : "duo-outer"
             shotDir = ((shotDir as NSString).deletingLastPathComponent as NSString).appendingPathComponent(display)
-            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
             if display == "duo-inner" {
                 isDuoInner = true
                 // Unfolded, the Duo is a landscape book (fold down the middle),
@@ -124,14 +126,14 @@ final class ScreenshotTests: XCTestCase {
             shot = screen.screenshot()
         }
         let path = (shotDir as NSString).appendingPathComponent("\(name).png")
-        do {
-            try shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
-        } catch {
-            let att = XCTAttachment(screenshot: shot)
-            att.name = name
-            att.lifetime = .keepAlways
-            add(att)
-        }
+        try? shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
+        // Also in the result bundle, named "<folder>__<name>": Xcode Cloud's
+        // test machine can't write into the checkout, so the store art comes
+        // back as these (bin/xcode-cloud-store-art.py place).
+        let att = XCTAttachment(screenshot: shot)
+        att.name = "\((shotDir as NSString).lastPathComponent)__\(name)"
+        att.lifetime = .keepAlways
+        add(att)
     }
 
     /// Tap the leading nav-bar (back) button until the sidebar is showing.

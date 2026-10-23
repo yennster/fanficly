@@ -1,5 +1,5 @@
 """Shared Xcode Cloud plumbing for the scripts that keep its workflows in code
-(bin/xcode-cloud-ci.py, bin/xcode-cloud-release.py).
+(bin/xcode-cloud-ci.py, bin/xcode-cloud-release.py, bin/xcode-cloud-store-art.py).
 
 Every Apple build runs on the newest Xcode 27 or later, in Xcode Cloud,
 because an app built with an older SDK runs in compatibility mode on the
@@ -16,6 +16,9 @@ from __future__ import annotations
 import re
 import sys
 import time
+from pathlib import Path
+
+import requests
 
 from asc_assets import API, app_id, req
 
@@ -79,6 +82,20 @@ def latest_xcode() -> tuple[dict, dict]:
     return xc, mac
 
 
+# Releases that only run on the iPhone Duo. The API lists them for every
+# device anyway, and Xcode Cloud then refuses an iPhone 17 Pro Max or iPad Pro
+# on them as "incompatible with iOS 27.1". Drop one once others can run it.
+DUO_ONLY_RUNTIMES = {"iOS 27.1"}
+
+
+def latest_runtime(runtimes: list[dict], duo: bool = False) -> dict:
+    """The newest runtime the device can run."""
+    usable = [r for r in runtimes if duo or r.get("runtimeName") not in DUO_ONLY_RUNTIMES]
+    if not usable:
+        sys.exit(f"Only iPhone Duo runtimes listed: {', '.join(r.get('runtimeName', '?') for r in runtimes)}")
+    return newest(usable, lambda r: r.get("runtimeName"))
+
+
 def simulator(xc: dict, prefer: list[str], prefix: str) -> dict:
     """A test destination: the first of `prefer` this Xcode has, on its newest
     runtime. Exits when it has none, rather than test on an older device."""
@@ -86,9 +103,12 @@ def simulator(xc: dict, prefer: list[str], prefix: str) -> dict:
     dest = next((d for name in prefer for d in dests if d.get("deviceTypeName") == name), None)
     if not dest:
         sys.exit(f"This Xcode has none of {', '.join(prefer)}: add its newest {prefix} to bin/xcode-cloud-ci.py")
-    if not dest.get("availableRuntimes"):
+    runtimes = dest.get("availableRuntimes") or []
+    if not runtimes:
         sys.exit(f"{dest['deviceTypeName']} has no runtimes listed")
-    runtime = newest(dest.get("availableRuntimes") or [], lambda r: r.get("runtimeName"))
+    print(f"    {dest['deviceTypeName']}: {', '.join(r.get('runtimeName', '?') for r in runtimes)}")
+    runtime = latest_runtime(runtimes, duo="Duo" in dest["deviceTypeName"])
+    print(f"==> {dest['deviceTypeName']} on {runtime['runtimeName']}")
     return {
         "deviceTypeName": dest["deviceTypeName"],
         "deviceTypeIdentifier": dest["deviceTypeIdentifier"],
@@ -107,7 +127,7 @@ def mac_destination(xc: dict) -> dict:
         sys.exit("This Xcode has no Mac test destination")
     if not dest.get("availableRuntimes"):
         sys.exit(f"{dest['deviceTypeName']} has no runtimes listed")
-    runtime = newest(dest["availableRuntimes"], lambda r: r.get("runtimeName"))
+    runtime = latest_runtime(dest["availableRuntimes"])
     return {
         "deviceTypeName": dest["deviceTypeName"],
         "deviceTypeIdentifier": dest["deviceTypeIdentifier"],
@@ -182,3 +202,23 @@ def wait(run: dict, minutes: int) -> dict:
         if attrs.get("executionProgress") == "COMPLETE":
             return attrs
     sys.exit(f"Xcode Cloud build {run['attributes'].get('number')} didn't finish in {minutes} minutes")
+
+
+def download_results(run_id: str, out: Path) -> None:
+    """The run's result bundles (zipped) into out; exits when there are none."""
+    out.mkdir(parents=True, exist_ok=True)
+    got = 0
+    for action in req("GET", f"{API}/ciBuildRuns/{run_id}/actions")["data"]:
+        a = action["attributes"]
+        print(f"==> {a.get('name')}: {a.get('completionStatus')} {a.get('issueCounts')}")
+        for art in req("GET", f"{API}/ciBuildActions/{action['id']}/artifacts")["data"]:
+            aa = art["attributes"]
+            print(f"    artifact {aa.get('fileType')} {aa.get('fileName')}")
+            if aa.get("fileType") != "RESULT_BUNDLE" or not aa.get("downloadUrl"):
+                continue
+            r = requests.get(aa["downloadUrl"], timeout=600)
+            r.raise_for_status()
+            (out / aa["fileName"]).write_bytes(r.content)
+            got += 1
+    if not got:
+        sys.exit("The build left no result bundle")

@@ -126,8 +126,15 @@ platform :ios do
     creative_assets
   end
 
-  desc "Capture demo-mode screenshots on the simulators and frame them into App Store images."
+  desc "Capture demo-mode screenshots on the simulators and frame them into App Store images"
+  desc "(only frame them with SCREENSHOTS_CAPTURED=1, after an Xcode Cloud capture)."
   lane :screenshots do
+    # store-assets.yml captures in Xcode Cloud (bin/xcode-cloud-store-art.py)
+    # and places the shots in docs/screenshots/ first: then only frame them.
+    if ENV["SCREENSHOTS_CAPTURED"] == "1"
+      sh(python, File.join(ROOT, "bin/frame-screenshots.py"))
+      next
+    end
     iphone = simulator(IPHONE_SIM)
     ipad = simulator(IPAD_SIM)
     UI.user_error!("Need the #{IPHONE_SIM} and #{IPAD_SIM} simulators") unless iphone && ipad

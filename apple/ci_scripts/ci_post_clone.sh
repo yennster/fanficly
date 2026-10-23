@@ -29,3 +29,15 @@ xcodegen generate
 if [ -n "${CI_TEAM_ID:-}" ]; then
   sed -i '' "s/^DEVELOPMENT_TEAM =.*/DEVELOPMENT_TEAM = ${CI_TEAM_ID}/" Signing.xcconfig
 fi
+
+# The CI workflow's Mac unit tests run the app as their host, signed for
+# development on a Mac Xcode Cloud never registered, so macOS refuses to launch
+# it with iCloud and app-group entitlements ("Launchd job spawn failed"). The
+# tests touch neither, so CI's clone drops them; the release archives keep them.
+if [ "${CI_WORKFLOW:-}" = "CI" ]; then
+  for key in com.apple.developer.ubiquity-kvstore-identifier com.apple.developer.icloud-container-identifiers \
+             com.apple.developer.icloud-services com.apple.developer.ubiquity-container-identifiers \
+             com.apple.security.application-groups; do
+    /usr/libexec/PlistBuddy -c "Delete :$key" Fanficly/FanficlyMac.entitlements 2>/dev/null || true
+  done
+fi
