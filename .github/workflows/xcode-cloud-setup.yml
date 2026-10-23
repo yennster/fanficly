@@ -2,7 +2,8 @@ name: Xcode Cloud workflows
 
 # Brings the Xcode Cloud workflows that are kept in code up to date: "CI"
 # (bin/xcode-cloud-ci.py), "Release (iOS)" and "Release (Mac)"
-# (bin/xcode-cloud-release.py), all on the newest Xcode 27 or later, and
+# (bin/xcode-cloud-release.py) and "Store art" (bin/xcode-cloud-store-art.py),
+# all on the newest Xcode 27 or later, and
 # "Duo tests" (bin/xcode-cloud-duo.py). Runs when those scripts change on
 # main, and by hand, for example after a new Xcode lands (workflows on "Latest
 # Release" follow it anyway). The release workflow also refreshes its own two
@@ -56,6 +57,7 @@ jobs:
             '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
           bin/.venv/bin/python bin/xcode-cloud-ci.py setup
           bin/.venv/bin/python bin/xcode-cloud-release.py setup
+          bin/.venv/bin/python bin/xcode-cloud-store-art.py setup
           bin/.venv/bin/python bin/xcode-cloud-duo.py setup
 
       - name: Remove the keys

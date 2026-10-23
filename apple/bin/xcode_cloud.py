@@ -1,5 +1,5 @@
 """Shared Xcode Cloud plumbing for the scripts that keep its workflows in code
-(bin/xcode-cloud-ci.py, bin/xcode-cloud-release.py).
+(bin/xcode-cloud-ci.py, bin/xcode-cloud-release.py, bin/xcode-cloud-store-art.py).
 
 Every Apple build runs on the newest Xcode 27 or later, in Xcode Cloud,
 because an app built with an older SDK runs in compatibility mode on the
@@ -16,6 +16,9 @@ from __future__ import annotations
 import re
 import sys
 import time
+from pathlib import Path
+
+import requests
 
 from asc_assets import API, app_id, req
 
@@ -182,3 +185,23 @@ def wait(run: dict, minutes: int) -> dict:
         if attrs.get("executionProgress") == "COMPLETE":
             return attrs
     sys.exit(f"Xcode Cloud build {run['attributes'].get('number')} didn't finish in {minutes} minutes")
+
+
+def download_results(run_id: str, out: Path) -> None:
+    """The run's result bundles (zipped) into out; exits when there are none."""
+    out.mkdir(parents=True, exist_ok=True)
+    got = 0
+    for action in req("GET", f"{API}/ciBuildRuns/{run_id}/actions")["data"]:
+        a = action["attributes"]
+        print(f"==> {a.get('name')}: {a.get('completionStatus')} {a.get('issueCounts')}")
+        for art in req("GET", f"{API}/ciBuildActions/{action['id']}/artifacts")["data"]:
+            aa = art["attributes"]
+            print(f"    artifact {aa.get('fileType')} {aa.get('fileName')}")
+            if aa.get("fileType") != "RESULT_BUNDLE" or not aa.get("downloadUrl"):
+                continue
+            r = requests.get(aa["downloadUrl"], timeout=600)
+            r.raise_for_status()
+            (out / aa["fileName"]).write_bytes(r.content)
+            got += 1
+    if not got:
+        sys.exit("The build left no result bundle")

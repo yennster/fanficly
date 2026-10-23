@@ -8,7 +8,7 @@ request, so merging never ships anything.
 | Workflow | What it does | Secrets |
 | --- | --- | --- |
 | **Release** (`release.yml`) | Signed builds to TestFlight or the App Store version, metadata, signing setup | yes, after approval |
-| **Store assets** (`store-assets.yml`) | Regenerates screenshots, app previews and creative art; optionally uploads them | only the optional upload job |
+| **Store assets** (`store-assets.yml`) | Regenerates screenshots (captured in Xcode Cloud), app previews and creative art; optionally uploads them | the Xcode Cloud capture and the optional upload |
 | **Restore the creative art** (`creative-restore.yml`) | Downloads the live iOS version's header and search-results art, keeps it in git, and puts it back on the editable version | yes, after approval |
 
 Every job that touches secrets runs in the **`app-store` environment**: it
@@ -123,11 +123,14 @@ and screenshots without a build.
 
 Run **Store assets**:
 
-- `store_art` (default) captures every screenshot in demo mode on the
-  simulators (iPhone 17 Pro Max, iPad Pro 13-inch portrait, the landscape iPad
-  standing in for the Mac, and iPhone Duo when the runner's Xcode has it),
-  frames them, records the three app-preview videos with their captions, and
-  renders the product-page header and search-results art.
+- `store_art` (default) captures every screenshot in demo mode in Xcode
+  Cloud, on the newest Xcode 27+ like every build (iPhone 17 Pro Max, iPad Pro
+  13-inch portrait, the landscape iPad standing in for the Mac, and iPhone
+  Duo; `bin/xcode-cloud-store-art.py`), frames them, records the three
+  app-preview videos with their captions, and renders the product-page header
+  and search-results art. The capture job waits for approval in `app-store`
+  (it needs the API key) and pushes a temporary `store-art/capture-*` branch
+  for Xcode Cloud to build, deleted when it's done.
 - Tick **upload** to put it all on the editable App Store versions (iOS and
   Mac screenshots, previews, Duo screenshots, creative assets). The upload job
   waits for approval in `app-store`. An editable version must exist: run a
@@ -136,9 +139,13 @@ Run **Store assets**:
   `build/preview-contact-sheets/`, since the preview captions are timed to the
   recordings (`bin/record-app-previews.sh` explains how to re-tune them).
 
-Limits: the iPhone Duo's pose can only be set by hand in Device Hub, so CI
-captures the display it boots on and reframes the committed captures for the
-other. The art needs Apple's SF Pro and New York fonts, which the workflow
+Limits: the iPhone Duo's pose can only be set by hand in Device Hub, so Xcode
+Cloud captures the display it boots on and the committed captures stay for the
+other. Xcode Cloud has no `simctl` for the test itself, so the 9:41 status bar
+is set by `ci_scripts/ci_pre_xcodebuild.sh` before the tests, best effort; a
+simulator it misses shows the real time. The app previews are simulator video
+recordings, which Xcode Cloud can't make, so they still record on GitHub's
+runner (they show the iPhone and iPad, not the Duo). The art needs Apple's SF Pro and New York fonts, which the workflow
 installs from developer.apple.com.
 
 ## Xcode Cloud
@@ -187,6 +194,8 @@ Xcode Cloud, kept in code:
 - **CI** (`bin/xcode-cloud-ci.py`): the unit and UI tests that GitHub's
   `ci.yml` used to run, on every PR into `main` and push to `main` touching
   `apple/`.
+- **Store art** (`bin/xcode-cloud-store-art.py`): the App Store screenshots,
+  started only by **Store assets**.
 - **Duo tests**, below.
 
 Each uses Xcode Cloud's "Latest Release" Xcode when it has the iPhone Duo,
@@ -195,9 +204,9 @@ workflows** workflow (`xcode-cloud-setup.yml`) updates all of them when their
 scripts change on `main`, and by hand; **Release** refreshes its two first.
 Older Xcodes are refused by `bin/xcode_cloud.py`, by `ci_post_clone.sh` in
 every Xcode Cloud build, and by fastlane's `check_xcode` (`build_signed`,
-`unit_tests`, `reader_layout_tests`). The store art (`store-assets.yml`) is
-the exception: it still captures on GitHub's runner and warns when its Xcode
-is older than 27. All of this uses Xcode Cloud compute hours.
+`unit_tests`, `reader_layout_tests`). Only the app-preview videos still build
+on GitHub's runner (see Regenerating the store art). All of this uses Xcode
+Cloud compute hours.
 
 ## Running lanes on a Mac
 

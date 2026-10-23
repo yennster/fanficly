@@ -241,6 +241,17 @@ schemes:
       targets:
         - name: FanficlyUITests
           selectedTests: [ReaderLayoutTests, NonReaderAccessibilityTests]
+  # ScreenshotTests alone: the store art, in Xcode Cloud
+  # (bin/xcode-cloud-store-art.py).
+  FanficlyScreenshots:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyUITests: [test]
+    test:
+      targets:
+        - name: FanficlyUITests
+          selectedTests: [ScreenshotTests]
   # ReaderLayoutTests alone, for the iPhone Duo in Xcode Cloud
   # (bin/xcode-cloud-duo.py).
   FanficlyReaderLayout:

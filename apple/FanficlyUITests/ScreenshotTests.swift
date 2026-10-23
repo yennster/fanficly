@@ -124,14 +124,14 @@ final class ScreenshotTests: XCTestCase {
             shot = screen.screenshot()
         }
         let path = (shotDir as NSString).appendingPathComponent("\(name).png")
-        do {
-            try shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
-        } catch {
-            let att = XCTAttachment(screenshot: shot)
-            att.name = name
-            att.lifetime = .keepAlways
-            add(att)
-        }
+        try? shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
+        // Also in the result bundle, named "<folder>__<name>": Xcode Cloud's
+        // test machine can't write into the checkout, so the store art comes
+        // back as these (bin/xcode-cloud-store-art.py place).
+        let att = XCTAttachment(screenshot: shot)
+        att.name = "\((shotDir as NSString).lastPathComponent)__\(name)"
+        att.lifetime = .keepAlways
+        add(att)
     }
 
     /// Tap the leading nav-bar (back) button until the sidebar is showing.
