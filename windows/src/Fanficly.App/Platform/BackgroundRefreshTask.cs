@@ -3,7 +3,6 @@ using System.Runtime.InteropServices.Marshalling;
 using Fanficly.App.Platform.Widgets;
 using Fanficly.App.Services;
 using Fanficly.Core;
-using Microsoft.Windows.AppLifecycle;
 using Windows.ApplicationModel.Background;
 
 namespace Fanficly.App.Platform;
@@ -146,11 +145,14 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
         var cts = new CancellationTokenSource(Budget);
         try { taskInstance.Canceled += (_, reason) => { AppHost.Log($"Background refresh cancelled: {reason}"); cts.Cancel(); }; }
         catch { }
-        _ = Task.Run(async () =>
+        _ = Task.Run(() =>
         {
             try
             {
-                await RunPollAsync(cts.Token);
+                // Only while the app doesn't have the library open (it holds the
+                // lock from launch); a launch during the poll stops it early.
+                if (!LibraryLock.RunExclusive(RunPollAsync, cts))
+                    AppHost.Log("Background refresh skipped: the app is running and polls itself");
             }
             catch (Exception e)
             {
@@ -165,29 +167,11 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
         });
     }
 
-    /// <summary>Whether Fanficly's window is open (it registers the "main"
-    /// instance key). It polls on its own schedule then, and two processes
-    /// writing one library would each keep a stale copy of the other's stamps.</summary>
-    private static bool IsAppRunning()
-    {
-        try
-        {
-            return AppInstance.GetInstances().Any(i => i.Key == "main" && !i.IsCurrent);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
+    /// <summary>The poll, run under <see cref="LibraryLock"/>: the app polls on
+    /// its own schedule while it's open, and two processes writing one library
+    /// would each keep a stale copy of the other's rows.</summary>
     internal static async Task RunPollAsync(CancellationToken ct)
     {
-        if (IsAppRunning())
-        {
-            AppHost.Log("Background refresh skipped: the app is running and polls itself");
-            return;
-        }
-
         // This process's own services (FanficlyApp's container, opened by the
         // BGTask handler). Settings stay in memory: the poll writes only the
         // library and the widgets' shared store, never the app's settings file.
