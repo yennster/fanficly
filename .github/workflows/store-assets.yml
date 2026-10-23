@@ -71,6 +71,13 @@ jobs:
         with:
           ref: ${{ inputs.sha || github.sha }}
 
+      # The newest xcresulttool reads the newest Xcode Cloud bundles best.
+      - name: Select newest installed Xcode
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -107,7 +114,8 @@ jobs:
         run: |
           mkdir -p build/attachments
           cd build/xcode-cloud
-          for z in *.zip; do [ -f "$z" ] && ditto -x -k "$z" .; done
+          # One folder per zip: bundles from several destinations may share a name.
+          for z in *.zip; do [ -f "$z" ] && ditto -x -k "$z" "${z%.zip}"; done
           n=0
           while read -r b; do
             n=$((n + 1))
@@ -268,7 +276,8 @@ jobs:
   upload:
     name: Upload to App Store Connect
     needs: generate
-    if: inputs.upload
+    # !cancelled(): a skipped capture (previews, creative_assets) mustn't skip this too.
+    if: ${{ !cancelled() && needs.generate.result == 'success' && inputs.upload }}
     runs-on: macos-26
     timeout-minutes: 60
     environment: app-store

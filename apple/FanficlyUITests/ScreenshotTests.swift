@@ -36,8 +36,10 @@ final class ScreenshotTests: XCTestCase {
             .deletingLastPathComponent)
         shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
             .appendingPathComponent(device)
+        // try?: Xcode Cloud's test machine has no checkout to write to; the
+        // shots also go into the result bundle (snap).
         if device != "duo" {
-            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
         }
 
         // US formatting ("48,213 words") whatever the simulator's region is.
@@ -85,7 +87,7 @@ final class ScreenshotTests: XCTestCase {
             let frame = app.windows.firstMatch.frame
             let display = min(frame.width, frame.height) >= 600 ? "duo-inner" : "duo-outer"
             shotDir = ((shotDir as NSString).deletingLastPathComponent as NSString).appendingPathComponent(display)
-            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
             if display == "duo-inner" {
                 isDuoInner = true
                 // Unfolded, the Duo is a landscape book (fold down the middle),
