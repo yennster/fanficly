@@ -184,11 +184,11 @@ final class ReaderLayoutTests: XCTestCase {
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
     }
 
-    func test_scrollingFullScreen_hasEvenMargins() throws {
-        // Continuous mode in full screen: the text used to run up to the top
-        // edge with a band left at the bottom. It now sits in a band with the
-        // same margin top and bottom. A picture for a person to check: the
-        // mask that makes it isn't visible to XCUITest.
+    func test_scrollingFullScreen_runsEdgeToEdge() throws {
+        // Continuous mode in full screen: the text ran up to the top edge but
+        // was cut off above a blank band at the bottom. It now runs to the
+        // bottom edge too. A picture for a person to check: XCUITest can't
+        // see clipping.
         app.terminate()
         app.launchArguments = app.launchArguments.map { $0 == "pageByPage" ? "continuous" : $0 }
         app.launch()

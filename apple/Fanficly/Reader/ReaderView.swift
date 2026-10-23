@@ -703,7 +703,11 @@ struct ReaderView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .coordinateSpace(name: scrollSpace)
-                .modifier(EvenFullScreenMargins(active: isUIMinimized, insets: geo.safeAreaInsets, height: geo.size.height))
+                // Full screen: the text runs edge to edge, past the home
+                // indicator's inset, as it already does at the top. Clipped
+                // there, it was cut off under a blank band at the bottom.
+                // The scroll content still ends clear of the home indicator.
+                .scrollClipDisabled(isUIMinimized)
                 // Rotation, an iPhone Duo fold/unfold or a Split View resize
                 // reflows the text, and the old offset would land on a
                 // different paragraph — put the one you were on back on top.
@@ -1103,7 +1107,8 @@ struct ReaderView: View {
                 // Each page has its own scroll space; the handler below only sees
                 // this page's paragraph anchors.
                 .coordinateSpace(name: scrollSpace)
-                .modifier(EvenFullScreenMargins(active: isUIMinimized, insets: geo.safeAreaInsets, height: geo.size.height))
+                // Full screen: edge to edge, as in continuous mode.
+                .scrollClipDisabled(isUIMinimized)
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
                     guard chapter.index == selectedChapterIndex else { return }
                     // A resize (rotation, iPhone Duo fold, Split View) reflows the
@@ -2215,38 +2220,4 @@ final class TrailingAnchorSample {
     /// are a resize reflowing the text, not the reader scrolling.
     var width: CGFloat = 0
     var task: Task<Void, Never>?
-}
-
-/// Full screen in the scrolling modes (continuous, swipe by chapter): the
-/// text used to scroll right up to the top edge, under the bar, while the
-/// home indicator's inset left a band at the bottom. This shows the text in
-/// a band with the same margin top and bottom (the larger of the two
-/// safe-area insets), masking what scrolls past it, and insets the scroll
-/// content to match so the first and last lines aren't hidden. With the
-/// controls up nothing changes: the text scrolls under the bars as before.
-private struct EvenFullScreenMargins: ViewModifier {
-    let active: Bool
-    /// The reader's safe-area insets, outside `height`.
-    let insets: EdgeInsets
-    /// The height inside the safe area.
-    let height: CGFloat
-
-    func body(content: Content) -> some View {
-        let margin = max(insets.top, insets.bottom)
-        let extraTop = active ? margin - insets.top : 0
-        let extraBottom = active ? margin - insets.bottom : 0
-        content
-            .contentMargins(.top, extraTop, for: .scrollContent)
-            .contentMargins(.bottom, extraBottom, for: .scrollContent)
-            .mask(alignment: .top) {
-                if active {
-                    Rectangle()
-                        .frame(height: max(0, height - extraTop - extraBottom))
-                        .offset(y: extraTop)
-                } else {
-                    // Unmasked: the text keeps scrolling under the bars.
-                    Rectangle().padding(-4000)
-                }
-            }
-    }
 }
