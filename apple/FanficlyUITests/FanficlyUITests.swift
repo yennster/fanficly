@@ -184,11 +184,34 @@ final class ReaderLayoutTests: XCTestCase {
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
     }
 
+    func test_scrollingFullScreen_hasEvenMargins() throws {
+        // Continuous mode in full screen: the text used to run up to the top
+        // edge with a band left at the bottom. It now sits in a band with the
+        // same margin top and bottom. A picture for a person to check: the
+        // mask that makes it isn't visible to XCUITest.
+        app.terminate()
+        app.launchArguments = app.launchArguments.map { $0 == "pageByPage" ? "continuous" : $0 }
+        app.launch()
+        _ = openReader(pageByPage: false)
+        // Scroll into the story (past the title page's links) so text fills
+        // the screen top to bottom, then tap it for full screen.
+        app.swipeUp()
+        settle()
+        let window = app.windows.firstMatch.frame
+        tap(CGPoint(x: window.midX, y: window.midY))
+        let exit = app.buttons["reader.fullScreenBack"]
+        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen")
+        settle()
+        capture("11-continuous-full-screen")
+        exit.tap()
+        XCTAssertTrue(waitForAbsence(exit), "the controls came back")
+    }
+
     // MARK: - Navigation
 
     /// Opens a demo work from Search (typing leaves the keyboard up as the
     /// reader opens) and returns the page footer once pages are laid out.
-    private func openReader(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+    private func openReader(pageByPage: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         let field = app.textFields.firstMatch
         // iPhone launches on the sidebar menu; iPad and the Mac show Search.
         // Right after the simulator boots, the app can take ~30 s to launch
@@ -207,8 +230,13 @@ final class ReaderLayoutTests: XCTestCase {
         let cell = result.waitForExistence(timeout: 10) ? result : app.cells.firstMatch
         XCTAssertTrue(cell.waitForExistence(timeout: 5), "search results", file: file, line: line)
         cell.tap()
-        let footer = app.descendants(matching: .any).matching(identifier: "reader.pageFooter").firstMatch
-        XCTAssertTrue(footer.waitForExistence(timeout: 20), "the page-by-page footer", file: file, line: line)
+        // The scrolling modes have no page footer: their full screen button
+        // shows the reader is open.
+        let footer = pageByPage
+            ? app.descendants(matching: .any).matching(identifier: "reader.pageFooter").firstMatch
+            : app.buttons.matching(NSPredicate(
+                format: "identifier IN {'reader.fullScreenToggle', 'BottomOverflowBarButtonItem'}")).firstMatch
+        XCTAssertTrue(footer.waitForExistence(timeout: 20), "the reader", file: file, line: line)
         if isDuoUnfolded {
             // Unfolded, the Duo keeps the sidebar beside the reader, which
             // leaves it too narrow for the two-page spread: hide it.
