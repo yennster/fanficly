@@ -68,9 +68,10 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
 
 1. Bump `MARKETING_VERSION` in `apple/project.yml` (and
    `windows/store/version.txt` if Windows moves to a new version) in a PR and
-   merge it. Apple build numbers are automatic (one past the highest on
-   TestFlight for iOS or Mac, or `CURRENT_PROJECT_VERSION`), and both Apple
-   platforms share it.
+   merge it. Apple build numbers are automatic: Xcode Cloud numbers each
+   archive with its build-run number, so iOS and Mac get different ones (the
+   GitHub release lists both). They count up across every Xcode Cloud build,
+   so they stay above the 1.11.1 Mac build (141) that the runner built.
 2. The What's New text writes itself: the Release run's first job runs
    `apple/bin/release-notes.py`, which reads everything that landed on `main`
    since the last `v*` tag (every merged PR, any commit pushed without one,

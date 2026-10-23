@@ -3,9 +3,11 @@ name: Xcode Cloud workflows
 # Brings the Xcode Cloud workflows that are kept in code up to date: "CI"
 # (bin/xcode-cloud-ci.py), "Release (iOS)" and "Release (Mac)"
 # (bin/xcode-cloud-release.py), all on the newest Xcode 27 or later, and
-# "Duo tests" (bin/xcode-cloud-duo.py). Runs when those scripts or the schemes
-# change on main, and by hand, for example after a new Xcode lands. The
-# release workflow also refreshes its own two before every release.
+# "Duo tests" (bin/xcode-cloud-duo.py). Runs when those scripts change on
+# main, and by hand, for example after a new Xcode lands (workflows on "Latest
+# Release" follow it anyway). The release workflow also refreshes its own two
+# before every release. Schemes are looked up by name at build time, so a
+# scheme change in project.yml needs no run.
 
 on:
   workflow_dispatch:
@@ -14,7 +16,6 @@ on:
     paths:
       - 'apple/bin/xcode_cloud.py'
       - 'apple/bin/xcode-cloud-*.py'
-      - 'apple/project.yml'
       - '.github/workflows/xcode-cloud-setup.yml'
 
 permissions:

@@ -43,6 +43,16 @@ def newest(items: list, key) -> object:
     return max(real or items, key=lambda i: version(key(i)))
 
 
+def is_beta(item: dict) -> bool:
+    a = item["attributes"]
+    return "beta" in f"{a.get('version')} {a.get('name')}".lower()
+
+
+def is_latest_release(item: dict) -> bool:
+    a = item["attributes"]
+    return "latest release" in f"{a.get('version')} {a.get('name')}".lower()
+
+
 def has_duo(xc: dict) -> bool:
     return any("Duo" in d.get("deviceTypeName", "") for d in xc["attributes"].get("testDestinations") or [])
 
@@ -55,28 +65,29 @@ def latest_xcode() -> tuple[dict, dict]:
     for xc in xcodes:
         a = xc["attributes"]
         print(f"Xcode {a.get('version')} ({a.get('name')}){' with iPhone Duo' if has_duo(xc) else ''}")
-    alias = next((x for x in xcodes if "latest release" in (x["attributes"].get("version") or "").lower()
-                  and has_duo(x)), None)
-    real = [x for x in xcodes if version(x["attributes"].get("version"))[:1] >= (MIN_XCODE,) and has_duo(x)]
+    # App Store Connect refuses uploads built with a beta, so betas never count.
+    alias = next((x for x in xcodes if is_latest_release(x) and has_duo(x)), None)
+    real = [x for x in xcodes if version(x["attributes"].get("version"))[:1] >= (MIN_XCODE,)
+            and has_duo(x) and not is_beta(x)]
     xc = alias or (newest(real, lambda x: x["attributes"].get("version")) if real else None)
     if not xc:
         sys.exit(f"Xcode Cloud has no Xcode {MIN_XCODE} or later with the iPhone Duo")
     macs = all_pages(f"{API}/ciXcodeVersions/{xc['id']}/macOsVersions")
-    mac = next((m for m in macs if "latest release" in (m["attributes"].get("version") or "").lower()), None) \
-        or newest(macs, lambda m: m["attributes"].get("version"))
+    mac = next((m for m in macs if is_latest_release(m)), None) \
+        or newest([m for m in macs if not is_beta(m)] or macs, lambda m: m["attributes"].get("version"))
     print(f"==> Xcode {xc['attributes'].get('version')} on macOS {mac['attributes'].get('version')}")
     return xc, mac
 
 
 def simulator(xc: dict, prefer: list[str], prefix: str) -> dict:
-    """A test destination: the first of `prefer` this Xcode has, else its newest
-    device whose name starts with `prefix`, on the newest runtime."""
+    """A test destination: the first of `prefer` this Xcode has, on its newest
+    runtime. Exits when it has none, rather than test on an older device."""
     dests = [d for d in xc["attributes"].get("testDestinations") or [] if d.get("kind") == "SIMULATOR"]
-    dest = next((d for name in prefer for d in dests if d.get("deviceTypeName") == name), None) \
-        or next((d for d in sorted(dests, key=lambda d: d.get("deviceTypeName", ""), reverse=True)
-                 if d.get("deviceTypeName", "").startswith(prefix)), None)
+    dest = next((d for name in prefer for d in dests if d.get("deviceTypeName") == name), None)
     if not dest:
-        sys.exit(f"This Xcode has no {prefix} simulator")
+        sys.exit(f"This Xcode has none of {', '.join(prefer)}: add its newest {prefix} to bin/xcode-cloud-ci.py")
+    if not dest.get("availableRuntimes"):
+        sys.exit(f"{dest['deviceTypeName']} has no runtimes listed")
     runtime = newest(dest.get("availableRuntimes") or [], lambda r: r.get("runtimeName"))
     return {
         "deviceTypeName": dest["deviceTypeName"],
@@ -94,12 +105,14 @@ def mac_destination(xc: dict) -> dict:
                 dests[0] if dests else None)
     if not dest:
         sys.exit("This Xcode has no Mac test destination")
-    runtime = newest(dest.get("availableRuntimes") or [{}], lambda r: r.get("runtimeName"))
+    if not dest.get("availableRuntimes"):
+        sys.exit(f"{dest['deviceTypeName']} has no runtimes listed")
+    runtime = newest(dest["availableRuntimes"], lambda r: r.get("runtimeName"))
     return {
         "deviceTypeName": dest["deviceTypeName"],
         "deviceTypeIdentifier": dest["deviceTypeIdentifier"],
-        "runtimeName": runtime.get("runtimeName", ""),
-        "runtimeIdentifier": runtime.get("runtimeIdentifier", ""),
+        "runtimeName": runtime["runtimeName"],
+        "runtimeIdentifier": runtime["runtimeIdentifier"],
         "kind": "MAC",
     }
 

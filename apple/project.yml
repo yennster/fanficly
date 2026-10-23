@@ -122,6 +122,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.tests
         GENERATE_INFOPLIST_FILE: YES
+        # Under Mac Catalyst, xcodebuild's "can this Mac run the tests" check
+        # reads this, which otherwise defaults to the SDK's macOS and refuses
+        # a Mac (Xcode Cloud's included) on an older macOS. Ignored on iOS.
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
         DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 
   FanficlyUITests:
