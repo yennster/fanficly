@@ -433,7 +433,7 @@ keys, so use a dedicated simulator/test installation. `-demoLongChapters` feeds
 reader layout tests. `isTestMode` detects `XCTestConfigurationFilePath` and
 suppresses selected side effects; it does **not** select the demo client or make
 the app container in-memory. Persistence tests create their own in-memory
-containers and override cloud backup destinations with `overrideBackupURL`.
+containers (always with `cloudKitDatabase: .none`: Xcode Cloud signs the test host with the app's iCloud entitlements, and SwiftData's default `.automatic` then tries CloudKit and fails with `loadIssueModelContainer`) and override cloud backup destinations with `overrideBackupURL`.
 
 Targeted native checks (on a Mac; choose an installed destination):
 
