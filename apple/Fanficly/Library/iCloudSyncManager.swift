@@ -306,6 +306,7 @@ final class iCloudSyncManager {
             var mergedUnappliedChanges = false
             var readError: (any Error)?
             var mergedWith: Data?
+            var unchanged = false
             try updateBackup(at: url) { existing in
                 switch existing {
                 case .missing:
@@ -329,7 +330,11 @@ final class iCloudSyncManager {
                 // 5. When that's what the file already holds, leave it alone:
                 // rewriting it would only change `timestamp`, and iCloud
                 // would upload the whole library again for nothing (#137).
-                return sameBackupContent(merged, mergedWith) ? nil : merged
+                if sameBackupContent(merged, mergedWith) {
+                    unchanged = true
+                    return nil
+                }
+                return merged
             }
             if let readError {
                 return .unreadable("\(readError)")
@@ -339,7 +344,11 @@ final class iCloudSyncManager {
             // re-restore our own backup. When we merged in another device's
             // unapplied records, leave the stamp alone: the next launch sees
             // the file as changed and restores them into this library.
-            return .done(appliedStamp: mergedUnappliedChanges ? nil : (modificationDate(of: url) ?? Date()))
+            // A file left unchanged was already stamped (nothing unapplied
+            // means the stamp is its date); stamping it again could mark a
+            // file another device swapped in since the read as applied.
+            if unchanged || mergedUnappliedChanges { return .done(appliedStamp: nil) }
+            return .done(appliedStamp: modificationDate(of: url) ?? Date())
         } catch {
             return .failed(log: "\(error)", message: error.localizedDescription)
         }
