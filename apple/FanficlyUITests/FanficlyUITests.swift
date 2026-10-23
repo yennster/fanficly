@@ -146,45 +146,26 @@ final class ReaderLayoutTests: XCTestCase {
                                          screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
     }
 
-    func test_fullScreen_keepsTheToolbar() throws {
+    func test_fullScreen_keepsABackArrow() throws {
         // Full screen used to hide the whole toolbar, leaving only an
         // invisible tap on the page's middle third, which on iPhone Duo could
-        // go nowhere: the reader was a trap. The system toolbar (its back
-        // button and Show reader controls) now stays in every mode.
+        // go nowhere: the reader was a trap. Full screen now hides the
+        // toolbar's items but keeps one back arrow, which brings them back.
         let footer = openReader()
         turnToMiddlePage(footer)
         let bar = footer.frame
-        // The reader's own back button, never a sidebar row of the same name.
-        let readerBar = app.navigationBars.containing(.button, identifier: "reader.fullScreenToggle").firstMatch
-        let back = readerBar.exists && readerBar.buttons["BackButton"].exists
-            ? readerBar.buttons["BackButton"]
-            : app.buttons["BackButton"]
-        XCTAssertTrue(back.waitForExistence(timeout: 5), "the system back button")
+        let exit = app.buttons["reader.fullScreenBack"]
+        XCTAssertFalse(exit.exists, "the back arrow only shows in full screen")
         tap(CGPoint(x: bar.midX, y: bar.minY - 200))
         XCTAssertTrue(waitForAbsence(footer), "the controls hid")
+        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen keeps the back arrow")
         settle()
-        capture("10-full-screen-toolbar")
-        XCTAssertTrue(back.exists && back.isHittable, "full screen keeps the back button")
-        // Show reader controls: in the bar, or in the system overflow (More)
-        // where a narrow bar or iPhone Duo's vertical strip folds it.
-        let toggle = app.buttons["reader.fullScreenToggle"]
-        if !(toggle.exists && toggle.isHittable) {
-            let overflow = app.buttons["BottomOverflowBarButtonItem"].firstMatch
-            XCTAssertTrue(overflow.exists && overflow.isHittable, "full screen keeps Show reader controls or the More button")
-            overflow.tap()
-        }
-        let show = app.buttons.matching(NSPredicate(
-            format: "identifier == 'reader.fullScreenToggle' OR label == 'Show reader controls'")).firstMatch
-        XCTAssertTrue(show.waitForExistence(timeout: 4), "full screen keeps Show reader controls")
-        XCTAssertEqual(show.label, "Show reader controls")
-        show.tap()
-        XCTAssertTrue(footer.waitForExistence(timeout: 5), "Show reader controls brought the controls back")
-        settle()
-        tap(CGPoint(x: bar.midX, y: bar.minY - 200))
-        XCTAssertTrue(waitForAbsence(footer), "full screen again")
-        back.tap()
-        XCTAssertTrue(waitForAbsence(app.buttons["reader.fullScreenToggle"], timeout: 8), "Back left the reader")
-        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
+        capture("10-full-screen-back-arrow")
+        XCTAssertTrue(exit.isHittable, "the back arrow can be tapped")
+        XCTAssertFalse(app.buttons["reader.fullScreenToggle"].exists, "full screen hides the toolbar's other items")
+        exit.tap()
+        XCTAssertTrue(footer.waitForExistence(timeout: 5), "the back arrow brought the controls back")
+        XCTAssertTrue(waitForAbsence(exit), "the back arrow went with full screen")
     }
 
     // MARK: - Navigation

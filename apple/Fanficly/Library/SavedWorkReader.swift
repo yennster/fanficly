@@ -12,6 +12,8 @@ struct SavedWorkReader: View {
     let work: Work
 
     @State private var payload: AO3WorkPayload?
+    /// The reader is in full screen: its back arrow is the only toolbar item.
+    @State private var readerFullScreen = false
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var isSavingOffline = false
@@ -74,54 +76,57 @@ struct SavedWorkReader: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(readerBackground.ignoresSafeArea())
+        .onPreferenceChange(ReaderFullScreenKey.self) { readerFullScreen = $0 }
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    Task {
-                        isResolvingComments = true
-                        await ensureChapterIds()
-                        isResolvingComments = false
-                        showingComments = true
+            if !readerFullScreen {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        Task {
+                            isResolvingComments = true
+                            await ensureChapterIds()
+                            isResolvingComments = false
+                            showingComments = true
+                        }
+                    } label: {
+                        if isResolvingComments {
+                            ProgressView()
+                        } else {
+                            Label("Comments", systemImage: "bubble.left.and.bubble.right")
+                        }
                     }
-                } label: {
-                    if isResolvingComments {
-                        ProgressView()
-                    } else {
-                        Label("Comments", systemImage: "bubble.left.and.bubble.right")
-                    }
-                }
-                .disabled(isResolvingComments)
-                .accessibilityLabel("Comments")
+                    .disabled(isResolvingComments)
+                    .accessibilityLabel("Comments")
 
-                // Kudos, share and save-offline live in one More menu so this plus the
-                // reader's own items (chapters, Aa, minimize) stay within the
-                // ~5 trailing icons the iPhone nav bar fits before it spills
-                // into its own overflow. Not an ellipsis symbol: Apple keeps
-                // that for the system overflow (iPhone Duo's vertical strip).
-                Menu {
-                    KudosMenuButton(workId: work.ao3Id, giver: kudos)
-                    Button {
-                        showingBookmark = true
+                    // Kudos, share and save-offline live in one More menu so this plus the
+                    // reader's own items (chapters, Aa, minimize) stay within the
+                    // ~5 trailing icons the iPhone nav bar fits before it spills
+                    // into its own overflow. Not an ellipsis symbol: Apple keeps
+                    // that for the system overflow (iPhone Duo's vertical strip).
+                    Menu {
+                        KudosMenuButton(workId: work.ao3Id, giver: kudos)
+                        Button {
+                            showingBookmark = true
+                        } label: {
+                            Label("Bookmark on AO3", systemImage: "bookmark.square")
+                        }
+                        WorkExportButton(workId: work.ao3Id, title: work.title,
+                                         exporter: exporter, useTextLabel: true)
+                        Button {
+                            Task { await saveOffline() }
+                        } label: {
+                            Label(isDownloaded ? "Downloaded" : "Save Offline",
+                                  systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                        }
+                        .disabled(isSavingOffline || isDownloaded)
                     } label: {
-                        Label("Bookmark on AO3", systemImage: "bookmark.square")
+                        if isSavingOffline || exporter.isExporting || kudos.isSending {
+                            ProgressView()
+                        } else {
+                            Label("More", systemImage: "book.circle")
+                        }
                     }
-                    WorkExportButton(workId: work.ao3Id, title: work.title,
-                                     exporter: exporter, useTextLabel: true)
-                    Button {
-                        Task { await saveOffline() }
-                    } label: {
-                        Label(isDownloaded ? "Downloaded" : "Save Offline",
-                              systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
-                    }
-                    .disabled(isSavingOffline || isDownloaded)
-                } label: {
-                    if isSavingOffline || exporter.isExporting || kudos.isSending {
-                        ProgressView()
-                    } else {
-                        Label("More", systemImage: "book.circle")
-                    }
+                    .accessibilityLabel("More")
                 }
-                .accessibilityLabel("More")
             }
         }
         .sheet(isPresented: $showingComments) {

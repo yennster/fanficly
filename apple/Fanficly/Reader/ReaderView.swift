@@ -401,31 +401,44 @@ struct ReaderView: View {
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbarBackground(bg, for: .navigationBar)
-        // Full screen keeps the system toolbar, with its back button and the
-        // Show reader controls item, as Liquid Glass buttons floating over
-        // the page (iPhone Duo's vertical strip on the side); only the bar's
-        // background goes. Hiding the whole bar left nothing but an invisible
-        // tap to get out, and on the Duo that tap could fail, trapping the
-        // reader until the app was force-quit. Before iOS 26 the bar has no
-        // glass or scroll-edge effect, so it keeps its background there and
-        // text never scrolls under bare icons.
+        // Full screen hides the toolbar's items and background but keeps one
+        // back arrow, a native Liquid Glass button (on iPhone Duo, in the
+        // vertical strip on the side), which leaves full screen and brings
+        // the toolbar back. Hiding the whole bar left nothing but an
+        // invisible tap to get out, and on the Duo that tap could fail,
+        // trapping the reader until the app was force-quit. Before iOS 26 the
+        // bar has no glass, so it keeps its background there and text never
+        // scrolls under a bare icon. The hosting screen drops its own items
+        // via ReaderFullScreenKey.
         .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
                            for: .navigationBar)
+        .navigationBarBackButtonHidden(isUIMinimized)
+        .preference(key: ReaderFullScreenKey.self, value: isUIMinimized)
         .toolbar {
-            if chapters.count > 1 {
-                ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
-            }
-            ToolbarItem(placement: .topBarTrailing) { typographyMenu }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isUIMinimized.toggle()
+            if isUIMinimized {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized = false }
+                    } label: {
+                        Label("Exit full screen", systemImage: "chevron.backward")
                     }
-                } label: {
-                    Label(isUIMinimized ? "Show reader controls" : "Hide reader controls",
-                          systemImage: isUIMinimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .accessibilityIdentifier("reader.fullScreenBack")
+                    .accessibilityHint("Shows the reader's toolbar again.")
                 }
-                .accessibilityIdentifier("reader.fullScreenToggle")
+            } else {
+                if chapters.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
+                }
+                ToolbarItem(placement: .topBarTrailing) { typographyMenu }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized = true }
+                    } label: {
+                        Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
+                    .accessibilityIdentifier("reader.fullScreenToggle")
+                    .accessibilityHint("Hides the toolbar. The back arrow brings it back.")
+                }
             }
         }
         // Chapters can arrive after narration started; the chapter-end
