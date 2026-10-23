@@ -42,7 +42,9 @@ IPHONE_SIM = "iPhone 17 Pro Max"
 IPAD_SIM = "iPad Pro 13-inch (M5)"
 DUO_SIM = "iPhone Duo"
 
-# The oldest iOS SDK that knows the iPhone Duo (check_ios_sdk).
+# Every Apple build needs Xcode 27 or later, and an iOS build the iOS 27.1
+# SDK, which knows the iPhone Duo (check_xcode).
+MIN_XCODE = 27
 MIN_IOS_SDK = "27.1"
 
 platform :ios do
@@ -58,13 +60,13 @@ platform :ios do
   # --------------------------------------------------------------- binaries
 
   desc "Build and upload to TestFlight. platform: ios, mac or both (default)."
-  desc "ios_build: an iOS build Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
+  desc "ios_build:/mac_build: builds Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :beta do |options|
     platforms(options).each do |p|
-      if p == "ios" && options[:ios_build]
+      if (number = cloud_build(p, options))
         asc_api_key
         upload_to_testflight(distribute_only: true, app_platform: p, app_identifier: TARGETS["Fanficly"],
-                             app_version: marketing_version, build_number: options[:ios_build].to_s,
+                             app_version: marketing_version, build_number: number,
                              changelog: release_notes)
         next
       end
@@ -77,13 +79,13 @@ platform :ios do
 
   desc "Build, upload, and push metadata + screenshots to the App Store version."
   desc "Does not submit for review. platform: ios, mac or both (default)."
-  desc "ios_build: an iOS build Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
+  desc "ios_build:/mac_build: builds Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :release do |options|
     platforms(options).each do |p|
-      if p == "ios" && options[:ios_build]
+      if (number = cloud_build(p, options))
         asc_api_key
         deliver_version(p)
-        attach_build(p, options[:ios_build].to_s)
+        attach_build(p, number)
         next
       end
       path = build_signed(platform: p)
@@ -197,6 +199,7 @@ platform :ios do
 
   desc "Unit tests on an iPhone and an iPad simulator, then under Mac Catalyst."
   lane :unit_tests do
+    check_xcode
     [simulator(IPHONE_SIM), simulator(IPAD_SIM)].compact.each do |udid|
       xcodebuild_test("id=#{udid}", "FanficlyTests")
     end
@@ -206,6 +209,7 @@ platform :ios do
   desc "Reader layout UI tests on the iPhone, iPad and iPhone Duo simulators, then the Mac"
   desc "(see AGENTS.md). Options: devices:\"iPhone Duo\" (comma-separated), mac:false."
   lane :reader_layout_tests do |options|
+    check_xcode
     names = (options[:devices] || [IPHONE_SIM, IPAD_SIM, DUO_SIM].join(",")).split(",").map(&:strip)
     names.map { |name| simulator(name) }.compact.each do |udid|
       xcodebuild_test("id=#{udid}", "FanficlyUITests/ReaderLayoutTests")
@@ -265,7 +269,7 @@ platform :ios do
   # build number, and returns its path. Signing.xcconfig is restored afterwards.
   private_lane :build_signed do |options|
     p = options[:platform]
-    check_ios_sdk if p == "ios"
+    check_xcode(ios: p == "ios")
     asc_api_key
     original = File.read(SIGNING_XCCONFIG)
     begin
@@ -344,15 +348,26 @@ platform :ios do
 
   # An iOS app runs in compatibility mode on any device newer than its SDK:
   # 1.11.0, built with Xcode 26.6, was a letterboxed iPhone app on the iPhone
-  # Duo. So an iOS binary needs the iOS 27.1 SDK or newer. GitHub's runners
-  # don't have it yet, so release.yml archives iOS in Xcode Cloud instead
-  # (bin/xcode-cloud-release.py) and passes ios_build.
-  def check_ios_sdk
+  # Duo. So every build needs Xcode 27 or later, and an iOS one the 27.1 SDK.
+  # GitHub's runners don't have it yet, so release.yml archives in Xcode Cloud
+  # (bin/xcode-cloud-release.py) and passes ios_build:/mac_build:.
+  def check_xcode(ios: true)
+    xcode = sh("xcodebuild", "-version", log: false)[/Xcode (\d+)/, 1].to_i
+    if xcode < MIN_XCODE
+      UI.user_error!("This is Xcode #{xcode}, and Fanficly builds need Xcode #{MIN_XCODE} or later (iPhone Duo). " \
+                     "Build in Xcode Cloud (bin/xcode-cloud-release.py, bin/xcode-cloud-ci.py), as release.yml does.")
+    end
+    return unless ios
     sdk = sh("xcrun", "--sdk", "iphoneos", "--show-sdk-version", log: false).strip
     return if Gem::Version.new(sdk) >= Gem::Version.new(MIN_IOS_SDK)
     UI.user_error!("This Xcode has the iOS #{sdk} SDK, and an iOS build needs #{MIN_IOS_SDK} or newer, or " \
-                   "the iPhone Duo runs it in compatibility mode. Archive iOS in Xcode Cloud " \
-                   "(bin/xcode-cloud-release.py) and pass ios_build:, as release.yml does.")
+                   "the iPhone Duo runs it in compatibility mode.")
+  end
+
+  # The build number Xcode Cloud uploaded for this platform, if release.yml passed one.
+  def cloud_build(p, options)
+    number = options[p == "ios" ? :ios_build : :mac_build].to_s
+    number.empty? ? nil : number
   end
 
   # Puts an uploaded build on the editable App Store version, once processed.

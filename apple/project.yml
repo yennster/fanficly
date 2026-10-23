@@ -217,6 +217,26 @@ schemes:
       config: Debug
     archive:
       config: Release
+  # The unit tests alone, for Xcode Cloud's CI workflow (bin/xcode-cloud-ci.py).
+  FanficlyUnitTests:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyTests: [test]
+    test:
+      targets:
+        - FanficlyTests
+  # The UI tests CI runs on the iPhone and iPad, for Xcode Cloud's CI workflow
+  # (bin/xcode-cloud-ci.py). Screenshots and app previews run from fastlane.
+  FanficlyCIUITests:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyUITests: [test]
+    test:
+      targets:
+        - name: FanficlyUITests
+          selectedTests: [ReaderLayoutTests, NonReaderAccessibilityTests]
   # ReaderLayoutTests alone, for the iPhone Duo in Xcode Cloud
   # (bin/xcode-cloud-duo.py).
   FanficlyReaderLayout:

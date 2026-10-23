@@ -2,6 +2,14 @@ name: CI
 
 # The Apple app, in apple/. The Windows app (windows/) has its own workflows,
 # windows-*.yml; each runs only for its own app's paths.
+#
+# Every Apple build uses the newest Xcode 27 or later, because an app built
+# with an older SDK runs in compatibility mode on the iPhone Duo (1.11.0,
+# built here with Xcode 26.6, did). GitHub's macOS runners don't have Xcode 27
+# yet, so the unit and UI tests run in Xcode Cloud's "CI" workflow
+# (apple/bin/xcode-cloud-ci.py) and the iPhone Duo's in "Duo tests"; Xcode
+# Cloud reports both on the pull request as checks. This job only checks the
+# release and Xcode Cloud tooling that runs from GitHub.
 on:
   push:
     branches: [main]
@@ -15,160 +23,19 @@ defaults:
     working-directory: apple
 
 jobs:
-  test:
-    name: Build & Test
-    runs-on: macos-15
+  tooling:
+    name: Release and Xcode Cloud tooling
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select newest installed Xcode
-        run: |
-          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          echo "Using $XCODE_APP"
-          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
-          xcodebuild -version
-
-      - name: Install xcodegen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      - name: Discover available simulators
-        id: sim
-        run: |
-          set -euo pipefail
-          xcrun simctl list devices available
-          IPHONE_ID=$(xcrun simctl list devices available --json \
-            | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; cands=[(k,dev) for k,v in d.items() if 'iOS' in k for dev in v if dev['name'].startswith('iPhone')]; cands.sort(key=lambda x: x[0], reverse=True); print(cands[0][1]['udid'])")
-          IPAD_ID=$(xcrun simctl list devices available --json \
-            | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; cands=[(k,dev) for k,v in d.items() if 'iOS' in k for dev in v if dev['name'].startswith('iPad')]; cands.sort(key=lambda x: x[0], reverse=True); print(cands[0][1]['udid'])")
-          echo "Picked iPhone UDID: $IPHONE_ID"
-          echo "Picked iPad UDID:   $IPAD_ID"
-          echo "iphone_id=$IPHONE_ID" >> "$GITHUB_OUTPUT"
-          echo "ipad_id=$IPAD_ID"     >> "$GITHUB_OUTPUT"
-
-      - name: Build & test on iPhone
-        run: |
-          xcodebuild test \
-            -project Fanficly.xcodeproj \
-            -scheme Fanficly \
-            -destination "id=${{ steps.sim.outputs.iphone_id }}" \
-            -only-testing:FanficlyTests \
-            CODE_SIGNING_ALLOWED=NO \
-            -resultBundlePath build/iphone.xcresult
-
-      - name: Build & test on iPad
-        run: |
-          xcodebuild test \
-            -project Fanficly.xcodeproj \
-            -scheme Fanficly \
-            -destination "id=${{ steps.sim.outputs.ipad_id }}" \
-            -only-testing:FanficlyTests \
-            CODE_SIGNING_ALLOWED=NO \
-            -resultBundlePath build/ipad.xcresult
-
-      # Page-by-page layout as drawn on each screen: the page footer on the
-      # bottom edge, full pages, across backgrounding, control toggles, the
-      # keyboard and wide (two-page) windows. NonReaderAccessibilityTests
-      # checks Library, Stats, Subscriptions and Settings at the largest text
-      # size: labeled icon buttons, and logs Xcode's accessibility audit.
-      # The rest of FanficlyUITests (screenshots, app previews) runs from
-      # fastlane, not CI.
-      # The first launch of the app on a simulator is slow on CI: once ~30 s,
-      # once past XCUITest's launch timeout, failing whichever layout test
-      # ran first. Boot each simulator and launch the app once (demo mode,
-      # offline) so the tests start warm.
-      - name: Warm up the simulators for the UI tests
-        run: |
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -type d \
-            -path '*/Build/Products/Debug-iphonesimulator/Fanficly.app' -prune -print -quit)
-          echo "App: $APP"
-          for ID in "${{ steps.sim.outputs.iphone_id }}" "${{ steps.sim.outputs.ipad_id }}"; do
-            xcrun simctl bootstatus "$ID" -b
-            xcrun simctl install "$ID" "$APP"
-            xcrun simctl launch "$ID" io.github.yennster.fanficly -demoMode || true
-            sleep 20
-            xcrun simctl terminate "$ID" io.github.yennster.fanficly || true
-          done
-
-      - name: Reader layout UI tests on iPhone
-        run: |
-          xcodebuild test \
-            -project Fanficly.xcodeproj \
-            -scheme Fanficly \
-            -destination "id=${{ steps.sim.outputs.iphone_id }}" \
-            -only-testing:FanficlyUITests/ReaderLayoutTests \
-            -only-testing:FanficlyUITests/NonReaderAccessibilityTests \
-            CODE_SIGNING_ALLOWED=NO \
-            -resultBundlePath build/iphone-ui.xcresult
-
-      - name: Reader layout UI tests on iPad
-        run: |
-          xcodebuild test \
-            -project Fanficly.xcodeproj \
-            -scheme Fanficly \
-            -destination "id=${{ steps.sim.outputs.ipad_id }}" \
-            -only-testing:FanficlyUITests/ReaderLayoutTests \
-            -only-testing:FanficlyUITests/NonReaderAccessibilityTests \
-            CODE_SIGNING_ALLOWED=NO \
-            -resultBundlePath build/ipad-ui.xcresult
-
-      # What the layout tests saw, step by step, on each simulator.
-      - name: Upload reader screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
+      - uses: ruby/setup-ruby@v1
         with:
-          name: reader-layout-screenshots
-          path: apple/build/reader-layout-screenshots
-          if-no-files-found: ignore
+          ruby-version: "3.4"
 
-      - name: Upload result bundles on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcresults
-          path: apple/build/*.xcresult
-
-  mac:
-    # The unit tests again under Mac Catalyst: the Mac measures text with its
-    # own metrics, which is where page-by-page's measurements drift most.
-    name: Unit tests on Mac (Catalyst)
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Select newest installed Xcode
+      - name: Parse the scripts
         run: |
-          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          echo "Using $XCODE_APP"
-          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
-          xcodebuild -version
-
-      - name: Install xcodegen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      # MACOSX_DEPLOYMENT_TARGET: the Catalyst build derives its macOS target
-      # from iOS 17 (= macOS 14), but xcodebuild's "can this Mac run the tests"
-      # check reads this unset setting, which defaults to the SDK's version and
-      # refused the runner's older macOS.
-      - name: Build & test on Mac Catalyst
-        run: |
-          xcodebuild test \
-            -project Fanficly.xcodeproj \
-            -scheme Fanficly \
-            -destination "platform=macOS,variant=Mac Catalyst,arch=arm64" \
-            -only-testing:FanficlyTests \
-            CODE_SIGNING_ALLOWED=NO \
-            MACOSX_DEPLOYMENT_TARGET=14.0 \
-            -resultBundlePath build/mac.xcresult
-
-      - name: Upload result bundle on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcresult-mac
-          path: apple/build/*.xcresult
+          python3 -m py_compile bin/xcode_cloud.py bin/xcode-cloud-ci.py bin/xcode-cloud-release.py \
+            bin/xcode-cloud-duo.py bin/asc_assets.py bin/release-notes.py
+          ruby -c fastlane/Fastfile
+          sh -n ci_scripts/ci_post_clone.sh

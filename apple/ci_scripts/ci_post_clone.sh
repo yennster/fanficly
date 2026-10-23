@@ -7,6 +7,16 @@
 # apple/ and works from its parent folder.
 set -eu
 
+# Every Apple build uses Xcode 27 or later: an app built with an older SDK runs
+# in compatibility mode on the iPhone Duo (1.11.0, built with Xcode 26.6, did).
+# The workflows pick the newest Xcode (bin/xcode_cloud.py); this stops a
+# workflow someone set to an older one by hand.
+xcode=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
+if [ "${xcode:-0}" -lt 27 ]; then
+  echo "error: this build uses Xcode ${xcode:-?}; Fanficly builds need Xcode 27 or later (iPhone Duo)" >&2
+  exit 1
+fi
+
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
 brew install xcodegen
 
