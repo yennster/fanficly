@@ -115,7 +115,9 @@ jobs:
       !cancelled() && github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
       inputs.platform != 'windows' && needs.notes.result != 'failure'
     runs-on: macos-26
-    timeout-minutes: 120
+    # The iOS archive waits on Xcode Cloud and App Store Connect processing
+    # before the Mac build starts.
+    timeout-minutes: 240
     environment: app-store
     permissions:
       contents: read
@@ -222,7 +224,16 @@ jobs:
       - name: Report the build number
         id: build
         if: always()
-        run: echo "build=$(cat build/release/build-number.txt 2>/dev/null)" >> "$GITHUB_OUTPUT"
+        run: |
+          # iOS comes from Xcode Cloud with its own build number; Mac from here.
+          ios=$(cat build/release/ios-build-number.txt 2>/dev/null || true)
+          mac=$(cat build/release/build-number.txt 2>/dev/null || true)
+          if [ -n "$ios" ] && [ -n "$mac" ] && [ "$ios" != "$mac" ]; then
+            build="$ios for iOS, $mac for Mac"
+          else
+            build="${mac:-$ios}"
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
       - name: Upload the downloaded store copy
         if: inputs.lane == 'pull_metadata'

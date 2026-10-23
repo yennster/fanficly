@@ -371,8 +371,6 @@ platform :ios do
     version = app.get_edit_app_store_version(platform: platform)
     UI.user_error!("No editable #{p} version on App Store Connect") unless version
     version.select_build(build_id: build.id)
-    FileUtils.mkdir_p(BUILD_DIR)
-    File.write(File.join(BUILD_DIR, "build-number.txt"), number)
     UI.success("#{p} #{version.version_string}: build #{number} attached")
   end
 

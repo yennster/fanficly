@@ -102,27 +102,30 @@ def run(branch: str, out: Path) -> None:
             "sourceBranchOrTag": {"data": {"type": "scmGitReferences", "id": ref["id"]}},
         }}})["data"]
     print(f"==> Started Xcode Cloud build {run_['attributes'].get('number')} ({run_['id']})")
-    while True:
+    for _ in range(100):  # queue + clean archive; the job has 240 minutes in all
         time.sleep(60)
         attrs = req("GET", f"{API}/ciBuildRuns/{run_['id']}")["data"]["attributes"]
         print(f"    {attrs.get('executionProgress')} {attrs.get('completionStatus') or ''}", flush=True)
         if attrs.get("executionProgress") == "COMPLETE":
             break
+    else:
+        sys.exit("The Xcode Cloud archive didn't finish in 100 minutes: see Xcode Cloud in App Store Connect")
     if attrs.get("completionStatus") != "SUCCEEDED":
         for action in req("GET", f"{API}/ciBuildRuns/{run_['id']}/actions")["data"]:
             a = action["attributes"]
             print(f"==> {a.get('name')}: {a.get('completionStatus')} {a.get('issueCounts')}")
         sys.exit(f"The Xcode Cloud archive ended {attrs.get('completionStatus')}: see Xcode Cloud in App Store Connect")
 
-    # Release from the commit this workflow run is for, or say plainly that it isn't.
+    # The Mac build and the tag are this workflow run's commit, so iOS must be too.
     sha = (attrs.get("sourceCommit") or {}).get("commitSha")
     expected = os.environ.get("GITHUB_SHA")
     if expected and sha and sha != expected:
-        print(f"::warning::Xcode Cloud archived {sha[:7]}, not {expected[:7]}: {branch} moved during the release")
+        sys.exit(f"Xcode Cloud archived {sha[:7]}, not {expected[:7]}: {branch} moved during the release. "
+                 "Run the release again; the stray upload can stay unused in TestFlight.")
 
     # The upload shows up as a build once App Store Connect has it; fastlane
     # can only attach it once it's processed.
-    for _ in range(90):
+    for _ in range(60):
         builds = req("GET", f"{API}/ciBuildRuns/{run_['id']}/builds")["data"]
         if builds:
             b = builds[0]["attributes"]
