@@ -42,6 +42,9 @@ IPHONE_SIM = "iPhone 17 Pro Max"
 IPAD_SIM = "iPad Pro 13-inch (M5)"
 DUO_SIM = "iPhone Duo"
 
+# The oldest iOS SDK that knows the iPhone Duo (check_ios_sdk).
+MIN_IOS_SDK = "27.1"
+
 platform :ios do
   # ---------------------------------------------------------------- signing
 
@@ -55,8 +58,16 @@ platform :ios do
   # --------------------------------------------------------------- binaries
 
   desc "Build and upload to TestFlight. platform: ios, mac or both (default)."
+  desc "ios_build: an iOS build Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :beta do |options|
     platforms(options).each do |p|
+      if p == "ios" && options[:ios_build]
+        asc_api_key
+        upload_to_testflight(distribute_only: true, app_platform: p, app_identifier: TARGETS["Fanficly"],
+                             app_version: marketing_version, build_number: options[:ios_build].to_s,
+                             changelog: release_notes)
+        next
+      end
       path = build_signed(platform: p)
       upload_to_testflight(**binary_option(p, path), app_platform: p, changelog: release_notes,
                            # Waiting lets pilot set the changelog ("What to Test") once processed.
@@ -66,8 +77,15 @@ platform :ios do
 
   desc "Build, upload, and push metadata + screenshots to the App Store version."
   desc "Does not submit for review. platform: ios, mac or both (default)."
+  desc "ios_build: an iOS build Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :release do |options|
     platforms(options).each do |p|
+      if p == "ios" && options[:ios_build]
+        asc_api_key
+        deliver_version(p)
+        attach_build(p, options[:ios_build].to_s)
+        next
+      end
       path = build_signed(platform: p)
       deliver_version(p, binary: path)
     end
@@ -247,6 +265,7 @@ platform :ios do
   # build number, and returns its path. Signing.xcconfig is restored afterwards.
   private_lane :build_signed do |options|
     p = options[:platform]
+    check_ios_sdk if p == "ios"
     asc_api_key
     original = File.read(SIGNING_XCCONFIG)
     begin
@@ -321,6 +340,40 @@ platform :ios do
       precheck_include_in_app_purchases: false
     )
     verify_store_text(p)
+  end
+
+  # An iOS app runs in compatibility mode on any device newer than its SDK:
+  # 1.11.0, built with Xcode 26.6, was a letterboxed iPhone app on the iPhone
+  # Duo. So an iOS binary needs the iOS 27.1 SDK or newer. GitHub's runners
+  # don't have it yet, so release.yml archives iOS in Xcode Cloud instead
+  # (bin/xcode-cloud-release.py) and passes ios_build.
+  def check_ios_sdk
+    sdk = sh("xcrun", "--sdk", "iphoneos", "--show-sdk-version", log: false).strip
+    return if Gem::Version.new(sdk) >= Gem::Version.new(MIN_IOS_SDK)
+    UI.user_error!("This Xcode has the iOS #{sdk} SDK, and an iOS build needs #{MIN_IOS_SDK} or newer, or " \
+                   "the iPhone Duo runs it in compatibility mode. Archive iOS in Xcode Cloud " \
+                   "(bin/xcode-cloud-release.py) and pass ios_build:, as release.yml does.")
+  end
+
+  # Puts an uploaded build on the editable App Store version, once processed.
+  def attach_build(p, number)
+    platform = Spaceship::ConnectAPI::Platform.map(p)
+    app = Spaceship::ConnectAPI::App.find(TARGETS["Fanficly"])
+    build = nil
+    60.times do
+      build = Spaceship::ConnectAPI::Build.all(app_id: app.id, version: marketing_version,
+                                               build_number: number, platform: platform).first
+      break if build&.processing_state == "VALID"
+      UI.message("Waiting for #{p} build #{number} to finish processing...")
+      sleep(60)
+    end
+    UI.user_error!("#{p} build #{marketing_version} (#{number}) isn't processed on App Store Connect") unless build&.processing_state == "VALID"
+    version = app.get_edit_app_store_version(platform: platform)
+    UI.user_error!("No editable #{p} version on App Store Connect") unless version
+    version.select_build(build_id: build.id)
+    FileUtils.mkdir_p(BUILD_DIR)
+    File.write(File.join(BUILD_DIR, "build-number.txt"), number)
+    UI.success("#{p} #{version.version_string}: build #{number} attached")
   end
 
   # deliver skips text it can't find without a word, so check that the
