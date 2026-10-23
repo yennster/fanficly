@@ -386,6 +386,9 @@ struct ReaderView: View {
                 pageFooterBar(fg: fg, bg: bg)
             }
         }
+        // Full screen keeps a visible way out: Back and Show reader controls
+        // on a glass rail at the trailing edge, in every reading mode.
+        .modifier(ReaderFullScreenRailModifier(isUIMinimized: $isUIMinimized, fg: fg))
         // The reader has no text input, so it must never reserve room for the
         // keyboard. Without this, focus landing on the page (it's
         // `.focusable()` for hardware arrow-key turns, see
@@ -416,11 +419,11 @@ struct ReaderView: View {
                 } label: {
                     Label("Hide reader controls", systemImage: "arrow.up.left.and.arrow.down.right")
                 }
-                // Hiding the toolbar removes every visible way back for
-                // VoiceOver users; the custom "Show reader controls" action on
-                // the reader body (readerChromeAccessibilityActions) is the
-                // escape hatch — keep them in sync.
-                .accessibilityHint("Hides the toolbar. To bring it back, use the Show Reader Controls action on the story text.")
+                // Full screen keeps Back and Show reader controls on the
+                // trailing glass rail (ReaderFullScreenRailModifier); the
+                // custom "Show reader controls" action on the reader body is
+                // there too — keep them in sync.
+                .accessibilityHint("Hides the toolbar. To bring it back, use the Show Reader Controls button at the right edge.")
             }
         }
         // Chapters can arrive after narration started; the chapter-end

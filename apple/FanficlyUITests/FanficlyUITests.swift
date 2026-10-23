@@ -146,6 +146,32 @@ final class ReaderLayoutTests: XCTestCase {
                                          screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
     }
 
+    func test_fullScreen_alwaysHasAWayOut() throws {
+        // Full screen used to leave only an invisible tap on the page's middle
+        // third, which on iPhone Duo could go nowhere: the reader was a trap.
+        // The glass rail at the trailing edge brings the controls back, and
+        // its Back button leaves the reader.
+        let footer = openReader()
+        let bar = footer.frame
+        let back = app.buttons["reader.fullScreen.back"]
+        let exit = app.buttons["reader.fullScreen.exit"]
+        XCTAssertFalse(exit.exists, "the rail only shows in full screen")
+        tap(CGPoint(x: bar.midX, y: bar.minY - 200))
+        XCTAssertTrue(waitForAbsence(footer), "the controls hid")
+        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen shows Show reader controls")
+        XCTAssertTrue(back.exists && back.isHittable, "full screen shows Back")
+        capture("10-full-screen-rail")
+        exit.tap()
+        XCTAssertTrue(footer.waitForExistence(timeout: 5), "Show reader controls brought the controls back")
+        XCTAssertTrue(waitForAbsence(exit), "the rail went with full screen")
+        settle()
+        tap(CGPoint(x: bar.midX, y: bar.minY - 200))
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "full screen again")
+        back.tap()
+        XCTAssertTrue(waitForAbsence(back, timeout: 8), "Back left the reader")
+        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
+    }
+
     // MARK: - Navigation
 
     /// Opens a demo work from Search (typing leaves the keyboard up as the

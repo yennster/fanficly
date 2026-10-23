@@ -115,6 +115,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** CI's `ui-screenshots` artifact shows the fandom list populated at all three sizes.
 - **Touches:** `windows/tests/Fanficly.UITests/ScreenshotTests.cs`.
 
+### RM-120 — A visible way out of full screen
+- **Status:** open · **Size:** S · **Validation:** windows
+- **Why:** The Apple app's reader now keeps a small glass rail on the trailing edge whenever its controls are hidden: Back (leaves the reader) and Show reader controls (`ReaderFullScreenRailModifier`, `apple/Fanficly/Reader/ReaderFullScreenRail.swift`), because on iPhone Duo the invisible middle-of-the-page tap was the only way out and could fail, trapping the reader. Here full screen and hidden controls also leave only invisible ways back (Esc, F11, the middle third, the story's context menu, the title-bar back button only in immersive), so a tablet with no keyboard depends on the middle tap alone.
+- **Scope:** While `_isUIMinimized`, show a floating vertical button group on the right edge of the reading area, vertically centered, in every reading mode and one or two pages: Back (`Navigator.GoBack`, leaving full screen first) and Show reader controls (`Esc`'s behavior: leaves full screen, else shows the controls). Acrylic or Mica background, 44 px targets, Narrator names, automation ids `reader.fullScreen.back` and `reader.fullScreen.exit`.
+- **Done when:** a reader UI test hides the controls, finds both buttons, brings the controls back with one and leaves the reader with the other.
+- **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.Chrome.cs`, `ReaderView.cs`, `windows/tests/Fanficly.UITests/`.
+
 ## Next
 
 ### RM-105 — Paste or drop an AO3 link to open it
