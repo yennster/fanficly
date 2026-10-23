@@ -192,6 +192,7 @@ public sealed class SyncSettingsScreen : Screen
         if (!on)
         {
             KeyValueStores.Default.SetBool(LibrarySyncManager.SyncEnabledKey, false);
+            Sync.CancelPendingBackup();
             ApplyFolderToStores(Sync.SyncFolder);
             MainWindow.Current.Announce("Sync turned off");
             Render();
@@ -307,7 +308,7 @@ public sealed class SyncSettingsScreen : Screen
             if (result.Restored) RestoreDownloadCenter.Shared.ProposeRedownload(AppHost.Library);
             switch (result.Backup)
             {
-                case BackupOutcome.Written:
+                case BackupOutcome.Written or BackupOutcome.Unchanged:
                     MainWindow.Current.ShowMessage("Synced", result.Restored
                         ? "Changes from your other devices were added to your library, and it was saved to the sync folder."
                         : result.RestoreFailed

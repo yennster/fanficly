@@ -63,6 +63,76 @@ public sealed class PersistenceTests : IDisposable
         Assert.True(File.Exists(path));
     }
 
+    /// <summary>Backing up a library that hasn't changed since the last backup
+    /// leaves the file as it is: no new date, no .prev copy, nothing for the
+    /// sync app to upload again. A change still writes (#137).</summary>
+    [Fact]
+    public void BackupLeavesTheFileAloneWhenNothingChanged()
+    {
+        var path = MakeTempBackupPath();
+        var previous = LibrarySyncManager.PreviousBackupPath(path);
+        _tempFiles.Add(previous);
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 2), store);
+        ReadingProgressStore.Save(1, chapter: 2, paragraph: 3, title: "T", author: "A", store, progress: 0.5);
+        var sync = MakeSync(path);
+        Assert.Equal(BackupOutcome.Written, sync.Backup(store));
+        var first = File.ReadAllBytes(path);
+        var longAgo = new DateTime(2001, 9, 9, 1, 46, 40, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, longAgo);
+
+        Assert.Equal(BackupOutcome.Unchanged, sync.Backup(store));
+        Assert.Equal(first, File.ReadAllBytes(path));
+        Assert.Equal(longAgo, File.GetLastWriteTimeUtc(path));
+        Assert.False(File.Exists(previous));
+
+        ReadingProgressStore.Save(1, chapter: 2, paragraph: 9, title: "T", author: "A", store, progress: 0.8);
+        Assert.Equal(BackupOutcome.Written, sync.Backup(store));
+        Assert.Equal(9, DecodeBackup(path).Progress.Single().ParagraphIndex);
+        Assert.Equal(first, File.ReadAllBytes(previous));
+    }
+
+    [Fact]
+    public void SameBackupContentIgnoresOnlyTheTimestamp()
+    {
+        static byte[] Utf8(string s) => System.Text.Encoding.UTF8.GetBytes(s);
+        var a = Utf8("""{"works":[{"ao3Id":1,"title":"A"}],"timestamp":"2026-01-01T00:00:00Z"}""");
+        var b = Utf8("""{"timestamp":"2026-02-02T00:00:00Z","works":[{"title":"A","ao3Id":1}]}""");
+        var c = Utf8("""{"works":[{"ao3Id":1,"title":"B"}],"timestamp":"2026-01-01T00:00:00Z"}""");
+        Assert.True(LibrarySyncManager.SameBackupContent(a, b));
+        Assert.False(LibrarySyncManager.SameBackupContent(a, c));
+        Assert.False(LibrarySyncManager.SameBackupContent(a, Utf8("not json")));
+    }
+
+    /// <summary>A reading-position save queues the slow backup, not the
+    /// 2-second one, and more reading doesn't keep pushing it back; a library
+    /// change still backs up after the short wait (#137).</summary>
+    [Fact]
+    public async Task ReadingPositionSavesDontQueueTheQuickBackup()
+    {
+        var path = MakeTempBackupPath();
+        var settings = new InMemoryKeyValueStore();
+        settings.SetBool(LibrarySyncManager.SyncEnabledKey, true);
+        var sync = MakeSync(path, settings);
+        sync.BackupDebounce = TimeSpan.FromMilliseconds(50);
+        sync.ActivityBackupDebounce = TimeSpan.FromHours(1);
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 2), store);
+        store.Changed += _ => sync.QueueBackup(store, LibrarySyncManager.InReadingActivity);
+
+        for (var paragraph = 0; paragraph < 3; paragraph++)
+            ReadingProgressStore.Save(1, chapter: 1, paragraph: paragraph, title: "T", author: "A", store, progress: 0.1);
+        ReadingStatsStore.Record(1, "T", "A", [], [], [], "", 1000, 30, store, progress: 0.1);
+        await Task.Delay(500);
+        Assert.False(File.Exists(path), "reading activity alone waits for the slow backup");
+
+        store.GetWork(1)!.IsStarred = true;
+        store.Save();
+        for (var i = 0; i < 50 && !File.Exists(path); i++) await Task.Delay(100);
+        Assert.True(File.Exists(path), "a library change backs up after the short wait");
+        Assert.Equal(2, DecodeBackup(path).Progress.Single().ParagraphIndex);
+    }
+
     [Fact]
     public void UpsertInsertsThenUpdates()
     {
@@ -669,7 +739,8 @@ public sealed class PersistenceTests : IDisposable
         Assert.Null(sync.BackupProblem);
 
         Assert.Null(BackupOutcomeText.Problem(BackupOutcome.Written, null));
-        foreach (var outcome in Enum.GetValues<BackupOutcome>().Where(o => o != BackupOutcome.Written))
+        Assert.Null(BackupOutcomeText.Problem(BackupOutcome.Unchanged, null));
+        foreach (var outcome in Enum.GetValues<BackupOutcome>().Where(o => o is not (BackupOutcome.Written or BackupOutcome.Unchanged)))
             Assert.False(string.IsNullOrEmpty(BackupOutcomeText.Problem(outcome, null)));
     }
 
@@ -821,19 +892,20 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(new SyncNowResult(false, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
 
         // The iPad backs up two works; the PC's Sync Now pulls them in before
-        // it backs up, and stamps the file it wrote.
+        // it backs up. The file already holds the PC's work, so the backup
+        // leaves it alone, and the file is stamped applied.
         using var pad = MakeContext();
         WorkPersistence.Upsert(Payload(10, 1), pad);
         WorkPersistence.Upsert(Payload(11, 1), pad);
         MakeSync(path).Backup(pad);
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(5));
-        Assert.Equal(new SyncNowResult(true, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+        Assert.Equal(new SyncNowResult(true, BackupOutcome.Unchanged), await pcSync.SyncNowAsync(pc));
         Assert.Equal([1, 10, 11], pc.All<Work>().Select(w => w.Ao3Id).Order());
         Assert.Equal(3, DecodeBackup(path).Works.Count);
         Assert.False(pcSync.CloudBackupHasUnappliedChanges);
 
-        // With nothing new, it doesn't restore again.
-        Assert.Equal(new SyncNowResult(false, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+        // With nothing new, it doesn't restore again, and leaves the file as it is.
+        Assert.Equal(new SyncNowResult(false, BackupOutcome.Unchanged), await pcSync.SyncNowAsync(pc));
     }
 
     [Fact]
