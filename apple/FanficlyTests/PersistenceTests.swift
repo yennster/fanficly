@@ -805,6 +805,55 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
     }
 
+    /// Backing up a library that hasn't changed since the last backup leaves
+    /// the file as it is: no new timestamp, no .prev copy, nothing for iCloud
+    /// to upload again. A change still writes, from the background write
+    /// the app uses too (#137).
+    func test_backupLeavesTheFileAloneWhenNothingChanged() async throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+        let sync = iCloudSyncManager.shared
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 2), into: device)
+        ReadingProgressStore.save(ao3Id: 1, anchor: ReadingAnchor(chapter: 2, paragraph: 3),
+                                  title: "Work 1", author: "Author", progress: 0.5, in: device)
+        sync.backupToiCloud(context: device)
+        let first = try Data(contentsOf: url)
+        let longAgo = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.modificationDate: longAgo], ofItemAtPath: url.path)
+
+        sync.backupToiCloud(context: device)
+        await sync.backupInBackground(context: device)
+        XCTAssertEqual(try Data(contentsOf: url), first, "an unchanged library must not rewrite the backup")
+        XCTAssertEqual(iCloudSyncManager.modificationDate(of: url), longAgo)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+        XCTAssertNil(sync.lastBackupFailure)
+
+        ReadingProgressStore.save(ao3Id: 1, anchor: ReadingAnchor(chapter: 2, paragraph: 9),
+                                  title: "Work 1", author: "Author", progress: 0.8, in: device)
+        await sync.backupInBackground(context: device)
+        XCTAssertNotEqual(iCloudSyncManager.modificationDate(of: url), longAgo)
+        XCTAssertEqual(try decodeBackup(at: url).progress.first?.paragraphIndex, 9)
+        XCTAssertEqual(try Data(contentsOf: previousURL), first)
+    }
+
+    /// Only `timestamp` differing doesn't count as a change; anything else does.
+    func test_sameBackupContentIgnoresOnlyTheTimestamp() {
+        let a = Data(#"{"works":[{"ao3Id":1,"title":"A"}],"timestamp":"2026-01-01T00:00:00Z"}"#.utf8)
+        let b = Data(#"{"timestamp":"2026-02-02T00:00:00Z","works":[{"title":"A","ao3Id":1}]}"#.utf8)
+        let c = Data(#"{"works":[{"ao3Id":1,"title":"B"}],"timestamp":"2026-01-01T00:00:00Z"}"#.utf8)
+        XCTAssertTrue(iCloudSyncManager.sameBackupContent(a, b))
+        XCTAssertFalse(iCloudSyncManager.sameBackupContent(a, c))
+        XCTAssertFalse(iCloudSyncManager.sameBackupContent(a, Data("not json".utf8)))
+    }
+
     /// A backup that merges in another device's records puts them in the
     /// file, not in this library, so it must not stamp the file as applied
     /// here: the next launch sync still has to restore them (#124). Each

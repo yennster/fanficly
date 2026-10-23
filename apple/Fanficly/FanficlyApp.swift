@@ -294,7 +294,13 @@ struct FanficlyApp: App {
                 
                 let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                 if iCloudEnabled && !Self.isDemoMode {
-                    iCloudSyncManager.shared.backupToiCloud(context: Self.sharedModelContainer.mainContext)
+                    // Off the main actor and under a background-task
+                    // assertion; it leaves the file alone when nothing
+                    // changed, so backgrounding doesn't re-upload the
+                    // library every time (#137).
+                    Task {
+                        await iCloudSyncManager.shared.backupInBackground(context: Self.sharedModelContainer.mainContext)
+                    }
                 }
             }
         }
