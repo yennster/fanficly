@@ -121,7 +121,7 @@ struct SettingsView: View {
                             lastSync = syncManager.lastBackupDate
                             lastBackupFailure = syncManager.backupProblem
                             syncResult = Self.syncResultMessage(result)
-                            syncResultIsWarning = result.restoreFailed || result.backup != .written
+                            syncResultIsWarning = result.restoreFailed || !result.backup.succeeded
                             if let message = syncResult ?? lastBackupFailure {
                                 announce(message)
                             }
@@ -290,7 +290,7 @@ struct SettingsView: View {
     /// write, `backupProblem` says why, so this only mentions a restore that
     /// still brought changes in.
     static func syncResultMessage(_ result: SyncNowResult) -> String? {
-        guard result.backup == .written else {
+        guard result.backup.succeeded else {
             return result.restored
                 ? String(localized: "Changes from your other devices were added to your library, but this device's backup didn't run.")
                 : nil
