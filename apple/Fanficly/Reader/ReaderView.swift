@@ -413,12 +413,13 @@ struct ReaderView: View {
         .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
                            for: .navigationBar)
         .navigationBarBackButtonHidden(isUIMinimized)
+        .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
         .preference(key: ReaderFullScreenKey.self, value: isUIMinimized)
         .toolbar {
             if isUIMinimized {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized = false }
+                        toggleChromeAccessibly()
                     } label: {
                         Label("Exit full screen", systemImage: "chevron.backward")
                     }
@@ -432,7 +433,7 @@ struct ReaderView: View {
                 ToolbarItem(placement: .topBarTrailing) { typographyMenu }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized = true }
+                        toggleChromeAccessibly()
                     } label: {
                         Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right")
                     }
@@ -1400,16 +1401,17 @@ struct ReaderView: View {
     /// other controls sit in the vertical strip) and the left page's text
     /// starts well clear of it, so the pages use the bar's height instead of
     /// leaving it blank. The bar stays in full screen (only its background
-    /// hides), so its inset is the same with the controls up or hidden.
+    /// and items go, leaving the back arrow), so its inset is the same with
+    /// the controls up or hidden.
+    private func bookTopShift(_ geo: GeometryProxy) -> CGFloat {
+        guard isDuoBook(geo) else { return 0 }
+        return geo.safeAreaInsets.top - Self.duoTopMargin
+    }
+
     /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
     private static var hasGlassBars: Bool {
         if #available(iOS 26.0, *) { return true }
         return false
-    }
-
-    private func bookTopShift(_ geo: GeometryProxy) -> CGFloat {
-        guard isDuoBook(geo) else { return 0 }
-        return geo.safeAreaInsets.top - Self.duoTopMargin
     }
 
     /// Where an open-book spread's pages start on iPhone Duo: clear of the
@@ -1706,7 +1708,7 @@ struct ReaderView: View {
     private func toggleChromeAccessibly() {
         withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized.toggle() }
         UIAccessibility.post(notification: .announcement,
-                             argument: isUIMinimized ? "Reader controls hidden" : "Reader controls shown")
+                             argument: isUIMinimized ? "Full screen" : "Reader controls shown")
     }
 
     private func accessibilityTurnChapter(forward: Bool) {
@@ -1728,7 +1730,7 @@ struct ReaderView: View {
 
     /// The chrome toggle, as a custom action whose name tracks the state.
     private func chromeAccessibilityActionName() -> String {
-        isUIMinimized ? "Show reader controls" : "Hide reader controls"
+        isUIMinimized ? "Exit full screen" : "Full screen"
     }
 
     /// Where `page`'s text begins (nil for the work's title page).

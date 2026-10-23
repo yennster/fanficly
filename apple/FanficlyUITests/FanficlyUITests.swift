@@ -155,17 +155,33 @@ final class ReaderLayoutTests: XCTestCase {
         turnToMiddlePage(footer)
         let bar = footer.frame
         let exit = app.buttons["reader.fullScreenBack"]
+        let systemBack = app.buttons["BackButton"]
+        // The work page's own items (WorkDetailView), hidden through
+        // ReaderFullScreenKey.
+        let hostItems = app.buttons.matching(NSPredicate(
+            format: "label IN {'Save to Library', 'Remove from Library'}"))
         XCTAssertFalse(exit.exists, "the back arrow only shows in full screen")
+        XCTAssertTrue(systemBack.exists, "the system back button, with the controls up")
         tap(CGPoint(x: bar.midX, y: bar.minY - 200))
         XCTAssertTrue(waitForAbsence(footer), "the controls hid")
         XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen keeps the back arrow")
         settle()
         capture("10-full-screen-back-arrow")
         XCTAssertTrue(exit.isHittable, "the back arrow can be tapped")
-        XCTAssertFalse(app.buttons["reader.fullScreenToggle"].exists, "full screen hides the toolbar's other items")
+        XCTAssertFalse(systemBack.exists, "full screen hides the system back button")
+        XCTAssertFalse(app.buttons["reader.fullScreenToggle"].exists, "full screen hides the reader's items")
+        XCTAssertFalse(app.buttons["BottomOverflowBarButtonItem"].exists, "full screen hides the overflow (More) button")
+        XCTAssertEqual(hostItems.count, 0, "full screen hides the work page's items")
         exit.tap()
         XCTAssertTrue(footer.waitForExistence(timeout: 5), "the back arrow brought the controls back")
         XCTAssertTrue(waitForAbsence(exit), "the back arrow went with full screen")
+        XCTAssertTrue(systemBack.waitForExistence(timeout: 5), "the toolbar came back with its back button")
+        let toggleOrOverflow = app.buttons.matching(NSPredicate(
+            format: "identifier IN {'reader.fullScreenToggle', 'BottomOverflowBarButtonItem'}")).firstMatch
+        XCTAssertTrue(toggleOrOverflow.exists, "the toolbar came back with its items")
+        settle()
+        systemBack.tap()
+        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
     }
 
     // MARK: - Navigation
