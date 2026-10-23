@@ -11,7 +11,7 @@ final class PersistenceTests: XCTestCase {
             RecentlyViewed.self, CustomFolder.self, FollowedAuthor.self,
             ReadingStat.self, BlockedTerm.self, HiddenWork.self, SavedFilter.self,
         ])
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)
     }
