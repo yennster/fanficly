@@ -217,3 +217,14 @@ schemes:
       config: Debug
     archive:
       config: Release
+  # ReaderLayoutTests alone, for the iPhone Duo in Xcode Cloud
+  # (bin/xcode-cloud-duo.py).
+  FanficlyReaderLayout:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyUITests: [test]
+    test:
+      targets:
+        - name: FanficlyUITests
+          selectedTests: [ReaderLayoutTests]
