@@ -236,7 +236,14 @@ final class ReaderLayoutTests: XCTestCase {
             format: "identifier == 'reader_settings_button' OR label == 'Reader settings'")).firstMatch
         if !settings.exists || !settings.isHittable {
             // A narrow nav bar folds trailing items into the system overflow.
-            app.navigationBars.buttons.allElementsBoundByIndex.last?.tap()
+            // iPhone Duo's vertical strip has no navigation bar: its overflow
+            // is the strip's More button.
+            let overflow = app.buttons["BottomOverflowBarButtonItem"].firstMatch
+            if overflow.exists && overflow.isHittable {
+                overflow.tap()
+            } else {
+                app.navigationBars.buttons.allElementsBoundByIndex.last?.tap()
+            }
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
         settings.tap()
