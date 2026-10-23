@@ -152,14 +152,21 @@ final class ReaderLayoutTests: XCTestCase {
         // go nowhere: the reader was a trap. The system toolbar (its back
         // button and Show reader controls) now stays in every mode.
         let footer = openReader()
+        turnToMiddlePage(footer)
         let bar = footer.frame
         let toggle = app.buttons["reader.fullScreenToggle"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "the full screen button")
-        let back = app.buttons.matching(NSPredicate(
-            format: "identifier == 'BackButton' OR label == 'Back' OR label == 'Search'")).firstMatch
+        guard toggle.waitForExistence(timeout: 5) else {
+            throw XCTSkip("The full screen button folded into the toolbar's overflow menu on this screen.")
+        }
+        // The reader's own back button, never a sidebar row of the same name.
+        let readerBar = app.navigationBars.containing(.button, identifier: "reader.fullScreenToggle").firstMatch
+        let back = readerBar.exists && readerBar.buttons["BackButton"].exists
+            ? readerBar.buttons["BackButton"]
+            : app.buttons["BackButton"]
         XCTAssertTrue(back.exists, "the system back button")
         tap(CGPoint(x: bar.midX, y: bar.minY - 200))
         XCTAssertTrue(waitForAbsence(footer), "the controls hid")
+        settle()
         capture("10-full-screen-toolbar")
         XCTAssertTrue(toggle.exists && toggle.isHittable, "full screen keeps Show reader controls")
         XCTAssertEqual(toggle.label, "Show reader controls")
@@ -170,6 +177,7 @@ final class ReaderLayoutTests: XCTestCase {
         tap(CGPoint(x: bar.midX, y: bar.minY - 200))
         XCTAssertTrue(waitForAbsence(footer), "full screen again")
         back.tap()
+        XCTAssertTrue(waitForAbsence(toggle, timeout: 8), "Back left the reader")
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
     }
 

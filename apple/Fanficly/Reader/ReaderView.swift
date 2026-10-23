@@ -406,8 +406,11 @@ struct ReaderView: View {
         // the page (iPhone Duo's vertical strip on the side); only the bar's
         // background goes. Hiding the whole bar left nothing but an invisible
         // tap to get out, and on the Duo that tap could fail, trapping the
-        // reader until the app was force-quit.
-        .toolbarBackground(duoBookLayout || isUIMinimized ? .hidden : .visible, for: .navigationBar)
+        // reader until the app was force-quit. Before iOS 26 the bar has no
+        // glass or scroll-edge effect, so it keeps its background there and
+        // text never scrolls under bare icons.
+        .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
+                           for: .navigationBar)
         .toolbar {
             if chapters.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
@@ -1337,8 +1340,8 @@ struct ReaderView: View {
                     // narration bar closing, or a moment's smaller area (a
                     // transition) passing. Hiding the controls fills their room
                     // at once, or the old pages sit over a blank band while the
-                    // bars slide away; the short wait only joins the Mac's two
-                    // steps (page footer, then toolbar).
+                    // footer slides away; the short wait joins the steps of
+                    // one toggle (the page footer, the bar's background).
                     let toggled = areaSample.controlsUp != settledControlsUp
                     try? await Task.sleep(nanoseconds: toggled ? 50_000_000 : 300_000_000)
                     guard !Task.isCancelled else { return }
@@ -1383,8 +1386,14 @@ struct ReaderView: View {
     /// On iPhone Duo the top bar holds only the sidebar button (the reader's
     /// other controls sit in the vertical strip) and the left page's text
     /// starts well clear of it, so the pages use the bar's height instead of
-    /// leaving it blank. With the controls hidden the bar's inset goes to zero;
-    /// shifting down then keeps the text from jumping up to the display's edge.
+    /// leaving it blank. The bar stays in full screen (only its background
+    /// hides), so its inset is the same with the controls up or hidden.
+    /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
+    private static var hasGlassBars: Bool {
+        if #available(iOS 26.0, *) { return true }
+        return false
+    }
+
     private func bookTopShift(_ geo: GeometryProxy) -> CGFloat {
         guard isDuoBook(geo) else { return 0 }
         return geo.safeAreaInsets.top - Self.duoTopMargin
