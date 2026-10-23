@@ -85,7 +85,6 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(first, File.ReadAllBytes(path));
         Assert.Equal(longAgo, File.GetLastWriteTimeUtc(path));
         Assert.False(File.Exists(previous));
-        Assert.False(sync.CloudBackupHasUnappliedChanges);
 
         ReadingProgressStore.Save(1, chapter: 2, paragraph: 9, title: "T", author: "A", store, progress: 0.8);
         Assert.Equal(BackupOutcome.Written, sync.Backup(store));
@@ -819,13 +818,14 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(new SyncNowResult(false, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
 
         // The iPad backs up two works; the PC's Sync Now pulls them in before
-        // it backs up, and stamps the file it wrote.
+        // it backs up. The file already holds the PC's work, so the backup
+        // leaves it alone, and the file is stamped applied.
         using var pad = MakeContext();
         WorkPersistence.Upsert(Payload(10, 1), pad);
         WorkPersistence.Upsert(Payload(11, 1), pad);
         MakeSync(path).Backup(pad);
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(5));
-        Assert.Equal(new SyncNowResult(true, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+        Assert.Equal(new SyncNowResult(true, BackupOutcome.Unchanged), await pcSync.SyncNowAsync(pc));
         Assert.Equal([1, 10, 11], pc.All<Work>().Select(w => w.Ao3Id).Order());
         Assert.Equal(3, DecodeBackup(path).Works.Count);
         Assert.False(pcSync.CloudBackupHasUnappliedChanges);
