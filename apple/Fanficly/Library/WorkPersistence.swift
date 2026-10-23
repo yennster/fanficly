@@ -80,6 +80,19 @@ enum WorkPersistence {
         CSSearchableIndex.default().indexSearchableItems([item], completionHandler: nil)
     }
 
+    /// Removes a work from the library with its downloaded EPUB and its
+    /// Spotlight entry, without saving. Recording the deletion for sync is
+    /// the caller's job: a user's delete records it, and a restore applying
+    /// another device's delete doesn't need to.
+    @MainActor
+    static func delete(_ work: Work, in context: ModelContext) {
+        if let url = epubURL(workId: work.ao3Id) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        deindexWork(ao3Id: work.ao3Id)
+        context.delete(work)
+    }
+
     @MainActor
     static func deindexWork(ao3Id: Int) {
         CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: ["work-\(ao3Id)"], completionHandler: nil)
