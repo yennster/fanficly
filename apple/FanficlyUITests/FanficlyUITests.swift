@@ -212,6 +212,7 @@ final class ReaderLayoutTests: XCTestCase {
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
         settings.tap()
+        capture("05-reader-settings-menu")
         let profile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Profile")).firstMatch
         XCTAssertTrue(profile.waitForExistence(timeout: 4), "the Profile submenu")
         profile.tap()
