@@ -74,6 +74,12 @@ jobs:
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
           xcodebuild -version
+          # The one Apple job still on GitHub's Xcode: store art isn't shipped
+          # code, but the iPhone Duo set needs Xcode 27 (see AGENTS.md).
+          major=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
+          if [ "${major:-0}" -lt 27 ]; then
+            echo "::warning::Xcode $major is older than 27: no iPhone Duo captures this run"
+          fi
           xcrun simctl list devicetypes | grep -E "iPhone 17 Pro Max|iPad Pro 13|iPhone Duo" || true
 
       - uses: ruby/setup-ruby@v1

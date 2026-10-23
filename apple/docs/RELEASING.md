@@ -68,9 +68,10 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
 
 1. Bump `MARKETING_VERSION` in `apple/project.yml` (and
    `windows/store/version.txt` if Windows moves to a new version) in a PR and
-   merge it. Apple build numbers are automatic (one past the highest on
-   TestFlight for iOS or Mac, or `CURRENT_PROJECT_VERSION`), and both Apple
-   platforms share it.
+   merge it. Apple build numbers are automatic: Xcode Cloud numbers each
+   archive with its build-run number, so iOS and Mac get different ones (the
+   GitHub release lists both). They count up across every Xcode Cloud build,
+   so they stay above the 1.11.1 Mac build (141) that the runner built.
 2. The What's New text writes itself: the Release run's first job runs
    `apple/bin/release-notes.py`, which reads everything that landed on `main`
    since the last `v*` tag (every merged PR, any commit pushed without one,
@@ -170,21 +171,33 @@ only lists the files it had when XcodeGen last ran. So
 from `project.yml` before every Xcode Cloud build, as GitHub CI does; new
 Swift files build there without a Mac.
 
-### The iOS release build
+### Xcode 27 or later for every build
 
 An iOS app built with an SDK older than a device runs in compatibility mode on
 that device. 1.11.0 was built with the GitHub runner's Xcode 26.6, so the
 iPhone Duo showed it as a letterboxed iPhone app instead of its Duo layout.
-Until the runners have Xcode 27.1, **Release** archives iOS in Xcode Cloud's
-**Release (iOS)** workflow (`bin/xcode-cloud-release.py`, made and kept up to
-date through the API with the newest Xcode that has the Duo). Xcode Cloud
-signs the archive with cloud-managed signing (`ci_post_clone.sh` writes its
-team into `Signing.xcconfig`) and uploads it to App Store Connect; fastlane
-then attaches that build to the App Store version, or gives it its TestFlight
-notes (`ios_build:`). The Mac build stays on the runner. `build_signed`
-refuses an iOS build with an SDK older than 27.1 (`check_ios_sdk`), so a
-compatibility-mode build can't ship again. The archive uses Xcode Cloud
-compute hours.
+So every Apple build uses the newest Xcode 27 or later, which for now means
+Xcode Cloud, kept in code:
+
+- **Release (iOS)** and **Release (Mac)** (`bin/xcode-cloud-release.py`):
+  **Release** archives both at once, Xcode Cloud signs them with cloud-managed
+  signing (`ci_post_clone.sh` writes its team into `Signing.xcconfig`) and
+  uploads them, and fastlane attaches each build to its App Store version, or
+  gives it its TestFlight notes (`ios_build:`, `mac_build:`).
+- **CI** (`bin/xcode-cloud-ci.py`): the unit and UI tests that GitHub's
+  `ci.yml` used to run, on every PR into `main` and push to `main` touching
+  `apple/`.
+- **Duo tests**, below.
+
+Each uses Xcode Cloud's "Latest Release" Xcode when it has the iPhone Duo,
+else the newest Xcode 27+ that does (`bin/xcode_cloud.py`). The **Xcode Cloud
+workflows** workflow (`xcode-cloud-setup.yml`) updates all of them when their
+scripts change on `main`, and by hand; **Release** refreshes its two first.
+Older Xcodes are refused by `bin/xcode_cloud.py`, by `ci_post_clone.sh` in
+every Xcode Cloud build, and by fastlane's `check_xcode` (`build_signed`,
+`unit_tests`, `reader_layout_tests`). The store art (`store-assets.yml`) is
+the exception: it still captures on GitHub's runner and warns when its Xcode
+is older than 27. All of this uses Xcode Cloud compute hours.
 
 ## Running lanes on a Mac
 
