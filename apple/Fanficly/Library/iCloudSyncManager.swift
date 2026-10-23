@@ -8,7 +8,7 @@ final class iCloudSyncManager {
     
     private var backupTask: Task<Void, Never>? = nil
     /// The latest background write; the next one waits for it.
-    private var lastWrite: Task<Void, Never>? = nil
+    private var lastWrite: Task<BackupOutcome, Never>? = nil
     
     private init() {}
     
@@ -45,9 +45,26 @@ final class iCloudSyncManager {
             .appendingPathExtension(url.pathExtension)
     }
 
+    /// How the last backup went; nil before the first one.
+    private(set) var lastBackupOutcome: BackupOutcome?
+
     /// Why the last backup that didn't write the file stopped, or nil after
     /// one that did.
-    private(set) var lastBackupFailure: String?
+    var lastBackupFailure: String? { lastBackupOutcome?.failureMessage }
+
+    /// What Settings shows next to "Last synced": why backups aren't running
+    /// right now. iCloud being signed out shows even before a backup has
+    /// tried, and stops showing once it's back.
+    var backupProblem: String? {
+        guard Self.backupURL != nil else { return BackupOutcome.iCloudUnavailable.failureMessage }
+        return lastBackupOutcome == .iCloudUnavailable ? nil : lastBackupFailure
+    }
+
+    @discardableResult
+    private func record(_ outcome: BackupOutcome) -> BackupOutcome {
+        lastBackupOutcome = outcome
+        return outcome
+    }
 
     /// Gets the modification date of the iCloud backup file.
     var lastBackupDate: Date? {
@@ -82,11 +99,21 @@ final class iCloudSyncManager {
     /// Performs a backup of the SwiftData database to iCloud, merging with the
     /// backup already in the cloud so a device that holds only part of the
     /// library (a fresh install, a metadata-only iPad) can never last-writer-
-    /// wins away another device's records. Runs on the main actor from start
-    /// to finish; the app's own backups use `backupInBackground`.
-    func backupToiCloud(context: ModelContext) {
-        guard let pending = pendingBackup(context: context) else { return }
-        finishBackup(Self.writeBackup(pending))
+    /// wins away another device's records. Says whether the file was
+    /// written, so Sync Now can report what really happened. Runs on the
+    /// main actor from start to finish; the app's own backups use
+    /// `backupInBackground`.
+    @discardableResult
+    func backupToiCloud(context: ModelContext) -> BackupOutcome {
+        backup(to: Self.backupURL, context: context)
+    }
+
+    /// `backupToiCloud` with the file it writes passed in (nil: iCloud isn't
+    /// available), so tests can cover a signed-out device.
+    @discardableResult
+    func backup(to url: URL?, context: ModelContext) -> BackupOutcome {
+        guard let pending = pendingBackup(to: url, context: context) else { return lastBackupOutcome ?? .iCloudUnavailable }
+        return finishBackup(Self.writeBackup(pending))
     }
 
     /// `backupToiCloud`, with only the snapshot of the library taken on the
@@ -94,8 +121,10 @@ final class iCloudSyncManager {
     /// run on a background thread, so a large library doesn't stall the UI.
     /// Holds a background-task assertion, so the write can finish after the
     /// app leaves the screen (#137).
-    func backupInBackground(context: ModelContext) async {
-        await startBackgroundBackup(context: context)?.value
+    @discardableResult
+    func backupInBackground(context: ModelContext) async -> BackupOutcome {
+        guard let write = startBackgroundBackup(context: context) else { return lastBackupOutcome ?? .iCloudUnavailable }
+        return await write.value
     }
 
     /// Takes the snapshot and the background-task assertion now, then hands
@@ -103,30 +132,34 @@ final class iCloudSyncManager {
     /// (and stamp the file) in the order their snapshots were taken. Returns
     /// that task, or nil when there was nothing to write to.
     @discardableResult
-    func startBackgroundBackup(context: ModelContext) -> Task<Void, Never>? {
+    func startBackgroundBackup(context: ModelContext) -> Task<BackupOutcome, Never>? {
         let assertion = BackgroundAssertion(name: "Fanficly iCloud backup")
-        guard let pending = pendingBackup(context: context) else {
+        guard let pending = pendingBackup(to: Self.backupURL, context: context) else {
             assertion.end()
             return nil
         }
         let previous = lastWrite
         let write = Task {
-            await previous?.value
+            _ = await previous?.value
             let result = await Task.detached(priority: .utility) {
                 iCloudSyncManager.writeBackup(pending)
             }.value
-            finishBackup(result)
+            let outcome = finishBackup(result)
             assertion.end()
+            return outcome
         }
         lastWrite = write
         return write
     }
 
-    /// The library as a backup, ready to merge and write, or nil when there's
-    /// nothing to write to yet (no iCloud, or the cloud file is still
-    /// downloading).
-    private func pendingBackup(context: ModelContext) -> PendingBackup? {
-        guard let url = Self.backupURL else { return nil }
+    /// The library as a backup, ready to merge and write, or nil (with the
+    /// reason recorded) when there's nothing to write to yet: no iCloud, or
+    /// the cloud file is still downloading.
+    private func pendingBackup(to url: URL?, context: ModelContext) -> PendingBackup? {
+        guard let url else {
+            record(.iCloudUnavailable)
+            return nil
+        }
 
         // If the cloud backup isn't downloaded yet we can't merge with it, and
         // overwriting would drop every record the other device backed up.
@@ -136,7 +169,7 @@ final class iCloudSyncManager {
         // mutation) retry once it's local.
         if Self.isUndownloaded(url) {
             try? FileManager.default.startDownloadingUbiquitousItem(at: url)
-            lastBackupFailure = String(localized: "The backup in iCloud is still downloading. Fanficly will back up once it's on this device.")
+            record(.waitingForDownload)
             return nil
         }
 
@@ -288,7 +321,7 @@ final class iCloudSyncManager {
 
     /// Merges a snapshot with the backup already in the cloud and writes the
     /// result, off the main actor. Nothing here touches SwiftData.
-    nonisolated static func writeBackup(_ pending: PendingBackup) -> BackupWriteResult {
+    nonisolated static func writeBackup(_ pending: PendingBackup) -> BackupWrite {
         let url = pending.url
         var backup = pending.backup
         do {
@@ -337,7 +370,8 @@ final class iCloudSyncManager {
                 return merged
             }
             if let readError {
-                return .unreadable("\(readError)")
+                print("Skipped the iCloud backup, the existing backup can't be read: \(readError)")
+                return (.unreadable, nil)
             }
             // When everything in the file came from this library (or was
             // already applied here), stamp it so the launch auto-sync doesn't
@@ -347,26 +381,19 @@ final class iCloudSyncManager {
             // A file left unchanged was already stamped (nothing unapplied
             // means the stamp is its date); stamping it again could mark a
             // file another device swapped in since the read as applied.
-            if unchanged || mergedUnappliedChanges { return .done(appliedStamp: nil) }
-            return .done(appliedStamp: modificationDate(of: url) ?? Date())
+            if unchanged { return (.unchanged, nil) }
+            if mergedUnappliedChanges { return (.written, nil) }
+            return (.written, modificationDate(of: url) ?? Date())
         } catch {
-            return .failed(log: "\(error)", message: error.localizedDescription)
+            print("Failed to backup to iCloud: \(error)")
+            return (.failed(error.localizedDescription), nil)
         }
     }
 
-    /// Records how a `writeBackup` went.
-    private func finishBackup(_ result: BackupWriteResult) {
-        switch result {
-        case .done(let appliedStamp):
-            lastBackupFailure = nil
-            if let appliedStamp { markCloudBackupApplied(date: appliedStamp) }
-        case .unreadable(let error):
-            print("Skipped the iCloud backup, the existing backup can't be read: \(error)")
-            lastBackupFailure = String(localized: "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device.")
-        case .failed(let log, let message):
-            print("Failed to backup to iCloud: \(log)")
-            lastBackupFailure = message
-        }
+    /// Stamps the file when `writeBackup` says to, and records how it went.
+    private func finishBackup(_ result: BackupWrite) -> BackupOutcome {
+        if let appliedStamp = result.appliedStamp { markCloudBackupApplied(date: appliedStamp) }
+        return record(result.outcome)
     }
 
     /// Whether two encoded backups hold the same records and settings,
@@ -960,15 +987,18 @@ final class iCloudSyncManager {
     /// since this device last applied the file (the same forward-only restore
     /// the launch runs), then backs up. Restoring first means the backup's
     /// merge finds nothing unapplied, so it stamps the file it writes.
-    /// Returns true when it restored other devices' changes.
+    /// A restore that fails still backs up this device's changes; the stamp
+    /// didn't move, so the next launch or Sync Now tries it again.
     @discardableResult
-    func syncNow(context: ModelContext) async -> Bool {
+    func syncNow(context: ModelContext) async -> SyncNowResult {
         var restored = false
+        var restoreFailed = false
         if isBackupAvailable && cloudBackupHasUnappliedChanges {
             restored = await restoreFromiCloud(context: context)
+            restoreFailed = !restored
         }
-        await backupInBackground(context: context)
-        return restored
+        return SyncNowResult(restored: restored, restoreFailed: restoreFailed,
+                             backup: await backupInBackground(context: context))
     }
 
     /// Restores all records from iCloud backup. Returns true if successful.
@@ -1384,27 +1414,104 @@ final class iCloudSyncManager {
         }
     }
 
-    /// Deletes the backup file (and the copy of the previous one) from iCloud.
+    /// Deletes the backup file (and the copy of the previous one) from
+    /// iCloud, and says what really happened.
     @discardableResult
-    func clearFromiCloud() -> Bool {
-        guard let url = Self.backupURL else { return false }
+    func clearFromiCloud() -> ClearOutcome {
+        clear(at: Self.backupURL)
+    }
+
+    /// `clearFromiCloud` with the file passed in (nil: iCloud isn't
+    /// available), so tests can cover a signed-out device.
+    @discardableResult
+    func clear(at url: URL?) -> ClearOutcome {
+        guard let url else { return .iCloudUnavailable }
+        let fileManager = FileManager.default
         let previousURL = Self.previousBackupURL(for: url)
-        if FileManager.default.fileExists(atPath: previousURL.path) {
-            try? FileManager.default.removeItem(at: previousURL)
+        if fileManager.fileExists(atPath: previousURL.path) {
+            try? fileManager.removeItem(at: previousURL)
         }
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return false
+        // Only a placeholder here: there's nothing on this device to delete
+        // yet. Start the download so trying again can delete it.
+        if !fileManager.fileExists(atPath: url.path) {
+            guard Self.isUndownloaded(url) else { return .nothingToClear }
+            try? fileManager.startDownloadingUbiquitousItem(at: url)
+            return .waitingForDownload
         }
-        
+
         do {
-            try FileManager.default.removeItem(at: url)
-            return true
+            // A backup queued before the clear would write the file straight
+            // back. (Only cancelled here: when nothing is deleted, this
+            // device's last change still needs backing up.)
+            backupTask?.cancel()
+            try fileManager.removeItem(at: url)
+            // Whatever stopped the last backup was about the file just deleted.
+            lastBackupOutcome = nil
+            return .cleared
         } catch {
             print("Failed to clear iCloud backup: \(error)")
-            return false
+            return .failed(error.localizedDescription)
         }
     }
 
+}
+
+// MARK: - Outcomes
+
+/// What a backup did (the Windows app's `BackupOutcome`).
+enum BackupOutcome: Equatable, Sendable {
+    case written
+    /// The backup in iCloud already held this library, so it was left as it
+    /// is (#137).
+    case unchanged
+    /// The backup in iCloud isn't on this device yet; its download was started.
+    case waitingForDownload
+    /// The device isn't signed in to iCloud, or iCloud Drive is off for Fanficly.
+    case iCloudUnavailable
+    /// The backup in iCloud couldn't be decoded (damaged, or a newer app's
+    /// format), so it was left alone rather than overwritten.
+    case unreadable
+    case failed(String)
+
+    /// Whether the file in iCloud holds this library now (written, or
+    /// already up to date).
+    var succeeded: Bool { failureMessage == nil }
+
+    /// Why the file wasn't written, or nil when it was (or didn't need to be).
+    var failureMessage: String? {
+        switch self {
+        case .written, .unchanged:
+            nil
+        case .waitingForDownload:
+            String(localized: "The backup in iCloud is still downloading. Fanficly will back up once it's on this device.")
+        case .iCloudUnavailable:
+            String(localized: "iCloud isn't available. Make sure you're signed in to iCloud and iCloud Drive is on for Fanficly.")
+        case .unreadable:
+            String(localized: "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device.")
+        case .failed(let reason):
+            reason
+        }
+    }
+}
+
+/// What Sync Now did: whether it brought other devices' changes into this
+/// library (or tried and couldn't), and how the backup after it went.
+struct SyncNowResult: Equatable, Sendable {
+    var restored: Bool
+    var restoreFailed: Bool
+    var backup: BackupOutcome
+}
+
+/// What Clear iCloud Data did.
+enum ClearOutcome: Equatable, Sendable {
+    case cleared
+    /// There was no backup in iCloud to delete.
+    case nothingToClear
+    /// The backup is in iCloud but not on this device yet, so it couldn't be
+    /// deleted from here; its download was started.
+    case waitingForDownload
+    case iCloudUnavailable
+    case failed(String)
 }
 
 // MARK: - Backup Codable Structs
@@ -1415,16 +1522,9 @@ struct PendingBackup: Sendable {
     let backup: LibraryBackup
 }
 
-/// How `iCloudSyncManager.writeBackup` went.
-enum BackupWriteResult: Sendable {
-    /// The file holds this library now, written or already up to date. The
-    /// stamp is the file's date to mark applied here, or nil when it merged
-    /// in another device's changes this library doesn't have yet.
-    case done(appliedStamp: Date?)
-    /// The file there couldn't be read or decoded, so it was left alone.
-    case unreadable(String)
-    case failed(log: String, message: String)
-}
+/// How `iCloudSyncManager.writeBackup` went, and the file date to stamp
+/// as applied here (nil: leave the stamp alone).
+typealias BackupWrite = (outcome: BackupOutcome, appliedStamp: Date?)
 
 /// Asks iOS for time to finish a backup after the app leaves the screen,
 /// and gives it back when the backup ends or the time runs out.

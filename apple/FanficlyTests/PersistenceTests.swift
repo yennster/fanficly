@@ -800,9 +800,129 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: previousURL), first)
         XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2])
 
-        XCTAssertTrue(iCloudSyncManager.shared.clearFromiCloud())
+        XCTAssertEqual(iCloudSyncManager.shared.clearFromiCloud(), .cleared)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+    }
+
+    /// A backup says what it did, so Sync Now and Settings can tell the user
+    /// instead of only printing to the log (#136).
+    func test_backupSaysWhatHappened() throws {
+        let url = makeTempBackupURL()
+        let placeholderURL = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: placeholderURL)
+            try? FileManager.default.removeItem(at: iCloudSyncManager.previousBackupURL(for: url))
+        }
+        let sync = iCloudSyncManager.shared
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+
+        // Signed out of iCloud: there's nowhere to write.
+        XCTAssertEqual(sync.backup(to: nil, context: device), .iCloudUnavailable)
+        XCTAssertEqual(sync.lastBackupFailure, BackupOutcome.iCloudUnavailable.failureMessage)
+        XCTAssertNotNil(sync.lastBackupFailure)
+
+        // Only a placeholder: nothing is written over it.
+        try Data().write(to: placeholderURL)
+        XCTAssertEqual(sync.backup(to: url, context: device), .waitingForDownload)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertNotNil(sync.lastBackupFailure)
+        try FileManager.default.removeItem(at: placeholderURL)
+
+        // Damaged: left as it is.
+        try Data("not json".utf8).write(to: url)
+        XCTAssertEqual(sync.backup(to: url, context: device), .unreadable)
+        XCTAssertNotNil(sync.lastBackupFailure)
+        try FileManager.default.removeItem(at: url)
+
+        // The write itself fails (here, its folder doesn't exist).
+        let missingFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing_\(UUID().uuidString)/library_backup.json")
+        guard case .failed(let reason) = sync.backup(to: missingFolder, context: device) else {
+            return XCTFail("a write that can't happen must report .failed")
+        }
+        XCTAssertFalse(reason.isEmpty)
+        XCTAssertEqual(sync.lastBackupFailure, reason)
+
+        // Written: the failure clears.
+        XCTAssertEqual(sync.backup(to: url, context: device), .written)
+        XCTAssertNil(sync.lastBackupFailure)
+        XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1])
+    }
+
+    /// Settings shows "iCloud isn't available" only while it isn't: once a
+    /// backup location is back, a stale signed-out failure no longer shows.
+    func test_backupProblemClearsWhenICloudIsBack() throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+        let sync = iCloudSyncManager.shared
+        let device = try makeContext()
+        sync.backup(to: nil, context: device)
+        XCTAssertNotNil(sync.lastBackupFailure)
+        XCTAssertNil(sync.backupProblem)
+
+        try Data("not json".utf8).write(to: url)
+        sync.backupToiCloud(context: device)
+        XCTAssertEqual(sync.backupProblem, BackupOutcome.unreadable.failureMessage)
+    }
+
+    /// Clear iCloud Data says what really happened (#136).
+    func test_clearSaysWhatHappened() throws {
+        let url = makeTempBackupURL()
+        let placeholderURL = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: placeholderURL)
+        }
+        let sync = iCloudSyncManager.shared
+        let device = try makeContext()
+
+        XCTAssertEqual(sync.clear(at: nil), .iCloudUnavailable)
+        XCTAssertEqual(sync.clear(at: url), .nothingToClear)
+
+        // Only a placeholder: nothing on this device to delete yet.
+        try Data().write(to: placeholderURL)
+        XCTAssertEqual(sync.clear(at: url), .waitingForDownload)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: placeholderURL.path))
+        try FileManager.default.removeItem(at: placeholderURL)
+
+        // A real file is deleted, and the failure it caused goes with it.
+        try Data("not json".utf8).write(to: url)
+        XCTAssertEqual(sync.backup(to: url, context: device), .unreadable)
+        XCTAssertEqual(sync.clear(at: url), .cleared)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertNil(sync.lastBackupFailure)
+    }
+
+    /// What Settings says after Sync Now and Clear iCloud Data.
+    func test_syncAndClearResultMessages() {
+        XCTAssertNotNil(SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: .written)))
+        XCTAssertNotEqual(SettingsView.syncResultMessage(SyncNowResult(restored: true, restoreFailed: false, backup: .written)),
+                          SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: .written)))
+        XCTAssertNotEqual(SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: true, backup: .written)),
+                          SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: .written)))
+        // A backup that didn't write leaves the message to the failure line.
+        for outcome in [BackupOutcome.waitingForDownload, .iCloudUnavailable, .unreadable, .failed("disk full")] {
+            XCTAssertNil(SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: outcome)))
+            // A restore that brought changes in is still mentioned.
+            XCTAssertNotNil(SettingsView.syncResultMessage(SyncNowResult(restored: true, restoreFailed: false, backup: outcome)))
+            XCTAssertNotNil(outcome.failureMessage)
+        }
+        XCTAssertNil(BackupOutcome.written.failureMessage)
+
+        let cleared = ClearResultAlert(.cleared, syncTurnedOff: true)
+        XCTAssertTrue(cleared.message.contains("Sync is now off"))
+        XCTAssertTrue(ClearResultAlert(.cleared, syncTurnedOff: false).message.contains("Sync is still on"))
+        XCTAssertEqual(ClearResultAlert(.failed("disk full"), syncTurnedOff: false).message, "disk full")
+        XCTAssertNotEqual(ClearResultAlert(.waitingForDownload, syncTurnedOff: false).title, cleared.title)
     }
 
     /// Backing up a library that hasn't changed since the last backup leaves
@@ -936,7 +1056,7 @@ final class PersistenceTests: XCTestCase {
         let phone = try makeContext()
         _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: phone)
         let first = await sync.syncNow(context: phone)
-        XCTAssertFalse(first)
+        XCTAssertEqual(first, SyncNowResult(restored: false, restoreFailed: false, backup: .written))
         let phoneStamp = try XCTUnwrap(defaults.object(forKey: stampKey) as? Date)
 
         // The iPad (its own stamp) backs up two works.
@@ -950,14 +1070,39 @@ final class PersistenceTests: XCTestCase {
         // The phone's Sync Now pulls them in, then backs up and stamps.
         defaults.set(phoneStamp, forKey: stampKey)
         let second = await sync.syncNow(context: phone)
-        XCTAssertTrue(second)
+        XCTAssertTrue(second.restored)
+        XCTAssertFalse(second.restoreFailed)
+        XCTAssertTrue(second.backup.succeeded, "the file already holds the phone's work, so it may be left alone (#137)")
         XCTAssertEqual(try phone.fetch(FetchDescriptor<Work>()).map(\.ao3Id).sorted(), [1, 10, 11])
         XCTAssertEqual(try decodeBackup(at: url).works.count, 3)
         XCTAssertFalse(sync.cloudBackupHasUnappliedChanges)
 
-        // With nothing new, it doesn't restore again.
+        // With nothing new, it doesn't restore again, and leaves the file as it is.
         let third = await sync.syncNow(context: phone)
-        XCTAssertFalse(third)
+        XCTAssertEqual(third, SyncNowResult(restored: false, restoreFailed: false, backup: .unchanged))
+    }
+
+    /// Sync Now reports a restore that couldn't run, as well as the backup
+    /// after it (#136).
+    func test_syncNowReportsARestoreThatFailed() async throws {
+        let url = makeTempBackupURL()
+        let stampKey = iCloudSyncManager.lastRestoredStampKey
+        let defaults = UserDefaults.standard
+        let originalStamp = defaults.object(forKey: stampKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalStamp, forKey: stampKey)
+        }
+        defaults.removeObject(forKey: stampKey)
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: phone)
+        try Data("not json".utf8).write(to: url)
+
+        let result = await iCloudSyncManager.shared.syncNow(context: phone)
+        XCTAssertEqual(result, SyncNowResult(restored: false, restoreFailed: true, backup: .unreadable))
+        XCTAssertEqual(try Data(contentsOf: url), Data("not json".utf8))
     }
 
     /// Blocked tags and authors from two devices union in the backup file
