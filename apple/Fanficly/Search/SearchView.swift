@@ -479,6 +479,7 @@ struct SearchView: View {
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
+                                    iCloudSyncManager.recordDeletion(.search, key: saved.name)
                                     context.delete(saved)
                                     try? context.save()
                                 } label: {
