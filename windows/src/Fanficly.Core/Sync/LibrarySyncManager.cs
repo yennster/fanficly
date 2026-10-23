@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Fanficly.Core;
 
@@ -44,8 +45,30 @@ public sealed class LibrarySyncManager
     /// either way) — what every library mutation calls.</summary>
     public static void QueueBackupShared(LibraryStore store)
     {
-        if (Shared is { } manager) manager.QueueBackup(store);
+        if (Shared is { } manager) manager.QueueBackup(store, readingActivity: InReadingActivity);
         else LibraryHooks.UpdateWidgetData?.Invoke(store);
+    }
+
+    [ThreadStatic] private static int t_readingActivity;
+
+    /// <summary>Whether this thread is inside a <see cref="ReadingActivity"/> mark.</summary>
+    internal static bool InReadingActivity => t_readingActivity > 0;
+
+    /// <summary>Marks the library saves this thread makes until it's disposed
+    /// as reading activity (a reading position, reading time), which queues
+    /// the slow <see cref="ActivityBackupDebounce"/> backup instead of the
+    /// 2-second one (#137). <see cref="LibraryStore.Changed"/> is raised on the
+    /// saving thread, so the hook that queues backups sees the mark.</summary>
+    public static ReadingActivityScope ReadingActivity()
+    {
+        t_readingActivity++;
+        return default;
+    }
+
+    /// <summary>Ends a <see cref="ReadingActivity"/> mark.</summary>
+    public readonly struct ReadingActivityScope : IDisposable
+    {
+        public void Dispose() => t_readingActivity--;
     }
 
     /// <summary>The settings <see cref="Shared"/> keeps its deletion markers
@@ -75,6 +98,12 @@ public sealed class LibrarySyncManager
 
     /// <summary>How long <see cref="QueueBackup"/> waits for more changes before backing up.</summary>
     public TimeSpan BackupDebounce { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>How long a backup queued by reading activity alone (position
+    /// saves come every 1.5 s while reading) waits. More reading doesn't push
+    /// it back, a library change brings it forward, and closing the app backs
+    /// up anyway.</summary>
+    public TimeSpan ActivityBackupDebounce { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>Merges reader-profile JSON (<c>ReaderProfile.mergedProfiles(localJSON:incomingJSON:)</c>):
     /// (local, incoming) → merged. Installed by the app; ported elsewhere.</summary>
@@ -116,29 +145,47 @@ public sealed class LibrarySyncManager
     public bool IsSyncEnabled => _settings.GetBool(SyncEnabledKey);
 
     /// <summary>Triggers a debounced backup (when sync is on). Always refreshes
-    /// the widget data first.</summary>
-    public void QueueBackup(LibraryStore store)
+    /// the widget data first. <paramref name="readingActivity"/> (a reading
+    /// position or reading time, nothing else) waits
+    /// <see cref="ActivityBackupDebounce"/>, and leaves a backup already queued
+    /// to carry it; anything else replaces the queued backup with one
+    /// <see cref="BackupDebounce"/> from now.</summary>
+    public void QueueBackup(LibraryStore store, bool readingActivity = false)
     {
         LibraryHooks.UpdateWidgetData?.Invoke(store);
         if (!IsSyncEnabled) return;
 
         CancellationTokenSource cts;
+        TimeSpan delay;
         lock (_queueGate)
         {
-            _pendingBackup?.Cancel();
+            if (readingActivity)
+            {
+                if (_pendingBackup is not null) return;
+                delay = ActivityBackupDebounce;
+            }
+            else
+            {
+                _pendingBackup?.Cancel();
+                delay = BackupDebounce;
+            }
             cts = _pendingBackup = new CancellationTokenSource();
         }
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(BackupDebounce, cts.Token).ConfigureAwait(false);
+                await Task.Delay(delay, cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 return;
             }
-            if (cts.IsCancellationRequested) return;
+            lock (_queueGate)
+            {
+                if (cts.IsCancellationRequested) return;
+                if (ReferenceEquals(_pendingBackup, cts)) _pendingBackup = null;
+            }
             Backup(store);
         });
     }
@@ -206,7 +253,18 @@ public sealed class LibrarySyncManager
             // 4. Serialize, keeping the keys this app doesn't know from the file
             // it merged with (the Apple app's newer fields), and write atomically.
             var data = LibraryBackupJson.Encode(backup);
-            if (mergedWith is not null) data = BackupUnknownKeys.Preserve(data, mergedWith);
+            if (mergedWith is not null)
+            {
+                data = BackupUnknownKeys.Preserve(data, mergedWith);
+                // When that's what the file already holds, leave it alone:
+                // rewriting it would only change the timestamp, and the sync
+                // app would upload the whole library again for nothing (#137).
+                if (SameBackupContent(data, mergedWith))
+                {
+                    if (!mergedUnappliedChanges) MarkCloudBackupApplied();
+                    return BackupOutcome.Unchanged;
+                }
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllBytes(tmp, data);
@@ -234,6 +292,25 @@ public sealed class LibrarySyncManager
             LibraryHooks.Log?.Invoke($"Failed to back up the library: {e.Message}");
             LastBackupError = e.Message;
             return BackupOutcome.Failed;
+        }
+    }
+
+    /// <summary>Whether two encoded backups hold the same records and settings,
+    /// ignoring <c>timestamp</c>, which every backup stamps afresh. Compares the
+    /// parsed JSON, so key order and formatting don't count; a file the Apple
+    /// app wrote (its date format) just counts as different once.</summary>
+    internal static bool SameBackupContent(byte[] a, byte[] b)
+    {
+        try
+        {
+            if (JsonNode.Parse(a) is not JsonObject first || JsonNode.Parse(b) is not JsonObject second) return false;
+            first.Remove("timestamp");
+            second.Remove("timestamp");
+            return JsonNode.DeepEquals(first, second);
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 
@@ -283,8 +360,10 @@ public sealed class LibrarySyncManager
     /// <summary>The library as a backup, mapping every record type.</summary>
     internal LibraryBackup MakeLocalBackup(LibraryStore store)
     {
+        // BodyForBackup reads a body that isn't loaded without keeping it, so
+        // a backup doesn't leave the whole library's text in memory (#137).
         var works = store.All<Work>().Select(work => ToBackup(work,
-            store.ChaptersOf(work).Select(ch => new ChapterBackup(ch.Index, ch.Title, ch.BodyHtml, ch.AoId)).ToList())).ToList();
+            store.ChaptersOf(work).Select(ch => new ChapterBackup(ch.Index, ch.Title, ch.BodyForBackup, ch.AoId)).ToList())).ToList();
 
         return new LibraryBackup(
             Works: works,
@@ -975,6 +1054,8 @@ public readonly record struct SyncNowResult(bool Restored, BackupOutcome Backup)
 public enum BackupOutcome
 {
     Written,
+    /// <summary>The backup there already held this library, so it was left as it is.</summary>
+    Unchanged,
     /// <summary>Sync is off or has no folder.</summary>
     NoFolder,
     /// <summary>The backup there is a cloud placeholder that isn't downloaded yet.</summary>

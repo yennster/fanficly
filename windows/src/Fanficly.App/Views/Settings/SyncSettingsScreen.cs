@@ -296,7 +296,7 @@ public sealed class SyncSettingsScreen : Screen
             if (result.Restored) RestoreDownloadCenter.Shared.ProposeRedownload(AppHost.Library);
             switch (result.Backup)
             {
-                case BackupOutcome.Written:
+                case BackupOutcome.Written or BackupOutcome.Unchanged:
                     MainWindow.Current.ShowMessage("Synced", result.Restored
                         ? "Changes from your other devices were added to your library, and it was saved to the sync folder."
                         : "Your library was saved to the sync folder.");
