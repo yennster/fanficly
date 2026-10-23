@@ -710,9 +710,83 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(first, File.ReadAllBytes(prev));
         Assert.Equal([1, 2], DecodeBackup(path).Works.Select(w => w.Ao3Id));
 
-        Assert.True(sync.Clear());
+        Assert.Equal(ClearOutcome.Cleared, sync.Clear());
         Assert.False(File.Exists(path));
         Assert.False(File.Exists(prev));
+    }
+
+    /// <summary>Every backup, automatic ones included, keeps its outcome so
+    /// Sync settings can say quietly when they keep failing (#136).</summary>
+    [Fact]
+    public void BackupKeepsItsOutcomeForSyncSettings()
+    {
+        var path = MakeTempBackupPath();
+        _tempFiles.Add(LibrarySyncManager.PreviousBackupPath(path));
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), store);
+        var sync = MakeSync(path);
+        Assert.Null(sync.LastBackupOutcome);
+        Assert.Null(sync.BackupProblem);
+
+        File.WriteAllText(path, "not json");
+        sync.Backup(store);
+        Assert.Equal(BackupOutcome.Unreadable, sync.LastBackupOutcome);
+        Assert.Contains(sync.LastBackupError!, sync.BackupProblem);
+
+        File.Delete(path);
+        sync.Backup(store);
+        Assert.Equal(BackupOutcome.Written, sync.LastBackupOutcome);
+        Assert.Null(sync.BackupProblem);
+
+        Assert.Null(BackupOutcomeText.Problem(BackupOutcome.Written, null));
+        Assert.Null(BackupOutcomeText.Problem(BackupOutcome.Unchanged, null));
+        foreach (var outcome in Enum.GetValues<BackupOutcome>().Where(o => o is not (BackupOutcome.Written or BackupOutcome.Unchanged)))
+            Assert.False(string.IsNullOrEmpty(BackupOutcomeText.Problem(outcome, null)));
+    }
+
+    /// <summary>A queued (automatic) backup that fails records that too.</summary>
+    [Fact]
+    public async Task QueuedBackupKeepsItsOutcome()
+    {
+        var path = MakeTempBackupPath();
+        File.WriteAllText(path, "not json");
+        using var store = MakeContext();
+        var settings = new InMemoryKeyValueStore();
+        settings.SetBool(LibrarySyncManager.SyncEnabledKey, true);
+        var sync = MakeSync(path, settings);
+        sync.BackupDebounce = TimeSpan.Zero;
+        sync.QueueBackup(store);
+        for (var i = 0; i < 100 && sync.LastBackupOutcome is null; i++) await Task.Delay(20);
+        Assert.Equal(BackupOutcome.Unreadable, sync.LastBackupOutcome);
+        Assert.NotNull(sync.BackupProblem);
+    }
+
+    /// <summary>Clear says what really happened, and a clear forgets the
+    /// failure the deleted file caused (#136).</summary>
+    [Fact]
+    public void ClearSaysWhatHappened()
+    {
+        Assert.Equal(ClearOutcome.NoFolder, new LibrarySyncManager(new InMemoryKeyValueStore()).Clear());
+
+        var path = MakeTempBackupPath();
+        var sync = MakeSync(path);
+        Assert.Equal(ClearOutcome.NothingToClear, sync.Clear());
+
+        var placeholder = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.icloud");
+        _tempFiles.Add(placeholder);
+        File.WriteAllText(placeholder, "");
+        Assert.Equal(ClearOutcome.NotDownloaded, sync.Clear());
+        Assert.True(File.Exists(placeholder));
+        File.Delete(placeholder);
+
+        using var store = MakeContext();
+        File.WriteAllText(path, "not json");
+        sync.Backup(store);
+        Assert.NotNull(sync.BackupProblem);
+        Assert.Equal(ClearOutcome.Cleared, sync.Clear());
+        Assert.False(File.Exists(path));
+        Assert.Null(sync.LastBackupOutcome);
+        Assert.Null(sync.BackupProblem);
     }
 
     /// <summary>The Apple app writes fields this one doesn't know (notes and
@@ -842,7 +916,7 @@ public sealed class PersistenceTests : IDisposable
         using var pc = MakeContext();
         WorkPersistence.Upsert(Payload(1, 1), pc);
         var pcSync = MakeSync(path);
-        Assert.Equal(new SyncNowResult(false, BackupOutcome.Unreadable), await pcSync.SyncNowAsync(pc));
+        Assert.Equal(new SyncNowResult(false, BackupOutcome.Unreadable, RestoreFailed: true), await pcSync.SyncNowAsync(pc));
         Assert.Equal("not json", File.ReadAllText(path));
         Assert.True(pcSync.CloudBackupHasUnappliedChanges);
     }

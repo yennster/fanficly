@@ -161,7 +161,7 @@ public sealed class LibrarySyncManager
         {
             if (readingActivity)
             {
-                if (_pendingBackup is not null) return;
+                if (_pendingBackup is { IsCancellationRequested: false }) return;
                 delay = ActivityBackupDebounce;
             }
             else
@@ -206,8 +206,43 @@ public sealed class LibrarySyncManager
     /// backup already there so a device that holds only part of the library (a
     /// fresh install, a metadata-only laptop) can never last-writer-wins away
     /// another device's records. Says whether the file was written, so Back
-    /// Up Now can report what really happened.</summary>
+    /// Up Now can report what really happened, and keeps it as
+    /// <see cref="LastBackupOutcome"/> so Sync settings can say when the
+    /// automatic backups keep failing.</summary>
     public BackupOutcome Backup(LibraryStore store)
+    {
+        // One at a time (a queued backup on the thread pool, Sync Now, Clear),
+        // so the outcome kept is the last one's and a clear can't be undone
+        // by a backup already writing.
+        lock (_fileGate)
+        {
+            var outcome = WriteBackup(store);
+            var problem = BackupOutcomeText.Problem(outcome, LastBackupError);
+            lock (_queueGate) _lastBackup = (outcome, problem);
+            return outcome;
+        }
+    }
+
+    /// <summary>Serializes the writes and deletes of the backup file.</summary>
+    private readonly Lock _fileGate = new();
+    private (BackupOutcome Outcome, string? Problem)? _lastBackup;
+
+    /// <summary>How the last backup (automatic or Sync Now) went; null before
+    /// the first one and after Clear.</summary>
+    public BackupOutcome? LastBackupOutcome
+    {
+        get { lock (_queueGate) return _lastBackup?.Outcome; }
+    }
+
+    /// <summary>Why backups aren't writing the file right now, for the quiet
+    /// status line in Sync settings (the Swift app's <c>backupProblem</c>);
+    /// null when the last one wrote it.</summary>
+    public string? BackupProblem
+    {
+        get { lock (_queueGate) return _lastBackup?.Problem; }
+    }
+
+    private BackupOutcome WriteBackup(LibraryStore store)
     {
         if (BackupPath is not { } path) return BackupOutcome.NoFolder;
 
@@ -638,17 +673,22 @@ public sealed class LibrarySyncManager
     public async Task<SyncNowResult> SyncNowAsync(LibraryStore store, CancellationToken ct = default)
     {
         var restored = false;
-        try
+        var restoreFailed = false;
+        if (IsBackupAvailable && CloudBackupHasUnappliedChanges)
         {
-            restored = IsBackupAvailable && CloudBackupHasUnappliedChanges && await RestoreAsync(store, ct);
-        }
-        catch (Exception e) when (e is not OperationCanceledException)
-        {
+            try
+            {
+                restored = await RestoreAsync(store, ct);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                LibraryHooks.Log?.Invoke($"Sync Now's restore failed: {e.Message}");
+            }
             // Still back up this PC's changes; the stamp didn't move, so the
             // next launch or Sync Now tries the restore again.
-            LibraryHooks.Log?.Invoke($"Sync Now's restore failed: {e.Message}");
+            restoreFailed = !restored;
         }
-        return new SyncNowResult(restored, Backup(store));
+        return new SyncNowResult(restored, Backup(store), restoreFailed);
     }
 
     // MARK: - Restore
@@ -1034,33 +1074,52 @@ public sealed class LibrarySyncManager
                 store.Delete(filter);
     }
 
-    /// <summary>Deletes the backup file (and the copy of the previous one) from the sync folder.</summary>
-    public bool Clear()
+    /// <summary>Deletes the backup file (and the copy of the previous one)
+    /// from the sync folder, and says what really happened.</summary>
+    public ClearOutcome Clear()
     {
-        CancelPendingBackup();
-        if (BackupPath is not { } path) return false;
+        if (BackupPath is not { } path) return ClearOutcome.NoFolder;
+        lock (_fileGate) return ClearFile(path);
+    }
+
+    private ClearOutcome ClearFile(string path)
+    {
         try { File.Delete(PreviousBackupPath(path)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             LibraryHooks.Log?.Invoke($"Failed to clear the previous library backup: {e.Message}");
         }
-        if (!File.Exists(path)) return false;
+        if (!File.Exists(path))
+            return File.Exists(PlaceholderPath(path)) ? ClearOutcome.NotDownloaded : ClearOutcome.NothingToClear;
         try
         {
             File.Delete(path);
-            return true;
+            lock (_queueGate)
+            {
+                // A backup queued before the clear would write the file
+                // straight back. (Only cancelled here: when nothing is
+                // deleted, this PC's last change still needs backing up.)
+                _pendingBackup?.Cancel();
+                // Whatever stopped the last backup was about the file just deleted.
+                _lastBackup = null;
+            }
+            return ClearOutcome.Cleared;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             LibraryHooks.Log?.Invoke($"Failed to clear the library backup: {e.Message}");
-            return false;
+            LastClearError = e.Message;
+            return ClearOutcome.Failed;
         }
     }
+
+    /// <summary>Why the last Clear that failed failed.</summary>
+    public string? LastClearError { get; private set; }
 }
 
 /// <summary>What Sync Now did: whether it restored other devices' changes
-/// into the library, and how the backup after it went.</summary>
-public readonly record struct SyncNowResult(bool Restored, BackupOutcome Backup);
+/// into the library (or tried and couldn't), and how the backup after it went.</summary>
+public readonly record struct SyncNowResult(bool Restored, BackupOutcome Backup, bool RestoreFailed = false);
 
 /// <summary>What <see cref="LibrarySyncManager.Backup"/> did.</summary>
 public enum BackupOutcome
@@ -1078,4 +1137,40 @@ public enum BackupOutcome
     /// format), so it was left alone rather than overwritten.</summary>
     Unreadable,
     Failed,
+}
+
+/// <summary>What <see cref="LibrarySyncManager.Clear"/> did.</summary>
+public enum ClearOutcome
+{
+    Cleared,
+    /// <summary>There was no backup in the sync folder.</summary>
+    NothingToClear,
+    /// <summary>The backup there is a cloud placeholder that isn't downloaded
+    /// yet, so there's nothing on this PC to delete.</summary>
+    NotDownloaded,
+    /// <summary>No sync folder is chosen.</summary>
+    NoFolder,
+    Failed,
+}
+
+/// <summary>What Sync settings says about a backup that didn't write the file
+/// (the Swift app's <c>BackupOutcome.failureMessage</c>).</summary>
+public static class BackupOutcomeText
+{
+    /// <summary>Why the file wasn't written, or null when it was (or already
+    /// held this library).</summary>
+    public static string? Problem(BackupOutcome outcome, string? error) => outcome switch
+    {
+        BackupOutcome.Written or BackupOutcome.Unchanged => null,
+        BackupOutcome.NoFolder => "No sync folder is chosen. Choose one below.",
+        BackupOutcome.NotDownloaded =>
+            "The backup in the sync folder is still downloading from the cloud. Fanficly will back up once it's on this PC.",
+        BackupOutcome.FileBusy => "The sync app was using the backup file. Fanficly will try again with your next change.",
+        BackupOutcome.Unreadable =>
+            "Fanficly couldn't read the backup in the sync folder, so it left it alone rather than replace it with this PC's library. It may be damaged, or written by a newer version of Fanficly. Update Fanficly, or use Clear Synced Data to start a new backup from this PC."
+            + Detail(error),
+        _ => "Couldn't write to the sync folder. Make sure it's available." + Detail(error),
+    };
+
+    private static string Detail(string? error) => string.IsNullOrEmpty(error) ? "" : $" ({error})";
 }
