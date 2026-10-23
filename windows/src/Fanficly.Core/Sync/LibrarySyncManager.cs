@@ -152,25 +152,36 @@ public sealed class LibrarySyncManager
     /// automatic backups keep failing.</summary>
     public BackupOutcome Backup(LibraryStore store)
     {
-        var outcome = WriteBackup(store);
-        lock (_queueGate) _lastBackupOutcome = outcome;
-        return outcome;
+        // One at a time (a queued backup on the thread pool, Sync Now, Clear),
+        // so the outcome kept is the last one's and a clear can't be undone
+        // by a backup already writing.
+        lock (_fileGate)
+        {
+            var outcome = WriteBackup(store);
+            var problem = BackupOutcomeText.Problem(outcome, LastBackupError);
+            lock (_queueGate) _lastBackup = (outcome, problem);
+            return outcome;
+        }
     }
 
-    private BackupOutcome? _lastBackupOutcome;
+    /// <summary>Serializes the writes and deletes of the backup file.</summary>
+    private readonly Lock _fileGate = new();
+    private (BackupOutcome Outcome, string? Problem)? _lastBackup;
 
     /// <summary>How the last backup (automatic or Sync Now) went; null before
     /// the first one and after Clear.</summary>
     public BackupOutcome? LastBackupOutcome
     {
-        get { lock (_queueGate) return _lastBackupOutcome; }
+        get { lock (_queueGate) return _lastBackup?.Outcome; }
     }
 
     /// <summary>Why backups aren't writing the file right now, for the quiet
     /// status line in Sync settings (the Swift app's <c>backupProblem</c>);
     /// null when the last one wrote it.</summary>
-    public string? BackupProblem =>
-        LastBackupOutcome is { } outcome ? BackupOutcomeText.Problem(outcome, LastBackupError) : null;
+    public string? BackupProblem
+    {
+        get { lock (_queueGate) return _lastBackup?.Problem; }
+    }
 
     private BackupOutcome WriteBackup(LibraryStore store)
     {
@@ -978,8 +989,11 @@ public sealed class LibrarySyncManager
     public ClearOutcome Clear()
     {
         if (BackupPath is not { } path) return ClearOutcome.NoFolder;
-        // A backup queued before the clear would write the file straight back.
-        lock (_queueGate) _pendingBackup?.Cancel();
+        lock (_fileGate) return ClearFile(path);
+    }
+
+    private ClearOutcome ClearFile(string path)
+    {
         try { File.Delete(PreviousBackupPath(path)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -990,8 +1004,15 @@ public sealed class LibrarySyncManager
         try
         {
             File.Delete(path);
-            // Whatever stopped the last backup was about the file just deleted.
-            lock (_queueGate) _lastBackupOutcome = null;
+            lock (_queueGate)
+            {
+                // A backup queued before the clear would write the file
+                // straight back. (Only cancelled here: when nothing is
+                // deleted, this PC's last change still needs backing up.)
+                _pendingBackup?.Cancel();
+                // Whatever stopped the last backup was about the file just deleted.
+                _lastBackup = null;
+            }
             return ClearOutcome.Cleared;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

@@ -1323,8 +1323,6 @@ final class iCloudSyncManager {
     @discardableResult
     func clear(at url: URL?) -> ClearOutcome {
         guard let url else { return .iCloudUnavailable }
-        // A backup queued before the clear would write the file straight back.
-        backupTask?.cancel()
         let fileManager = FileManager.default
         let previousURL = Self.previousBackupURL(for: url)
         if fileManager.fileExists(atPath: previousURL.path) {
@@ -1339,6 +1337,10 @@ final class iCloudSyncManager {
         }
 
         do {
+            // A backup queued before the clear would write the file straight
+            // back. (Only cancelled here: when nothing is deleted, this
+            // device's last change still needs backing up.)
+            backupTask?.cancel()
             try fileManager.removeItem(at: url)
             // Whatever stopped the last backup was about the file just deleted.
             lastBackupOutcome = nil

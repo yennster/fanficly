@@ -25,6 +25,8 @@ struct SettingsView: View {
     /// What the last Sync Now did, shown under "Last synced" until the
     /// screen goes away.
     @State private var syncResult: String? = nil
+    /// The Sync Now line is a partial success (a warning, not a checkmark).
+    @State private var syncResultIsWarning = false
     @State private var showingClearConfirmation = false
     @State private var clearResult: ClearResultAlert? = nil
     private let syncManager = iCloudSyncManager.shared
@@ -104,7 +106,7 @@ struct SettingsView: View {
                         Label {
                             Text(syncResult)
                         } icon: {
-                            Image(systemName: "checkmark.circle")
+                            Image(systemName: syncResultIsWarning ? "exclamationmark.triangle" : "checkmark.circle")
                                 .accessibilityHidden(true)
                         }
                         .foregroundStyle(.secondary)
@@ -119,6 +121,7 @@ struct SettingsView: View {
                             lastSync = syncManager.lastBackupDate
                             lastBackupFailure = syncManager.backupProblem
                             syncResult = Self.syncResultMessage(result)
+                            syncResultIsWarning = result.restoreFailed || result.backup != .written
                             if let message = syncResult ?? lastBackupFailure {
                                 announce(message)
                             }
@@ -258,6 +261,7 @@ struct SettingsView: View {
         .onAppear {
             lastSync = syncManager.lastBackupDate
             lastBackupFailure = syncManager.backupProblem
+            syncResult = nil
         }
         .onChange(of: filterMature) { _, _ in
             syncManager.queueBackup(context: context)
@@ -282,10 +286,15 @@ struct SettingsView: View {
         }
     }
 
-    /// The line Sync Now leaves under "Last synced" when the backup was
-    /// written; nil when it wasn't (`backupProblem` says why).
+    /// The line Sync Now leaves under "Last synced". When the backup didn't
+    /// write, `backupProblem` says why, so this only mentions a restore that
+    /// still brought changes in.
     static func syncResultMessage(_ result: SyncNowResult) -> String? {
-        guard result.backup == .written else { return nil }
+        guard result.backup == .written else {
+            return result.restored
+                ? String(localized: "Changes from your other devices were added to your library, but this device's backup didn't run.")
+                : nil
+        }
         if result.restored {
             return String(localized: "Synced. Changes from your other devices were added to your library.")
         }
@@ -296,13 +305,17 @@ struct SettingsView: View {
     }
 
     private func cleariCloudData(turnOffSync: Bool) {
-        // Off first, so no backup queued by a change re-creates the file.
-        if turnOffSync { iCloudSyncEnabled = false }
+        // The clear cancels a queued backup and nothing backs up in between
+        // (both run on the main actor), so sync goes off after it, and only
+        // when it worked: otherwise Clear iCloud Data must stay on screen to
+        // try again.
         let outcome = syncManager.clearFromiCloud()
+        let turnedOff = turnOffSync && (outcome == .cleared || outcome == .nothingToClear)
+        if turnedOff { iCloudSyncEnabled = false }
         lastSync = syncManager.lastBackupDate
         lastBackupFailure = syncManager.backupProblem
         syncResult = nil
-        let alert = ClearResultAlert(outcome, syncTurnedOff: turnOffSync)
+        let alert = ClearResultAlert(outcome, syncTurnedOff: turnedOff)
         clearResult = alert
         announce(alert.message)
     }

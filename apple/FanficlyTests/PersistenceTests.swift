@@ -912,6 +912,8 @@ final class PersistenceTests: XCTestCase {
         // A backup that didn't write leaves the message to the failure line.
         for outcome in [BackupOutcome.waitingForDownload, .iCloudUnavailable, .unreadable, .failed("disk full")] {
             XCTAssertNil(SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: outcome)))
+            // A restore that brought changes in is still mentioned.
+            XCTAssertNotNil(SettingsView.syncResultMessage(SyncNowResult(restored: true, restoreFailed: false, backup: outcome)))
             XCTAssertNotNil(outcome.failureMessage)
         }
         XCTAssertNil(BackupOutcome.written.failureMessage)
@@ -1027,6 +1029,29 @@ final class PersistenceTests: XCTestCase {
         // With nothing new, it doesn't restore again.
         let third = await sync.syncNow(context: phone)
         XCTAssertEqual(third, SyncNowResult(restored: false, restoreFailed: false, backup: .written))
+    }
+
+    /// Sync Now reports a restore that couldn't run, as well as the backup
+    /// after it (#136).
+    func test_syncNowReportsARestoreThatFailed() async throws {
+        let url = makeTempBackupURL()
+        let stampKey = iCloudSyncManager.lastRestoredStampKey
+        let defaults = UserDefaults.standard
+        let originalStamp = defaults.object(forKey: stampKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalStamp, forKey: stampKey)
+        }
+        defaults.removeObject(forKey: stampKey)
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: phone)
+        try Data("not json".utf8).write(to: url)
+
+        let result = await iCloudSyncManager.shared.syncNow(context: phone)
+        XCTAssertEqual(result, SyncNowResult(restored: false, restoreFailed: true, backup: .unreadable))
+        XCTAssertEqual(try Data(contentsOf: url), Data("not json".utf8))
     }
 
     /// Blocked tags and authors from two devices union in the backup file

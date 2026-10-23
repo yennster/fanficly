@@ -405,14 +405,17 @@ public sealed class SyncSettingsScreen : Screen
         dialog.SecondaryButtonStyle = danger;
         var choice = await Dialogs.ShowAsync(dialog);
         if (choice == ContentDialogResult.None) return;
-        var turnOff = choice == ContentDialogResult.Primary;
-        // Off first, so no backup queued by a change re-creates the file.
+        // Clear cancels a queued backup and waits for one already writing.
+        // Sync goes off only when the clear worked, so Clear Synced Data
+        // stays on screen to try again.
+        var outcome = Sync.Clear();
+        var turnOff = choice == ContentDialogResult.Primary
+                      && outcome is ClearOutcome.Cleared or ClearOutcome.NothingToClear;
         if (turnOff)
         {
             KeyValueStores.Default.SetBool(LibrarySyncManager.SyncEnabledKey, false);
             ApplyFolderToStores(Sync.SyncFolder);
         }
-        var outcome = Sync.Clear();
         Render();
         var syncNote = turnOff
             ? "Sync is now off on this PC."

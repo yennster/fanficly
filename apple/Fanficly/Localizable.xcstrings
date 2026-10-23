@@ -61,6 +61,16 @@
         }
       }
     },
+    "Changes from your other devices were added to your library, but this device's backup didn't run." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes from your other devices were added to your library, but this device's backup didn't run."
+          }
+        }
+      }
+    },
     "Clear and Keep Syncing" : {
       "localizations" : {
         "en" : {
