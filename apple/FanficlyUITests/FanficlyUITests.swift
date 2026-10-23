@@ -146,29 +146,30 @@ final class ReaderLayoutTests: XCTestCase {
                                          screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
     }
 
-    func test_fullScreen_alwaysHasAWayOut() throws {
-        // Full screen used to leave only an invisible tap on the page's middle
-        // third, which on iPhone Duo could go nowhere: the reader was a trap.
-        // The glass rail at the trailing edge brings the controls back, and
-        // its Back button leaves the reader.
+    func test_fullScreen_keepsTheToolbar() throws {
+        // Full screen used to hide the whole toolbar, leaving only an
+        // invisible tap on the page's middle third, which on iPhone Duo could
+        // go nowhere: the reader was a trap. The system toolbar (its back
+        // button and Show reader controls) now stays in every mode.
         let footer = openReader()
         let bar = footer.frame
-        let back = app.buttons["reader.fullScreen.back"]
-        let exit = app.buttons["reader.fullScreen.exit"]
-        XCTAssertFalse(exit.exists, "the rail only shows in full screen")
+        let toggle = app.buttons["reader.fullScreenToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "the full screen button")
+        let back = app.buttons.matching(NSPredicate(
+            format: "identifier == 'BackButton' OR label == 'Back' OR label == 'Search'")).firstMatch
+        XCTAssertTrue(back.exists, "the system back button")
         tap(CGPoint(x: bar.midX, y: bar.minY - 200))
         XCTAssertTrue(waitForAbsence(footer), "the controls hid")
-        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen shows Show reader controls")
-        XCTAssertTrue(back.exists && back.isHittable, "full screen shows Back")
-        capture("10-full-screen-rail")
-        exit.tap()
+        capture("10-full-screen-toolbar")
+        XCTAssertTrue(toggle.exists && toggle.isHittable, "full screen keeps Show reader controls")
+        XCTAssertEqual(toggle.label, "Show reader controls")
+        XCTAssertTrue(back.exists && back.isHittable, "full screen keeps the back button")
+        toggle.tap()
         XCTAssertTrue(footer.waitForExistence(timeout: 5), "Show reader controls brought the controls back")
-        XCTAssertTrue(waitForAbsence(exit), "the rail went with full screen")
         settle()
         tap(CGPoint(x: bar.midX, y: bar.minY - 200))
-        XCTAssertTrue(back.waitForExistence(timeout: 5), "full screen again")
+        XCTAssertTrue(waitForAbsence(footer), "full screen again")
         back.tap()
-        XCTAssertTrue(waitForAbsence(back, timeout: 8), "Back left the reader")
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
     }
 

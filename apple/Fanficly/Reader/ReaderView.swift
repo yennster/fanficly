@@ -386,9 +386,6 @@ struct ReaderView: View {
                 pageFooterBar(fg: fg, bg: bg)
             }
         }
-        // Full screen keeps a visible way out: Back and Show reader controls
-        // on a glass rail at the trailing edge, in every reading mode.
-        .modifier(ReaderFullScreenRailModifier(isUIMinimized: $isUIMinimized, fg: fg))
         // The reader has no text input, so it must never reserve room for the
         // keyboard. Without this, focus landing on the page (it's
         // `.focusable()` for hardware arrow-key turns, see
@@ -404,8 +401,13 @@ struct ReaderView: View {
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbarBackground(bg, for: .navigationBar)
-        .toolbarBackground(duoBookLayout ? .hidden : .visible, for: .navigationBar)
-        .toolbar(isUIMinimized ? .hidden : .visible, for: .navigationBar)
+        // Full screen keeps the system toolbar, with its back button and the
+        // Show reader controls item, as Liquid Glass buttons floating over
+        // the page (iPhone Duo's vertical strip on the side); only the bar's
+        // background goes. Hiding the whole bar left nothing but an invisible
+        // tap to get out, and on the Duo that tap could fail, trapping the
+        // reader until the app was force-quit.
+        .toolbarBackground(duoBookLayout || isUIMinimized ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             if chapters.count > 1 {
                 ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
@@ -414,16 +416,13 @@ struct ReaderView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
-                        isUIMinimized = true
+                        isUIMinimized.toggle()
                     }
                 } label: {
-                    Label("Hide reader controls", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Label(isUIMinimized ? "Show reader controls" : "Hide reader controls",
+                          systemImage: isUIMinimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 }
-                // Full screen keeps Back and Show reader controls on the
-                // trailing glass rail (ReaderFullScreenRailModifier); the
-                // custom "Show reader controls" action on the reader body is
-                // there too — keep them in sync.
-                .accessibilityHint("Hides the toolbar. To bring it back, use the Show Reader Controls button at the right edge.")
+                .accessibilityIdentifier("reader.fullScreenToggle")
             }
         }
         // Chapters can arrive after narration started; the chapter-end
