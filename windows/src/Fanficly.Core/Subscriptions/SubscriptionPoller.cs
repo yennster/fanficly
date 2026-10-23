@@ -261,8 +261,7 @@ public sealed class SubscriptionPoller
             var result = await _client.FetchAuthorWorksAsync(author.Username, 1, ct).ConfigureAwait(false);
             // Signed in but served the guest page: the session expired. The
             // public works still alert; restricted ones aren't in the baseline
-            // yet, so they alert once a signed-in poll sees them (unless a
-            // newer public work has joined the baseline by then).
+            // yet, so they alert once a signed-in poll sees them.
             if (Username is not null && result.ServedAsGuest) SessionExpired = true;
             var latestIds = result.Works.Select(w => w.Id);
             var known = author.KnownWorkIds.ToHashSet();
@@ -313,17 +312,19 @@ public sealed class SubscriptionPoller
     /// <summary>The works on an author's first page that are newly posted since
     /// the baseline <paramref name="known"/> was taken. AO3 lists an author's
     /// works by last update, so an older work we never saw (it was past page 1
-    /// at follow time, or the author was just added as a co-creator) shows up
-    /// unknown when it gets a chapter; alerting for it as a new work opened that
-    /// old story. AO3 work ids only grow, so a newly posted work is one newer
-    /// than every known id; older unknown ones just join the baseline. Empty
-    /// with no baseline yet — a freshly-followed author is seeded at follow
-    /// time, but a first poll must never alert for the whole back catalogue.</summary>
-    public static IReadOnlyList<AO3WorkSummary> NewlyPostedWorks(IReadOnlyList<AO3WorkSummary> works, IReadOnlySet<int> known)
+    /// at follow time) shows up unknown when it gets a chapter; alerting for it
+    /// as a new work opened that old story. An unknown work is new when it's
+    /// newer than every known one (AO3 work ids only grow) or has a single
+    /// chapter, which an update can't leave it with — that still catches a new
+    /// work with a lower id: a gift revealed from an anonymous collection, a
+    /// long-held draft, or a restricted work a guest page left out. Empty with
+    /// no baseline yet — a freshly-followed author is seeded at follow time, but
+    /// a first poll must never alert for the whole back catalogue.</summary>
+    internal static IReadOnlyList<AO3WorkSummary> NewlyPostedWorks(IReadOnlyList<AO3WorkSummary> works, IReadOnlySet<int> known)
     {
         if (known.Count == 0) return [];
         var newestKnown = known.Max();
-        return works.Where(w => w.Id > newestKnown).ToList();
+        return works.Where(w => !known.Contains(w.Id) && (w.Id > newestKnown || w.ChapterCount == 1)).ToList();
     }
 
     // MARK: - Notification content

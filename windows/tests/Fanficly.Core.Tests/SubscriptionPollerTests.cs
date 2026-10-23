@@ -146,7 +146,7 @@ public sealed class SubscriptionPollerTests
         store.Insert(new FollowedAuthor("prolific", "Prolific", knownWorkIds: [50, 60]));
         store.Save();
         var client = new PollerFakeClient();
-        client.AuthorWorks["prolific"] = [Summary(70, "Brand New"), Summary(10, "Old, Just Updated"), Summary(60), Summary(50)];
+        client.AuthorWorks["prolific"] = [Summary(70, "Brand New"), Summary(10, "Old, Just Updated") with { ChapterCount = 4 }, Summary(60), Summary(50)];
         var notifier = new RecordingNotifier();
         var poller = new SubscriptionPoller(client, store, null, notifier);
 
@@ -159,9 +159,15 @@ public sealed class SubscriptionPollerTests
         Assert.Equal([10, 50, 60, 70], store.GetFollowedAuthor("prolific")!.KnownWorkIds.Order());
 
         // Only an updated old work: no alert at all.
-        client.AuthorWorks["prolific"] = [Summary(5, "Older Still"), Summary(70), Summary(10)];
+        client.AuthorWorks["prolific"] = [Summary(5, "Older Still") with { ChapterCount = 2 }, Summary(70), Summary(10)];
         Assert.Equal(0, await poller.CheckFollowedAuthorsAsync());
         Assert.Single(notifier.Posted);
+
+        // A one-chapter work with a lower id (a gift revealed from an anonymous
+        // collection, a long-held draft) is still a new work.
+        client.AuthorWorks["prolific"] = [Summary(65, "Revealed Gift"), Summary(70), Summary(10)];
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal("New work: Revealed Gift", notifier.Posted[^1].Body);
     }
 
     /// <summary>Signed in, a guest page means the session expired (#131): the

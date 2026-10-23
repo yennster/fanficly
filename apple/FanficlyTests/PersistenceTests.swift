@@ -2438,8 +2438,8 @@ final class PersistenceTests: XCTestCase {
         try ctx.save()
         let client = StubAO3Client()
         client.authorWorksResponse = AO3SearchResults(
-            works: [.stub(id: 70, title: "Brand New"), .stub(id: 10, title: "Old, Just Updated"),
-                    .stub(id: 60, title: ""), .stub(id: 50, title: "")],
+            works: [authorWork(70, "Brand New"), authorWork(10, "Old, Just Updated", chapters: 4),
+                    authorWork(60), authorWork(50)],
             totalPages: 1, currentPage: 1)
 
         let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
@@ -2450,19 +2450,32 @@ final class PersistenceTests: XCTestCase {
 
         // Only an updated old work: no alert at all.
         client.authorWorksResponse = AO3SearchResults(
-            works: [.stub(id: 5, title: "Older Still"), .stub(id: 70, title: ""), .stub(id: 10, title: "")],
+            works: [authorWork(5, "Older Still", chapters: 2), authorWork(70), authorWork(10, chapters: 4)],
             totalPages: 1, currentPage: 1)
         let again = await poller.checkFollowedAuthors()
         XCTAssertEqual(again, 0)
         XCTAssertEqual(Set(author.knownWorkIds), [5, 10, 50, 60, 70])
     }
 
-    func test_newlyPostedWorks_onlyNewerThanTheBaseline() {
-        let works: [AO3WorkSummary] = [.stub(id: 70, title: "New"), .stub(id: 10, title: "Updated"), .stub(id: 60, title: "")]
+    func test_newlyPostedWorks_newerThanTheBaselineOrOneChapter() {
+        let works = [authorWork(70, "New", chapters: 3), authorWork(10, "Updated", chapters: 4),
+                     authorWork(65, "Revealed Gift"), authorWork(60)]
         let fresh = SubscriptionPoller.newlyPostedWorks(in: works, known: [50, 60])
-        XCTAssertEqual(fresh.map(\.id), [70])
+        // 65 is older than the newest known work but has one chapter: a gift
+        // revealed from an anonymous collection, or a long-held draft.
+        XCTAssertEqual(fresh.map(\.id), [70, 65])
         // No baseline yet: never alert for the back catalogue.
         XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
+    }
+
+    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1) -> AO3WorkSummary {
+        AO3WorkSummary(
+            id: id, title: title, author: "", summary: "", rating: "",
+            warnings: [], categories: [], fandoms: [], characters: [],
+            relationships: [], freeforms: [], wordCount: 0, chapterCount: chapters,
+            totalChapters: nil, language: "", kudos: 0, hits: 0,
+            isComplete: false, updatedAt: nil
+        )
     }
 
     // A check that gets an error or Cloudflare page instead of the work must
