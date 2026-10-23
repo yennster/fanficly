@@ -82,6 +82,20 @@ def latest_xcode() -> tuple[dict, dict]:
     return xc, mac
 
 
+# Releases that only run on the iPhone Duo. The API lists them for every
+# device anyway, and Xcode Cloud then refuses an iPhone 17 Pro Max or iPad Pro
+# on them as "incompatible with iOS 27.1". Drop one once others can run it.
+DUO_ONLY_RUNTIMES = {"iOS 27.1"}
+
+
+def latest_runtime(runtimes: list[dict], duo: bool = False) -> dict:
+    """The newest runtime the device can run."""
+    usable = [r for r in runtimes if duo or r.get("runtimeName") not in DUO_ONLY_RUNTIMES]
+    if not usable:
+        sys.exit(f"Only iPhone Duo runtimes listed: {', '.join(r.get('runtimeName', '?') for r in runtimes)}")
+    return newest(usable, lambda r: r.get("runtimeName"))
+
+
 def simulator(xc: dict, prefer: list[str], prefix: str) -> dict:
     """A test destination: the first of `prefer` this Xcode has, on its newest
     runtime. Exits when it has none, rather than test on an older device."""
@@ -89,9 +103,12 @@ def simulator(xc: dict, prefer: list[str], prefix: str) -> dict:
     dest = next((d for name in prefer for d in dests if d.get("deviceTypeName") == name), None)
     if not dest:
         sys.exit(f"This Xcode has none of {', '.join(prefer)}: add its newest {prefix} to bin/xcode-cloud-ci.py")
-    if not dest.get("availableRuntimes"):
+    runtimes = dest.get("availableRuntimes") or []
+    if not runtimes:
         sys.exit(f"{dest['deviceTypeName']} has no runtimes listed")
-    runtime = newest(dest.get("availableRuntimes") or [], lambda r: r.get("runtimeName"))
+    print(f"    {dest['deviceTypeName']}: {', '.join(r.get('runtimeName', '?') for r in runtimes)}")
+    runtime = latest_runtime(runtimes, duo="Duo" in dest["deviceTypeName"])
+    print(f"==> {dest['deviceTypeName']} on {runtime['runtimeName']}")
     return {
         "deviceTypeName": dest["deviceTypeName"],
         "deviceTypeIdentifier": dest["deviceTypeIdentifier"],
@@ -110,7 +127,7 @@ def mac_destination(xc: dict) -> dict:
         sys.exit("This Xcode has no Mac test destination")
     if not dest.get("availableRuntimes"):
         sys.exit(f"{dest['deviceTypeName']} has no runtimes listed")
-    runtime = newest(dest["availableRuntimes"], lambda r: r.get("runtimeName"))
+    runtime = latest_runtime(dest["availableRuntimes"])
     return {
         "deviceTypeName": dest["deviceTypeName"],
         "deviceTypeIdentifier": dest["deviceTypeIdentifier"],
