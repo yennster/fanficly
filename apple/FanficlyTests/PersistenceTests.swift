@@ -2427,6 +2427,44 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(Set(author.knownWorkIds), [1, 2])
     }
 
+    // AO3 lists an author's works by last update, so an old work that was
+    // never in the baseline (past page 1 at follow time) rises to the top when
+    // it gets a chapter. It isn't a new work: alerting for it opened that old
+    // story, or the author's page when a real new work came in with it.
+    func test_followedAuthor_updatedOlderWorkIsNotANewWork() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "prolific", displayName: "Prolific", knownWorkIds: [50, 60])
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(
+            works: [.stub(id: 70, title: "Brand New"), .stub(id: 10, title: "Old, Just Updated"),
+                    .stub(id: 60, title: ""), .stub(id: 50, title: "")],
+            totalPages: 1, currentPage: 1)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 1)
+        // The old work joins the baseline quietly.
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 50, 60, 70])
+
+        // Only an updated old work: no alert at all.
+        client.authorWorksResponse = AO3SearchResults(
+            works: [.stub(id: 5, title: "Older Still"), .stub(id: 70, title: ""), .stub(id: 10, title: "")],
+            totalPages: 1, currentPage: 1)
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 0)
+        XCTAssertEqual(Set(author.knownWorkIds), [5, 10, 50, 60, 70])
+    }
+
+    func test_newlyPostedWorks_onlyNewerThanTheBaseline() {
+        let works: [AO3WorkSummary] = [.stub(id: 70, title: "New"), .stub(id: 10, title: "Updated"), .stub(id: 60, title: "")]
+        let fresh = SubscriptionPoller.newlyPostedWorks(in: works, known: [50, 60])
+        XCTAssertEqual(fresh.map(\.id), [70])
+        // No baseline yet: never alert for the back catalogue.
+        XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
+    }
+
     // A check that gets an error or Cloudflare page instead of the work must
     // leave the new-chapter baselines alone; overwriting them with 1 would
     // send "N new chapters" on the next real check.
