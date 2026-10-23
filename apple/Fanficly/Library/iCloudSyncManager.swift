@@ -7,6 +7,8 @@ final class iCloudSyncManager {
     static let shared = iCloudSyncManager()
     
     private var backupTask: Task<Void, Never>? = nil
+    /// The latest background write; the next one waits for it.
+    private var lastWrite: Task<Void, Never>? = nil
     
     private init() {}
     
@@ -93,13 +95,31 @@ final class iCloudSyncManager {
     /// Holds a background-task assertion, so the write can finish after the
     /// app leaves the screen (#137).
     func backupInBackground(context: ModelContext) async {
+        await startBackgroundBackup(context: context)?.value
+    }
+
+    /// Takes the snapshot and the background-task assertion now, then hands
+    /// the write to a task that runs after the one before it, so writes land
+    /// (and stamp the file) in the order their snapshots were taken. Returns
+    /// that task, or nil when there was nothing to write to.
+    @discardableResult
+    func startBackgroundBackup(context: ModelContext) -> Task<Void, Never>? {
         let assertion = BackgroundAssertion(name: "Fanficly iCloud backup")
-        defer { assertion.end() }
-        guard let pending = pendingBackup(context: context) else { return }
-        let result = await Task.detached(priority: .utility) {
-            iCloudSyncManager.writeBackup(pending)
-        }.value
-        finishBackup(result)
+        guard let pending = pendingBackup(context: context) else {
+            assertion.end()
+            return nil
+        }
+        let previous = lastWrite
+        let write = Task {
+            await previous?.value
+            let result = await Task.detached(priority: .utility) {
+                iCloudSyncManager.writeBackup(pending)
+            }.value
+            finishBackup(result)
+            assertion.end()
+        }
+        lastWrite = write
+        return write
     }
 
     /// The library as a backup, ready to merge and write, or nil when there's
@@ -395,8 +415,11 @@ final class iCloudSyncManager {
             chapters: includeChapters ? work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
                 ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
             } : [],
-            folderName: work.folders.first?.name,
-            folderNames: work.folders.map(\.name)
+            // Sorted: a to-many relationship's order can change between
+            // fetches, and a new order would make an unchanged library look
+            // changed and rewrite the whole file (#137).
+            folderName: work.folders.map(\.name).min(),
+            folderNames: work.folders.map(\.name).sorted()
         )
     }
 
