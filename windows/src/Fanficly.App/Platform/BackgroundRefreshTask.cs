@@ -3,6 +3,7 @@ using System.Runtime.InteropServices.Marshalling;
 using Fanficly.App.Platform.Widgets;
 using Fanficly.App.Services;
 using Fanficly.Core;
+using Microsoft.Windows.AppLifecycle;
 using Windows.ApplicationModel.Background;
 
 namespace Fanficly.App.Platform;
@@ -151,8 +152,12 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
             {
                 // Only while the app doesn't have the library open (it holds the
                 // lock from launch); a launch during the poll stops it early.
-                if (!LibraryLock.RunExclusive(RunPollAsync, cts))
+                if (IsAppRunning() || !LibraryLock.RunExclusive(RunPollAsync, cts))
                     AppHost.Log("Background refresh skipped: the app is running and polls itself");
+            }
+            catch (OperationCanceledException)
+            {
+                AppHost.Log("Background refresh stopped early");
             }
             catch (Exception e)
             {
@@ -165,6 +170,21 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
                 Finished.Set();
             }
         });
+    }
+
+    /// <summary>Whether Fanficly's window is open (it registers the "main"
+    /// instance key). A second check beside <see cref="LibraryLock"/>, for an
+    /// app that gave up waiting for the lock at launch and runs without it.</summary>
+    private static bool IsAppRunning()
+    {
+        try
+        {
+            return AppInstance.GetInstances().Any(i => i.Key == "main" && !i.IsCurrent);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>The poll, run under <see cref="LibraryLock"/>: the app polls on

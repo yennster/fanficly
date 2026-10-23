@@ -15,10 +15,11 @@ namespace Fanficly.App.Platform;
 /// </summary>
 internal static class LibraryLock
 {
-    /// <summary>The task's budget is 25 s and it stops early when asked; this
-    /// covers a stop that's slow to land. Past it the app opens the library
-    /// anyway (the store still copes with rows another process wrote).</summary>
-    public static readonly TimeSpan LaunchWait = TimeSpan.FromSeconds(30);
+    /// <summary>A task asked to stop cancels at its next await and saves, well
+    /// within this. It runs before the window exists, so it stays short: past
+    /// it the app opens the library anyway (the store copes with rows another
+    /// process wrote, and the task also skips while the app's window is open).</summary>
+    public static readonly TimeSpan LaunchWait = TimeSpan.FromSeconds(10);
 
     private static Mutex? _appMutex;
 
