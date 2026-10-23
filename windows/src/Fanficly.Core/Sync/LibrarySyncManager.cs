@@ -186,8 +186,20 @@ public sealed class LibrarySyncManager
                 if (cts.IsCancellationRequested) return;
                 if (ReferenceEquals(_pendingBackup, cts)) _pendingBackup = null;
             }
-            Backup(store);
+            // Sync may have been turned off while this waited.
+            if (IsSyncEnabled) Backup(store);
         });
+    }
+
+    /// <summary>Drops a queued backup that hasn't started (sync turned off,
+    /// synced data cleared).</summary>
+    public void CancelPendingBackup()
+    {
+        lock (_queueGate)
+        {
+            _pendingBackup?.Cancel();
+            _pendingBackup = null;
+        }
     }
 
     /// <summary>Backs the library up to the sync folder, merging with the
@@ -259,11 +271,10 @@ public sealed class LibrarySyncManager
                 // When that's what the file already holds, leave it alone:
                 // rewriting it would only change the timestamp, and the sync
                 // app would upload the whole library again for nothing (#137).
-                if (SameBackupContent(data, mergedWith))
-                {
-                    if (!mergedUnappliedChanges) MarkCloudBackupApplied();
-                    return BackupOutcome.Unchanged;
-                }
+                // Nothing unapplied means the stamp is already this file's
+                // date, so it isn't stamped again: that could mark a file
+                // another device swapped in since the read as applied.
+                if (SameBackupContent(data, mergedWith)) return BackupOutcome.Unchanged;
             }
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
@@ -1026,6 +1037,7 @@ public sealed class LibrarySyncManager
     /// <summary>Deletes the backup file (and the copy of the previous one) from the sync folder.</summary>
     public bool Clear()
     {
+        CancelPendingBackup();
         if (BackupPath is not { } path) return false;
         try { File.Delete(PreviousBackupPath(path)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

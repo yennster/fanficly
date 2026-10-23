@@ -181,6 +181,7 @@ public sealed class SyncSettingsScreen : Screen
         if (!on)
         {
             KeyValueStores.Default.SetBool(LibrarySyncManager.SyncEnabledKey, false);
+            Sync.CancelPendingBackup();
             ApplyFolderToStores(Sync.SyncFolder);
             MainWindow.Current.Announce("Sync turned off");
             Render();
