@@ -156,13 +156,19 @@ updates it through the API, because GitHub's runners have no Xcode with the
 iPhone Duo yet. It runs `ReaderLayoutTests` (scheme `FanficlyReaderLayout`) on
 the Duo simulator, in the pose it boots in, for every pull request into `main`
 that touches `apple/`, and Xcode Cloud shows it on the PR as a check. When that
-check ends, the **Xcode Cloud Duo tests** workflow (`xcode-cloud-duo.yml`, run
-from `main` with the `app-store` secrets) downloads the result bundle, uploads
+check ends, the **Xcode Cloud Duo tests** workflow (`xcode-cloud-duo.yml`) downloads the result bundle, uploads
 its screenshots as the `duo-tests` artifact and links that run from the PR's
 commit as the "Duo screenshots" status. Started by hand, it brings the Xcode
 Cloud workflow up to date (the newest Xcode with a Duo) and, given a branch,
 tests that branch and waits for the screenshots. Run it once by hand after a
 new Xcode lands. The PR builds use Xcode Cloud compute hours.
+
+It uses its own environment, **`xcode-cloud`**: deployment branches limited
+to `main` and no required reviewers, so the PR screenshots don't wait for an
+approval, holding its own copies of `ASC_KEY_ID`, `ASC_ISSUER_ID` and
+`ASC_KEY_P8`. Only `main`'s workflow code ever runs with them (the
+`check_run` trigger always runs the default branch's copy). Uploads and
+releases stay in `app-store`, behind your approval.
 
 Xcode Cloud builds what is committed, and the committed `Fanficly.xcodeproj`
 only lists the files it had when XcodeGen last ran. So

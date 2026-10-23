@@ -45,7 +45,9 @@ jobs:
     # macOS for xcresulttool; the waiting is on Xcode Cloud.
     runs-on: macos-26
     timeout-minutes: 180
-    environment: app-store
+    # Limited to main, no required reviewers, so a PR's screenshots don't
+    # wait for an approval (apple/docs/RELEASING.md, Xcode Cloud).
+    environment: xcode-cloud
     permissions:
       contents: read
       statuses: write
