@@ -464,12 +464,17 @@ public sealed class LibrarySyncManager
     /// the local record wins (this device just produced it), except where a
     /// field only moves forward: works and subscriptions merge by the restore's
     /// rules (<see cref="MergedWork"/>, <see cref="MergedSubscription"/>),
-    /// reading positions keep the newer one, and reading stats merge
-    /// conservatively. Deletion markers from both sides are kept, and a work,
-    /// hidden work, folder, saved search or filter that a newer marker covers
-    /// is left out, so a delete doesn't come back from another device's copy
-    /// (#135).</summary>
-    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud)
+    /// reading positions keep the newer one, reading stats merge
+    /// conservatively, and settings merge key by key
+    /// (<see cref="SettingsBackup.Merged"/>, for this device). Deletion
+    /// markers from both sides are kept, and a work, hidden work, folder,
+    /// saved search or filter that a newer marker covers is left out, so a
+    /// delete doesn't come back from another device's copy (#135).</summary>
+    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud) =>
+        MergedBackup(local, cloud, ReaderProfile.CurrentDevice);
+
+    /// <inheritdoc cref="MergedBackup(LibraryBackup, LibraryBackup)"/>
+    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud, ReaderDevice device)
     {
         var worksById = FirstByKey(cloud.Works, w => w.Ao3Id);
         foreach (var w in local.Works)
@@ -546,7 +551,7 @@ public sealed class LibrarySyncManager
             Filters: filtersByName.Values.Where(f => !tombstones.Removes(DeletionKind.Filter, f.Name, f.SavedAt))
                 .OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Hidden: hiddenById.Values.Where(h => !tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)).OrderBy(h => h.Ao3Id).ToList(),
-            Settings: local.Settings ?? cloud.Settings,
+            Settings: SettingsBackup.Merged(local.Settings, cloud.Settings, device),
             Folders: foldersByName.Values.Where(f => !tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt))
                 .OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Stats: statsById.Values.OrderBy(s => s.Ao3Id).ToList(),
@@ -750,12 +755,15 @@ public sealed class LibrarySyncManager
         // out: another device's copy mustn't bring the download back.
         var removedDownloads = SyncDeletions.RemovedDownloads(_settings);
 
-        // 0. Settings and themes.
+        // 0. Settings and themes. Restore only fills in what this device hasn't
+        // set (a fresh install) and never copies another device's per-device
+        // keys, so each device keeps its own (#133).
         if (backup.Settings is { } s)
         {
             foreach (var field in SettingsBackup.Fields)
             {
                 if (field.JsonKey == SettingsBackup.ProfilesJsonKey) continue;
+                if (!SettingsBackup.AppliesTo(field, ReaderProfile.CurrentDevice) || _settings.Contains(field.DefaultsKey)) continue;
                 switch (field.Kind)
                 {
                     case SettingKind.String when s.GetString(field.JsonKey) is { } str:
