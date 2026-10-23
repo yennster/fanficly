@@ -22,6 +22,7 @@ Run:  bin/.venv/bin/python bin/xcode-cloud-duo.py setup|run|fetch ...
 """
 from __future__ import annotations
 
+import re
 import sys
 import time
 from pathlib import Path
@@ -44,6 +45,18 @@ def all_pages(url: str, params: dict | None = None) -> list[dict]:
     return out
 
 
+def version(text: str | None) -> tuple[int, ...]:
+    """(27, 1) from "27.1" or "iOS 27.1"; () for aliases like "Latest Release"."""
+    return tuple(int(n) for n in re.findall(r"\d+", text or ""))
+
+
+def newest(items: list, key) -> object:
+    """The item with the highest version, skipping ones with none (the API's
+    order isn't documented)."""
+    real = [i for i in items if version(key(i))]
+    return max(real or items, key=lambda i: version(key(i)))
+
+
 def duo_xcode() -> tuple[dict, dict]:
     """The newest Xcode that has an iPhone Duo simulator, and that destination."""
     found = []
@@ -57,7 +70,7 @@ def duo_xcode() -> tuple[dict, dict]:
                 found.append((xc, d))
     if not found:
         sys.exit("No Xcode in Xcode Cloud offers an iPhone Duo simulator yet")
-    xc, dest = found[-1]
+    xc, dest = newest(found, lambda f: f[0]["attributes"].get("version"))
     print(f"==> Using Xcode {xc['attributes']['version']} and {dest['deviceTypeName']}")
     return xc, dest
 
@@ -76,9 +89,9 @@ def setup() -> tuple[dict, dict]:
     runtimes = dest.get("availableRuntimes") or []
     if not runtimes:
         sys.exit(f"{dest['deviceTypeName']} has no runtimes listed")
-    runtime = runtimes[-1]
+    runtime = newest(runtimes, lambda r: r.get("runtimeName"))
     macs = req("GET", f"{API}/ciXcodeVersions/{xc['id']}/macOsVersions")["data"]
-    mac = macs[-1]
+    mac = newest(macs, lambda m: m["attributes"].get("version"))
     print(f"==> macOS {mac['attributes'].get('version')}, runtime {runtime.get('runtimeName')}")
 
     product, workflows = product_and_workflows()
@@ -189,15 +202,21 @@ def fetch(sha: str, out: Path) -> None:
     wf = next((w for w in workflows if w["attributes"].get("name") == NAME), None)
     if not wf:
         sys.exit(f"No Xcode Cloud workflow named {NAME}")
-    builds = req("GET", f"{API}/ciWorkflows/{wf['id']}/buildRuns",
-                 params={"limit": 50, "sort": "-number"})["data"]
-    for b in builds:
-        attrs = b["attributes"]
-        if (attrs.get("sourceCommit") or {}).get("commitSha") == sha \
-                and attrs.get("executionProgress") == "COMPLETE":
-            print(f"==> Build {attrs.get('number')}: {attrs.get('completionStatus')}")
-            download(b["id"], out)
+    # The check can end a little before the API shows the build complete.
+    for _ in range(10):
+        builds = req("GET", f"{API}/ciWorkflows/{wf['id']}/buildRuns", params={"limit": 50})["data"]
+        builds = sorted(builds, key=lambda b: b["attributes"].get("number") or 0, reverse=True)
+        build = next((b for b in builds
+                      if (b["attributes"].get("sourceCommit") or {}).get("commitSha") == sha), None)
+        if build and build["attributes"].get("executionProgress") == "COMPLETE":
+            status = build["attributes"].get("completionStatus")
+            print(f"==> Build {build['attributes'].get('number')}: {status}")
+            if status in ("CANCELED", "SKIPPED"):
+                print("Nothing to download")  # superseded by a newer push
+                return
+            download(build["id"], out)
             return
+        time.sleep(30)
     sys.exit(f"No finished {NAME} build of {sha}")
 
 
