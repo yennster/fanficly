@@ -170,6 +170,22 @@ only lists the files it had when XcodeGen last ran. So
 from `project.yml` before every Xcode Cloud build, as GitHub CI does; new
 Swift files build there without a Mac.
 
+### The iOS release build
+
+An iOS app built with an SDK older than a device runs in compatibility mode on
+that device. 1.11.0 was built with the GitHub runner's Xcode 26.6, so the
+iPhone Duo showed it as a letterboxed iPhone app instead of its Duo layout.
+Until the runners have Xcode 27.1, **Release** archives iOS in Xcode Cloud's
+**Release (iOS)** workflow (`bin/xcode-cloud-release.py`, made and kept up to
+date through the API with the newest Xcode that has the Duo). Xcode Cloud
+signs the archive with cloud-managed signing (`ci_post_clone.sh` writes its
+team into `Signing.xcconfig`) and uploads it to App Store Connect; fastlane
+then attaches that build to the App Store version, or gives it its TestFlight
+notes (`ios_build:`). The Mac build stays on the runner. `build_signed`
+refuses an iOS build with an SDK older than 27.1 (`check_ios_sdk`), so a
+compatibility-mode build can't ship again. The archive uses Xcode Cloud
+compute hours.
+
 ## Running lanes on a Mac
 
 `cd apple`, `bundle install`, then the same lanes. Put the API key in

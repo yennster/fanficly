@@ -12,3 +12,10 @@ brew install xcodegen
 
 cd "$(dirname "$0")/.."
 xcodegen generate
+
+# The committed Signing.xcconfig has no team, so a device build (the release
+# archive, bin/xcode-cloud-release.py) signs with the team Xcode Cloud builds
+# for. Only this clone changes; nothing is committed.
+if [ -n "${CI_TEAM_ID:-}" ]; then
+  sed -i '' "s/^DEVELOPMENT_TEAM =.*/DEVELOPMENT_TEAM = ${CI_TEAM_ID}/" Signing.xcconfig
+fi

@@ -159,6 +159,32 @@ jobs:
           brew install xcodegen
           xcodegen generate
 
+      # An iOS binary built with an SDK older than the iPhone Duo's (27.1) runs
+      # in compatibility mode on the Duo, as 1.11.0 did. This runner's Xcode
+      # predates it, so iOS is archived in Xcode Cloud with the newest Xcode
+      # that has the Duo, and fastlane attaches that upload (ios_build:).
+      # The Mac build stays here. Remove this once the runner's Xcode has the
+      # 27.1 SDK (fastlane's check_ios_sdk refuses older ones).
+      - uses: actions/setup-python@v5
+        if: (inputs.lane == 'beta' || inputs.lane == 'release') && inputs.platform != 'mac'
+        with:
+          python-version: "3.11"
+
+      - name: Archive iOS in Xcode Cloud
+        if: (inputs.lane == 'beta' || inputs.lane == 'release') && inputs.platform != 'mac'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          bin/.venv/bin/python bin/xcode-cloud-release.py run "$GITHUB_REF_NAME" build/release/ios-build-number.txt
+
       # match clones the private certificates repo over SSH with a deploy key.
       - name: Give match its deploy key
         env:
@@ -187,7 +213,11 @@ jobs:
           PLATFORM: ${{ inputs.platform }}
         run: |
           case "$PLATFORM" in ios|mac) p="$PLATFORM" ;; *) p=both ;; esac
-          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p"
+          extra=()
+          if [ -s build/release/ios-build-number.txt ]; then
+            extra=(ios_build:"$(cat build/release/ios-build-number.txt)")
+          fi
+          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p" "${extra[@]}"
 
       - name: Report the build number
         id: build
