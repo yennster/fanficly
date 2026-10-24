@@ -109,6 +109,10 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
     private readonly string _path;
     private readonly Timer _flushTimer;
     private bool _dirty;
+    private bool _disposed;
+
+    /// <summary>How long a failed write waits before trying again.</summary>
+    internal static int RetryDelayMs { get; set; } = 1000;
 
     public JsonFileKeyValueStore(string path)
     {
@@ -132,7 +136,15 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
     protected override void OnMutated()
     {
         _dirty = true;
-        _flushTimer.Change(300, Timeout.Infinite);
+        Schedule(300);
+    }
+
+    /// <summary>Called under the lock.</summary>
+    private void Schedule(int delayMs)
+    {
+        if (_disposed) return;
+        try { _flushTimer.Change(delayMs, Timeout.Infinite); }
+        catch (ObjectDisposedException) { }
     }
 
     /// <summary>Writes pending changes now (also called on app suspend/exit).</summary>
@@ -158,15 +170,24 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
             }
             File.Move(tmp, _path, overwrite: true);
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            lock (Gate) _dirty = true;
+            // Replacing a file another process has open (the widget server reads
+            // group.json before every render) is refused with an access error.
+            // This runs on a timer thread, where an exception would end the app,
+            // so keep the change pending and try again shortly.
+            lock (Gate)
+            {
+                _dirty = true;
+                Schedule(RetryDelayMs);
+            }
         }
     }
 
     public void Dispose()
     {
         Flush();
+        lock (Gate) _disposed = true;
         _flushTimer.Dispose();
     }
 }
