@@ -138,12 +138,15 @@ jobs:
           name: captures
           path: apple/docs/screenshots
 
+      # Always: a device that errors doesn't fail the job, and its log
+      # bundle is the only record of why.
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: ${{ !cancelled() }}
         with:
           name: capture-results
           path: apple/build/xcode-cloud/*.zip   # result and log bundles
           if-no-files-found: ignore
+          retention-days: 7
 
   generate:
     name: Generate (${{ inputs.what }})

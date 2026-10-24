@@ -146,7 +146,9 @@ Limits: the iPhone Duo's pose can only be set by hand in Device Hub, so Xcode
 Cloud captures the display it boots on and the committed captures stay for the
 other. Xcode Cloud has no `simctl` for the test itself, so the 9:41 status bar
 is set by `ci_scripts/ci_pre_xcodebuild.sh` before the tests, best effort; a
-simulator it misses shows the real time. The app previews are simulator video
+simulator it misses shows the real time. A device that errors keeps its
+committed captures; the run's `capture-results` artifact has its Xcode Cloud
+log bundle. The app previews are simulator video
 recordings, which Xcode Cloud can't make, so they still record on GitHub's
 runner (they show the iPhone and iPad, not the Duo). The art needs Apple's SF Pro and New York fonts, which the workflow
 installs from developer.apple.com.
