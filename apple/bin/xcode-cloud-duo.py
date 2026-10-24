@@ -36,15 +36,24 @@ from asc_assets import API, app_id, req
 NAME = "Duo tests"
 SCHEME = "FanficlyReaderLayout"
 PROJECT = "apple/Fanficly.xcodeproj"
-# What ReaderLayoutTests exercise: the reader, the app's window and layout,
-# the reader's settings, and the tests themselves. A PR that changes none of
-# them can't change the Duo's result.
+# What ReaderLayoutTests exercise: the reader and the views that host it
+# (WorkDetailView's toolbar and full screen, SavedWorkReader), the app's window
+# and layout, the reader's settings, the demo chapters they paginate, the
+# strings they match, the project and its schemes, ci_scripts, and the tests
+# themselves. A PR that changes none of them can't change the Duo's result.
 LAYOUT_FILES = {"mode": "START_IF_ANY_FILE_MATCHES", "matchers": [
     {"directory": "apple/Fanficly/Reader"},
     {"directory": "apple/Fanficly/DesignSystem"},
     {"directory": "apple/Fanficly", "fileName": "RootView.swift"},
     {"directory": "apple/Fanficly", "fileName": "FanficlyApp.swift"},
     {"directory": "apple/Fanficly/Settings", "fileName": "ReaderSettingsView.swift"},
+    {"directory": "apple/Fanficly/Search", "fileName": "WorkDetailView.swift"},
+    {"directory": "apple/Fanficly/Library", "fileName": "SavedWorkReader.swift"},
+    {"directory": "apple/Fanficly/Networking", "fileName": "DemoAO3Client.swift"},
+    {"directory": "apple/Fanficly", "fileName": "Localizable.xcstrings"},
+    {"directory": "apple/Fanficly", "fileName": "Info.plist"},
+    {"directory": "apple", "fileName": "project.yml"},
+    {"directory": "apple/ci_scripts"},
     {"directory": "apple/FanficlyUITests", "fileName": "FanficlyUITests.swift"},
 ]}
 

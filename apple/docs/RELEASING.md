@@ -162,10 +162,13 @@ does not exist at the root of the repository", run the **Xcode Cloud project
 path** workflow (`xcode-cloud.yml`, `bin/xcode-cloud-project-path.py`): without
 "apply" it lists each workflow's path, with it it points the outdated ones at
 `apple/`. It uses the same `app-store` secrets, so it only runs from `main`.
-Any start conditions that filter on file paths are edited in App Store Connect.
+The workflows' start conditions, file-path filters included, are kept in code
+and set through the API (see Keeping to 100 compute hours a month); a change
+made in App Store Connect is overwritten by the next **Xcode Cloud workflows**
+run.
 
-The **Duo tests** workflow is the exception: `bin/xcode-cloud-duo.py` makes and
-updates it through the API, because GitHub's runners have no Xcode with the
+The **Duo tests** workflow is kept in code too: `bin/xcode-cloud-duo.py` makes
+and updates it through the API, because GitHub's runners have no Xcode with the
 iPhone Duo yet. It runs `ReaderLayoutTests` (scheme `FanficlyReaderLayout`) on
 the Duo simulator, in the pose it boots in, for pull requests into `main` that
 change the reader's layout (`LAYOUT_FILES` in `bin/xcode-cloud-duo.py`), and
