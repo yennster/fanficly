@@ -334,10 +334,15 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
         {
             lock (Gate) if (!_dirty) return true;
 
-            if (Volatile.Read(ref _changedWhileUnreadable) is not null && !TryRecoverFile())
+            if (Volatile.Read(ref _changedWhileUnreadable) is not null)
             {
-                ScheduleRetry();
-                return false;
+                if (!TryRecoverFile())
+                {
+                    ScheduleRetry();
+                    return false;
+                }
+                // Waiting for the file wasn't a write failure: report the first real one.
+                lock (Gate) _retryDelayMs = 0;
             }
 
             Dictionary<string, string> snapshot;
