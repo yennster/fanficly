@@ -189,6 +189,7 @@ private struct LastReadCircularView: View {
 /// Lock-screen card: title, author and a progress bar with the percent. The
 /// title and author are redacted while the device is locked.
 private struct LastReadRectangularView: View {
+    @Environment(\.redactionReasons) private var redactionReasons
     let entry: SimpleEntry
 
     var body: some View {
@@ -213,13 +214,21 @@ private struct LastReadRectangularView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Combined from the visible text rather than a custom label, so the
-        // redacted title and author aren't spoken on a locked phone.
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(lastReadAccessibilityLabel(entry, hidingStory: redactionReasons.contains(.privacy)))
         .containerBackground(for: .widget) {
             Color.clear
         }
     }
+}
+
+/// One VoiceOver sentence for the lock-screen card, like the home-screen
+/// widget's combined element. It leaves out the story while the card's text
+/// is redacted (a locked device).
+private func lastReadAccessibilityLabel(_ entry: SimpleEntry, hidingStory: Bool) -> String {
+    guard entry.storyId != nil else { return "\(entry.storyTitle). \(entry.author)" }
+    if hidingStory { return lastReadRingAccessibilityLabel(entry) }
+    return "Continue reading \(entry.storyTitle) by \(entry.author), \(lastReadPercent(entry)) percent read"
 }
 
 /// The ring's VoiceOver sentence: what it shows, never the title.
@@ -1193,6 +1202,7 @@ struct FanficlyWidgetsBundle: WidgetBundle {
 // previews show that locked state for every widget and family; a privacy
 // redaction is how a preview asks for it.
 
+#if DEBUG
 private extension View {
     func lockedPreview(_ family: WidgetFamily, _ name: String) -> some View {
         redacted(reason: .privacy)
@@ -1243,3 +1253,4 @@ struct LockedWidgetPreviews: PreviewProvider {
         }
     }
 }
+#endif
