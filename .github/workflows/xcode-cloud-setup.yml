@@ -4,8 +4,10 @@ name: Xcode Cloud workflows
 # (bin/xcode-cloud-ci.py), "Release (iOS)" and "Release (Mac)"
 # (bin/xcode-cloud-release.py) and "Store art" (bin/xcode-cloud-store-art.py),
 # all on the newest Xcode 27 or later, and
-# "Duo tests" (bin/xcode-cloud-duo.py). Runs when those scripts change on
-# main, and by hand, for example after a new Xcode lands (workflows on "Latest
+# "Duo tests" (bin/xcode-cloud-duo.py), then leaves any workflow made by hand
+# in App Store Connect startable by hand only (xcode-cloud-ci.py others), so
+# only these spend the 100 compute hours a month. Runs when those scripts
+# change on main, and by hand, for example after a new Xcode lands (workflows on "Latest
 # Release" follow it anyway). The release workflow also refreshes its own two
 # before every release. Schemes are looked up by name at build time, so a
 # scheme change in project.yml needs no run.
@@ -59,6 +61,7 @@ jobs:
           bin/.venv/bin/python bin/xcode-cloud-release.py setup
           bin/.venv/bin/python bin/xcode-cloud-store-art.py setup
           bin/.venv/bin/python bin/xcode-cloud-duo.py setup
+          bin/.venv/bin/python bin/xcode-cloud-ci.py others
 
       - name: Remove the keys
         if: always()

@@ -4,8 +4,10 @@
 GitHub's macOS runners don't have an Xcode with the iPhone Duo yet, so the Duo
 runs in Xcode Cloud. Its "Duo tests" workflow tests the FanficlyReaderLayout
 scheme (ReaderLayoutTests only) on the Duo, in the pose the simulator boots
-in, on every pull request that touches apple/, and can be started by hand.
-Xcode Cloud reports it on the PR as a check. Run by the workflows in
+in. To save Xcode Cloud's compute hours it starts on its own only for pull
+requests into main that change the reader's layout (LAYOUT_FILES), and
+otherwise by hand (xcode-cloud-duo.yml with a branch, or Start Build in App
+Store Connect). Xcode Cloud reports it on the PR as a check. Run by the workflows in
 xcode-cloud-duo.yml, no Mac needed:
 
   setup                makes or updates that Xcode Cloud workflow: the newest
@@ -34,6 +36,17 @@ from asc_assets import API, app_id, req
 NAME = "Duo tests"
 SCHEME = "FanficlyReaderLayout"
 PROJECT = "apple/Fanficly.xcodeproj"
+# What ReaderLayoutTests exercise: the reader, the app's window and layout,
+# the reader's settings, and the tests themselves. A PR that changes none of
+# them can't change the Duo's result.
+LAYOUT_FILES = {"mode": "START_IF_ANY_FILE_MATCHES", "matchers": [
+    {"directory": "apple/Fanficly/Reader"},
+    {"directory": "apple/Fanficly/DesignSystem"},
+    {"directory": "apple/Fanficly", "fileName": "RootView.swift"},
+    {"directory": "apple/Fanficly", "fileName": "FanficlyApp.swift"},
+    {"directory": "apple/Fanficly/Settings", "fileName": "ReaderSettingsView.swift"},
+    {"directory": "apple/FanficlyUITests", "fileName": "FanficlyUITests.swift"},
+]}
 
 
 def all_pages(url: str, params: dict | None = None) -> list[dict]:
@@ -98,8 +111,8 @@ def setup() -> tuple[dict, dict]:
     repo = req("GET", f"{API}/ciWorkflows/{workflows[0]['id']}/repository")["data"]
     attributes = {
         "name": NAME,
-        "description": "ReaderLayoutTests on the iPhone Duo simulator, for pull requests "
-                       "that touch apple/. Kept up to date by xcode-cloud-duo.yml in GitHub.",
+        "description": "ReaderLayoutTests on the iPhone Duo simulator, for pull requests that change "
+                       "the reader's layout, or by hand. Kept up to date by xcode-cloud-duo.yml in GitHub.",
         "isEnabled": True,
         "clean": False,
         "containerFilePath": PROJECT,
@@ -107,8 +120,7 @@ def setup() -> tuple[dict, dict]:
         "pullRequestStartCondition": {
             "source": {"isAllMatch": True},
             "destination": {"isAllMatch": False, "patterns": [{"pattern": "main", "isPrefix": False}]},
-            "filesAndFoldersRule": {"mode": "START_IF_ANY_FILE_MATCHES",
-                                    "matchers": [{"directory": "apple"}]},
+            "filesAndFoldersRule": LAYOUT_FILES,
             "autoCancel": True,
         },
         "actions": [{

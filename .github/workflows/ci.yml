@@ -7,9 +7,10 @@ name: CI
 # with an older SDK runs in compatibility mode on the iPhone Duo (1.11.0,
 # built here with Xcode 26.6, did). GitHub's macOS runners don't have Xcode 27
 # yet, so the unit and UI tests run in Xcode Cloud's "CI" workflow
-# (apple/bin/xcode-cloud-ci.py) and the iPhone Duo's in "Duo tests"; Xcode
-# Cloud reports both on the pull request as checks. This job only checks the
-# release and Xcode Cloud tooling that runs from GitHub.
+# (apple/bin/xcode-cloud-ci.py) and the iPhone Duo's in "Duo tests", only for
+# pull requests that change the app's code (Duo tests: the reader's layout);
+# Xcode Cloud reports both on the pull request as checks. This job only checks
+# the release and Xcode Cloud tooling that runs from GitHub.
 on:
   push:
     branches: [main]
