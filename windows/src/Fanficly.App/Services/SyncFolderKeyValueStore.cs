@@ -29,6 +29,7 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
     {
         _localPath = localPath;
         _local = new JsonFileKeyValueStore(localPath);
+        AppHost.LogSettingsProblem(_local, localPath);
         _local.Changed += key => Changed?.Invoke(key);
         _local.Written += () =>
         {
