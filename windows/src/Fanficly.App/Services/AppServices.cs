@@ -90,6 +90,9 @@ public static partial class AppHost
 
     private static LibraryStore OpenLibrary()
     {
+        // Waits for a background refresh that has the library open to save and
+        // let go, so this load includes what it wrote.
+        LibraryLock.AcquireForApp();
         for (var attempt = 1; ; attempt++)
         {
             try
