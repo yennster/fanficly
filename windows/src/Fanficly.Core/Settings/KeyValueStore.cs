@@ -110,9 +110,16 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
     private readonly Timer _flushTimer;
     private bool _dirty;
     private bool _disposed;
+    private int _retryDelayMs;
 
-    /// <summary>How long a failed write waits before trying again.</summary>
+    /// <summary>How long the first retry of a failed write waits; each later
+    /// one waits twice as long, up to <see cref="MaxRetryDelayMs"/>.</summary>
     internal static int RetryDelayMs { get; set; } = 1000;
+    internal const int MaxRetryDelayMs = 60_000;
+
+    /// <summary>Told (on the writing thread) when a write fails, once per run of
+    /// failures; the app logs it. Core has no log of its own.</summary>
+    public static Action<string>? WriteFailed { get; set; }
 
     public JsonFileKeyValueStore(string path)
     {
@@ -122,7 +129,11 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
         {
             if (File.Exists(path))
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                // Share delete too: the widget server re-reads group.json before
+                // every render, and Windows refuses to replace a file someone has
+                // open without it, so the app's next write would fail.
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var doc = JsonDocument.Parse(stream);
                 foreach (var p in doc.RootElement.EnumerateObject())
                     if (p.Value.ValueKind == JsonValueKind.String) Values[p.Name] = p.Value.GetString()!;
             }
@@ -136,7 +147,7 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
     protected override void OnMutated()
     {
         _dirty = true;
-        Schedule(300);
+        if (_retryDelayMs == 0) Schedule(300); // else a retry is already waiting
     }
 
     /// <summary>Called under the lock.</summary>
@@ -147,13 +158,15 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
         catch (ObjectDisposedException) { }
     }
 
-    /// <summary>Writes pending changes now (also called on app suspend/exit).</summary>
-    public void Flush()
+    /// <summary>Writes pending changes now (also called on app suspend/exit).
+    /// False when changes are still pending because the write failed; a retry
+    /// is then scheduled.</summary>
+    public bool Flush()
     {
         Dictionary<string, string> snapshot;
         lock (Gate)
         {
-            if (!_dirty) return;
+            if (!_dirty) return true;
             _dirty = false;
             snapshot = new Dictionary<string, string>(Values);
         }
@@ -169,24 +182,32 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
                 w.WriteEndObject();
             }
             File.Move(tmp, _path, overwrite: true);
+            lock (Gate) _retryDelayMs = 0;
+            return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            // Replacing a file another process has open (the widget server reads
-            // group.json before every render) is refused with an access error.
-            // This runs on a timer thread, where an exception would end the app,
-            // so keep the change pending and try again shortly.
+            // Replacing a file another process has open can be refused with an
+            // access error. This runs on a timer thread, where an exception would
+            // end the app, so keep the change pending and try again later.
+            bool first;
             lock (Gate)
             {
                 _dirty = true;
-                Schedule(RetryDelayMs);
+                first = _retryDelayMs == 0;
+                _retryDelayMs = first ? RetryDelayMs : Math.Min(_retryDelayMs * 2, MaxRetryDelayMs);
+                Schedule(_retryDelayMs);
             }
+            if (first) WriteFailed?.Invoke($"Couldn't write {Path.GetFileName(_path)}: {e.Message}");
+            return false;
         }
     }
 
     public void Dispose()
     {
-        Flush();
+        // The process is usually about to exit, so a scheduled retry would never
+        // run: try a few more times now.
+        for (var attempt = 0; !Flush() && attempt < 3; attempt++) Thread.Sleep(100);
         lock (Gate) _disposed = true;
         _flushTimer.Dispose();
     }

@@ -120,7 +120,9 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
         if (path is null) return;
         try
         {
-            _local.Flush();
+            // The local write failed (it retries itself): pushing now would copy
+            // the old file over the folder's, so try again after the retry.
+            if (!_local.Flush()) { SchedulePush(); return; }
             // Nothing synced has been set on this PC yet, so there's no file to copy.
             if (!File.Exists(_localPath)) return;
             var tmp = path + ".tmp";

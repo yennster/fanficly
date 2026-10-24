@@ -22,6 +22,7 @@ internal static class UnexpectedErrors
     /// background-task servers log what ends them too.</summary>
     public static void InstallProcessHandlers()
     {
+        Core.JsonFileKeyValueStore.WriteFailed = AppHost.Log;
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             AppHost.Log($"Unhandled{(e.IsTerminating ? " (closing)" : "")}: {e.ExceptionObject}");
         TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -38,8 +39,10 @@ internal static class UnexpectedErrors
     /// <summary>XAML's <c>Application.UnhandledException</c>: log, keep running, say so.</summary>
     public static void OnXamlUnhandled(Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
     {
-        AppHost.Log($"Unhandled: {e.Exception}");
         e.Handled = true;
+        // An async handler whose work was cancelled (navigating away) is not an error.
+        if (e.Exception is OperationCanceledException) return;
+        AppHost.Log($"Unhandled: {e.Exception}");
         Report(e.Exception);
     }
 
@@ -47,12 +50,15 @@ internal static class UnexpectedErrors
     /// minute (one fault often fails several times in a row).</summary>
     private static void Report(Exception error)
     {
+        // No window yet (early at launch), or the widget and background-task
+        // servers, which have none: logged only, and the next error can still show.
+        var window = MainWindow.Current;
+        if (window is null) return;
         var now = Environment.TickCount64;
         var last = Interlocked.Read(ref _lastShown);
         if (last != 0 && now - last < 60_000) return;
         if (Interlocked.CompareExchange(ref _lastShown, now, last) != last) return;
-        var window = MainWindow.Current;
-        window?.DispatcherQueue.TryEnqueue(() =>
+        var queued = window.DispatcherQueue.TryEnqueue(() =>
         {
             try
             {
@@ -67,5 +73,7 @@ internal static class UnexpectedErrors
                 AppHost.Log($"Couldn't show an error: {e.Message}");
             }
         });
+        // Closing: nothing was shown, so don't mute the next one.
+        if (!queued) Interlocked.CompareExchange(ref _lastShown, last, now);
     }
 }

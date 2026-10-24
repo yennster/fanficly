@@ -47,8 +47,11 @@ public class JsonFileKeyValueStoreTests
             using var store = new JsonFileKeyValueStore(path);
             store.SetString("widget.lastRead", "42");
 
-            var error = Record.Exception(store.Flush);
+            var written = true;
+            var error = Record.Exception(() => written = store.Flush());
             Assert.Null(error);
+            Assert.False(written);
+            Assert.True(Directory.Exists(path));
             Assert.False(File.Exists(path));
 
             // The blocker goes away; the retry timer writes the pending change.
