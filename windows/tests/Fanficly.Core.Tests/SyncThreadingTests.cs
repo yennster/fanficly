@@ -162,6 +162,10 @@ public sealed class SyncThreadingTests : IDisposable
         store.Save();
         var savedOn = new ConcurrentBag<int>();
         store.Changed += _ => savedOn.Add(Environment.CurrentManagedThreadId);
+        var changedOn = new ConcurrentBag<int>();
+        foreach (LibraryEntity record in new LibraryEntity[]
+                 { store.GetSubscription("work:10")!, store.GetWork(20)!, store.GetFollowedAuthor("writer")! })
+            record.PropertyChanged += (_, _) => changedOn.Add(Environment.CurrentManagedThreadId);
         var client = new PollerFakeClient
         {
             SubscriptionsResponse = [new AO3Subscription(AO3SubscriptionKind.Work, "10", "Sub", "x")],
@@ -181,6 +185,8 @@ public sealed class SyncThreadingTests : IDisposable
         Assert.Equal([1, 2], store.GetFollowedAuthor("writer")!.KnownWorkIds.Order());
         Assert.NotEmpty(savedOn);
         Assert.All(savedOn, id => Assert.Equal(_ui.ThreadId, id));
+        Assert.NotEmpty(changedOn);
+        Assert.All(changedOn, id => Assert.Equal(_ui.ThreadId, id));
     }
 
     /// <summary>A single-threaded context standing in for the UI thread.</summary>

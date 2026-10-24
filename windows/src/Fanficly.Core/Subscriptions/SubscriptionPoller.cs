@@ -220,8 +220,8 @@ public sealed class SubscriptionPoller
     {
         try
         {
-            var key = await OnRecords(() => rec.Key).ConfigureAwait(false);
-            var parts = key.Split(':');
+            // A record's key and id never change, so they're read here.
+            var parts = rec.Key.Split(':');
             if (parts.Length != 2 || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var workId))
                 return 0;
             try
@@ -252,7 +252,7 @@ public sealed class SubscriptionPoller
 
     private async Task<int> CheckFollowedWorkAsync(Work work, CancellationToken ct)
     {
-        var workId = await OnRecords(() => work.Ao3Id).ConfigureAwait(false);
+        var workId = work.Ao3Id;
         try
         {
             var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
@@ -280,7 +280,7 @@ public sealed class SubscriptionPoller
 
     private async Task<int> CheckFollowedAuthorAsync(FollowedAuthor author, CancellationToken ct)
     {
-        var username = await OnRecords(() => author.Username).ConfigureAwait(false);
+        var username = author.Username;
         try
         {
             var result = await _client.FetchAuthorWorksAsync(username, 1, ct).ConfigureAwait(false);
