@@ -562,6 +562,8 @@ Typography settings are per-device: typography/layout keys go through `ReaderPro
 
 `FanficlyWidget` shows the last-read story with a progress bar. When passed a progress fraction, `ReadingProgressStore.save` also writes to `WidgetProgressStore`, which persists to the `group.io.github.yennster.fanficly` app-group defaults and mirrors to iCloud KVS (debounced ~1.2 s; immediate when the reader closes). `FanficlyApp` installs the KVS observers for `WidgetProgressStore`, `ReaderProfileSyncStore`, and `StreakStore` at launch, skipped in demo and unit-test runs. Tapping the widget opens the resume route above. Besides small and medium it offers the lock-screen `accessoryCircular` and `accessoryRectangular` families (iPhone and iPad; the Mac has no lock screen); they read the same entry, use template colors only, and set the same resume URL.
 
+**Widgets show nothing personal on a locked device (#141).** Every widget marks story titles, authors, summaries, tags, folder names and saved-search names `.privacySensitive()`, so WidgetKit redacts them on the lock screen and in StandBy (which shows the home-screen families on a locked, charging iPhone). Counts, percents, the streak and fixed labels stay readable, and so do the empty states (`privacySensitive(entry.storyId != nil)`). VoiceOver follows the same rule: the circular ring's label is only the percent, and the rectangular card's label leaves out the story when `redactionReasons` contains `.privacy`. Any new widget text that names a story or the user's own lists gets the modifier too. `LockedWidgetPreviews` at the end of the file previews the locked state of every widget and family.
+
 ## Other widgets and shortcut routes
 
 `FanficlyWidgetsBundle` in `FanficlyWidget/FanficlyWidget.swift` includes six
