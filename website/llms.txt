@@ -24,5 +24,7 @@
 
 - [Website](https://fanficly.app/)
 - [Source code](https://github.com/yennster/fanficly)
-- [Privacy policy](https://github.com/yennster/fanficly/blob/main/PRIVACY.md)
+- [Privacy policy for iPhone, iPad and Mac](https://github.com/yennster/fanficly/blob/main/PRIVACY.md)
+- [Privacy policy for Windows](https://github.com/yennster/fanficly/blob/main/windows/PRIVACY.md)
+- [Release notes](https://github.com/yennster/fanficly/releases)
 - [Support](https://github.com/yennster/fanficly/issues)
