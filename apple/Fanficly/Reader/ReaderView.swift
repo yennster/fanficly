@@ -97,6 +97,8 @@ struct ReaderView: View {
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
     @FocusState private var isReaderFocused: Bool
+    /// A key scroll for the visible scroll view (see ReaderKeyCommands).
+    @State private var scrollRequest: ReaderScrollRequest?
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
 
@@ -468,9 +470,43 @@ struct ReaderView: View {
         .modifier(ReaderKeyPressModifier(
             mode: mode,
             isReaderFocused: $isReaderFocused,
-            turnPageByPage: { turnPageByPage(forward: $0) },
-            turnPage: { turnPage(forward: $0) }
+            perform: { performKeyAction($0) }
         ))
+    }
+
+    /// A turn or scroll key from a keyboard or a Bluetooth page turner.
+    private func performKeyAction(_ action: ReaderKeyAction) {
+        switch action {
+        case .turnPage(let forward): turnPageByPage(forward: forward)
+        case .turnChapter(let forward): turnPage(forward: forward)
+        case .scrollScreen(let forward): scrollRequest = ReaderScrollRequest(screenful: true, forward: forward)
+        case .scrollParagraph(let forward): scrollRequest = ReaderScrollRequest(screenful: false, forward: forward)
+        }
+    }
+
+    /// Scrolls to the paragraph a key scroll targets. Returns false when
+    /// there's nothing further that way (the caller decides what the edge does).
+    private func performKeyScroll(_ request: ReaderScrollRequest, proxy: ScrollViewProxy,
+                                  viewportHeight: CGFloat, chapter: Int?) -> Bool {
+        var offsets = trailingAnchorSample.offsets
+        if let chapter {
+            let prefix = "c\(chapter)-p"
+            offsets = offsets.filter { $0.key.hasPrefix(prefix) }
+        }
+        guard let target = ChapterTracking.scrollTarget(offsets, viewportHeight: viewportHeight,
+                                                        forward: request.forward, screenful: request.screenful)
+        else { return false }
+        let key = ChapterTracking.key(chapter: target.chapter, paragraph: target.paragraph)
+        withAnimation(pageTurnAnimations ? .easeInOut(duration: 0.25) : nil) {
+            // A chapter's first paragraph: continuous scroll shows its
+            // header too (the chapter block's id is its index).
+            if chapter == nil && target.paragraph == 0 && chapters.count > 1 {
+                proxy.scrollTo(target.chapter, anchor: .top)
+            } else {
+                proxy.scrollTo(key, anchor: .top)
+            }
+        }
+        return true
     }
 
     private func queueBackup() {
@@ -757,6 +793,15 @@ struct ReaderView: View {
                 // Karaoke: keep the paragraph being read aloud in view.
                 .onChange(of: speech.currentParagraph) { _, _ in scrollToSpokenParagraph(proxy) }
                 .onChange(of: listeningChapter) { _, _ in scrollToSpokenParagraph(proxy) }
+                .modifier(ReaderScrollRequestModifier(request: scrollRequest) { request in
+                    if !performKeyScroll(request, proxy: proxy, viewportHeight: geo.size.height, chapter: nil),
+                       !request.forward {
+                        // Back from the first paragraph: show the title header too.
+                        withAnimation(pageTurnAnimations ? .easeInOut(duration: 0.25) : nil) {
+                            proxy.scrollTo("__top", anchor: .top)
+                        }
+                    }
+                })
                 .task { await restoreContinuous(proxy: proxy) }
                 .onDisappear { persistNow() }
             }
@@ -1122,6 +1167,15 @@ struct ReaderView: View {
                 .task(id: selectedChapterIndex) {
                     await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
                 }
+                // Key scrolls move through this chapter, then turn to the next
+                // (or previous) one at its edge, like the Windows reader.
+                .modifier(ReaderScrollRequestModifier(request: scrollRequest) { request in
+                    guard chapter.index == selectedChapterIndex else { return }
+                    if !performKeyScroll(request, proxy: pageProxy, viewportHeight: geo.size.height,
+                                         chapter: chapter.index) {
+                        turnPage(forward: request.forward)
+                    }
+                })
                 .onChange(of: geo.size.width) { old, new in
                     guard abs(old - new) > 1, chapter.index == selectedChapterIndex else { return }
                     beginResize(width: new)

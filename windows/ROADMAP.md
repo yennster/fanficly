@@ -42,7 +42,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
 - **Reader:** `Views/Reader` registers `Routes.WorkDetail`, `SavedWork` and `Resume`.
   - The live work page and the saved-work reader, which reads offline from saved chapter text.
   - Three reading modes: continuous scroll, swipe by chapter, and page by page with a two-page spread on wide windows. Pages fill the window and keep their place when re-paginated.
-  - Page turns by keyboard, mouse wheel, pen, touch and controller, with Narrator menu actions.
+  - Page turns by keyboard, Bluetooth page turner, mouse wheel, pen, touch and controller, with Narrator menu actions.
   - Typography presets and profiles, full screen, and keep screen awake.
   - Listen (on-device speech, highlighted, with media keys).
   - Opt-in story images, and export in five formats to the share sheet or a file.
