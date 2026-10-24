@@ -256,11 +256,11 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 ## Tests
 
-**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 643 cases in 43 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
+**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 704 cases in 44 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
 - **Parsers:** `SearchResultsParserTests` (incl. the bookmarks page), `WorkPageParserTests` (incl. login, comments and bookmark-form parsing), `KudosParserTests` and `KudosGiverTests` (in `KudosTests.cs`), `SubscriptionsParserTests` (fails closed), `MediaCategoryParserTests`, `WorkMetadataParserTests`, `HtmlDomTests`.
 - **Networking:** `AO3ClientTests` (through a fake `HttpMessageHandler`: retries, cookies, redirects, timeouts, form posts), `AO3EndpointsTests`, `ThrottleTests` (spacing, and concurrent waiters serialized), `DemoAO3ClientTests`.
 - **Search:** `SearchSyntaxTests`, `SearchSuggestionsTests`, `AO3SearchFiltersTests`, `TagResolverTests` (with `StubAO3Client`), `FandomCatalogTests`, `BrowseModelsTests`, `PopularStoreTests`.
-- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
+- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncThreadingTests` (backup and restore touch records only on the UI thread's context), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
 - **Reader logic:** `HTMLToAttributedTests`, `ChapterTrackingTests`, `ReaderMetricsTests` (spread rule, page-area tracking, and `ReaderPaginator` across a device matrix with `FakeTextMeasurer`), `ReaderProfileTests` (merge, tombstones, per-device keys).
 - **Routing and widgets:** `DeepLinkTests`, `NotificationRouteTests`, `ResumeProgressPolicyTests`, `WidgetDataStoreTests`, `WidgetProgressStoreTests`.
 - **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`), `AuthStateTests` (incl. the expired session), `ContentSafetyTests`, `ReviewPromptTests`.

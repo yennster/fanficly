@@ -198,18 +198,31 @@ public sealed class LibrarySyncManager
             if (!IsSyncEnabled) return;
             try
             {
-                await BackupAsync(store).ConfigureAwait(false);
-            }
-            catch (InvalidOperationException e)
-            {
-                // A record changed under the snapshot ("Collection was
-                // modified": something saved off the UI thread). Nothing was
-                // written, so try again rather than drop this change (#139).
-                LibraryHooks.Log?.Invoke($"Backup interrupted: {e.Message}");
-                if (retry < MaxSnapshotRetries) ScheduleBackup(store, readingActivity: false, retry + 1);
+                if (CantWrite() is { } early)
+                {
+                    Finish(early);
+                    return;
+                }
+                LocalSnapshot snapshot;
+                try
+                {
+                    snapshot = await OnRecordsContextAsync(() => TakeSnapshot(store)).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException e)
+                {
+                    // A record changed under the snapshot ("Collection was
+                    // modified": something changed it off the UI thread).
+                    // Nothing was written, so try again rather than drop this
+                    // change (#139).
+                    LibraryHooks.Log?.Invoke($"Backup interrupted: {e.Message}");
+                    if (retry < MaxSnapshotRetries) ScheduleBackup(store, readingActivity: false, retry + 1);
+                    return;
+                }
+                Write(store, snapshot);
             }
             catch (Exception e)
             {
+                // Logged rather than lost with the fire-and-forget task.
                 LibraryHooks.Log?.Invoke($"Backup failed: {e}");
             }
         });
@@ -563,11 +576,17 @@ public sealed class LibrarySyncManager
         LibraryBackup Backup, long Sequence, List<(List<ChapterBackup> Chapters, int Position, long RowId)> Unloaded)
     {
         /// <summary>The backup with the bodies that weren't loaded read in
-        /// (the store's lock makes that safe from any thread).</summary>
+        /// (the store's lock makes that safe from any thread). A chapter
+        /// deleted since the snapshot is left out rather than backed up
+        /// empty; the next backup has the change that deleted it.</summary>
         public LibraryBackup WithBodies(LibraryStore store)
         {
-            foreach (var (chapters, position, rowId) in Unloaded)
-                chapters[position] = chapters[position] with { BodyHtml = store.LoadChapterBody(rowId) };
+            // Back to front, so removing one doesn't move the ones still to read.
+            foreach (var (chapters, position, rowId) in Enumerable.Reverse(Unloaded))
+            {
+                if (store.LoadChapterBodyIfPresent(rowId) is { } body) chapters[position] = chapters[position] with { BodyHtml = body };
+                else chapters.RemoveAt(position);
+            }
             Unloaded.Clear();
             return Backup;
         }
@@ -876,6 +895,7 @@ public sealed class LibrarySyncManager
             // thread: at launch the Library screen is building from them (#139).
             await OnRecordsContextAsync(() =>
             {
+                ct.ThrowIfCancellationRequested();
                 Apply(backup, store);
                 store.Save();
                 return true;

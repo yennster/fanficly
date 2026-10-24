@@ -133,6 +133,24 @@ public sealed class SyncThreadingTests : IDisposable
         Assert.True(File.Exists(path));
     }
 
+    /// <summary>Chapter text left in the database is read when the backup is
+    /// written; a chapter deleted in between is left out, not backed up
+    /// empty over another device's copy.</summary>
+    [Fact]
+    public void AChapterDeletedAfterTheSnapshotIsntBackedUpEmpty()
+    {
+        var path = MakeTempBackupPath();
+        var sync = new LibrarySyncManager(new InMemoryKeyValueStore()) { BackupPathOverride = path };
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.Upsert(Payload(1, 2), store);
+        foreach (var chapter in work.Chapters) chapter.UnloadBody();
+
+        var snapshot = sync.TakeSnapshot(store);
+        WorkPersistence.RemoveDownload(work, store);
+        Assert.Equal(BackupOutcome.Written, sync.Write(store, snapshot));
+        Assert.Empty(LibraryBackupJson.Decode(File.ReadAllBytes(path)).Works.Single().Chapters);
+    }
+
     /// <summary>A single-threaded context standing in for the UI thread.</summary>
     private sealed class RecordsThread : SynchronizationContext, IDisposable
     {
