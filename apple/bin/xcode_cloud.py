@@ -204,8 +204,10 @@ def wait(run: dict, minutes: int) -> dict:
     sys.exit(f"Xcode Cloud build {run['attributes'].get('number')} didn't finish in {minutes} minutes")
 
 
-def download_results(run_id: str, out: Path) -> None:
-    """The run's result bundles (zipped) into out; exits when there are none."""
+def download_results(run_id: str, out: Path, logs: bool = False) -> None:
+    """The run's result bundles (zipped) into out, and its log bundles with
+    logs=True (they explain an action that left no result bundle); exits when
+    there are no result bundles."""
     out.mkdir(parents=True, exist_ok=True)
     got = 0
     for action in req("GET", f"{API}/ciBuildRuns/{run_id}/actions")["data"]:
@@ -214,11 +216,12 @@ def download_results(run_id: str, out: Path) -> None:
         for art in req("GET", f"{API}/ciBuildActions/{action['id']}/artifacts")["data"]:
             aa = art["attributes"]
             print(f"    artifact {aa.get('fileType')} {aa.get('fileName')}")
-            if aa.get("fileType") != "RESULT_BUNDLE" or not aa.get("downloadUrl"):
+            wanted = ("RESULT_BUNDLE", "LOG_BUNDLE") if logs else ("RESULT_BUNDLE",)
+            if aa.get("fileType") not in wanted or not aa.get("downloadUrl"):
                 continue
             r = requests.get(aa["downloadUrl"], timeout=600)
             r.raise_for_status()
             (out / aa["fileName"]).write_bytes(r.content)
-            got += 1
+            got += aa.get("fileType") == "RESULT_BUNDLE"
     if not got:
         sys.exit("The build left no result bundle")
