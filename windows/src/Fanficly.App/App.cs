@@ -22,11 +22,7 @@ public sealed partial class App : Application, IXamlMetadataProvider
 
     public App()
     {
-        UnhandledException += (_, e) =>
-        {
-            AppHost.Log($"Unhandled: {e.Exception}");
-            e.Handled = true;
-        };
+        UnhandledException += (_, e) => UnexpectedErrors.OnXamlUnhandled(e);
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

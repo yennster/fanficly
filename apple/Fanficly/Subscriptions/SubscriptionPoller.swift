@@ -201,18 +201,13 @@ struct SubscriptionPoller {
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
             var notifyCount = 0
-            // Only notify once we have a baseline — a freshly-followed
-            // author is seeded at follow time, but guard the empty case so
-            // a first poll never alerts for the whole back catalogue.
-            if !known.isEmpty {
-                let newWorks = result.works.filter { !known.contains($0.id) }
-                if !newWorks.isEmpty {
-                    await postNewWorkNotification(
-                        author: author,
-                        newWorks: newWorks
-                    )
-                    notifyCount = newWorks.count
-                }
+            let newWorks = Self.newlyPostedWorks(in: result.works, known: known)
+            if !newWorks.isEmpty {
+                await postNewWorkNotification(
+                    author: author,
+                    newWorks: newWorks
+                )
+                notifyCount = newWorks.count
             }
             author.knownWorkIds = Array(known.union(latestIds))
             return notifyCount
@@ -264,6 +259,22 @@ struct SubscriptionPoller {
             trigger: nil
         )
         try? await UNUserNotificationCenter.current().add(request)
+    }
+
+    /// The works on an author's first page that are newly posted since the
+    /// baseline `known` was taken. AO3 lists an author's works by last update,
+    /// so an older work we never saw (it was past page 1 at follow time) shows
+    /// up unknown when it gets a chapter; alerting for it as a new work opened
+    /// that old story. An unknown work is new when it's newer than every known
+    /// one (AO3 work ids only grow) or has a single chapter, which an update
+    /// can't leave it with — that still catches a new work with a lower id: a
+    /// gift revealed from an anonymous collection, a long-held draft, or a
+    /// restricted work a guest page left out. Empty with no baseline yet — a
+    /// freshly-followed author is seeded at follow time, but a first poll must
+    /// never alert for the whole back catalogue. Internal for tests.
+    nonisolated static func newlyPostedWorks(in works: [AO3WorkSummary], known: Set<Int>) -> [AO3WorkSummary] {
+        guard let newestKnown = known.max() else { return [] }
+        return works.filter { !known.contains($0.id) && ($0.id > newestKnown || $0.chapterCount == 1) }
     }
 
     // MARK: - Notification content

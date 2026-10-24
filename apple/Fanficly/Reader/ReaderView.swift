@@ -97,6 +97,8 @@ struct ReaderView: View {
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
     @FocusState private var isReaderFocused: Bool
+    /// The scroll views key scrolls move (see ReaderKeyCommands).
+    @State private var keyScrollViews = ReaderScrollViews()
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
 
@@ -487,9 +489,41 @@ struct ReaderView: View {
         .modifier(ReaderKeyPressModifier(
             mode: mode,
             isReaderFocused: $isReaderFocused,
-            turnPageByPage: { turnPageByPage(forward: $0) },
-            turnPage: { turnPage(forward: $0) }
+            perform: { performKeyAction($0) }
         ))
+    }
+
+    /// A turn or scroll key from a keyboard or a Bluetooth page turner.
+    private func performKeyAction(_ action: ReaderKeyAction) {
+        switch action {
+        case .turnPage(let forward): turnPageByPage(forward: forward)
+        case .turnChapter(let forward): turnPage(forward: forward)
+        case .scrollScreen(let forward): keyScroll(forward: forward, screenful: true)
+        case .scrollLine(let forward): keyScroll(forward: forward, screenful: false)
+        }
+    }
+
+    /// Moves the visible scroll view: continuous scroll's, or swipe by
+    /// chapter's current page, which turns the chapter when a screenful
+    /// finds it already at its edge (as on Windows; a line scroll never turns).
+    private func keyScroll(forward: Bool, screenful: Bool) {
+        let paged = mode == .paginated
+        let id = paged ? selectedChapterIndex : ReaderScrollViews.continuous
+        guard let scrollView = keyScrollViews[id] else { return }
+        let inset = scrollView.adjustedContentInset
+        guard let target = ReaderKeyScroll.targetOffset(
+            current: scrollView.contentOffset.y,
+            viewportHeight: scrollView.bounds.height,
+            contentHeight: scrollView.contentSize.height,
+            insetTop: inset.top, insetBottom: inset.bottom,
+            forward: forward, screenful: screenful)
+        else {
+            if paged && screenful { turnPage(forward: forward) }
+            return
+        }
+        // Line steps are instant, as on Windows, so a held key scrolls smoothly.
+        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: target),
+                                    animated: screenful && pageTurnAnimations)
     }
 
     private func queueBackup() {
@@ -701,6 +735,7 @@ struct ReaderView: View {
                     .padding(.horizontal, (geo.size.width - columnWidth(geo.size.width)) / 2)
                     .padding(.vertical, Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .background(ReaderScrollViewFinder(views: keyScrollViews, id: ReaderScrollViews.continuous))
                 }
                 .coordinateSpace(name: scrollSpace)
                 // Full screen: the text runs edge to edge, past the home
@@ -1105,6 +1140,7 @@ struct ReaderView: View {
                     .padding(.top, Spacing.lg)
                     .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .background(ReaderScrollViewFinder(views: keyScrollViews, id: chapter.index))
                 }
                 // Each page has its own scroll space; the handler below only sees
                 // this page's paragraph anchors.

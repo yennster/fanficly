@@ -2427,6 +2427,57 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(Set(author.knownWorkIds), [1, 2])
     }
 
+    // AO3 lists an author's works by last update, so an old work that was
+    // never in the baseline (past page 1 at follow time) rises to the top when
+    // it gets a chapter. It isn't a new work: alerting for it opened that old
+    // story, or the author's page when a real new work came in with it.
+    func test_followedAuthor_updatedOlderWorkIsNotANewWork() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "prolific", displayName: "Prolific", knownWorkIds: [50, 60])
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(70, "Brand New"), authorWork(10, "Old, Just Updated", chapters: 4),
+                    authorWork(60), authorWork(50)],
+            totalPages: 1, currentPage: 1)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 1)
+        // The old work joins the baseline quietly.
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 50, 60, 70])
+
+        // Only an updated old work: no alert at all.
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(5, "Older Still", chapters: 2), authorWork(70), authorWork(10, chapters: 4)],
+            totalPages: 1, currentPage: 1)
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 0)
+        XCTAssertEqual(Set(author.knownWorkIds), [5, 10, 50, 60, 70])
+    }
+
+    func test_newlyPostedWorks_newerThanTheBaselineOrOneChapter() {
+        let works = [authorWork(70, "New", chapters: 3), authorWork(10, "Updated", chapters: 4),
+                     authorWork(65, "Revealed Gift"), authorWork(60)]
+        let fresh = SubscriptionPoller.newlyPostedWorks(in: works, known: [50, 60])
+        // 65 is older than the newest known work but has one chapter: a gift
+        // revealed from an anonymous collection, or a long-held draft.
+        XCTAssertEqual(fresh.map(\.id), [70, 65])
+        // No baseline yet: never alert for the back catalogue.
+        XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
+    }
+
+    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1) -> AO3WorkSummary {
+        AO3WorkSummary(
+            id: id, title: title, author: "", summary: "", rating: "",
+            warnings: [], categories: [], fandoms: [], characters: [],
+            relationships: [], freeforms: [], wordCount: 0, chapterCount: chapters,
+            totalChapters: nil, language: "", kudos: 0, hits: 0,
+            isComplete: false, updatedAt: nil
+        )
+    }
+
     // A check that gets an error or Cloudflare page instead of the work must
     // leave the new-chapter baselines alone; overwriting them with 1 would
     // send "N new chapters" on the next real check.
