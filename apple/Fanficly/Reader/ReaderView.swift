@@ -707,7 +707,9 @@ struct ReaderView: View {
                 // indicator's inset, as it already does at the top. Clipped
                 // there, it was cut off under a blank band at the bottom.
                 // The scroll content still ends clear of the home indicator.
-                .scrollClipDisabled(isUIMinimized)
+                // Not while narrating: the narration bar's background stops
+                // above the home indicator, and text would show below it.
+                .scrollClipDisabled(isUIMinimized && !speech.isActive)
                 // Rotation, an iPhone Duo fold/unfold or a Split View resize
                 // reflows the text, and the old offset would land on a
                 // different paragraph — put the one you were on back on top.
@@ -1108,7 +1110,7 @@ struct ReaderView: View {
                 // this page's paragraph anchors.
                 .coordinateSpace(name: scrollSpace)
                 // Full screen: edge to edge, as in continuous mode.
-                .scrollClipDisabled(isUIMinimized)
+                .scrollClipDisabled(isUIMinimized && !speech.isActive)
                 .onPreferenceChange(ScrollAnchorKey.self) { offsets in
                     guard chapter.index == selectedChapterIndex else { return }
                     // A resize (rotation, iPhone Duo fold, Split View) reflows the
