@@ -115,6 +115,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** CI's `ui-screenshots` artifact shows the fandom list populated at all three sizes.
 - **Touches:** `windows/tests/Fanficly.UITests/ScreenshotTests.cs`.
 
+### RM-120 — A visible way out of full screen
+- **Status:** open · **Size:** S · **Validation:** windows
+- **Why:** The Apple app's reader no longer hides its whole toolbar in full screen. The bar's background and items go, and so does the system back button, but one back arrow stays, labeled Exit full screen, in every reading mode (`ReaderView.swift`). Tapping it leaves full screen and brings the toolbar back. On iPhone Duo the invisible middle-of-the-page tap had been the only way out and could fail, trapping the reader. Here full screen and hidden controls also leave only invisible ways back (Esc, F11, the middle third, the story's context menu; the title-bar back button only in immersive), so a tablet with no keyboard depends on the middle tap alone.
+- **Scope:** While `_isUIMinimized`, show one standard back-arrow button (the title bar's back button or the reader header's `_fullScreenButton`, on a transparent background), labeled Exit full screen, in every reading mode, one page or two. It leaves full screen and brings the controls back, and the narrator announces the change. No custom-drawn controls.
+- **Done when:** a reader UI test hides the controls, finds only the back arrow, and taps it to bring the controls back.
+- **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.Chrome.cs`, `ReaderView.cs`, `windows/tests/Fanficly.UITests/`.
+
 ## Next
 
 ### RM-105 — Paste or drop an AO3 link to open it
