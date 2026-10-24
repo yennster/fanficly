@@ -59,7 +59,7 @@ Widgets COM server / background task (separate processes) → same Core stores
 - `RunLaunchTasksAsync` restores from the sync folder when sync is on and the backup changed since this PC last applied or wrote it, proposes EPUB re-downloads, runs `ReadingStatsBackfill`, and refreshes widget data.
 - On close: save the library, back up if sync is on, flush the synced settings and the widget store.
 
-**Concurrency.** `IAO3Client` methods are async and thread-safe; `Throttle` serializes them. `LibraryStore` takes one lock per call so the UI and the poller can share it, but records aren't locked: mutate a given record from one thread at a time. `LibraryStore.Changed` is raised on the saving thread; screens subscribe through `LibraryChanges` (in `Views/Browse/`), which marshals to the UI thread and coalesces bursts. Never touch XAML objects off the UI thread; hop with `DispatcherQueue.TryEnqueue`. Keep cancellation tokens flowing, and never retry a POST.
+**Concurrency.** `IAO3Client` methods are async and thread-safe; `Throttle` serializes them. `LibraryStore` takes one lock per call so the UI and the poller can share it, but records aren't locked: mutate a given record from one thread at a time. `LibraryStore.Changed` is raised on the saving thread; screens subscribe through `LibraryChanges` (in `Views/Browse/`), which marshals to the UI thread and coalesces bursts. Never touch XAML objects off the UI thread; hop with `DispatcherQueue.TryEnqueue`. `LibrarySyncManager.RecordsContext` is the UI thread's context: a backup takes its snapshot there and a restore applies and saves there, and only the merge, chapter-text reads and file IO run on the pool (#139); keep new sync code that reads or changes records behind it. Keep cancellation tokens flowing, and never retry a POST.
 
 ## Storage map
 
@@ -256,11 +256,11 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 ## Tests
 
-**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 643 cases in 43 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
+**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 704 cases in 44 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
 - **Parsers:** `SearchResultsParserTests` (incl. the bookmarks page), `WorkPageParserTests` (incl. login, comments and bookmark-form parsing), `KudosParserTests` and `KudosGiverTests` (in `KudosTests.cs`), `SubscriptionsParserTests` (fails closed), `MediaCategoryParserTests`, `WorkMetadataParserTests`, `HtmlDomTests`.
 - **Networking:** `AO3ClientTests` (through a fake `HttpMessageHandler`: retries, cookies, redirects, timeouts, form posts), `AO3EndpointsTests`, `ThrottleTests` (spacing, and concurrent waiters serialized), `DemoAO3ClientTests`.
 - **Search:** `SearchSyntaxTests`, `SearchSuggestionsTests`, `AO3SearchFiltersTests`, `TagResolverTests` (with `StubAO3Client`), `FandomCatalogTests`, `BrowseModelsTests`, `PopularStoreTests`.
-- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
+- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncThreadingTests` (backup and restore touch records only on the UI thread's context), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
 - **Reader logic:** `HTMLToAttributedTests`, `ChapterTrackingTests`, `ReaderMetricsTests` (spread rule, page-area tracking, and `ReaderPaginator` across a device matrix with `FakeTextMeasurer`), `ReaderProfileTests` (merge, tombstones, per-device keys).
 - **Routing and widgets:** `DeepLinkTests`, `NotificationRouteTests`, `ResumeProgressPolicyTests`, `WidgetDataStoreTests`, `WidgetProgressStoreTests`.
 - **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`), `AuthStateTests` (incl. the expired session), `ContentSafetyTests`, `ReviewPromptTests`.
