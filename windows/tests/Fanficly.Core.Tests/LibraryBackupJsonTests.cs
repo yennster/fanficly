@@ -157,6 +157,26 @@ public sealed class LibraryBackupJsonTests
         Assert.True(Fields(typeof(LibraryBackup)).SetEquals(BackupUnknownKeys.TopLevelKeys));
     }
 
+    /// <summary>Deletion markers (#135) are written in the Swift app's shape
+    /// (<c>DeletionBackup</c>: kind, key, deletedAt) and read back; backups from
+    /// before them have none.</summary>
+    [Fact]
+    public void DeletionMarkersRoundTripInTheSwiftFormat()
+    {
+        Assert.Null(LibraryBackupJson.Decode(OlderSwiftFixture).Deleted);
+        var b = LibraryBackupJson.Decode(SwiftFixture) with
+        {
+            Deleted = [new DeletionBackup("work", "42", Utc(2026, 1, 1)), new DeletionBackup("folder", "Faves", Utc(2026, 1, 2))],
+        };
+        var bytes = LibraryBackupJson.Encode(b);
+        using var doc = JsonDocument.Parse(bytes);
+        var first = doc.RootElement.GetProperty("deleted")[0];
+        Assert.Equal("work", first.GetProperty("kind").GetString());
+        Assert.Equal("42", first.GetProperty("key").GetString());
+        Assert.Equal("2026-01-01T00:00:00Z", first.GetProperty("deletedAt").GetString());
+        Assert.Equal(b.Deleted, LibraryBackupJson.Decode(bytes).Deleted);
+    }
+
     [Fact]
     public void ReencodingSwiftOutputGivesTheSameJson()
     {
@@ -257,8 +277,9 @@ public sealed class LibraryBackupJsonTests
             Assert.NotNull(store.GetHiddenWork(666));
             Assert.Equal("sepia", settings.GetString("reader.theme"));
             Assert.Equal(22, settings.GetDouble("reader.fontSizePt"));
-            Assert.Equal("dracula", settings.GetString("reader.theme.pad"));
-            Assert.Equal(18, settings.GetDouble("reader.fontSizePt.mac"));
+            // The iPad's and the Mac's own settings stay theirs (#133).
+            Assert.False(settings.Contains("reader.theme.pad"));
+            Assert.False(settings.Contains("reader.fontSizePt.mac"));
             // No profile merger installed and nothing local: the incoming profiles are kept.
             Assert.Equal("[{\"name\":\"Default\"}]", settings.GetString("reader.profiles"));
             Assert.False(sync.CloudBackupHasUnappliedChanges);
@@ -270,6 +291,8 @@ public sealed class LibraryBackupJsonTests
             Assert.Equal(["Faves", "To Reread"], again.Works[0].FolderNames!.Order());
             Assert.Equal([900, null], again.Works[0].Chapters.Select(c => c.AoId));
             Assert.Equal(2, again.Folders!.Count);
+            Assert.Equal("dracula", again.Settings?.GetString("themePad"));
+            Assert.Equal(18, again.Settings?.GetDouble("fontSizePtMac"));
             // The merge lifts the total to Σ DaySeconds (1200 + 2400.5).
             Assert.Equal(3600.5, again.Stats![0].TotalSeconds);
         }

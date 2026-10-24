@@ -129,6 +129,7 @@ public static class WorkFilterSheet
                 open.Click += (_, _) => ApplySaved(saved);
                 void Delete()
                 {
+                    LibrarySyncManager.RecordDeletionShared(DeletionKind.Filter, saved.Name);
                     store.Delete(saved);
                     store.TrySave();
                     Shell.MainWindow.Current.Announce($"Deleted {saved.Name}");

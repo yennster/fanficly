@@ -597,7 +597,7 @@ public sealed class AO3ClientTests : IDisposable
                 </form></body></html>
                 """),
             _ => FakeHandler.Redirect("/works/12/chapters/34#comment_1"),
-            _ => FakeHandler.Html("<html></html>"));
+            _ => FakeHandler.Html("""<html><body><div class="flash comment_notice">Comment created!</div></body></html>"""));
 
         await MakeClient().PostCommentAsync(12, 34, "  Loved it!  ");
 
@@ -647,16 +647,78 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task PostCommentIgnoresBlankText()
+    public async Task ACommentRefusedBeforeSavingIsNotPosted()
     {
-        await MakeClient().PostCommentAsync(12, null, " \n ");
+        // A check before saving (here a block) redirects to the work with an error flash.
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => FakeHandler.Redirect("/works/12?show_comments=true"),
+            _ => FakeHandler.Html("""<html><body><div class="flash comment_error">Sorry, you have been blocked by one or more of this work's creators.</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Contains("blocked", e.Message);
+    }
+
+    [Fact]
+    public async Task ACommentAO3DoesNotConfirmIsNotPosted()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => FakeHandler.Redirect("/works/12"),
+            _ => FakeHandler.Html("<html><body><div id=\"main\">Work text</div></body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal(CommentPostOutcome.Unconfirmed, e.Reason);
+    }
+
+    [Fact]
+    public async Task AModeratedCommentCountsAsPosted()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => FakeHandler.Redirect("/comments/987"),
+            _ => FakeHandler.Html("<html><body><div id=\"main\"></div></body></html>"));
+        await MakeClient().PostCommentAsync(12, null, "hi");
+        Assert.Equal(3, _handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task TheGuestFormNeedsASignInAndPostsNothing()
+    {
+        // AO3 shows its guest form once the session has ended.
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><form action="/works/12/comments" method="post">
+              <input type="hidden" name="authenticity_token" value="CSRF">
+              <input type="text" name="comment[name]"><input type="text" name="comment[email]">
+              <textarea name="comment[comment_content]"></textarea>
+            </form></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task PostCommentRefusesBlankText()
+    {
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, " \n "));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
         Assert.Empty(_handler.Requests);
     }
 
     [Fact]
-    public async Task PostCommentWithoutAComposerFails()
+    public async Task PostCommentWithoutAComposerWhileSignedOutNeedsASignIn()
     {
         _handler.Respond(_ => FakeHandler.Html("<html><body>Log in to comment</body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task PostCommentWithoutAComposerWhileSignedInFails()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""<html><body><nav id="greeting"><a href="/users/me">Hi, me!</a></nav></body></html>"""));
         var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
         Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
         Assert.Single(_handler.Requests);

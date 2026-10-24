@@ -308,15 +308,14 @@ struct LibraryView: View {
     }
 
     private func delete(_ work: Work) {
-        if let url = WorkPersistence.epubURL(workId: work.ao3Id) {
-            try? FileManager.default.removeItem(at: url)
-        }
-        context.delete(work)
+        iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
+        WorkPersistence.delete(work, in: context)
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     private func deleteFolder(_ folder: CustomFolder) {
+        iCloudSyncManager.recordDeletion(.folder, key: folder.name)
         context.delete(folder)
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)

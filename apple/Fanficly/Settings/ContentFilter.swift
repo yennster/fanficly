@@ -154,7 +154,10 @@ enum HiddenWorkStore {
     @MainActor
     static func unhide(ao3Id: Int, in context: ModelContext) {
         let descriptor = FetchDescriptor<HiddenWork>(predicate: #Predicate { $0.ao3Id == ao3Id })
-        for record in (try? context.fetch(descriptor)) ?? [] { context.delete(record) }
+        let records = (try? context.fetch(descriptor)) ?? []
+        guard !records.isEmpty else { return }
+        iCloudSyncManager.recordDeletion(.hidden, key: String(ao3Id))
+        for record in records { context.delete(record) }
         try? context.save()
     }
 }

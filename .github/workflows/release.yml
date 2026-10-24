@@ -7,11 +7,13 @@ name: Release
 #
 # One `release` with platform `all` ships everything with one set of notes:
 #   apple    iPhone, iPad and Mac to App Store Connect (fastlane, apple/)
-#   windows  the Microsoft Store (dispatches windows-store.yml)
-#   docs     refreshes every platform's screenshots and store art on a
+#   art      refreshes every platform's screenshots and store art on a
 #            release-docs/vX.Y.Z branch to merge with a PR (dispatches
-#            windows-screenshots.yml and store-assets.yml, which also uploads
-#            the new Apple store art)
+#            windows-screenshots.yml and store-assets.yml, which uploads the
+#            new Apple store art) and waits for both, so nothing is submitted
+#            to a store before its art is up
+#   windows  the Microsoft Store, from that branch with its new screenshots
+#            (dispatches windows-store.yml)
 #   tag      vX.Y.Z and the GitHub release
 
 on:
@@ -113,7 +115,8 @@ jobs:
       !cancelled() && github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
       inputs.platform != 'windows' && needs.notes.result != 'failure'
     runs-on: macos-26
-    timeout-minutes: 120
+    # The archives wait on Xcode Cloud and App Store Connect processing.
+    timeout-minutes: 240
     environment: app-store
     permissions:
       contents: read
@@ -157,6 +160,35 @@ jobs:
           brew install xcodegen
           xcodegen generate
 
+      # Every Apple build uses the newest Xcode 27 or later: one built with an
+      # older SDK runs in compatibility mode on the iPhone Duo, as 1.11.0 did.
+      # This runner's Xcode predates it, so both binaries are archived in Xcode
+      # Cloud (bin/xcode-cloud-release.py) and fastlane attaches the uploads
+      # (ios_build:, mac_build:). fastlane's check_xcode refuses to build here
+      # with anything older.
+      - uses: actions/setup-python@v5
+        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        with:
+          python-version: "3.11"
+
+      - name: Archive in Xcode Cloud
+        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$PLATFORM" in ios|mac) platforms="$PLATFORM" ;; *) platforms="ios mac" ;; esac
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          # shellcheck disable=SC2086
+          bin/.venv/bin/python bin/xcode-cloud-release.py run "$GITHUB_REF_NAME" build/release $platforms
+
       # match clones the private certificates repo over SSH with a deploy key.
       - name: Give match its deploy key
         env:
@@ -185,12 +217,27 @@ jobs:
           PLATFORM: ${{ inputs.platform }}
         run: |
           case "$PLATFORM" in ios|mac) p="$PLATFORM" ;; *) p=both ;; esac
-          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p"
+          extra=()
+          for q in ios mac; do
+            if [ -s "build/release/$q-build-number.txt" ]; then
+              extra+=("${q}_build:$(cat "build/release/$q-build-number.txt")")
+            fi
+          done
+          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p" "${extra[@]}"
 
       - name: Report the build number
         id: build
         if: always()
-        run: echo "build=$(cat build/release/build-number.txt 2>/dev/null)" >> "$GITHUB_OUTPUT"
+        run: |
+          # Xcode Cloud numbers each archive (iOS and Mac) separately.
+          ios=$(cat build/release/ios-build-number.txt 2>/dev/null || true)
+          mac=$(cat build/release/mac-build-number.txt build/release/build-number.txt 2>/dev/null | head -1 || true)
+          if [ -n "$ios" ] && [ -n "$mac" ] && [ "$ios" != "$mac" ]; then
+            build="$ios for iOS, $mac for Mac"
+          else
+            build="${mac:-$ios}"
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
       - name: Upload the downloaded store copy
         if: inputs.lane == 'pull_metadata'
@@ -205,13 +252,119 @@ jobs:
         if: always()
         run: rm -f ~/.ssh/match_deploy_key fastlane/api_key.json fastlane/AuthKey_*.p8
 
+  art:
+    name: Refresh screenshots and store art
+    needs: [notes, apple]
+    if: >-
+      !cancelled() && inputs.lane == 'release' && inputs.platform == 'all' &&
+      needs.notes.result == 'success' && needs.apple.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: write   # the release-docs/ branch
+      actions: write    # to start and watch the screenshot workflows
+    outputs:
+      branch: ${{ steps.start.outputs.branch }}
+    steps:
+      # Before any store submission: the App Store version and the Microsoft
+      # Store submission lock their screenshots once submitted, so the new
+      # ones have to be up first.
+      - name: Start the screenshot runs on a release-docs branch
+        id: start
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.notes.outputs.version }}
+        run: |
+          branch="release-docs/v$VERSION"
+          if gh api "repos/$GH_REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
+            # A re-run of the same version: the Windows package is built from
+            # this branch, so it must hold this release's code. Keep it only
+            # when it's already built on this commit.
+            status=$(gh api "repos/$GH_REPO/compare/$GITHUB_SHA...$branch" --jq .status)
+            if [ "$status" = ahead ] || [ "$status" = identical ]; then
+              echo "$branch already exists on this commit; adding to it"
+            else
+              echo "$branch is from an older commit; moving it to $GITHUB_SHA"
+              # A token without the workflows permission can't move a ref
+              # across workflow changes; recreating it from this commit can.
+              gh api -X PATCH "repos/$GH_REPO/git/refs/heads/$branch" -f sha="$GITHUB_SHA" -F force=true >/dev/null ||
+                { gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$branch" &&
+                  gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null; }
+            fi
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          # gh workflow run doesn't say which run it started: note the runs
+          # that already exist, and take the first new one after starting.
+          existing() {
+            gh run list --workflow "$1" --event workflow_dispatch --limit 20 --json databaseId --jq '[.[].databaseId]'
+          }
+          before_win=$(existing windows-screenshots.yml)
+          before_art=$(existing store-assets.yml)
+          # Windows screenshots commit to the branch they run on.
+          gh workflow run windows-screenshots.yml --ref "$branch"
+          # Apple: regenerate on main, upload to the App Store versions this
+          # release just made (approval in app-store), and push to the branch.
+          gh workflow run store-assets.yml --ref main -f what=store_art -f upload=true \
+            -f push_branch=true -f branch="$branch" -f sha="$GITHUB_SHA"
+          for wf in windows-screenshots.yml store-assets.yml; do
+            if [ "$wf" = store-assets.yml ]; then before=$before_art; else before=$before_win; fi
+            id=""
+            for _ in $(seq 30); do
+              id=$(gh run list --workflow "$wf" --event workflow_dispatch --limit 20 \
+                --json databaseId --jq "[.[].databaseId | select(IN($before[]) | not)] | min // empty" || true)
+              [ -n "$id" ] && break
+              sleep 10
+            done
+            [ -n "$id" ] || { echo "::error::Couldn't find the $wf run that was just started"; exit 1; }
+            echo "${wf%.yml}=$id" >> "$GITHUB_OUTPUT"
+          done
+          {
+            echo "### Screenshots and store art"
+            echo
+            echo "Regenerating every platform's screenshots onto \`$branch\`. Approve **app-store** on the Store assets run when it asks, to upload the new App Store art."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for the screenshots and the App Store art upload
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Poll rather than gh run watch: one API error mid-wait would stop
+          # watch and skip the Windows release while the run is fine.
+          wait_for() {
+            local id=$1 state="" errors=0
+            while :; do
+              if state=$(gh run view "$id" --json status,conclusion --jq '.status + " " + .conclusion'); then
+                errors=0
+                case "$state" in completed*) break ;; esac
+              elif [ $((errors += 1)) -ge 10 ]; then
+                echo "::error::Couldn't read run $id"; return 1
+              fi
+              sleep 60
+            done
+            [ "$state" = "completed success" ] || { echo "::error::Run $id ended: ${state#completed }"; return 1; }
+          }
+          wait_for "${{ steps.start.outputs.windows-screenshots }}"
+          wait_for "${{ steps.start.outputs.store-assets }}"
+          {
+            echo
+            echo "The new App Store screenshots and art are uploaded: **Submit for Review** in App Store Connect now."
+            echo "Open a PR from \`${{ steps.start.outputs.branch }}\` to put the pictures on main."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   windows:
     name: Windows (Microsoft Store)
-    needs: [notes, apple]
+    needs: [notes, apple, art]
     if: >-
       !cancelled() && inputs.lane == 'release' &&
       (inputs.platform == 'all' || inputs.platform == 'windows') &&
-      needs.notes.result == 'success' && needs.apple.result != 'failure'
+      needs.notes.result == 'success' && needs.apple.result != 'failure' &&
+      needs.art.result != 'failure'
     runs-on: ubuntu-latest
     permissions:
       actions: write   # to start windows-store.yml (it waits for approval in microsoft-store)
@@ -225,50 +378,21 @@ jobs:
           # when given, else the Windows changes merged since the last release.
           # Empty (no Windows changes) keeps windows/store/listing/en-us/release_notes.txt.
           NOTES: ${{ needs.notes.outputs.windows_notes }}
+          # With a full release, the release-docs branch: main's code plus the
+          # screenshots just taken, which go up in the same submission.
+          BRANCH: ${{ needs.art.outputs.branch }}
         run: |
+          args=(-f submit=true)
+          ref=main
+          if [ -n "$BRANCH" ]; then
+            ref="$BRANCH"
+            args+=(-f upload_screenshots=true)
+          fi
           if [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
-            gh workflow run windows-store.yml --ref main -f submit=true -f release_notes="$NOTES"
-          else
-            gh workflow run windows-store.yml --ref main -f submit=true
+            args+=(-f release_notes="$NOTES")
           fi
-          echo "Started the Windows Store release: approve it under Actions > Windows Store release." >> "$GITHUB_STEP_SUMMARY"
-
-  docs:
-    name: Refresh screenshots and docs
-    needs: [notes, apple, windows]
-    if: >-
-      !cancelled() && inputs.lane == 'release' && inputs.platform == 'all' &&
-      needs.notes.result == 'success' && needs.apple.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # the release-docs/ branch
-      actions: write    # to start the screenshot workflows
-    steps:
-      - name: Start the screenshot runs on a release-docs branch
-        working-directory: .
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.notes.outputs.version }}
-        run: |
-          branch="release-docs/v$VERSION"
-          if gh api "repos/$GH_REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
-            echo "$branch already exists; adding to it"
-          else
-            gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/heads/$branch" -f sha="$GITHUB_SHA" >/dev/null
-          fi
-          # Windows screenshots commit to the branch they run on.
-          gh workflow run windows-screenshots.yml --ref "$branch"
-          # Apple: regenerate on main, upload to the App Store versions this
-          # release just made (approval in app-store), and push to the branch.
-          gh workflow run store-assets.yml --ref main -f what=store_art -f upload=true \
-            -f push_branch=true -f branch="$branch" -f sha="$GITHUB_SHA"
-          {
-            echo "### Docs refresh"
-            echo
-            echo "Screenshots for every platform are being regenerated onto \`$branch\`."
-            echo "Open a PR from it (and update any doc text that changed) once both runs finish."
-          } >> "$GITHUB_STEP_SUMMARY"
+          gh workflow run windows-store.yml --ref "$ref" "${args[@]}"
+          echo "Started the Windows Store release from \`$ref\`: approve **microsoft-store** under Actions > Windows Store release." >> "$GITHUB_STEP_SUMMARY"
 
   tag:
     name: Tag and GitHub release
@@ -313,7 +437,7 @@ jobs:
               echo
             fi
             cat notes/changes.md
-            echo "App Store: version $VERSION, build $BUILD ($where). Submit for review in App Store Connect."
+            echo "App Store: version $VERSION, build $BUILD ($where). Submit for Review in App Store Connect once the store art is uploaded."
           } > github-release.md
           gh release create "v$VERSION" --target "$GITHUB_SHA" \
             --title "Fanficly v$VERSION" --notes-file github-release.md

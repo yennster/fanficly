@@ -31,6 +31,16 @@
         }
       }
     },
+    "Backed up, but changes from your other devices couldn't be brought in. Fanficly will try again the next time it opens." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Backed up, but changes from your other devices couldn't be brought in. Fanficly will try again the next time it opens."
+          }
+        }
+      }
+    },
     "Blocked tags & authors" : {
       "localizations" : {
         "en" : {
@@ -41,12 +51,62 @@
         }
       }
     },
+    "Cancel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "Changes from your other devices were added to your library, but this device's backup didn't run." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes from your other devices were added to your library, but this device's backup didn't run."
+          }
+        }
+      }
+    },
+    "Clear and Keep Syncing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear and Keep Syncing"
+          }
+        }
+      }
+    },
+    "Clear and Turn Off Sync" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear and Turn Off Sync"
+          }
+        }
+      }
+    },
     "Clear iCloud Data" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clear iCloud Data"
+          }
+        }
+      }
+    },
+    "Clear iCloud Data?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear iCloud Data?"
           }
         }
       }
@@ -77,6 +137,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Could not restore backup from iCloud. Please make sure you are logged into iCloud and try again."
+          }
+        }
+      }
+    },
+    "Couldn't Clear iCloud Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't Clear iCloud Data"
           }
         }
       }
@@ -141,6 +211,26 @@
         }
       }
     },
+    "iCloud Data Cleared" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud Data Cleared"
+          }
+        }
+      }
+    },
+    "iCloud isn't available. Make sure you're signed in to iCloud and iCloud Drive is on for Fanficly." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud isn't available. Make sure you're signed in to iCloud and iCloud Drive is on for Fanficly."
+          }
+        }
+      }
+    },
     "iCloud Sync" : {
       "localizations" : {
         "en" : {
@@ -197,6 +287,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Never"
+          }
+        }
+      }
+    },
+    "Not Cleared Yet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Cleared Yet"
+          }
+        }
+      }
+    },
+    "Not downloaded yet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not downloaded yet"
+          }
+        }
+      }
+    },
+    "Nothing to Clear" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing to Clear"
           }
         }
       }
@@ -311,6 +431,16 @@
         }
       }
     },
+    "Session expired for %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session expired for %@"
+          }
+        }
+      }
+    },
     "Settings" : {
       "localizations" : {
         "en" : {
@@ -351,6 +481,26 @@
         }
       }
     },
+    "Sync is now off on this device." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync is now off on this device."
+          }
+        }
+      }
+    },
+    "Sync is still on, so this device starts a new backup with its next change." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync is still on, so this device starts a new backup with its next change."
+          }
+        }
+      }
+    },
     "Sync Library to iCloud" : {
       "localizations" : {
         "en" : {
@@ -367,6 +517,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync Now"
+          }
+        }
+      }
+    },
+    "Synced. Changes from your other devices were added to your library." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synced. Changes from your other devices were added to your library."
+          }
+        }
+      }
+    },
+    "Synced. Your library is backed up to iCloud." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synced. Your library is backed up to iCloud."
           }
         }
       }
@@ -391,6 +561,16 @@
         }
       }
     },
+    "The backup in iCloud is still downloading to this device, so it couldn't be deleted yet. Try again in a minute." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The backup in iCloud is still downloading to this device, so it couldn't be deleted yet. Try again in a minute."
+          }
+        }
+      }
+    },
     "The backup in iCloud is still downloading. Fanficly will back up once it's on this device." : {
       "localizations" : {
         "en" : {
@@ -407,6 +587,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Theme & typography"
+          }
+        }
+      }
+    },
+    "There's no library backup in iCloud." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There's no library backup in iCloud."
+          }
+        }
+      }
+    },
+    "This deletes your library backup from iCloud. Your other devices that sync use the same backup, so they won't get changes from it until one of them backs up again. Your library on this device isn't affected. If sync stays on, this device starts a new backup with its next change." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes your library backup from iCloud. Your other devices that sync use the same backup, so they won't get changes from it until one of them backs up again. Your library on this device isn't affected. If sync stays on, this device starts a new backup with its next change."
           }
         }
       }
@@ -467,6 +667,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Your library and settings have been successfully restored from iCloud."
+          }
+        }
+      }
+    },
+    "Your library backup was deleted from iCloud." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your library backup was deleted from iCloud."
           }
         }
       }

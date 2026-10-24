@@ -61,6 +61,41 @@ extension ChapterTracking {
         return ReadingAnchor(chapter: lastChapter, paragraph: lastParagraph)
     }
 
+    /// `anchor` moved onto the chapters actually loaded (`order`, their
+    /// indices), or nil when none are. A saved position can point past them:
+    /// new-chapter notifications open the live work, so you can save a place
+    /// in chapter 13 while the downloaded copy stops at 12. An anchor in a
+    /// chapter that isn't loaded lands on the last paragraph of the nearest
+    /// loaded chapter before it (the first chapter's top when there's none),
+    /// so every mode has a chapter to show. `lastParagraph` gives a loaded
+    /// chapter's final paragraph index.
+    static func clampedAnchor(_ anchor: ReadingAnchor, toChapters order: [Int],
+                              lastParagraph: (Int) -> Int) -> ReadingAnchor? {
+        let sorted = order.sorted()
+        guard let first = sorted.first else { return nil }
+        if sorted.contains(anchor.chapter) { return anchor }
+        guard let before = sorted.last(where: { $0 < anchor.chapter }) else {
+            return ReadingAnchor(chapter: first, paragraph: 0)
+        }
+        return ReadingAnchor(chapter: before, paragraph: max(lastParagraph(before), 0))
+    }
+
+    /// How far through the loaded chapters (`order`) `anchor` is, 0…1: whole
+    /// chapters before it plus the fraction of its chapter's paragraphs
+    /// (`paragraphCount`). Nil when its chapter isn't loaded, since there's
+    /// nothing to measure it against; reading that as 0 would overwrite the
+    /// real progress.
+    static func progressFraction(for anchor: ReadingAnchor, chapters order: [Int],
+                                 paragraphCount: (Int) -> Int) -> Double? {
+        let sorted = order.sorted()
+        guard let chapterOffset = sorted.firstIndex(of: anchor.chapter) else { return nil }
+        let count = max(paragraphCount(anchor.chapter), 1)
+        let denominator = max(count - 1, 1)
+        let paragraphProgress = min(max(Double(anchor.paragraph) / Double(denominator), 0), 1)
+        let rawProgress = (Double(chapterOffset) + paragraphProgress) / Double(sorted.count)
+        return min(max(rawProgress, 0), 1)
+    }
+
     static func parse(_ key: String) -> ReadingAnchor? {
         // "c12-p3"
         let parts = key.dropFirst().split(separator: "-p")

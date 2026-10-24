@@ -132,6 +132,12 @@ struct FanficlyApp: App {
                         }
                     }
 
+                    // One-time: drop login or error pages older builds saved
+                    // as EPUBs, so those works stop showing as Downloaded.
+                    if !Self.isDemoMode {
+                        WorkPersistence.removeInvalidEPUBsIfNeeded()
+                    }
+
                     let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                     if iCloudEnabled && !Self.isDemoMode {
                         let sync = iCloudSyncManager.shared
@@ -288,7 +294,11 @@ struct FanficlyApp: App {
                 
                 let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                 if iCloudEnabled && !Self.isDemoMode {
-                    iCloudSyncManager.shared.backupToiCloud(context: Self.sharedModelContainer.mainContext)
+                    // The snapshot and a background-task assertion now, the
+                    // write off the main actor; it leaves the file alone when
+                    // nothing changed, so backgrounding doesn't re-upload the
+                    // library every time (#137).
+                    iCloudSyncManager.shared.startBackgroundBackup(context: Self.sharedModelContainer.mainContext)
                 }
             }
         }

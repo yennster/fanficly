@@ -8,6 +8,7 @@ import SwiftData
 struct SearchView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(AuthState.self) private var auth
     @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
     @Query private var hiddenWorks: [HiddenWork]
     @Query private var blockedTerms: [BlockedTerm]
@@ -32,6 +33,8 @@ struct SearchView: View {
     @State private var hasSearched = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// The error is an expired AO3 session (#131): offer Sign In Again.
+    @State private var sessionExpired = false
     @State private var searchTask: Task<Void, Never>?
     @State private var searchStartedAt: Date?
     @State private var tagSuggestions: [SuggestionCandidate] = []
@@ -296,6 +299,17 @@ struct SearchView: View {
     private var contentArea: some View {
         if isSearching {
             searchingView
+        } else if let error = errorMessage, sessionExpired, !auth.hasSession {
+            SessionExpiredView(message: error)
+        } else if errorMessage != nil, sessionExpired {
+            // Signed in again since: the expiry note no longer stands.
+            ContentUnavailableView {
+                Label("Signed in again", systemImage: "magnifyingglass")
+            } description: {
+                Text("Search again to see every result, restricted works included.")
+            } actions: {
+                Button("Try Again") { startSearch() }
+            }
         } else if let error = errorMessage {
             ContentUnavailableView {
                 Label("Search failed", systemImage: "exclamationmark.triangle")
@@ -465,6 +479,7 @@ struct SearchView: View {
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
+                                    iCloudSyncManager.recordDeletion(.search, key: saved.name)
                                     context.delete(saved)
                                     try? context.save()
                                 } label: {
@@ -667,6 +682,7 @@ struct SearchView: View {
 
     private func performSearch(_ requested: AO3SearchFilters) async {
         errorMessage = nil
+        sessionExpired = false
         searchStartedAt = .now
         withAnimation { isSearching = true }
         var filters = requested
@@ -685,6 +701,7 @@ struct SearchView: View {
         do {
             let result = try await client.search(filters: filters, page: 1)
             guard !Task.isCancelled else { return }
+            _ = try auth.check(result)
             results = result.works
             totalFound = result.totalFound
             totalPages = result.totalPages
@@ -697,7 +714,8 @@ struct SearchView: View {
             } ?? "Search finished. \(results.count) works on this page.")
         } catch {
             guard !Task.isCancelled else { return }
-            errorMessage = Self.message(for: error)
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : Self.message(for: error)
         }
         searchStartedAt = nil
         withAnimation { isSearching = false }
@@ -710,7 +728,7 @@ struct SearchView: View {
         case AO3Error.parseFailed(let reason): return "Couldn't read AO3's response: \(reason)"
         case AO3Error.network(let underlying): return "Network: \(underlying)"
         case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
-        case AO3Error.unauthorized: return "AO3 sent its login page instead of results. Log in again in Settings, then try again."
+        case AO3Error.unauthorized: return "AO3 sent its login page instead of results. Sign in again, then try again."
         default: return error.localizedDescription
         }
     }
@@ -723,12 +741,14 @@ struct SearchView: View {
         do {
             let result = try await client.search(filters: searched, page: currentPage + 1)
             guard searched == self.searched else { return }  // a new search started meanwhile
+            _ = try auth.check(result)
             let existing = Set(results.map(\.id))
             results.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "Couldn't load more: \(Self.message(for: error))"
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : "Couldn't load more: \(Self.message(for: error))"
         }
     }
 
@@ -802,4 +822,5 @@ struct SearchView: View {
 #Preview {
     NavigationStack { SearchView() }
         .environment(\.ao3Client, MockAO3Client())
+        .environment(AuthState())
 }

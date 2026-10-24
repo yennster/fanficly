@@ -88,10 +88,22 @@ jobs:
           git add windows/docs/screenshots windows/store/screenshots windows/store/images
           if (git diff --cached --quiet) { Write-Host 'Screenshots unchanged.'; exit 0 }
           git commit -m 'Windows: refresh screenshots' -m "Captured by the Windows screenshots workflow (run ${{ github.run_id }})."
-          # The branch may have moved on while the run captured; put the
-          # pictures on top of it (they only touch picture folders).
-          git pull --rebase origin ${{ github.ref_name }}
-          git push origin HEAD:${{ github.ref_name }}
+          # The branch may have moved on while the run captured (the Release
+          # workflow's Store assets run pushes to it too); put the pictures on
+          # top of it (they only touch picture folders) and retry if it moves.
+          # -X theirs keeps these new pictures where an earlier run's differ.
+          foreach ($attempt in 1..3) {
+            git pull --rebase -X theirs origin ${{ github.ref_name }}
+            if ($LASTEXITCODE -ne 0) {
+              git rebase --abort
+            } else {
+              git push origin HEAD:${{ github.ref_name }}
+              if ($LASTEXITCODE -eq 0) { exit 0 }
+            }
+            Start-Sleep -Seconds ($attempt * 10)
+          }
+          Write-Host "::error::Couldn't push to ${{ github.ref_name }}"
+          exit 1
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: ui-screenshots, path: artifacts/ui-screenshots, if-no-files-found: ignore }

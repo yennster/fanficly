@@ -75,7 +75,7 @@ struct SubscriptionsView: View {
                         Text("Open Settings → AO3 Login").font(.callout)
                     }
                 }
-            } else if subs.isEmpty && !isRefreshing {
+            } else if subs.isEmpty && !isRefreshing && !auth.isSessionExpired {
                 ContentUnavailableView {
                     Label("No subscriptions yet", systemImage: "bell")
                 } description: {
@@ -88,6 +88,12 @@ struct SubscriptionsView: View {
                     if let lastError {
                         Label(lastError, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
+                    }
+                    // The way back from an expired session (#131): Refresh can't help.
+                    if auth.isSessionExpired {
+                        NavigationLink { LoginView() } label: {
+                            Label(SessionExpiry.actionTitle, systemImage: "person.crop.circle.badge.questionmark")
+                        }
                     }
                     if let count = lastNotifyCount {
                         Text(count == 0
@@ -105,6 +111,10 @@ struct SubscriptionsView: View {
         }
         .navigationTitle("Subscriptions")
         .navigationBarTitleDisplayMode(.large)
+        .onChange(of: auth.isSessionExpired) { _, expired in
+            // Signed in again: the expired-session error no longer stands.
+            if !expired, lastError?.hasPrefix(SessionExpiry.title) == true { lastError = nil }
+        }
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
@@ -143,7 +153,9 @@ struct SubscriptionsView: View {
         } catch let AO3Error.parseFailed(reason) {
             lastError = "Couldn't parse AO3's response: \(reason)"
         } catch AO3Error.unauthorized {
-            lastError = "Not logged in. Open Settings → AO3 Login."
+            // Signed in here, so AO3 dropped the session (#131).
+            auth.markSessionExpired()
+            lastError = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
         } catch let AO3Error.network(underlying) {
             lastError = "Network: \(underlying)"
         } catch {
@@ -229,6 +241,8 @@ struct BookmarksView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// The last load failed because the AO3 session expired (#131).
+    @State private var sessionExpired = false
 
     private var visibleWorks: [AO3WorkSummary] {
         ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
@@ -248,6 +262,8 @@ struct BookmarksView: View {
                 }
             } else if isLoading && works.isEmpty {
                 VStack { Spacer(); ProgressView("Loading bookmarks…"); Spacer() }
+            } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
+                SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
                 ContentUnavailableView("Couldn't load bookmarks", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
@@ -297,15 +313,20 @@ struct BookmarksView: View {
         .onChange(of: auth.username) { _, name in
             if name != nil, works.isEmpty { Task { await loadFirst() } }
         }
+        // Signed in again after the session expired.
+        .onChange(of: auth.hasSession) { _, live in
+            if live, works.isEmpty { Task { await loadFirst() } }
+        }
     }
 
     private func loadFirst() async {
-        guard let username = auth.username, works.isEmpty else { return }
+        guard let username = auth.username, works.isEmpty, !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        sessionExpired = false
         defer { isLoading = false }
         do {
-            let result = try await client.fetchBookmarks(username: username, page: 1)
+            let result = try auth.check(await client.fetchBookmarks(username: username, page: 1))
             works = result.works
             currentPage = result.currentPage
             totalPages = result.totalPages
@@ -315,7 +336,8 @@ struct BookmarksView: View {
             // the 1 req/sec throttle), not a load failure. Don't surface it —
             // `.task` re-runs when the view re-appears. Only real errors show.
             guard !Task.isCancelled else { return }
-            errorMessage = "\(error)"
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
         }
     }
 
@@ -331,14 +353,15 @@ struct BookmarksView: View {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let result = try await client.fetchBookmarks(username: username, page: currentPage + 1)
+            let result = try auth.check(await client.fetchBookmarks(username: username, page: currentPage + 1))
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
             guard !Task.isCancelled else { return }   // benign cancellation — see loadFirst
-            errorMessage = "\(error)"
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
         }
     }
 }
@@ -430,6 +453,8 @@ struct ReadingListView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// The last load failed because the AO3 session expired (#131).
+    @State private var sessionExpired = false
 
     private var visibleWorks: [AO3WorkSummary] {
         ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
@@ -449,6 +474,8 @@ struct ReadingListView: View {
                 }
             } else if isLoading && works.isEmpty {
                 VStack { Spacer(); ProgressView("Loading \(list.title)…"); Spacer() }
+            } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
+                SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
                 ContentUnavailableView("Couldn't load \(list.title)", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
@@ -498,12 +525,17 @@ struct ReadingListView: View {
         .onChange(of: auth.username) { _, name in
             if name != nil, works.isEmpty { Task { await loadFirst() } }
         }
+        // Signed in again after the session expired.
+        .onChange(of: auth.hasSession) { _, live in
+            if live, works.isEmpty { Task { await loadFirst() } }
+        }
     }
 
     private func loadFirst() async {
-        guard let username = auth.username, works.isEmpty else { return }
+        guard let username = auth.username, works.isEmpty, !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        sessionExpired = false
         defer { isLoading = false }
         do {
             let result = try await list.fetch(client, username: username, page: 1)
@@ -512,7 +544,8 @@ struct ReadingListView: View {
             totalPages = result.totalPages
         } catch {
             guard !Task.isCancelled else { return }   // benign cancellation — see BookmarksView
-            errorMessage = Self.message(for: error)
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : Self.message(for: error)
         }
     }
 
@@ -535,13 +568,14 @@ struct ReadingListView: View {
             totalPages = result.totalPages
         } catch {
             guard !Task.isCancelled else { return }
-            errorMessage = Self.message(for: error)
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : Self.message(for: error)
         }
     }
 
     private static func message(for error: Error) -> String {
         switch error {
-        case AO3Error.unauthorized: "Your AO3 login has expired. Log in again in Settings → AO3 Login."
+        case AO3Error.unauthorized: "Your AO3 login has expired. Sign in again."
         case AO3Error.parseFailed(let reason): reason
         case AO3Error.rateLimited: "AO3 is asking us to slow down. Try again in a minute."
         default: "\(error)"

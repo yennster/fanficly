@@ -55,12 +55,19 @@ public struct AO3SearchResults: Sendable, Equatable {
     public let currentPage: Int
     /// The search page's "126,555 Found" total; nil on listings without one.
     public let totalFound: Int?
+    /// AO3 rendered the page for a signed-out reader (the header's login form,
+    /// no greeting). A guest listing leaves out restricted (archive-locked)
+    /// works, so a signed-in reader getting one has an expired session; see
+    /// `AuthState.noteListing(_:)`.
+    public let servedAsGuest: Bool
 
-    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil) {
+    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil,
+                servedAsGuest: Bool = false) {
         self.works = works
         self.totalPages = totalPages
         self.currentPage = currentPage
         self.totalFound = totalFound
+        self.servedAsGuest = servedAsGuest
     }
 }
 
@@ -349,6 +356,8 @@ public enum AO3Error: Error, Sendable, Equatable {
     /// AO3 refused a kudo, with its own reason ("You can't leave kudos on your
     /// own work.", a block, a suspended account).
     case kudosRejected(message: String)
+    /// AO3 didn't post a comment, with its own reason when it gave one.
+    case commentRejected(message: String)
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -611,7 +620,7 @@ public actor AO3Client: AO3ClientProtocol {
 
     public func postComment(workId: Int, chapterId: Int?, text: String) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { throw AO3Error.commentRejected(message: "The comment is empty.") }
 
         // Load the chapter's (or work's) comment page and replay its actual
         // new-comment form: the form's hidden inputs carry the CSRF token and the
@@ -624,8 +633,13 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.parseFailed(reason: "Comment page not UTF-8")
         }
         guard let form = CommentsParser.newCommentForm(html: pageHTML, base: baseURL) else {
-            throw AO3Error.parseFailed(reason: "comment form not found (login required?)")
+            if !KudosParser.isSignedIn(html: pageHTML) { throw AO3Error.unauthorized }
+            throw AO3Error.parseFailed(reason: "comment form not found")
         }
+        // AO3 shows its guest form (name and email) once the session has
+        // ended. Posting it without them is refused, and posting as a guest
+        // isn't what a signed-in reader meant.
+        guard !form.isGuest else { throw AO3Error.unauthorized }
 
         await throttle.wait()
         var request = URLRequest(url: form.action)
@@ -641,9 +655,14 @@ public actor AO3Client: AO3ClientProtocol {
         fields["commit"] = "Comment"
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
-        let (_, response) = try await performRequest(request)
-        guard response.statusCode < 400 else {
-            throw AO3Error.http(status: response.statusCode)
+        // AO3 answers a refused comment with a 200 page (or a redirect that
+        // URLSession follows), never an error status, so judge by the page.
+        let (data, response) = try await performRequest(request)
+        let html = String(data: data, encoding: .utf8) ?? ""
+        switch CommentsParser.postOutcome(html: html, finalURL: response.url, formAction: form.action) {
+        case .posted: return
+        case .signedOut: throw AO3Error.unauthorized
+        case .rejected(let message): throw AO3Error.commentRejected(message: message)
         }
     }
 
@@ -723,7 +742,8 @@ public actor AO3Client: AO3ClientProtocol {
     public func downloadEPUB(workId: Int) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.epub(workId: workId, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        let (data, response) = try await performRequest(URLRequest(url: url))
+        try Self.ensureDownloadedFile(data, finalURL: response.url, format: .epub)
         let docs = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dir = docs.appendingPathComponent("library", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -735,7 +755,8 @@ public actor AO3Client: AO3ClientProtocol {
     public func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.download(workId: workId, format: format, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        let (data, response) = try await performRequest(URLRequest(url: url))
+        try Self.ensureDownloadedFile(data, finalURL: response.url, format: format)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exports", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = Self.sanitizeFilename(filename.isEmpty ? "work-\(workId)" : filename)
@@ -743,6 +764,47 @@ public actor AO3Client: AO3ClientProtocol {
         try? FileManager.default.removeItem(at: fileURL)
         try data.write(to: fileURL, options: .atomic)
         return fileURL
+    }
+
+    /// A download is really the file, not a page. A restricted work fetched
+    /// signed out (or with an expired cookie) redirects to the login page,
+    /// which URLSession follows to a 200, and AO3 or Cloudflare can answer
+    /// with an error page. Saved, either would show as Downloaded (the
+    /// Library only checks the EPUB file exists) or reach the share sheet as
+    /// a `.pdf`. So each format has to start like that format, and nothing is
+    /// written unless it does.
+    static func ensureDownloadedFile(_ data: Data, finalURL: URL?, format: WorkExportFormat) throws {
+        if finalURL?.path.hasPrefix("/users/login") == true { throw AO3Error.unauthorized }
+        let matches: Bool
+        switch format {
+        case .epub, .azw3, .mobi: matches = isEbook(data)
+        case .pdf: matches = isPDF(data)
+        case .html: matches = try AO3PageCheck.isWorkDownload(html: String(decoding: data, as: UTF8.self))
+        }
+        if matches { return }
+        if format != .html, AO3PageCheck.isLoginPage(html: String(decoding: data, as: UTF8.self)) {
+            throw AO3Error.unauthorized
+        }
+        throw AO3Error.parseFailed(reason: "AO3 didn't send the \(format.displayName) file")
+    }
+
+    /// AO3's EPUB is a zip; its AZW3 and MOBI are Mobipocket files.
+    static func isEbook(_ data: Data) -> Bool {
+        isZip(data) || isMobipocket(data)
+    }
+
+    private static func isZip(_ data: Data) -> Bool {
+        data.prefix(4).elementsEqual([0x50, 0x4B, 0x03, 0x04])
+    }
+
+    /// A Palm database whose type and creator, at byte 60, are "BOOKMOBI".
+    private static func isMobipocket(_ data: Data) -> Bool {
+        data.count >= 68 && data.dropFirst(60).prefix(8).elementsEqual("BOOKMOBI".utf8)
+    }
+
+    /// PDF readers accept the header anywhere in the first 1024 bytes.
+    private static func isPDF(_ data: Data) -> Bool {
+        data.prefix(1024).range(of: Data("%PDF-".utf8)) != nil
     }
 
     private static func sanitizeFilename(_ name: String) -> String {

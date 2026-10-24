@@ -111,5 +111,6 @@ final class KudosGiverTests: XCTestCase {
 
         XCTAssertFalse(giver.hasLeft)
         XCTAssertEqual(giver.result?.message.contains("Log in again"), true)
+        XCTAssertTrue(giver.sessionExpired)  // the screen marks AuthState (#131)
     }
 }

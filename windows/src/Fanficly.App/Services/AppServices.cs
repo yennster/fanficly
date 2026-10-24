@@ -61,6 +61,9 @@ public static partial class AppHost
             SyncFolder = KeyValueStores.Default.GetString(SyncFolderKey),
             MergeReaderProfiles = (local, incoming) => ReaderProfile.MergedProfiles(local, incoming),
             PublishReaderProfiles = ReaderProfileSyncStore.PublishLocalProfiles,
+            // This runs on the UI thread (OnLaunched): backups snapshot and
+            // restores apply the library here, where the screens use it.
+            RecordsContext = SynchronizationContext.Current,
         };
         // Without the real library, a backup or restore would stamp the sync
         // folder as applied while this PC's library never saw it.

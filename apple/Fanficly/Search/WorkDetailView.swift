@@ -179,6 +179,9 @@ final class KudosGiver {
     var hasLeft = false
     /// The alert after a tap: a thank-you or AO3's reason for refusing.
     var result: (title: String, message: String)?
+    /// AO3 refused the kudos for an expired session; the screen marks
+    /// `AuthState` (#131) and resets it.
+    var sessionExpired = false
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -201,7 +204,8 @@ final class KudosGiver {
                 ? (title: "Kudos left", message: "Thank you for leaving kudos!")
                 : (title: "Kudos already left", message: "You've already left kudos on this work.")
         } catch AO3Error.unauthorized {
-            result = (title: "Couldn't leave kudos", message: "Your AO3 login has expired. Log in again in Settings, then try again.")
+            sessionExpired = true
+            result = (title: "Couldn't leave kudos", message: "Your AO3 login has expired. Log in again in Settings → AO3 Login, then try again.")
         } catch AO3Error.kudosRejected(let message) {
             result = (title: "Couldn't leave kudos", message: message)
         } catch AO3Error.rateLimited {
@@ -253,6 +257,11 @@ private struct KudosPresentation: ViewModifier {
         content
             .onAppear { giver.refresh(workId: workId, username: auth.username) }
             .onChange(of: auth.username) { _, name in giver.refresh(workId: workId, username: name) }
+            .onChange(of: giver.sessionExpired) { _, expired in
+                guard expired else { return }
+                auth.markSessionExpired()
+                giver.sessionExpired = false
+            }
             .alert(giver.result?.title ?? "", isPresented: Binding(
                 get: { giver.result != nil },
                 set: { if !$0 { giver.result = nil } })) {

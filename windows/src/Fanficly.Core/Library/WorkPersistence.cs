@@ -21,6 +21,8 @@ public static class WorkPersistence
             var chapter = new Chapter(work, ch.Index, ch.Title, ch.BodyHtml, ch.AoId);
             store.Insert(chapter);
         }
+        // Saved for offline again, so restores may update its chapters again.
+        SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: false);
 
         store.TrySave();
         return work;
@@ -120,8 +122,20 @@ public static class WorkPersistence
         return work.IsPinned;
     }
 
-    /// <summary>Removes a work from the library, with its downloaded EPUB.</summary>
+    /// <summary>Removes a work from the library, with its downloaded EPUB, and
+    /// records the deletion so sync carries it to the other devices.</summary>
     public static void DeleteWork(Work work, LibraryStore store)
+    {
+        LibrarySyncManager.RecordDeletionShared(DeletionKind.Work, work.Ao3Id);
+        RemoveWork(work, store);
+        store.TrySave();
+        LibrarySyncManager.QueueBackupShared(store);
+    }
+
+    /// <summary>Removes a work with its downloaded EPUB and search-index entry,
+    /// without saving or recording a deletion (a restore applying another
+    /// device's delete uses it).</summary>
+    internal static void RemoveWork(Work work, LibraryStore store)
     {
         if (EpubPath(work.Ao3Id) is { } path)
         {
@@ -129,7 +143,24 @@ public static class WorkPersistence
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
         DeindexWork(work.Ao3Id);
+        // A work saved again later starts fresh: another device's chapters may restore.
+        SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: false);
         store.Delete(work);
+    }
+
+    /// <summary>Deletes the offline copy (EPUB and stored chapters); the work
+    /// stays in the library and reads on demand. Marked on this device so a
+    /// restore doesn't put the chapters back from another device's copy and
+    /// offer to re-download it.</summary>
+    public static void RemoveDownload(Work work, LibraryStore store)
+    {
+        if (EpubPath(work.Ao3Id) is { } path)
+        {
+            try { File.Delete(path); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { LibraryHooks.Log?.Invoke($"Removing {path} failed: {e.Message}"); }
+        }
+        foreach (var chapter in work.Chapters.ToList()) store.Delete(chapter);
+        SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: true);
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);
     }
@@ -155,6 +186,7 @@ public static class WorkPersistence
     /// <summary>Deletes a folder; its works stay in the library.</summary>
     public static void DeleteFolder(CustomFolder folder, LibraryStore store)
     {
+        LibrarySyncManager.RecordDeletionShared(DeletionKind.Folder, folder.Name);
         store.Delete(folder);
         store.TrySave();
         LibrarySyncManager.QueueBackupShared(store);
