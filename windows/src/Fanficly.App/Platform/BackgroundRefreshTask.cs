@@ -65,8 +65,8 @@ public static class InAppPolling
         if (!await Running.WaitAsync(0, ct)) return;
         try
         {
-            // Read on the UI thread; the poll itself runs off it (the store is
-            // thread-safe, and every await inside the poller leaves the UI context).
+            // Read on the UI thread; the poll runs off it, and hops back to
+            // RecordsThread.Main to read and change records (#139).
             var client = AppHost.Client;
             var library = AppHost.Library;
             var username = AppHost.Auth.Username;

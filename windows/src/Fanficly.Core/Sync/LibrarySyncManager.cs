@@ -240,32 +240,15 @@ public sealed class LibrarySyncManager
         set
         {
             _recordsContext = value;
-            _recordsThread = value is null ? 0 : Environment.CurrentManagedThreadId;
+            _records = value is null ? null : new RecordsThread(value);
         }
     }
 
     private SynchronizationContext? _recordsContext;
-    private int _recordsThread;
+    private RecordsThread? _records;
 
-    /// <summary>Runs <paramref name="body"/> on <see cref="RecordsContext"/>
-    /// (inline when that's this thread, or none is set).</summary>
-    private Task<T> OnRecordsContextAsync<T>(Func<T> body)
-    {
-        // Already there: run inline (posting and waiting would deadlock).
-        if (_recordsContext is not { } context || SynchronizationContext.Current == context
-            || Environment.CurrentManagedThreadId == _recordsThread)
-        {
-            try { return Task.FromResult(body()); }
-            catch (Exception e) { return Task.FromException<T>(e); }
-        }
-        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-        context.Post(_ =>
-        {
-            try { done.SetResult(body()); }
-            catch (Exception e) { done.SetException(e); }
-        }, null);
-        return done.Task;
-    }
+    /// <summary>Runs <paramref name="body"/> on <see cref="RecordsContext"/>.</summary>
+    private Task<T> OnRecordsContextAsync<T>(Func<T> body) => RecordsThread.RunAsync(_records, body);
 
     /// <summary>Drops a queued backup that hasn't started (sync turned off,
     /// synced data cleared).</summary>
