@@ -201,24 +201,81 @@ public sealed class JsonFileKeyValueStoreTests : IDisposable
     {
         WriteSettings(("ageGate", "true"));
 
-        JsonFileKeyValueStore store;
-        using (Lock())
+        var previousDelay = JsonFileKeyValueStore.RetryDelayMs;
+        JsonFileKeyValueStore.RetryDelayMs = 50;
+        try
         {
-            store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 1, retryDelay: TimeSpan.Zero)
+            JsonFileKeyValueStore store;
+            using (Lock())
             {
-                RetryFlushAfter = TimeSpan.FromMilliseconds(50),
-            };
-            store.SetString("theme", "sepia");
+                store = new JsonFileKeyValueStore(SettingsPath, readOnly: false, attempts: 1, retryDelay: TimeSpan.Zero);
+                store.SetString("theme", "sepia");
+                Assert.False(store.Flush());
+            }
+
+            // No further change and no explicit flush: the retry timer saves it.
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (store.IsWaitingForFile && DateTime.UtcNow < deadline) Thread.Sleep(20);
+            Assert.False(store.IsWaitingForFile);
+            store.Dispose();
+            Assert.Equal("sepia", ReadFile(SettingsPath)["theme"]);
+            Assert.Equal("true", ReadFile(SettingsPath)["ageGate"]);
+        }
+        finally
+        {
+            JsonFileKeyValueStore.RetryDelayMs = previousDelay;
+        }
+    }
+
+    [Fact]
+    public void Flush_WritesAndReadsBack()
+    {
+        using (var store = new JsonFileKeyValueStore(SettingsPath))
+        {
+            store.SetString("reader.fontSize", "18");
             store.Flush();
         }
+        using var reopened = new JsonFileKeyValueStore(SettingsPath);
+        Assert.Equal("18", reopened.GetString("reader.fontSize"));
+    }
 
-        // No further change and no explicit flush: the retry timer saves it.
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (store.IsWaitingForFile && DateTime.UtcNow < deadline) Thread.Sleep(20);
-        Assert.False(store.IsWaitingForFile);
-        store.Dispose();
-        Assert.Equal("sepia", ReadFile(SettingsPath)["theme"]);
-        Assert.Equal("true", ReadFile(SettingsPath)["ageGate"]);
+    /// <summary>A write that can't replace the file (another process has it
+    /// open, so Windows refuses the move) must not throw: Flush runs on a timer
+    /// thread, where an exception ends the app. The change stays pending and is
+    /// written on a later try.</summary>
+    [Fact]
+    public void Flush_WhenTheFileCantBeReplaced_DoesNotThrowAndRetriesLater()
+    {
+        var previousDelay = JsonFileKeyValueStore.RetryDelayMs;
+        JsonFileKeyValueStore.RetryDelayMs = 50;
+        try
+        {
+            var path = Path.Combine(_dir, "group.json");
+            // A folder where the file goes makes the move fail on every OS.
+            Directory.CreateDirectory(path);
+            using var store = new JsonFileKeyValueStore(path);
+            store.SetString("widget.lastRead", "42");
+
+            var written = true;
+            var error = Record.Exception(() => written = store.Flush());
+            Assert.Null(error);
+            Assert.False(written);
+            Assert.True(Directory.Exists(path));
+            Assert.False(File.Exists(path));
+
+            // The blocker goes away; the retry timer writes the pending change.
+            Directory.Delete(path);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!File.Exists(path) && DateTime.UtcNow < deadline) Thread.Sleep(20);
+            Assert.True(File.Exists(path));
+            var text = "";
+            while (DateTime.UtcNow < deadline && !(text = File.ReadAllText(path)).Contains("\"42\"")) Thread.Sleep(20);
+            Assert.Contains("\"42\"", text);
+        }
+        finally
+        {
+            JsonFileKeyValueStore.RetryDelayMs = previousDelay;
+        }
     }
 
     [Theory]

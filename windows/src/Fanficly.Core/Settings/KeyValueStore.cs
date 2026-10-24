@@ -135,14 +135,22 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
     private readonly Timer _flushTimer;
     private readonly Lock _writeGate = new();
     private bool _dirty;
+    private bool _disposed;
+    private int _retryDelayMs;
     /// <summary>Set while the file on disk couldn't be read: keys changed this
     /// run, applied on top of the file once a flush can read it.</summary>
     private HashSet<string>? _changedWhileUnreadable;
     /// <summary>The .bak existed but couldn't be read: never copy over it this run.</summary>
     private bool _keepBackup;
 
-    /// <summary>How long a deferred or failed write waits before trying again.</summary>
-    internal TimeSpan RetryFlushAfter { get; init; } = TimeSpan.FromSeconds(5);
+    /// <summary>How long the first retry of a failed or deferred write waits;
+    /// each later one waits twice as long, up to <see cref="MaxRetryDelayMs"/>.</summary>
+    internal static int RetryDelayMs { get; set; } = 1000;
+    internal const int MaxRetryDelayMs = 60_000;
+
+    /// <summary>Told (on the writing thread) when a write fails, once per run of
+    /// failures; the app logs it. Core has no log of its own.</summary>
+    public static Action<string>? WriteFailed { get; set; }
 
     /// <summary>Opens the store over <paramref name="path"/>. A read-only store
     /// (the widget server's copy of a file another process owns) never writes,
@@ -190,7 +198,11 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
         try
         {
             if (!File.Exists(path)) return ReadOutcome.Missing;
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            // Share delete too: the widget server re-reads group.json before
+            // every render, and Windows refuses to replace a file someone has
+            // open without it, so the app's next write would fail.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var doc = JsonDocument.Parse(stream);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
             {
                 error = $"Expected a JSON object, found {doc.RootElement.ValueKind}.";
@@ -199,6 +211,10 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
             foreach (var p in doc.RootElement.EnumerateObject())
                 if (p.Value.ValueKind == JsonValueKind.String) values[p.Name] = p.Value.GetString()!;
             return ReadOutcome.Read;
+        }
+        catch (FileNotFoundException)
+        {
+            return ReadOutcome.Missing;
         }
         catch (JsonException e)
         {
@@ -291,70 +307,102 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
     {
         _changedWhileUnreadable?.Add(key);
         _dirty = true;
-        if (!_readOnly) _flushTimer.Change(300, Timeout.Infinite);
+        if (!_readOnly && _retryDelayMs == 0) Schedule(300); // else a retry is already waiting
     }
 
-    /// <summary>Writes pending changes now (also called on app suspend/exit).
-    /// While the file couldn't be read, first tries to read it again: this run's
-    /// changes go on top of what it holds, and nothing is written until it reads.</summary>
-    public void Flush()
+    /// <summary>Called under the lock.</summary>
+    private void Schedule(int delayMs)
     {
-        if (_readOnly) return;
-        // One write at a time, and an exit flush waits for the timer's write.
-        lock (_writeGate)
-        {
-            if (FlushLocked()) return;
-        }
-        // Deferred or failed: try again later, not only on the next change.
-        try { _flushTimer.Change(RetryFlushAfter, Timeout.InfiniteTimeSpan); }
+        if (_disposed) return;
+        try { _flushTimer.Change(delayMs, Timeout.Infinite); }
         catch (ObjectDisposedException) { }
     }
 
-    /// <summary>False when changes are still pending (the file can't be read
-    /// yet, or the write failed).</summary>
-    private bool FlushLocked()
+    /// <summary>Raised (on the writing thread) after pending changes reach the file.</summary>
+    public event Action? Written;
+
+    /// <summary>Writes pending changes now (also called on app suspend/exit).
+    /// False when changes are still pending, because the write failed or the
+    /// file still can't be read; a retry is then scheduled. While the file
+    /// couldn't be read, first tries to read it again: this run's changes go on
+    /// top of what it holds, and nothing is written until it reads. Waits for a
+    /// write already under way on another thread.</summary>
+    public bool Flush()
     {
-        lock (Gate) if (!_dirty) return true;
+        if (_readOnly) return true;
+        lock (_writeGate)
+        {
+            lock (Gate) if (!_dirty) return true;
 
-        if (Volatile.Read(ref _changedWhileUnreadable) is not null && !TryRecoverFile()) return false;
+            if (Volatile.Read(ref _changedWhileUnreadable) is not null && !TryRecoverFile())
+            {
+                ScheduleRetry();
+                return false;
+            }
 
-        Dictionary<string, string> snapshot;
+            Dictionary<string, string> snapshot;
+            lock (Gate)
+            {
+                if (!_dirty) return true;
+                _dirty = false;
+                snapshot = new Dictionary<string, string>(Values);
+            }
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+                var tmp = _path + ".tmp";
+                using (var stream = File.Create(tmp))
+                using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+                {
+                    w.WriteStartObject();
+                    foreach (var (k, v) in snapshot.OrderBy(kv => kv.Key, StringComparer.Ordinal)) w.WriteString(k, v);
+                    w.WriteEndObject();
+                }
+                File.Move(tmp, _path, overwrite: true);
+                lock (Gate)
+                {
+                    _retryDelayMs = 0;
+                    // Changed while this retry was writing: OnMutated left it to us.
+                    if (_dirty) Schedule(300);
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Replacing a file another process has open can be refused with an
+                // access error. This runs on a timer thread, where an exception would
+                // end the app, so keep the change pending and try again later.
+                lock (Gate) _dirty = true;
+                if (ScheduleRetry()) WriteFailed?.Invoke($"Couldn't write {Path.GetFileName(_path)}: {e.Message}");
+                return false;
+            }
+            if (!_keepBackup)
+            {
+                try
+                {
+                    var tmp = BackupPath + ".tmp";
+                    File.Copy(_path, tmp, overwrite: true);
+                    File.Move(tmp, BackupPath, overwrite: true);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // The settings themselves were saved; the next flush refreshes the copy.
+                }
+            }
+        }
+        Written?.Invoke();
+        return true;
+    }
+
+    /// <summary>Schedules the next try with backoff; true for the first of a run of failures.</summary>
+    private bool ScheduleRetry()
+    {
         lock (Gate)
         {
-            if (!_dirty) return true;
-            _dirty = false;
-            snapshot = new Dictionary<string, string>(Values);
+            var first = _retryDelayMs == 0;
+            _retryDelayMs = first ? RetryDelayMs : Math.Min(_retryDelayMs * 2, MaxRetryDelayMs);
+            Schedule(_retryDelayMs);
+            return first;
         }
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            var tmp = _path + ".tmp";
-            using (var stream = File.Create(tmp))
-            using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
-            {
-                w.WriteStartObject();
-                foreach (var (k, v) in snapshot.OrderBy(kv => kv.Key, StringComparer.Ordinal)) w.WriteString(k, v);
-                w.WriteEndObject();
-            }
-            File.Move(tmp, _path, overwrite: true);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            lock (Gate) _dirty = true;
-            return false;
-        }
-        if (_keepBackup) return true;
-        try
-        {
-            var tmp = BackupPath + ".tmp";
-            File.Copy(_path, tmp, overwrite: true);
-            File.Move(tmp, BackupPath, overwrite: true);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // The settings themselves were saved; the next flush refreshes the copy.
-        }
-        return true;
     }
 
     /// <summary>Reads the file this store couldn't read at launch and puts this
@@ -393,7 +441,10 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
 
     public void Dispose()
     {
-        Flush();
+        // The process is usually about to exit, so a scheduled retry would never
+        // run: try a few more times now.
+        for (var attempt = 0; !Flush() && attempt < 3; attempt++) Thread.Sleep(100);
+        lock (Gate) _disposed = true;
         _flushTimer.Dispose();
     }
 }
