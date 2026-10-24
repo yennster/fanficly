@@ -128,7 +128,10 @@ jobs:
             n=$((n + 1))
             b=$(dirname "$plist")
             echo "==> $b"
-            xcrun xcresulttool export attachments --path "$b" --output-path "build/attachments/$n" \
+            # Named for the bundle, which names its device: place takes each
+            # device's own folders only.
+            xcrun xcresulttool export attachments --path "$b" \
+              --output-path "build/attachments/$n $(basename "$b" .xcresult)" \
               || echo "::warning::Couldn't export $(basename "$b")"
           done < <(find build/bundles -path "*.xcresult/Info.plist")
           bin/.venv/bin/python bin/xcode-cloud-store-art.py place build/attachments
