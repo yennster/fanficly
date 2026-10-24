@@ -3,8 +3,10 @@ import SwiftUI
 /// The reader's turn and scroll keys. Hardware keyboards send them, and so do
 /// Bluetooth page turners and scroll remotes (rings, clickers, foot pedals),
 /// which pair as keyboards and send arrows, Page Up / Page Down or Space.
-/// Remotes that pair as a mouse or a touch screen need nothing here: their
-/// taps and swipes already land on the tap-to-turn zones and the scroll views.
+/// Remotes that pair as a touch screen need nothing here: their taps and
+/// swipes land on the tap-to-turn zones and the scroll views like a finger's.
+/// A mouse-mode remote's wheel scrolls the scrolling modes, but page-by-page
+/// doesn't turn on the wheel yet (RM-025).
 enum ReaderKey: Equatable {
     case left, right, up, down, pageUp, pageDown, space
 
@@ -148,7 +150,9 @@ struct ReaderKeyPressModifier: ViewModifier {
             .focused($isReaderFocused)
             .focusEffectDisabled()
             .onKeyPress(keys: ReaderKey.all) { press in
-                guard let key = ReaderKey(press.key),
+                // A focused control inside the reader (the Listen bar's
+                // buttons) keeps its keys, like Windows' `activates` check.
+                guard isReaderFocused, let key = ReaderKey(press.key),
                       let action = ReaderKeyAction.action(
                         for: key,
                         shift: press.modifiers.contains(.shift),

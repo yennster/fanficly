@@ -502,8 +502,9 @@ struct ReaderView: View {
             if paged && screenful { turnPage(forward: forward) }
             return
         }
+        // Line steps are instant, as on Windows, so a held key scrolls smoothly.
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: target),
-                                    animated: pageTurnAnimations)
+                                    animated: screenful && pageTurnAnimations)
     }
 
     private func queueBackup() {

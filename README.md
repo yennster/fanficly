@@ -136,7 +136,7 @@ iPhone and iPad with iOS 17 or later (including iPhone Duo, folded and unfolded)
 
 ### Does Fanficly work with Bluetooth page turners?
 
-Yes. Page turners and scroll remotes that pair as a Bluetooth keyboard (arrow keys, Page Up and Page Down, or Space) turn the page in page-by-page mode and scroll a screenful in the scrolling modes, on iPhone, iPad, Mac and Windows. Ring and handheld scrollers that pair as a mouse or touch device swipe and tap like a finger. Remotes that only send volume or camera-shutter presses aren't supported, so switch the remote to its page-turn or keyboard mode.
+Yes. Page turners and scroll remotes that pair as a Bluetooth keyboard (arrow keys, Page Up and Page Down, or Space) turn the page in page-by-page mode and scroll a screenful in the scrolling modes, on iPhone, iPad, Mac and Windows. Ring and handheld scrollers in touch mode swipe and tap like a finger. Remotes that only send volume or camera-shutter presses aren't supported, so switch the remote to its page-turn or keyboard mode.
 
 ### Do I need an AO3 account?
 
