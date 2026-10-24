@@ -42,6 +42,11 @@ IPHONE_SIM = "iPhone 17 Pro Max"
 IPAD_SIM = "iPad Pro 13-inch (M5)"
 DUO_SIM = "iPhone Duo"
 
+# Every Apple build needs Xcode 27 or later, and an iOS build the iOS 27.1
+# SDK, which knows the iPhone Duo (check_xcode).
+MIN_XCODE = 27
+MIN_IOS_SDK = "27.1"
+
 platform :ios do
   # ---------------------------------------------------------------- signing
 
@@ -55,8 +60,16 @@ platform :ios do
   # --------------------------------------------------------------- binaries
 
   desc "Build and upload to TestFlight. platform: ios, mac or both (default)."
+  desc "ios_build:/mac_build: builds Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :beta do |options|
     platforms(options).each do |p|
+      if (number = cloud_build(p, options))
+        asc_api_key
+        upload_to_testflight(distribute_only: true, app_platform: p, app_identifier: TARGETS["Fanficly"],
+                             app_version: marketing_version, build_number: number,
+                             changelog: release_notes)
+        next
+      end
       path = build_signed(platform: p)
       upload_to_testflight(**binary_option(p, path), app_platform: p, changelog: release_notes,
                            # Waiting lets pilot set the changelog ("What to Test") once processed.
@@ -66,8 +79,15 @@ platform :ios do
 
   desc "Build, upload, and push metadata + screenshots to the App Store version."
   desc "Does not submit for review. platform: ios, mac or both (default)."
+  desc "ios_build:/mac_build: builds Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :release do |options|
     platforms(options).each do |p|
+      if (number = cloud_build(p, options))
+        asc_api_key
+        deliver_version(p)
+        attach_build(p, number)
+        next
+      end
       path = build_signed(platform: p)
       deliver_version(p, binary: path)
     end
@@ -106,8 +126,15 @@ platform :ios do
     creative_assets
   end
 
-  desc "Capture demo-mode screenshots on the simulators and frame them into App Store images."
+  desc "Capture demo-mode screenshots on the simulators and frame them into App Store images"
+  desc "(only frame them with SCREENSHOTS_CAPTURED=1, after an Xcode Cloud capture)."
   lane :screenshots do
+    # store-assets.yml captures in Xcode Cloud (bin/xcode-cloud-store-art.py)
+    # and places the shots in docs/screenshots/ first: then only frame them.
+    if ENV["SCREENSHOTS_CAPTURED"] == "1"
+      sh(python, File.join(ROOT, "bin/frame-screenshots.py"))
+      next
+    end
     iphone = simulator(IPHONE_SIM)
     ipad = simulator(IPAD_SIM)
     UI.user_error!("Need the #{IPHONE_SIM} and #{IPAD_SIM} simulators") unless iphone && ipad
@@ -179,6 +206,7 @@ platform :ios do
 
   desc "Unit tests on an iPhone and an iPad simulator, then under Mac Catalyst."
   lane :unit_tests do
+    check_xcode
     [simulator(IPHONE_SIM), simulator(IPAD_SIM)].compact.each do |udid|
       xcodebuild_test("id=#{udid}", "FanficlyTests")
     end
@@ -188,6 +216,7 @@ platform :ios do
   desc "Reader layout UI tests on the iPhone, iPad and iPhone Duo simulators, then the Mac"
   desc "(see AGENTS.md). Options: devices:\"iPhone Duo\" (comma-separated), mac:false."
   lane :reader_layout_tests do |options|
+    check_xcode
     names = (options[:devices] || [IPHONE_SIM, IPAD_SIM, DUO_SIM].join(",")).split(",").map(&:strip)
     names.map { |name| simulator(name) }.compact.each do |udid|
       xcodebuild_test("id=#{udid}", "FanficlyUITests/ReaderLayoutTests")
@@ -247,6 +276,7 @@ platform :ios do
   # build number, and returns its path. Signing.xcconfig is restored afterwards.
   private_lane :build_signed do |options|
     p = options[:platform]
+    check_xcode(ios: p == "ios")
     asc_api_key
     original = File.read(SIGNING_XCCONFIG)
     begin
@@ -321,6 +351,49 @@ platform :ios do
       precheck_include_in_app_purchases: false
     )
     verify_store_text(p)
+  end
+
+  # An iOS app runs in compatibility mode on any device newer than its SDK:
+  # 1.11.0, built with Xcode 26.6, was a letterboxed iPhone app on the iPhone
+  # Duo. So every build needs Xcode 27 or later, and an iOS one the 27.1 SDK.
+  # GitHub's runners don't have it yet, so release.yml archives in Xcode Cloud
+  # (bin/xcode-cloud-release.py) and passes ios_build:/mac_build:.
+  def check_xcode(ios: true)
+    xcode = sh("xcodebuild", "-version", log: false)[/Xcode (\d+)/, 1].to_i
+    if xcode < MIN_XCODE
+      UI.user_error!("This is Xcode #{xcode}, and Fanficly builds need Xcode #{MIN_XCODE} or later (iPhone Duo). " \
+                     "Build in Xcode Cloud (bin/xcode-cloud-release.py, bin/xcode-cloud-ci.py), as release.yml does.")
+    end
+    return unless ios
+    sdk = sh("xcrun", "--sdk", "iphoneos", "--show-sdk-version", log: false).strip
+    return if Gem::Version.new(sdk) >= Gem::Version.new(MIN_IOS_SDK)
+    UI.user_error!("This Xcode has the iOS #{sdk} SDK, and an iOS build needs #{MIN_IOS_SDK} or newer, or " \
+                   "the iPhone Duo runs it in compatibility mode.")
+  end
+
+  # The build number Xcode Cloud uploaded for this platform, if release.yml passed one.
+  def cloud_build(p, options)
+    number = options[p == "ios" ? :ios_build : :mac_build].to_s
+    number.empty? ? nil : number
+  end
+
+  # Puts an uploaded build on the editable App Store version, once processed.
+  def attach_build(p, number)
+    platform = Spaceship::ConnectAPI::Platform.map(p)
+    app = Spaceship::ConnectAPI::App.find(TARGETS["Fanficly"])
+    build = nil
+    60.times do
+      build = Spaceship::ConnectAPI::Build.all(app_id: app.id, version: marketing_version,
+                                               build_number: number, platform: platform).first
+      break if build&.processing_state == "VALID"
+      UI.message("Waiting for #{p} build #{number} to finish processing...")
+      sleep(60)
+    end
+    UI.user_error!("#{p} build #{marketing_version} (#{number}) isn't processed on App Store Connect") unless build&.processing_state == "VALID"
+    version = app.get_edit_app_store_version(platform: platform)
+    UI.user_error!("No editable #{p} version on App Store Connect") unless version
+    version.select_build(build_id: build.id)
+    UI.success("#{p} #{version.version_string}: build #{number} attached")
   end
 
   # deliver skips text it can't find without a word, so check that the

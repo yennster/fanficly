@@ -278,8 +278,17 @@ final class ReaderLayoutTests: XCTestCase {
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
         settings.tap()
+        capture("05-reader-settings-menu")
         let profile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Profile")).firstMatch
-        XCTAssertTrue(profile.waitForExistence(timeout: 4), "the Profile submenu")
+        if !profile.waitForExistence(timeout: 4) {
+            // On iPhone Duo (iOS 27.1) a software keyboard came up as the
+            // menu opened, with no text field on screen, and closed the menu.
+            // Name whatever holds keyboard focus so the failure says why.
+            let focused = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
+            let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
+            XCTFail("the Profile submenu (keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder))")
+        }
         profile.tap()
         let save = app.buttons["Save Current as New Profile..."].firstMatch
         XCTAssertTrue(save.waitForExistence(timeout: 4), "Save Current as New Profile…")

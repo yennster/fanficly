@@ -263,6 +263,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** Core tests cover tag match (case-insensitive, AO3 names), author and co-author match, no match, an empty list and lifting; a backup test shows two devices union their lists.
 - **Touches:** `Settings/ContentFilter.cs`, `Library/*`, `Sync/*`, `Views/Account/ContentSafetyViews.cs`, the reader header, Search, Browse and author screens.
 
+### RM-121 — Keep story titles off the Windows lock screen
+- **Status:** open · **Size:** S (M with the Settings fallback) · **Validation:** windows
+- **Why:** Ports the Apple app's fix for #141, which redacts titles, authors, summaries, tags, folder names and saved-search names in its widgets while the device is locked. Windows 11 is rolling out lock-screen widgets that take small Widgets-board widgets, third-party ones included (Settings → Personalization → Lock screen; reported by Windows Latest in February 2025, so verify on a current build first), and the small Continue reading, Subscriptions, Recommendation, Folder Shortcuts and Saved Searches cards show that text. Adaptive Cards have no redaction, and the widget provider isn't told which host shows the card.
+- **Scope:** First check whether the current Windows App SDK tells a provider that a widget is on the lock screen (or lets a definition opt out of it). If it does, render the small cards without the personal text there. If not, add a Settings → Privacy switch, "Hide story details in widgets", that leaves out that text in every card, and file the matching Apple item so both apps offer it. The jump list's "Continue “<title>”" entry is a separate issue.
+- **Done when:** a Core test covers the card data with the text hidden (move the choice of card text into Core so it can be tested); on Windows, a small widget added to the lock screen shows no title.
+- **Touches:** `windows/src/Fanficly.App/Platform/Widgets/*`, `Package.appxmanifest` if a definition can opt out, Settings → Privacy.
+
 ## Ideas from the Apple roadmap
 
 The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages, bulk download for a folder, and notes and personal tags (kudos is RM-115, creating AO3 bookmarks RM-119). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
