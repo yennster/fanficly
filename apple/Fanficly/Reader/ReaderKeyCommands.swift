@@ -25,18 +25,17 @@ enum ReaderKey: Equatable {
 }
 
 /// What a reader key does, by reading mode. Mirrors the Windows reader's
-/// `HandleKey`, except that Up / Down also turn the page in page-by-page
-/// (several remotes only send those) and step a paragraph rather than 48pt
-/// in the scrolling modes (SwiftUI on iOS 17 can only scroll to a view).
+/// `HandleKey`, Up / Down turning the page in page-by-page included (several
+/// remotes only send those).
 enum ReaderKeyAction: Equatable {
     /// Page-by-page: the next or previous page (or spread).
     case turnPage(forward: Bool)
     /// Swipe by chapter's arrow keys: the next or previous chapter.
     case turnChapter(forward: Bool)
-    /// About a screenful; in swipe by chapter, the chapter turns at its edge.
+    /// 90% of a screen; in swipe by chapter, the chapter turns at its edge.
     case scrollScreen(forward: Bool)
-    /// One paragraph.
-    case scrollParagraph(forward: Bool)
+    /// A line's worth (48pt), never turning the chapter.
+    case scrollLine(forward: Bool)
 
     /// Nil for a key the reader doesn't use, or any modifier but Shift+Space
     /// (back a screen), so ⌘ shortcuts pass through.
@@ -54,52 +53,87 @@ enum ReaderKeyAction: Equatable {
         case .paginated:
             switch key {
             case .left, .right: return .turnChapter(forward: forward)
-            case .up, .down: return .scrollParagraph(forward: forward)
+            case .up, .down: return .scrollLine(forward: forward)
             case .pageUp, .pageDown, .space: return .scrollScreen(forward: forward)
             }
         case .continuous:
             switch key {
-            case .up, .down: return .scrollParagraph(forward: forward)
+            case .up, .down: return .scrollLine(forward: forward)
             default: return .scrollScreen(forward: forward)
             }
         }
     }
 }
 
-/// A scroll asked of the visible scroll view (continuous, or swipe by
-/// chapter's current page), which owns the `ScrollViewProxy`.
-struct ReaderScrollRequest: Equatable {
-    let screenful: Bool
-    let forward: Bool
-    let id = UUID()
+/// Key scroll arithmetic on a scroll view's content offset, as the Windows
+/// reader does it (`ScrollContinuousPage`, `ScrollPaginatedPage`).
+enum ReaderKeyScroll {
+    static let line: CGFloat = 48
+
+    /// The content offset to scroll to, or nil when the scroll view is already
+    /// at that edge. A screenful is 90% of the visible height, so a line or
+    /// two stays in view; it's clamped to the content.
+    static func targetOffset(current: CGFloat, viewportHeight: CGFloat, contentHeight: CGFloat,
+                             insetTop: CGFloat, insetBottom: CGFloat,
+                             forward: Bool, screenful: Bool) -> CGFloat? {
+        let minY = -insetTop
+        let maxY = max(contentHeight + insetBottom - viewportHeight, minY)
+        if forward ? current >= maxY - 1 : current <= minY + 1 { return nil }
+        let visible = viewportHeight - insetTop - insetBottom
+        let step = screenful ? max(line, visible * 0.9) : line
+        return min(max(current + (forward ? step : -step), minY), maxY)
+    }
 }
 
-extension ChapterTracking {
-    /// The paragraph to scroll to the top for a key scroll, from the
-    /// paragraph tops reported in the scroll view (`offsets`). A screenful
-    /// brings up the last paragraph starting within 90% of the viewport below
-    /// the current top paragraph (back: the first one starting within 90%
-    /// above it), so a line or two stays in view; when none does (a paragraph
-    /// taller than the screen), it moves one paragraph. Nil at the ends.
-    static func scrollTarget(_ offsets: [String: CGFloat], viewportHeight: CGFloat,
-                             forward: Bool, screenful: Bool, threshold: CGFloat = 80) -> ReadingAnchor? {
-        guard !offsets.isEmpty else { return nil }
-        let passed = offsets.values.filter { $0 <= threshold }
-        let current = passed.max() ?? offsets.values.min() ?? 0
-        let reach = max(viewportHeight * 0.9, 1)
-        let pick: (key: String, value: CGFloat)?
-        if forward {
-            let below = offsets.filter { $0.value > current + 1 }
-            let inReach = below.filter { $0.value <= current + reach }
-            pick = (screenful ? inReach.max(by: { $0.value < $1.value }) : nil)
-                ?? below.min(by: { $0.value < $1.value })
-        } else {
-            let above = offsets.filter { $0.value < current - 1 }
-            let inReach = above.filter { $0.value >= current - reach }
-            pick = (screenful ? inReach.min(by: { $0.value < $1.value }) : nil)
-                ?? above.max(by: { $0.value < $1.value })
+/// The UIScrollViews behind the reader's SwiftUI ScrollViews, keyed by
+/// chapter index for swipe by chapter's pages and `continuous` for
+/// continuous scroll. iOS 17's SwiftUI can only scroll *to* a view, so key
+/// scrolls move the UIScrollView itself.
+@MainActor final class ReaderScrollViews {
+    static let continuous = Int.min
+    private var views: [Int: WeakScrollView] = [:]
+
+    subscript(id: Int) -> UIScrollView? {
+        get { views[id]?.view }
+        set { views[id] = newValue.map { WeakScrollView(view: $0) } }
+    }
+
+    private struct WeakScrollView {
+        weak var view: UIScrollView?
+    }
+}
+
+/// Placed inside a ScrollView's content: finds the enclosing UIScrollView
+/// once it's in a window and records it under `id`.
+struct ReaderScrollViewFinder: UIViewRepresentable {
+    let views: ReaderScrollViews
+    let id: Int
+
+    func makeUIView(context: Context) -> FinderView {
+        let view = FinderView()
+        view.isUserInteractionEnabled = false
+        view.register = { [views, id] in views[id] = $0 }
+        return view
+    }
+
+    func updateUIView(_ uiView: FinderView, context: Context) {
+        uiView.register = { [views, id] in views[id] = $0 }
+        uiView.findScrollView()
+    }
+
+    final class FinderView: UIView {
+        var register: ((UIScrollView) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            findScrollView()
         }
-        return pick.flatMap { parse($0.key) }
+
+        func findScrollView() {
+            var view = superview
+            while let current = view, !(current is UIScrollView) { view = current.superview }
+            if let scrollView = view as? UIScrollView { register?(scrollView) }
+        }
     }
 }
 
@@ -132,18 +166,5 @@ struct ReaderKeyPressModifier: ViewModifier {
                     isReaderFocused = true
                 }
             )
-    }
-}
-
-/// Runs a key scroll in the scroll view that owns `proxy`. A ViewModifier so
-/// its onChange is type-checked outside ReaderView's long body chains.
-struct ReaderScrollRequestModifier: ViewModifier {
-    let request: ReaderScrollRequest?
-    let perform: (ReaderScrollRequest) -> Void
-
-    func body(content: Content) -> some View {
-        content.onChange(of: request) { _, request in
-            if let request { perform(request) }
-        }
     }
 }

@@ -33,14 +33,14 @@ final class ReaderKeyCommandsTests: XCTestCase {
         XCTAssertEqual(action(.left, .paginated), .turnChapter(forward: false))
         XCTAssertEqual(action(.pageDown, .paginated), .scrollScreen(forward: true))
         XCTAssertEqual(action(.space, shift: true, .paginated), .scrollScreen(forward: false))
-        XCTAssertEqual(action(.down, .paginated), .scrollParagraph(forward: true))
+        XCTAssertEqual(action(.down, .paginated), .scrollLine(forward: true))
     }
 
     func test_continuous() {
         XCTAssertEqual(action(.right, .continuous), .scrollScreen(forward: true))
         XCTAssertEqual(action(.pageUp, .continuous), .scrollScreen(forward: false))
         XCTAssertEqual(action(.space, .continuous), .scrollScreen(forward: true))
-        XCTAssertEqual(action(.up, .continuous), .scrollParagraph(forward: false))
+        XCTAssertEqual(action(.up, .continuous), .scrollLine(forward: false))
     }
 
     func test_modifiersPassThrough() {
@@ -49,52 +49,36 @@ final class ReaderKeyCommandsTests: XCTestCase {
         XCTAssertNil(action(.right, shift: true, .pageByPage))
     }
 
-    // MARK: - Scroll targets
+    // MARK: - Scroll offsets
 
-    private let offsets: [String: CGFloat] = [
-        "c1-p0": -500,
-        "c1-p1": -200,
-        "c1-p2": 0,     // the top paragraph
-        "c1-p3": 300,
-        "c1-p4": 650,   // last one starting within 90% of 800
-        "c1-p5": 900,
-    ]
-
-    func test_screenfulForwardBringsUpLastParagraphInReach() {
-        XCTAssertEqual(ChapterTracking.scrollTarget(offsets, viewportHeight: 800, forward: true, screenful: true),
-                       ReadingAnchor(chapter: 1, paragraph: 4))
+    private func target(_ current: CGFloat, forward: Bool, screenful: Bool = true,
+                        content: CGFloat = 5000, top: CGFloat = 100, bottom: CGFloat = 50) -> CGFloat? {
+        ReaderKeyScroll.targetOffset(current: current, viewportHeight: 850, contentHeight: content,
+                                     insetTop: top, insetBottom: bottom, forward: forward, screenful: screenful)
     }
 
-    func test_screenfulBackGoesToFirstParagraphInReach() {
-        XCTAssertEqual(ChapterTracking.scrollTarget(offsets, viewportHeight: 800, forward: false, screenful: true),
-                       ReadingAnchor(chapter: 1, paragraph: 0))
+    func test_screenfulIsNinetyPercentOfTheVisibleHeight() {
+        // 850 tall less 150 of insets = 700 visible; 90% = 630.
+        XCTAssertEqual(target(1000, forward: true), 1630)
+        XCTAssertEqual(target(1000, forward: false), 370)
     }
 
-    func test_paragraphStep() {
-        XCTAssertEqual(ChapterTracking.scrollTarget(offsets, viewportHeight: 800, forward: true, screenful: false),
-                       ReadingAnchor(chapter: 1, paragraph: 3))
-        XCTAssertEqual(ChapterTracking.scrollTarget(offsets, viewportHeight: 800, forward: false, screenful: false),
-                       ReadingAnchor(chapter: 1, paragraph: 1))
+    func test_lineStep() {
+        XCTAssertEqual(target(1000, forward: true, screenful: false), 1048)
+        XCTAssertEqual(target(1000, forward: false, screenful: false), 952)
     }
 
-    func test_tallParagraphFallsBackToNextOne() {
-        // The next paragraph starts below the screen: a screenful still moves on.
-        let tall: [String: CGFloat] = ["c1-p0": 0, "c1-p1": 1400]
-        XCTAssertEqual(ChapterTracking.scrollTarget(tall, viewportHeight: 800, forward: true, screenful: true),
-                       ReadingAnchor(chapter: 1, paragraph: 1))
+    func test_clampsToTheContent() {
+        // Max offset = 5000 + 50 - 850 = 4200; min = -100 (the top inset).
+        XCTAssertEqual(target(4000, forward: true), 4200)
+        XCTAssertEqual(target(200, forward: false), -100)
     }
 
-    func test_crossesChapters() {
-        let two: [String: CGFloat] = ["c1-p9": 0, "c2-p0": 400]
-        XCTAssertEqual(ChapterTracking.scrollTarget(two, viewportHeight: 800, forward: true, screenful: true),
-                       ReadingAnchor(chapter: 2, paragraph: 0))
-    }
-
-    func test_nilAtTheEnds() {
-        let end: [String: CGFloat] = ["c1-p7": -300, "c1-p8": 0]
-        XCTAssertNil(ChapterTracking.scrollTarget(end, viewportHeight: 800, forward: true, screenful: true))
-        let start: [String: CGFloat] = ["c1-p0": 20, "c1-p1": 400]
-        XCTAssertNil(ChapterTracking.scrollTarget(start, viewportHeight: 800, forward: false, screenful: true))
-        XCTAssertNil(ChapterTracking.scrollTarget([:], viewportHeight: 800, forward: true, screenful: true))
+    func test_nilAtTheEdges() {
+        XCTAssertNil(target(4200, forward: true))
+        XCTAssertNil(target(4199.5, forward: true))
+        XCTAssertNil(target(-100, forward: false))
+        // Content shorter than the screen: already at both edges.
+        XCTAssertNil(target(-100, forward: true, content: 300))
     }
 }
