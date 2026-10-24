@@ -441,6 +441,11 @@ public sealed class Chapter : LibraryEntity
         }
     }
 
+    /// <summary>The body for a backup when it's loaded; null when it's only in
+    /// the database, where the backup reads it (off the UI thread) without
+    /// keeping it in memory.</summary>
+    internal string? LoadedBodyForBackup => BodyLoaded ? _body ?? "" : null;
+
     /// <summary>Drops a loaded, unchanged body from memory (it reloads on access).</summary>
     public void UnloadBody()
     {
@@ -765,7 +770,8 @@ public sealed class SubscriptionRecord : LibraryEntity
 /// <summary>An AO3 author the user follows locally (no login required). The
 /// poller checks each followed author's works page for newly-published works.
 /// <see cref="KnownWorkIds"/> is the set of work ids already seen, so a new
-/// work notifies exactly once; it's seeded at follow time so previously
+/// work notifies exactly once (see <c>SubscriptionPoller.NewlyPostedWorks</c>
+/// for which unknown ones count as new); it's seeded at follow time so previously
 /// published works don't all alert on the first poll.</summary>
 public sealed class FollowedAuthor : LibraryEntity
 {

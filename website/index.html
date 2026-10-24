@@ -17,16 +17,29 @@
   <meta property="og:image" content="https://fanficly.app/assets/og.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="675">
+  <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:alt" content="Fanficly on Windows showing a story as a two-page spread">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Fanficly: every story, beautifully set">
   <meta name="twitter:description" content="A free, ad-free reader for Archive of Our Own on iPhone, iPad, Mac and Windows.">
   <meta name="twitter:image" content="https://fanficly.app/assets/og.jpg">
+  <meta name="twitter:image:alt" content="Fanficly on Windows showing a story as a two-page spread">
   <link rel="sitemap" type="application/xml" href="/sitemap.xml">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://fanficly.app/#website",
+        "url": "https://fanficly.app/",
+        "name": "Fanficly",
+        "alternateName": "Fanficly: Fanfiction Reader",
+        "description": "A free, ad-free reader for fanfiction from Archive of Our Own (AO3) on iPhone, iPad, Mac and Windows.",
+        "inLanguage": "en",
+        "publisher": { "@id": "https://fanficly.app/#author" },
+        "about": { "@id": "https://fanficly.app/#app" }
+      },
       {
         "@type": "SoftwareApplication",
         "@id": "https://fanficly.app/#app",
@@ -72,8 +85,10 @@
         },
         "author": {
           "@type": "Person",
+          "@id": "https://fanficly.app/#author",
           "name": "Jenny Speelman",
-          "url": "https://www.jennyspeelman.dev"
+          "url": "https://www.jennyspeelman.dev",
+          "sameAs": ["https://github.com/yennster"]
         },
         "sameAs": [
           "https://apps.apple.com/app/id6775897153",
@@ -200,7 +215,7 @@
 
     <div class="hero-stage">
       <figure class="win">
-        <img src="/assets/windows-spread.jpg" alt="Fanficly on Windows showing The Long Way Home as a two-page spread" width="2000" height="1251">
+        <img src="/assets/windows-spread.jpg" alt="Fanficly on Windows showing The Long Way Home as a two-page spread" width="2000" height="1251" fetchpriority="high">
       </figure>
       <figure class="phone hero-phone">
         <img src="/assets/iphone-03-reader.jpg" alt="Fanficly on iPhone opening a story" width="780" height="1695">
@@ -314,7 +329,7 @@
       <p>There is no Fanficly account and no Fanficly server. No analytics, no ads, no crash reporters, no tracking of any kind. Your library, reading progress, stats and settings live on your device, and in your own iCloud if you turn on sync.</p>
       <p>When you sign in to AO3, your password goes to AO3 and nowhere else. The only thing kept is AO3’s own session cookie, stored in your device’s secure keychain. The source code is public, so you don’t have to take our word for any of this.</p>
     </div>
-    <p class="privacy-links"><a href="https://github.com/yennster/fanficly/blob/main/PRIVACY.md">Read the privacy policy</a><a href="https://github.com/yennster/fanficly">See the source on GitHub</a></p>
+    <p class="privacy-links"><a href="https://github.com/yennster/fanficly/blob/main/PRIVACY.md">Privacy policy for iPhone, iPad and Mac</a><a href="https://github.com/yennster/fanficly/blob/main/windows/PRIVACY.md">Privacy policy for Windows</a><a href="https://github.com/yennster/fanficly">See the source on GitHub</a></p>
   </section>
 
   <!-- FAQ -->

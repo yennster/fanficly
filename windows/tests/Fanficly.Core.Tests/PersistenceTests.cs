@@ -63,6 +63,76 @@ public sealed class PersistenceTests : IDisposable
         Assert.True(File.Exists(path));
     }
 
+    /// <summary>Backing up a library that hasn't changed since the last backup
+    /// leaves the file as it is: no new date, no .prev copy, nothing for the
+    /// sync app to upload again. A change still writes (#137).</summary>
+    [Fact]
+    public void BackupLeavesTheFileAloneWhenNothingChanged()
+    {
+        var path = MakeTempBackupPath();
+        var previous = LibrarySyncManager.PreviousBackupPath(path);
+        _tempFiles.Add(previous);
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 2), store);
+        ReadingProgressStore.Save(1, chapter: 2, paragraph: 3, title: "T", author: "A", store, progress: 0.5);
+        var sync = MakeSync(path);
+        Assert.Equal(BackupOutcome.Written, sync.Backup(store));
+        var first = File.ReadAllBytes(path);
+        var longAgo = new DateTime(2001, 9, 9, 1, 46, 40, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, longAgo);
+
+        Assert.Equal(BackupOutcome.Unchanged, sync.Backup(store));
+        Assert.Equal(first, File.ReadAllBytes(path));
+        Assert.Equal(longAgo, File.GetLastWriteTimeUtc(path));
+        Assert.False(File.Exists(previous));
+
+        ReadingProgressStore.Save(1, chapter: 2, paragraph: 9, title: "T", author: "A", store, progress: 0.8);
+        Assert.Equal(BackupOutcome.Written, sync.Backup(store));
+        Assert.Equal(9, DecodeBackup(path).Progress.Single().ParagraphIndex);
+        Assert.Equal(first, File.ReadAllBytes(previous));
+    }
+
+    [Fact]
+    public void SameBackupContentIgnoresOnlyTheTimestamp()
+    {
+        static byte[] Utf8(string s) => System.Text.Encoding.UTF8.GetBytes(s);
+        var a = Utf8("""{"works":[{"ao3Id":1,"title":"A"}],"timestamp":"2026-01-01T00:00:00Z"}""");
+        var b = Utf8("""{"timestamp":"2026-02-02T00:00:00Z","works":[{"title":"A","ao3Id":1}]}""");
+        var c = Utf8("""{"works":[{"ao3Id":1,"title":"B"}],"timestamp":"2026-01-01T00:00:00Z"}""");
+        Assert.True(LibrarySyncManager.SameBackupContent(a, b));
+        Assert.False(LibrarySyncManager.SameBackupContent(a, c));
+        Assert.False(LibrarySyncManager.SameBackupContent(a, Utf8("not json")));
+    }
+
+    /// <summary>A reading-position save queues the slow backup, not the
+    /// 2-second one, and more reading doesn't keep pushing it back; a library
+    /// change still backs up after the short wait (#137).</summary>
+    [Fact]
+    public async Task ReadingPositionSavesDontQueueTheQuickBackup()
+    {
+        var path = MakeTempBackupPath();
+        var settings = new InMemoryKeyValueStore();
+        settings.SetBool(LibrarySyncManager.SyncEnabledKey, true);
+        var sync = MakeSync(path, settings);
+        sync.BackupDebounce = TimeSpan.FromMilliseconds(50);
+        sync.ActivityBackupDebounce = TimeSpan.FromHours(1);
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 2), store);
+        store.Changed += _ => sync.QueueBackup(store, LibrarySyncManager.InReadingActivity);
+
+        for (var paragraph = 0; paragraph < 3; paragraph++)
+            ReadingProgressStore.Save(1, chapter: 1, paragraph: paragraph, title: "T", author: "A", store, progress: 0.1);
+        ReadingStatsStore.Record(1, "T", "A", [], [], [], "", 1000, 30, store, progress: 0.1);
+        await Task.Delay(500);
+        Assert.False(File.Exists(path), "reading activity alone waits for the slow backup");
+
+        store.GetWork(1)!.IsStarred = true;
+        store.Save();
+        for (var i = 0; i < 50 && !File.Exists(path); i++) await Task.Delay(100);
+        Assert.True(File.Exists(path), "a library change backs up after the short wait");
+        Assert.Equal(2, DecodeBackup(path).Progress.Single().ParagraphIndex);
+    }
+
     [Fact]
     public void UpsertInsertsThenUpdates()
     {
@@ -516,9 +586,10 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal("2.5M", StatsFormat.FormatWords(2_500_000));
     }
 
-    /// <summary>Settings ride in the backup and are restored, with reader
-    /// profiles going through the merge hook (the real merge is ReaderProfile's,
-    /// tested with that port) rather than a plain overwrite.</summary>
+    /// <summary>Settings ride in the backup and are restored where this device
+    /// has none, with reader profiles going through the merge hook (the real
+    /// merge is ReaderProfile's, tested with that port) rather than a plain
+    /// overwrite. A setting this device has is its own and stays (#133).</summary>
     [Fact]
     public async Task SyncRestoresSettings()
     {
@@ -537,22 +608,22 @@ public sealed class PersistenceTests : IDisposable
         defaults.SetDouble("reader.fontSizePt", 22.0);
         defaults.SetBool("content.filterMatureExplicit", true);
         // Device-specific settings.
-        defaults.SetString("reader.theme.pad", "dracula");
-        defaults.SetString("reader.activeProfile.pad", "compact");
-        defaults.SetDouble("reader.fontSizePt.pad", 18.0);
+        defaults.SetString("reader.theme.windows", "dracula");
+        defaults.SetString("reader.activeProfile.windows", "compact");
+        defaults.SetDouble("reader.fontSizePt.windows", 18.0);
         defaults.SetString("reader.profiles", "[Mac]");
 
         // 2. Back up.
         sync.Backup(ctx);
 
-        // 3. Reset settings.
+        // 3. Reset settings, all but the text size.
         foreach (var key in new[] { "reader.theme", "reader.fontFamily", "reader.width", "reader.fontSizePt",
-                                    "content.filterMatureExplicit", "reader.theme.pad", "reader.activeProfile.pad",
-                                    "reader.fontSizePt.pad" })
+                                    "content.filterMatureExplicit", "reader.theme.windows", "reader.activeProfile.windows" })
             defaults.Remove(key);
+        defaults.SetDouble("reader.fontSizePt.windows", 15.0);
         defaults.SetString("reader.profiles", "[iPhone]");
         Assert.Null(defaults.GetString("reader.theme"));
-        Assert.Null(defaults.GetString("reader.theme.pad"));
+        Assert.Null(defaults.GetString("reader.theme.windows"));
 
         // 4. Restore.
         Assert.True(await sync.RestoreAsync(ctx));
@@ -563,12 +634,108 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal("wide", defaults.GetString("reader.width"));
         Assert.Equal(22.0, defaults.GetDouble("reader.fontSizePt"));
         Assert.True(defaults.GetBool("content.filterMatureExplicit"));
-        Assert.Equal("dracula", defaults.GetString("reader.theme.pad"));
-        Assert.Equal("compact", defaults.GetString("reader.activeProfile.pad"));
-        Assert.Equal(18.0, defaults.GetDouble("reader.fontSizePt.pad"));
+        Assert.Equal("dracula", defaults.GetString("reader.theme.windows"));
+        Assert.Equal("compact", defaults.GetString("reader.activeProfile.windows"));
+        Assert.Equal(15.0, defaults.GetDouble("reader.fontSizePt.windows"));
         // Profiles merged (local + incoming), stored and published.
         Assert.Equal("[iPhone]+[Mac]", defaults.GetString("reader.profiles"));
         Assert.Equal(["[iPhone]+[Mac]"], published);
+    }
+
+    // MARK: - Per-device settings across devices (#133)
+
+    private static SettingsBackup SettingsFrom(string json) =>
+        LibraryBackupJson.Decode($$"""{"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[],"settings":{{json}},"timestamp":"2026-01-01T00:00:00Z"}""").Settings!;
+
+    [Fact]
+    public void SettingsKeysKnowTheirDevice()
+    {
+        Assert.Equal(ReaderDevice.Pad, SettingsBackup.DeviceOf("fontSizePtPad"));
+        Assert.Equal(ReaderDevice.Phone, SettingsBackup.DeviceOf("activeProfilePhone"));
+        Assert.Equal(ReaderDevice.Mac, SettingsBackup.DeviceOf("boldTextMac"));
+        Assert.Equal(ReaderDevice.Windows, SettingsBackup.DeviceOf("themeWindows"));
+        foreach (var shared in new[] { "theme", "ttsVoiceId", "filterMatureExplicit", "ageConfirmed", "activeProfile", "profiles" })
+            Assert.Null(SettingsBackup.DeviceOf(shared));
+        // A per-device field's settings key carries the same device; a shared one none.
+        var suffixes = Enum.GetValues<ReaderDevice>().Select(d => d.KeySuffix()).ToList();
+        foreach (var field in SettingsBackup.Fields)
+        {
+            if (SettingsBackup.DeviceOf(field.JsonKey) is { } device)
+                Assert.EndsWith(device.KeySuffix(), field.DefaultsKey);
+            else
+                Assert.DoesNotContain(suffixes, s => field.DefaultsKey.EndsWith(s, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void SettingsMergeKeepsTheFilesValuesForOtherDevices()
+    {
+        var cloud = SettingsFrom("""{"fontSizePtPad":16,"themePad":"night","themeMac":"sepia","ttsRate":0.4}""");
+        // This PC holds stale copies of the iPad's keys from an earlier restore.
+        var local = SettingsFrom("""{"fontSizePtPad":14,"themePad":"day","boldTextPad":true,"fontSizePtWindows":20,"ttsRate":0.6}""");
+
+        var merged = SettingsBackup.Merged(local, cloud, ReaderDevice.Windows)!;
+        Assert.Equal(16, merged.GetDouble("fontSizePtPad"));
+        Assert.Equal("night", merged.GetString("themePad"));
+        Assert.Equal("sepia", merged.GetString("themeMac"));
+        Assert.Null(merged.GetBool("boldTextPad")); // another device's keys only ever come from the file
+        Assert.Equal(20, merged.GetDouble("fontSizePtWindows")); // this device's own key wins
+        Assert.Equal(0.6, merged.GetDouble("ttsRate")); // a shared key takes this device's value
+        Assert.Null(SettingsBackup.Merged(null, null, ReaderDevice.Windows));
+        Assert.Equal("night", SettingsBackup.Merged(null, cloud, ReaderDevice.Windows)!.GetString("themePad"));
+        // With no file yet, only this device's own and shared keys are written.
+        var first = SettingsBackup.Merged(local, null, ReaderDevice.Windows)!;
+        Assert.Null(first.GetDouble("fontSizePtPad"));
+        Assert.Equal(20, first.GetDouble("fontSizePtWindows"));
+    }
+
+    [Fact]
+    public async Task RestoreNeverTakesAnotherDevicesSettings()
+    {
+        using var ctx = MakeContext();
+        var path = MakeTempBackupPath();
+        File.WriteAllText(path, """{"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[],"settings":{"fontSizePtPad":16,"activeProfilePad":"Couch","fontSizePtWindows":19,"filterMatureExplicit":true},"timestamp":"2026-01-01T00:00:00Z"}""");
+        var defaults = new InMemoryKeyValueStore();
+        Assert.True(await MakeSync(path, defaults).RestoreAsync(ctx));
+
+        Assert.Equal(19, defaults.GetDouble("reader.fontSizePt.windows"));
+        Assert.True(defaults.GetBool("content.filterMatureExplicit"));
+        Assert.False(defaults.Contains("reader.fontSizePt.pad"));
+        Assert.False(defaults.Contains("reader.activeProfile.pad"));
+    }
+
+    /// <summary>The issue's example, with this PC as device A: it sets 19 pt and
+    /// turns the filter on, then backs up. A Mac holding stale copies (17 pt and
+    /// the filter off, from an earlier restore) backs up over the same file.
+    /// The PC's next restore keeps 19 and the filter, and the file still says 19.</summary>
+    [Fact]
+    public async Task ANewerSettingOnOneDeviceSurvivesAnotherDevicesBackupAndRestore()
+    {
+        using var ctx = MakeContext();
+        var path = MakeTempBackupPath();
+        var pc = new InMemoryKeyValueStore();
+        var sync = MakeSync(path, pc);
+        pc.SetDouble("reader.fontSizePt.windows", 19);
+        pc.SetBool("content.filterMatureExplicit", true);
+        pc.SetString("reader.activeProfile.windows", "Desk");
+        Assert.Equal(BackupOutcome.Written, sync.Backup(ctx));
+
+        var mac = DecodeBackup(path) with
+        {
+            Settings = SettingsFrom("""{"fontSizePtWindows":17,"activeProfileWindows":"Default","filterMatureExplicit":false,"fontSizePtMac":21}"""),
+        };
+        var file = LibrarySyncManager.MergedBackup(mac, DecodeBackup(path), ReaderDevice.Mac);
+        var settings = file.Settings!;
+        Assert.Equal(19, settings.GetDouble("fontSizePtWindows"));
+        Assert.Equal("Desk", settings.GetString("activeProfileWindows"));
+        Assert.Equal(21, settings.GetDouble("fontSizePtMac"));
+        File.WriteAllBytes(path, LibraryBackupJson.Encode(file));
+
+        Assert.True(await sync.RestoreAsync(ctx));
+        Assert.Equal(19, pc.GetDouble("reader.fontSizePt.windows"));
+        Assert.True(pc.GetBool("content.filterMatureExplicit"));
+        Assert.Equal("Desk", pc.GetString("reader.activeProfile.windows"));
+        Assert.False(pc.Contains("reader.fontSizePt.mac"));
     }
 
     // MARK: - Backup/restore merge rules
@@ -640,9 +807,83 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(first, File.ReadAllBytes(prev));
         Assert.Equal([1, 2], DecodeBackup(path).Works.Select(w => w.Ao3Id));
 
-        Assert.True(sync.Clear());
+        Assert.Equal(ClearOutcome.Cleared, sync.Clear());
         Assert.False(File.Exists(path));
         Assert.False(File.Exists(prev));
+    }
+
+    /// <summary>Every backup, automatic ones included, keeps its outcome so
+    /// Sync settings can say quietly when they keep failing (#136).</summary>
+    [Fact]
+    public void BackupKeepsItsOutcomeForSyncSettings()
+    {
+        var path = MakeTempBackupPath();
+        _tempFiles.Add(LibrarySyncManager.PreviousBackupPath(path));
+        using var store = MakeContext();
+        WorkPersistence.Upsert(Payload(1, 1), store);
+        var sync = MakeSync(path);
+        Assert.Null(sync.LastBackupOutcome);
+        Assert.Null(sync.BackupProblem);
+
+        File.WriteAllText(path, "not json");
+        sync.Backup(store);
+        Assert.Equal(BackupOutcome.Unreadable, sync.LastBackupOutcome);
+        Assert.Contains(sync.LastBackupError!, sync.BackupProblem);
+
+        File.Delete(path);
+        sync.Backup(store);
+        Assert.Equal(BackupOutcome.Written, sync.LastBackupOutcome);
+        Assert.Null(sync.BackupProblem);
+
+        Assert.Null(BackupOutcomeText.Problem(BackupOutcome.Written, null));
+        Assert.Null(BackupOutcomeText.Problem(BackupOutcome.Unchanged, null));
+        foreach (var outcome in Enum.GetValues<BackupOutcome>().Where(o => o is not (BackupOutcome.Written or BackupOutcome.Unchanged)))
+            Assert.False(string.IsNullOrEmpty(BackupOutcomeText.Problem(outcome, null)));
+    }
+
+    /// <summary>A queued (automatic) backup that fails records that too.</summary>
+    [Fact]
+    public async Task QueuedBackupKeepsItsOutcome()
+    {
+        var path = MakeTempBackupPath();
+        File.WriteAllText(path, "not json");
+        using var store = MakeContext();
+        var settings = new InMemoryKeyValueStore();
+        settings.SetBool(LibrarySyncManager.SyncEnabledKey, true);
+        var sync = MakeSync(path, settings);
+        sync.BackupDebounce = TimeSpan.Zero;
+        sync.QueueBackup(store);
+        for (var i = 0; i < 100 && sync.LastBackupOutcome is null; i++) await Task.Delay(20);
+        Assert.Equal(BackupOutcome.Unreadable, sync.LastBackupOutcome);
+        Assert.NotNull(sync.BackupProblem);
+    }
+
+    /// <summary>Clear says what really happened, and a clear forgets the
+    /// failure the deleted file caused (#136).</summary>
+    [Fact]
+    public void ClearSaysWhatHappened()
+    {
+        Assert.Equal(ClearOutcome.NoFolder, new LibrarySyncManager(new InMemoryKeyValueStore()).Clear());
+
+        var path = MakeTempBackupPath();
+        var sync = MakeSync(path);
+        Assert.Equal(ClearOutcome.NothingToClear, sync.Clear());
+
+        var placeholder = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.icloud");
+        _tempFiles.Add(placeholder);
+        File.WriteAllText(placeholder, "");
+        Assert.Equal(ClearOutcome.NotDownloaded, sync.Clear());
+        Assert.True(File.Exists(placeholder));
+        File.Delete(placeholder);
+
+        using var store = MakeContext();
+        File.WriteAllText(path, "not json");
+        sync.Backup(store);
+        Assert.NotNull(sync.BackupProblem);
+        Assert.Equal(ClearOutcome.Cleared, sync.Clear());
+        Assert.False(File.Exists(path));
+        Assert.Null(sync.LastBackupOutcome);
+        Assert.Null(sync.BackupProblem);
     }
 
     /// <summary>The Apple app writes fields this one doesn't know (notes and
@@ -748,19 +989,20 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(new SyncNowResult(false, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
 
         // The iPad backs up two works; the PC's Sync Now pulls them in before
-        // it backs up, and stamps the file it wrote.
+        // it backs up. The file already holds the PC's work, so the backup
+        // leaves it alone, and the file is stamped applied.
         using var pad = MakeContext();
         WorkPersistence.Upsert(Payload(10, 1), pad);
         WorkPersistence.Upsert(Payload(11, 1), pad);
         MakeSync(path).Backup(pad);
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(5));
-        Assert.Equal(new SyncNowResult(true, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+        Assert.Equal(new SyncNowResult(true, BackupOutcome.Unchanged), await pcSync.SyncNowAsync(pc));
         Assert.Equal([1, 10, 11], pc.All<Work>().Select(w => w.Ao3Id).Order());
         Assert.Equal(3, DecodeBackup(path).Works.Count);
         Assert.False(pcSync.CloudBackupHasUnappliedChanges);
 
-        // With nothing new, it doesn't restore again.
-        Assert.Equal(new SyncNowResult(false, BackupOutcome.Written), await pcSync.SyncNowAsync(pc));
+        // With nothing new, it doesn't restore again, and leaves the file as it is.
+        Assert.Equal(new SyncNowResult(false, BackupOutcome.Unchanged), await pcSync.SyncNowAsync(pc));
     }
 
     [Fact]
@@ -771,7 +1013,7 @@ public sealed class PersistenceTests : IDisposable
         using var pc = MakeContext();
         WorkPersistence.Upsert(Payload(1, 1), pc);
         var pcSync = MakeSync(path);
-        Assert.Equal(new SyncNowResult(false, BackupOutcome.Unreadable), await pcSync.SyncNowAsync(pc));
+        Assert.Equal(new SyncNowResult(false, BackupOutcome.Unreadable, RestoreFailed: true), await pcSync.SyncNowAsync(pc));
         Assert.Equal("not json", File.ReadAllText(path));
         Assert.True(pcSync.CloudBackupHasUnappliedChanges);
     }

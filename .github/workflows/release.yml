@@ -115,7 +115,8 @@ jobs:
       !cancelled() && github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
       inputs.platform != 'windows' && needs.notes.result != 'failure'
     runs-on: macos-26
-    timeout-minutes: 120
+    # The archives wait on Xcode Cloud and App Store Connect processing.
+    timeout-minutes: 240
     environment: app-store
     permissions:
       contents: read
@@ -159,6 +160,35 @@ jobs:
           brew install xcodegen
           xcodegen generate
 
+      # Every Apple build uses the newest Xcode 27 or later: one built with an
+      # older SDK runs in compatibility mode on the iPhone Duo, as 1.11.0 did.
+      # This runner's Xcode predates it, so both binaries are archived in Xcode
+      # Cloud (bin/xcode-cloud-release.py) and fastlane attaches the uploads
+      # (ios_build:, mac_build:). fastlane's check_xcode refuses to build here
+      # with anything older.
+      - uses: actions/setup-python@v5
+        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        with:
+          python-version: "3.11"
+
+      - name: Archive in Xcode Cloud
+        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$PLATFORM" in ios|mac) platforms="$PLATFORM" ;; *) platforms="ios mac" ;; esac
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          # shellcheck disable=SC2086
+          bin/.venv/bin/python bin/xcode-cloud-release.py run "$GITHUB_REF_NAME" build/release $platforms
+
       # match clones the private certificates repo over SSH with a deploy key.
       - name: Give match its deploy key
         env:
@@ -187,12 +217,27 @@ jobs:
           PLATFORM: ${{ inputs.platform }}
         run: |
           case "$PLATFORM" in ios|mac) p="$PLATFORM" ;; *) p=both ;; esac
-          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p"
+          extra=()
+          for q in ios mac; do
+            if [ -s "build/release/$q-build-number.txt" ]; then
+              extra+=("${q}_build:$(cat "build/release/$q-build-number.txt")")
+            fi
+          done
+          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p" "${extra[@]}"
 
       - name: Report the build number
         id: build
         if: always()
-        run: echo "build=$(cat build/release/build-number.txt 2>/dev/null)" >> "$GITHUB_OUTPUT"
+        run: |
+          # Xcode Cloud numbers each archive (iOS and Mac) separately.
+          ios=$(cat build/release/ios-build-number.txt 2>/dev/null || true)
+          mac=$(cat build/release/mac-build-number.txt build/release/build-number.txt 2>/dev/null | head -1 || true)
+          if [ -n "$ios" ] && [ -n "$mac" ] && [ "$ios" != "$mac" ]; then
+            build="$ios for iOS, $mac for Mac"
+          else
+            build="${mac:-$ios}"
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
       - name: Upload the downloaded store copy
         if: inputs.lane == 'pull_metadata'

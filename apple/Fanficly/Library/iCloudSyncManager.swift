@@ -1,11 +1,14 @@
 import Foundation
 import SwiftData
+import UIKit
 
 @MainActor
 final class iCloudSyncManager {
     static let shared = iCloudSyncManager()
     
     private var backupTask: Task<Void, Never>? = nil
+    /// The latest background write; the next one waits for it.
+    private var lastWrite: Task<BackupOutcome, Never>? = nil
     
     private init() {}
     
@@ -42,13 +45,34 @@ final class iCloudSyncManager {
             .appendingPathExtension(url.pathExtension)
     }
 
+    /// How the last backup went; nil before the first one.
+    private(set) var lastBackupOutcome: BackupOutcome?
+
     /// Why the last backup that didn't write the file stopped, or nil after
     /// one that did.
-    private(set) var lastBackupFailure: String?
+    var lastBackupFailure: String? { lastBackupOutcome?.failureMessage }
+
+    /// What Settings shows next to "Last synced": why backups aren't running
+    /// right now. iCloud being signed out shows even before a backup has
+    /// tried, and stops showing once it's back.
+    var backupProblem: String? {
+        guard Self.backupURL != nil else { return BackupOutcome.iCloudUnavailable.failureMessage }
+        return lastBackupOutcome == .iCloudUnavailable ? nil : lastBackupFailure
+    }
+
+    @discardableResult
+    private func record(_ outcome: BackupOutcome) -> BackupOutcome {
+        lastBackupOutcome = outcome
+        return outcome
+    }
 
     /// Gets the modification date of the iCloud backup file.
     var lastBackupDate: Date? {
         guard let url = Self.backupURL else { return nil }
+        return Self.modificationDate(of: url)
+    }
+
+    nonisolated static func modificationDate(of url: URL) -> Date? {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return attrs?[.modificationDate] as? Date
     }
@@ -68,16 +92,74 @@ final class iCloudSyncManager {
                 return
             }
             guard !Task.isCancelled else { return }
-            self.backupToiCloud(context: context)
+            await self.backupInBackground(context: context)
         }
     }
     
     /// Performs a backup of the SwiftData database to iCloud, merging with the
     /// backup already in the cloud so a device that holds only part of the
     /// library (a fresh install, a metadata-only iPad) can never last-writer-
-    /// wins away another device's records.
-    func backupToiCloud(context: ModelContext) {
-        guard let url = Self.backupURL else { return }
+    /// wins away another device's records. Says whether the file was
+    /// written, so Sync Now can report what really happened. Runs on the
+    /// main actor from start to finish; the app's own backups use
+    /// `backupInBackground`.
+    @discardableResult
+    func backupToiCloud(context: ModelContext) -> BackupOutcome {
+        backup(to: Self.backupURL, context: context)
+    }
+
+    /// `backupToiCloud` with the file it writes passed in (nil: iCloud isn't
+    /// available), so tests can cover a signed-out device.
+    @discardableResult
+    func backup(to url: URL?, context: ModelContext) -> BackupOutcome {
+        guard let pending = pendingBackup(to: url, context: context) else { return lastBackupOutcome ?? .iCloudUnavailable }
+        return finishBackup(Self.writeBackup(pending))
+    }
+
+    /// `backupToiCloud`, with only the snapshot of the library taken on the
+    /// main actor: the merge with the cloud file, the encoding and the write
+    /// run on a background thread, so a large library doesn't stall the UI.
+    /// Holds a background-task assertion, so the write can finish after the
+    /// app leaves the screen (#137).
+    @discardableResult
+    func backupInBackground(context: ModelContext) async -> BackupOutcome {
+        guard let write = startBackgroundBackup(context: context) else { return lastBackupOutcome ?? .iCloudUnavailable }
+        return await write.value
+    }
+
+    /// Takes the snapshot and the background-task assertion now, then hands
+    /// the write to a task that runs after the one before it, so writes land
+    /// (and stamp the file) in the order their snapshots were taken. Returns
+    /// that task, or nil when there was nothing to write to.
+    @discardableResult
+    func startBackgroundBackup(context: ModelContext) -> Task<BackupOutcome, Never>? {
+        let assertion = BackgroundAssertion(name: "Fanficly iCloud backup")
+        guard let pending = pendingBackup(to: Self.backupURL, context: context) else {
+            assertion.end()
+            return nil
+        }
+        let previous = lastWrite
+        let write = Task {
+            _ = await previous?.value
+            let result = await Task.detached(priority: .utility) {
+                iCloudSyncManager.writeBackup(pending)
+            }.value
+            let outcome = finishBackup(result)
+            assertion.end()
+            return outcome
+        }
+        lastWrite = write
+        return write
+    }
+
+    /// The library as a backup, ready to merge and write, or nil (with the
+    /// reason recorded) when there's nothing to write to yet: no iCloud, or
+    /// the cloud file is still downloading.
+    private func pendingBackup(to url: URL?, context: ModelContext) -> PendingBackup? {
+        guard let url else {
+            record(.iCloudUnavailable)
+            return nil
+        }
 
         // If the cloud backup isn't downloaded yet we can't merge with it, and
         // overwriting would drop every record the other device backed up.
@@ -87,8 +169,8 @@ final class iCloudSyncManager {
         // mutation) retry once it's local.
         if Self.isUndownloaded(url) {
             try? FileManager.default.startDownloadingUbiquitousItem(at: url)
-            lastBackupFailure = String(localized: "The backup in iCloud is still downloading. Fanficly will back up once it's on this device.")
-            return
+            record(.waitingForDownload)
+            return nil
         }
 
         do {
@@ -218,7 +300,7 @@ final class iCloudSyncManager {
             }
 
             let localDeletions = Self.prunedDeletions(Self.localDeletions(), now: .now)
-            var backup = LibraryBackup(
+            let backup = LibraryBackup(
                 works: workBackups,
                 bookmarks: bookmarkBackups,
                 subscriptions: subscriptionBackups,
@@ -233,7 +315,16 @@ final class iCloudSyncManager {
                 deleted: localDeletions.isEmpty ? nil : localDeletions,
                 timestamp: .now
             )
+            return PendingBackup(url: url, backup: backup, deviceSuffix: Self.backupDeviceSuffix)
+        }
+    }
 
+    /// Merges a snapshot with the backup already in the cloud and writes the
+    /// result, off the main actor. Nothing here touches SwiftData.
+    nonisolated static func writeBackup(_ pending: PendingBackup) -> BackupWrite {
+        let url = pending.url
+        var backup = pending.backup
+        do {
             // 3. Union with the backup already in the cloud. Only a file that
             // isn't there at all starts from the local snapshot alone: one
             // that can't be read (a download or file-coordination conflict)
@@ -248,7 +339,8 @@ final class iCloudSyncManager {
             var mergedUnappliedChanges = false
             var readError: (any Error)?
             var mergedWith: Data?
-            try Self.updateBackup(at: url) { existing in
+            var unchanged = false
+            try updateBackup(at: url) { existing in
                 switch existing {
                 case .missing:
                     break
@@ -256,8 +348,8 @@ final class iCloudSyncManager {
                     readError = error
                     return nil
                 case .backup(let cloudBackup, let cloudData):
-                    mergedUnappliedChanges = cloudBackupHasUnappliedChanges
-                    backup = Self.mergedBackup(local: backup, cloud: cloudBackup)
+                    mergedUnappliedChanges = backupHasUnappliedChanges(at: url)
+                    backup = mergedBackup(local: backup, cloud: cloudBackup, deviceSuffix: pending.deviceSuffix)
                     mergedWith = cloudData
                 }
                 // 4. Serialize to JSON for the write, keeping the keys this app
@@ -267,26 +359,53 @@ final class iCloudSyncManager {
                 encoder.dateEncodingStrategy = .iso8601
                 let data = try encoder.encode(backup)
                 guard let mergedWith else { return data }
-                return try Self.preservingUnknownKeys(in: data, from: mergedWith, merged: backup)
+                let merged = try preservingUnknownKeys(in: data, from: mergedWith, merged: backup)
+                // 5. When that's what the file already holds, leave it alone:
+                // rewriting it would only change `timestamp`, and iCloud
+                // would upload the whole library again for nothing (#137).
+                if sameBackupContent(merged, mergedWith) {
+                    unchanged = true
+                    return nil
+                }
+                return merged
             }
             if let readError {
                 print("Skipped the iCloud backup, the existing backup can't be read: \(readError)")
-                lastBackupFailure = String(localized: "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device.")
-                return
+                return (.unreadable, nil)
             }
-            lastBackupFailure = nil
             // When everything in the file came from this library (or was
             // already applied here), stamp it so the launch auto-sync doesn't
             // re-restore our own backup. When we merged in another device's
             // unapplied records, leave the stamp alone: the next launch sees
             // the file as changed and restores them into this library.
-            if !mergedUnappliedChanges {
-                markCloudBackupApplied()
-            }
+            // A file left unchanged was already stamped (nothing unapplied
+            // means the stamp is its date); stamping it again could mark a
+            // file another device swapped in since the read as applied.
+            if unchanged { return (.unchanged, nil) }
+            if mergedUnappliedChanges { return (.written, nil) }
+            return (.written, modificationDate(of: url) ?? Date())
         } catch {
             print("Failed to backup to iCloud: \(error)")
-            lastBackupFailure = error.localizedDescription
+            return (.failed(error.localizedDescription), nil)
         }
+    }
+
+    /// Stamps the file when `writeBackup` says to, and records how it went.
+    private func finishBackup(_ result: BackupWrite) -> BackupOutcome {
+        if let appliedStamp = result.appliedStamp { markCloudBackupApplied(date: appliedStamp) }
+        return record(result.outcome)
+    }
+
+    /// Whether two encoded backups hold the same records and settings,
+    /// ignoring `timestamp`, which every backup stamps afresh. Compares the
+    /// parsed JSON, so key order and formatting don't count; a file written in
+    /// another format (the Windows app's dates) just counts as different once.
+    nonisolated static func sameBackupContent(_ a: Data, _ b: Data) -> Bool {
+        guard var first = (try? JSONSerialization.jsonObject(with: a)) as? [String: Any],
+              var second = (try? JSONSerialization.jsonObject(with: b)) as? [String: Any] else { return false }
+        first["timestamp"] = nil
+        second["timestamp"] = nil
+        return (first as NSDictionary).isEqual(to: second)
     }
 
     /// A work as its backup record. Restore passes `includeChapters: false`
@@ -332,8 +451,11 @@ final class iCloudSyncManager {
             chapters: includeChapters ? work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
                 ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
             } : [],
-            folderName: work.folders.first?.name,
-            folderNames: work.folders.map(\.name)
+            // Sorted: a to-many relationship's order can change between
+            // fetches, and a new order would make an unchanged library look
+            // changed and rewrite the whole file (#137).
+            folderName: work.folders.map(\.name).min(),
+            folderNames: work.folders.map(\.name).sorted()
         )
     }
 
@@ -535,7 +657,7 @@ final class iCloudSyncManager {
 
     // MARK: - Launch auto-sync bookkeeping
 
-    static let lastRestoredStampKey = "icloud.lastRestoredBackupDate"
+    nonisolated static let lastRestoredStampKey = "icloud.lastRestoredBackupDate"
 
     /// Whether the cloud backup has changed since this device last applied
     /// (or wrote) it — the launch auto-sync's cheap "anything new?" check.
@@ -547,8 +669,13 @@ final class iCloudSyncManager {
     /// offline (or on a device whose clock runs behind) can arrive older
     /// than this device's last write.
     var cloudBackupHasUnappliedChanges: Bool {
-        guard let applied = UserDefaults.standard.object(forKey: Self.lastRestoredStampKey) as? Date,
-              let cloudDate = lastBackupDate else { return true }
+        guard let url = Self.backupURL else { return true }
+        return Self.backupHasUnappliedChanges(at: url)
+    }
+
+    nonisolated static func backupHasUnappliedChanges(at url: URL) -> Bool {
+        guard let applied = UserDefaults.standard.object(forKey: lastRestoredStampKey) as? Date,
+              let cloudDate = modificationDate(of: url) else { return true }
         return cloudDate != applied
     }
 
@@ -611,11 +738,13 @@ final class iCloudSyncManager {
     /// on conflicts the local record wins (this device just produced it),
     /// except where a field only moves forward: works and subscriptions merge
     /// by the restore's rules (`mergedWork`, `mergedSubscription`), reading
-    /// positions keep the newer one, and reading stats merge conservatively.
+    /// positions keep the newer one, reading stats merge conservatively, and
+    /// settings merge key by key (`mergedSettings`; `deviceSuffix` is this
+    /// device's, see `backupDeviceSuffix`).
     /// Deletion markers from both sides are kept, and a work, hidden work,
     /// folder, saved search or filter that a newer marker covers is left out,
     /// so a delete doesn't come back from another device's copy (#135).
-    nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup) -> LibraryBackup {
+    nonisolated static func mergedBackup(local: LibraryBackup, cloud: LibraryBackup, deviceSuffix: String) -> LibraryBackup {
         var worksById = Dictionary(cloud.works.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for w in local.works {
             guard let cloudWork = worksById[w.ao3Id] else { worksById[w.ao3Id] = w; continue }
@@ -682,13 +811,78 @@ final class iCloudSyncManager {
             progress: progressById.values.sorted { $0.ao3Id < $1.ao3Id },
             filters: filtersByName.values.sorted { $0.name < $1.name },
             hidden: hiddenById.values.sorted { $0.ao3Id < $1.ao3Id },
-            settings: local.settings ?? cloud.settings,
+            settings: mergedSettings(local: local.settings, cloud: cloud.settings, deviceSuffix: deviceSuffix),
             folders: foldersByName.values.sorted { $0.name < $1.name },
             stats: statsById.values.sorted { $0.ao3Id < $1.ao3Id },
             blocked: blockedByKey.values.sorted { $0.key < $1.key },
             deleted: deleted.isEmpty ? nil : deleted,
             timestamp: local.timestamp
         )
+    }
+
+    // MARK: - Settings (#133)
+
+    /// This device's suffix on the backup's per-device settings keys
+    /// (`themePhone`, `fontSizePtPad`, `boldTextMac`).
+    static var backupDeviceSuffix: String {
+        switch ReaderProfile.deviceKey("") {
+        case ".mac": "Mac"
+        case ".pad": "Pad"
+        default: "Phone"
+        }
+    }
+
+    /// The settings a restore writes here, as UserDefaults keys and values:
+    /// every field the backup holds that is shared or carries this device's
+    /// suffix, skipping keys this device already has (`isSet`). Settings only
+    /// seed a fresh install. After that each device keeps its own, so a stale
+    /// copy another device backed up can't revert them. Profiles merge
+    /// separately and aren't included.
+    nonisolated static func settingsToSeed(
+        from settings: SettingsBackup, deviceSuffix: String, isSet: (String) -> Bool
+    ) -> [(key: String, value: Any)] {
+        var seeds: [(key: String, value: Any)] = []
+        for child in Mirror(reflecting: settings).children {
+            guard let name = child.label, name != "profiles", let value = unwrapped(child.value) else { continue }
+            let key: String
+            if let device = SettingsBackup.deviceSuffix(of: name) {
+                guard device == deviceSuffix else { continue }
+                key = SettingsBackup.defaultsKey(for: String(name.dropLast(device.count))) + "." + device.lowercased()
+            } else {
+                key = SettingsBackup.defaultsKey(for: name)
+            }
+            if !isSet(key) { seeds.append((key, value)) }
+        }
+        return seeds
+    }
+
+    /// Settings merge key by key. This device's own keys and the shared ones
+    /// take its value (a key only the file has is kept); another device's
+    /// per-device keys always come from the file, because any copies this
+    /// device holds are only what an earlier restore brought in, and writing
+    /// those back would revert that device's newer choices.
+    nonisolated static func mergedSettings(
+        local: SettingsBackup?, cloud: SettingsBackup?, deviceSuffix: String
+    ) -> SettingsBackup? {
+        guard let local else { return cloud }
+        let encoder = JSONEncoder()
+        guard let localKeys = (try? JSONSerialization.jsonObject(with: encoder.encode(local))) as? [String: Any]
+        else { return local }
+        var merged = cloud.flatMap { (try? JSONSerialization.jsonObject(with: encoder.encode($0))) as? [String: Any] } ?? [:]
+        for (key, value) in localKeys {
+            if let device = SettingsBackup.deviceSuffix(of: key), device != deviceSuffix { continue }
+            merged[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: merged),
+              let result = try? JSONDecoder().decode(SettingsBackup.self, from: data)
+        else { return local }
+        return result
+    }
+
+    private nonisolated static func unwrapped(_ value: Any) -> Any? {
+        let mirror = Mirror(reflecting: value)
+        guard mirror.displayStyle == .optional else { return value }
+        return mirror.children.first?.value
     }
 
     /// Two copies of one work merged so nothing moves backwards, whichever
@@ -860,15 +1054,18 @@ final class iCloudSyncManager {
     /// since this device last applied the file (the same forward-only restore
     /// the launch runs), then backs up. Restoring first means the backup's
     /// merge finds nothing unapplied, so it stamps the file it writes.
-    /// Returns true when it restored other devices' changes.
+    /// A restore that fails still backs up this device's changes; the stamp
+    /// didn't move, so the next launch or Sync Now tries it again.
     @discardableResult
-    func syncNow(context: ModelContext) async -> Bool {
+    func syncNow(context: ModelContext) async -> SyncNowResult {
         var restored = false
+        var restoreFailed = false
         if isBackupAvailable && cloudBackupHasUnappliedChanges {
             restored = await restoreFromiCloud(context: context)
+            restoreFailed = !restored
         }
-        backupToiCloud(context: context)
-        return restored
+        return SyncNowResult(restored: restored, restoreFailed: restoreFailed,
+                             backup: await backupInBackground(context: context))
     }
 
     /// Restores all records from iCloud backup. Returns true if successful.
@@ -925,29 +1122,15 @@ final class iCloudSyncManager {
         let tombstones = DeletionIndex(Self.prunedDeletions((backup.deleted ?? []) + Self.localDeletions(), now: .now))
 
         do {
-            // 0. Restore settings and themes
+            // 0. Restore settings and themes. Restore only fills in what this
+            // device hasn't set (a fresh install) and never copies another
+            // device's per-device keys, so each device keeps its own (#133).
             if let s = backup.settings {
                 let defaults = UserDefaults.standard
-                if let theme = s.theme { defaults.set(theme, forKey: "reader.theme") }
-                if let fontFamily = s.fontFamily { defaults.set(fontFamily, forKey: "reader.fontFamily") }
-                if let width = s.width { defaults.set(width, forKey: "reader.width") }
-                if let widthPercent = s.widthPercent { defaults.set(widthPercent, forKey: "reader.widthPercent") }
-                if let mode = s.mode { defaults.set(mode, forKey: "reader.mode") }
-                if let fontSizePt = s.fontSizePt { defaults.set(fontSizePt, forKey: "reader.fontSizePt") }
-                if let lineSpacingPt = s.lineSpacingPt { defaults.set(lineSpacingPt, forKey: "reader.lineSpacingPt") }
-                if let paragraphSpacingPt = s.paragraphSpacingPt { defaults.set(paragraphSpacingPt, forKey: "reader.paragraphSpacingPt") }
-                if let pageTurnHaptics = s.pageTurnHaptics { defaults.set(pageTurnHaptics, forKey: "reader.pageTurnHaptics") }
-                if let pageTurnAnimations = s.pageTurnAnimations { defaults.set(pageTurnAnimations, forKey: "reader.pageTurnAnimations") }
-                if let kerningPt = s.kerningPt { defaults.set(kerningPt, forKey: "reader.kerningPt") }
-                if let boldText = s.boldText { defaults.set(boldText, forKey: "reader.boldText") }
-                if let ttsRate = s.ttsRate { defaults.set(ttsRate, forKey: "reader.ttsRate") }
-                if let ttsVoiceId = s.ttsVoiceId { defaults.set(ttsVoiceId, forKey: "reader.ttsVoiceId") }
-                if let filterMatureExplicit = s.filterMatureExplicit { defaults.set(filterMatureExplicit, forKey: "content.filterMatureExplicit") }
-                if let ageConfirmed = s.ageConfirmed { defaults.set(ageConfirmed, forKey: "content.ageConfirmed") }
-                if let activeProfile = s.activeProfile { defaults.set(activeProfile, forKey: "reader.activeProfile") }
-                if let activeProfilePhone = s.activeProfilePhone { defaults.set(activeProfilePhone, forKey: "reader.activeProfile.phone") }
-                if let activeProfileMac = s.activeProfileMac { defaults.set(activeProfileMac, forKey: "reader.activeProfile.mac") }
-                if let activeProfilePad = s.activeProfilePad { defaults.set(activeProfilePad, forKey: "reader.activeProfile.pad") }
+                let seeds = Self.settingsToSeed(from: s, deviceSuffix: Self.backupDeviceSuffix) {
+                    defaults.object(forKey: $0) != nil
+                }
+                for seed in seeds { defaults.set(seed.value, forKey: seed.key) }
                 if let profiles = s.profiles {
                     let mergedProfiles = ReaderProfile.mergedProfiles(
                         localJSON: defaults.string(forKey: "reader.profiles"),
@@ -956,42 +1139,6 @@ final class iCloudSyncManager {
                     defaults.set(mergedProfiles, forKey: "reader.profiles")
                     ReaderProfileSyncStore.publishLocalProfiles(mergedProfiles)
                 }
-
-                // Device-specific settings
-                if let themePhone = s.themePhone { defaults.set(themePhone, forKey: "reader.theme.phone") }
-                if let themeMac = s.themeMac { defaults.set(themeMac, forKey: "reader.theme.mac") }
-                if let themePad = s.themePad { defaults.set(themePad, forKey: "reader.theme.pad") }
-                if let fontFamilyPhone = s.fontFamilyPhone { defaults.set(fontFamilyPhone, forKey: "reader.fontFamily.phone") }
-                if let fontFamilyMac = s.fontFamilyMac { defaults.set(fontFamilyMac, forKey: "reader.fontFamily.mac") }
-                if let fontFamilyPad = s.fontFamilyPad { defaults.set(fontFamilyPad, forKey: "reader.fontFamily.pad") }
-                if let widthPercentPhone = s.widthPercentPhone { defaults.set(widthPercentPhone, forKey: "reader.widthPercent.phone") }
-                if let widthPercentMac = s.widthPercentMac { defaults.set(widthPercentMac, forKey: "reader.widthPercent.mac") }
-                if let widthPercentPad = s.widthPercentPad { defaults.set(widthPercentPad, forKey: "reader.widthPercent.pad") }
-                if let modePhone = s.modePhone { defaults.set(modePhone, forKey: "reader.mode.phone") }
-                if let modeMac = s.modeMac { defaults.set(modeMac, forKey: "reader.mode.mac") }
-                if let modePad = s.modePad { defaults.set(modePad, forKey: "reader.mode.pad") }
-                if let fontSizePtPhone = s.fontSizePtPhone { defaults.set(fontSizePtPhone, forKey: "reader.fontSizePt.phone") }
-                if let fontSizePtMac = s.fontSizePtMac { defaults.set(fontSizePtMac, forKey: "reader.fontSizePt.mac") }
-                if let fontSizePtPad = s.fontSizePtPad { defaults.set(fontSizePtPad, forKey: "reader.fontSizePt.pad") }
-                if let lineSpacingPtPhone = s.lineSpacingPtPhone { defaults.set(lineSpacingPtPhone, forKey: "reader.lineSpacingPt.phone") }
-                if let lineSpacingPtMac = s.lineSpacingPtMac { defaults.set(lineSpacingPtMac, forKey: "reader.lineSpacingPt.mac") }
-                if let lineSpacingPtPad = s.lineSpacingPtPad { defaults.set(lineSpacingPtPad, forKey: "reader.lineSpacingPt.pad") }
-                if let paragraphSpacingPtPhone = s.paragraphSpacingPtPhone { defaults.set(paragraphSpacingPtPhone, forKey: "reader.paragraphSpacingPt.phone") }
-                if let paragraphSpacingPtMac = s.paragraphSpacingPtMac { defaults.set(paragraphSpacingPtMac, forKey: "reader.paragraphSpacingPt.mac") }
-                if let paragraphSpacingPtPad = s.paragraphSpacingPtPad { defaults.set(paragraphSpacingPtPad, forKey: "reader.paragraphSpacingPt.pad") }
-                if let pageTurnHapticsPhone = s.pageTurnHapticsPhone { defaults.set(pageTurnHapticsPhone, forKey: "reader.pageTurnHaptics.phone") }
-                if let pageTurnHapticsMac = s.pageTurnHapticsMac { defaults.set(pageTurnHapticsMac, forKey: "reader.pageTurnHaptics.mac") }
-                if let pageTurnHapticsPad = s.pageTurnHapticsPad { defaults.set(pageTurnHapticsPad, forKey: "reader.pageTurnHaptics.pad") }
-                if let pageTurnAnimationsPhone = s.pageTurnAnimationsPhone { defaults.set(pageTurnAnimationsPhone, forKey: "reader.pageTurnAnimations.phone") }
-                if let pageTurnAnimationsMac = s.pageTurnAnimationsMac { defaults.set(pageTurnAnimationsMac, forKey: "reader.pageTurnAnimations.mac") }
-                if let pageTurnAnimationsPad = s.pageTurnAnimationsPad { defaults.set(pageTurnAnimationsPad, forKey: "reader.pageTurnAnimations.pad") }
-                
-                if let kerningPtPhone = s.kerningPtPhone { defaults.set(kerningPtPhone, forKey: "reader.kerningPt.phone") }
-                if let kerningPtMac = s.kerningPtMac { defaults.set(kerningPtMac, forKey: "reader.kerningPt.mac") }
-                if let kerningPtPad = s.kerningPtPad { defaults.set(kerningPtPad, forKey: "reader.kerningPt.pad") }
-                if let boldTextPhone = s.boldTextPhone { defaults.set(boldTextPhone, forKey: "reader.boldText.phone") }
-                if let boldTextMac = s.boldTextMac { defaults.set(boldTextMac, forKey: "reader.boldText.mac") }
-                if let boldTextPad = s.boldTextPad { defaults.set(boldTextPad, forKey: "reader.boldText.pad") }
             }
             
             // 0.5. Restore CustomFolders
@@ -1284,30 +1431,138 @@ final class iCloudSyncManager {
         }
     }
 
-    /// Deletes the backup file (and the copy of the previous one) from iCloud.
+    /// Deletes the backup file (and the copy of the previous one) from
+    /// iCloud, and says what really happened.
     @discardableResult
-    func clearFromiCloud() -> Bool {
-        guard let url = Self.backupURL else { return false }
+    func clearFromiCloud() -> ClearOutcome {
+        clear(at: Self.backupURL)
+    }
+
+    /// `clearFromiCloud` with the file passed in (nil: iCloud isn't
+    /// available), so tests can cover a signed-out device.
+    @discardableResult
+    func clear(at url: URL?) -> ClearOutcome {
+        guard let url else { return .iCloudUnavailable }
+        let fileManager = FileManager.default
         let previousURL = Self.previousBackupURL(for: url)
-        if FileManager.default.fileExists(atPath: previousURL.path) {
-            try? FileManager.default.removeItem(at: previousURL)
+        if fileManager.fileExists(atPath: previousURL.path) {
+            try? fileManager.removeItem(at: previousURL)
         }
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return false
+        // Only a placeholder here: there's nothing on this device to delete
+        // yet. Start the download so trying again can delete it.
+        if !fileManager.fileExists(atPath: url.path) {
+            guard Self.isUndownloaded(url) else { return .nothingToClear }
+            try? fileManager.startDownloadingUbiquitousItem(at: url)
+            return .waitingForDownload
         }
-        
+
         do {
-            try FileManager.default.removeItem(at: url)
-            return true
+            // A backup queued before the clear would write the file straight
+            // back. (Only cancelled here: when nothing is deleted, this
+            // device's last change still needs backing up.)
+            backupTask?.cancel()
+            try fileManager.removeItem(at: url)
+            // Whatever stopped the last backup was about the file just deleted.
+            lastBackupOutcome = nil
+            return .cleared
         } catch {
             print("Failed to clear iCloud backup: \(error)")
-            return false
+            return .failed(error.localizedDescription)
         }
     }
 
 }
 
+// MARK: - Outcomes
+
+/// What a backup did (the Windows app's `BackupOutcome`).
+enum BackupOutcome: Equatable, Sendable {
+    case written
+    /// The backup in iCloud already held this library, so it was left as it
+    /// is (#137).
+    case unchanged
+    /// The backup in iCloud isn't on this device yet; its download was started.
+    case waitingForDownload
+    /// The device isn't signed in to iCloud, or iCloud Drive is off for Fanficly.
+    case iCloudUnavailable
+    /// The backup in iCloud couldn't be decoded (damaged, or a newer app's
+    /// format), so it was left alone rather than overwritten.
+    case unreadable
+    case failed(String)
+
+    /// Whether the file in iCloud holds this library now (written, or
+    /// already up to date).
+    var succeeded: Bool { failureMessage == nil }
+
+    /// Why the file wasn't written, or nil when it was (or didn't need to be).
+    var failureMessage: String? {
+        switch self {
+        case .written, .unchanged:
+            nil
+        case .waitingForDownload:
+            String(localized: "The backup in iCloud is still downloading. Fanficly will back up once it's on this device.")
+        case .iCloudUnavailable:
+            String(localized: "iCloud isn't available. Make sure you're signed in to iCloud and iCloud Drive is on for Fanficly.")
+        case .unreadable:
+            String(localized: "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device.")
+        case .failed(let reason):
+            reason
+        }
+    }
+}
+
+/// What Sync Now did: whether it brought other devices' changes into this
+/// library (or tried and couldn't), and how the backup after it went.
+struct SyncNowResult: Equatable, Sendable {
+    var restored: Bool
+    var restoreFailed: Bool
+    var backup: BackupOutcome
+}
+
+/// What Clear iCloud Data did.
+enum ClearOutcome: Equatable, Sendable {
+    case cleared
+    /// There was no backup in iCloud to delete.
+    case nothingToClear
+    /// The backup is in iCloud but not on this device yet, so it couldn't be
+    /// deleted from here; its download was started.
+    case waitingForDownload
+    case iCloudUnavailable
+    case failed(String)
+}
+
 // MARK: - Backup Codable Structs
+
+/// A library snapshot `backupInBackground` hands to the background write.
+struct PendingBackup: Sendable {
+    let url: URL
+    let backup: LibraryBackup
+    /// This device's settings suffix, read on the main actor.
+    let deviceSuffix: String
+}
+
+/// How `iCloudSyncManager.writeBackup` went, and the file date to stamp
+/// as applied here (nil: leave the stamp alone).
+typealias BackupWrite = (outcome: BackupOutcome, appliedStamp: Date?)
+
+/// Asks iOS for time to finish a backup after the app leaves the screen,
+/// and gives it back when the backup ends or the time runs out.
+@MainActor
+private final class BackgroundAssertion {
+    private var identifier = UIBackgroundTaskIdentifier.invalid
+
+    init(name: String) {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            MainActor.assumeIsolated { self?.end() }
+        }
+    }
+
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
+}
 
 struct LibraryBackup: Codable {
     let works: [WorkBackup]
@@ -1465,6 +1720,26 @@ struct SettingsBackup: Codable {
     let boldTextPhone: Bool?
     let boldTextMac: Bool?
     let boldTextPad: Bool?
+}
+
+extension SettingsBackup {
+    /// The suffixes of per-device keys, the Windows app's included.
+    static let deviceSuffixes = ["Phone", "Pad", "Mac", "Windows"]
+
+    /// The device a backup key belongs to (`fontSizePtPad` → `Pad`), or nil
+    /// for a shared key.
+    static func deviceSuffix(of key: String) -> String? {
+        deviceSuffixes.first { key.hasSuffix($0) && key.count > $0.count }
+    }
+
+    /// The UserDefaults key of a shared backup key (`fontSizePt` →
+    /// `reader.fontSizePt`).
+    static func defaultsKey(for name: String) -> String {
+        switch name {
+        case "filterMatureExplicit", "ageConfirmed": "content.\(name)"
+        default: "reader.\(name)"
+        }
+    }
 }
 
 struct WorkBackup: Codable {
