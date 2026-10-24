@@ -111,6 +111,7 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
     private bool _dirty;
     private bool _disposed;
     private int _retryDelayMs;
+    private readonly Lock _writeGate = new();
 
     /// <summary>How long the first retry of a failed write waits; each later
     /// one waits twice as long, up to <see cref="MaxRetryDelayMs"/>.</summary>
@@ -158,49 +159,61 @@ public sealed class JsonFileKeyValueStore : InMemoryKeyValueStore, IDisposable
         catch (ObjectDisposedException) { }
     }
 
+    /// <summary>Raised (on the writing thread) after pending changes reach the file.</summary>
+    public event Action? Written;
+
     /// <summary>Writes pending changes now (also called on app suspend/exit).
     /// False when changes are still pending because the write failed; a retry
-    /// is then scheduled.</summary>
+    /// is then scheduled. Waits for a write already under way on another thread.</summary>
     public bool Flush()
     {
-        Dictionary<string, string> snapshot;
-        lock (Gate)
+        lock (_writeGate)
         {
-            if (!_dirty) return true;
-            _dirty = false;
-            snapshot = new Dictionary<string, string>(Values);
-        }
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            var tmp = _path + ".tmp";
-            using (var stream = File.Create(tmp))
-            using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
-            {
-                w.WriteStartObject();
-                foreach (var (k, v) in snapshot.OrderBy(kv => kv.Key, StringComparer.Ordinal)) w.WriteString(k, v);
-                w.WriteEndObject();
-            }
-            File.Move(tmp, _path, overwrite: true);
-            lock (Gate) _retryDelayMs = 0;
-            return true;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            // Replacing a file another process has open can be refused with an
-            // access error. This runs on a timer thread, where an exception would
-            // end the app, so keep the change pending and try again later.
-            bool first;
+            Dictionary<string, string> snapshot;
             lock (Gate)
             {
-                _dirty = true;
-                first = _retryDelayMs == 0;
-                _retryDelayMs = first ? RetryDelayMs : Math.Min(_retryDelayMs * 2, MaxRetryDelayMs);
-                Schedule(_retryDelayMs);
+                if (!_dirty) return true;
+                _dirty = false;
+                snapshot = new Dictionary<string, string>(Values);
             }
-            if (first) WriteFailed?.Invoke($"Couldn't write {Path.GetFileName(_path)}: {e.Message}");
-            return false;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+                var tmp = _path + ".tmp";
+                using (var stream = File.Create(tmp))
+                using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+                {
+                    w.WriteStartObject();
+                    foreach (var (k, v) in snapshot.OrderBy(kv => kv.Key, StringComparer.Ordinal)) w.WriteString(k, v);
+                    w.WriteEndObject();
+                }
+                File.Move(tmp, _path, overwrite: true);
+                lock (Gate)
+                {
+                    _retryDelayMs = 0;
+                    // Changed while this retry was writing: OnMutated left it to us.
+                    if (_dirty) Schedule(300);
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Replacing a file another process has open can be refused with an
+                // access error. This runs on a timer thread, where an exception would
+                // end the app, so keep the change pending and try again later.
+                bool first;
+                lock (Gate)
+                {
+                    _dirty = true;
+                    first = _retryDelayMs == 0;
+                    _retryDelayMs = first ? RetryDelayMs : Math.Min(_retryDelayMs * 2, MaxRetryDelayMs);
+                    Schedule(_retryDelayMs);
+                }
+                if (first) WriteFailed?.Invoke($"Couldn't write {Path.GetFileName(_path)}: {e.Message}");
+                return false;
+            }
         }
+        Written?.Invoke();
+        return true;
     }
 
     public void Dispose()

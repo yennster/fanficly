@@ -21,6 +21,7 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
     private FileSystemWatcher? _watcher;
     private readonly Lock _gate = new();
     private Timer? _pushTimer;
+    private volatile bool _pushAfterWrite;
 
     public event Action<string>? Changed;
 
@@ -29,6 +30,12 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
         _localPath = localPath;
         _local = new JsonFileKeyValueStore(localPath);
         _local.Changed += key => Changed?.Invoke(key);
+        _local.Written += () =>
+        {
+            if (!_pushAfterWrite) return;
+            _pushAfterWrite = false;
+            SchedulePush();
+        };
     }
 
     /// <summary>The sync folder; null keeps everything on this device only.</summary>
@@ -120,9 +127,10 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
         if (path is null) return;
         try
         {
-            // The local write failed (it retries itself): pushing now would copy
-            // the old file over the folder's, so try again after the retry.
-            if (!_local.Flush()) { SchedulePush(); return; }
+            // The local write failed (it retries itself, backing off): pushing
+            // now would copy the old file over the folder's, so push once that
+            // retry has written it.
+            if (!_local.Flush()) { _pushAfterWrite = true; return; }
             // Nothing synced has been set on this PC yet, so there's no file to copy.
             if (!File.Exists(_localPath)) return;
             var tmp = path + ".tmp";
