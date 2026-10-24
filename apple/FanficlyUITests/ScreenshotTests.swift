@@ -140,11 +140,13 @@ final class ScreenshotTests: XCTestCase {
     /// A landscape capture turned upright, or nil when it already is. With
     /// Xcode 27 a rotated simulator's window screenshot comes back in the
     /// portrait buffer, the UI on its side (the "mac" set in Xcode Cloud).
+    /// The unfolded Duo's whole-display shot is left as it was: a portrait
+    /// one there means the rotation didn't take, not a sideways capture.
     private func upright(_ image: UIImage) -> UIImage? {
         #if targetEnvironment(macCatalyst)
         return nil
         #else
-        guard currentOrientation.isLandscape, image.size.height > image.size.width else { return nil }
+        guard !isDuoInner, currentOrientation.isLandscape, image.size.height > image.size.width else { return nil }
         let size = CGSize(width: image.size.height, height: image.size.width)
         let format = UIGraphicsImageRendererFormat()
         format.scale = image.scale
@@ -152,7 +154,8 @@ final class ScreenshotTests: XCTestCase {
             let cg = context.cgContext
             cg.translateBy(x: size.width / 2, y: size.height / 2)
             // Landscape right comes back with the UI's top at the buffer's
-            // right edge, so it turns clockwise (seen in Xcode Cloud).
+            // left edge, so it turns clockwise (checked on Xcode Cloud's
+            // captures).
             cg.rotate(by: currentOrientation == .landscapeRight ? .pi / 2 : -.pi / 2)
             image.draw(in: CGRect(x: -image.size.width / 2, y: -image.size.height / 2,
                                   width: image.size.width, height: image.size.height))
