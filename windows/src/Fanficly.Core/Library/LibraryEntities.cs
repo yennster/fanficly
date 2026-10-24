@@ -441,9 +441,10 @@ public sealed class Chapter : LibraryEntity
         }
     }
 
-    /// <summary>The body for a backup: the loaded one, else read from the
-    /// database without keeping it in memory.</summary>
-    internal string BodyForBackup => BodyLoaded ? _body ?? "" : Store?.LoadChapterBody(RowId) ?? "";
+    /// <summary>The body for a backup when it's loaded; null when it's only in
+    /// the database, where the backup reads it (off the UI thread) without
+    /// keeping it in memory.</summary>
+    internal string? LoadedBodyForBackup => BodyLoaded ? _body ?? "" : null;
 
     /// <summary>Drops a loaded, unchanged body from memory (it reloads on access).</summary>
     public void UnloadBody()

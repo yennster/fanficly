@@ -154,7 +154,15 @@ public sealed class LibrarySyncManager
     {
         LibraryHooks.UpdateWidgetData?.Invoke(store);
         if (!IsSyncEnabled) return;
+        ScheduleBackup(store, readingActivity);
+    }
 
+    /// <summary>How many times in a row a queued backup is tried again after
+    /// its snapshot was interrupted, before it waits for the next change.</summary>
+    private const int MaxSnapshotRetries = 3;
+
+    private void ScheduleBackup(LibraryStore store, bool readingActivity, int retry = 0)
+    {
         CancellationTokenSource cts;
         TimeSpan delay;
         lock (_queueGate)
@@ -187,8 +195,63 @@ public sealed class LibrarySyncManager
                 if (ReferenceEquals(_pendingBackup, cts)) _pendingBackup = null;
             }
             // Sync may have been turned off while this waited.
-            if (IsSyncEnabled) Backup(store);
+            if (!IsSyncEnabled) return;
+            try
+            {
+                await BackupAsync(store).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException e)
+            {
+                // A record changed under the snapshot ("Collection was
+                // modified": something saved off the UI thread). Nothing was
+                // written, so try again rather than drop this change (#139).
+                LibraryHooks.Log?.Invoke($"Backup interrupted: {e.Message}");
+                if (retry < MaxSnapshotRetries) ScheduleBackup(store, readingActivity: false, retry + 1);
+            }
+            catch (Exception e)
+            {
+                LibraryHooks.Log?.Invoke($"Backup failed: {e}");
+            }
         });
+    }
+
+    /// <summary>Where library records are read and changed: the UI thread's
+    /// context, which the app sets. The backup's snapshot and the restore's
+    /// changes run there, so neither touches a record (or its folder list)
+    /// while the UI is changing or enumerating it; only the merge and the file
+    /// IO run on the thread pool (#139). Set it on that thread. Null (tests,
+    /// tools): run on the calling thread.</summary>
+    public SynchronizationContext? RecordsContext
+    {
+        get => _recordsContext;
+        set
+        {
+            _recordsContext = value;
+            _recordsThread = value is null ? 0 : Environment.CurrentManagedThreadId;
+        }
+    }
+
+    private SynchronizationContext? _recordsContext;
+    private int _recordsThread;
+
+    /// <summary>Runs <paramref name="body"/> on <see cref="RecordsContext"/>
+    /// (inline when that's this thread, or none is set).</summary>
+    private Task<T> OnRecordsContextAsync<T>(Func<T> body)
+    {
+        // Already there: run inline (posting and waiting would deadlock).
+        if (_recordsContext is not { } context || SynchronizationContext.Current == context
+            || Environment.CurrentManagedThreadId == _recordsThread)
+        {
+            try { return Task.FromResult(body()); }
+            catch (Exception e) { return Task.FromException<T>(e); }
+        }
+        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Post(_ =>
+        {
+            try { done.SetResult(body()); }
+            catch (Exception e) { done.SetException(e); }
+        }, null);
+        return done.Task;
     }
 
     /// <summary>Drops a queued backup that hasn't started (sync turned off,
@@ -209,23 +272,72 @@ public sealed class LibrarySyncManager
     /// Up Now can report what really happened, and keeps it as
     /// <see cref="LastBackupOutcome"/> so Sync settings can say when the
     /// automatic backups keep failing.</summary>
+    /// <remarks>The snapshot runs on <see cref="RecordsContext"/>; called from
+    /// another thread, this waits for it. Prefer <see cref="BackupAsync"/>
+    /// there.</remarks>
     public BackupOutcome Backup(LibraryStore store)
+    {
+        if (CantWrite() is { } early) return Finish(early);
+        var snapshot = OnRecordsContextAsync(() => TakeSnapshot(store)).GetAwaiter().GetResult();
+        return Write(store, snapshot);
+    }
+
+    /// <summary><see cref="Backup"/> with only the snapshot on
+    /// <see cref="RecordsContext"/>: the merge with the file there, the
+    /// encoding and the write run on the thread pool, so a large library
+    /// doesn't stall the UI (the Swift app's <c>backupInBackground</c>).</summary>
+    public async Task<BackupOutcome> BackupAsync(LibraryStore store)
+    {
+        if (CantWrite() is { } early) return Finish(early);
+        var snapshot = await OnRecordsContextAsync(() => TakeSnapshot(store)).ConfigureAwait(false);
+        return await Task.Run(() => Write(store, snapshot)).ConfigureAwait(false);
+    }
+
+    /// <summary>Why there's nothing to write to yet (no folder, or only a
+    /// cloud placeholder), checked before taking a snapshot for nothing. A
+    /// backup that exists only as a not-yet-downloaded placeholder can't be
+    /// merged with, and overwriting would drop every record the other device
+    /// backed up. Let a later QueueBackup (they fire on every mutation) retry
+    /// once it's local.</summary>
+    private BackupOutcome? CantWrite()
+    {
+        if (BackupPath is not { } path) return BackupOutcome.NoFolder;
+        if (!File.Exists(path) && File.Exists(PlaceholderPath(path))) return BackupOutcome.NotDownloaded;
+        return null;
+    }
+
+    internal BackupOutcome Write(LibraryStore store, LocalSnapshot snapshot)
     {
         // One at a time (a queued backup on the thread pool, Sync Now, Clear),
         // so the outcome kept is the last one's and a clear can't be undone
-        // by a backup already writing.
+        // by a backup already writing. Snapshots are taken outside this lock
+        // (taking one may wait for the UI thread, which may be waiting here),
+        // so one taken before a snapshot that's already written, or before a
+        // clear, holds nothing newer and is dropped rather than written over
+        // it.
         lock (_fileGate)
         {
-            var outcome = WriteBackup(store);
-            var problem = BackupOutcomeText.Problem(outcome, LastBackupError);
-            lock (_queueGate) _lastBackup = (outcome, problem);
-            return outcome;
+            if (snapshot.Sequence <= _writtenSequence)
+                lock (_queueGate) return _lastBackup?.Outcome ?? BackupOutcome.Unchanged;
+            var outcome = WriteBackup(store, snapshot);
+            if (outcome is BackupOutcome.Written or BackupOutcome.Unchanged) _writtenSequence = snapshot.Sequence;
+            return Finish(outcome);
         }
+    }
+
+    private BackupOutcome Finish(BackupOutcome outcome)
+    {
+        var problem = BackupOutcomeText.Problem(outcome, LastBackupError);
+        lock (_queueGate) _lastBackup = (outcome, problem);
+        return outcome;
     }
 
     /// <summary>Serializes the writes and deletes of the backup file.</summary>
     private readonly Lock _fileGate = new();
     private (BackupOutcome Outcome, string? Problem)? _lastBackup;
+    /// <summary>The last snapshot number handed out, and the newest one the
+    /// file holds (or that a clear made stale).</summary>
+    private long _snapshotSequence, _writtenSequence;
 
     /// <summary>How the last backup (automatic or Sync Now) went; null before
     /// the first one and after Clear.</summary>
@@ -242,20 +354,17 @@ public sealed class LibrarySyncManager
         get { lock (_queueGate) return _lastBackup?.Problem; }
     }
 
-    private BackupOutcome WriteBackup(LibraryStore store)
+    private BackupOutcome WriteBackup(LibraryStore store, LocalSnapshot snapshot)
     {
-        if (BackupPath is not { } path) return BackupOutcome.NoFolder;
-
-        // A backup that exists only as a not-yet-downloaded placeholder can't
-        // be merged with, and overwriting would drop every record the other
-        // device backed up. Let a later QueueBackup (they fire on every
-        // mutation) retry once it's local.
-        if (!File.Exists(path) && File.Exists(PlaceholderPath(path))) return BackupOutcome.NotDownloaded;
+        // Checked again: the file may have changed while the snapshot waited.
+        if (CantWrite() is { } early) return early;
+        var path = BackupPath!;
 
         try
         {
-            // 1–2. Snapshot the store into the backup shape.
-            var backup = MakeLocalBackup(store);
+            // 1–2. The snapshot in the backup shape, with the chapter text it
+            // left in the database.
+            var backup = snapshot.WithBodies(store);
 
             // 3. Union with the backup already there. A file that's present but
             // unreadable (still hydrating, locked by the sync client) is the
@@ -404,14 +513,28 @@ public sealed class LibrarySyncManager
         FolderNames: work.Folders.Select(f => f.Name).ToList());
 
     /// <summary>The library as a backup, mapping every record type.</summary>
-    internal LibraryBackup MakeLocalBackup(LibraryStore store)
-    {
-        // BodyForBackup reads a body that isn't loaded without keeping it, so
-        // a backup doesn't leave the whole library's text in memory (#137).
-        var works = store.All<Work>().Select(work => ToBackup(work,
-            store.ChaptersOf(work).Select(ch => new ChapterBackup(ch.Index, ch.Title, ch.BodyForBackup, ch.AoId)).ToList())).ToList();
+    internal LibraryBackup MakeLocalBackup(LibraryStore store) => TakeSnapshot(store).WithBodies(store);
 
-        return new LibraryBackup(
+    /// <summary>The library as a backup, read on <see cref="RecordsContext"/>
+    /// (#139). Chapter text that isn't loaded is left for
+    /// <see cref="LocalSnapshot.WithBodies"/> to read from the database off
+    /// that thread, without keeping it, so a backup neither stalls the UI on
+    /// the whole library's text nor leaves it in memory (#137).</summary>
+    internal LocalSnapshot TakeSnapshot(LibraryStore store)
+    {
+        var unloaded = new List<(List<ChapterBackup> Chapters, int Position, long RowId)>();
+        var works = store.All<Work>().Select(work =>
+        {
+            var chapters = new List<ChapterBackup>();
+            foreach (var ch in store.ChaptersOf(work))
+            {
+                if (ch.LoadedBodyForBackup is null) unloaded.Add((chapters, chapters.Count, ch.RowId));
+                chapters.Add(new ChapterBackup(ch.Index, ch.Title, ch.LoadedBodyForBackup ?? "", ch.AoId));
+            }
+            return ToBackup(work, chapters);
+        }).ToList();
+
+        var backup = new LibraryBackup(
             Works: works,
             Bookmarks: store.All<BookmarkRecord>().Select(b => new BookmarkBackup(b.Ao3Id, b.WorkAo3Id, b.Notes, b.Tags, b.SavedAt)).ToList(),
             Subscriptions: store.All<SubscriptionRecord>().Select(s => new SubscriptionBackup(
@@ -431,6 +554,23 @@ public sealed class LibrarySyncManager
                 a.Username, a.DisplayName, a.FollowedAt, a.KnownWorkIds, a.LastCheckedAt)).ToList(),
             Blocked: store.All<BlockedTerm>().Select(t => new BlockedBackup(t.Kind, t.Value, t.CreatedAt)).ToList(),
             Deleted: SyncDeletions.Pruned(SyncDeletions.Local(_settings), DateTimeOffset.Now) is { Count: > 0 } deleted ? deleted : null);
+        return new LocalSnapshot(backup, Interlocked.Increment(ref _snapshotSequence), unloaded);
+    }
+
+    /// <summary>A backup snapshot of this library, numbered in the order
+    /// snapshots were taken, with the chapter bodies still to read.</summary>
+    internal sealed record LocalSnapshot(
+        LibraryBackup Backup, long Sequence, List<(List<ChapterBackup> Chapters, int Position, long RowId)> Unloaded)
+    {
+        /// <summary>The backup with the bodies that weren't loaded read in
+        /// (the store's lock makes that safe from any thread).</summary>
+        public LibraryBackup WithBodies(LibraryStore store)
+        {
+            foreach (var (chapters, position, rowId) in Unloaded)
+                chapters[position] = chapters[position] with { BodyHtml = store.LoadChapterBody(rowId) };
+            Unloaded.Clear();
+            return Backup;
+        }
     }
 
     // MARK: - Launch auto-sync bookkeeping
@@ -693,7 +833,7 @@ public sealed class LibrarySyncManager
             // next launch or Sync Now tries the restore again.
             restoreFailed = !restored;
         }
-        return new SyncNowResult(restored, Backup(store), restoreFailed);
+        return new SyncNowResult(restored, await BackupAsync(store), restoreFailed);
     }
 
     // MARK: - Restore
@@ -730,9 +870,16 @@ public sealed class LibrarySyncManager
         var readDate = LastBackupDate;
         try
         {
-            var backup = LibraryBackupJson.Decode(await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false));
-            Apply(backup, store);
-            store.Save();
+            var data = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+            var backup = LibraryBackupJson.Decode(data);
+            // The records change where the UI uses them, not on this pool
+            // thread: at launch the Library screen is building from them (#139).
+            await OnRecordsContextAsync(() =>
+            {
+                Apply(backup, store);
+                store.Save();
+                return true;
+            }).ConfigureAwait(false);
             MarkCloudBackupApplied(readDate);
             return true;
         }
@@ -1102,6 +1249,8 @@ public sealed class LibrarySyncManager
         try
         {
             File.Delete(path);
+            // Nor can a snapshot taken before the clear and written after it.
+            _writtenSequence = Interlocked.Read(ref _snapshotSequence);
             lock (_queueGate)
             {
                 // A backup queued before the clear would write the file
