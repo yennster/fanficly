@@ -50,17 +50,20 @@ def setup() -> tuple[dict, dict]:
                        "only by store-assets.yml in GitHub, which keeps this workflow up to date.",
         "clean": False,
         "manualBranchStartCondition": {"source": {"isAllMatch": True}},
+        # One action per device, so each runs and reports on its own and
+        # leaves its own result bundle: with all three in one action, the
+        # iPad and Duo runs errored after 100 minutes without one.
         "actions": [{
-            "name": "Capture the screenshots",
+            "name": f"Capture on {kind}",
             "actionType": "TEST",
             "scheme": SCHEME,
             "platform": "IOS",
             "isRequiredToPass": True,
             "testConfiguration": {
                 "kind": "USE_SCHEME_SETTINGS",
-                "testDestinations": [xcc.simulator(xc, names, kind) for names, kind in DEVICES],
+                "testDestinations": [xcc.simulator(xc, names, kind)],
             },
-        }],
+        } for names, kind in DEVICES],
     }, xc, mac)
 
 
@@ -69,8 +72,8 @@ def run(branch: str, out: Path) -> None:
     r = xcc.start(wf, repo, branch)
     attrs = xcc.wait(r, 150)
     print(f"==> {attrs.get('completionStatus')}")
-    # A failed step still leaves the other screens; place reports what's missing.
-    xcc.download_results(r["id"], out)
+    # A failed device still leaves the others' screens; place reports what's missing.
+    xcc.download_results(r["id"], out, logs=True)
     sha, expected = (attrs.get("sourceCommit") or {}).get("commitSha"), os.environ.get("EXPECTED_SHA")
     if expected and sha and sha != expected:
         sys.exit(f"Xcode Cloud captured {sha[:7]}, not {expected[:7]}")
@@ -94,9 +97,12 @@ def place(attachments: Path) -> None:
                 placed.setdefault(folder, []).append(name)
     for folder, names in sorted(placed.items()):
         print(f"==> docs/screenshots/{folder}: {', '.join(sorted(set(names)))}")
-    missing = {"iphone", "ipad", "mac"} - placed.keys()
-    if missing:
-        sys.exit(f"No captures for {', '.join(sorted(missing))}")
+    # A device that didn't finish keeps its committed captures, which
+    # frame-screenshots.py frames as before; only no captures at all fails.
+    if not placed:
+        sys.exit("No captures in the result bundles")
+    for folder in sorted({"iphone", "ipad", "mac"} - placed.keys()):
+        print(f"::warning::No {folder} captures: the committed ones stay")
     if not placed.keys() & {"duo-inner", "duo-outer"}:
         print("::warning::No iPhone Duo captures: the committed ones stay")
 
