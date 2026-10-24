@@ -102,6 +102,8 @@ struct FanficlyWidgetEntryView : View {
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
                 }
+                // StandBy shows home-screen widgets on a locked iPhone.
+                .privacySensitive(entry.storyId != nil)
 
                 Spacer(minLength: 4)
 
@@ -155,7 +157,8 @@ struct FanficlyWidgetEntryView : View {
 
 /// Lock-screen ring: progress around the percent read, or a book glyph when
 /// there's no story yet. The system tints and blurs lock-screen widgets, so
-/// this sticks to template colors.
+/// this sticks to template colors. It shows no title, so VoiceOver doesn't
+/// speak one either: the ring is on screen while the phone is locked.
 private struct LastReadCircularView: View {
     let entry: SimpleEntry
 
@@ -176,14 +179,15 @@ private struct LastReadCircularView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(lastReadAccessibilityLabel(entry))
+        .accessibilityLabel(lastReadRingAccessibilityLabel(entry))
         .containerBackground(for: .widget) {
             AccessoryWidgetBackground()
         }
     }
 }
 
-/// Lock-screen card: title, author and a progress bar with the percent.
+/// Lock-screen card: title, author and a progress bar with the percent. The
+/// title and author are redacted while the device is locked.
 private struct LastReadRectangularView: View {
     let entry: SimpleEntry
 
@@ -193,10 +197,12 @@ private struct LastReadRectangularView: View {
                 .font(.headline)
                 .widgetAccentable()
                 .lineLimit(1)
+                .privacySensitive(entry.storyId != nil)
             Text(entry.author)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .privacySensitive(entry.storyId != nil)
             if entry.storyId != nil {
                 Gauge(value: min(max(entry.progress, 0), 1)) {
                     EmptyView()
@@ -207,19 +213,19 @@ private struct LastReadRectangularView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(lastReadAccessibilityLabel(entry))
+        // Combined from the visible text rather than a custom label, so the
+        // redacted title and author aren't spoken on a locked phone.
+        .accessibilityElement(children: .combine)
         .containerBackground(for: .widget) {
             Color.clear
         }
     }
 }
 
-/// One VoiceOver sentence for the lock-screen families, like the home-screen
-/// widget's combined element.
-private func lastReadAccessibilityLabel(_ entry: SimpleEntry) -> String {
+/// The ring's VoiceOver sentence: what it shows, never the title.
+private func lastReadRingAccessibilityLabel(_ entry: SimpleEntry) -> String {
     guard entry.storyId != nil else { return "\(entry.storyTitle). \(entry.author)" }
-    return "Continue reading \(entry.storyTitle) by \(entry.author), \(lastReadPercent(entry)) percent read"
+    return "Continue reading, \(lastReadPercent(entry)) percent read"
 }
 
 private func lastReadPercent(_ entry: SimpleEntry) -> Int {
@@ -626,6 +632,7 @@ struct SubscriptionsWidgetEntryView: View {
                                     .foregroundStyle(.white.opacity(0.55))
                                     .lineLimit(1)
                             }
+                            .privacySensitive()
                             Spacer(minLength: 4)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(updates.count) \(updates.count == 1 ? "Update" : "Updates")")
@@ -655,6 +662,7 @@ struct SubscriptionsWidgetEntryView: View {
                                             .foregroundStyle(.white.opacity(0.55))
                                             .lineLimit(1)
                                     }
+                                    .privacySensitive()
                                     Spacer()
                                     Text("Ch \(sub.chapterCount)")
                                         .font(.system(size: 10, weight: .bold))
@@ -776,6 +784,7 @@ struct FolderShortcutWidgetEntryView: View {
                                     .font(.headline.weight(.semibold))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
+                                    .privacySensitive()
                                 
                                 Text("Library Folder")
                                     .font(.caption2)
@@ -811,6 +820,7 @@ struct FolderShortcutWidgetEntryView: View {
                                         .font(.system(size: 13, weight: .semibold))
                                         .foregroundStyle(.white)
                                         .lineLimit(1)
+                                        .privacySensitive()
                                     Spacer()
                                     Text("\(folder.workCount) \(folder.workCount == 1 ? "story" : "stories")")
                                         .font(.system(size: 11, weight: .bold))
@@ -929,6 +939,7 @@ struct SavedSearchesWidgetEntryView: View {
                                     .font(.headline.weight(.semibold))
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
+                                    .privacySensitive()
                                 
                                 Text(first.isFilter ? "Saved Filter" : "Saved Search")
                                     .font(.caption2)
@@ -968,6 +979,7 @@ struct SavedSearchesWidgetEntryView: View {
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(.white)
                                         .lineLimit(1)
+                                        .privacySensitive()
                                     Spacer()
                                     
                                     Text(item.isFilter ? "Filter" : "Search")
@@ -1087,6 +1099,7 @@ struct RecommendationWidgetEntryView: View {
                                 .foregroundStyle(.white.opacity(0.55))
                                 .lineLimit(1)
                         }
+                        .privacySensitive()
                         
                         if isSmall {
                             Spacer(minLength: 0)
@@ -1118,6 +1131,7 @@ struct RecommendationWidgetEntryView: View {
                                         .background(.white.opacity(0.11), in: Capsule())
                                 }
                             }
+                            .privacySensitive()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1167,5 +1181,65 @@ struct FanficlyWidgetsBundle: WidgetBundle {
         FolderShortcutWidget()
         SavedSearchesWidget()
         RecommendationWidget()
+    }
+}
+
+// MARK: - Locked previews
+
+// Story titles, authors, summaries, tags, folder names and saved-search names
+// are `.privacySensitive()`: WidgetKit redacts them on the lock screen and in
+// StandBy (home-screen widgets on a locked, charging iPhone) while the device
+// is locked (#141). Counts, percents, streaks and labels stay readable. These
+// previews show that locked state for every widget and family; a privacy
+// redaction is how a preview asks for it.
+
+private extension View {
+    func lockedPreview(_ family: WidgetFamily, _ name: String) -> some View {
+        redacted(reason: .privacy)
+            .previewContext(WidgetPreviewContext(family: family))
+            .previewDisplayName("Locked: \(name)")
+    }
+}
+
+struct LockedWidgetPreviews: PreviewProvider {
+    static let lastRead = SimpleEntry(date: .now, storyTitle: "A Coffee Shop Tale", author: "yennster", progress: 0.35, chapter: 3, paragraph: 12, storyId: 12345)
+    static let streak = StreakEntry(date: .now, streak: 5, activityDates: [])
+    static let subscriptions = SubscriptionsEntry(date: .now, updates: [
+        WidgetSubscriptionUpdate(workId: 101, title: "A Coffee Shop Story", author: "AuthorA", chapterCount: 15, isFollowed: true, updatedAt: .now),
+        WidgetSubscriptionUpdate(workId: 102, title: "Space Adventures", author: "AuthorB", chapterCount: 8, isFollowed: false, updatedAt: .now)
+    ])
+    static let folders = FolderShortcutEntry(date: .now, folders: [
+        WidgetFolderShortcut(name: "To Read", workCount: 15),
+        WidgetFolderShortcut(name: "Favorites", workCount: 8)
+    ])
+    static let searches = SavedSearchesEntry(date: .now, searches: [
+        WidgetSavedSearch(name: "Hermione/Draco", query: "Hermione/Draco", isFilter: false),
+        WidgetSavedSearch(name: "MCU Stars", query: "{\"fandoms\":[\"Marvel\"]}", isFilter: true)
+    ])
+    static let recommendation = RecommendationEntry(date: .now, rec: WidgetRecommendation(
+        workId: 201,
+        title: "A Magnificent Tale of Stars",
+        author: "Acura",
+        summary: "An epic adventure in a galaxy far away, exploring relationships and new worlds.",
+        tags: ["Action", "Sci-Fi"]
+    ))
+
+    static var previews: some View {
+        Group {
+            FanficlyWidgetEntryView(entry: lastRead).lockedPreview(.accessoryCircular, "Recently Read, circular")
+            FanficlyWidgetEntryView(entry: lastRead).lockedPreview(.accessoryRectangular, "Recently Read, rectangular")
+            FanficlyWidgetEntryView(entry: lastRead).lockedPreview(.systemSmall, "Recently Read, small")
+            FanficlyWidgetEntryView(entry: lastRead).lockedPreview(.systemMedium, "Recently Read, medium")
+            StreakWidgetEntryView(entry: streak).lockedPreview(.systemSmall, "Reading Streak, small")
+            StreakWidgetEntryView(entry: streak).lockedPreview(.systemMedium, "Reading Streak, medium")
+            SubscriptionsWidgetEntryView(entry: subscriptions).lockedPreview(.systemSmall, "Subscriptions, small")
+            SubscriptionsWidgetEntryView(entry: subscriptions).lockedPreview(.systemMedium, "Subscriptions, medium")
+            FolderShortcutWidgetEntryView(entry: folders).lockedPreview(.systemSmall, "Folder Shortcuts, small")
+            FolderShortcutWidgetEntryView(entry: folders).lockedPreview(.systemMedium, "Folder Shortcuts, medium")
+            SavedSearchesWidgetEntryView(entry: searches).lockedPreview(.systemSmall, "Saved Searches, small")
+            SavedSearchesWidgetEntryView(entry: searches).lockedPreview(.systemMedium, "Saved Searches, medium")
+            RecommendationWidgetEntryView(entry: recommendation).lockedPreview(.systemSmall, "Recommendation, small")
+            RecommendationWidgetEntryView(entry: recommendation).lockedPreview(.systemMedium, "Recommendation, medium")
+        }
     }
 }
