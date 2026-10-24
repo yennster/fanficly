@@ -172,15 +172,24 @@ public sealed class LibraryStore : IDisposable
         }
     }
 
-    internal string LoadChapterBody(long rowId)
+    internal string LoadChapterBody(long rowId) => LoadChapterBodyIfPresent(rowId) ?? "";
+
+    /// <summary>A chapter's stored body; null when the row is gone (or the
+    /// store is closed).</summary>
+    internal string? LoadChapterBodyIfPresent(long rowId)
     {
         lock (_gate)
         {
-            if (_disposed || rowId <= 0) return "";
+            if (_disposed || rowId <= 0) return null;
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = "SELECT body_html FROM chapters WHERE id = $id";
             cmd.Parameters.AddWithValue("$id", rowId);
-            return cmd.ExecuteScalar() as string ?? "";
+            return cmd.ExecuteScalar() switch
+            {
+                null => null,
+                string body => body,
+                _ => "",
+            };
         }
     }
 
