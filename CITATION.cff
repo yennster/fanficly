@@ -6,8 +6,9 @@ abstract: >-
   Fanficly is a free, ad-free app for reading fanfiction from Archive of Our
   Own (AO3) on iPhone, iPhone Duo, iPad, Mac and Windows. It searches AO3 with
   live tag suggestions and every AO3 filter, keeps a library that works
-  offline, remembers your place to the paragraph, and reads stories aloud with
-  on-device voices. It has no Fanficly servers or accounts, no ads and no
+  offline, remembers your place to the paragraph, reads stories aloud with
+  on-device voices, and turns pages from a keyboard or a Bluetooth page
+  turner. It has no Fanficly servers or accounts, no ads and no
   analytics. It is not affiliated with AO3 or the Organization for
   Transformative Works.
 authors:
