@@ -181,7 +181,7 @@ jobs:
       # Cloud (bin/xcode-cloud-release.py) and fastlane attaches the uploads
       # (ios_build:, mac_build:). fastlane's check_xcode refuses to build here
       # with anything older.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: inputs.lane == 'beta' || inputs.lane == 'release'
         with:
           python-version: "3.11"

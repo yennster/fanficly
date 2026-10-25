@@ -76,7 +76,7 @@ jobs:
     env:
       BRANCH: store-art/capture-${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.sha || github.sha }}
 
@@ -87,7 +87,7 @@ jobs:
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -145,14 +145,14 @@ jobs:
           done < <(find build/bundles -path "*.xcresult/Info.plist")
           bin/.venv/bin/python bin/xcode-cloud-store-art.py place build/attachments
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: captures
           path: apple/docs/screenshots
 
       # Always: a device that errors doesn't fail the job, and its log
       # bundle is the only record of why.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: capture-results
@@ -223,7 +223,7 @@ jobs:
           ls /Library/Fonts | grep -E "NewYorkExtraLarge|SF-Pro-(Display|Text)" | head
           bundle exec fastlane frameit download_frames
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         if: needs.capture.result == 'success'
         with:
           name: captures

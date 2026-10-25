@@ -104,6 +104,6 @@ jobs:
           }
           Write-Host "::error::Couldn't push to ${{ github.ref_name }}"
           exit 1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with: { name: ui-screenshots, path: artifacts/ui-screenshots, if-no-files-found: ignore }
