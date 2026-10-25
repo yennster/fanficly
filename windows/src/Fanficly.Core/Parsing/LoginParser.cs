@@ -46,11 +46,15 @@ public static class LoginParser
         {
             foreach (var link in doc.Select(sel))
             {
-                var parts = link.Attr("href").SwiftSplit('/');
+                // The path alone: the guest header links to
+                // /users/login?return_to=…, which isn't a name either.
+                var href = link.Attr("href");
+                var end = href.IndexOfAny(['?', '#']);
+                var parts = (end < 0 ? href : href[..end]).SwiftSplit('/');
                 if (parts.Length < 2 || parts[0] != "users") continue;
                 var name = parts[1];
-                // Skip the login/logout/signup action links.
-                if (name.ToLowerInvariant() is "login" or "logout" or "signup" or "activate") continue;
+                // Skip the login/logout/signup/forgot-password action links.
+                if (name.ToLowerInvariant() is "login" or "logout" or "signup" or "activate" or "password") continue;
                 return name;
             }
         }

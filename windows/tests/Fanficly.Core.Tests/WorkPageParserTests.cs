@@ -635,6 +635,15 @@ public class LoginParserTests
     }
 
     [Fact]
+    public void CurrentUsernameSkipsTheGuestHeadersLoginLink()
+    {
+        // Every signed-out page's header links to /users/login?return_to=… (#144).
+        Assert.Null(LoginParser.CurrentUsername($"<html><body>{AO3PageFixtures.GuestHeader}</body></html>"));
+        // …and its small sign-in box to "Forgot password?".
+        Assert.Null(LoginParser.CurrentUsername("""<html><body><div id="header"><a href="/users/login?return_to=%2F">Log In</a><a href="/users/password/new">Forgot password?</a></div></body></html>"""));
+    }
+
+    [Fact]
     public void HasLoginForm()
     {
         Assert.True(LoginParser.HasLoginForm("<html><body><form id=\"new_user\"><input name=\"user[login]\"></form></body></html>"));

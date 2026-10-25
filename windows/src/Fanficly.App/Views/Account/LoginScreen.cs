@@ -92,12 +92,12 @@ public sealed class LoginScreen : Screen
         {
             _username = new TextBox
             {
-                PlaceholderText = "Username",
+                PlaceholderText = "Username or email",
                 IsSpellCheckEnabled = false,
                 IsTextPredictionEnabled = false,
                 Text = _username?.Text is { Length: > 0 } typed ? typed : auth.Username ?? "",
             }.Id("login.username");
-            AutomationProperties.SetName(_username, "Username");
+            AutomationProperties.SetName(_username, "Username or email");
             _password = new PasswordBox { PlaceholderText = "Password" }.Id("login.password");
             // The username is known when the session expired: start on the password.
             FrameworkElement first = _username.Text.Length > 0 ? _password : _username;
