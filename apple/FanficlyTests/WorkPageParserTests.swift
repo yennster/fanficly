@@ -433,6 +433,74 @@ final class CommentsParserTests: XCTestCase {
         XCTAssertNil(CommentsParser.newCommentForm(html: "<html><body><p>no form</p></body></html>",
                                                    base: URL(string: "https://archiveofourown.org")!))
     }
+
+    func test_newCommentForm_marksTheGuestForm() throws {
+        let base = URL(string: "https://archiveofourown.org")!
+        let guest = """
+        <form action="/works/12/comments" method="post">
+          <input type="hidden" name="authenticity_token" value="T">
+          <input type="text" name="comment[name]"><input type="text" name="comment[email]">
+          <textarea name="comment[comment_content]"></textarea>
+        </form>
+        """
+        XCTAssertTrue(try XCTUnwrap(CommentsParser.newCommentForm(html: guest, base: base)).isGuest)
+        let signedIn = """
+        <form action="/works/12/comments" method="post">
+          <input type="hidden" name="comment[pseud_id]" value="20">
+          <textarea name="comment[comment_content]"></textarea>
+        </form>
+        """
+        XCTAssertFalse(try XCTUnwrap(CommentsParser.newCommentForm(html: signedIn, base: base)).isGuest)
+    }
+
+    // MARK: postOutcome (otwarchive's CommentsController#create answers)
+
+    private let action = URL(string: "https://archiveofourown.org/works/12/chapters/34/comments")!
+
+    private func outcome(_ html: String, at path: String) -> CommentPostOutcome {
+        CommentsParser.postOutcome(html: html, finalURL: URL(string: "https://archiveofourown.org" + path),
+                                   formAction: action)
+    }
+
+    func test_postOutcome_postedOnTheCommentNotice() {
+        let html = #"<div id="main"><div class="flash comment_notice">Comment created!</div></div>"#
+        XCTAssertEqual(outcome(html, at: "/works/12/chapters/34"), .posted)
+    }
+
+    func test_postOutcome_postedOnTheModeratedCommentsPage() {
+        XCTAssertEqual(outcome("<div id=\"main\"></div>", at: "/comments/987"), .posted)
+    }
+
+    func test_postOutcome_rejectedWhenTheFormIsReRendered() {
+        let html = """
+        <div id="main"><div class="flash error">Couldn't save comment!</div>
+        <div id="error" class="error"><ul><li>Comment content can't be blank.</li></ul></div></div>
+        """
+        XCTAssertEqual(outcome(html, at: "/works/12/chapters/34/comments"),
+                       .rejected(message: "Couldn't save comment! Comment content can't be blank."))
+        // The same URL with no error markup is still a re-render, not a post.
+        XCTAssertEqual(outcome("<div id=\"main\"></div>", at: "/works/12/chapters/34/comments"),
+                       .rejected(message: "AO3 didn't save the comment."))
+    }
+
+    func test_postOutcome_rejectedOnARedirectWithAnError() {
+        let html = #"<div id="main"><div class="flash comment_error">Sorry, you have been blocked by one or more of this work's creators.</div></div>"#
+        XCTAssertEqual(outcome(html, at: "/works/12/chapters/34"),
+                       .rejected(message: "Sorry, you have been blocked by one or more of this work's creators."))
+    }
+
+    func test_postOutcome_signedOutOnTheLoginPage() {
+        let html = #"<div id="main" class="sessions-new"><form id="new_user" action="/users/login"></form></div>"#
+        XCTAssertEqual(outcome(html, at: "/users/login"), .signedOut)
+        XCTAssertEqual(outcome(html, at: "/works/12"), .signedOut)
+        // A stale CSRF token: AO3's `display_auth_error` page.
+        XCTAssertEqual(outcome("<div id=\"main\"><h2>Session Expired</h2></div>", at: "/auth_error"), .signedOut)
+    }
+
+    func test_postOutcome_unconfirmedOtherwise() {
+        XCTAssertEqual(outcome("<div id=\"main\"><p>Work text</p></div>", at: "/works/12/chapters/34"),
+                       .rejected(message: CommentPostOutcome.unconfirmed))
+    }
 }
 
 final class LoginParserTests: XCTestCase {
@@ -499,6 +567,14 @@ final class LoginParserTests: XCTestCase {
         // A logged-out page links to /users/login — must not be read as a name.
         let html = "<html><body><div id=\"header\"><a href=\"/users/login\">Log In</a></div></body></html>"
         XCTAssertNil(try LoginParser.currentUsername(html: html))
+    }
+
+    func test_currentUsernameSkipsTheGuestHeadersLoginLink() throws {
+        // Every signed-out page's header links to /users/login?return_to=… (#144).
+        XCTAssertNil(try LoginParser.currentUsername(html: "<html><body>\(AO3PageFixtures.guestHeader)</body></html>"))
+        // …and its small sign-in box to "Forgot password?".
+        let forgot = #"<div id="header"><a href="/users/login?return_to=%2F">Log In</a><a href="/users/password/new">Forgot password?</a></div>"#
+        XCTAssertNil(try LoginParser.currentUsername(html: "<html><body>\(forgot)</body></html>"))
     }
 
     func test_hasLoginForm() throws {

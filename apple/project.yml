@@ -15,7 +15,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    MARKETING_VERSION: "1.11.0"
+    MARKETING_VERSION: "1.12.0"
     CURRENT_PROJECT_VERSION: "32"
     CODE_SIGN_STYLE: Automatic
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
@@ -122,6 +122,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yennster.fanficly.tests
         GENERATE_INFOPLIST_FILE: YES
+        # Under Mac Catalyst, xcodebuild's "can this Mac run the tests" check
+        # reads this, which otherwise defaults to the SDK's macOS and refuses
+        # a Mac (Xcode Cloud's included) on an older macOS. Ignored on iOS.
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
         DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
 
   FanficlyUITests:
@@ -217,3 +221,45 @@ schemes:
       config: Debug
     archive:
       config: Release
+  # The unit tests alone, for Xcode Cloud's CI workflow (bin/xcode-cloud-ci.py).
+  FanficlyUnitTests:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyTests: [test]
+    test:
+      targets:
+        - FanficlyTests
+  # The UI tests CI runs on the iPhone and iPad, for Xcode Cloud's CI workflow
+  # (bin/xcode-cloud-ci.py). Screenshots and app previews run from fastlane.
+  FanficlyCIUITests:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyUITests: [test]
+    test:
+      targets:
+        - name: FanficlyUITests
+          selectedTests: [ReaderLayoutTests, NonReaderAccessibilityTests]
+  # ScreenshotTests alone: the store art, in Xcode Cloud
+  # (bin/xcode-cloud-store-art.py).
+  FanficlyScreenshots:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyUITests: [test]
+    test:
+      targets:
+        - name: FanficlyUITests
+          selectedTests: [ScreenshotTests]
+  # ReaderLayoutTests alone, for the iPhone Duo in Xcode Cloud
+  # (bin/xcode-cloud-duo.py).
+  FanficlyReaderLayout:
+    build:
+      targets:
+        Fanficly: all
+        FanficlyUITests: [test]
+    test:
+      targets:
+        - name: FanficlyUITests
+          selectedTests: [ReaderLayoutTests]

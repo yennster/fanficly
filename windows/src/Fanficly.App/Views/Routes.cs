@@ -31,6 +31,10 @@ public static class Routes
     /// caller knows them (the reader does; null → looked up from the library).</summary>
     public static Func<int, int?, string, int?, int?, Screen>? Comments { get; set; }
 
+    /// <summary>Create or edit the user's AO3 bookmark for a work (AO3BookmarkSheet):
+    /// work id and title.</summary>
+    public static Func<int, string, Screen>? Bookmark { get; set; }
+
     /// <summary>The AO3 sign-in screen (LoginView).</summary>
     public static Func<Screen>? Login { get; set; }
 
@@ -64,6 +68,9 @@ public static class Routes
 
     public static void OpenComments(int workId, int? chapterId, string title, int? chapterNumber = null, int? totalChapters = null) =>
         Nav.Push(Comments?.Invoke(workId, chapterId, title, chapterNumber, totalChapters) ?? Missing("Comments"));
+
+    public static void OpenBookmark(int workId, string title) =>
+        Nav.Push(Bookmark?.Invoke(workId, title) ?? Missing("Bookmark on AO3"));
 
     public static void OpenLogin() => Nav.Push(Login?.Invoke() ?? Missing("Sign In"));
 }

@@ -135,6 +135,66 @@ public sealed class SubscriptionPollerTests
         Assert.Equal("Prolific", note.Payload["authorName"]);
     }
 
+    /// <summary>AO3 lists an author's works by last update, so an old work that
+    /// was never in the baseline (past page 1 at follow time) rises to the top
+    /// when it gets a chapter. It isn't a new work: alerting for it opened that
+    /// old story, or the author's page when a real new work came in with it.</summary>
+    [Fact]
+    public async Task AnUpdatedOlderWorkIsNotANewWork()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new FollowedAuthor("prolific", "Prolific", knownWorkIds: [50, 60]));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.AuthorWorks["prolific"] = [Summary(70, "Brand New"), Summary(10, "Old, Just Updated") with { ChapterCount = 4 }, Summary(60), Summary(50)];
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, null, notifier);
+
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        var note = Assert.Single(notifier.Posted);
+        Assert.Equal("New work: Brand New", note.Body);
+        Assert.Equal("newWork", note.Payload["kind"]);
+        Assert.Equal("70", note.Payload["workId"]);
+        // The old work joins the baseline quietly.
+        Assert.Equal([10, 50, 60, 70], store.GetFollowedAuthor("prolific")!.KnownWorkIds.Order());
+
+        // Only an updated old work: no alert at all.
+        client.AuthorWorks["prolific"] = [Summary(5, "Older Still") with { ChapterCount = 2 }, Summary(70), Summary(10)];
+        Assert.Equal(0, await poller.CheckFollowedAuthorsAsync());
+        Assert.Single(notifier.Posted);
+
+        // A one-chapter work with a lower id (a gift revealed from an anonymous
+        // collection, a long-held draft) is still a new work.
+        client.AuthorWorks["prolific"] = [Summary(65, "Revealed Gift"), Summary(70), Summary(10)];
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal("New work: Revealed Gift", notifier.Posted[^1].Body);
+    }
+
+    /// <summary>Signed in, a guest page means the session expired (#131): the
+    /// public works still alert, and the poller says so.</summary>
+    [Fact]
+    public async Task GuestAuthorPageWhileSignedInFlagsTheExpiredSession()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new FollowedAuthor("locked", "Locked", knownWorkIds: [1]));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.AuthorWorks["locked"] = [Summary(1), Summary(2)];
+        client.GuestAuthorPages.Add("locked");
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, "reader", notifier);
+
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Single(notifier.Posted);
+        Assert.True(poller.SessionExpired);
+        Assert.Equal([1, 2], store.GetFollowedAuthor("locked")!.KnownWorkIds.Order());
+
+        // Signed out, the guest page is all there is.
+        var guest = new SubscriptionPoller(client, store, null, notifier);
+        await guest.CheckFollowedAuthorsAsync();
+        Assert.False(guest.SessionExpired);
+    }
+
     [Fact]
     public async Task CancellationStopsAfterTheCurrentRecordAndKeepsItsStamp()
     {

@@ -12,7 +12,7 @@ import Foundation
 public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public init() {}
 
-    public func login(username: String, password: String) async throws {}
+    public func login(username: String, password: String) async throws -> String { "demo_reader" }
     public func logout() async {}
     public func currentUsername() async -> String? { "demo_reader" }
 
@@ -75,6 +75,10 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults {
         // A few catalog works, so the tab looks lived-in but differs from Bookmarks.
         AO3SearchResults(works: Array(DemoCatalog.works.suffix(4)), totalPages: 1, currentPage: page)
+    }
+
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: Array(DemoCatalog.works.prefix(6)), totalPages: 1, currentPage: page)
     }
 
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {

@@ -14,6 +14,8 @@ internal sealed class PollerFakeClient : IAO3Client
     public Dictionary<string, IReadOnlyList<AO3WorkSummary>> AuthorWorks { get; } = new();
     /// <summary>Full works by id for <see cref="FetchWorkAsync"/>; a missing id fails the fetch.</summary>
     public Dictionary<int, AO3WorkPayload> Works { get; } = new();
+    /// <summary>Authors whose works page comes back rendered for a guest.</summary>
+    public HashSet<string> GuestAuthorPages { get; } = [];
     /// <summary>Work ids whose EPUB download fails.</summary>
     public HashSet<int> FailingDownloads { get; } = [];
     /// <summary>Every metadata/author/fetch/download request, in order ("work:1", "author:x", "fetch:2", "epub:3").</summary>
@@ -42,7 +44,7 @@ internal sealed class PollerFakeClient : IAO3Client
     {
         Log($"author:{username}");
         return AuthorWorks.TryGetValue(username, out var works)
-            ? Task.FromResult(new AO3SearchResults(works, 1, 1))
+            ? Task.FromResult(new AO3SearchResults(works, 1, 1, ServedAsGuest: GuestAuthorPages.Contains(username)))
             : Task.FromException<AO3SearchResults>(AO3Exception.Http(404));
     }
 
@@ -75,6 +77,8 @@ internal sealed class PollerFakeClient : IAO3Client
     public Task<string> ExportWorkAsync(int workId, WorkExportFormat format, string filename, CancellationToken ct = default) => throw new NotSupportedException();
     public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 /// <summary>Collects posted notifications.</summary>

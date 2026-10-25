@@ -2,14 +2,22 @@ import Foundation
 import os
 
 public protocol AO3ClientProtocol: Sendable {
-    func login(username: String, password: String) async throws
+    /// Signs in with an AO3 username or email address and returns the account's
+    /// AO3 login name, which is what `/users/<name>` pages need (#144).
+    @discardableResult
+    func login(username: String, password: String) async throws -> String
     func logout() async
+    /// The signed-in AO3 login name, read from AO3's page header when this
+    /// launch hasn't signed in yet; nil when signed out or unreachable.
     func currentUsername() async -> String?
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults
     func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults
     /// One page of the user's AO3 Marked for Later list. Login required.
     func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults
+    /// One page of the user's AO3 reading history, most recently visited
+    /// first. Login required, and the reader must have History turned on.
+    func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
     /// One page of a series (`/series/<id>`): its title, creators and works in
@@ -52,12 +60,19 @@ public struct AO3SearchResults: Sendable, Equatable {
     public let currentPage: Int
     /// The search page's "126,555 Found" total; nil on listings without one.
     public let totalFound: Int?
+    /// AO3 rendered the page for a signed-out reader (the header's login form,
+    /// no greeting). A guest listing leaves out restricted (archive-locked)
+    /// works, so a signed-in reader getting one has an expired session; see
+    /// `AuthState.noteListing(_:)`.
+    public let servedAsGuest: Bool
 
-    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil) {
+    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil,
+                servedAsGuest: Bool = false) {
         self.works = works
         self.totalPages = totalPages
         self.currentPage = currentPage
         self.totalFound = totalFound
+        self.servedAsGuest = servedAsGuest
     }
 }
 
@@ -346,6 +361,8 @@ public enum AO3Error: Error, Sendable, Equatable {
     /// AO3 refused a kudo, with its own reason ("You can't leave kudos on your
     /// own work.", a block, a suspended account).
     case kudosRejected(message: String)
+    /// AO3 didn't post a comment, with its own reason when it gave one.
+    case commentRejected(message: String)
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -397,7 +414,8 @@ public actor AO3Client: AO3ClientProtocol {
         return "Fanficly/\(version) (\(platform); https://github.com/yennster/fanficly)"
     }
 
-    public func login(username: String, password: String) async throws {
+    @discardableResult
+    public func login(username: String, password: String) async throws -> String {
         await throttle.wait()
 
         let loginURL = try AO3Endpoints.login(base: baseURL)
@@ -428,10 +446,11 @@ public actor AO3Client: AO3ClientProtocol {
         let (loginRespData, _) = try await performRequest(post)
         let respHTML = String(data: loginRespData, encoding: .utf8) ?? ""
 
-        // Success: the response shows the logged-in user navigation.
-        if let name = try LoginParser.currentUsername(html: respHTML) {
+        // Success: the response shows the logged-in user navigation (and no
+        // login form, whose header links aren't a name).
+        if try !LoginParser.hasLoginForm(html: respHTML), let name = try LoginParser.currentUsername(html: respHTML) {
             cachedUsername = name
-            return
+            return name
         }
         // Explicit AO3 error flash.
         if let err = try LoginParser.detectLoginFailure(html: respHTML) {
@@ -444,8 +463,16 @@ public actor AO3Client: AO3ClientProtocol {
         // Unexpected response — assume the session cookie was set anyway.
         if let cookies = HTTPCookieStorage.shared.cookies(for: baseURL),
            cookies.contains(where: { $0.name.contains("user_credentials") || $0.name.contains("remember_user_token") }) {
-            cachedUsername = username
-            return
+            // The typed text may be an email address, which no /users/ page
+            // takes, so ask AO3 for the login name.
+            if let name = await fetchLoggedInName() {
+                cachedUsername = name
+                return name
+            }
+            if !username.contains("@") {
+                cachedUsername = username
+                return username
+            }
         }
         throw AO3Error.loginFailed(reason: "Couldn't confirm login. Please try again.")
     }
@@ -458,7 +485,19 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func currentUsername() async -> String? {
-        cachedUsername
+        if let cachedUsername { return cachedUsername }
+        cachedUsername = await fetchLoggedInName()
+        return cachedUsername
+    }
+
+    /// The login name in the header of AO3's home page; nil for a guest page
+    /// or a failed request.
+    private func fetchLoggedInName() async -> String? {
+        await throttle.wait()
+        guard let response = try? await performRequest(URLRequest(url: baseURL)),
+              let html = String(data: response.0, encoding: .utf8),
+              (try? LoginParser.hasLoginForm(html: html)) == false else { return nil }
+        return try? LoginParser.currentUsername(html: html)
     }
 
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
@@ -511,6 +550,17 @@ public actor AO3Client: AO3ClientProtocol {
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Marked for Later response not UTF-8")
+        }
+        return try SearchResultsParser.parseReadings(html: html)
+    }
+
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
+        await throttle.wait()
+        let url = try AO3Endpoints.userReadingHistory(name: username, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "History response not UTF-8")
         }
         return try SearchResultsParser.parseReadings(html: html)
     }
@@ -597,7 +647,7 @@ public actor AO3Client: AO3ClientProtocol {
 
     public func postComment(workId: Int, chapterId: Int?, text: String) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { throw AO3Error.commentRejected(message: "The comment is empty.") }
 
         // Load the chapter's (or work's) comment page and replay its actual
         // new-comment form: the form's hidden inputs carry the CSRF token and the
@@ -610,8 +660,13 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.parseFailed(reason: "Comment page not UTF-8")
         }
         guard let form = CommentsParser.newCommentForm(html: pageHTML, base: baseURL) else {
-            throw AO3Error.parseFailed(reason: "comment form not found (login required?)")
+            if !KudosParser.isSignedIn(html: pageHTML) { throw AO3Error.unauthorized }
+            throw AO3Error.parseFailed(reason: "comment form not found")
         }
+        // AO3 shows its guest form (name and email) once the session has
+        // ended. Posting it without them is refused, and posting as a guest
+        // isn't what a signed-in reader meant.
+        guard !form.isGuest else { throw AO3Error.unauthorized }
 
         await throttle.wait()
         var request = URLRequest(url: form.action)
@@ -627,9 +682,14 @@ public actor AO3Client: AO3ClientProtocol {
         fields["commit"] = "Comment"
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
-        let (_, response) = try await performRequest(request)
-        guard response.statusCode < 400 else {
-            throw AO3Error.http(status: response.statusCode)
+        // AO3 answers a refused comment with a 200 page (or a redirect that
+        // URLSession follows), never an error status, so judge by the page.
+        let (data, response) = try await performRequest(request)
+        let html = String(data: data, encoding: .utf8) ?? ""
+        switch CommentsParser.postOutcome(html: html, finalURL: response.url, formAction: form.action) {
+        case .posted: return
+        case .signedOut: throw AO3Error.unauthorized
+        case .rejected(let message): throw AO3Error.commentRejected(message: message)
         }
     }
 
@@ -709,7 +769,8 @@ public actor AO3Client: AO3ClientProtocol {
     public func downloadEPUB(workId: Int) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.epub(workId: workId, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        let (data, response) = try await performRequest(URLRequest(url: url))
+        try Self.ensureDownloadedFile(data, finalURL: response.url, format: .epub)
         let docs = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dir = docs.appendingPathComponent("library", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -721,7 +782,8 @@ public actor AO3Client: AO3ClientProtocol {
     public func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.download(workId: workId, format: format, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        let (data, response) = try await performRequest(URLRequest(url: url))
+        try Self.ensureDownloadedFile(data, finalURL: response.url, format: format)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exports", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = Self.sanitizeFilename(filename.isEmpty ? "work-\(workId)" : filename)
@@ -729,6 +791,47 @@ public actor AO3Client: AO3ClientProtocol {
         try? FileManager.default.removeItem(at: fileURL)
         try data.write(to: fileURL, options: .atomic)
         return fileURL
+    }
+
+    /// A download is really the file, not a page. A restricted work fetched
+    /// signed out (or with an expired cookie) redirects to the login page,
+    /// which URLSession follows to a 200, and AO3 or Cloudflare can answer
+    /// with an error page. Saved, either would show as Downloaded (the
+    /// Library only checks the EPUB file exists) or reach the share sheet as
+    /// a `.pdf`. So each format has to start like that format, and nothing is
+    /// written unless it does.
+    static func ensureDownloadedFile(_ data: Data, finalURL: URL?, format: WorkExportFormat) throws {
+        if finalURL?.path.hasPrefix("/users/login") == true { throw AO3Error.unauthorized }
+        let matches: Bool
+        switch format {
+        case .epub, .azw3, .mobi: matches = isEbook(data)
+        case .pdf: matches = isPDF(data)
+        case .html: matches = try AO3PageCheck.isWorkDownload(html: String(decoding: data, as: UTF8.self))
+        }
+        if matches { return }
+        if format != .html, AO3PageCheck.isLoginPage(html: String(decoding: data, as: UTF8.self)) {
+            throw AO3Error.unauthorized
+        }
+        throw AO3Error.parseFailed(reason: "AO3 didn't send the \(format.displayName) file")
+    }
+
+    /// AO3's EPUB is a zip; its AZW3 and MOBI are Mobipocket files.
+    static func isEbook(_ data: Data) -> Bool {
+        isZip(data) || isMobipocket(data)
+    }
+
+    private static func isZip(_ data: Data) -> Bool {
+        data.prefix(4).elementsEqual([0x50, 0x4B, 0x03, 0x04])
+    }
+
+    /// A Palm database whose type and creator, at byte 60, are "BOOKMOBI".
+    private static func isMobipocket(_ data: Data) -> Bool {
+        data.count >= 68 && data.dropFirst(60).prefix(8).elementsEqual("BOOKMOBI".utf8)
+    }
+
+    /// PDF readers accept the header anywhere in the first 1024 bytes.
+    private static func isPDF(_ data: Data) -> Bool {
+        data.prefix(1024).range(of: Data("%PDF-".utf8)) != nil
     }
 
     private static func sanitizeFilename(_ name: String) -> String {
@@ -999,7 +1102,7 @@ public actor AO3Client: AO3ClientProtocol {
 
 public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public init() {}
-    public func login(username: String, password: String) async throws {}
+    public func login(username: String, password: String) async throws -> String { username }
     public func logout() async {}
     public func currentUsername() async -> String? { nil }
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
@@ -1012,6 +1115,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {

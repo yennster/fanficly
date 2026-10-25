@@ -41,3 +41,11 @@
 113	Leave kudos on AO3 from a story's options menu (when signed in)
 217	Stories load faster and more reliably on Windows 11
 220	Hide stories by tag or author with your own blocklist
+260	A visible button takes you out of full screen in the reader
+267	An old work that a followed author updates no longer shows up as a new work
+275	Widgets hide story details while your device is locked
+281	Turn pages with a Bluetooth page turner or scroll remote
+276	Backing up and restoring your library is more reliable
+274	Fixed a rare crash when widgets update
+231	Your settings are kept safe if the settings file can't be read at launch
+257	Saving no longer stalls while new chapters are checked at launch

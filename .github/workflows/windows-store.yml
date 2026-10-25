@@ -245,15 +245,18 @@ jobs:
           AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
           AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
         run: |
-          # The CLI's own usage telemetry is on by default; Fanficly keeps it off.
-          msstore settings --enableTelemetry false
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # reconfigure comes first: on a fresh runner msstore settings stops
+          # with "SellerId is not set" until it has run. That one command runs
+          # before telemetry is off; it's Microsoft's CI tool, not the app.
           msstore reconfigure --tenantId $env:AZURE_AD_TENANT_ID --sellerId $env:SELLER_ID `
             --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID --clientSecret $env:AZURE_AD_APPLICATION_SECRET
           if ($LASTEXITCODE) {
             Write-Host "::error::Partner Center sign-in failed. Check the four secrets, that the Entra app has the Manager role in Partner Center, and that its client secret hasn't expired."
             exit $LASTEXITCODE
           }
+          # The CLI's own usage telemetry is on by default; Fanficly keeps it off.
+          msstore settings --enableTelemetry false
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Upload the package (draft)
         shell: pwsh

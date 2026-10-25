@@ -16,6 +16,10 @@ public static class AO3Endpoints
     public static Uri Work(int id, Uri baseUri) =>
         Build(baseUri, $"/works/{id}", [new("view_full_work", "true"), new("view_adult", "true")]);
 
+    /// <summary>The work's own page without <c>view_full_work</c>: enough for the
+    /// bookmark form, without downloading every chapter of a long work.</summary>
+    public static Uri WorkPage(int id, Uri baseUri) => Build(baseUri, $"/works/{id}", [new("view_adult", "true")]);
+
     /// <summary>A work one chapter to a page: its first chapter, or the chapter with
     /// that AO3 id. AO3 redirects <c>/works/&lt;id&gt;</c> of a chaptered work to its
     /// first chapter, keeping the adult-content consent in a cookie.</summary>

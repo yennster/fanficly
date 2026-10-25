@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
 
@@ -244,8 +245,19 @@ public static partial class WorkPageParser
 }
 
 /// <summary>The page's top-level new-comment form: where it posts and its hidden
-/// fields (CSRF token, the <c>commentable</c> fields, the default pseud).</summary>
-public sealed record CommentForm(Uri Action, IReadOnlyDictionary<string, string> Fields);
+/// fields (CSRF token, the <c>commentable</c> fields, the default pseud).
+/// <c>IsGuest</c> marks AO3's guest form (name and email fields instead of a
+/// pseud), which a signed-in page never shows.</summary>
+public sealed record CommentForm(Uri Action, IReadOnlyDictionary<string, string> Fields, bool IsGuest = false);
+
+public enum CommentPostStatus { Posted, SignedOut, Rejected }
+
+/// <summary>AO3's answer to a comment POST (<see cref="CommentsParser.PostOutcome"/>);
+/// <c>Message</c> is set when it was rejected.</summary>
+public sealed record CommentPostOutcome(CommentPostStatus Status, string? Message = null)
+{
+    public const string Unconfirmed = "AO3 didn't confirm the comment was posted. Check the comments before posting it again.";
+}
 
 /// <summary>Parses the comment thread (and the comment-form pseud id) from a work
 /// page fetched with <c>?show_comments=true</c>. Comments nest via <c>ol.thread</c>
@@ -348,7 +360,35 @@ public static class CommentsParser
             fields[name] = input.Attr("value");
         }
         if (DefaultPseudId(doc) is { } pseud) fields["comment[pseud_id]"] = pseud;
-        return new CommentForm(action, fields);
+        var isGuest = form.SelectFirst("input[name='comment[name]'], input[name='comment[email]']") is not null;
+        return new CommentForm(action, fields, isGuest);
+    }
+
+    /// <summary>How AO3 answered a comment POST, judged by the page the HTTP client
+    /// landed on after following redirects (otwarchive's <c>CommentsController#create</c>).
+    /// A saved comment redirects to the work or chapter with a
+    /// <c>div.flash.comment_notice</c> ("Comment created!", or the moderation notice),
+    /// or to <c>/comments/&lt;id&gt;</c> when it awaits moderation. A refused one
+    /// re-renders the form at the POST URL with a 200 (<c>div#error</c>, "Couldn't
+    /// save comment!"), or a check before saving (blocked, frozen, a pseud that isn't
+    /// yours) redirects with <c>div.flash.error</c> or <c>div.flash.comment_error</c>.
+    /// A stale CSRF token redirects to <c>/auth_error</c> ("Session Expired").
+    /// Anything else isn't counted as posted.</summary>
+    public static CommentPostOutcome PostOutcome(string html, Uri finalUri, Uri formAction)
+    {
+        var path = finalUri.AbsolutePath;
+        var doc = HtmlDom.Parse(html);
+        if (path.StartsWith("/users/login", StringComparison.Ordinal)
+            || path.StartsWith("/auth_error", StringComparison.Ordinal)
+            || AO3PageCheck.IsLoginPage(doc))
+            return new(CommentPostStatus.SignedOut);
+        var errors = doc.Select("div.flash.error, div.flash.comment_error, div#error li")
+            .Select(e => e.Text().TrimSwiftWhitespaces()).Where(t => t.Length > 0).Distinct().ToList();
+        if (errors.Count > 0) return new(CommentPostStatus.Rejected, string.Join(" ", errors));
+        if (path == formAction.AbsolutePath) return new(CommentPostStatus.Rejected, "AO3 didn't save the comment.");
+        if (doc.SelectFirst("div.flash.comment_notice") is not null || Regex.IsMatch(path, @"^/comments/\d+"))
+            return new(CommentPostStatus.Posted);
+        return new(CommentPostStatus.Rejected, CommentPostOutcome.Unconfirmed);
     }
 
     private static bool HasCommentTextarea(IElement form) =>
@@ -431,4 +471,89 @@ public static class KudosParser
     /// the same for a signed-in user (one per account) and a guest (one per IP).</summary>
     public static bool IsAlreadyLeft(string message) =>
         message.Contains("already left kudos", StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>Reads the bookmark form AO3 renders on a work page for a signed-in user
+/// (<c>div#bookmark_form_placement</c>, from otwarchive's <c>bookmarks/_bookmark_form</c>;
+/// Swift's <c>BookmarkFormParser</c>). AO3 fills it from the user's existing
+/// bookmark, so the same form both creates and edits.</summary>
+public static class BookmarkFormParser
+{
+    /// <summary>Null when the page has no bookmark form (signed out).</summary>
+    public static AO3BookmarkForm? Parse(string html, Uri baseUri)
+    {
+        var doc = HtmlDom.Parse(html);
+        var candidates = doc.Select("form")
+            .Where(f => f.SelectFirst("textarea[name='bookmark[bookmarker_notes]']") is not null).ToList();
+        var form = candidates.FirstOrDefault(IsInsidePlacement) ?? candidates.FirstOrDefault();
+        if (form is null) return null;
+
+        var actionStr = form.Attr("action");
+        if (actionStr.Length == 0 || !Uri.TryCreate(baseUri, actionStr, out var action)) return null;
+
+        var hidden = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var input in form.Select("input[type='hidden']"))
+        {
+            var name = input.Attr("name");
+            if (name.Length == 0) continue;
+            hidden[name] = input.Attr("value");
+        }
+        // Several pseuds render a <select> instead of a hidden input.
+        if (form.SelectFirst("select[name='bookmark[pseud_id]']") is { } select)
+        {
+            var option = select.SelectFirst("option[selected]") ?? select.SelectFirst("option");
+            if (option.Attr("value") is { Length: > 0 } value) hidden["bookmark[pseud_id]"] = value;
+        }
+        // Rails pairs each checkbox with a hidden "0"; the edited value is sent instead.
+        hidden.Remove("bookmark[private]");
+        hidden.Remove("bookmark[rec]");
+
+        var method = hidden.GetValueOrDefault("_method", "").ToLowerInvariant();
+        return new AO3BookmarkForm(action, hidden, IsExisting: method is "put" or "patch")
+        {
+            Notes = TextareaValue(form, "bookmark[bookmarker_notes]"),
+            Tags = InputValue(form, "bookmark[tag_string]"),
+            Collections = OptionalInputValue(form, "bookmark[collection_names]"),
+            IsPrivate = IsChecked(form, "bookmark[private]"),
+            IsRec = IsChecked(form, "bookmark[rec]"),
+        };
+    }
+
+    /// <summary>The messages in AO3's <c>div#error</c> list after a rejected save.</summary>
+    public static IReadOnlyList<string> SaveErrors(string html) => Texts(html, "div#error li");
+
+    /// <summary>An error flash: a refused pseud or account redirects elsewhere with one.</summary>
+    public static IReadOnlyList<string> FlashErrors(string html) => Texts(html, "div.flash.error");
+
+    private static List<string> Texts(string html, string selector) =>
+        HtmlDom.Parse(html).Select(selector).Select(e => e.Text()).Where(t => t.Length > 0).ToList();
+
+    /// <summary>True for <c>/bookmarks/&lt;id&gt;</c>, where AO3 redirects a saved bookmark.</summary>
+    public static bool IsBookmarkPage(string path) =>
+        path.SwiftSplit('/') is ["bookmarks", var id] && int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out _);
+
+    private static bool IsInsidePlacement(IElement el)
+    {
+        for (var n = el.ParentElement; n is not null; n = n.ParentElement)
+            if (n.Id == "bookmark_form_placement") return true;
+        return false;
+    }
+
+    /// <summary>Raw textarea text, so notes keep their line breaks (<c>Text()</c>
+    /// collapses whitespace). HTML drops one newline right after <c>&lt;textarea&gt;</c>.</summary>
+    private static string TextareaValue(IElement form, string name)
+    {
+        if (form.SelectFirst($"textarea[name='{name}']") is not { } area) return "";
+        var text = area.TextContent;
+        if (text.StartsWith("\r\n", StringComparison.Ordinal)) return text[2..];
+        return text.StartsWith('\n') ? text[1..] : text;
+    }
+
+    private static string InputValue(IElement form, string name) => OptionalInputValue(form, name) ?? "";
+
+    private static string? OptionalInputValue(IElement form, string name) =>
+        form.SelectFirst($"input[name='{name}']:not([type='hidden'])") is { } input ? input.Attr("value") : null;
+
+    private static bool IsChecked(IElement form, string name) =>
+        form.SelectFirst($"input[type='checkbox'][name='{name}']")?.HasAttribute("checked") == true;
 }
