@@ -5,9 +5,13 @@ namespace Fanficly.Core;
 /// the offline demo catalogue, and tests use stubs.</summary>
 public interface IAO3Client
 {
-    Task LoginAsync(string username, string password, CancellationToken ct = default);
+    /// <summary>Signs in with an AO3 username or email address and returns the
+    /// account's AO3 login name, which is what <c>/users/&lt;name&gt;</c> pages need (#144).</summary>
+    Task<string> LoginAsync(string username, string password, CancellationToken ct = default);
     Task LogoutAsync();
-    Task<string?> CurrentUsernameAsync();
+    /// <summary>The signed-in AO3 login name, read from AO3's page header when this
+    /// run hasn't signed in yet; null when signed out or unreachable.</summary>
+    Task<string?> CurrentUsernameAsync(CancellationToken ct = default);
     Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default);
@@ -43,4 +47,15 @@ public interface IAO3Client
     /// <summary>Downloads an export to a temp file; returns its path.</summary>
     Task<string> ExportWorkAsync(int workId, WorkExportFormat format, string filename, CancellationToken ct = default);
     Task SubscribeToWorkAsync(int workId, CancellationToken ct = default);
+    /// <summary>Leaves kudos on a work as the signed-in user: one POST, never
+    /// retried. Throws Unauthorized when the session isn't signed in, so a stale
+    /// cookie can't quietly leave a guest kudo instead. Clients with no AO3 to
+    /// talk to (test fakes) don't support it.</summary>
+    Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) =>
+        throw new NotSupportedException("This client can't leave kudos.");
+    /// <summary>The signed-in user's bookmark form for a work, prefilled when they
+    /// already bookmarked it. Throws <c>Unauthorized</c> when signed out.</summary>
+    Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default);
+    /// <summary>Creates or updates the bookmark by posting <paramref name="form"/> back to AO3.</summary>
+    Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default);
 }

@@ -105,6 +105,8 @@ struct RootView: View {
                     case .recentlyViewed: RecentlyViewedView()
                     case .authors: FollowedAuthorsView()
                     case .bookmarks: BookmarksView()
+                    case .markedForLater: ReadingListView(list: .markedForLater)
+                    case .ao3History: ReadingListView(list: .history)
                     case .subscriptions: SubscriptionsView()
                     case .settings: SettingsView()
                     }
@@ -322,10 +324,7 @@ struct RootView: View {
         }
         
         // Saved Searches Shortcut routing (fanficly://search?query=queryText)
-        if url.host == "search",
-           let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
-           let queryItem = components.queryItems?.first(where: { $0.name == "query" }),
-           let queryValue = queryItem.value {
+        if let queryValue = WidgetSavedSearch.routeQuery(from: url) {
             select(.search)
             UserDefaults.standard.set(queryValue, forKey: "search.pendingQuery")
             return
@@ -710,7 +709,7 @@ struct ImportOverlay: View {
 
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case search, browse, popular, library, recentlyViewed, authors, bookmarks, subscriptions, stats, settings
+    case search, browse, popular, library, recentlyViewed, authors, bookmarks, markedForLater, ao3History, subscriptions, stats, settings
 
     var id: String { rawValue }
 
@@ -724,6 +723,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .recentlyViewed: "Recently Viewed"
         case .authors: "Followed Authors"
         case .bookmarks: "Bookmarks"
+        case .markedForLater: "Marked for Later"
+        case .ao3History: "AO3 History"
         case .subscriptions: "Subscriptions"
         case .settings: "Settings"
         }
@@ -739,6 +740,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .recentlyViewed: "clock.arrow.circlepath"
         case .authors: "person.2"
         case .bookmarks: "bookmark"
+        case .markedForLater: "clock"
+        case .ao3History: "calendar.badge.clock"
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }

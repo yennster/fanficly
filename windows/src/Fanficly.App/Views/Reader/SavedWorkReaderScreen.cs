@@ -11,7 +11,8 @@ namespace Fanficly.App.Views.Reader;
 /// A Library work's reader (SavedWorkReader). Downloaded works (chapters saved
 /// on the device) read fully offline; bookmarked-only works have no saved text,
 /// so it's fetched from AO3 on demand, and can be saved offline from here.
-/// Toolbar: Comments, and a "More" menu with share &amp; export and Save Offline.
+/// Toolbar: Comments, and a "More" menu with Bookmark on AO3, share &amp; export
+/// and Save Offline.
 /// </summary>
 internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 {
@@ -25,6 +26,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private bool _isResolvingComments;
     private int _currentChapter = 1;
     private readonly WorkExporter _exporter = new();
+    private readonly WorkKudos _kudos;
     private Button? _commentsButton;
     private Button? _moreButton;
 
@@ -33,6 +35,8 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         _work = work;
         Title = work.Title.Length > 0 ? work.Title : "Work";
         _exporter.Changed += UpdateMoreButton;
+        _kudos = new WorkKudos(work.Ao3Id);
+        _kudos.Changed += UpdateMoreButton;
     }
 
     /// <summary>The saved reader for a Library work, or the live work page when it
@@ -179,7 +183,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private void UpdateMoreButton()
     {
         if (_moreButton is null) return;
-        _moreButton.Content = _isSavingOffline || _exporter.IsExporting
+        _moreButton.Content = _isSavingOffline || _exporter.IsExporting || _kudos.IsSending
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
             : Symbols.Icon("book.circle", 16).A11yHidden();
     }
@@ -188,6 +192,12 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     {
         menu.Items.Clear();
         var title = _work.Title;
+        menu.Items.Add(_kudos.MenuItem());
+        var bookmark = AppHost.Auth.IsLoggedIn
+            ? UI.UI.MenuItem("Bookmark on AO3", () => Routes.OpenBookmark(_work.Ao3Id, title), "bookmark.circle")
+            : UI.UI.MenuItem("Bookmark on AO3 (sign in)…", Routes.OpenLogin, "bookmark.circle");
+        AutomationProperties.SetAutomationId(bookmark, "work.options.bookmark");
+        menu.Items.Add(bookmark);
         menu.Items.Add(_exporter.Menu(_work.Ao3Id, () => title));
         var save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Saving Offline…" : "Save Offline",
             () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = SaveOfflineAsync()),

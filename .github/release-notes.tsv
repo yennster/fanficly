@@ -1,0 +1,51 @@
+# Store release-note lines for pull requests whose titles don't read well in a store
+# listing. One per line: PR number, a tab, then the line, or "none" to leave the
+# PR out of the store notes (it still appears in the GitHub release).
+# apple/bin/release-notes.py reads this; a "Release note: ..." line in a PR's
+# description does the same for new PRs. Identical lines for the two apps'
+# versions of a feature are listed once.
+66	none
+72	none
+80	none
+82	Set a yearly reading goal and see your pace on the Stats tab
+84	Reader toolbar buttons carry their names, ready for iPhone Duo's vertical toolbars
+85	A reading-time estimate next to each story's word count, at your own reading pace
+86	Lock-screen widgets for the story you're reading
+87	none
+89	Search results show at a glance whether you've finished a story, how far you got, or that it's in your Library
+90	Shift-Command plus and minus change the size of the whole app on the Mac
+91	Saved-search widgets run your filter exactly as you saved it
+92	Add a note and personal tags to any story in your Library, and find stories by them
+94	none
+96	A reading-time estimate next to each story's word count, at your own reading pace
+97	Clearer messages when AO3 sends a sign-in or error page instead of stories
+98	Load more comments on chapters with long comment threads
+99	A Marked for Later tab with your AO3 reading list
+101	Set a yearly reading goal and see your pace on the Stats tab
+104	Ctrl+Shift plus and minus change the size of the whole app
+107	Load more comments on chapters with long comment threads
+109	none
+110	Clearer messages when AO3 sends a sign-in or error page instead of stories
+111	A Marked for Later tab with your AO3 reading list
+112	An AO3 History tab with the stories you've visited on AO3
+114	Screens fit large text better and read more clearly with Narrator
+115	Listen keeps reading in the background and on to the next chapter
+116	Listen keeps reading with the window minimized
+118	none
+120	Saved-search widgets run your filter exactly as you saved it
+121	Search results show at a glance whether you've finished a story, how far you got, or that it's in your Library
+187	Ctrl+plus and minus change the story's text size in the reader
+95	Screens stack and wrap neatly at the largest text sizes
+100	Hide stories by tag or author with your own blocklist
+105	Leave kudos on AO3 from a story's options menu (when signed in)
+113	Leave kudos on AO3 from a story's options menu (when signed in)
+217	Stories load faster and more reliably on Windows 11
+220	Hide stories by tag or author with your own blocklist
+260	A visible button takes you out of full screen in the reader
+267	An old work that a followed author updates no longer shows up as a new work
+275	Widgets hide story details while your device is locked
+281	Turn pages with a Bluetooth page turner or scroll remote
+276	Backing up and restoring your library is more reliable
+274	Fixed a rare crash when widgets update
+231	Your settings are kept safe if the settings file can't be read at launch
+257	Saving no longer stalls while new chapters are checked at launch

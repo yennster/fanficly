@@ -4,9 +4,9 @@ namespace Fanficly.Core;
 /// and the curated popular lists. Never touches the network.</summary>
 public sealed class MockAO3Client : IAO3Client
 {
-    public Task LoginAsync(string username, string password, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => Task.FromResult(username);
     public Task LogoutAsync() => Task.CompletedTask;
-    public Task<string?> CurrentUsernameAsync() => Task.FromResult<string?>(null);
+    public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
 
     public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) =>
         Task.FromResult(new AO3SearchResults([], 0, page));
@@ -70,4 +70,10 @@ public sealed class MockAO3Client : IAO3Client
         Task.FromResult(Path.Combine(Path.GetTempPath(), $"{filename}.{format.Ext()}"));
 
     public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) => Task.FromResult(KudosOutcome.Left);
+    public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) =>
+        Task.FromResult(new AO3BookmarkForm(new Uri($"https://archiveofourown.org/works/{workId}/bookmarks"),
+            new Dictionary<string, string>(), IsExisting: false));
+    public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => Task.CompletedTask;
 }

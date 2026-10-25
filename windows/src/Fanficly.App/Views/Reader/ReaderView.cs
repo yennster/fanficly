@@ -56,6 +56,10 @@ internal sealed partial class ReaderView
     private int _visibleChapter = 1;
     private ReadingAnchor? _currentAnchor;
     private bool _loadedFromDisk;
+    /// <summary>Where a saved position past the loaded chapters was moved to (see
+    /// <see cref="ChapterTracking.ClampedAnchor"/>). Never saved: opening a shorter
+    /// copy mustn't overwrite the real place. Reading on from it saves as usual.</summary>
+    private ReadingAnchor? _clampedRestoreAnchor;
     private bool _isRestoring;
     private DateTimeOffset _lastSaveAt = DateTimeOffset.MinValue;
     /// <summary>"Swipe by chapter"'s one-shot paragraph restore.</summary>
@@ -165,6 +169,9 @@ internal sealed partial class ReaderView
     /// with fewer chapters, is. Call before the reader is shown.</summary>
     public void ContinueFrom(ReaderView previous)
     {
+        // A place moved onto the chapters the shorter reader had: this one may
+        // hold the saved chapter, so it reads the saved place itself.
+        if (previous._currentAnchor is { } moved && moved == previous._clampedRestoreAnchor) return;
         _loadedFromDisk = true;
         if (previous._currentAnchor is { } anchor && ChapterAt(anchor.Chapter) is not null)
         {
@@ -505,11 +512,13 @@ internal sealed partial class ReaderView
         {
             _loadedFromDisk = true;
             if (_summary is { } summary && ReadingProgressStore.Load(summary.Id, AppHost.Library) is { } saved
-                && ChapterAt(saved.Chapter) is not null)
+                && ChapterTracking.ClampedAnchor(new ReadingAnchor(saved.Chapter, saved.Paragraph), _chapterOrder,
+                                                 chapter => Paragraphs(chapter).Count - 1) is { } anchor)
             {
-                _currentAnchor = new ReadingAnchor(saved.Chapter, saved.Paragraph);
-                _selectedChapter = saved.Chapter;
-                _visibleChapter = saved.Chapter;
+                if (anchor != new ReadingAnchor(saved.Chapter, saved.Paragraph)) _clampedRestoreAnchor = anchor;
+                _currentAnchor = anchor;
+                _selectedChapter = anchor.Chapter;
+                _visibleChapter = anchor.Chapter;
             }
         }
         return _currentAnchor;
@@ -528,7 +537,10 @@ internal sealed partial class ReaderView
 
     private void SaveProgress(ReadingAnchor anchor, bool force = false, bool syncWidgetImmediately = false)
     {
-        if (_summary is not { } summary) return;
+        // Reading on from the moved place: it's a real place again from now on.
+        if (anchor != _clampedRestoreAnchor) _clampedRestoreAnchor = null;
+        if (_summary is not { } summary || anchor == _clampedRestoreAnchor
+            || ReadingProgressFraction(anchor) is not { } progress) return;
         var now = DateTimeOffset.Now;
         if (!force && now - _lastSaveAt < TimeSpan.FromSeconds(1.5)) return;
         _lastSaveAt = now;
@@ -536,7 +548,7 @@ internal sealed partial class ReaderView
         try
         {
             ReadingProgressStore.Save(summary.Id, anchor.Chapter, anchor.Paragraph, _title, _author, AppHost.Library,
-                                      progress: ReadingProgressFraction(anchor), syncWidgetImmediately: syncWidgetImmediately);
+                                      progress: progress, syncWidgetImmediately: syncWidgetImmediately);
         }
         catch (Exception e)
         {
@@ -545,12 +557,12 @@ internal sealed partial class ReaderView
     }
 
     /// <summary>How far through the work an anchor is, 0…1: whole chapters before
-    /// it plus the fraction of its chapter's paragraphs.</summary>
-    private double ReadingProgressFraction(ReadingAnchor anchor)
+    /// it plus the fraction of its chapter's paragraphs. Null when its chapter isn't
+    /// loaded: reading that as 0 would overwrite the real progress.</summary>
+    private double? ReadingProgressFraction(ReadingAnchor anchor)
     {
-        if (_chapters.Count == 0) return 0;
         var chapterOffset = Array.IndexOf(_chapterOrder, anchor.Chapter);
-        if (chapterOffset < 0) return 0;
+        if (chapterOffset < 0) return null;
         var chapter = _chapters[chapterOffset];
         var paragraphCount = Math.Max(Paragraphs(chapter.Index).Count, 1);
         var denominator = Math.Max(paragraphCount - 1, 1);
@@ -588,7 +600,8 @@ internal sealed partial class ReaderView
         if (elapsed < 1 || _summary is not { } summary) return;
         var capped = Math.Min(elapsed, 4 * 3600);
         // Credit only as far as you've actually read.
-        var progress = _currentAnchor is { } anchor ? ReadingProgressFraction(anchor) : 0;
+        var progress = _currentAnchor is { } anchor && anchor != _clampedRestoreAnchor
+            ? ReadingProgressFraction(anchor) ?? 0 : 0;
         try
         {
             var justFinished = ReadingStatsStore.Record(
@@ -830,9 +843,15 @@ internal sealed partial class ReaderView
             case VirtualKey.End when none:
                 GoToChapterEdge(end: true);
                 return true;
-            case VirtualKey.Up when none && _builtMode != ReadingMode.PageByPage:
+            // Up / Down turn the page in page by page: several Bluetooth page
+            // turners and scroll remotes send only those (the Apple app too).
+            case VirtualKey.Up when none && !activates && _builtMode == ReadingMode.PageByPage:
+                return Turn(forward: false, arrow: false);
+            case VirtualKey.Down when none && !activates && _builtMode == ReadingMode.PageByPage:
+                return Turn(forward: true, arrow: false);
+            case VirtualKey.Up when none:
                 return ScrollBy(-48);
-            case VirtualKey.Down when none && _builtMode != ReadingMode.PageByPage:
+            case VirtualKey.Down when none:
                 return ScrollBy(48);
         }
         return false;

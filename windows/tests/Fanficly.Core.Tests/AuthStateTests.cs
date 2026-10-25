@@ -2,6 +2,7 @@ using Fanficly.Core;
 
 namespace Fanficly.Core.Tests;
 
+[Collection(GlobalStoreCollection.Name)] // logout and account switches clear KudosStore
 public class AuthStateTests
 {
     /// <summary>A scriptable login: throws <see cref="LoginError"/> when set.</summary>
@@ -10,12 +11,18 @@ public class AuthStateTests
         public Exception? LoginError { get; set; }
         public int Logouts { get; private set; }
 
-        public Task LoginAsync(string username, string password, CancellationToken ct = default) =>
-            LoginError is { } e ? Task.FromException(e) : Task.CompletedTask;
+        /// <summary>The login name AO3 answers with; the typed text when null.</summary>
+        public string? LoginName { get; set; }
+        /// <summary>What <see cref="CurrentUsernameAsync"/> answers.</summary>
+        public string? HeaderName { get; set; }
+        public int CurrentUsernameCalls { get; private set; }
+
+        public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) =>
+            LoginError is { } e ? Task.FromException<string>(e) : Task.FromResult(LoginName ?? username);
         public Task LogoutAsync() { Logouts++; return Task.CompletedTask; }
 
         private readonly MockAO3Client _rest = new();
-        public Task<string?> CurrentUsernameAsync() => _rest.CurrentUsernameAsync();
+        public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) { CurrentUsernameCalls++; return Task.FromResult(HeaderName); }
         public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => _rest.SearchAsync(filters, page, ct);
         public Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default) => _rest.FetchAuthorWorksAsync(username, page, ct);
         public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => _rest.FetchBookmarksAsync(username, page, ct);
@@ -30,6 +37,8 @@ public class AuthStateTests
         public Task<string> DownloadEpubAsync(int workId, CancellationToken ct = default) => _rest.DownloadEpubAsync(workId, ct);
         public Task<string> ExportWorkAsync(int workId, WorkExportFormat format, string filename, CancellationToken ct = default) => _rest.ExportWorkAsync(workId, format, filename, ct);
         public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => _rest.SubscribeToWorkAsync(workId, ct);
+        public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) => _rest.FetchBookmarkFormAsync(workId, ct);
+        public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => _rest.SaveBookmarkAsync(form, ct);
     }
 
     [Fact]
@@ -97,6 +106,155 @@ public class AuthStateTests
         Assert.Null(auth.Username);
         Assert.Null(vault.StoredUsername());
         Assert.Empty(vault.LoadCookies());
+    }
+
+    // An expired session (#131)
+
+    private static AuthState SignedIn(InMemoryCookieVault? vault = null)
+    {
+        vault ??= new InMemoryCookieVault();
+        vault.SetUsername("reader");
+        return new AuthState(vault);
+    }
+
+    private static readonly string GuestSearchPage = AO3PageFixtures.GuestPage("works-search", """
+        <ol class="work index group">
+          <li id="work_1" class="work blurb group" role="article">
+            <div class="header module"><h4 class="heading"><a href="/works/1">Public</a></h4></div>
+          </li>
+        </ol>
+        """);
+
+    [Fact]
+    public void GuestRenderedSearchPageWhileSignedInExpiresTheSession()
+    {
+        var auth = SignedIn();
+        var changed = new List<string?>();
+        auth.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        Assert.True(auth.NoteListing(SearchResultsParser.Parse(GuestSearchPage)));
+
+        Assert.True(auth.IsSessionExpired);
+        Assert.False(auth.HasSession);
+        Assert.True(auth.IsLoggedIn); // the username stays, to prefill the sign-in form
+        Assert.Contains(nameof(AuthState.IsSessionExpired), changed);
+    }
+
+    [Fact]
+    public void GuestRenderedSearchPageWhileSignedOutIsJustAGuestSearch()
+    {
+        var auth = new AuthState(new InMemoryCookieVault());
+        Assert.False(auth.NoteListing(SearchResultsParser.Parse(GuestSearchPage)));
+        Assert.False(auth.IsSessionExpired);
+    }
+
+    [Fact]
+    public void SignedInSearchPageKeepsTheSession()
+    {
+        var auth = SignedIn();
+        var page = GuestSearchPage.Replace(AO3PageFixtures.GuestHeader, AO3PageFixtures.SignedInHeader, StringComparison.Ordinal);
+        Assert.False(auth.NoteListing(SearchResultsParser.Parse(page)));
+        Assert.True(auth.HasSession);
+    }
+
+    [Fact]
+    public void UnauthorizedWhileSignedInExpiresTheSession()
+    {
+        var auth = SignedIn();
+        Assert.False(auth.NoteFailure(AO3Exception.RateLimited()));
+        Assert.False(auth.IsSessionExpired);
+        Assert.True(auth.NoteFailure(AO3Exception.Unauthorized()));
+        Assert.True(auth.IsSessionExpired);
+
+        var guest = new AuthState(new InMemoryCookieVault());
+        Assert.False(guest.NoteFailure(AO3Exception.Unauthorized()));
+        guest.MarkSessionExpired();
+        Assert.False(guest.IsSessionExpired);
+    }
+
+    [Fact]
+    public async Task SigningInAgainClearsTheExpiredSession()
+    {
+        var auth = SignedIn();
+        auth.MarkSessionExpired();
+
+        await auth.LoginAsync(new ClientTestDouble { LoginError = AO3Exception.LoginFailed("Incorrect username or password.") }, "reader", "bad");
+        Assert.True(auth.IsSessionExpired);
+
+        await auth.LoginAsync(new ClientTestDouble(), "reader", "pw");
+        Assert.False(auth.IsSessionExpired);
+        Assert.True(auth.HasSession);
+    }
+
+    [Fact]
+    public async Task SigningInWithAnEmailStoresTheAO3LoginName()
+    {
+        var vault = new InMemoryCookieVault();
+        var auth = new AuthState(vault);
+        await auth.LoginAsync(new ClientTestDouble { LoginName = "real_reader" }, "  reader@example.com\n", "pw");
+
+        Assert.Null(auth.LastError);
+        Assert.Equal("real_reader", auth.Username);
+        Assert.Equal("real_reader", vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task AStoredEmailIsRepairedFromAO3sHeader()
+    {
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("reader@example.com");
+        var auth = new AuthState(vault);
+        await auth.RepairStoredLoginAsync(new ClientTestDouble { HeaderName = "real_reader" });
+
+        Assert.Equal("real_reader", auth.Username);
+        Assert.Equal("real_reader", vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task AStoredEmailStaysWhenAO3CantSay()
+    {
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("reader@example.com");
+        var auth = new AuthState(vault);
+        await auth.RepairStoredLoginAsync(new ClientTestDouble());
+
+        Assert.Equal("reader@example.com", auth.Username);
+        Assert.Equal("reader@example.com", vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task AStoredLoginNameNeedsNoRequest()
+    {
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("real_reader");
+        var client = new ClientTestDouble { HeaderName = "someone" };
+        Assert.Equal("real_reader", await AuthState.RepairedLoginAsync(vault, client));
+        Assert.Equal(0, client.CurrentUsernameCalls);
+    }
+
+    [Fact]
+    public async Task SigningInAsSomeoneElseClearsTheirKudos()
+    {
+        KudosStore.Clear();
+        KudosStore.MarkLeft(7);
+        var auth = SignedIn();
+        auth.MarkSessionExpired();
+        await auth.LoginAsync(new ClientTestDouble(), "reader", "pw");
+        Assert.True(KudosStore.HasLeft(7));
+
+        auth.MarkSessionExpired();
+        await auth.LoginAsync(new ClientTestDouble(), "someone-else", "pw");
+        Assert.False(KudosStore.HasLeft(7));
+    }
+
+    [Fact]
+    public async Task SigningOutClearsTheExpiredSession()
+    {
+        var auth = SignedIn();
+        auth.MarkSessionExpired();
+        await auth.LogoutAsync(new ClientTestDouble());
+        Assert.False(auth.IsSessionExpired);
+        Assert.False(auth.IsLoggedIn);
     }
 
     [Fact]

@@ -12,6 +12,7 @@ public sealed class AuthState : INotifyPropertyChanged
     private string? _username;
     private bool _isAuthenticating;
     private string? _lastError;
+    private bool _isSessionExpired;
 
     public AuthState(ICookieVault? vault = null)
     {
@@ -42,17 +43,64 @@ public sealed class AuthState : INotifyPropertyChanged
         set => Set(ref _lastError, value);
     }
 
+    /// <summary>A username is stored (the reader signed in on this PC). The session
+    /// cookie may still have expired; see <see cref="IsSessionExpired"/>.</summary>
     public bool IsLoggedIn => Username is not null;
 
+    /// <summary>AO3 dropped the session while a username is stored: a request that
+    /// needs the account got the login page, or a page came back rendered for a
+    /// guest. Only signing in again (or out) clears it.</summary>
+    public bool IsSessionExpired
+    {
+        get => _isSessionExpired;
+        private set => Set(ref _isSessionExpired, value);
+    }
+
+    /// <summary>Signed in with a live session: what account features need.</summary>
+    public bool HasSession => IsLoggedIn && !IsSessionExpired;
+
+    /// <summary>Marks the session expired when signed in (a guest has nothing to expire).</summary>
+    public void MarkSessionExpired()
+    {
+        if (IsLoggedIn) IsSessionExpired = true;
+    }
+
+    /// <summary>Notes a failed AO3 request: <c>Unauthorized</c> while signed in means
+    /// the session expired. Returns whether it did.</summary>
+    public bool NoteFailure(Exception error)
+    {
+        if (error is not AO3Exception { Kind: AO3ErrorKind.Unauthorized } || !IsLoggedIn) return false;
+        IsSessionExpired = true;
+        return true;
+    }
+
+    /// <summary>Notes a works listing (search, an author's works, bookmarks): one
+    /// AO3 rendered for a guest while signed in means the session expired, and
+    /// the listing is missing every restricted work. Returns whether it did.</summary>
+    public bool NoteListing(AO3SearchResults results)
+    {
+        if (!results.ServedAsGuest || !IsLoggedIn) return false;
+        IsSessionExpired = true;
+        return true;
+    }
+
+    /// <summary>Signs in with what the reader typed, a username or an email
+    /// address, and keeps the AO3 login name AO3 answers with:
+    /// <c>/users/&lt;name&gt;</c> pages and the subscription poller need the login
+    /// name, never the email (#144).</summary>
     public async Task LoginAsync(IAO3Client client, string username, string password, CancellationToken ct = default)
     {
         IsAuthenticating = true;
         LastError = null;
         try
         {
-            await client.LoginAsync(username, password, ct);
-            Username = username;
-            _vault.SetUsername(username);
+            var login = await client.LoginAsync(username.Trim(), password, ct);
+            // Signing in as someone else from the expired-session form skips
+            // logout, so drop the previous account's kudos here.
+            if (Username is { } previous && !string.Equals(previous, login, StringComparison.OrdinalIgnoreCase)) KudosStore.Clear();
+            Username = login;
+            _vault.SetUsername(login);
+            IsSessionExpired = false;
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.LoginFailed)
         {
@@ -72,11 +120,34 @@ public sealed class AuthState : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Builds before #144 stored whatever was typed at sign-in, so a
+    /// reader who signed in with an email address has it stored in place of the
+    /// login name. Swaps it for the name in AO3's page header. Runs at launch.</summary>
+    public async Task RepairStoredLoginAsync(IAO3Client client, CancellationToken ct = default)
+    {
+        if (await RepairedLoginAsync(_vault, client, ct) is { } login) Username = login;
+    }
+
+    /// <summary>The stored login name, first replacing a stored email address with
+    /// the name AO3 shows the signed-in reader. Leaves an email in place when AO3
+    /// can't say (offline, or the session expired); signing in again fixes it.
+    /// AO3 login names can't contain "@", so only an email costs a request.</summary>
+    public static async Task<string?> RepairedLoginAsync(ICookieVault vault, IAO3Client client, CancellationToken ct = default)
+    {
+        var stored = vault.StoredUsername();
+        if (stored is null || !stored.Contains('@')) return stored;
+        if (await client.CurrentUsernameAsync(ct) is not { } login || login.Contains('@')) return stored;
+        vault.SetUsername(login);
+        return login;
+    }
+
     public async Task LogoutAsync(IAO3Client client)
     {
         await client.LogoutAsync();
         _vault.SetUsername(null);
+        KudosStore.Clear();
         Username = null;
+        IsSessionExpired = false;
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

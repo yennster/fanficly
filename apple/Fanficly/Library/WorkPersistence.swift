@@ -126,6 +126,19 @@ enum WorkPersistence {
             [searchableItem(for: spotlightEntry(for: work))], completionHandler: nil)
     }
 
+    /// Removes a work from the library with its downloaded EPUB and its
+    /// Spotlight entry, without saving. Recording the deletion for sync is
+    /// the caller's job: a user's delete records it, and a restore applying
+    /// another device's delete doesn't need to.
+    @MainActor
+    static func delete(_ work: Work, in context: ModelContext) {
+        if let url = epubURL(workId: work.ao3Id) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        deindexWork(ao3Id: work.ao3Id)
+        context.delete(work)
+    }
+
     @MainActor
     static func deindexWork(ao3Id: Int) {
         CSSearchableIndex.default().deleteSearchableItems(
@@ -251,6 +264,82 @@ enum WorkPersistence {
         }
     }
 
+    /// Badges for one page of search/browse results, keyed by work id. One
+    /// fetch per model for the whole page, never one per row.
+    @MainActor
+    static func resultBadges(for works: [AO3WorkSummary], in context: ModelContext) -> [Int: ResultBadge] {
+        guard !works.isEmpty else { return [:] }
+        let ids = works.map(\.id)
+        let saved = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
+        let started = (try? context.fetch(FetchDescriptor<ReadingProgress>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
+        let stats = (try? context.fetch(FetchDescriptor<ReadingStat>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
+        let savedById = Dictionary(saved.map { ($0.ao3Id, $0) }, uniquingKeysWith: { first, _ in first })
+        let startedIds = Set(started.map(\.ao3Id))
+        let statById = Dictionary(stats.map { ($0.ao3Id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        var badges: [Int: ResultBadge] = [:]
+        for work in works {
+            let savedWork = savedById[work.id]
+            // The saved position, as the Library row shows it; a story read
+            // without saving only has its stats row's furthest point.
+            let progress = [savedWork?.lastReadProgress, statById[work.id]?.maxProgress]
+                .compactMap { $0 }
+                .first { $0 > 0 }
+            badges[work.id] = resultBadge(
+                inLibrary: savedWork != nil,
+                started: startedIds.contains(work.id) || savedWork?.lastReadAt != nil,
+                progress: progress,
+                isComplete: work.isComplete
+            )
+        }
+        return badges
+    }
+
+    /// The pure mapping behind a result row's badge. Reading status wins over
+    /// "In Library"; "Finished" uses the Library row's rule (99%, or 95% of a
+    /// complete work).
+    static func resultBadge(inLibrary: Bool, started: Bool, progress: Double?, isComplete: Bool) -> ResultBadge? {
+        if let raw = progress, raw.isFinite, raw > 0 {
+            let p = min(raw, 1)
+            if p >= 0.99 || (isComplete && p >= 0.95) { return .finished }
+            return .percent(min(max(Int(p * 100), 1), 99))
+        }
+        if started { return .started }
+        return inLibrary ? .inLibrary : nil
+    }
+
+    static let invalidEPUBSweepKey = "library.invalidEPUBSweep.v1"
+
+    /// One-time: deletes `library/<id>.epub` files that aren't an e-book.
+    /// Before downloads failed closed (#128), AO3's login page or an error
+    /// page could be saved there, and `epubURL` only checks the file exists,
+    /// so the work showed as Downloaded and nothing ever re-downloaded it.
+    /// Returns the files it removed.
+    @discardableResult
+    static func removeInvalidEPUBsIfNeeded(defaults: UserDefaults = .standard,
+                                           directory: URL? = nil) -> [URL] {
+        guard !defaults.bool(forKey: invalidEPUBSweepKey) else { return [] }
+        let fm = FileManager.default
+        guard let dir = directory ?? (try? fm.url(
+            for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ))?.appendingPathComponent("library", isDirectory: true),
+              let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return [] }
+        // Only once the folder could be listed, so a launch that can't read
+        // it (or before the first download) doesn't use up the sweep.
+        defaults.set(true, forKey: invalidEPUBSweepKey)
+        var removed: [URL] = []
+        for file in files where file.pathExtension == "epub" {
+            guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
+            let head = (try? handle.read(upToCount: 68)) ?? Data()
+            try? handle.close()
+            if !AO3Client.isEbook(head), (try? fm.removeItem(at: file)) != nil {
+                removed.append(file)
+            }
+        }
+        return removed
+    }
+
     static func epubURL(workId: Int) -> URL? {
         guard let docs = try? FileManager.default.url(
             for: .documentDirectory, in: .userDomainMask,
@@ -258,5 +347,69 @@ enum WorkPersistence {
         ) else { return nil }
         let url = docs.appendingPathComponent("library/\(workId).epub")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+}
+
+/// Works you've left kudos on, remembered on this device so the kudos button
+/// reads "Kudos Left" instead of inviting a second tap. Cleared on logout, so
+/// it always belongs to the signed-in account (AO3 counts one kudo per
+/// account) and no username is kept beside it. Not in the iCloud library
+/// backup: AO3 itself still refuses a duplicate, which reads as already left.
+enum KudosStore {
+    static let key = "kudos.leftWorkIds"
+
+    static func hasLeft(workId: Int, defaults: UserDefaults = .standard) -> Bool {
+        workIds(defaults).contains(workId)
+    }
+
+    static func markLeft(workId: Int, defaults: UserDefaults = .standard) {
+        var ids = workIds(defaults)
+        guard !ids.contains(workId) else { return }
+        ids.append(workId)
+        defaults.set(ids, forKey: key)
+    }
+
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
+    }
+
+    private static func workIds(_ defaults: UserDefaults) -> [Int] {
+        defaults.array(forKey: key) as? [Int] ?? []
+    }
+}
+
+/// The small status badge on a search or browse result row (RM-002).
+enum ResultBadge: Equatable, Sendable {
+    case finished
+    case percent(Int)
+    /// Opened in the reader, but no fraction is known yet.
+    case started
+    case inLibrary
+
+    var text: String {
+        switch self {
+        case .finished:           "Finished"
+        case .percent(let value): "\(value)%"
+        case .started:            "Started"
+        case .inLibrary:          "In Library"
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .finished:           "Finished reading"
+        case .percent(let value): "\(value) percent read"
+        case .started:            "Started reading"
+        case .inLibrary:          "In your Library"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .finished:  "checkmark.circle.fill"
+        case .percent:   "book"
+        case .started:   "book"
+        case .inLibrary: "books.vertical"
+        }
     }
 }

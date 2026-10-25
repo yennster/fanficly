@@ -57,18 +57,58 @@ def render(html_path: str, width: int, height: int, out_png: str, transparent: b
             # Finish every compositor stage before capturing: without it, big
             # drop-shadow layers sometimes left an unpainted white tile.
             "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=5000", f"--window-size={width},{height}",
+            # New headless Chrome's page area is the window less a strip at the
+            # bottom (~75px on the macOS runners), which it leaves white: open
+            # a taller window and crop back to the canvas.
+            "--virtual-time-budget=5000", f"--window-size={width},{height + WINDOW_SLACK}",
             f"--screenshot={out_png}"]
     if transparent:
         args.append("--default-background-color=00000000")
     args.append("file://" + os.path.abspath(html_path))
-    subprocess.run(args, check=True, capture_output=True, timeout=180)
-    img = Image.open(out_png)
-    if img.size != (width, height):
-        raise RuntimeError(f"{html_path} rendered at {img.size}, wanted {(width, height)}")
-    img = img.convert("RGBA") if transparent else img.convert("RGB")
+    # Headless Chrome on the CI runners now and then hangs or exits non-zero
+    # on a page that renders fine on the next try: give each try its own
+    # profile and retry either failure twice. A canvas whose bottom corner
+    # still comes out white is retried too, then fails the run rather than
+    # shipping art with a white band.
+    for attempt in range(3):
+        with tempfile.TemporaryDirectory(prefix="store-art-chrome-", ignore_cleanup_errors=True) as profile:
+            try:
+                subprocess.run(args[:-1] + [f"--user-data-dir={profile}", args[-1]], check=True,
+                               capture_output=True, timeout=120)
+                img = Image.open(out_png)
+                if img.size != (width, height + WINDOW_SLACK):
+                    raise RuntimeError(f"{html_path} rendered at {img.size}, wanted {(width, height + WINDOW_SLACK)}")
+                img = img.crop((0, 0, width, height))
+                img = img.convert("RGBA") if transparent else img.convert("RGB")
+                if not transparent and unpainted_bottom(img):
+                    raise UnpaintedError(f"{html_path} rendered with an unpainted white band at the bottom")
+                break
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError, UnpaintedError) as err:
+                if attempt == 2:
+                    raise
+                if isinstance(err, UnpaintedError):
+                    what, tail = "left the bottom unpainted", []
+                else:
+                    what = "hung" if isinstance(err, subprocess.TimeoutExpired) else f"exited {err.returncode}"
+                    tail = (err.stderr or b"").decode(errors="replace").strip().splitlines()[-3:]
+                print(f"  … Chrome {what} on {os.path.basename(html_path)}; retrying", *tail, sep="\n    ", flush=True)
     img.save(out_png)
     return img
+
+
+WINDOW_SLACK = 200  # px of extra window height, cropped off (see render)
+
+
+class UnpaintedError(RuntimeError):
+    pass
+
+
+def unpainted_bottom(img: Image.Image) -> bool:
+    """True when a bottom corner is pure white. Every opaque template is the
+    brand gradient there (the device sits centered), so white means Chrome
+    left that part of the canvas unpainted."""
+    w, h = img.size
+    return any(img.getpixel((x, h - 1))[:3] == (255, 255, 255) for x in (2, w - 3))
 
 
 def fill(template: str, **fields) -> str:

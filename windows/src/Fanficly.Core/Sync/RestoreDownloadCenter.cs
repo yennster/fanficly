@@ -10,7 +10,9 @@ namespace Fanficly.Core;
 /// path (launch auto-sync, Settings) calls <see cref="ProposeRedownload"/>; the
 /// app shows a prompt while <see cref="ProposedIds"/> is set and a progress
 /// banner while <see cref="Progress"/> is. Downloads are cancellable at any
-/// point — the restored library data is already saved and unaffected.
+/// point — the restored library data is already saved and unaffected. A
+/// folder's Download All (<see cref="StartFolderDownload"/>) runs through the
+/// same queue, so only one run goes at a time and both share the banner.
 ///
 /// UI-agnostic: property changes and <see cref="Announcement"/>s are raised on
 /// the thread that called <see cref="StartDownloads"/> when it has a
@@ -19,7 +21,19 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
 {
     public static RestoreDownloadCenter Shared { get; } = new();
 
-    public readonly record struct DownloadProgress(int Done, int Failed, int Total, bool Finished);
+    public readonly record struct DownloadProgress(int Done, int Failed, int Total, bool Finished)
+    {
+        /// <summary>The tally after one more work finished (or failed).</summary>
+        public DownloadProgress Recording(bool succeeded) =>
+            succeeded ? this with { Done = Done + 1 } : this with { Failed = Failed + 1 };
+
+        /// <summary>The same tally, marked finished.</summary>
+        public DownloadProgress Finishing() => this with { Finished = true };
+    }
+
+    /// <summary>What the current (or last) run is for; it picks the banner's
+    /// and Narrator's wording.</summary>
+    public enum DownloadKind { Restore, Folder }
 
     private IReadOnlyList<int>? _proposedIds;
     private DownloadProgress? _progress;
@@ -59,6 +73,9 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
 
     public bool IsDownloading => _downloadCts is not null;
 
+    /// <summary>What the current (or last) run is for.</summary>
+    public DownloadKind Kind { get; private set; } = DownloadKind.Restore;
+
     /// <summary>Works whose offline text was restored but whose EPUB file is
     /// missing locally — i.e. downloaded on the device that made the backup.</summary>
     public static IReadOnlyList<int> RedownloadCandidates(LibraryStore store) =>
@@ -89,42 +106,103 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
         if (ids.Count == 0 || _downloadCts is not null) return Task.CompletedTask;
         ProposedIds = null;
         _lastProposal = [];
+        return Start(ids, DownloadKind.Restore, (id, ct) => client.DownloadEpubAsync(id, ct));
+    }
+
+    // MARK: - Folder "Download All"
+
+    /// <summary>The works in a folder that aren't downloaded yet, in the order
+    /// given (the folder's on-screen order), each once. <paramref name="isDownloaded"/>
+    /// defaults to the EPUB file check behind the Downloaded badge.</summary>
+    public static IReadOnlyList<int> FolderDownloadCandidates(IEnumerable<Work> works, Func<int, bool>? isDownloaded = null)
+    {
+        isDownloaded ??= id => WorkPersistence.EpubPath(id) is not null;
+        return works.Select(w => w.Ao3Id).Where(id => !isDownloaded(id)).Distinct().ToList();
+    }
+
+    /// <summary>Downloads a folder's stories one after another, each saved like
+    /// the reader's Save Offline (<see cref="SaveOfflineAsync"/>). Ignored while
+    /// another run is going. The returned task completes when the run ends.</summary>
+    public Task StartFolderDownload(IAO3Client client, LibraryStore store, IReadOnlyList<int> ids)
+    {
+        if (ids.Count == 0 || _downloadCts is not null) return Task.CompletedTask;
+        return Start(ids, DownloadKind.Folder, (id, ct) => SaveOfflineAsync(client, store, id, ct));
+    }
+
+    /// <summary>Saves one story for offline reading: its chapter text first
+    /// when none is stored yet (so it reads offline in the app), then the EPUB.</summary>
+    public static async Task SaveOfflineAsync(IAO3Client client, LibraryStore store, int workId, CancellationToken ct = default)
+    {
+        // Removed from the library mid-run: nothing to save it for.
+        if (store.GetWork(workId) is not { } work) return;
+        if (store.ChaptersOf(work).Count == 0)
+        {
+            var payload = await client.FetchWorkAsync(workId, ct);
+            ct.ThrowIfCancellationRequested();
+            // Deleted while its fetch waited: don't bring it back.
+            if (!work.IsInserted) return;
+            WorkPersistence.Upsert(payload, store);
+            LibrarySyncManager.QueueBackupShared(store);
+        }
+        await client.DownloadEpubAsync(workId, ct);
+    }
+
+    // MARK: - The queue
+
+    private Task Start(IReadOnlyList<int> ids, DownloadKind kind, Func<int, CancellationToken, Task> download)
+    {
+        Kind = kind;
         Progress = new DownloadProgress(0, 0, ids.Count, false);
         Announcement?.Invoke($"Downloading {ids.Count} stories for offline reading.");
         var cts = _downloadCts = new CancellationTokenSource();
-        return RunAsync(client, ids, cts);
+        return RunAsync(ids, download, cts);
     }
 
-    private async Task RunAsync(IAO3Client client, IReadOnlyList<int> ids, CancellationTokenSource cts)
+    /// <summary>Runs <paramref name="download"/> for each id in turn, never in
+    /// parallel. A failure is counted and skipped (a deleted work mustn't stall
+    /// the rest). Returns the finished tally, or null once
+    /// <paramref name="ct"/> is cancelled; works downloaded before the cancel
+    /// stay downloaded, since nothing here undoes them. <paramref name="report"/>
+    /// gets the tally after each work.</summary>
+    public static async Task<DownloadProgress?> RunQueueAsync(
+        IReadOnlyList<int> ids,
+        Func<int, CancellationToken, Task> download,
+        Action<DownloadProgress> report,
+        CancellationToken ct)
     {
-        var ct = cts.Token;
-        int done = 0, failed = 0;
+        var tally = new DownloadProgress(0, 0, ids.Count, false);
         foreach (var id in ids)
         {
-            if (ct.IsCancellationRequested) break;
+            if (ct.IsCancellationRequested) return null;
             try
             {
-                await client.DownloadEpubAsync(id, ct);
-                done++;
+                await download(id, ct);
+                tally = tally.Recording(succeeded: true);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                break;
+                return null;
             }
             catch (Exception)
             {
-                // Skip and move on — a deleted work mustn't stall the rest.
-                failed++;
+                tally = tally.Recording(succeeded: false);
             }
-            if (ct.IsCancellationRequested) break;
-            Progress = new DownloadProgress(done, failed, ids.Count, false);
+            if (ct.IsCancellationRequested) return null;
+            report(tally);
         }
-        if (ct.IsCancellationRequested) return;
+        return tally.Finishing();
+    }
+
+    private async Task RunAsync(IReadOnlyList<int> ids, Func<int, CancellationToken, Task> download, CancellationTokenSource cts)
+    {
+        var ct = cts.Token;
+        var final = await RunQueueAsync(ids, download, p => Progress = p, ct);
+        if (final is not { } done || ct.IsCancellationRequested) return;
         _downloadCts = null;
-        Progress = new DownloadProgress(done, failed, ids.Count, true);
-        Announcement?.Invoke(failed == 0
-            ? $"Downloaded {done} stories for offline reading."
-            : $"Downloads finished. {done} succeeded, {failed} failed.");
+        Progress = done;
+        Announcement?.Invoke(done.Failed == 0
+            ? $"Downloaded {done.Done} stories for offline reading."
+            : $"Downloads finished. {done.Done} succeeded, {done.Failed} failed.");
         try
         {
             await Task.Delay(FinishedBannerDuration, ct);
@@ -143,7 +221,9 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
         _downloadCts?.Cancel();
         _downloadCts = null;
         Progress = null;
-        Announcement?.Invoke("Downloads canceled. Your restored library is unaffected.");
+        Announcement?.Invoke(Kind == DownloadKind.Restore
+            ? "Downloads canceled. Your restored library is unaffected."
+            : "Downloads canceled. Stories already downloaded stay downloaded.");
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

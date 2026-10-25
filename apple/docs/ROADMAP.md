@@ -51,28 +51,29 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Networking/HTMLParsers/*`, `FanficlyTests/*ParserTests.swift`.
 
 ### RM-002 — "Read" and "In Library" badges on result rows
-- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Status:** done · **Size:** S · **Validation:** unit + mac
 - **Why:** Search and Browse can't tell you what you've already read or saved.
 - **Scope:** `WorkRow` shows a small badge ("In Library", "Finished", or a percent) using the existing `Work` and `ReadingProgress` rows. Compute the lookup once per result page as a `[Int: Badge]` from one fetch, not one fetch per row. Put the pure mapping in a testable function.
 - **Done when:** mapping tests cover saved, started, finished and unknown works; VoiceOver reads the badge as part of the row (`.accessibilityElement(children: .combine)` is only safe if the row holds no `Link` or button — it holds the bookmark button, so label the badge instead).
 - **Touches:** `Search/SearchView.swift` (`WorkRow`), `Library/WorkPersistence.swift`.
 
 ### RM-003 — Reading-time estimate
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** Word counts alone are hard to judge. `ReadingStat` already records real active seconds and words read, so a personal words-per-minute exists.
 - **Scope:** A pure `ReadingSpeed` helper: personal WPM from `ReadingStat` (clamped to 120–600, falling back to 250 until there are ≥ 3 finished works), and a formatted "~45 min" string. Show it in `WorkRow` and `WorkHeaderMetadata` next to the word count.
 - **Done when:** tests cover the fallback, clamping, and formatting at 0, < 1 min, minutes, and hours. No new persisted data.
 - **Touches:** `Reader/WorkHeaderMetadata.swift`, `Search/SearchView.swift`, new helper in `Reader/ReadingProgressStore.swift` (don't add a file).
 
 ### RM-004 — Lock-screen widget for last read
-- **Status:** open · **Size:** S · **Validation:** mac
+- **Status:** done · **Size:** S · **Validation:** mac
 - **Why:** None of the six widgets support the lock screen.
 - **Scope:** Add `accessoryRectangular` and `accessoryCircular` families to `FanficlyWidget` showing title and progress, using the same `WidgetProgressStore` data and resume URL. No new data path.
 - **Done when:** previews exist for both families; the tap target is the existing `fanficly://resume/…` URL; the widget target still builds. State in the PR that it needs a look on a device or simulator.
 - **Touches:** `FanficlyWidget/FanficlyWidget.swift`.
+- **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no lock screen, so the accessory families never show there. Windows has no lock-screen family of its own; its small "Continue reading" Widgets-board widget is the nearest equivalent (see `windows/ROADMAP.md`).
 
 ### RM-020 — Make the saved-search widget route work
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** AGENTS.md ("Other widgets and shortcut routes") documents that the saved-search widget puts saved-filter JSON in `fanficly://search?query=`, but `SearchView.consumePendingQuery` expects prompt syntax, so tapping a saved search doesn't run it.
 - **Scope:** Have the widget write `AO3SearchFilters.promptText()` (the `key:value` rendering `SearchSyntax.parse` reads back exactly) instead of JSON, or decode JSON explicitly in the consumer; pick one and document the contract. Old widget URLs must not crash the consumer.
 - **Done when:** a round-trip test (saved filters → URL → pending query → parsed filters equal), plus a test that a legacy JSON query degrades to a plain keyword search. Update the "Current limitation" note in AGENTS.md.
@@ -95,14 +96,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ## Next (1.12)
 
 ### RM-006 — Tag and author blocklist
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** The only block today is one work at a time (`HiddenWork`).
 - **Scope:** A local blocklist of tags and author usernames, applied in `ContentFilter.apply` alongside hidden works and the Mature filter. Add it from a work's tag chip or byline and manage it in Settings → Content. New `@Model` `BlockedTerm` (kind, value, createdAt) registered in `FanficlyApp.sharedModelContainer` and the `PersistenceTests` schema, included in the iCloud backup as a union (deletions don't propagate, like the rest).
 - **Done when:** filter tests cover tag match (case-insensitive, AO3 canonical names), author match, no match, and an empty list; backup merge test shows two devices union their lists. A blocked tag never hides a work the user opened on purpose (direct links, library).
 - **Touches:** `Settings/ContentFilter.swift`, `Models/Work.swift`, `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
 
 ### RM-007 — Series page and "next in series"
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** Series are how many readers move between stories, and Fanficly can't follow one.
 - **Scope:** A `SeriesParser` for `/series/<id>` (title, author, works in order) and `AO3Endpoints.series`; `AO3Client.fetchSeries` through the throttle; a `SeriesView` reached from a series link in the work header. Parse "Part N of <series>" from the work page's `dd.series` into `AO3WorkMetadata` (optional fields, so saved data and backups still decode).
 - **Done when:** parser tests with inline HTML (series with 1 work, several, a work in two series, a deleted entry); endpoint test; `MockAO3Client` and `DemoAO3Client` implement the new method. Put `SeriesView` in an existing file.
@@ -116,21 +117,21 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Search/SearchView.swift` (`CommentsView`), `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`.
 
 ### RM-009 — Notes and personal tags on library works
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** AO3 tags describe the story; readers also want "for a bad day" or "reread at Christmas".
 - **Scope:** Optional `note: String?` and `personalTags: [String]` fields on `Work` (additive schema; defaults keep migration automatic). Edit them from the Library row's context menu; Library search matches them. Back up and restore with forward-only semantics: a non-empty value never gets overwritten by an empty one, and when both sides differ, local wins.
 - **Done when:** persistence tests, backup merge tests (old backup without the fields decodes), library search test.
 - **Touches:** `Models/Work.swift`, `Library/LibraryView.swift`, `Library/iCloudSyncManager.swift`.
 
 ### RM-010 — Bulk download for a folder
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** Offline reading before a flight means tapping download on each work.
 - **Scope:** "Download all" on a custom folder, reusing the sequential, cancellable queue pattern from `RestoreDownloadCenter` (candidates: works with no `WorkPersistence.epubURL`). Progress banner, cancel keeps what finished. The 1 req/sec throttle paces it; no parallelism.
 - **Done when:** the candidate selection and progress bookkeeping are pure and tested; cancelling mid-run keeps finished downloads.
 - **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/LibraryView.swift`.
 
 ### RM-011 — Yearly reading goal
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** The Stats tab reports; it doesn't invite.
 - **Scope:** An optional goal (stories finished this year) stored in `@AppStorage`, shown as a progress ring on the Stats tab and in the wrap card. Pure progress/pace function in `ReadingStatsAggregator` ("on pace", "3 ahead").
 - **Done when:** tests for pace at year start, mid-year, past the goal, and a zero goal (hidden). The setting is per-device and not synced, so there's no sync risk.
@@ -144,7 +145,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/iCloudSyncManager.swift`, `Settings/SettingsView.swift`.
 
 ### RM-023 — Marked for Later section (iPhone, iPad, Mac)
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Why:** On the AO3 website a logged-in reader has a Marked for Later list (works saved with "Mark for Later" to read next). The app has no way to see it. The maintainer asked (2026-10-18) for a Marked for Later section in every version of the app; the Windows app gets the same section as RM-112 on the `windows` branch, so the two should match in name and behavior.
 - **Scope:** A login-gated "Marked for Later" sidebar tab that lists `/users/<name>/readings?show=to-read`, built like the Bookmarks tab: a paginated `AO3Client.fetchMarkedForLater(username:page:)` (new endpoint builder next to `userBookmarks`) that reuses `SearchResultsParser` with the readings page's blurb selector, a live-fetched list with infinite scroll, `ContentFilter.apply` on the rows, and rows that open the live `WorkDetailView`. Add the tab per "Add a new sidebar tab" in AGENTS.md (enum case with raw value `markedForLater`, which `app.selectedTabRaw` shares with Windows; title + symbol; a Go menu item), placed after Bookmarks. ⌘1–⌘9 are all taken, so the Go menu item gets no ⌘-number shortcut and existing shortcuts are not renumbered; Windows' RM-112 does the same. Put the view in an existing file (`SubscriptionsView.swift`, beside `BookmarksView`) so no `.xcodeproj` regeneration is needed. Read-only: adding or removing a mark is a later item.
 - **Open question:** confirm the readings page's markup (blurb class, where the work id lives) from a real saved page before writing the fixture; don't guess it.
@@ -154,16 +155,16 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Scope:** A POST to `/kudos` with the scraped token, from the work's options menu, login-gated, once per work and remembered locally so it doesn't invite a double-tap. Same CSRF flow as comments. Never retried.
 - **Open question:** AO3 returns guest-kudos differently from logged-in kudos; confirm against the live site by hand before shipping.
 
 ### RM-014 — Create and edit AO3 bookmarks
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Scope:** The Bookmarks tab is read-only today. Add "Bookmark on AO3" (with notes, tags, rec, private) as a POST to `/works/<id>/bookmarks`. Needs the form scraped for field names; must be tested against the live site by hand.
 
 ### RM-015 — Reading history import
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Scope:** Login-gated list of `/users/<name>/readings` (AO3's history), parsed like the bookmarks page (reuse `SearchResultsParser` with a blurb selector). Read-only first. The Marked for Later list moved to RM-023; build on its fetch and parser.
 
 ### RM-016 — Open Spotlight results, and App Shortcuts
@@ -175,12 +176,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
 
 ### RM-018 — Split the big view files
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** `SearchView.swift` holds search, `WorkDetailView` and `CommentsView`.
 - **Scope:** Move types verbatim to their own files. This needs `xcodegen generate` and a committed `.xcodeproj`, which is why it isn't done in passing. Do it as the only change in the PR, with no behavior edits.
 
 ### RM-019 — Accessibility audit of non-reader screens
-- **Status:** open · **Size:** S per screen · **Validation:** mac
+- **Status:** done · **Size:** S per screen · **Validation:** mac
 - **Scope:** Walk Library, Stats, Subscriptions and Settings at the largest Dynamic Type size and with VoiceOver; fix truncation and unlabeled controls; add a UI test that asserts labels on a screen's icon-only buttons. One screen per PR.
 
 ### RM-021 — Shift-⌘ +/− to change the Mac UI size
@@ -198,6 +199,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** One screen family per PR, following the convention in AGENTS.md: Search (incl. `WorkFilterSheet`), Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, Auth, the rest of Settings (`ReaderSettingsView`, `ContentSafetyViews`), then the widget and share extension (their own catalogs). Do not translate. AO3 tag and category names stay verbatim.
 - **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
 - **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
+
+### RM-025 — Turn page-by-page pages with the mouse wheel (iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** mac
+- **Why:** Windows turns one page per wheel notch in page by page (with a 300 ms pause). On iPad and the Mac, a vertical wheel over the horizontal page `TabView` does nothing, so a Bluetooth scroll remote in mouse mode, or a plain mouse, can't turn pages there. Keyboard and touch-mode remotes already work (#281).
+- **Scope:** Turn a page per wheel notch in page-by-page (`ReaderView.turnPageByPage`), rate-limited like Windows. iPhone accepts a mouse only with AssistiveTouch, so it gets the same code harmlessly.
+- **Done when:** a pure rate-limit/accumulator function with tests; the PR says how to try it with a mouse on an iPad or Mac.
+- **Touches:** `Reader/ReaderView.swift`, `Reader/ReaderKeyCommands.swift`.
 
 ## Engineering health (any release)
 

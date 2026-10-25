@@ -207,6 +207,153 @@ final class SearchResultsParserTests: XCTestCase {
         XCTAssertEqual(work.totalChapters, 5)
     }
 
+    // MARK: - Readings page (Marked for Later)
+
+    /// Markup from AO3's readings templates (otwarchive
+    /// `readings/index.html.erb` + `_reading_blurb.html.erb`): each entry is
+    /// `li.reading.work.blurb` with id `work_<id>`, wrapping the usual work
+    /// blurb plus a "Last visited" module; a deleted work keeps an entry with
+    /// no id and no title link. Pagination is AO3's pagy nav.
+    private let readingsHTML = """
+    <html><body>
+    <div id="main" class="readings-index dashboard region" role="main">
+    <h2 class="heading">Marked for Later</h2>
+    <h4 class="landmark heading">Pages Navigation</h4>
+    <ol class="pagination actions pagy" role="navigation">
+      <li class="previous"><a href="/users/me/readings?page=1&amp;show=to-read">← Previous</a></li>
+      <li><a href="/users/me/readings?page=1&amp;show=to-read">1</a></li>
+      <li><a role="link" aria-disabled="true" aria-current="page" class="current">2</a></li>
+      <li><a href="/users/me/readings?page=3&amp;show=to-read">3</a></li>
+      <li class="next"><a href="/users/me/readings?page=3&amp;show=to-read">Next →</a></li>
+    </ol>
+    <h3 class="landmark heading">List of Marked for Later Items</h3>
+    <ol class="reading work index group">
+      <li id="work_4242" class="reading work blurb group work-4242 user-1" role="article">
+        <div class="header module">
+          <h4 class="heading">
+            <a href="/works/4242">Saved For Later</a>
+            by
+            <a rel="author" href="/users/erin/pseuds/erin">erin</a>
+          </h4>
+          <h5 class="fandoms heading">
+            <a class="tag" href="/tags/Good%20Omens/works">Good Omens</a>
+          </h5>
+          <ul class="required-tags">
+            <li><a><span class="text">General Audiences</span></a></li>
+            <li><a><span class="text">No Archive Warnings Apply</span></a></li>
+            <li><a><span class="text">Work in Progress</span></a></li>
+          </ul>
+          <p class="datetime">12 Oct 2026</p>
+        </div>
+        <dl class="stats">
+          <dt class="words">Words:</dt><dd class="words">2,500</dd>
+          <dt class="chapters">Chapters:</dt><dd class="chapters">2/?</dd>
+        </dl>
+        <div class="user module group">
+          <h4 class="viewed heading">
+            <span>Last visited:</span> 14 Oct 2026
+            (Latest version.)
+            Visited once
+            (Marked for Later.)
+          </h4>
+          <ul class="actions"><li><form action="/users/me/readings/9" method="post"><input type="submit" value="Delete from History"></form></li></ul>
+        </div>
+      </li>
+      <li class="deleted reading work blurb group" role="article">
+        <div class="user module group">
+          <h4 class="viewed heading">(Deleted work, last visited 01 Jan 2026)</h4>
+        </div>
+      </li>
+    </ol>
+    </div>
+    </body></html>
+    """
+
+    func test_readingsParseListsWorksAndSkipsDeleted() throws {
+        let result = try SearchResultsParser.parseReadings(html: readingsHTML)
+        XCTAssertEqual(result.works.count, 1, "the deleted entry has no work and is skipped")
+        let work = result.works[0]
+        XCTAssertEqual(work.id, 4242)
+        XCTAssertEqual(work.title, "Saved For Later")
+        XCTAssertEqual(work.author, "erin")
+        XCTAssertEqual(work.authorUsername, "erin")
+        XCTAssertEqual(work.fandoms, ["Good Omens"])
+        XCTAssertEqual(work.wordCount, 2500)
+        XCTAssertEqual(work.chapterCount, 2)
+        XCTAssertNil(work.totalChapters)
+        XCTAssertEqual(result.currentPage, 2)
+        XCTAssertEqual(result.totalPages, 3)
+    }
+
+    func test_readingsParseHistoryPage() throws {
+        // The unfiltered readings page (AO3 history) has the same markup, most
+        // recently visited first, and one page has no pagination.
+        let history = """
+        <html><body><div id="main" class="readings-index dashboard region" role="main">
+        <h2 class="heading">History</h2>
+        <ol class="reading work index group">
+          <li id="work_11" class="reading work blurb group" role="article">
+            <div class="header module"><h4 class="heading">
+              <a href="/works/11">Newest Visit</a> by <a rel="author" href="/users/a/pseuds/a">a</a>
+            </h4></div>
+            <div class="user module group"><h4 class="viewed heading">
+              <span>Last visited:</span> 17 Oct 2026 (Update available.) Visited 3 times
+            </h4></div>
+          </li>
+          <li id="work_22" class="reading work blurb group" role="article">
+            <div class="header module"><h4 class="heading">
+              <a href="/works/22">Older Visit</a> by <a rel="author" href="/users/b/pseuds/b">b</a>
+            </h4></div>
+            <div class="user module group"><h4 class="viewed heading">
+              <span>Last visited:</span> 02 Sep 2026 (Latest version.) Visited once
+            </h4></div>
+          </li>
+        </ol>
+        </div></body></html>
+        """
+        let result = try SearchResultsParser.parseReadings(html: history)
+        XCTAssertEqual(result.works.map(\.id), [11, 22])
+        XCTAssertEqual(result.works.map(\.title), ["Newest Visit", "Older Visit"])
+        XCTAssertEqual(result.totalPages, 1)
+    }
+
+    func test_readingsParseEmptyList() throws {
+        // AO3 renders no list and no pagination when nothing is marked.
+        let empty = """
+        <html><body><div id="main" class="readings-index dashboard region" role="main">
+        <h2 class="heading">Marked for Later</h2>
+        <h3 class="landmark heading">List of Marked for Later Items</h3>
+        </div></body></html>
+        """
+        let result = try SearchResultsParser.parseReadings(html: empty)
+        XCTAssertTrue(result.works.isEmpty)
+        XCTAssertEqual(result.totalPages, 1)
+    }
+
+    func test_readingsParseLoginPageFailsClosed() {
+        // An expired session: AO3 redirects to the login form, served as a 200.
+        let login = """
+        <html><body><div id="main" class="user_sessions-new region">
+        <form id="new_user_session_small" action="/users/login" method="post">
+          <input name="user[login]"><input name="user[password]" type="password">
+        </form></div></body></html>
+        """
+        XCTAssertThrowsError(try SearchResultsParser.parseReadings(html: login)) { error in
+            XCTAssertEqual(error as? AO3Error, .unauthorized)
+        }
+    }
+
+    func test_readingsParseOtherPageFailsClosed() {
+        // History turned off: AO3 redirects to the preferences page.
+        let prefs = "<html><body><div id=\"main\" class=\"preferences-index dashboard region\"></div></body></html>"
+        XCTAssertThrowsError(try SearchResultsParser.parseReadings(html: prefs)) { error in
+            guard case AO3Error.parseFailed(let reason) = error else { return XCTFail("\(error)") }
+            XCTAssertTrue(reason.contains("Turn on History"), reason)
+        }
+        // Anything else (markup drift, an error page) is never an empty list.
+        XCTAssertThrowsError(try SearchResultsParser.parseReadings(html: "<html><body><p>Oops</p></body></html>"))
+    }
+
     func test_workIdFromHref() {
         XCTAssertEqual(SearchResultsParser.workId(fromHref: "/works/12345"), 12345)
         XCTAssertEqual(SearchResultsParser.workId(fromHref: "/works/12345/chapters/678"), 12345)
@@ -254,6 +401,34 @@ final class SearchResultsParserTests: XCTestCase {
         XCTAssertEqual(try SearchResultsParser.parse(html: html).works.map(\.id), [12345])
     }
 
+    // MARK: An expired session (#131)
+
+    private let oneResult = """
+    <ol class="work index group">
+      <li id="work_12345" class="work blurb group" role="article">
+        <div class="header module"><h4 class="heading"><a href="/works/12345">A Coffee Shop Tale</a></h4></div>
+      </li>
+    </ol>
+    """
+
+    /// A guest's listing leaves out restricted works, so it says so.
+    func test_guestListings_areMarkedServedAsGuest() throws {
+        XCTAssertTrue(try SearchResultsParser.parse(html: AO3PageFixtures.guestPage(mainClass: "works-search", body: oneResult)).servedAsGuest)
+        XCTAssertTrue(try SearchResultsParser.parse(html: AO3PageFixtures.guestPage(mainClass: "works-index dashboard", body: oneResult)).servedAsGuest)
+    }
+
+    func test_signedInListings_areNotServedAsGuest() throws {
+        let results = try SearchResultsParser.parse(html: AO3PageFixtures.signedInPage(mainClass: "works-search", body: oneResult))
+        XCTAssertFalse(results.servedAsGuest)
+        XCTAssertEqual(results.works.map(\.id), [12345])
+    }
+
+    /// Without AO3's header there's no telling, so it never reads as a guest page.
+    func test_listingsWithoutTheHeader_areNotServedAsGuest() throws {
+        let html = "<html><body><div id=\"main\" class=\"works-search\">\(oneResult)</div></body></html>"
+        XCTAssertFalse(try SearchResultsParser.parse(html: html).servedAsGuest)
+    }
+
     func test_loginPage_throwsUnauthorized() {
         for selector in ["li.work.blurb", "li.bookmark.blurb"] {
             XCTAssertThrowsError(try SearchResultsParser.parse(html: AO3PageFixtures.loginPage, blurbSelector: selector)) { error in
@@ -297,6 +472,24 @@ enum AO3PageFixtures {
     </div>
     """
 
+    /// The header a signed-in reader gets: the greeting, no login form.
+    static let signedInHeader = """
+    <div id="header" class="region" role="banner">
+      <h1 class="heading"><a href="/"><span>Archive of Our Own</span></a></h1>
+      <ul class="primary navigation actions" role="navigation"></ul>
+      <nav id="greeting" aria-label="User">
+        <ul class="user navigation actions">
+          <li class="dropdown"><a class="dropdown-toggle" href="/users/reader">Hi, reader!</a></li>
+          <li><a href="/users/logout">Log Out</a></li>
+        </ul>
+      </nav>
+    </div>
+    """
+
+    static func signedInPage(mainClass: String, body: String) -> String {
+        guestPage(mainClass: mainClass, body: body).replacingOccurrences(of: guestHeader, with: signedInHeader)
+    }
+
     static func guestPage(mainClass: String, body: String) -> String {
         """
         <html><body><div id="outer" class="wrapper">
@@ -337,4 +530,65 @@ enum AO3PageFixtures {
     <html><head><title>Sign in to Wi-Fi</title></head>
     <body><h1>Welcome</h1><a href="/tags/accept/works">Accept and continue</a></body></html>
     """
+}
+
+/// An expired AO3 session (#131): signed in, but AO3 answers with its login
+/// page or a listing rendered for a guest, which leaves out restricted works.
+@MainActor
+final class AuthStateSessionTests: XCTestCase {
+    private func signedIn() -> AuthState {
+        let auth = AuthState()
+        auth.username = "reader"
+        return auth
+    }
+
+    private let guestSearchPage = AO3PageFixtures.guestPage(mainClass: "works-search", body: """
+    <ol class="work index group">
+      <li id="work_1" class="work blurb group" role="article">
+        <div class="header module"><h4 class="heading"><a href="/works/1">Public</a></h4></div>
+      </li>
+    </ol>
+    """)
+
+    func test_guestRenderedSearchPageWhileSignedIn_expiresTheSession() throws {
+        let auth = signedIn()
+        XCTAssertTrue(auth.noteListing(try SearchResultsParser.parse(html: guestSearchPage)))
+        XCTAssertTrue(auth.isSessionExpired)
+        XCTAssertFalse(auth.hasSession)
+        XCTAssertTrue(auth.isLoggedIn)  // the username stays, to prefill the sign-in form
+        XCTAssertThrowsError(try auth.check(try SearchResultsParser.parse(html: guestSearchPage))) { error in
+            XCTAssertTrue(error is SessionExpiry.GuestListing)
+            XCTAssertEqual(AuthState.message(for: error), SessionExpiry.listingMessage)
+        }
+    }
+
+    func test_guestRenderedSearchPageWhileSignedOut_isJustAGuestSearch() throws {
+        let auth = AuthState()
+        auth.username = nil
+        let results = try SearchResultsParser.parse(html: guestSearchPage)
+        XCTAssertFalse(auth.noteListing(results))
+        XCTAssertEqual(try auth.check(results).works.map(\.id), [1])
+        XCTAssertFalse(auth.isSessionExpired)
+    }
+
+    func test_signedInSearchPage_keepsTheSession() throws {
+        let auth = signedIn()
+        let page = guestSearchPage.replacingOccurrences(of: AO3PageFixtures.guestHeader, with: AO3PageFixtures.signedInHeader)
+        XCTAssertFalse(auth.noteListing(try SearchResultsParser.parse(html: page)))
+        XCTAssertTrue(auth.hasSession)
+    }
+
+    func test_unauthorizedWhileSignedIn_expiresTheSession() {
+        let auth = signedIn()
+        XCTAssertFalse(auth.explains(AO3Error.rateLimited))
+        XCTAssertFalse(auth.isSessionExpired)
+        XCTAssertTrue(auth.explains(AO3Error.unauthorized))
+        XCTAssertTrue(auth.isSessionExpired)
+
+        let guest = AuthState()
+        guest.username = nil
+        XCTAssertFalse(guest.noteFailure(AO3Error.unauthorized))
+        guest.markSessionExpired()
+        XCTAssertFalse(guest.isSessionExpired)
+    }
 }

@@ -1,6 +1,6 @@
 # Privacy Policy: Fanficly for Windows
 
-Effective: 2026-10-16
+Effective: 2026-10-18
 
 This policy covers Fanficly for Windows, the app in the Microsoft Store. The iPhone, iPad and Mac app has its own policy, [`PRIVACY.md`](../PRIVACY.md) at the root of this repository.
 
@@ -20,11 +20,12 @@ Everything below lives in Fanficly's own app storage: the package's local data f
   - folders, stars and pins
   - reading positions, recently viewed works and reading stats
   - followed works and authors, and the list of your AO3 subscriptions
-  - saved searches and filters, and works you've hidden
+  - saved searches and filters, works you've hidden, and tags and authors you've blocked
 - **Downloads.** EPUB files you downloaded for offline reading, in a `Downloads` folder next to the library.
 - **Your preferences** (theme, reader profiles and typography, sort order, voice and so on) are kept in a settings file. That file also holds:
   - your last 10 searches, which are never synced or backed up;
   - whether you confirmed you're 17 or older;
+  - which works you've left kudos on, as work numbers only, deleted when you sign out;
   - the size and position of the window.
 - **Widget data.** The story you read last, your reading streak, your folders, saved searches, subscriptions and a recommendation are kept in a small file that Fanficly's own widgets read, so the Windows Widgets board can show them.
 - **A local diagnostic log** (`Logs\fanficly.log`). It records errors, which can include a work's title, a fandom name or a web address. It never records passwords or cookies. It's capped at 512 KB, and Fanficly never sends it anywhere.
@@ -35,20 +36,21 @@ None of this is sent to us. There is no Fanficly server. The only way any of it 
 
 ## Sync (your folder, not ours)
 
-Sync is **off** until you turn it on in Settings → Sync and choose a folder. That folder is usually one that a cloud service you already use keeps in sync, such as OneDrive, Google Drive, Dropbox, Box or iCloud Drive (with iCloud for Windows). If you turn sync on without choosing one, Fanficly uses a Fanficly folder in your OneDrive when OneDrive is set up on the PC. While sync is on, Fanficly writes two files there:
+Sync is **off** until you turn it on in Settings → Sync and choose a folder. That folder is usually one that a cloud service you already use keeps in sync, such as OneDrive, Google Drive, Dropbox, Box or iCloud Drive (with iCloud for Windows). If you turn sync on without choosing one, Fanficly uses a Fanficly folder in your OneDrive when OneDrive is set up on the PC. While sync is on, Fanficly writes these files there:
 
 - **`library_backup.json`.** It holds:
   - your saved works, including downloaded chapter text
   - folders, reading positions and reading stats
   - your AO3 bookmarks and subscriptions lists
-  - saved searches and filters, and hidden works
+  - saved searches and filters, hidden works, and blocked tags and authors
   - your reader settings, your content settings, and whether you confirmed you're 17 or older
+- **`library_backup.prev.json`.** The previous `library_backup.json`, kept each time Fanficly replaces it, so a bad write can be undone.
 - **`fanficly-settings-sync.json`.** It holds:
   - your reader profiles
   - the story you read last and how far you got (its title, author, chapter and paragraph)
   - your reading-streak days
 
-These files are as private as the folder you chose. They are governed by the terms of whichever service syncs that folder, which may be Microsoft for OneDrive, Google for Google Drive, Dropbox, Box or Apple for iCloud. We can't access, read or delete them. Turning sync off stops Fanficly from writing to the folder. **Clear Synced Data** in Settings → Sync deletes the library backup from the folder; delete `fanficly-settings-sync.json` yourself if you want that gone too. Uninstalling Fanficly doesn't touch the sync folder.
+These files are as private as the folder you chose. They are governed by the terms of whichever service syncs that folder, which may be Microsoft for OneDrive, Google for Google Drive, Dropbox, Box or Apple for iCloud. We can't access, read or delete them. Turning sync off stops Fanficly from writing to the folder. **Clear Synced Data** in Settings → Sync deletes the library backup and its previous copy from the folder; delete `fanficly-settings-sync.json` yourself if you want that gone too. Uninstalling Fanficly doesn't touch the sync folder.
 
 ## What your PC sends to AO3
 
@@ -59,7 +61,7 @@ Fanficly makes requests directly to `archiveofourown.org` on your behalf, the wa
 - **Signing in:** the app sends your username and password to AO3's login form and keeps the session cookie AO3 returns.
 - **Your account pages:** the app fetches your bookmarks, Marked for Later, reading history and subscriptions pages, but only while you're signed in and only when you open them or the app checks for updates.
 - **New-chapter checks:** the app fetches the pages of works and authors you follow, and your subscriptions list if you're signed in, so it can tell you about new chapters and works. This happens while Fanficly is open, about every four hours. When installed from the Store it also happens from a Windows background task with the same interval, which needs an internet connection and skips its run while Fanficly is open.
-- **Comments and subscribing:** if you're signed in and choose to post a comment or subscribe to a work, the app sends that action to AO3. Comment text goes only to AO3, which hosts and moderates it.
+- **Comments, kudos, bookmarks and subscribing:** if you're signed in and choose to post a comment, leave kudos, save an AO3 bookmark or subscribe to a work, the app sends that action to AO3. Comment text and bookmark notes and tags go only to AO3, which hosts them and moderates comments.
 
 Notifications about new chapters are created on your PC and shown by Windows. Nothing passes through a notification server of ours.
 

@@ -11,7 +11,7 @@ final class WidgetDataStoreTests: XCTestCase {
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
             SavedFilter.self, CustomFolder.self,
         ])
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)
     }
@@ -88,5 +88,59 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(recs.first?.author, "Jane Doe")
         XCTAssertEqual(recs.first?.summary, "A summary with some HTML tags.")
         XCTAssertEqual(recs.first?.tags, ["Harry Potter", "Harry/Draco"])
+    }
+
+    // MARK: - Saved Searches widget route (fanficly://search?query=)
+
+    /// What tapping the widget does: its link → RootView's query value →
+    /// SearchView's pending query → the filters the search runs with.
+    private func filtersAfterTapping(_ item: WidgetSavedSearch) throws -> AO3SearchFilters {
+        let url = try XCTUnwrap(item.searchURL)
+        let query = try XCTUnwrap(WidgetSavedSearch.routeQuery(from: url))
+        return AO3SearchFilters.savedFilter(fromRouteQuery: query) ?? SearchSyntax.parse(query)
+    }
+
+    func test_savedFilter_roundTripsThroughSearchRoute() throws {
+        var f = AO3SearchFilters()
+        f.query = "complete idiots"                        // a filter phrase stays a keyword
+        f.fandomNames = ["Harry Potter - J. K. Rowling"]   // saved filters drop the fandom
+        f.relationshipNames = ["Hermione Granger & Harry Potter"]
+        f.freeformNames = ["Slow Burn"]
+        f.excludedFreeforms = ["Angst"]
+        f.ratings = [.explicit]
+        f.complete = .yes
+        f.wordCount = "1000-5000"
+        f.kudosCount = ">100"
+        f.sortColumn = .kudosCount
+        f.sortDirection = .asc
+
+        let item = WidgetSavedSearch(name: "Drarry", query: f.savedJSON(), isFilter: true)
+        var expected = f
+        expected.fandomNames = []
+        XCTAssertEqual(try filtersAfterTapping(item), expected)
+    }
+
+    func test_savedSearchPrompt_roundTripsThroughSearchRoute() throws {
+        let prompt = #"drarry ship:"Hermione Granger & Harry Potter" kudos:>100 words:1000-5000"#
+        let item = WidgetSavedSearch(name: "Drarry", query: prompt, isFilter: false)
+        let url = try XCTUnwrap(item.searchURL)
+        XCTAssertTrue(url.absoluteString.contains("%26"), "& must stay inside the query value")
+        XCTAssertEqual(WidgetSavedSearch.routeQuery(from: url), prompt)
+        XCTAssertNil(AO3SearchFilters.savedFilter(fromRouteQuery: prompt))
+        XCTAssertEqual(try filtersAfterTapping(item), SearchSyntax.parse(prompt))
+    }
+
+    func test_malformedJSONQuery_degradesToKeywordSearch() throws {
+        let broken = #"{"relationshipNames":["Draco"#
+        XCTAssertNil(AO3SearchFilters.savedFilter(fromRouteQuery: broken))
+        let item = WidgetSavedSearch(name: "Broken", query: broken, isFilter: true)
+        let filters = try filtersAfterTapping(item)
+        XCTAssertFalse(filters.query.isEmpty)
+        XCTAssertTrue(filters.relationshipNames.isEmpty)
+    }
+
+    func test_routeQuery_ignoresOtherRoutes() throws {
+        let url = try XCTUnwrap(URL(string: "fanficly://library?query=x"))
+        XCTAssertNil(WidgetSavedSearch.routeQuery(from: url))
     }
 }

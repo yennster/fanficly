@@ -130,6 +130,18 @@ public static class ReaderMetrics
 
     public const double DefaultFontSize = 18;
     public static readonly (double Min, double Max) FontSizeRange = (12, 30);
+    public const double FontSizeStep = 1;
+
+    /// <summary>Ctrl+Plus / Ctrl+Minus (the Mac's ⌘+ / ⌘−, Reader → Bigger / Smaller
+    /// Text): one point bigger or smaller, snapped to whole points and kept in
+    /// <see cref="FontSizeRange"/>. A size the slider left between points (18.4)
+    /// steps to the next whole point (19 or 18). The Swift <c>steppedFontSize</c>.</summary>
+    public static double SteppedFontSize(double size, bool bigger)
+    {
+        var current = double.IsFinite(size) ? size : DefaultFontSize;
+        var next = bigger ? Math.Floor(current + FontSizeStep) : Math.Ceiling(current - FontSizeStep);
+        return Math.Clamp(next, FontSizeRange.Min, FontSizeRange.Max);
+    }
 
     public const double DefaultLineSpacing = 6;
     public static readonly (double Min, double Max) LineSpacingRange = (0, 20);

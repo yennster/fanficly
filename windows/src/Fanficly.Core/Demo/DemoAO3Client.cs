@@ -11,9 +11,9 @@ namespace Fanficly.Core;
 /// explicit third-party content.</summary>
 public sealed class DemoAO3Client : IAO3Client
 {
-    public Task LoginAsync(string username, string password, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => Task.FromResult("demo_reader");
     public Task LogoutAsync() => Task.CompletedTask;
-    public Task<string?> CurrentUsernameAsync() => Task.FromResult<string?>("demo_reader");
+    public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>("demo_reader");
 
     public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default)
     {
@@ -131,6 +131,13 @@ public sealed class DemoAO3Client : IAO3Client
         Task.FromResult(Path.Combine(Path.GetTempPath(), $"{filename}.{format.Ext()}"));
 
     public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) => Task.FromResult(KudosOutcome.Left);
+    public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) =>
+        Task.FromResult(new AO3BookmarkForm(new Uri($"https://archiveofourown.org/works/{workId}/bookmarks"),
+            new Dictionary<string, string>(), IsExisting: false));
+
+    public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => Task.CompletedTask;
 }
 
 /// <summary>The curated demo catalog.</summary>
