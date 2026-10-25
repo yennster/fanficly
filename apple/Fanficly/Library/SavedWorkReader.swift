@@ -12,8 +12,13 @@ struct SavedWorkReader: View {
     let work: Work
 
     @State private var payload: AO3WorkPayload?
+    /// The reader is in full screen: its back arrow is the only toolbar item.
+    @State private var readerFullScreen = false
     @State private var isLoading = false
     @State private var errorMessage: String?
+    /// Why Save Offline failed, shown in an alert: the reader covers the
+    /// screen, so `errorMessage`'s placeholder never shows while reading.
+    @State private var saveError: String?
     @State private var isSavingOffline = false
     @State private var isDownloaded = false
     @State private var showingComments = false
@@ -50,10 +55,14 @@ struct SavedWorkReader: View {
 
     var body: some View {
         Group {
-            if hasOfflineText {
-                ReaderView(work: work, currentChapter: $currentChapterIndex)
-            } else if let payload {
+            // A fetched payload wins over saved text, so saving it offline
+            // mid-read keeps this one reader: switching branches would be a
+            // new view, stopping narration and re-paginating. Both hold the
+            // same chapters.
+            if let payload {
                 ReaderView(payload: payload, currentChapter: $currentChapterIndex)
+            } else if hasOfflineText {
+                ReaderView(work: work, currentChapter: $currentChapterIndex)
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -74,54 +83,57 @@ struct SavedWorkReader: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(readerBackground.ignoresSafeArea())
+        .onPreferenceChange(ReaderFullScreenKey.self) { readerFullScreen = $0 }
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    Task {
-                        isResolvingComments = true
-                        await ensureChapterIds()
-                        isResolvingComments = false
-                        showingComments = true
+            if !readerFullScreen {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        Task {
+                            isResolvingComments = true
+                            await ensureChapterIds()
+                            isResolvingComments = false
+                            showingComments = true
+                        }
+                    } label: {
+                        if isResolvingComments {
+                            ProgressView()
+                        } else {
+                            Label("Comments", systemImage: "bubble.left.and.bubble.right")
+                        }
                     }
-                } label: {
-                    if isResolvingComments {
-                        ProgressView()
-                    } else {
-                        Label("Comments", systemImage: "bubble.left.and.bubble.right")
-                    }
-                }
-                .disabled(isResolvingComments)
-                .accessibilityLabel("Comments")
+                    .disabled(isResolvingComments)
+                    .accessibilityLabel("Comments")
 
-                // Kudos, share and save-offline live in one More menu so this plus the
-                // reader's own items (chapters, Aa, minimize) stay within the
-                // ~5 trailing icons the iPhone nav bar fits before it spills
-                // into its own overflow. Not an ellipsis symbol: Apple keeps
-                // that for the system overflow (iPhone Duo's vertical strip).
-                Menu {
-                    KudosMenuButton(workId: work.ao3Id, giver: kudos)
-                    Button {
-                        showingBookmark = true
+                    // Kudos, share and save-offline live in one More menu so this plus the
+                    // reader's own items (chapters, Aa, minimize) stay within the
+                    // ~5 trailing icons the iPhone nav bar fits before it spills
+                    // into its own overflow. Not an ellipsis symbol: Apple keeps
+                    // that for the system overflow (iPhone Duo's vertical strip).
+                    Menu {
+                        KudosMenuButton(workId: work.ao3Id, giver: kudos)
+                        Button {
+                            showingBookmark = true
+                        } label: {
+                            Label("Bookmark on AO3", systemImage: "bookmark.square")
+                        }
+                        WorkExportButton(workId: work.ao3Id, title: work.title,
+                                         exporter: exporter, useTextLabel: true)
+                        Button {
+                            Task { await saveOffline() }
+                        } label: {
+                            Label(isDownloaded ? "Downloaded" : "Save Offline",
+                                  systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                        }
+                        .disabled(isSavingOffline || isDownloaded)
                     } label: {
-                        Label("Bookmark on AO3", systemImage: "bookmark.square")
+                        if isSavingOffline || exporter.isExporting || kudos.isSending {
+                            ProgressView()
+                        } else {
+                            Label("More", systemImage: "book.circle")
+                        }
                     }
-                    WorkExportButton(workId: work.ao3Id, title: work.title,
-                                     exporter: exporter, useTextLabel: true)
-                    Button {
-                        Task { await saveOffline() }
-                    } label: {
-                        Label(isDownloaded ? "Downloaded" : "Save Offline",
-                              systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
-                    }
-                    .disabled(isSavingOffline || isDownloaded)
-                } label: {
-                    if isSavingOffline || exporter.isExporting || kudos.isSending {
-                        ProgressView()
-                    } else {
-                        Label("More", systemImage: "book.circle")
-                    }
+                    .accessibilityLabel("More")
                 }
-                .accessibilityLabel("More")
             }
         }
         .sheet(isPresented: $showingComments) {
@@ -136,6 +148,7 @@ struct SavedWorkReader: View {
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
         .kudosPresentation(kudos, workId: work.ao3Id)
+        .saveOfflineAlert($saveError)
         .task { await load() }
         .onAppear {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
@@ -171,29 +184,34 @@ struct SavedWorkReader: View {
         do {
             payload = try await client.fetchWork(id: work.ao3Id)
         } catch {
-            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, or tap the download button to save it offline."
+            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, then choose Save Offline in the More menu to keep it on this device."
         }
     }
 
+    /// Saves the chapter text (when it isn't stored yet), then the EPUB.
+    /// When the text can't be fetched nothing is downloaded, so the work is
+    /// never marked Downloaded without text to read offline.
     private func saveOffline() async {
         isSavingOffline = true
         defer { isSavingOffline = false }
-        // Make sure we have the full work to persist its chapters.
-        let toSave: AO3WorkPayload?
         if let payload {
-            toSave = payload
-        } else {
-            toSave = try? await client.fetchWork(id: work.ao3Id)
-        }
-        if let toSave {
-            _ = WorkPersistence.upsert(payload: toSave, into: context)
-            payload = toSave
+            _ = WorkPersistence.upsert(payload: payload, into: context)
+            iCloudSyncManager.shared.queueBackup(context: context)
+        } else if !hasOfflineText {
+            do {
+                let fetched = try await client.fetchWork(id: work.ao3Id)
+                _ = WorkPersistence.upsert(payload: fetched, into: context)
+                iCloudSyncManager.shared.queueBackup(context: context)
+            } catch {
+                saveError = "Couldn't get the story's text from AO3, so nothing was saved: \(error)"
+                return
+            }
         }
         do {
             _ = try await client.downloadEPUB(workId: work.ao3Id)
             isDownloaded = true
         } catch {
-            errorMessage = "Couldn't download for offline: \(error)"
+            saveError = "The text is saved for offline reading, but the EPUB download failed: \(error)"
         }
     }
 }

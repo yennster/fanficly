@@ -146,11 +146,72 @@ final class ReaderLayoutTests: XCTestCase {
                                          screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
     }
 
+    func test_fullScreen_keepsABackArrow() throws {
+        // Full screen used to hide the whole toolbar, leaving only an
+        // invisible tap on the page's middle third, which on iPhone Duo could
+        // go nowhere: the reader was a trap. Full screen now hides the
+        // toolbar's items but keeps one back arrow, which brings them back.
+        let footer = openReader()
+        turnToMiddlePage(footer)
+        let bar = footer.frame
+        let exit = app.buttons["reader.fullScreenBack"]
+        let systemBack = app.buttons["BackButton"]
+        // The work page's own items (WorkDetailView), hidden through
+        // ReaderFullScreenKey.
+        let hostItems = app.buttons.matching(NSPredicate(
+            format: "label IN {'Save to Library', 'Remove from Library'}"))
+        XCTAssertFalse(exit.exists, "the back arrow only shows in full screen")
+        XCTAssertTrue(systemBack.exists, "the system back button, with the controls up")
+        tap(CGPoint(x: bar.midX, y: bar.minY - 200))
+        XCTAssertTrue(waitForAbsence(footer), "the controls hid")
+        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen keeps the back arrow")
+        settle()
+        capture("10-full-screen-back-arrow")
+        XCTAssertTrue(exit.isHittable, "the back arrow can be tapped")
+        XCTAssertFalse(systemBack.exists, "full screen hides the system back button")
+        XCTAssertFalse(app.buttons["reader.fullScreenToggle"].exists, "full screen hides the reader's items")
+        XCTAssertFalse(app.buttons["BottomOverflowBarButtonItem"].exists, "full screen hides the overflow (More) button")
+        XCTAssertEqual(hostItems.count, 0, "full screen hides the work page's items")
+        exit.tap()
+        XCTAssertTrue(footer.waitForExistence(timeout: 5), "the back arrow brought the controls back")
+        XCTAssertTrue(waitForAbsence(exit), "the back arrow went with full screen")
+        XCTAssertTrue(systemBack.waitForExistence(timeout: 5), "the toolbar came back with its back button")
+        let toggleOrOverflow = app.buttons.matching(NSPredicate(
+            format: "identifier IN {'reader.fullScreenToggle', 'BottomOverflowBarButtonItem'}")).firstMatch
+        XCTAssertTrue(toggleOrOverflow.exists, "the toolbar came back with its items")
+        settle()
+        systemBack.tap()
+        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
+    }
+
+    func test_scrollingFullScreen_runsEdgeToEdge() throws {
+        // Continuous mode in full screen: the text ran up to the top edge but
+        // was cut off above a blank band at the bottom. It now runs to the
+        // bottom edge too. A picture for a person to check: XCUITest can't
+        // see clipping.
+        app.terminate()
+        app.launchArguments = app.launchArguments.map { $0 == "pageByPage" ? "continuous" : $0 }
+        app.launch()
+        _ = openReader(pageByPage: false)
+        // Scroll into the story (past the title page's links) so text fills
+        // the screen top to bottom, then tap it for full screen.
+        app.swipeUp()
+        settle()
+        let window = app.windows.firstMatch.frame
+        tap(CGPoint(x: window.midX, y: window.midY))
+        let exit = app.buttons["reader.fullScreenBack"]
+        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen")
+        settle()
+        capture("11-continuous-full-screen")
+        exit.tap()
+        XCTAssertTrue(waitForAbsence(exit), "the controls came back")
+    }
+
     // MARK: - Navigation
 
     /// Opens a demo work from Search (typing leaves the keyboard up as the
     /// reader opens) and returns the page footer once pages are laid out.
-    private func openReader(file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
+    private func openReader(pageByPage: Bool = true, file: StaticString = #filePath, line: UInt = #line) -> XCUIElement {
         let field = app.textFields.firstMatch
         // iPhone launches on the sidebar menu; iPad and the Mac show Search.
         // Right after the simulator boots, the app can take ~30 s to launch
@@ -169,8 +230,13 @@ final class ReaderLayoutTests: XCTestCase {
         let cell = result.waitForExistence(timeout: 10) ? result : app.cells.firstMatch
         XCTAssertTrue(cell.waitForExistence(timeout: 5), "search results", file: file, line: line)
         cell.tap()
-        let footer = app.descendants(matching: .any).matching(identifier: "reader.pageFooter").firstMatch
-        XCTAssertTrue(footer.waitForExistence(timeout: 20), "the page-by-page footer", file: file, line: line)
+        // The scrolling modes have no page footer: their full screen button
+        // shows the reader is open.
+        let footer = pageByPage
+            ? app.descendants(matching: .any).matching(identifier: "reader.pageFooter").firstMatch
+            : app.buttons.matching(NSPredicate(
+                format: "identifier IN {'reader.fullScreenToggle', 'BottomOverflowBarButtonItem'}")).firstMatch
+        XCTAssertTrue(footer.waitForExistence(timeout: 20), "the reader", file: file, line: line)
         if isDuoUnfolded {
             // Unfolded, the Duo keeps the sidebar beside the reader, which
             // leaves it too narrow for the two-page spread: hide it.

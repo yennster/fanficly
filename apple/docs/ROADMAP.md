@@ -200,6 +200,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
 - **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
 
+### RM-025 — Turn page-by-page pages with the mouse wheel (iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** mac
+- **Why:** Windows turns one page per wheel notch in page by page (with a 300 ms pause). On iPad and the Mac, a vertical wheel over the horizontal page `TabView` does nothing, so a Bluetooth scroll remote in mouse mode, or a plain mouse, can't turn pages there. Keyboard and touch-mode remotes already work (#281).
+- **Scope:** Turn a page per wheel notch in page-by-page (`ReaderView.turnPageByPage`), rate-limited like Windows. iPhone accepts a mouse only with AssistiveTouch, so it gets the same code harmlessly.
+- **Done when:** a pure rate-limit/accumulator function with tests; the PR says how to try it with a mouse on an iPad or Mac.
+- **Touches:** `Reader/ReaderView.swift`, `Reader/ReaderKeyCommands.swift`.
+
 ## Engineering health (any release)
 
 Not features, but worth doing; add as items when started.

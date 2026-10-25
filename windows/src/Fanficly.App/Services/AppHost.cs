@@ -65,10 +65,21 @@ public static partial class AppHost
         }
         else
         {
-            KeyValueStores.Default = new JsonFileKeyValueStore(AppPaths.Settings);
+            var settings = new JsonFileKeyValueStore(AppPaths.Settings);
+            LogSettingsProblem(settings, AppPaths.Settings);
+            KeyValueStores.Default = settings;
             KeyValueStores.Synced = new SyncFolderKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json"));
         }
         InitializeServices();
+    }
+
+    /// <summary>Notes in the log when a settings file couldn't be read at launch.</summary>
+    internal static void LogSettingsProblem(JsonFileKeyValueStore store, string path)
+    {
+        if (store.Problem == SettingsFileProblem.None) return;
+        var fallback = store.LoadedFromBackup ? "its last good copy" : "defaults";
+        var aside = store.DamagedCopyPath is { } p ? $", kept as {Path.GetFileName(p)}" : "";
+        Log($"{Path.GetFileName(path)} {store.Problem} ({store.ProblemDetail}){aside}; running on {fallback}");
     }
 
     /// <summary>Builds the client, the store and the background services.</summary>

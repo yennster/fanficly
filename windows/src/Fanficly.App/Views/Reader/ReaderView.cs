@@ -843,9 +843,15 @@ internal sealed partial class ReaderView
             case VirtualKey.End when none:
                 GoToChapterEdge(end: true);
                 return true;
-            case VirtualKey.Up when none && _builtMode != ReadingMode.PageByPage:
+            // Up / Down turn the page in page by page: several Bluetooth page
+            // turners and scroll remotes send only those (the Apple app too).
+            case VirtualKey.Up when none && !activates && _builtMode == ReadingMode.PageByPage:
+                return Turn(forward: false, arrow: false);
+            case VirtualKey.Down when none && !activates && _builtMode == ReadingMode.PageByPage:
+                return Turn(forward: true, arrow: false);
+            case VirtualKey.Up when none:
                 return ScrollBy(-48);
-            case VirtualKey.Down when none && _builtMode != ReadingMode.PageByPage:
+            case VirtualKey.Down when none:
                 return ScrollBy(48);
         }
         return false;

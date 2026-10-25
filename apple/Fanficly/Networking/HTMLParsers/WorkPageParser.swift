@@ -542,7 +542,7 @@ enum KudosParser {
     /// Whether the page was served to a signed-in reader: AO3's `nav#greeting`
     /// links to `/users/<login>` only then, and a signed-out header carries the
     /// login form. Stricter than `LoginParser.currentUsername`, whose `#header`
-    /// fallback also matches the signed-out `/users/login?return_to=…` link.
+    /// fallback reads any `/users/` link in the header.
     static func isSignedIn(html: String) -> Bool {
         guard (try? LoginParser.hasLoginForm(html: html)) == false,
               let doc = try? SwiftSoup.parse(html),

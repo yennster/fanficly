@@ -122,6 +122,14 @@ Lane `beta` builds and uploads to TestFlight only, with the same notes as
 the TestFlight "What to Test", and doesn't tag. `metadata_only` pushes copy
 and screenshots without a build.
 
+When a `release` run stops after its builds reached App Store Connect (a
+store step failed, so the tag job never ran), lane `tag_only` finishes it
+without building again: it tags `vX.Y.Z` on `sha` (the commit the builds came
+from) and publishes the GitHub release, listing `build` as the build numbers.
+```bash
+gh workflow run release.yml -f lane=tag_only -f sha=<commit> -f build="219 for iOS, 220 for Mac"
+```
+
 ## Regenerating the store art
 
 Run **Store assets**:
@@ -137,7 +145,13 @@ Run **Store assets**:
 - Tick **upload** to put it all on the editable App Store versions (iOS and
   Mac screenshots, previews, Duo screenshots, creative assets). The upload job
   waits for approval in `app-store`. An editable version must exist: run a
-  `release` or `metadata_only` first.
+  `release` or `metadata_only` first. Tick **skip_mac** while the Mac has no
+  editable version (say, its previous version is still in review): the
+  upload stops at the first platform it can't reach, so the Duo screenshots,
+  previews and creative art would otherwise not go up.
+- `upload_only` with **art_run** set to an earlier run's ID uploads that run's
+  `store-art` artifact again, with no capture or generating, for an upload
+  that failed or was skipped.
 - The `store-art` artifact has every image and video; check
   `build/preview-contact-sheets/`, since the preview captions are timed to the
   recordings (`bin/record-app-previews.sh` explains how to re-tune them).
@@ -162,13 +176,17 @@ does not exist at the root of the repository", run the **Xcode Cloud project
 path** workflow (`xcode-cloud.yml`, `bin/xcode-cloud-project-path.py`): without
 "apply" it lists each workflow's path, with it it points the outdated ones at
 `apple/`. It uses the same `app-store` secrets, so it only runs from `main`.
-Any start conditions that filter on file paths are edited in App Store Connect.
+The workflows' start conditions, file-path filters included, are kept in code
+and set through the API (see Keeping to 100 compute hours a month); a change
+made in App Store Connect is overwritten by the next **Xcode Cloud workflows**
+run.
 
-The **Duo tests** workflow is the exception: `bin/xcode-cloud-duo.py` makes and
-updates it through the API, because GitHub's runners have no Xcode with the
+The **Duo tests** workflow is kept in code too: `bin/xcode-cloud-duo.py` makes
+and updates it through the API, because GitHub's runners have no Xcode with the
 iPhone Duo yet. It runs `ReaderLayoutTests` (scheme `FanficlyReaderLayout`) on
-the Duo simulator, in the pose it boots in, for every pull request into `main`
-that touches `apple/`, and Xcode Cloud shows it on the PR as a check. When that
+the Duo simulator, in the pose it boots in, for pull requests into `main` that
+change the reader's layout (`LAYOUT_FILES` in `bin/xcode-cloud-duo.py`), and
+Xcode Cloud shows it on the PR as a check. When that
 check ends, the **Xcode Cloud Duo tests** workflow (`xcode-cloud-duo.yml`, run
 from `main` with the `app-store` secrets) downloads the result bundle, uploads
 its screenshots as the `duo-tests` artifact and links that run from the PR's
@@ -176,6 +194,24 @@ commit as the "Duo screenshots" status. Started by hand, it brings the Xcode
 Cloud workflow up to date (the newest Xcode with a Duo) and, given a branch,
 tests that branch and waits for the screenshots. Run it once by hand after a
 new Xcode lands. The PR builds use Xcode Cloud compute hours.
+
+### Keeping to 100 compute hours a month
+
+Xcode Cloud's plan has 100 compute hours a month, so each workflow starts only
+when its result can change:
+
+| Workflow | Starts | Doesn't start for |
+| --- | --- | --- |
+| **CI** | PRs into `main` that change the app's code, tests, `project.yml`, `Signing.xcconfig` or `ci_scripts/` | docs, screenshots, store text, `fastlane/`, `bin/`, `windows/`, `website/`, the merge to `main` |
+| **Duo tests** | PRs into `main` that change the reader's layout; by hand for any branch | every other PR |
+| **Store art** | a release, or **Store assets** run by hand | anything else |
+| **Release (iOS)**, **Release (Mac)** | a release | anything else |
+
+CI and Duo tests cancel a run that a newer push to the same PR supersedes.
+CI tests the unit tests on one iPhone simulator (they're logic, not layout)
+and the UI tests on the iPhone and the iPad. Any workflow made by hand in App
+Store Connect is left startable by hand only: the **Xcode Cloud workflows**
+workflow runs `bin/xcode-cloud-ci.py others` after updating the others.
 
 Xcode Cloud builds what is committed, and the committed `Fanficly.xcodeproj`
 only lists the files it had when XcodeGen last ran. So
@@ -197,8 +233,8 @@ Xcode Cloud, kept in code:
   uploads them, and fastlane attaches each build to its App Store version, or
   gives it its TestFlight notes (`ios_build:`, `mac_build:`).
 - **CI** (`bin/xcode-cloud-ci.py`): the unit and UI tests that GitHub's
-  `ci.yml` used to run, on every PR into `main` and push to `main` touching
-  `apple/`.
+  `ci.yml` used to run, on PRs into `main` that change the app's code (see
+  Keeping to 100 compute hours a month).
 - **Store art** (`bin/xcode-cloud-store-art.py`): the App Store screenshots,
   started only by **Store assets**.
 - **Duo tests**, below.

@@ -22,6 +22,7 @@ on:
           - screenshots
           - previews
           - creative_assets  # from the committed captures
+          - upload_only      # upload the art of an earlier run (art_run), nothing regenerated
       upload:
         description: Upload to the editable App Store versions
         type: boolean
@@ -38,6 +39,14 @@ on:
         description: Branch to push them to (blank = store-assets/run-N; the Release workflow passes its release-docs/ branch)
         type: string
         required: false
+      art_run:
+        description: "upload_only: the run ID whose store-art artifact to upload"
+        type: string
+        required: false
+      skip_mac:
+        description: Leave the Mac screenshots out of the upload (no editable macOS version yet)
+        type: boolean
+        default: false
 
 concurrency:
   group: store-assets
@@ -128,7 +137,10 @@ jobs:
             n=$((n + 1))
             b=$(dirname "$plist")
             echo "==> $b"
-            xcrun xcresulttool export attachments --path "$b" --output-path "build/attachments/$n" \
+            # Named for the bundle, which names its device: place takes each
+            # device's own folders only.
+            xcrun xcresulttool export attachments --path "$b" \
+              --output-path "build/attachments/$n $(basename "$b" .xcresult)" \
               || echo "::warning::Couldn't export $(basename "$b")"
           done < <(find build/bundles -path "*.xcresult/Info.plist")
           bin/.venv/bin/python bin/xcode-cloud-store-art.py place build/attachments
@@ -152,7 +164,7 @@ jobs:
     name: Generate (${{ inputs.what }})
     needs: capture
     if: >-
-      !cancelled() && needs.capture.result != 'failure' &&
+      !cancelled() && needs.capture.result != 'failure' && inputs.what != 'upload_only' &&
       github.repository == 'yennster/fanficly' &&
       (github.actor == 'yennster' || github.actor == 'github-actions[bot]')
     runs-on: macos-26
@@ -289,10 +301,17 @@ jobs:
     name: Upload to App Store Connect
     needs: generate
     # !cancelled(): a skipped capture (previews, creative_assets) mustn't skip this too.
-    if: ${{ !cancelled() && needs.generate.result == 'success' && inputs.upload }}
+    # upload_only skips generating and uploads an earlier run's art.
+    if: >-
+      !cancelled() && github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
+      ((needs.generate.result == 'success' && inputs.upload) ||
+       (inputs.what == 'upload_only' && needs.generate.result == 'skipped'))
     runs-on: macos-26
     timeout-minutes: 60
     environment: app-store
+    permissions:
+      contents: read
+      actions: read     # upload_only: another run's store-art artifact
     env:
       FASTLANE_SKIP_UPDATE_CHECK: "1"
       FASTLANE_HIDE_CHANGELOG: "1"
@@ -320,12 +339,15 @@ jobs:
         with:
           name: store-art
           path: apple
+          run-id: ${{ inputs.what == 'upload_only' && inputs.art_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: fastlane upload_store_art
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          SKIP_MAC: ${{ inputs.skip_mac && '1' || '' }}
         run: bundle exec fastlane ios upload_store_art
 
       - name: Remove the keys

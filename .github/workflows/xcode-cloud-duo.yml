@@ -2,13 +2,15 @@ name: Xcode Cloud Duo tests
 
 # GitHub's macOS runners have no Xcode with the iPhone Duo yet, so
 # ReaderLayoutTests run on the Duo simulator in Xcode Cloud, in its "Duo tests"
-# workflow (bin/xcode-cloud-duo.py). Xcode Cloud starts it on every pull
-# request into main that touches apple/ and shows it on the PR as its own
-# check. When that check ends, the "screenshots" job here (main's code, never
-# the PR's) exports the result bundle's attachments, ReaderLayoutTests'
-# screenshots among them, as the duo-tests artifact and links its run from
-# the PR's commit as the "Duo screenshots" status. The Duo boots in one pose
-# (pose can't be scripted), so this covers that pose only.
+# workflow (bin/xcode-cloud-duo.py). To save compute hours, Xcode Cloud starts
+# it on its own only for pull requests into main that change the reader's
+# layout (LAYOUT_FILES there), and shows it on the PR as its own check; for any
+# other branch, start this workflow by hand with the branch. When that check
+# ends, the "screenshots" job here (main's code, never the PR's) exports the
+# result bundle's attachments, ReaderLayoutTests' screenshots among them, as
+# the duo-tests artifact and links its run from the PR's commit as the "Duo
+# screenshots" status. The Duo boots in one pose (pose can't be scripted), so
+# this covers that pose only.
 #
 # Started by hand, it brings the Xcode Cloud workflow up to date (the newest
 # Xcode with a Duo, its start conditions) and, given a branch, runs it there
