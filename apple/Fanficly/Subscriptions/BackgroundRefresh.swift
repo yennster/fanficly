@@ -24,7 +24,9 @@ enum BackgroundRefresh {
         container: ModelContainer
     ) async {
         let context = ModelContext(container)
-        let username = CredentialStore.shared.storedUsername()
+        // Repaired first: a stored email address (#144) can't build the
+        // subscriptions URL.
+        let username = await AuthState.repairedLogin(client: client)
         // Run even when logged out: locally-followed works are still polled.
         let poller = SubscriptionPoller(client: client, context: context, username: username)
         let notified = await poller.runFullPoll()
