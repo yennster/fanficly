@@ -562,7 +562,9 @@ final class NonReaderAccessibilityTests: XCTestCase {
             audit("settings-\(page)")
         }
         let reader = app.buttons["Theme & typography"].firstMatch
-        for _ in 0..<4 where !reader.exists { app.swipeDown() }
+        // Back up the list until the row shows (the audit swiped down it,
+        // further on a short screen or a longer list).
+        for _ in 0..<8 where !reader.exists || !reader.isHittable { app.swipeDown() }
         if reader.waitForExistence(timeout: 3) {
             reader.tap()
             usleep(1_000_000)

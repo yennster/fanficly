@@ -1897,7 +1897,7 @@ struct ReaderView: View {
             // The page number alone, for full screen: "3", or "3–4" in a spread.
             let pageNumber = onScreen?.right.map { "\(firstNum)–\($0.pageIndex + 1)" } ?? "\(firstNum)"
 
-            HStack {
+            let row = HStack {
                 Text(label)
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
@@ -1909,29 +1909,34 @@ struct ReaderView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
-            .background(bg)
-            .overlay(alignment: .top) {
-                Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label), \(pageLabel.lowercased())")
-            // ReaderLayoutTests finds the footer (and reads the page number) by
-            // this. The content shape keeps its frame to the bar itself; without
-            // it the frame takes in the background under the home indicator.
-            .accessibilityIdentifier("reader.pageFooter")
-            .contentShape(Rectangle())
-            // Hidden, not removed, in full screen: the bar keeps its height.
-            .opacity(isUIMinimized ? 0 : 1)
-            .accessibilityHidden(isUIMinimized)
-            .overlay {
-                if isUIMinimized {
-                    Text(pageNumber)
-                        .font(.caption2.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(fg.opacity(0.5))
-                        .accessibilityLabel("\(label), \(pageLabel.lowercased())")
-                        .accessibilityIdentifier("reader.pageNumber")
-                }
+
+            if isUIMinimized {
+                // Full screen: the bar keeps its height (the row, hidden) and
+                // shows only the page number, as Apple Books does.
+                row.hidden()
+                    .background(bg)
+                    .overlay {
+                        Text(pageNumber)
+                            .font(.caption2.weight(.medium))
+                            .monospacedDigit()
+                            .foregroundStyle(fg.opacity(0.5))
+                            .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                            .accessibilityIdentifier("reader.pageNumber")
+                    }
+            } else {
+                row
+                    .background(bg)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                    // ReaderLayoutTests finds the footer (and reads the page
+                    // number) by this. The content shape keeps its frame to the
+                    // bar itself; without it the frame takes in the background
+                    // under the home indicator.
+                    .accessibilityIdentifier("reader.pageFooter")
+                    .contentShape(Rectangle())
             }
         }
     }
