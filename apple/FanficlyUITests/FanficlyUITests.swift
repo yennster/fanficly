@@ -578,13 +578,6 @@ final class NonReaderAccessibilityTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// The reader's own toolbar item: its Aa menu, or the system overflow
-    /// a narrow bar (and iPhone Duo's vertical strip) folds it into.
-    private var readerToolbarItem: XCUIElement {
-        app.buttons.matching(NSPredicate(
-            format: "identifier IN {'reader_settings_button', 'BottomOverflowBarButtonItem'}")).firstMatch
-    }
-
     /// Launches at the largest accessibility text size on `tab`. iPhone
     /// launches on the sidebar menu, so tap the row there when the tab isn't
     /// already showing.

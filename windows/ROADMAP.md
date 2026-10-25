@@ -115,6 +115,10 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** CI's `ui-screenshots` artifact shows the fandom list populated at all three sizes.
 - **Touches:** `windows/tests/Fanficly.UITests/ScreenshotTests.cs`.
 
+### ~~RM-120 — A visible way out of full screen~~
+- **Status:** dropped · **Size:** S · **Validation:** windows
+- ~~Show one back arrow in full screen.~~ Dropped before it was built: the Apple app's reader went back to leaving nothing on screen in full screen, like Apple Books (#296). Its Windows port is RM-123.
+
 ### RM-123 — Show and hide the reader's controls like Apple Books
 - **Status:** open · **Size:** M · **Validation:** windows
 - **Why:** The Apple app's reader now shows and hides its controls the way Apple Books does, at the maintainer's request (`ReaderView.swift`, `HoldStillWhileHidden.swift`). A tap on the page's middle third hides every control at once (the toolbar's items and back button, the status bar, the chapter indicator, the page footer's details) and leaves nothing on screen but the page; another tap brings them all back. Hiding is instant and showing is a short fade. The page never moves or re-flows: the footer keeps its room in full screen and shows only the page number, the chapter indicator fades instead of collapsing, and the reader's area is held where it was while the controls are hidden. There's no full screen button any more. This replaces RM-120 (a back arrow left in full screen), which the Apple app dropped again.

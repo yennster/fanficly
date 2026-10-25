@@ -88,8 +88,9 @@ struct ReaderView: View {
     /// True while page-by-page shows an open-book spread on iPhone Duo
     /// (bookTopShift): the pages sit at a fixed spot under a transparent top bar.
     @State private var duoBookLayout = false
-    /// bookTopShift as it was with the controls up, kept while they're hidden.
-    @State private var heldTopShift: CGFloat?
+    /// bookTopShift as it was with the controls up, kept while they're
+    /// hidden for as long as the page area keeps its size.
+    @State private var heldTopShift: HeldTopShift?
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -383,7 +384,8 @@ struct ReaderView: View {
         // Hiding or showing the controls never moves the page: while they're
         // hidden it keeps the place it had with them up, whatever the status
         // bar and the toolbar strip do to the space around it.
-        .modifier(HoldStillWhileHidden(hidden: isUIMinimized && !speech.isActive))
+        // The narration bar coming or going changes the area for real.
+        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive)))
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
@@ -476,7 +478,12 @@ struct ReaderView: View {
         .modifier(ReaderKeyPressModifier(
             mode: mode,
             isReaderFocused: $isReaderFocused,
-            perform: { performKeyAction($0) }
+            perform: { performKeyAction($0) },
+            showControls: {
+                guard isUIMinimized else { return false }
+                toggleChromeAccessibly()
+                return true
+            }
         ))
     }
 
@@ -1266,7 +1273,7 @@ struct ReaderView: View {
             // Held while the controls are hidden, like the frame around it
             // (HoldStillWhileHidden): the status bar going can move the top inset.
             let liveTopShift = bookTopShift(geo)
-            let topShift = isUIMinimized ? (heldTopShift ?? liveTopShift) : liveTopShift
+            let topShift = isUIMinimized ? (heldTopShift?.shift(for: geo.size) ?? liveTopShift) : liveTopShift
             let area = geo.size.height + topShift
             let areaSample = PageAreaSample(width: geo.size.width, height: area, controlsUp: !isUIMinimized)
             let readingHeight = pageArea.pageHeight > 0 ? pageArea.pageHeight : area
@@ -1361,11 +1368,11 @@ struct ReaderView: View {
                 .onChange(of: isDuoBook(geo), initial: true) { _, book in
                     duoBookLayout = book
                 }
-                .onChange(of: liveTopShift, initial: true) { _, shift in
-                    if !isUIMinimized { heldTopShift = shift }
+                .onChange(of: HeldTopShift(shift: liveTopShift, size: geo.size), initial: true) { _, held in
+                    if !isUIMinimized { heldTopShift = held }
                 }
                 .onChange(of: isUIMinimized) { _, hidden in
-                    if !hidden { heldTopShift = liveTopShift }
+                    if !hidden { heldTopShift = HeldTopShift(shift: liveTopShift, size: geo.size) }
                 }
                 .onChange(of: geo.size, initial: true) { _, newSize in
                     // Pages are measured for the page area on screen, with
@@ -1446,6 +1453,17 @@ struct ReaderView: View {
     private func bookTopShift(_ geo: GeometryProxy) -> CGFloat {
         guard isDuoBook(geo) else { return 0 }
         return geo.safeAreaInsets.top - Self.duoTopMargin
+    }
+
+    /// bookTopShift with the controls up, and the page area it was for: a
+    /// new size (a fold, a rotation) lets it go.
+    struct HeldTopShift: Equatable {
+        let shift: CGFloat
+        let size: CGSize
+
+        func shift(for area: CGSize) -> CGFloat? {
+            abs(area.width - size.width) < 1 && abs(area.height - size.height) < 1 ? shift : nil
+        }
     }
 
     /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
