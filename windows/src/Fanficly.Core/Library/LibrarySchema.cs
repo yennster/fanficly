@@ -214,6 +214,13 @@ internal static class LibrarySchema
     [
         conn => Exec(conn, V1),
         conn => Exec(conn, V2),
+        // Version 3: the reader's own note and tags on a work (RM-009).
+        conn =>
+        {
+            AddColumnIfMissing(conn, "works", "note", "TEXT");
+            AddColumnIfMissing(conn, "works", "personal_tags", "TEXT NOT NULL DEFAULT '[]'");
+            AddColumnIfMissing(conn, "works", "notes_updated_at", "INTEGER");
+        },
     ];
 
     internal static int CurrentVersion => Migrations.Length;

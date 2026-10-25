@@ -1867,6 +1867,226 @@ public sealed class PersistenceTests : IDisposable
         Assert.False(work.Matches("Snape"));
     }
 
+    // MARK: - Notes and personal tags (RM-009)
+
+    [Fact]
+    public void PersonalTagsParseTrimAndDedupe()
+    {
+        Assert.Equal(["for a bad day", "reread at Christmas"],
+            Work.ParsePersonalTags(" for a bad day, reread at Christmas ,,For a Bad Day, "));
+        Assert.Empty(Work.ParsePersonalTags("   "));
+    }
+
+    [Fact]
+    public void SetNotesTrimsAndStoresBlankAsNull()
+    {
+        using var store = MakeContext();
+        var work = new Work(1, "T", "A");
+        store.Insert(work);
+        Assert.Null(work.Note);
+        Assert.Empty(work.PersonalTags);
+
+        WorkPersistence.SetNotes(work, "  Comfort read  ", "for a bad day, reread at Christmas", store);
+        Assert.Equal("Comfort read", work.Note);
+        Assert.Equal(["for a bad day", "reread at Christmas"], work.PersonalTags);
+
+        WorkPersistence.SetNotes(work, "   ", "", store);
+        Assert.Null(work.Note);
+        Assert.Empty(work.PersonalTags);
+    }
+
+    [Fact]
+    public void SetNotesTreatsTextBoxLineEndingsAsUnchanged()
+    {
+        // A note written on an iPhone uses "\n"; WinUI's TextBox reads it back
+        // with "\r". Saving it untouched must not count as an edit.
+        var work = new Work(1, "T", "A");
+        var earlier = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+        work.SetNotes("line one\nline two", "", earlier);
+        Assert.Equal(earlier, work.NotesUpdatedAt);
+
+        work.SetNotes("line one\rline two", "", earlier.AddHours(1));
+        Assert.Equal("line one\nline two", work.Note);
+        Assert.Equal(earlier, work.NotesUpdatedAt);
+
+        work.SetNotes("line one\r\nline three", "", earlier.AddHours(2));
+        Assert.Equal("line one\nline three", work.Note);
+        Assert.Equal(earlier.AddHours(2), work.NotesUpdatedAt);
+    }
+
+    [Fact]
+    public void LibrarySearchMatchesNoteAndPersonalTags()
+    {
+        var work = new Work(1, "Golden Snitch", "A");
+        work.SetNotes("Recommended by Sam", "reread at Christmas");
+        Assert.True(work.Matches("sam"));
+        Assert.True(work.Matches("Christmas"));
+        Assert.False(work.Matches("birthday"));
+        Assert.False(new Work(2, "Other", "B").Matches("christmas"));
+    }
+
+    [Fact]
+    public void NoteAndTagMerge()
+    {
+        Assert.Equal("cloud", LibrarySyncManager.MergedNote(null, "cloud"));
+        Assert.Equal("cloud", LibrarySyncManager.MergedNote("  ", "cloud"));
+        Assert.Equal("local", LibrarySyncManager.MergedNote("local", null));
+        Assert.Equal("local", LibrarySyncManager.MergedNote("local", "cloud"));
+        Assert.Null(LibrarySyncManager.MergedNote(" ", null));
+        Assert.Equal(["x"], LibrarySyncManager.MergedPersonalTags([], ["x"]));
+        Assert.Empty(LibrarySyncManager.MergedPersonalTags([], null));
+        Assert.Equal(["y"], LibrarySyncManager.MergedPersonalTags(["y"], ["x"]));
+
+        // With edit stamps, the newest side wins outright, a clear included.
+        var older = DateTimeOffset.FromUnixTimeSeconds(1_000);
+        var newer = DateTimeOffset.FromUnixTimeSeconds(2_000);
+        var filled = new WorkNotes("old", ["t"], older);
+        var cleared = new WorkNotes(null, [], newer);
+        Assert.Same(cleared, LibrarySyncManager.MergedNotes(filled, cleared));
+        Assert.Same(cleared, LibrarySyncManager.MergedNotes(cleared, filled));
+        // A stamped side beats an unstamped (never edited) one; ties go to local.
+        Assert.Same(filled, LibrarySyncManager.MergedNotes(new WorkNotes(null, [], null), filled));
+        Assert.Same(filled, LibrarySyncManager.MergedNotes(filled, new WorkNotes("other", [], older)));
+        // Neither stamped: the forward-only fallback.
+        var fallback = LibrarySyncManager.MergedNotes(new WorkNotes(null, [], null), new WorkNotes("x", ["y"], null));
+        Assert.Equal("x", fallback.Note);
+        Assert.Equal(["y"], fallback.PersonalTags);
+    }
+
+    [Fact]
+    public void SetNotesStampsOnlyRealChanges()
+    {
+        var work = new Work(1, "T", "A");
+        var t1 = DateTimeOffset.FromUnixTimeSeconds(1_000);
+        work.SetNotes("a", "x", t1);
+        Assert.Equal(t1, work.NotesUpdatedAt);
+        work.SetNotes(" a ", "x,", DateTimeOffset.FromUnixTimeSeconds(2_000));
+        Assert.Equal(t1, work.NotesUpdatedAt); // unchanged text isn't a newer edit
+    }
+
+    /// <summary>Clearing a note on one device reaches the others: the newer,
+    /// empty value replaces the note in the backup and then on restore.</summary>
+    [Fact]
+    public async Task ClearedNoteSyncsInsteadOfComingBack()
+    {
+        var path = MakeTempBackupPath();
+
+        using var pad = MakeContext();
+        var padWork = new Work(1, "T", "A");
+        padWork.SetNotes("old note", "old", DateTimeOffset.Now.AddHours(-1));
+        pad.Insert(padWork);
+        pad.Save();
+        MakeSync(path).Backup(pad);
+
+        using var phone = MakeContext();
+        Assert.True(await MakeSync(path).RestoreAsync(phone));
+        var phoneWork = Assert.Single(phone.All<Work>());
+        Assert.Equal("old note", phoneWork.Note);
+        WorkPersistence.SetNotes(phoneWork, "", "", phone);
+        MakeSync(path).Backup(phone);
+
+        var backedUp = Assert.Single(DecodeBackup(path).Works);
+        Assert.Null(backedUp.Note);
+        Assert.Empty(backedUp.PersonalTags!);
+
+        Assert.True(await MakeSync(path).RestoreAsync(pad));
+        Assert.Null(padWork.Note);
+        Assert.Empty(padWork.PersonalTags);
+    }
+
+    /// <summary>A device that never edited the note doesn't erase another
+    /// device's note in the backup file, and a later edit replaces it.</summary>
+    [Fact]
+    public void BackupMergeKeepsNotesUntilANewerEdit()
+    {
+        var path = MakeTempBackupPath();
+
+        using var phone = MakeContext();
+        var noted = new Work(1, "T", "A");
+        noted.SetNotes("phone note", "comfort");
+        phone.Insert(noted);
+        phone.Save();
+        MakeSync(path).Backup(phone);
+
+        using var pad = MakeContext();
+        pad.Insert(new Work(1, "T", "A"));
+        pad.Save();
+        MakeSync(path).Backup(pad);
+
+        var work = Assert.Single(DecodeBackup(path).Works);
+        Assert.Equal("phone note", work.Note);
+        Assert.Equal(["comfort"], work.PersonalTags!);
+
+        using var pc = MakeContext();
+        var pcWork = new Work(1, "T", "A");
+        pcWork.SetNotes("pc note", "angst");
+        pc.Insert(pcWork);
+        pc.Save();
+        MakeSync(path).Backup(pc);
+
+        work = Assert.Single(DecodeBackup(path).Works);
+        Assert.Equal("pc note", work.Note);
+        Assert.Equal(["angst"], work.PersonalTags!);
+    }
+
+    /// <summary>Restore fills a never-edited note and tags from the backup, and
+    /// keeps this device's own when they were edited after the backup's.</summary>
+    [Fact]
+    public async Task RestoreKeepsNewerLocalNotesAndFillsEmptyOnes()
+    {
+        var path = MakeTempBackupPath();
+
+        using var cloudDevice = MakeContext();
+        foreach (var id in new[] { 1, 2 })
+        {
+            var w = new Work(id, $"T{id}", "A");
+            w.SetNotes("cloud note", "cloud tag");
+            cloudDevice.Insert(w);
+        }
+        cloudDevice.Save();
+        MakeSync(path).Backup(cloudDevice);
+
+        using var device = MakeContext();
+        var own = new Work(1, "T1", "A");
+        own.SetNotes("my note", "my tag");
+        device.Insert(own);
+        device.Insert(new Work(2, "T2", "A"));
+        device.Save();
+
+        Assert.True(await MakeSync(path).RestoreAsync(device));
+        var first = device.All<Work>().Single(w => w.Ao3Id == 1);
+        var second = device.All<Work>().Single(w => w.Ao3Id == 2);
+        Assert.Equal("my note", first.Note);
+        Assert.Equal(["my tag"], first.PersonalTags);
+        Assert.Equal("cloud note", second.Note);
+        Assert.Equal(["cloud tag"], second.PersonalTags);
+    }
+
+    /// <summary>A backup written before notes and personal tags existed
+    /// restores without touching this device's.</summary>
+    [Fact]
+    public async Task OldBackupWithoutNoteFieldsKeepsLocalNotes()
+    {
+        var path = MakeTempBackupPath();
+        File.WriteAllText(path,
+            "{\"works\":[{\"ao3Id\":1,\"title\":\"T\",\"authorName\":\"A\",\"authorUsername\":\"\",\"summary\":\"\",\"rating\":\"Not Rated\"," +
+            "\"warnings\":[],\"categories\":[],\"fandoms\":[],\"characters\":[],\"relationships\":[],\"freeforms\":[],\"language\":\"en\"," +
+            "\"wordCount\":0,\"chapterCount\":1,\"kudos\":0,\"hits\":0,\"bookmarksCount\":0,\"commentsCount\":0,\"isComplete\":false," +
+            "\"savedAt\":\"2025-01-01T00:00:00Z\",\"isFollowed\":false,\"chapters\":[]}],\"bookmarks\":[],\"subscriptions\":[],\"searches\":[]," +
+            "\"progress\":[],\"filters\":[],\"hidden\":[],\"timestamp\":\"2025-01-01T00:00:00Z\"}");
+
+        using var device = MakeContext();
+        var local = new Work(1, "T", "A");
+        local.SetNotes("keep me", "keep");
+        device.Insert(local);
+        device.Save();
+
+        Assert.True(await MakeSync(path).RestoreAsync(device));
+        var work = Assert.Single(device.All<Work>());
+        Assert.Equal("keep me", work.Note);
+        Assert.Equal(["keep"], work.PersonalTags);
+    }
+
     [Fact]
     public void WorkMultiFolderPersistence()
     {

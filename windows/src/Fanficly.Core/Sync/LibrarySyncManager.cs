@@ -523,7 +523,10 @@ public sealed class LibrarySyncManager
         IsPinned: work.IsPinned,
         Chapters: chapters,
         FolderName: work.Folders.FirstOrDefault()?.Name,
-        FolderNames: work.Folders.Select(f => f.Name).ToList());
+        FolderNames: work.Folders.Select(f => f.Name).ToList(),
+        Note: work.Note,
+        PersonalTags: work.PersonalTags,
+        NotesUpdatedAt: work.NotesUpdatedAt);
 
     /// <summary>The library as a backup, mapping every record type.</summary>
     internal LibraryBackup MakeLocalBackup(LibraryStore store) => TakeSnapshot(store).WithBodies(store);
@@ -736,7 +739,8 @@ public sealed class LibrarySyncManager
     /// an OR (FollowedAt keeps local's when set; the backup merge then puts
     /// local's flags back, see <see cref="MergedBackup"/>); LastSeenChapterCount keeps the
     /// higher count, so an older copy never re-announces chapters; chapters come
-    /// from the copy with more, and folders union.</summary>
+    /// from the copy with more, folders union, and the note and personal tags
+    /// merge as one value (<see cref="MergedNotes"/>).</summary>
     public static WorkBackup MergedWork(WorkBackup local, WorkBackup other)
     {
         var meta = HasFresherMetadata(other, local) ? other : local;
@@ -744,6 +748,9 @@ public sealed class LibrarySyncManager
         var localFolders = local.FolderNames ?? (local.FolderName is { } lf ? [lf] : []);
         var otherFolders = other.FolderNames ?? (other.FolderName is { } of ? [of] : []);
         var folders = localFolders.Concat(otherFolders.Where(f => !localFolders.Contains(f))).ToList();
+        var notes = MergedNotes(
+            new WorkNotes(local.Note, local.PersonalTags ?? [], local.NotesUpdatedAt),
+            new WorkNotes(other.Note, other.PersonalTags ?? [], other.NotesUpdatedAt));
         return meta with
         {
             Ao3Id = local.Ao3Id,
@@ -759,6 +766,9 @@ public sealed class LibrarySyncManager
             Chapters = other.Chapters.Count > local.Chapters.Count ? other.Chapters : local.Chapters,
             FolderName = folders.FirstOrDefault(),
             FolderNames = folders,
+            Note = notes.Note,
+            PersonalTags = notes.PersonalTags,
+            NotesUpdatedAt = notes.UpdatedAt,
         };
     }
 
@@ -800,6 +810,32 @@ public sealed class LibrarySyncManager
         foreach (var item in items) d.TryAdd(key(item), item);
         return d;
     }
+
+    /// <summary>A work's note and personal tags merge as one value. The side
+    /// edited most recently wins, so clearing or changing a note reaches every
+    /// device (ties go to local). Only when neither side has an edit stamp does
+    /// the forward-only rule apply: an empty value never replaces a filled one,
+    /// and local wins (Swift's <c>mergedNotes</c>).</summary>
+    public static WorkNotes MergedNotes(WorkNotes local, WorkNotes other)
+    {
+        if (local.UpdatedAt is not null || other.UpdatedAt is not null)
+            return (other.UpdatedAt ?? DateTimeOffset.MinValue) > (local.UpdatedAt ?? DateTimeOffset.MinValue) ? other : local;
+        return new WorkNotes(MergedNote(local.Note, other.Note), MergedPersonalTags(local.PersonalTags, other.PersonalTags), null);
+    }
+
+    /// <summary>The unstamped note fallback: a non-empty note is never replaced
+    /// by an empty one, and when both sides have one, local wins.</summary>
+    public static string? MergedNote(string? local, string? other)
+    {
+        if (!string.IsNullOrWhiteSpace(local)) return local;
+        if (!string.IsNullOrWhiteSpace(other)) return other;
+        return null;
+    }
+
+    /// <summary>The unstamped tags fallback, the same way as the note: local
+    /// wins unless it's empty.</summary>
+    public static IReadOnlyList<string> MergedPersonalTags(IReadOnlyList<string> local, IReadOnlyList<string>? other) =>
+        local.Count == 0 ? (other ?? []) : local;
 
     /// <summary>The conservative per-stat merge restore applies too: max of
     /// totals and per-day buckets, widest date span, non-empty metadata wins —
@@ -1010,6 +1046,11 @@ public sealed class LibrarySyncManager
             work.LastSeenChapterCount = m.LastSeenChapterCount;
             work.IsStarred = m.IsStarred ?? false;
             work.IsPinned = m.IsPinned ?? false;
+            // Note and personal tags: the newest edit wins (MergedNotes, inside
+            // MergedWork), so an older backup never undoes an edit made here.
+            if (m.Note != work.Note) work.Note = m.Note;
+            if (!(m.PersonalTags ?? []).SequenceEqual(work.PersonalTags)) work.PersonalTags = m.PersonalTags ?? [];
+            if (m.NotesUpdatedAt != work.NotesUpdatedAt) work.NotesUpdatedAt = m.NotesUpdatedAt;
 
             work.Folder = null; // clear the legacy single-folder reference
             // Folders union, not replace: a launch sync must not drop an

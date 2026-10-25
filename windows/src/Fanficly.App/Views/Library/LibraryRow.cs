@@ -59,7 +59,25 @@ public static class LibraryRow
             pills.Children.Add(Pill(text, isFolder));
             spoken.Add(isFolder ? $"in folder {text}" : text);
         }
+        // The Swift app tints personal tags purple; here they keep the
+        // secondary pill colours and a tag icon, which Theme already has.
+        foreach (var tag in work.PersonalTags)
+        {
+            pills.Children.Add(Pill(tag, isFolder: false, symbol: "tag"));
+            spoken.Add($"your tag {tag}");
+        }
         stack.Children.Add(pills);
+
+        if (work.Note is { Length: > 0 } note)
+        {
+            // A grid, not an HStack, so the note wraps to the row's width.
+            var noteRow = UI.UI.Grid("Auto,*", columnSpacing: 4);
+            noteRow.Children.Add(UI.UI.Icon("note.text", 10, Theme.TextSecondary)
+                .Also(i => { i.VerticalAlignment = VerticalAlignment.Top; i.Margin = new Thickness(0, 3, 0, 0); }).Col(0));
+            noteRow.Children.Add(UI.UI.Text(note, Theme.Style.Caption, Theme.TextSecondary, maxLines: UI.UI.LineLimit(2)).Col(1));
+            stack.Children.Add(noteRow.A11yHidden());
+            spoken.Add($"your note: {note}");
+        }
 
         if (KeyValueStores.Default.GetBool(ShowReadingProgressKey, true) && ReadingProgress(work) is { } progress)
         {
@@ -97,11 +115,12 @@ public static class LibraryRow
         return items;
     }
 
-    private static Border Pill(string text, bool isFolder)
+    private static Border Pill(string text, bool isFolder, string? symbol = null)
     {
         var row = UI.UI.HStack(4);
         var fg = isFolder ? Theme.Accent : Theme.TextSecondary;
-        if (isFolder) row.Children.Add(UI.UI.Icon("folder", 10, fg).Also(i => i.VerticalAlignment = VerticalAlignment.Center));
+        if ((isFolder ? "folder" : symbol) is { } icon)
+            row.Children.Add(UI.UI.Icon(icon, 10, fg).Also(i => i.VerticalAlignment = VerticalAlignment.Center));
         row.Children.Add(UI.UI.Text(text, Theme.Style.Caption2, fg, wrap: false));
         // A rounded rectangle, not a capsule, so the pills line up with the
         // flush title/author text.
