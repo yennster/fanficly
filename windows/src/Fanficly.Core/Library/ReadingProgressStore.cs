@@ -38,7 +38,7 @@ public static class ReadingProgressStore
             if (progress is { } p) work.LastReadProgress = p;
         }
 
-        store.TrySave();
+        using (LibrarySyncManager.ReadingActivity()) store.TrySave();
 
         if (progress is { } value)
         {
@@ -383,7 +383,7 @@ public static class ReadingStatsStore
             store.Insert(created);
             justFinished = created.Snapshot.IsFinished;
         }
-        store.TrySave();
+        using (LibrarySyncManager.ReadingActivity()) store.TrySave();
         return justFinished;
     }
 

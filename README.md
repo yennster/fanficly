@@ -2,6 +2,8 @@
 
 Fanficly is a free, ad-free app for reading fanfiction from [Archive of Our Own (AO3)](https://archiveofourown.org) on iPhone, iPhone Duo, iPad, Mac and Windows. Its source code is public. There are no Fanficly servers or accounts, no ads and no analytics: everything runs on your device and talks directly to AO3.
 
+<a href="https://apps.apple.com/app/id6775897153"><img src="website/assets/badges/app-store.svg" alt="Download on the App Store" height="50"></a> <a href="https://apps.microsoft.com/detail/9PH24K7ZCZTX"><img src="website/assets/badges/microsoft-store.svg" alt="Get it from Microsoft" height="50"></a>
+
 [App Store](https://apps.apple.com/app/id6775897153) (iPhone, iPhone Duo, iPad and Mac) · [Microsoft Store](https://apps.microsoft.com/detail/9PH24K7ZCZTX) (Windows) · [fanficly.app](https://fanficly.app)
 
 <img src="apple/screenshots/showcase.png" alt="Fanficly on iPhone: search, privacy and reader settings">
@@ -14,7 +16,7 @@ Fanficly is a free, ad-free app for reading fanfiction from [Archive of Our Own 
 - **New chapter alerts.** Follow works and authors without an account and get a notification when something new is posted.
 - **Listen.** Stories read aloud with the device's own voices, nothing sent anywhere.
 - **Stats and a yearly wrap.** Stories finished, time and words read, your streak and your top fandoms, all computed on your device.
-- **Optional AO3 account.** Sign in for your AO3 subscriptions, bookmarks and comments. Your password is never stored.
+- **Optional AO3 account.** Sign in for your AO3 subscriptions, bookmarks, comments and kudos. Your password is never stored.
 
 ## Pick your platform
 
@@ -58,7 +60,7 @@ Unfolded, the reader becomes an open book with the fold as its spine. Folding or
 | :---: | :---: | :---: | :---: |
 | <img src="apple/docs/screenshots/ipad/02-search-results.png" width="190" alt="Search results on iPad"> | <img src="apple/docs/screenshots/ipad/03-reader.png" width="190" alt="A story in the reader on iPad"> | <img src="apple/docs/screenshots/ipad/04-library.png" width="190" alt="The Library on iPad"> | <img src="apple/docs/screenshots/ipad/05-browse.png" width="190" alt="Browse by fandom on iPad"> |
 
-A sidebar beside every screen, two-page spreads in landscape, and hardware keyboard page turns.
+A sidebar beside every screen, two-page spreads in landscape, and page turns from a hardware keyboard or a Bluetooth page turner.
 
 **Docs:** [the Apple app guide](apple/README.md) · [all iPad screenshots](apple/docs/screenshots/ipad/)
 
@@ -72,7 +74,7 @@ A sidebar beside every screen, two-page spreads in landscape, and hardware keybo
 | :---: | :---: |
 | <img src="apple/screenshots/final/mac/01-search-plain-english.png" width="400" alt="Search on the Mac"> | <img src="apple/screenshots/final/mac/03-customize-every-page.png" width="400" alt="Reader settings on the Mac"> |
 
-A resizable window, ⌘1–9 for the tabs, interface zoom from the View menu (⇧⌘+ / ⇧⌘− or ⌘+ / ⌘−, ⌘0), and arrow keys to turn pages.
+A resizable window, ⌘1–9 for the tabs, interface zoom from the View menu (⇧⌘+ / ⇧⌘− or ⌘+ / ⌘−, ⌘0), and arrow keys, Page Up / Page Down or a Bluetooth page turner to turn pages.
 
 **Docs:** [the Apple app guide](apple/README.md) · [all Mac screenshots](apple/screenshots/final/mac/)
 
@@ -132,9 +134,13 @@ Yes. Fanficly is free on the [App Store](https://apps.apple.com/app/id6775897153
 
 iPhone and iPad with iOS 17 or later (including iPhone Duo, folded and unfolded), Macs with macOS 14 Sonoma or later, and PCs with Windows 10 (version 2004 or later) or Windows 11, on x64 and ARM64.
 
+### Does Fanficly work with Bluetooth page turners?
+
+Yes. Page turners and scroll remotes that pair as a Bluetooth keyboard (arrow keys, Page Up and Page Down, or Space) turn the page in page-by-page mode and scroll a screenful in the scrolling modes, on iPhone, iPad, Mac and Windows. Ring and handheld scrollers in touch mode swipe and tap like a finger. Remotes that only send volume or camera-shutter presses aren't supported, so switch the remote to its page-turn or keyboard mode.
+
 ### Do I need an AO3 account?
 
-No. Searching, reading, saving works for offline reading, and following works and authors all work without an account. Signing in to AO3 is optional and adds your AO3 bookmarks, subscriptions and comments. Your password goes only to AO3 and is never stored.
+No. Searching, reading, saving works for offline reading, and following works and authors all work without an account. Signing in to AO3 is optional and adds your AO3 bookmarks, subscriptions, comments and kudos. Your password goes only to AO3 and is never stored.
 
 ### Can I read AO3 fanfiction offline?
 

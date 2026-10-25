@@ -33,6 +33,13 @@ IPHONE_SIM="iPhone 17 Pro Max"
 IPAD_SIM="iPad Pro 13-inch (M5)"
 
 udid_for() {
+    # The fastlane previews lane passes the simulators its screenshots ran on
+    # (newest iOS runtime); a first match by name can be an older runtime's
+    # never-booted copy, too slow to record the tour.
+    case "$1" in
+        "$IPHONE_SIM") [ -n "${IPHONE_UDID:-}" ] && { echo "$IPHONE_UDID"; return; } ;;
+        "$IPAD_SIM") [ -n "${IPAD_UDID:-}" ] && { echo "$IPAD_UDID"; return; } ;;
+    esac
     xcrun simctl list devices available | grep -F "$1 (" | head -1 \
         | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1
 }
@@ -92,6 +99,7 @@ record() { # <name> <sim name> <test method>
     wait "$test_pid" || test_rc=$?
     if [ "$test_rc" -ne 0 ]; then
         echo "ERROR: tour failed for $name — see $RAW/$name-test.log"
+        tail -40 "$RAW/$name-test.log"
         exit 1
     fi
     if [ ! -s "$RAW/$name.mov" ]; then
@@ -190,8 +198,8 @@ if ! $POST_ONLY; then
     record ipad   "$IPAD_SIM"   testPreviewTourPad
     record mac    "$IPAD_SIM"   testPreviewTourMac
     # Put both simulators' region and status bar back.
-    bin/sim-marketing-mode.sh off "$IPHONE_SIM" > /dev/null
-    bin/sim-marketing-mode.sh off "$IPAD_SIM" > /dev/null
+    bin/sim-marketing-mode.sh off "$(udid_for "$IPHONE_SIM")" > /dev/null
+    bin/sim-marketing-mode.sh off "$(udid_for "$IPAD_SIM")" > /dev/null
 fi
 
 PRE="null" CAPSIZE=104 CAPMAXW=1180 CAPMARGIN=56

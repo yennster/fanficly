@@ -8,8 +8,10 @@ import SwiftData
 struct SearchView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(AuthState.self) private var auth
     @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
     @Query private var hiddenWorks: [HiddenWork]
+    @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("search.pendingQuery") private var pendingQuery: String = ""
     @AppStorage(RecentSearches.storageKey) private var recentRaw: String = ""
@@ -31,6 +33,8 @@ struct SearchView: View {
     @State private var hasSearched = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// The error is an expired AO3 session (#131): offer Sign In Again.
+    @State private var sessionExpired = false
     @State private var searchTask: Task<Void, Never>?
     @State private var searchStartedAt: Date?
     @State private var tagSuggestions: [SuggestionCandidate] = []
@@ -284,15 +288,28 @@ struct SearchView: View {
 
     // MARK: - Content
 
-    /// Results minus hidden works and (optionally) Mature/Explicit-rated ones.
+    /// Results minus hidden works, blocked tags and authors (except ones this
+    /// search asked for by name) and (optionally) Mature/Explicit-rated ones.
     private var visibleResults: [AO3WorkSummary] {
-        ContentFilter.apply(results, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature)
+        ContentFilter.apply(results, hiddenIds: HiddenWorkStore.ids(hiddenWorks), filterMature: filterMature,
+                            blocklist: Blocklist(blockedTerms).lifting(searched ?? active))
     }
 
     @ViewBuilder
     private var contentArea: some View {
         if isSearching {
             searchingView
+        } else if let error = errorMessage, sessionExpired, !auth.hasSession {
+            SessionExpiredView(message: error)
+        } else if errorMessage != nil, sessionExpired {
+            // Signed in again since: the expiry note no longer stands.
+            ContentUnavailableView {
+                Label("Signed in again", systemImage: "magnifyingglass")
+            } description: {
+                Text("Search again to see every result, restricted works included.")
+            } actions: {
+                Button("Try Again") { startSearch() }
+            }
         } else if let error = errorMessage {
             ContentUnavailableView {
                 Label("Search failed", systemImage: "exclamationmark.triangle")
@@ -319,8 +336,9 @@ struct SearchView: View {
                 }
             }
         } else if visibleResults.isEmpty {
-            ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                description: Text("Every match is hidden or filtered out by your content settings."))
+            FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
+                            canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                            loadMore: loadMore)
         } else {
             resultsList
         }
@@ -461,6 +479,7 @@ struct SearchView: View {
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
+                                    iCloudSyncManager.recordDeletion(.search, key: saved.name)
                                     context.delete(saved)
                                     try? context.save()
                                 } label: {
@@ -663,6 +682,7 @@ struct SearchView: View {
 
     private func performSearch(_ requested: AO3SearchFilters) async {
         errorMessage = nil
+        sessionExpired = false
         searchStartedAt = .now
         withAnimation { isSearching = true }
         var filters = requested
@@ -681,6 +701,7 @@ struct SearchView: View {
         do {
             let result = try await client.search(filters: filters, page: 1)
             guard !Task.isCancelled else { return }
+            _ = try auth.check(result)
             results = result.works
             totalFound = result.totalFound
             totalPages = result.totalPages
@@ -693,7 +714,8 @@ struct SearchView: View {
             } ?? "Search finished. \(results.count) works on this page.")
         } catch {
             guard !Task.isCancelled else { return }
-            errorMessage = Self.message(for: error)
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : Self.message(for: error)
         }
         searchStartedAt = nil
         withAnimation { isSearching = false }
@@ -706,7 +728,7 @@ struct SearchView: View {
         case AO3Error.parseFailed(let reason): return "Couldn't read AO3's response: \(reason)"
         case AO3Error.network(let underlying): return "Network: \(underlying)"
         case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
-        case AO3Error.unauthorized: return "AO3 sent its login page instead of results. Log in again in Settings, then try again."
+        case AO3Error.unauthorized: return "AO3 sent its login page instead of results. Sign in again, then try again."
         default: return error.localizedDescription
         }
     }
@@ -719,12 +741,14 @@ struct SearchView: View {
         do {
             let result = try await client.search(filters: searched, page: currentPage + 1)
             guard searched == self.searched else { return }  // a new search started meanwhile
+            _ = try auth.check(result)
             let existing = Set(results.map(\.id))
             results.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "Couldn't load more: \(Self.message(for: error))"
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : "Couldn't load more: \(Self.message(for: error))"
         }
     }
 
@@ -795,728 +819,8 @@ struct SearchView: View {
     }
 }
 
-struct WorkRow: View {
-    let work: AO3WorkSummary
-    /// "In Library", "Finished" or a percent, from the list's one lookup per
-    /// page (`.resultBadges(for:into:)`).
-    var badge: ResultBadge? = nil
-    @Environment(\.modelContext) private var context
-    // Reflects the local follow ("bookmark") state; seeded on appear and
-    // updated when the inline button is tapped.
-    @State private var isFollowed = false
-    // Saving from the inline button puts the work in the Library before the
-    // list's next lookup.
-    @State private var savedHere = false
-
-    private var shownBadge: ResultBadge? {
-        badge ?? (savedHere ? .inLibrary : nil)
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(work.title).font(.headline)
-                    if let shownBadge {
-                        ResultBadgeView(badge: shownBadge)
-                    }
-                }
-                Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)
-                HStack(spacing: 8) {
-                    if !work.rating.isEmpty {
-                        Text(work.rating).font(.caption).foregroundStyle(.secondary)
-                    }
-                    if work.wordCount > 0 {
-                        Text("\(work.wordCount.formatted()) words").font(.caption).foregroundStyle(.secondary)
-                    }
-                    if work.totalChapters != nil {
-                        Text("\(work.chapterCount)/\(work.totalChapters!)").font(.caption).foregroundStyle(.secondary)
-                    } else if work.chapterCount > 0 {
-                        Text("\(work.chapterCount)/?").font(.caption).foregroundStyle(.secondary)
-                    }
-                    if work.kudos > 0 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "heart")
-                                .accessibilityHidden(true)
-                            Text(work.kudos.formatted())
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                if !work.summary.isEmpty {
-                    Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
-                }
-            }
-            // Combine only the text stack, so the inline bookmark button stays
-            // its own focusable element.
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 8)
-            bookmarkButton
-        }
-        .padding(.vertical, 4)
-        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
-        .onAppear { isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context) }
-    }
-
-    /// Inline one-tap follow/unfollow, so a story can be saved to the Library
-    /// straight from a results list without opening it. `.borderless` keeps the
-    /// tap from also triggering the row's NavigationLink.
-    private var bookmarkButton: some View {
-        Button {
-            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isFollowed = newState
-                savedHere = true  // toggling creates the Work; unfollowing keeps it
-            }
-        } label: {
-            Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
-                .font(.body)
-                .foregroundStyle(isFollowed ? Color.accentColor : Color.secondary)
-                .contentTransition(.symbolEffect(.replace))
-                .padding(.vertical, 4)
-                .padding(.leading, 6)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(isFollowed ? "Remove \(work.title) from Library"
-                                       : "Save \(work.title) to Library")
-    }
-}
-
-/// The small capsule a result row shows for a work already read or saved.
-/// It sits inside the row's combined text element, so VoiceOver reads its
-/// label as part of the row.
-struct ResultBadgeView: View {
-    let badge: ResultBadge
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: badge.symbol)
-                .accessibilityHidden(true)
-            Text(badge.text)
-        }
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(tint)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(tint.opacity(0.15), in: Capsule())
-        .lineLimit(1)
-        .fixedSize()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(badge.accessibilityLabel)
-    }
-
-    private var tint: Color {
-        badge == .finished ? .green : .accentColor
-    }
-}
-
-extension View {
-    /// Keeps `badges` current for a results list: one lookup for the whole
-    /// page when the results change, and again when the list reappears
-    /// (back from reading a story).
-    func resultBadges(for works: [AO3WorkSummary], into badges: Binding<[Int: ResultBadge]>) -> some View {
-        modifier(ResultBadgesModifier(works: works, badges: badges))
-    }
-}
-
-private struct ResultBadgesModifier: ViewModifier {
-    let works: [AO3WorkSummary]
-    @Binding var badges: [Int: ResultBadge]
-    @Environment(\.modelContext) private var context
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear(perform: refresh)
-            .onChange(of: works.map(\.id)) { refresh() }
-    }
-
-    private func refresh() {
-        badges = WorkPersistence.resultBadges(for: works, in: context)
-    }
-}
-
-struct ChipView: View {
-    enum Kind { case include, exclude }
-    let text: String
-    let kind: Kind
-    var removable: Bool = false
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(text)
-            if removable {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).opacity(0.6)
-                    .accessibilityHidden(true)
-            }
-        }
-        .font(.caption)
-        .padding(.leading, 10)
-        .padding(.trailing, removable ? 8 : 10)
-        .padding(.vertical, 5)
-        .background(background)
-        .foregroundStyle(foreground)
-        .clipShape(Capsule())
-    }
-
-    private var background: Color {
-        switch kind {
-        case .include: Color.accentColor.opacity(0.18)
-        case .exclude: Color.red.opacity(0.18)
-        }
-    }
-
-    private var foreground: Color {
-        switch kind {
-        case .include: Color.accentColor
-        case .exclude: Color.red
-        }
-    }
-}
-
-struct WorkDetailView: View {
-    @Environment(\.ao3Client) private var client
-    @Environment(\.modelContext) private var context
-    @Environment(\.colorScheme) private var systemColorScheme
-    @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
-    @Environment(\.dismiss) private var dismiss
-    let workId: Int
-    @State private var payload: AO3WorkPayload?
-    @State private var errorMessage: String?
-    @State private var isSavingOffline: Bool = false
-    @State private var followed: Bool = false
-    @State private var epubURL: URL?
-    @State private var showingReport: Bool = false
-    @State private var showingComments: Bool = false
-    @State private var currentChapterIndex = 1
-    @State private var exporter = WorkExporter()
-
-    /// The reader's themed page colour, computed the same way `ReaderView`
-    /// does, so the detail screen is opaque from the first frame.
-    private var readerBackground: Color {
-        let theme = ReaderTheme(rawValue: themeRaw) ?? .system
-        let scheme = theme.preferredColorScheme ?? systemColorScheme
-        return theme.background(for: scheme)
-    }
-
-    var body: some View {
-        Group {
-            if let payload {
-                ReaderView(payload: payload, currentChapter: $currentChapterIndex)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            Button {
-                                followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
-                            } label: {
-                                Label(followed ? "Remove from Library" : "Save to Library",
-                                      systemImage: followed ? "bookmark.fill" : "bookmark")
-                            }
-                            .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
-                            
-                            moreMenu(payload: payload)
-                        }
-                    }
-                    .sheet(isPresented: $showingReport) {
-                        SafariView(url: URL(string: "https://archiveofourown.org/abuse_reports/new")!)
-                            .ignoresSafeArea()
-                    }
-                    .sheet(isPresented: $showingComments) {
-                        CommentsView(workId: workId, workTitle: payload.summary.title,
-                                     chapterId: payload.chapters.first(where: { $0.index == currentChapterIndex })?.aoId,
-                                     chapterNumber: currentChapterIndex,
-                                     totalChapters: payload.chapters.count)
-                    }
-            } else if let errorMessage {
-                ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
-            } else {
-                ProgressView("Loading…").frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        // Opaque, full-bleed backing so the screen we pushed from (e.g. the
-        // Browse list with its filter chips) never shows through while the work
-        // loads or during the push transition.
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(readerBackground.ignoresSafeArea())
-        // On the screen view, NOT inside the menu — see WorkExporter's docs.
-        .workExportPresentation(exporter)
-        .task { await load() }
-    }
-
-    // MARK: - Toolbar buttons
-
-    /// Overflow menu: save-to-library (follow), offline download, plus the
-    /// UGC safeguards (App Store guideline 1.2) — report objectionable content
-    /// to AO3 (the host/moderator), and hide the work locally so it never
-    /// appears in results again. Kept to a single menu so the toolbar matches
-    /// the Library reader and the reader's own items (chapters, Aa, minimize)
-    /// fit without the system spilling them into its own overflow. Its symbol
-    /// isn't an ellipsis: Apple keeps that for the system overflow menu.
-    private func moreMenu(payload: AO3WorkPayload) -> some View {
-        Menu {
-            Button {
-                showingComments = true
-            } label: {
-                Label("Comments", systemImage: "bubble.left.and.bubble.right")
-            }
-
-            Divider()
-
-            WorkExportButton(workId: workId, title: payload.summary.title,
-                             exporter: exporter, useTextLabel: true)
-            Button {
-                Task { await saveOffline(payload) }
-            } label: {
-                if isSavingOffline {
-                    Label("Downloading…", systemImage: "arrow.down.circle")
-                } else if epubURL != nil {
-                    Label("Downloaded", systemImage: "checkmark.circle.fill")
-                } else {
-                    Label("Download", systemImage: "arrow.down.circle")
-                }
-            }
-            .disabled(isSavingOffline || epubURL != nil)
-
-            Divider()
-
-            Button {
-                showingReport = true
-            } label: {
-                Label("Report this work", systemImage: "flag")
-            }
-            Button(role: .destructive) {
-                HiddenWorkStore.hide(ao3Id: payload.summary.id, title: payload.summary.title, into: context)
-                dismiss()
-            } label: {
-                Label("Hide this work", systemImage: "eye.slash")
-            }
-        } label: {
-            if exporter.isExporting {
-                ProgressView()
-            } else {
-                Label("Work options", systemImage: "book.circle")
-            }
-        }
-        .accessibilityLabel("Work options")
-    }
-
-    // MARK: - Actions
-
-    private func load() async {
-        epubURL = WorkPersistence.epubURL(workId: workId)
-        followed = WorkPersistence.isFollowed(workId: workId, in: context)
-
-        do {
-            let fetched = try await client.fetchWork(id: workId)
-            payload = fetched
-            WorkPersistence.recordView(summary: fetched.summary, into: context)
-        } catch {
-            errorMessage = "\(error)"
-        }
-    }
-
-    private func saveOffline(_ payload: AO3WorkPayload) async {
-        isSavingOffline = true
-        defer { isSavingOffline = false }
-        _ = WorkPersistence.upsert(payload: payload, into: context)
-        do {
-            let url = try await client.downloadEPUB(workId: payload.summary.id)
-            epubURL = url
-        } catch {
-            errorMessage = "Saved metadata but EPUB download failed: \(error)"
-        }
-    }
-
-}
-
-/// Reads a work's comment thread and, when logged in, lets you post a comment.
-/// Live-fetched (no caching), presented as a sheet from the reader's options
-/// menu. Posting reuses the proven CSRF-token flow (scrape the work page's
-/// authenticity_token + pseud, then POST), like login and subscribe.
-struct CommentsView: View {
-    let workId: Int
-    let workTitle: String
-    /// The chapter whose thread to show/post to (AO3 comments are per-chapter).
-    /// nil → work-level (first chapter), the fallback when the id is unknown.
-    var chapterId: Int? = nil
-    var chapterNumber: Int? = nil
-    var totalChapters: Int? = nil
-    @Environment(\.ao3Client) private var client
-    @Environment(AuthState.self) private var auth
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var comments: [AO3Comment] = []
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    /// The last comment page loaded and how many AO3 has, for "Load more".
-    @State private var currentPage = 1
-    @State private var totalPages = 1
-    @State private var isLoadingMore = false
-    @State private var loadMoreError: String?
-    /// Bumped by every page-1 load, so a "Load more" that finishes after a
-    /// refresh or post can't append onto the reloaded list.
-    @State private var loadGeneration = 0
-    @State private var draft = ""
-    @State private var isPosting = false
-    @State private var postError: String?
-    @FocusState private var composerFocused: Bool
-
-    /// Show the chapter only for multi-chapter works; single-chapter works read
-    /// plainly as "Comments".
-    private var navTitle: String {
-        if let chapterNumber, (totalChapters ?? 1) > 1 { return "Comments · Ch \(chapterNumber)" }
-        return "Comments"
-    }
-
-    /// Per-chapter empty state names the chapter, so an empty later chapter
-    /// reads as "this chapter has none" rather than "comments failed to load".
-    private var emptyTitle: String {
-        if let chapterNumber, (totalChapters ?? 1) > 1 { return "No comments on Chapter \(chapterNumber) yet" }
-        return "No comments yet"
-    }
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading && comments.isEmpty {
-                    VStack { Spacer(); ProgressView("Loading comments…"); Spacer() }
-                } else if let errorMessage, comments.isEmpty {
-                    ContentUnavailableView {
-                        Label("Couldn't load comments", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(errorMessage)
-                    } actions: {
-                        Button("Retry") { Task { await load() } }
-                    }
-                } else if comments.isEmpty {
-                    ContentUnavailableView(emptyTitle, systemImage: "bubble.left",
-                        description: Text(auth.username == nil
-                            ? "Be the first to comment — log in to AO3 to post."
-                            : "Be the first to comment."))
-                } else {
-                    List {
-                        ForEach(comments) { comment in
-                            CommentRow(comment: comment)
-                        }
-                        if currentPage < totalPages {
-                            loadMoreRow
-                        }
-                    }
-                    .listStyle(.plain)
-                }
-            }
-            .navigationTitle(navTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await load() }
-                    } label: {
-                        if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
-                    }
-                    .disabled(isLoading)
-                    .accessibilityLabel("Refresh comments")
-                }
-            }
-            .safeAreaInset(edge: .bottom) { composer }
-            .task { await load() }
-        }
-    }
-
-    private var loadMoreRow: some View {
-        VStack(spacing: 6) {
-            if let loadMoreError {
-                Text(loadMoreError).font(.caption).foregroundStyle(.red)
-            }
-            Button {
-                Task { await loadMore() }
-            } label: {
-                if isLoadingMore {
-                    ProgressView()
-                        .accessibilityLabel("Loading more comments")
-                } else {
-                    Text("Load more comments")
-                }
-            }
-            .disabled(isLoadingMore || isLoading)
-            .accessibilityHint("Page \(currentPage) of \(totalPages)")
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-    }
-
-    private var composer: some View {
-        VStack(spacing: 0) {
-            Divider()
-            if auth.username == nil {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.crop.circle.badge.questionmark")
-                        .accessibilityHidden(true)
-                    Text("Log in to AO3 (Settings) to post a comment.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(.bar)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    if let postError {
-                        Text(postError).font(.caption).foregroundStyle(.red)
-                    }
-                    HStack(alignment: .bottom, spacing: 8) {
-                        TextField("Add a comment as \(auth.username ?? "you")…", text: $draft, axis: .vertical)
-                            .lineLimit(1...5)
-                            .textFieldStyle(.roundedBorder)
-                            .focused($composerFocused)
-                            .disabled(isPosting)
-                        Button {
-                            Task { await post() }
-                        } label: {
-                            if isPosting {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "arrow.up.circle.fill").font(.title2)
-                            }
-                        }
-                        .disabled(isPosting || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel("Post comment")
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.bar)
-            }
-        }
-    }
-
-    /// Loads (or reloads) the first comment page, dropping any later pages.
-    private func load() async {
-        isLoading = true
-        errorMessage = nil
-        loadMoreError = nil
-        loadGeneration += 1
-        defer { isLoading = false }
-        do {
-            let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: 1)
-            comments = page.comments
-            currentPage = page.currentPage
-            totalPages = page.totalPages
-        } catch {
-            errorMessage = "\(error)"
-        }
-    }
-
-    /// Appends the next comment page. Ids already shown are skipped, since a
-    /// comment posted meanwhile can shift a thread onto the next page.
-    private func loadMore() async {
-        guard !isLoadingMore, !isLoading, currentPage < totalPages else { return }
-        let generation = loadGeneration
-        isLoadingMore = true
-        loadMoreError = nil
-        defer { isLoadingMore = false }
-        do {
-            let page = try await client.fetchComments(workId: workId, chapterId: chapterId, page: currentPage + 1)
-            guard generation == loadGeneration else { return }
-            let seen = Set(comments.map(\.id))
-            let added = page.comments.filter { !seen.contains($0.id) }
-            comments += added
-            currentPage = max(currentPage + 1, page.currentPage)
-            totalPages = page.totalPages
-            AccessibilityNotification.Announcement(
-                added.count == 1 ? "Loaded 1 more comment" : "Loaded \(added.count) more comments"
-            ).post()
-        } catch {
-            guard generation == loadGeneration else { return }
-            loadMoreError = "Couldn't load more comments: \(error.localizedDescription)"
-            AccessibilityNotification.Announcement(loadMoreError ?? "").post()
-        }
-    }
-
-    private func post() async {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        isPosting = true
-        postError = nil
-        defer { isPosting = false }
-        do {
-            try await client.postComment(workId: workId, chapterId: chapterId, text: text)
-            draft = ""
-            composerFocused = false
-            // Re-fetch so the new comment shows (AO3 may hold it for moderation).
-            await load()
-        } catch {
-            postError = "Couldn't post: \(error.localizedDescription). Your comment may be awaiting moderation, or try again."
-        }
-    }
-}
-
-private struct CommentRow: View {
-    let comment: AO3Comment
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            // Thread guide line for nested replies, so the indentation reads as
-            // a reply rather than a stray offset.
-            if comment.depth > 0 {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(Color.secondary.opacity(0.3))
-                    .frame(width: 2)
-                    .accessibilityHidden(true)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Image(systemName: comment.commenterUsername.isEmpty ? "person.crop.circle.badge.questionmark" : "person.crop.circle")
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    Text(comment.commenterName)
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    if !comment.dateText.isEmpty {
-                        Text(comment.dateText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                // Combine only the header (name + date); the body may carry
-                // links, which combining would flatten.
-                .accessibilityElement(children: .combine)
-                HTMLText(html: comment.bodyHTML)
-                    .font(.callout)
-            }
-        }
-        .padding(.leading, CGFloat(min(comment.depth, 6)) * 16)
-        .padding(.vertical, 2)
-        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
-    }
-}
-
-struct SearchHelpView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("How search works")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .padding(.top)
-
-                    Text("Type anything — AO3 searches titles, summaries, tags and authors, and a work has to match every word. A few distinctive words beat a long sentence.")
-                        .foregroundStyle(.secondary)
-                        .font(.subheadline)
-
-                    Divider()
-
-                    HelpSection(
-                        title: "Tap a suggestion for an exact tag",
-                        icon: "tag.fill",
-                        color: .blue,
-                        examples: [
-                            ("teen wolf", "Suggests the Teen Wolf (TV) fandom — tap it to filter by the tag instead of the words."),
-                            ("derek stiles", "Suggests their ship and characters."),
-                            ("slow burn", "Suggests the Slow Burn tag."),
-                        ]
-                    )
-
-                    HelpSection(
-                        title: "Filters",
-                        icon: "line.3.horizontal.decrease.circle.fill",
-                        color: .purple,
-                        examples: [
-                            ("Filters button", "Rating, warnings, categories, complete or in progress, length, language, sort and more."),
-                        ]
-                    )
-
-                    HelpSection(
-                        title: "Shortcuts you can type",
-                        icon: "bolt.fill",
-                        color: .orange,
-                        examples: [
-                            ("complete · wip · one shot", "Completion and single-chapter works."),
-                            ("explicit · nsfw · sfw", "Ratings (\"teen\" and \"mature\" stay words — use a suggestion or Filters)."),
-                            ("m/m · f/f · f/m", "Categories."),
-                            ("under 10k · over 50k · between 10k and 50k", "Word count."),
-                            ("in spanish · no crossovers · no mcd", "Language, crossovers, and leaving out Major Character Death."),
-                        ]
-                    )
-
-                    HelpSection(
-                        title: "Precise searching",
-                        icon: "scope",
-                        color: .green,
-                        examples: [
-                            ("\"enemies to lovers\"", "An exact phrase."),
-                            ("-angst", "Leave out works mentioning a word."),
-                            ("title:\"The Long Way Home\"", "Search titles only."),
-                            ("by:astolat", "Works by an author."),
-                            ("tag:\"Slow Burn\" -tag:\"Major Character Death\"", "Include or exclude an exact tag."),
-                        ]
-                    )
-                }
-                .padding(.horizontal)
-            }
-            .navigationTitle("Search Tips")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-}
-
-struct HelpSection: View {
-    let title: String
-    let icon: String
-    let color: Color
-    let examples: [(query: String, description: String)]
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(color)
-                    .font(.headline)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .font(.headline)
-            }
-            
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(examples, id: \.query) { example in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(example.query)
-                            .font(.system(.subheadline, design: .monospaced))
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.secondarySystemBackground))
-                            .cornerRadius(4)
-                        Text(example.description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.leading, 8)
-                }
-            }
-        }
-        .padding(.vertical, 8)
-    }
-}
-
 #Preview {
     NavigationStack { SearchView() }
         .environment(\.ao3Client, MockAO3Client())
+        .environment(AuthState())
 }

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Fanficly.App.Platform;
 using Fanficly.App.Shell;
 using Fanficly.App.UI;
+using Fanficly.App.Views.Account;
 using Fanficly.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -98,7 +99,7 @@ public sealed class SettingsScreen : Screen
 
     private void OnAuthChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(AuthState.Username) or null)
+        if (e.PropertyName is nameof(AuthState.Username) or nameof(AuthState.IsSessionExpired) or null)
             MainWindow.Current?.DispatcherQueue.TryEnqueue(RefreshAccount);
     }
 
@@ -114,6 +115,7 @@ public sealed class SettingsScreen : Screen
     {
         _accountHost.Children.Clear();
         var username = AppHost.Auth.Username;
+        var expired = AppHost.Auth.IsSessionExpired;
         UIElement trailing;
         if (username is null)
         {
@@ -122,14 +124,25 @@ public sealed class SettingsScreen : Screen
         }
         else
         {
-            trailing = UI.UI.Button(_signingOut ? "Signing Out…" : "Sign Out", () => _ = SignOutAsync(), kind: UI.UI.ButtonKind.Destructive)
+            var signOut = UI.UI.Button(_signingOut ? "Signing Out…" : "Sign Out", () => _ = SignOutAsync(), kind: UI.UI.ButtonKind.Destructive)
                 .Also(b => { b.IsEnabled = !_signingOut; AutomationProperties.SetAutomationId(b, "settings.signOut"); });
+            // An expired session (#131) needs a way back in, not just out.
+            trailing = expired
+                ? UI.UI.HStack(8,
+                    UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent)
+                        .Also(b => AutomationProperties.SetAutomationId(b, "settings.signInAgain")),
+                    signOut)
+                : signOut;
         }
         var row = UI.UI.SettingsRow("AO3 Login", trailing,
-            username is null ? "Not signed in" : $"Signed in as {username}", "person.crop.circle");
+            username is null ? "Not signed in"
+                : expired ? $"Session expired for {username}"
+                : $"Signed in as {username}", "person.crop.circle");
         _accountHost.Children.Add(UI.UI.Section("Account", [row],
             footer: username is null
                 ? "Sign in to subscribe to works on AO3, see your AO3 bookmarks and subscriptions, and comment. Credentials go directly to AO3 — Fanficly never stores your password, only the resulting session cookie, encrypted for your Windows account."
+                : expired
+                ? "AO3 signed you out. Sign in again to use your AO3 bookmarks, subscriptions and comments, and to see restricted works in search."
                 : "Signing out clears the session cookie from this PC. Your offline library stays on the device."));
     }
 

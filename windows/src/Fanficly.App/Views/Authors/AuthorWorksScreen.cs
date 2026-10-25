@@ -33,9 +33,12 @@ public sealed class AuthorWorksScreen : Screen
                 EmptySymbol: "person.slash",
                 EmptyTitle: "No works to show",
                 EmptyMessage: "This author has no works published.",
-                FilteredMessage: "Every work by this author is filtered out by your content settings."),
+                FilteredMessage: "Every work by this author so far is filtered out by your content settings."),
             automationId: "author.works",
-            listName: $"Works by {author.DisplayName}");
+            listName: $"Works by {author.DisplayName}",
+            // Opening a blocked author's page is asking for them, so only
+            // blocked tags apply here.
+            blocklist: () => Blocklist.From(AppHost.Library).Lifting([], [author.Username, author.DisplayName]));
     }
 
     protected override FrameworkElement Build()

@@ -10,8 +10,8 @@ namespace Fanficly.App.Views.Reader;
 
 /// <summary>
 /// A work live from AO3 (WorkDetailView): the reader, plus two toolbar items —
-/// save to Library, and the work options menu (comments, share &amp; export,
-/// download for offline reading, subscribe on AO3, report, hide).
+/// save to Library, and the work options menu (comments, kudos, bookmark on AO3,
+/// share &amp; export, download for offline reading, subscribe on AO3, report, hide).
 /// </summary>
 internal sealed class WorkDetailScreen : ReaderHostScreen
 {
@@ -28,6 +28,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
     private bool _isSubscribing;
     private int _currentChapter = 1;
     private readonly WorkExporter _exporter = new();
+    private readonly WorkKudos _kudos;
     private Button? _saveButton;
     private Button? _optionsButton;
 
@@ -36,6 +37,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         _workId = workId;
         Title = summary?.Title is { Length: > 0 } title ? title : "Work";
         _exporter.Changed += UpdateOptionsButton;
+        _kudos = new WorkKudos(workId);
+        _kudos.Changed += UpdateOptionsButton;
     }
 
     protected override void Start() => _ = LoadAsync();
@@ -134,13 +137,13 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
     private void UpdateOptionsButton()
     {
         if (_optionsButton is null) return;
-        var busy = _exporter.IsExporting || _isSavingOffline || _isSubscribing;
+        var busy = _exporter.IsExporting || _isSavingOffline || _isSubscribing || _kudos.IsSending;
         _optionsButton.Content = busy
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
             : Symbols.Icon("book.circle", 16).A11yHidden();
     }
 
-    /// <summary>Overflow menu: comments, export, offline download, subscribe, plus
+    /// <summary>Overflow menu: comments, kudos, AO3 bookmark, export, offline download, subscribe, plus
     /// the UGC safeguards — report the work to AO3 and hide it locally. Anything
     /// it presents is presented by the screen after the menu closes.</summary>
     private void FillOptions(MenuFlyout menu)
@@ -152,6 +155,12 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         var comments = UI.UI.MenuItem("Comments", OpenComments, "bubble.left.and.bubble.right");
         AutomationProperties.SetAutomationId(comments, "work.options.comments");
         menu.Items.Add(comments);
+        menu.Items.Add(_kudos.MenuItem());
+        var bookmark = AppHost.Auth.IsLoggedIn
+            ? UI.UI.MenuItem("Bookmark on AO3", () => Routes.OpenBookmark(_workId, title), "bookmark.circle")
+            : UI.UI.MenuItem("Bookmark on AO3 (sign in)…", Routes.OpenLogin, "bookmark.circle");
+        AutomationProperties.SetAutomationId(bookmark, "work.options.bookmark");
+        menu.Items.Add(bookmark);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         menu.Items.Add(_exporter.Menu(_workId, () => title));
@@ -255,7 +264,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Unauthorized)
         {
-            if (await Dialogs.ConfirmAsync("Sign in to AO3", "Your AO3 session has expired. Sign in again to subscribe.", "Sign In"))
+            Account.SessionExpiry.Explains(e);
+            if (await Dialogs.ConfirmAsync("Sign in to AO3", "Your AO3 session has expired. Sign in again to subscribe.", Account.SessionExpiry.ActionTitle))
                 Routes.OpenLogin();
         }
         catch (Exception e)

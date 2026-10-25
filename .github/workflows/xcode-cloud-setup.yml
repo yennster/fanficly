@@ -1,0 +1,69 @@
+name: Xcode Cloud workflows
+
+# Brings the Xcode Cloud workflows that are kept in code up to date: "CI"
+# (bin/xcode-cloud-ci.py), "Release (iOS)" and "Release (Mac)"
+# (bin/xcode-cloud-release.py) and "Store art" (bin/xcode-cloud-store-art.py),
+# all on the newest Xcode 27 or later, and
+# "Duo tests" (bin/xcode-cloud-duo.py), then leaves any workflow made by hand
+# in App Store Connect startable by hand only (xcode-cloud-ci.py others), so
+# only these spend the 100 compute hours a month. Runs when those scripts
+# change on main, and by hand, for example after a new Xcode lands (workflows on "Latest
+# Release" follow it anyway). The release workflow also refreshes its own two
+# before every release. Schemes are looked up by name at build time, so a
+# scheme change in project.yml needs no run.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apple/bin/xcode_cloud.py'
+      - 'apple/bin/xcode-cloud-*.py'
+      - '.github/workflows/xcode-cloud-setup.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xcode-cloud-setup
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: apple
+
+jobs:
+  setup:
+    name: Update the Xcode Cloud workflows
+    if: github.repository == 'yennster/fanficly'
+    runs-on: ubuntu-latest
+    environment: app-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Update them
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          # The release's first, so a refusal in a later one never holds it back.
+          bin/.venv/bin/python bin/xcode-cloud-release.py setup
+          bin/.venv/bin/python bin/xcode-cloud-store-art.py setup
+          bin/.venv/bin/python bin/xcode-cloud-duo.py setup
+          bin/.venv/bin/python bin/xcode-cloud-ci.py setup
+          bin/.venv/bin/python bin/xcode-cloud-ci.py others
+
+      - name: Remove the keys
+        if: always()
+        run: rm -f fastlane/api_key.json fastlane/AuthKey_*.p8

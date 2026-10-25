@@ -1,0 +1,133 @@
+name: Xcode Cloud Duo tests
+
+# GitHub's macOS runners have no Xcode with the iPhone Duo yet, so
+# ReaderLayoutTests run on the Duo simulator in Xcode Cloud, in its "Duo tests"
+# workflow (bin/xcode-cloud-duo.py). To save compute hours, Xcode Cloud starts
+# it on its own only for pull requests into main that change the reader's
+# layout (LAYOUT_FILES there), and shows it on the PR as its own check; for any
+# other branch, start this workflow by hand with the branch. When that check
+# ends, the "screenshots" job here (main's code, never the PR's) exports the
+# result bundle's attachments, ReaderLayoutTests' screenshots among them, as
+# the duo-tests artifact and links its run from the PR's commit as the "Duo
+# screenshots" status. The Duo boots in one pose (pose can't be scripted), so
+# this covers that pose only.
+#
+# Started by hand, it brings the Xcode Cloud workflow up to date (the newest
+# Xcode with a Duo, its start conditions) and, given a branch, runs it there
+# and waits for the screenshots.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to test (empty = only update the Xcode Cloud workflow)
+        required: false
+  check_run:
+    types: [completed]
+
+permissions:
+  contents: read
+
+# One run per commit, in case Xcode Cloud posts more than one "Duo tests" check.
+concurrency:
+  group: xcode-cloud-duo-${{ github.event.check_run.head_sha || github.run_id }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apple
+
+jobs:
+  screenshots:
+    name: Duo screenshots
+    if: >-
+      github.repository == 'yennster/fanficly' &&
+      (github.event_name == 'workflow_dispatch' && github.actor == 'yennster' ||
+       github.event_name == 'check_run' && contains(github.event.check_run.name, 'Duo tests'))
+    # macOS for xcresulttool; the waiting is on Xcode Cloud.
+    runs-on: macos-26
+    timeout-minutes: 180
+    environment: app-store
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the API client's Python packages
+        run: |
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+
+      - name: Xcode Cloud
+        id: xcode-cloud
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          BRANCH: ${{ inputs.branch }}
+          SHA: ${{ github.event.check_run.head_sha }}
+        run: |
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          if [ -n "$SHA" ]; then
+            bin/.venv/bin/python bin/xcode-cloud-duo.py fetch "$SHA" build/xcode-cloud
+          elif [ -n "$BRANCH" ]; then
+            bin/.venv/bin/python bin/xcode-cloud-duo.py run "$BRANCH" build/xcode-cloud
+          else
+            bin/.venv/bin/python bin/xcode-cloud-duo.py setup
+          fi
+
+      - name: Remove the keys
+        if: always()
+        run: rm -f fastlane/api_key.json fastlane/AuthKey_*.p8
+
+      # The bundles come from a newer Xcode than this runner's, whose
+      # xcresulttool may not read them: then this step fails and the raw
+      # zips are still in the artifact.
+      - name: Export the attachments
+        id: export
+        if: always()
+        run: |
+          mkdir -p build/duo-attachments
+          [ -d build/xcode-cloud ] || exit 0
+          cd build/xcode-cloud
+          for z in *.zip; do [ -f "$z" ] && ditto -x -k "$z" .; done
+          n=0
+          while read -r b; do
+            n=$((n + 1))
+            xcrun xcresulttool export attachments --path "$b" --output-path "../duo-attachments/$n-$(basename "$b" .xcresult)"
+          done < <(find . -maxdepth 4 -name "*.xcresult")
+          ls -laR ../duo-attachments
+
+      - uses: actions/upload-artifact@v4
+        id: upload
+        if: always()
+        with:
+          name: duo-tests
+          path: |
+            apple/build/duo-attachments
+            apple/build/xcode-cloud/*.zip
+          if-no-files-found: ignore
+
+      - name: Link the screenshots from the PR's commit
+        if: always() && github.event_name == 'check_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.check_run.head_sha }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OK: ${{ steps.xcode-cloud.outcome == 'success' && steps.export.outcome == 'success' }}
+        run: |
+          if [ "$OK" = true ]; then
+            state=success description="iPhone Duo reader layout screenshots"
+          else
+            state=error description="Couldn't get all of the Duo screenshots: see the run"
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" -f state="$state" \
+            -f context="Duo screenshots" -f description="$description" -f target_url="$URL"

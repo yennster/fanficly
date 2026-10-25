@@ -12,7 +12,8 @@ namespace Fanficly.App.Views.Account;
 /// <summary>
 /// AO3 sign-in (LoginView). Logged out: username and password, the error AO3
 /// gave, and Log in (Enter submits); on success the screen pops back to where
-/// it was opened from. Logged in: who you are and Log out.
+/// it was opened from. Logged in: who you are and Log out. Session expired
+/// (#131): the form again, with the username filled in and a note saying why.
 /// </summary>
 public sealed class LoginScreen : Screen
 {
@@ -56,6 +57,7 @@ public sealed class LoginScreen : Screen
         switch (e.PropertyName)
         {
             case nameof(AuthState.Username):
+            case nameof(AuthState.IsSessionExpired):
                 Render();
                 break;
             case nameof(AuthState.IsAuthenticating):
@@ -71,7 +73,7 @@ public sealed class LoginScreen : Screen
     {
         var auth = AppHost.Auth;
         var body = new StackPanel { Spacing = 20, MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(24, 8, 24, 24) };
-        if (auth.Username is { } current)
+        if (auth.Username is { } current && !auth.IsSessionExpired)
         {
             _username = null;
             _password = null;
@@ -93,12 +95,13 @@ public sealed class LoginScreen : Screen
                 PlaceholderText = "Username",
                 IsSpellCheckEnabled = false,
                 IsTextPredictionEnabled = false,
-                Text = _username?.Text ?? "",
+                Text = _username?.Text is { Length: > 0 } typed ? typed : auth.Username ?? "",
             }.Id("login.username");
             AutomationProperties.SetName(_username, "Username");
-            var usernameBox = _username;
-            usernameBox.Loaded += (_, _) => usernameBox.Focus(FocusState.Programmatic);
             _password = new PasswordBox { PlaceholderText = "Password" }.Id("login.password");
+            // The username is known when the session expired: start on the password.
+            FrameworkElement first = _username.Text.Length > 0 ? _password : _username;
+            first.Loaded += (_, _) => ((Control)first).Focus(FocusState.Programmatic);
             AutomationProperties.SetName(_password, "Password");
 
             _username.TextChanged += (_, _) => UpdateSubmit();
@@ -116,6 +119,8 @@ public sealed class LoginScreen : Screen
                 e.Handled = true;
                 Submit();
             };
+
+            if (auth.IsSessionExpired) body.Children.Add(ExpiredNote());
 
             var fields = UI.UI.VStack(12, _username, _password);
             fields.Padding = new Thickness(14);
@@ -138,6 +143,21 @@ public sealed class LoginScreen : Screen
             UpdateSubmit();
         }
         _scroll.Content = body;
+    }
+
+    /// <summary>Why the form is back while a username is stored.</summary>
+    private static FrameworkElement ExpiredNote()
+    {
+        var icon = UI.UI.Icon("person.crop.circle.badge.questionmark", 16, Theme.TextSecondary);
+        icon.VerticalAlignment = VerticalAlignment.Top;
+        icon.Margin = new Thickness(0, 2, 0, 0);
+        var row = UI.UI.Grid("Auto,*", columnSpacing: 10);
+        row.Padding = new Thickness(14, 12, 14, 12);
+        row.Children.Add(icon.Col(0));
+        var text = $"{SessionExpiry.Title}. Sign in again to keep using your AO3 bookmarks, subscriptions and comments, and to see restricted works.";
+        row.Children.Add(UI.UI.Text(text, Theme.Style.Body).Col(1));
+        AutomationProperties.SetName(row, text);
+        return UI.UI.Section(null, [row]).Id("login.expired");
     }
 
     private bool CanSubmit =>
@@ -185,7 +205,7 @@ public sealed class LoginScreen : Screen
         UpdateSubmit();
         MainWindow.Current.Announce("Logging in");
         await auth.LoginAsync(AppHost.Client, username, password);
-        if (auth.IsLoggedIn)
+        if (auth.HasSession)
         {
             MainWindow.Current.Announce($"Logged in as {auth.Username}");
             // Pop back to wherever the sign-in was opened from.
