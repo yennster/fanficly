@@ -2,8 +2,13 @@ import Foundation
 import os
 
 public protocol AO3ClientProtocol: Sendable {
-    func login(username: String, password: String) async throws
+    /// Signs in with an AO3 username or email address and returns the account's
+    /// AO3 login name, which is what `/users/<name>` pages need (#144).
+    @discardableResult
+    func login(username: String, password: String) async throws -> String
     func logout() async
+    /// The signed-in AO3 login name, read from AO3's page header when this
+    /// launch hasn't signed in yet; nil when signed out or unreachable.
     func currentUsername() async -> String?
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults
@@ -411,7 +416,8 @@ public actor AO3Client: AO3ClientProtocol {
         return "Fanficly/\(version) (\(platform); https://github.com/yennster/fanficly)"
     }
 
-    public func login(username: String, password: String) async throws {
+    @discardableResult
+    public func login(username: String, password: String) async throws -> String {
         await throttle.wait()
 
         let loginURL = try AO3Endpoints.login(base: baseURL)
@@ -442,10 +448,11 @@ public actor AO3Client: AO3ClientProtocol {
         let (loginRespData, _) = try await performRequest(post)
         let respHTML = String(data: loginRespData, encoding: .utf8) ?? ""
 
-        // Success: the response shows the logged-in user navigation.
-        if let name = try LoginParser.currentUsername(html: respHTML) {
+        // Success: the response shows the logged-in user navigation (and no
+        // login form, whose header links aren't a name).
+        if try !LoginParser.hasLoginForm(html: respHTML), let name = try LoginParser.currentUsername(html: respHTML) {
             cachedUsername = name
-            return
+            return name
         }
         // Explicit AO3 error flash.
         if let err = try LoginParser.detectLoginFailure(html: respHTML) {
@@ -458,8 +465,16 @@ public actor AO3Client: AO3ClientProtocol {
         // Unexpected response — assume the session cookie was set anyway.
         if let cookies = HTTPCookieStorage.shared.cookies(for: baseURL),
            cookies.contains(where: { $0.name.contains("user_credentials") || $0.name.contains("remember_user_token") }) {
-            cachedUsername = username
-            return
+            // The typed text may be an email address, which no /users/ page
+            // takes, so ask AO3 for the login name.
+            if let name = await fetchLoggedInName() {
+                cachedUsername = name
+                return name
+            }
+            if !username.contains("@") {
+                cachedUsername = username
+                return username
+            }
         }
         throw AO3Error.loginFailed(reason: "Couldn't confirm login. Please try again.")
     }
@@ -472,7 +487,19 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func currentUsername() async -> String? {
-        cachedUsername
+        if let cachedUsername { return cachedUsername }
+        cachedUsername = await fetchLoggedInName()
+        return cachedUsername
+    }
+
+    /// The login name in the header of AO3's home page; nil for a guest page
+    /// or a failed request.
+    private func fetchLoggedInName() async -> String? {
+        await throttle.wait()
+        guard let response = try? await performRequest(URLRequest(url: baseURL)),
+              let html = String(data: response.0, encoding: .utf8),
+              (try? LoginParser.hasLoginForm(html: html)) == false else { return nil }
+        return try? LoginParser.currentUsername(html: html)
     }
 
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
@@ -1090,7 +1117,7 @@ public actor AO3Client: AO3ClientProtocol {
 
 public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public init() {}
-    public func login(username: String, password: String) async throws {}
+    public func login(username: String, password: String) async throws -> String { username }
     public func logout() async {}
     public func currentUsername() async -> String? { nil }
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {

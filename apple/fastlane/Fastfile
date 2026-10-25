@@ -183,7 +183,11 @@ platform :ios do
   lane :upload_store_art do
     asc_api_key
     write_key_files
-    %w[ios osx].each do |p|
+    # SKIP_MAC=1 (store-assets.yml skip_mac) while the Mac has no editable
+    # version, say when the previous one is still in review: the iOS art,
+    # Duo screenshots and previews still go up.
+    platforms = ENV["SKIP_MAC"] == "1" ? %w[ios] : %w[ios osx]
+    platforms.each do |p|
       next unless Dir.exist?(SCREENSHOTS[p])
       deliver(
         platform: p,

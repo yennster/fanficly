@@ -12,7 +12,7 @@ import Foundation
 public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public init() {}
 
-    public func login(username: String, password: String) async throws {}
+    public func login(username: String, password: String) async throws -> String { "demo_reader" }
     public func logout() async {}
     public func currentUsername() async -> String? { "demo_reader" }
 

@@ -113,6 +113,14 @@ struct FanficlyApp: App {
                     // DemoAO3Client serves all of this offline. Never ships.
                     if Self.isDemoMode { auth.username = "demo_reader" }
 
+                    // Older builds stored the email address a reader signed
+                    // in with; swap it for the AO3 login name (#144) before a
+                    // restored Bookmarks or Subscriptions screen loads with it.
+                    // Costs a request only when an email is stored.
+                    if !Self.isDemoMode {
+                        await auth.repairStoredLogin(using: client)
+                    }
+
                     let context = Self.sharedModelContainer.mainContext
 
                     // Migrate legacy single folder to folders array if needed

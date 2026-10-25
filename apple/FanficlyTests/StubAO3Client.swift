@@ -34,7 +34,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
 
     // Unused protocol stubs.
-    func login(username: String, password: String) async throws {}
+    func login(username: String, password: String) async throws -> String { username }
     func logout() async {}
     func currentUsername() async -> String? { nil }
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {

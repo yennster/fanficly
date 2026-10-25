@@ -145,7 +145,13 @@ Run **Store assets**:
 - Tick **upload** to put it all on the editable App Store versions (iOS and
   Mac screenshots, previews, Duo screenshots, creative assets). The upload job
   waits for approval in `app-store`. An editable version must exist: run a
-  `release` or `metadata_only` first.
+  `release` or `metadata_only` first. Tick **skip_mac** while the Mac has no
+  editable version (say, its previous version is still in review): the
+  upload stops at the first platform it can't reach, so the Duo screenshots,
+  previews and creative art would otherwise not go up.
+- `upload_only` with **art_run** set to an earlier run's ID uploads that run's
+  `store-art` artifact again, with no capture or generating, for an upload
+  that failed or was skipped.
 - The `store-art` artifact has every image and video; check
   `build/preview-contact-sheets/`, since the preview captions are timed to the
   recordings (`bin/record-app-previews.sh` explains how to re-tune them).
