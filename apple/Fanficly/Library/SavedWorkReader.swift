@@ -196,10 +196,12 @@ struct SavedWorkReader: View {
         defer { isSavingOffline = false }
         if let payload {
             _ = WorkPersistence.upsert(payload: payload, into: context)
+            iCloudSyncManager.shared.queueBackup(context: context)
         } else if !hasOfflineText {
             do {
                 let fetched = try await client.fetchWork(id: work.ao3Id)
                 _ = WorkPersistence.upsert(payload: fetched, into: context)
+                iCloudSyncManager.shared.queueBackup(context: context)
             } catch {
                 saveError = "Couldn't get the story's text from AO3, so nothing was saved: \(error)"
                 return

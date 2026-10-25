@@ -168,6 +168,7 @@ struct WorkDetailView: View {
         isSavingOffline = true
         defer { isSavingOffline = false }
         _ = WorkPersistence.upsert(payload: payload, into: context)
+        iCloudSyncManager.shared.queueBackup(context: context)
         do {
             let url = try await client.downloadEPUB(workId: payload.summary.id)
             epubURL = url

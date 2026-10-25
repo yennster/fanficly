@@ -109,7 +109,7 @@ to attributed paragraphs and drawn natively. `ReaderPaginator` lives in
 
 | Data | Owner / storage | Important distinction |
 | --- | --- | --- |
-| Library metadata and text | `Models/Work.swift`: `Work` → `Chapter` (cascade delete), `CustomFolder` relationships | `upsertMetadata` preserves chapter bodies; `upsert(payload:)` replaces them. |
+| Library metadata and text | `Models/Work.swift`: `Work` → `Chapter` (cascade delete), `CustomFolder` relationships | `upsertMetadata` preserves chapter bodies; `upsert(payload:)` replaces them and leaves `queueBackup` to its callers. |
 | Local activity | `ReadingProgress`, `RecentlyViewed`, `ReadingStat` | Keyed by AO3 work ID independently of a saved `Work`; reading unsaved stories still records progress/stats. |
 | Follows/account records | `Work.isFollowed`, `FollowedAuthor`, `SubscriptionRecord`, `BookmarkRecord` | Remote Bookmarks UI fetches live; these model types do not imply every AO3 record is cached. |
 | Search/safety records | `SavedSearch`, `SavedFilter`, `HiddenWork`, `BlockedTerm`, `TagRecord` | Saved filters encode `AO3SearchFilters` as JSON; saved search prompts round-trip through `SearchSyntax`. |
@@ -265,7 +265,8 @@ Fanficly/
                                #   stay on top) + LibrarySortMenu — lives in the
                                #   content (first filter chip / folder header),
                                #   deliberately NOT the nav bar
-    SavedWorkReader.swift      # offline if chapter text exists, else fetch
+    SavedWorkReader.swift      # offline if chapter text exists, else fetch; a fetched
+                               #   payload stays on screen after Save Offline (one reader)
     RestoreDownloadCenter.swift # the one sequential download queue: EPUB
                                #   re-download after restore + folder Download All
     WorkPersistence.swift      # upsert, upsertMetadata, toggleFollow;
