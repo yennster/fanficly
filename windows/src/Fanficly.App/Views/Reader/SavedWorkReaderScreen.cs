@@ -103,7 +103,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             if (IsRemoved) return;
             AppHost.Log($"Loading saved work {_work.Ao3Id} failed: {e.Message}");
             ShowError("wifi.exclamationmark", "Couldn't load",
-                "This bookmarked work loads on demand. Connect to the internet to read it, or tap the download button to save it offline.",
+                "This bookmarked work loads on demand. Connect to the internet to read it, then choose Save Offline in the More menu to keep it on this device.",
                 () => _ = LoadAsync());
         }
         finally
