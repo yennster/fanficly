@@ -16,6 +16,9 @@ enum WorkPersistence {
         }
 
         try? context.save()
+        // Refreshes the widgets and backs up the new text, like the other
+        // library mutations here.
+        iCloudSyncManager.shared.queueBackup(context: context)
         return work
     }
 

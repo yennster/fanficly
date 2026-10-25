@@ -573,7 +573,6 @@ struct FolderDetailView: View {
         if work.chapters.isEmpty {
             let payload = try await client.fetchWork(id: workId)
             _ = WorkPersistence.upsert(payload: payload, into: context)
-            iCloudSyncManager.shared.queueBackup(context: context)
         }
         _ = try await client.downloadEPUB(workId: workId)
     }

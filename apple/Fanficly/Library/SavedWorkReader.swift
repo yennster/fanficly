@@ -16,6 +16,9 @@ struct SavedWorkReader: View {
     @State private var readerFullScreen = false
     @State private var isLoading = false
     @State private var errorMessage: String?
+    /// Why Save Offline failed, shown in an alert: the reader covers the
+    /// screen, so `errorMessage`'s placeholder never shows while reading.
+    @State private var saveError: String?
     @State private var isSavingOffline = false
     @State private var isDownloaded = false
     @State private var showingComments = false
@@ -52,10 +55,14 @@ struct SavedWorkReader: View {
 
     var body: some View {
         Group {
-            if hasOfflineText {
-                ReaderView(work: work, currentChapter: $currentChapterIndex)
-            } else if let payload {
+            // A fetched payload wins over saved text, so saving it offline
+            // mid-read keeps this one reader: switching branches would be a
+            // new view, stopping narration and re-paginating. Both hold the
+            // same chapters.
+            if let payload {
                 ReaderView(payload: payload, currentChapter: $currentChapterIndex)
+            } else if hasOfflineText {
+                ReaderView(work: work, currentChapter: $currentChapterIndex)
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -141,6 +148,7 @@ struct SavedWorkReader: View {
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
         .kudosPresentation(kudos, workId: work.ao3Id)
+        .saveOfflineAlert($saveError)
         .task { await load() }
         .onAppear {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
@@ -176,29 +184,32 @@ struct SavedWorkReader: View {
         do {
             payload = try await client.fetchWork(id: work.ao3Id)
         } catch {
-            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, or tap the download button to save it offline."
+            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, then choose Save Offline in the More menu to keep it on this device."
         }
     }
 
+    /// Saves the chapter text (when it isn't stored yet), then the EPUB.
+    /// When the text can't be fetched nothing is downloaded, so the work is
+    /// never marked Downloaded without text to read offline.
     private func saveOffline() async {
         isSavingOffline = true
         defer { isSavingOffline = false }
-        // Make sure we have the full work to persist its chapters.
-        let toSave: AO3WorkPayload?
         if let payload {
-            toSave = payload
-        } else {
-            toSave = try? await client.fetchWork(id: work.ao3Id)
-        }
-        if let toSave {
-            _ = WorkPersistence.upsert(payload: toSave, into: context)
-            payload = toSave
+            _ = WorkPersistence.upsert(payload: payload, into: context)
+        } else if !hasOfflineText {
+            do {
+                let fetched = try await client.fetchWork(id: work.ao3Id)
+                _ = WorkPersistence.upsert(payload: fetched, into: context)
+            } catch {
+                saveError = "Couldn't get the story's text from AO3, so nothing was saved: \(error)"
+                return
+            }
         }
         do {
             _ = try await client.downloadEPUB(workId: work.ao3Id)
             isDownloaded = true
         } catch {
-            errorMessage = "Couldn't download for offline: \(error)"
+            saveError = "The text is saved for offline reading, but the EPUB download failed: \(error)"
         }
     }
 }
