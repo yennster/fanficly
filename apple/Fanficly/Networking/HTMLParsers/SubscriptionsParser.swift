@@ -172,3 +172,45 @@ enum SubscriptionsParser {
         }
     }
 }
+
+/// AO3's answer to a work's subscribe POST, which fails closed: AO3 redirects
+/// either outcome back to the work (URLSession follows, so it's a 200) with a
+/// flash, and an ended session to the login page, also a 200. Only AO3's
+/// "You are now following …" notice, the work's button turning into
+/// "Unsubscribe", or "already subscribed" count as subscribed.
+enum SubscribeParser {
+    static func checkOutcome(html: String, finalURL: URL?) throws {
+        if finalURL?.path.hasPrefix("/users/login") == true || AO3PageCheck.isLoginPage(html: html) {
+            throw AO3Error.unauthorized
+        }
+        guard let doc = try? SwiftSoup.parse(html) else {
+            throw AO3Error.parseFailed(reason: "Subscribe response not HTML")
+        }
+        let errors = texts(doc, "div.flash.error, div#error li")
+        if !errors.isEmpty {
+            let message = errors.joined(separator: " ")
+            // Already subscribed is what we wanted.
+            if message.range(of: "already", options: .caseInsensitive) != nil { return }
+            throw AO3Error.subscribeRejected(message: message)
+        }
+        if isConfirmed(doc) { return }
+        throw AO3Error.subscribeRejected(message: "AO3 didn't confirm the subscription. Check your Subscriptions page before trying again.")
+    }
+
+    private static func isConfirmed(_ doc: Document) -> Bool {
+        let notices = texts(doc, "div.flash.notice")
+        if notices.contains(where: { $0.range(of: "now following", options: .caseInsensitive) != nil }) {
+            return true
+        }
+        let controls = (try? doc.select("input[type=submit], button").array()) ?? []
+        return controls.contains { control in
+            let label = control.hasAttr("value") ? ((try? control.attr("value")) ?? "") : ((try? control.text()) ?? "")
+            return label.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Unsubscribe") == .orderedSame
+        }
+    }
+
+    private static func texts(_ doc: Document, _ selector: String) -> [String] {
+        let items = (try? doc.select(selector).array()) ?? []
+        return items.compactMap { try? $0.text() }.filter { !$0.isEmpty }
+    }
+}

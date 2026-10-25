@@ -358,6 +358,8 @@ public enum AO3Error: Error, Sendable, Equatable {
     case kudosRejected(message: String)
     /// AO3 didn't post a comment, with its own reason when it gave one.
     case commentRejected(message: String)
+    /// AO3 didn't confirm a subscription, with its own reason when it gave one.
+    case subscribeRejected(message: String)
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -814,14 +816,23 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func subscribeToWork(workId: Int) async throws {
+        // The first page is enough for the token and shows whether the session
+        // is signed in: no view_full_work. A guest's POST would only bounce to
+        // the login page, so don't send one.
         await throttle.wait()
-        let pageURL = try AO3Endpoints.work(id: workId, base: baseURL)
-        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
-        guard let pageHTML = String(data: pageData, encoding: .utf8),
-              let token = try LoginParser.authenticityToken(html: pageHTML) else {
+        let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
+        let (pageData, pageResponse) = try await performRequest(URLRequest(url: pageURL))
+        if pageResponse.url?.path.hasPrefix("/users/login") == true { throw AO3Error.unauthorized }
+        guard let pageHTML = String(data: pageData, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Work page not UTF-8")
+        }
+        guard KudosParser.isSignedIn(html: pageHTML) else { throw AO3Error.unauthorized }
+        guard let token = try? LoginParser.authenticityToken(html: pageHTML) else {
             throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
         }
 
+        // One POST, never retried (`performRequest` only retries GETs). A 422
+        // (Rails refusing the token) throws `.http` there.
         await throttle.wait()
         let subsURL = try AO3Endpoints.workSubscriptions(id: workId, base: baseURL)
         var request = URLRequest(url: subsURL)
@@ -837,10 +848,8 @@ public actor AO3Client: AO3ClientProtocol {
         ])
         request.httpBody = body.data(using: .utf8)
 
-        let (_, response) = try await performRequest(request)
-        if response.statusCode >= 400 && response.statusCode != 422 {
-            throw AO3Error.http(status: response.statusCode)
-        }
+        let (data, response) = try await performRequest(request)
+        try SubscribeParser.checkOutcome(html: String(data: data, encoding: .utf8) ?? "", finalURL: response.url)
     }
 
     public func leaveKudos(workId: Int) async throws -> KudosOutcome {

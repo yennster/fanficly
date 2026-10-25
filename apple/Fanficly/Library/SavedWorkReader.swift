@@ -24,6 +24,7 @@ struct SavedWorkReader: View {
     @State private var isResolvingComments = false
     @State private var exporter = WorkExporter()
     @State private var kudos = KudosGiver()
+    @State private var subscriber = WorkSubscriber()
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
 
@@ -118,8 +119,11 @@ struct SavedWorkReader: View {
                                   systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
                         }
                         .disabled(isSavingOffline || isDownloaded)
+                        SubscribeMenuButton(workId: work.ao3Id, title: work.title, author: work.authorName,
+                                            chapterCount: payload?.summary.chapterCount ?? work.chapterCount,
+                                            subscriber: subscriber)
                     } label: {
-                        if isSavingOffline || exporter.isExporting || kudos.isSending {
+                        if isSavingOffline || exporter.isExporting || kudos.isSending || subscriber.isSending {
                             ProgressView()
                         } else {
                             Label("More", systemImage: "book.circle")
@@ -141,6 +145,7 @@ struct SavedWorkReader: View {
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
         .kudosPresentation(kudos, workId: work.ao3Id)
+        .subscribePresentation(subscriber, workId: work.ao3Id)
         .task { await load() }
         .onAppear {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil

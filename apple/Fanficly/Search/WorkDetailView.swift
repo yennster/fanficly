@@ -21,6 +21,7 @@ struct WorkDetailView: View {
     @State private var readerFullScreen = false
     @State private var exporter = WorkExporter()
     @State private var kudos = KudosGiver()
+    @State private var subscriber = WorkSubscriber()
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -78,6 +79,7 @@ struct WorkDetailView: View {
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
         .kudosPresentation(kudos, workId: workId)
+        .subscribePresentation(subscriber, workId: workId)
         .task { await load() }
     }
 
@@ -120,6 +122,8 @@ struct WorkDetailView: View {
                 }
             }
             .disabled(isSavingOffline || epubURL != nil)
+            SubscribeMenuButton(workId: workId, title: payload.summary.title, author: payload.summary.author,
+                                chapterCount: payload.summary.chapterCount, subscriber: subscriber)
 
             Divider()
 
@@ -135,7 +139,7 @@ struct WorkDetailView: View {
                 Label("Hide this work", systemImage: "eye.slash")
             }
         } label: {
-            if exporter.isExporting || kudos.isSending {
+            if exporter.isExporting || kudos.isSending || subscriber.isSending {
                 ProgressView()
             } else {
                 Label("Work options", systemImage: "book.circle")

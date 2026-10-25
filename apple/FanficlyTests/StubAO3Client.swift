@@ -21,6 +21,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// Scripted kudos answer, and the works kudos were sent for (KudosGiver tests).
     var kudosResult: Result<KudosOutcome, Error> = .success(.left)
     private(set) var kudosCalls: [Int] = []
+    /// Scripted subscribe failure, and the works subscribed to (WorkSubscriber tests).
+    var subscribeError: Error?
+    private(set) var subscribeCalls: [Int] = []
 
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         autocompleteCalls.append(term)
@@ -75,7 +78,10 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         if let exportError { throw exportError }
         return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
-    func subscribeToWork(workId: Int) async throws {}
+    func subscribeToWork(workId: Int) async throws {
+        subscribeCalls.append(workId)
+        if let subscribeError { throw subscribeError }
+    }
     func leaveKudos(workId: Int) async throws -> KudosOutcome {
         kudosCalls.append(workId)
         return try kudosResult.get()
