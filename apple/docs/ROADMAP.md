@@ -15,7 +15,7 @@ What's thin or missing, from reading the code:
 - **AO3 account actions.** Login, subscribe, bookmarks (read-only) and comments exist. Kudos, creating a bookmark, Marked for Later and history do not.
 - **Comments** are work-level, first page only (a documented follow-up in AGENTS.md).
 - **Offline.** Downloads are one work at a time. There's no bulk download for a folder or the followed list.
-- **System integration.** Six home-screen widgets exist (last read, streak, subscriptions, folders, saved searches, recommendations) but no lock-screen families and no App Shortcuts. Followed works are indexed in Core Spotlight (`WorkPersistence.indexWork`), but nothing handles a tap on a Spotlight result (no `CSSearchableItemActionType` handler). The saved-search widget's `fanficly://search?query=` route carries filter JSON the consumer can't read (documented limitation in AGENTS.md).
+- **System integration.** Six home-screen widgets exist (last read, streak, subscriptions, folders, saved searches, recommendations) plus lock-screen families on iPhone and iPad (RM-004). Every library work is in Core Spotlight and a tapped result opens it, and a "Continue Reading" App Shortcut reopens the last story (RM-016). The saved-search widget's `fanficly://search?query=` route carries filter JSON the consumer can't read (documented limitation in AGENTS.md).
 - **iPhone Duo.** Vertical toolbars need `Label` items, and the ellipsis symbol clashes with the system overflow menu (AGENTS.md "Not done yet").
 - **Localization.** English only.
 

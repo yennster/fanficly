@@ -603,8 +603,9 @@ Keep those shared files free of app-only models/UI dependencies;
   `upsertMetadata` indexes (not in demo mode: the index is the device's
   own), `WorkPersistence.delete` deindexes (Library's delete and a restore applying another device's), and `reindexLibrary` rebuilds the
   domain once at launch (`spotlight.reindexed.v1`, for works saved when only
-  followed ones were indexed) and after an iCloud restore (restore inserts
-  works without `upsertMetadata`). Don't rebuild every launch: it empties the
+  followed ones were indexed). An iCloud restore inserts works without
+  `upsertMetadata`, so it calls `indexLibrary`, which indexes every work
+  without clearing the domain. Don't rebuild every launch: it empties the
   app's Spotlight results while it runs. A tapped result arrives as
   `CSSearchableItemActionType` in `RootView.onContinueUserActivity` and opens
   through `openResumeRoute` with no anchor, like a widget tap. CoreSpotlight

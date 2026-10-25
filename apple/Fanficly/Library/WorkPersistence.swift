@@ -145,12 +145,25 @@ enum WorkPersistence {
             withIdentifiers: [spotlightIdentifier(ao3Id: ao3Id)], completionHandler: nil)
     }
 
+    /// Indexes every saved work without clearing the domain first, so
+    /// Fanficly's Spotlight results stay up while it runs (indexing an item
+    /// again replaces it). Run after an iCloud restore: restored works skip
+    /// `upsertMetadata`, and works it deletes leave through `delete`.
+    @MainActor
+    static func indexLibrary(context: ModelContext) {
+        guard !FanficlyApp.isDemoMode else { return }
+        let entries = ((try? context.fetch(FetchDescriptor<Work>())) ?? []).map { spotlightEntry(for: $0) }
+        guard !entries.isEmpty else { return }
+        CSSearchableIndex.default().indexSearchableItems(entries.map(searchableItem(for:)), completionHandler: nil)
+    }
+
     /// Rebuilds the Spotlight index from the whole library: clears the domain,
     /// then indexes every saved work. Run once at launch (works saved before
-    /// every library work was indexed, when only followed ones were) and after
-    /// an iCloud restore (restored works skip `upsertMetadata`).
+    /// every library work was indexed, when only followed ones were).
     @MainActor
     static func reindexLibrary(context: ModelContext) {
+        // Demo mode's library is in memory, but the index is the device's own.
+        guard !FanficlyApp.isDemoMode else { return }
         let entries = ((try? context.fetch(FetchDescriptor<Work>())) ?? []).map { spotlightEntry(for: $0) }
         let index = CSSearchableIndex.default()
         index.deleteSearchableItems(withDomainIdentifiers: [spotlightDomain]) { @Sendable _ in
