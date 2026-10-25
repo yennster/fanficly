@@ -435,6 +435,37 @@ public class SearchResultsParserTests
         Assert.Equal([12345], SearchResultsParser.Parse(html).Works.Select(w => w.Id));
     }
 
+    // An expired session (#131)
+
+    private const string OneResult = """
+        <ol class="work index group">
+          <li id="work_12345" class="work blurb group" role="article">
+            <div class="header module"><h4 class="heading"><a href="/works/12345">A Coffee Shop Tale</a></h4></div>
+          </li>
+        </ol>
+        """;
+
+    /// <summary>A guest's listing leaves out restricted works, so it says so.</summary>
+    [Fact]
+    public void GuestListingsAreMarkedServedAsGuest()
+    {
+        Assert.True(SearchResultsParser.Parse(AO3PageFixtures.GuestPage("works-search", OneResult)).ServedAsGuest);
+        Assert.True(SearchResultsParser.Parse(AO3PageFixtures.GuestPage("works-index dashboard", OneResult)).ServedAsGuest);
+    }
+
+    [Fact]
+    public void SignedInListingsAreNotServedAsGuest()
+    {
+        var results = SearchResultsParser.Parse(AO3PageFixtures.SignedInPage("works-search", OneResult));
+        Assert.False(results.ServedAsGuest);
+        Assert.Equal([12345], results.Works.Select(w => w.Id));
+    }
+
+    /// <summary>Without AO3's header there's no telling, so it never reads as a guest page.</summary>
+    [Fact]
+    public void ListingsWithoutTheHeaderAreNotServedAsGuest() =>
+        Assert.False(SearchResultsParser.Parse($"<html><body><div id=\"main\" class=\"works-search\">{OneResult}</div></body></html>").ServedAsGuest);
+
     [Theory]
     [InlineData("li.work.blurb")]
     [InlineData("li.bookmark.blurb")]
@@ -481,6 +512,23 @@ internal static class AO3PageFixtures
           </div>
         </div>
         """;
+
+    /// <summary>The header a signed-in reader gets: the greeting, no login form.</summary>
+    public const string SignedInHeader = """
+        <div id="header" class="region" role="banner">
+          <h1 class="heading"><a href="/"><span>Archive of Our Own</span></a></h1>
+          <ul class="primary navigation actions" role="navigation"></ul>
+          <nav id="greeting" aria-label="User">
+            <ul class="user navigation actions">
+              <li class="dropdown"><a class="dropdown-toggle" href="/users/reader">Hi, reader!</a></li>
+              <li><a href="/users/logout">Log Out</a></li>
+            </ul>
+          </nav>
+        </div>
+        """;
+
+    public static string SignedInPage(string mainClass, string body) =>
+        GuestPage(mainClass, body).Replace(GuestHeader, SignedInHeader, StringComparison.Ordinal);
 
     public static string GuestPage(string mainClass, string body) => $"""
         <html><body><div id="outer" class="wrapper">

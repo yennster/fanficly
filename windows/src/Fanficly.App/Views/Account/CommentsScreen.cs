@@ -419,6 +419,18 @@ public sealed class CommentsScreen : Screen
         catch (Exception) when (cts.IsCancellationRequested)
         {
         }
+        catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Unauthorized)
+        {
+            SessionExpiry.Explains(e);
+            _postError = "Couldn't post: your AO3 session expired. Sign in again, then post again. Your comment is still here.";
+            MainWindow.Current.Announce(_postError);
+            if (await Dialogs.ConfirmAsync("Sign in to AO3", _postError, SessionExpiry.ActionTitle)) Routes.OpenLogin();
+        }
+        catch (AO3Exception e) when (e is { Kind: AO3ErrorKind.Rejected, Reason: { Length: > 0 } })
+        {
+            _postError = e.Reason;
+            MainWindow.Current.Announce(_postError);
+        }
         catch (Exception e)
         {
             _postError = $"Couldn't post: {e.Message}. Your comment may be awaiting moderation, or try again.";

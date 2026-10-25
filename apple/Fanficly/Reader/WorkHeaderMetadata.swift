@@ -17,13 +17,19 @@ struct WorkHeaderMetadata: View {
                 RatingBadge(rating: summary.rating)
                 ForEach(summary.warnings, id: \.self) { warning in
                     SmallChip(text: warning, kind: .warning)
+                        .blockTermMenu(.tag, warning)
                 }
                 ForEach(summary.categories, id: \.self) { category in
                     SmallChip(text: category, kind: .category)
+                        .blockTermMenu(.tag, category)
                 }
             }
 
             StatsRow(summary: summary, foreground: foreground)
+
+            ForEach(summary.series, id: \.seriesId) { part in
+                SeriesPartRow(part: part)
+            }
 
             // Collapsible: fandoms, relationships, characters, tags.
             if hasDetails {
@@ -69,6 +75,43 @@ struct WorkHeaderMetadata: View {
     }
 }
 
+/// "Part 2 of <series> ›" (opens the series page) and, when there is one,
+/// "Next in series" (opens the following work).
+private struct SeriesPartRow: View {
+    let part: AO3SeriesPart
+
+    var body: some View {
+        FlowLayout(spacing: 12, lineSpacing: 6) {
+            NavigationLink(value: SeriesRef(id: part.seriesId, title: part.title)) {
+                HStack(spacing: 4) {
+                    Image(systemName: "books.vertical").font(.caption2)
+                        .accessibilityHidden(true)
+                    Text("Part \(part.position) of \(part.title)")
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Image(systemName: "chevron.right").font(.caption2)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityHint("Shows every work in this series.")
+            if let next = part.nextWorkId {
+                NavigationLink(value: SeriesWorkRef(workId: next)) {
+                    HStack(spacing: 4) {
+                        Text("Next in series")
+                        Image(systemName: "arrow.right").font(.caption2)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .accessibilityLabel("Next in \(part.title)")
+                .accessibilityHint("Opens part \(part.position + 1) of this series.")
+            }
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(Color.accentColor)
+        .buttonStyle(.plain)
+    }
+}
+
 private struct MetadataRow: View {
     let label: String
     let values: [String]
@@ -83,6 +126,7 @@ private struct MetadataRow: View {
             FlowLayout(spacing: 6, lineSpacing: 6) {
                 ForEach(values, id: \.self) { value in
                     SmallChip(text: value, kind: kind)
+                        .blockTermMenu(.tag, value)
                 }
             }
         }
@@ -174,11 +218,19 @@ private struct RatingBadge: View {
 private struct StatsRow: View {
     let summary: AO3WorkSummary
     let foreground: Color
+    @Environment(\.readingWordsPerMinute) private var wordsPerMinute
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 14) {
+            // Wraps rather than truncating now that the reading-time estimate
+            // makes five stats, too many for a narrow phone on one line.
+            FlowLayout(spacing: 14, lineSpacing: 4) {
                 stat("text.alignleft", "\(summary.wordCount.formatted()) words")
+                if let estimate = ReadingSpeed.estimate(words: summary.wordCount, wordsPerMinute: wordsPerMinute) {
+                    stat("clock", estimate)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(ReadingSpeed.spokenEstimate(words: summary.wordCount, wordsPerMinute: wordsPerMinute) ?? estimate)
+                }
                 stat("book.closed", chapterText)
                 if summary.kudos > 0 { stat("heart", summary.kudos.formatted()) }
                 if summary.hits > 0  { stat("eye",   summary.hits.formatted()) }

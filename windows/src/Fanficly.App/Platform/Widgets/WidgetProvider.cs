@@ -127,7 +127,9 @@ public sealed partial class FanficlyWidgetProvider : IWidgetProvider
         if (AppHost.IsDemoMode) return;
         try
         {
-            foreach (var info in WidgetManager.GetDefault().GetWidgetInfos())
+            // GetWidgetInfos returns null, not an empty array, while no
+            // Fanficly widget is pinned.
+            foreach (var info in WidgetManager.GetDefault().GetWidgetInfos() ?? [])
             {
                 var ctx = info.WidgetContext;
                 Update(ctx.Id, ctx.DefinitionId, SizeName(ctx.Size));
@@ -182,7 +184,7 @@ public static class WidgetStorage
     {
         if (!ReadsFreshCopies && AppGroupStore.Shared is not null) return;
         var previous = AppGroupStore.Shared as IDisposable;
-        AppGroupStore.Shared = new JsonFileKeyValueStore(SharedStorePath);
+        AppGroupStore.Shared = new JsonFileKeyValueStore(SharedStorePath, readOnly: ReadsFreshCopies);
         previous?.Dispose();
     }
 

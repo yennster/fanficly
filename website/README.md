@@ -42,7 +42,9 @@ features the apps don't have.
 ## Search and answer engines
 
 `index.html` carries the title, description, Open Graph tags and JSON-LD
-(`SoftwareApplication` plus an `FAQPage` that mirrors the FAQ section word for
-word; keep the two in sync). `robots.txt`, `sitemap.xml` and `llms.txt` (a plain
-summary for AI assistants) sit next to it. Update `llms.txt` and the JSON-LD
+(a `WebSite` node that gives Google the site name, `SoftwareApplication`, and
+an `FAQPage` that mirrors the FAQ section word for word; keep the two in sync).
+`robots.txt`, `sitemap.xml` (which also lists the page's screenshots for image
+search; add a new one there and bump `lastmod` when the page changes) and
+`llms.txt` (a plain summary for AI assistants) sit next to it. Update `llms.txt` and the JSON-LD
 `featureList` when the apps gain or lose a feature.
