@@ -1,18 +1,12 @@
-Search with tag suggestions as you type and the archive's full set of filters
-Browse fandoms by media category: anime, books, movies, TV, games and more
-See the most popular fandoms, ships and characters at a glance
-A Library with folders, stars, pins and sorting, plus offline downloads
-Three reading modes: continuous scroll, chapter by chapter, or page by page
-A two-page book spread on wide windows
-Typography profiles and themes: fonts, sizes, spacing and margins
-Listen: read-aloud with on-device voices
-Picks up exactly where you left off in every story
-Reading stats with a yearly wrap-up card to share
-Follow works and authors, with notifications for new chapters and new works
-Optional AO3 sign-in for your bookmarks, subscriptions and comments
-Export to EPUB, AZW3, MOBI, PDF or HTML
-A Windows widget for the story you're reading
-Share → Fanficly from your browser to save a work
+Live tag suggestions and every AO3 search filter
+Fandom browsing by category, plus what's popular
+Scroll, chapter or page-by-page reading
+Two-page book spread on wide windows
+Themes, fonts and saved typography profiles
+Read-aloud with on-device voices
+Offline library with folders, stars and pins
+New-chapter alerts for works and authors you follow
+Reading stats and a yearly wrap-up card
+EPUB, AZW3, MOBI, PDF and HTML export
 Keyboard, touch, pen and Xbox controller support
-Works with Narrator
-Private by design: no accounts with us, no analytics, everything on your device
+No ads, no analytics, no Fanficly account

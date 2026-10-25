@@ -2,16 +2,27 @@ import Foundation
 import os
 
 public protocol AO3ClientProtocol: Sendable {
-    func login(username: String, password: String) async throws
+    /// Signs in with an AO3 username or email address and returns the account's
+    /// AO3 login name, which is what `/users/<name>` pages need (#144).
+    @discardableResult
+    func login(username: String, password: String) async throws -> String
     func logout() async
+    /// The signed-in AO3 login name, read from AO3's page header when this
+    /// launch hasn't signed in yet; nil when signed out or unreachable.
     func currentUsername() async -> String?
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults
     func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults
     /// One page of the user's AO3 Marked for Later list. Login required.
     func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults
+    /// One page of the user's AO3 reading history, most recently visited
+    /// first. Login required, and the reader must have History turned on.
+    func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults
     func fetchWork(id: Int) async throws -> AO3WorkPayload
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata
+    /// One page of a series (`/series/<id>`): its title, creators and works in
+    /// series order. AO3 lists 20 works a page.
+    func fetchSeries(id: Int, page: Int) async throws -> AO3Series
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
     /// Comments for a specific chapter (AO3 threads comments per chapter). Pass
     /// `chapterId` = the chapter's AO3 id; nil fetches the work-level page (the
@@ -24,6 +35,23 @@ public protocol AO3ClientProtocol: Sendable {
     func downloadEPUB(workId: Int) async throws -> URL
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL
     func subscribeToWork(workId: Int) async throws
+    /// Leaves kudos on a work as the logged-in user: one POST, never retried.
+    /// Throws `.unauthorized` when the session isn't logged in, so a stale
+    /// cookie can't quietly leave a guest kudo instead.
+    func leaveKudos(workId: Int) async throws -> KudosOutcome
+    /// The signed-in user's bookmark form for a work, prefilled when they
+    /// already bookmarked it. Throws `.unauthorized` when signed out.
+    func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm
+    /// Creates or updates the bookmark by posting `form` back to AO3.
+    func saveBookmark(_ form: AO3BookmarkForm) async throws
+}
+
+/// What AO3 said to a kudos POST. AO3 allows one kudo per user per work and
+/// answers a second one with "You have already left kudos here. :)", which
+/// is still a kudo on the work, so the app remembers it the same way.
+public enum KudosOutcome: Sendable, Equatable {
+    case left
+    case alreadyLeft
 }
 
 public struct AO3SearchResults: Sendable, Equatable {
@@ -32,12 +60,19 @@ public struct AO3SearchResults: Sendable, Equatable {
     public let currentPage: Int
     /// The search page's "126,555 Found" total; nil on listings without one.
     public let totalFound: Int?
+    /// AO3 rendered the page for a signed-out reader (the header's login form,
+    /// no greeting). A guest listing leaves out restricted (archive-locked)
+    /// works, so a signed-in reader getting one has an expired session; see
+    /// `AuthState.noteListing(_:)`.
+    public let servedAsGuest: Bool
 
-    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil) {
+    public init(works: [AO3WorkSummary], totalPages: Int, currentPage: Int, totalFound: Int? = nil,
+                servedAsGuest: Bool = false) {
         self.works = works
         self.totalPages = totalPages
         self.currentPage = currentPage
         self.totalFound = totalFound
+        self.servedAsGuest = servedAsGuest
     }
 }
 
@@ -64,15 +99,19 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
     public let hits: Int
     public let isComplete: Bool
     public let updatedAt: Date?
+    /// The series this work belongs to ("Part 2 of …"), parsed from the work
+    /// page's `dd.series`. Empty for search blurbs and saved works.
+    public let series: [AO3SeriesPart]
 
     // Explicit init (rather than the synthesized memberwise one) so adding
-    // `authorUsername` with a default keeps every existing call site compiling.
+    // `authorUsername` or `series` with a default keeps every existing call site compiling.
     public init(
         id: Int, title: String, author: String, authorUsername: String = "",
         summary: String, rating: String, warnings: [String], categories: [String],
         fandoms: [String], characters: [String], relationships: [String], freeforms: [String],
         wordCount: Int, chapterCount: Int, totalChapters: Int?, language: String,
-        kudos: Int, hits: Int, isComplete: Bool, updatedAt: Date?
+        kudos: Int, hits: Int, isComplete: Bool, updatedAt: Date?,
+        series: [AO3SeriesPart] = []
     ) {
         self.id = id
         self.title = title
@@ -94,6 +133,62 @@ public struct AO3WorkSummary: Sendable, Equatable, Hashable, Identifiable {
         self.hits = hits
         self.isComplete = isComplete
         self.updatedAt = updatedAt
+        self.series = series
+    }
+}
+
+/// A work's place in one series, from the work page's
+/// `<span class="series">← Previous Work · Part 2 of <a href="/series/9">…</a> · Next Work →</span>`.
+/// AO3 counts only the works visible to the viewer, so `position` and the
+/// neighbours can differ logged in and out.
+public struct AO3SeriesPart: Sendable, Hashable {
+    public let seriesId: Int
+    public let title: String
+    public let position: Int
+    public let previousWorkId: Int?
+    public let nextWorkId: Int?
+
+    public init(seriesId: Int, title: String, position: Int,
+                previousWorkId: Int? = nil, nextWorkId: Int? = nil) {
+        self.seriesId = seriesId
+        self.title = title
+        self.position = position
+        self.previousWorkId = previousWorkId
+        self.nextWorkId = nextWorkId
+    }
+}
+
+/// One page of a series page (`/series/<id>`).
+public struct AO3Series: Sendable, Equatable {
+    public let id: Int
+    public let title: String
+    /// Byline text, comma-joined for co-created series.
+    public let creator: String
+    /// The first creator's AO3 login, "" for anonymous/orphaned series.
+    public let creatorUsername: String
+    public let descriptionHTML: String
+    /// AO3's "Works:" stat (visible works across every page); nil if missing.
+    public let workCount: Int?
+    public let isComplete: Bool
+    /// This page's works in series order. Unrevealed ("Mystery Work") entries,
+    /// which have no link to open, are left out.
+    public let works: [AO3WorkSummary]
+    public let currentPage: Int
+    public let totalPages: Int
+
+    public init(id: Int, title: String, creator: String, creatorUsername: String = "",
+                descriptionHTML: String = "", workCount: Int? = nil, isComplete: Bool = false,
+                works: [AO3WorkSummary], currentPage: Int = 1, totalPages: Int = 1) {
+        self.id = id
+        self.title = title
+        self.creator = creator
+        self.creatorUsername = creatorUsername
+        self.descriptionHTML = descriptionHTML
+        self.workCount = workCount
+        self.isComplete = isComplete
+        self.works = works
+        self.currentPage = currentPage
+        self.totalPages = totalPages
     }
 }
 
@@ -158,6 +253,53 @@ public struct AO3Comment: Sendable, Identifiable, Hashable {
     }
 }
 
+/// The bookmark form AO3 renders on a work page for the signed-in user
+/// (`#bookmark_form_placement`). Saving replays it: `action` is
+/// `/works/<id>/bookmarks` for a new bookmark or `/bookmarks/<id>` (with a
+/// hidden `_method=put`) for an existing one, and `hiddenFields` carries the
+/// CSRF token and the pseud, so neither is hardcoded.
+public struct AO3BookmarkForm: Sendable, Equatable {
+    public let action: URL
+    public let hiddenFields: [String: String]
+    /// True when the work is already bookmarked, so saving updates it.
+    public let isExisting: Bool
+    /// Notes may contain AO3's allowed HTML; they're sent back as typed.
+    public var notes: String
+    /// The bookmarker's own tags, comma separated, as AO3's field takes them.
+    public var tags: String
+    /// Collections the bookmark is in, kept as-is (not edited in the app);
+    /// nil when the form had no such field, so nothing is sent for it.
+    public var collections: String?
+    public var isPrivate: Bool
+    public var isRec: Bool
+
+    public init(action: URL, hiddenFields: [String: String], isExisting: Bool,
+                notes: String = "", tags: String = "", collections: String? = nil,
+                isPrivate: Bool = false, isRec: Bool = false) {
+        self.action = action
+        self.hiddenFields = hiddenFields
+        self.isExisting = isExisting
+        self.notes = notes
+        self.tags = tags
+        self.collections = collections
+        self.isPrivate = isPrivate
+        self.isRec = isRec
+    }
+
+    /// The urlencoded fields to POST: the hidden inputs plus the edited
+    /// values, with the checkboxes sent as Rails' `0`/`1`.
+    public var postFields: [String: String] {
+        var fields = hiddenFields
+        fields["bookmark[bookmarker_notes]"] = notes
+        fields["bookmark[tag_string]"] = tags
+        if let collections { fields["bookmark[collection_names]"] = collections }
+        fields["bookmark[private]"] = isPrivate ? "1" : "0"
+        fields["bookmark[rec]"] = isRec ? "1" : "0"
+        fields["commit"] = isExisting ? "Update" : "Create"
+        return fields
+    }
+}
+
 public struct AO3ChapterPayload: Sendable {
     public let index: Int
     public let title: String
@@ -216,6 +358,11 @@ public enum AO3Error: Error, Sendable, Equatable {
     case parseFailed(reason: String)
     case http(status: Int)
     case network(underlying: String)
+    /// AO3 refused a kudo, with its own reason ("You can't leave kudos on your
+    /// own work.", a block, a suspended account).
+    case kudosRejected(message: String)
+    /// AO3 didn't post a comment, with its own reason when it gave one.
+    case commentRejected(message: String)
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -267,7 +414,8 @@ public actor AO3Client: AO3ClientProtocol {
         return "Fanficly/\(version) (\(platform); https://github.com/yennster/fanficly)"
     }
 
-    public func login(username: String, password: String) async throws {
+    @discardableResult
+    public func login(username: String, password: String) async throws -> String {
         await throttle.wait()
 
         let loginURL = try AO3Endpoints.login(base: baseURL)
@@ -298,10 +446,11 @@ public actor AO3Client: AO3ClientProtocol {
         let (loginRespData, _) = try await performRequest(post)
         let respHTML = String(data: loginRespData, encoding: .utf8) ?? ""
 
-        // Success: the response shows the logged-in user navigation.
-        if let name = try LoginParser.currentUsername(html: respHTML) {
+        // Success: the response shows the logged-in user navigation (and no
+        // login form, whose header links aren't a name).
+        if try !LoginParser.hasLoginForm(html: respHTML), let name = try LoginParser.currentUsername(html: respHTML) {
             cachedUsername = name
-            return
+            return name
         }
         // Explicit AO3 error flash.
         if let err = try LoginParser.detectLoginFailure(html: respHTML) {
@@ -314,8 +463,16 @@ public actor AO3Client: AO3ClientProtocol {
         // Unexpected response — assume the session cookie was set anyway.
         if let cookies = HTTPCookieStorage.shared.cookies(for: baseURL),
            cookies.contains(where: { $0.name.contains("user_credentials") || $0.name.contains("remember_user_token") }) {
-            cachedUsername = username
-            return
+            // The typed text may be an email address, which no /users/ page
+            // takes, so ask AO3 for the login name.
+            if let name = await fetchLoggedInName() {
+                cachedUsername = name
+                return name
+            }
+            if !username.contains("@") {
+                cachedUsername = username
+                return username
+            }
         }
         throw AO3Error.loginFailed(reason: "Couldn't confirm login. Please try again.")
     }
@@ -328,7 +485,19 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func currentUsername() async -> String? {
-        cachedUsername
+        if let cachedUsername { return cachedUsername }
+        cachedUsername = await fetchLoggedInName()
+        return cachedUsername
+    }
+
+    /// The login name in the header of AO3's home page; nil for a guest page
+    /// or a failed request.
+    private func fetchLoggedInName() async -> String? {
+        await throttle.wait()
+        guard let response = try? await performRequest(URLRequest(url: baseURL)),
+              let html = String(data: response.0, encoding: .utf8),
+              (try? LoginParser.hasLoginForm(html: html)) == false else { return nil }
+        return try? LoginParser.currentUsername(html: html)
     }
 
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
@@ -385,6 +554,17 @@ public actor AO3Client: AO3ClientProtocol {
         return try SearchResultsParser.parseReadings(html: html)
     }
 
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
+        await throttle.wait()
+        let url = try AO3Endpoints.userReadingHistory(name: username, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "History response not UTF-8")
+        }
+        return try SearchResultsParser.parseReadings(html: html)
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         await throttle.wait()
         let url = try AO3Endpoints.work(id: id, base: baseURL)
@@ -403,6 +583,17 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.parseFailed(reason: "Work response not UTF-8")
         }
         return try WorkMetadataParser.parse(html: html, workId: id)
+    }
+
+    public func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        await throttle.wait()
+        let url = try AO3Endpoints.series(id: id, page: page, base: baseURL)
+        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        let (data, _) = try await performRequest(URLRequest(url: url))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Series response not UTF-8")
+        }
+        return try SeriesParser.parse(html: html, seriesId: id)
     }
 
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] {
@@ -456,7 +647,7 @@ public actor AO3Client: AO3ClientProtocol {
 
     public func postComment(workId: Int, chapterId: Int?, text: String) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { throw AO3Error.commentRejected(message: "The comment is empty.") }
 
         // Load the chapter's (or work's) comment page and replay its actual
         // new-comment form: the form's hidden inputs carry the CSRF token and the
@@ -469,8 +660,13 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.parseFailed(reason: "Comment page not UTF-8")
         }
         guard let form = CommentsParser.newCommentForm(html: pageHTML, base: baseURL) else {
-            throw AO3Error.parseFailed(reason: "comment form not found (login required?)")
+            if !KudosParser.isSignedIn(html: pageHTML) { throw AO3Error.unauthorized }
+            throw AO3Error.parseFailed(reason: "comment form not found")
         }
+        // AO3 shows its guest form (name and email) once the session has
+        // ended. Posting it without them is refused, and posting as a guest
+        // isn't what a signed-in reader meant.
+        guard !form.isGuest else { throw AO3Error.unauthorized }
 
         await throttle.wait()
         var request = URLRequest(url: form.action)
@@ -486,9 +682,14 @@ public actor AO3Client: AO3ClientProtocol {
         fields["commit"] = "Comment"
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
-        let (_, response) = try await performRequest(request)
-        guard response.statusCode < 400 else {
-            throw AO3Error.http(status: response.statusCode)
+        // AO3 answers a refused comment with a 200 page (or a redirect that
+        // URLSession follows), never an error status, so judge by the page.
+        let (data, response) = try await performRequest(request)
+        let html = String(data: data, encoding: .utf8) ?? ""
+        switch CommentsParser.postOutcome(html: html, finalURL: response.url, formAction: form.action) {
+        case .posted: return
+        case .signedOut: throw AO3Error.unauthorized
+        case .rejected(let message): throw AO3Error.commentRejected(message: message)
         }
     }
 
@@ -568,7 +769,8 @@ public actor AO3Client: AO3ClientProtocol {
     public func downloadEPUB(workId: Int) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.epub(workId: workId, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        let (data, response) = try await performRequest(URLRequest(url: url))
+        try Self.ensureDownloadedFile(data, finalURL: response.url, format: .epub)
         let docs = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dir = docs.appendingPathComponent("library", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -580,7 +782,8 @@ public actor AO3Client: AO3ClientProtocol {
     public func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
         await throttle.wait()
         let url = try AO3Endpoints.download(workId: workId, format: format, base: baseURL)
-        let (data, _) = try await performRequest(URLRequest(url: url))
+        let (data, response) = try await performRequest(URLRequest(url: url))
+        try Self.ensureDownloadedFile(data, finalURL: response.url, format: format)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exports", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let safe = Self.sanitizeFilename(filename.isEmpty ? "work-\(workId)" : filename)
@@ -588,6 +791,47 @@ public actor AO3Client: AO3ClientProtocol {
         try? FileManager.default.removeItem(at: fileURL)
         try data.write(to: fileURL, options: .atomic)
         return fileURL
+    }
+
+    /// A download is really the file, not a page. A restricted work fetched
+    /// signed out (or with an expired cookie) redirects to the login page,
+    /// which URLSession follows to a 200, and AO3 or Cloudflare can answer
+    /// with an error page. Saved, either would show as Downloaded (the
+    /// Library only checks the EPUB file exists) or reach the share sheet as
+    /// a `.pdf`. So each format has to start like that format, and nothing is
+    /// written unless it does.
+    static func ensureDownloadedFile(_ data: Data, finalURL: URL?, format: WorkExportFormat) throws {
+        if finalURL?.path.hasPrefix("/users/login") == true { throw AO3Error.unauthorized }
+        let matches: Bool
+        switch format {
+        case .epub, .azw3, .mobi: matches = isEbook(data)
+        case .pdf: matches = isPDF(data)
+        case .html: matches = try AO3PageCheck.isWorkDownload(html: String(decoding: data, as: UTF8.self))
+        }
+        if matches { return }
+        if format != .html, AO3PageCheck.isLoginPage(html: String(decoding: data, as: UTF8.self)) {
+            throw AO3Error.unauthorized
+        }
+        throw AO3Error.parseFailed(reason: "AO3 didn't send the \(format.displayName) file")
+    }
+
+    /// AO3's EPUB is a zip; its AZW3 and MOBI are Mobipocket files.
+    static func isEbook(_ data: Data) -> Bool {
+        isZip(data) || isMobipocket(data)
+    }
+
+    private static func isZip(_ data: Data) -> Bool {
+        data.prefix(4).elementsEqual([0x50, 0x4B, 0x03, 0x04])
+    }
+
+    /// A Palm database whose type and creator, at byte 60, are "BOOKMOBI".
+    private static func isMobipocket(_ data: Data) -> Bool {
+        data.count >= 68 && data.dropFirst(60).prefix(8).elementsEqual("BOOKMOBI".utf8)
+    }
+
+    /// PDF readers accept the header anywhere in the first 1024 bytes.
+    private static func isPDF(_ data: Data) -> Bool {
+        data.prefix(1024).range(of: Data("%PDF-".utf8)) != nil
     }
 
     private static func sanitizeFilename(_ name: String) -> String {
@@ -626,6 +870,117 @@ public actor AO3Client: AO3ClientProtocol {
         }
     }
 
+    public func leaveKudos(workId: Int) async throws -> KudosOutcome {
+        // Read the work page first: it carries the kudos form (absent on your
+        // own work or one whose creator blocked you) and shows whether the
+        // session is still logged in. AO3 takes guest kudos too, so posting
+        // with an expired cookie would silently leave one as a guest.
+        await throttle.wait()
+        let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
+        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let pageHTML = String(data: pageData, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Work page not UTF-8")
+        }
+        guard KudosParser.isSignedIn(html: pageHTML) else {
+            throw AO3Error.unauthorized
+        }
+        guard var fields = KudosParser.formFields(html: pageHTML) else {
+            throw AO3Error.kudosRejected(message: "AO3 doesn't offer kudos on this work. It may be your own, or its creator may have blocked you.")
+        }
+        // The page-wide token (`<meta name="csrf-token">`), as comments and
+        // subscribe use. AO3 has Rails' per-form tokens on, so the form's own
+        // token only validates for a POST to `/kudos`, not `/kudos.js`; AO3's
+        // script gets through because it also sends the meta token.
+        guard let token = try? LoginParser.authenticityToken(html: pageHTML) else {
+            throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
+        }
+        fields["authenticity_token"] = token
+
+        // Post the form the way AO3's own script does (`/kudos.js`): it
+        // answers 201 on success and 422 with `{"error_message": …}` otherwise,
+        // instead of a redirect whose flash we'd have to scrape.
+        let kudosURL = try AO3Endpoints.kudos(base: baseURL)
+        await throttle.wait()
+        var request = URLRequest(url: kudosURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        request.httpBody = encodeForm(fields).data(using: .utf8)
+
+        let (data, response) = try await performRequest(request, passing: [422])
+        switch response.statusCode {
+        case 201:
+            return .left
+        case 422:
+            // A refused token (the session ended between the two requests)
+            // answers `{"errors": {"auth_error": …}}` instead.
+            if KudosParser.isAuthError(json: data) { throw AO3Error.unauthorized }
+            let message = KudosParser.errorMessage(json: data) ?? ""
+            if KudosParser.isAlreadyLeft(message: message) { return .alreadyLeft }
+            throw AO3Error.kudosRejected(message: message.isEmpty ? "AO3 didn't accept the kudos." : message)
+        default:
+            // Anything else (a maintenance page, a proxy) isn't AO3's kudos
+            // answer, so it mustn't be remembered as a kudo.
+            throw AO3Error.kudosRejected(message: "AO3 gave an unexpected answer (HTTP \(response.statusCode)), so the kudos may not have been left. Trying again is safe.")
+        }
+    }
+
+
+    public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        await throttle.wait()
+        let pageURL = try AO3Endpoints.workPage(id: workId, base: baseURL)
+        let (data, _) = try await performRequest(URLRequest(url: pageURL))
+        guard let html = String(data: data, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Work page not UTF-8")
+        }
+        guard let form = BookmarkFormParser.parse(html: html, base: baseURL) else {
+            // AO3 only renders the form for a signed-in user; a page without it
+            // that isn't signed out is an error page or changed markup.
+            if (try? LoginParser.hasLoginForm(html: html)) == true || (try? LoginParser.currentUsername(html: html)) == nil {
+                throw AO3Error.unauthorized
+            }
+            throw AO3Error.parseFailed(reason: "bookmark form not found on the work page")
+        }
+        return form
+    }
+
+    public func saveBookmark(_ form: AO3BookmarkForm) async throws {
+        await throttle.wait()
+        var request = URLRequest(url: form.action)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue(form.action.absoluteString, forHTTPHeaderField: "Referer")
+        request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        if let token = form.hiddenFields["authenticity_token"] {
+            request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
+        }
+        request.httpBody = encodeForm(form.postFields).data(using: .utf8)
+
+        // AO3 redirects a saved bookmark (new or updated) to `/bookmarks/<id>`.
+        // A rejected one re-renders the form with an `#error` list, an expired
+        // session lands on the login form, and a refused account or pseud is
+        // redirected elsewhere with an error flash. URLSession follows the
+        // redirect, so judge by the final page.
+        let (data, response) = try await performRequest(request)
+        let html = String(data: data, encoding: .utf8) ?? ""
+        if (try? LoginParser.hasLoginForm(html: html)) == true {
+            throw AO3Error.unauthorized
+        }
+        // A failed update re-renders on `/bookmarks/<id>` too, so form errors
+        // come first; a flash on the saved bookmark's page (say, a collection
+        // it couldn't join) doesn't undo the save.
+        let errors = BookmarkFormParser.saveErrors(html: html)
+        if !errors.isEmpty {
+            throw AO3Error.parseFailed(reason: errors.joined(separator: " "))
+        }
+        guard BookmarkFormParser.isBookmarkPage(path: response.url?.path ?? "") else {
+            let flash = BookmarkFormParser.flashErrors(html: html)
+            throw AO3Error.parseFailed(reason: flash.isEmpty ? "AO3 didn't save the bookmark." : flash.joined(separator: " "))
+        }
+    }
 
     private var cookiesLoaded = false
 
@@ -649,8 +1004,11 @@ public actor AO3Client: AO3ClientProtocol {
     /// rate-limit) is retried before it surfaces to the caller.
     private static let maxRetries = 2
 
+    /// `passing` lists error statuses the caller reads itself (the kudos
+    /// POST's 422 carries AO3's reason) instead of having them thrown.
     private func performRequest(_ request: URLRequest, attempt: Int = 0,
-                                maxRetries: Int = AO3Client.maxRetries) async throws -> (Data, HTTPURLResponse) {
+                                maxRetries: Int = AO3Client.maxRetries,
+                                passing: Set<Int> = []) async throws -> (Data, HTTPURLResponse) {
         ensureCookiesLoaded()
         // Only auto-retry idempotent reads. Replaying a POST (login, comment,
         // subscribe) after a timeout could double-submit — e.g. a comment that
@@ -662,6 +1020,7 @@ public actor AO3Client: AO3ClientProtocol {
             guard let http = response as? HTTPURLResponse else {
                 throw AO3Error.network(underlying: "Non-HTTP response")
             }
+            if passing.contains(http.statusCode) { return (data, http) }
             switch http.statusCode {
             case 200..<300, 302: return (data, http)
             case 401, 403:        throw AO3Error.unauthorized
@@ -677,7 +1036,7 @@ public actor AO3Client: AO3ClientProtocol {
                    retryAfter <= Self.maxPoliteRetryAfter {
                     try? await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
                     await throttle.wait()
-                    return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries)
+                    return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries, passing: passing)
                 }
                 throw AO3Error.rateLimited
             default:              throw AO3Error.http(status: http.statusCode)
@@ -690,7 +1049,7 @@ public actor AO3Client: AO3ClientProtocol {
             // the whole load.
             try? await Task.sleep(nanoseconds: Self.backoffNanos(attempt))
             await throttle.wait()
-            return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries)
+            return try await performRequest(request, attempt: attempt + 1, maxRetries: maxRetries, passing: passing)
         } catch {
             throw AO3Error.network(underlying: error.localizedDescription)
         }
@@ -743,7 +1102,7 @@ public actor AO3Client: AO3ClientProtocol {
 
 public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public init() {}
-    public func login(username: String, password: String) async throws {}
+    public func login(username: String, password: String) async throws -> String { username }
     public func logout() async {}
     public func currentUsername() async -> String? { nil }
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
@@ -756,6 +1115,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
@@ -774,6 +1136,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
+    public func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        AO3Series(id: id, title: "Sample Series", creator: "Anon", works: [], currentPage: page)
+    }
     public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
     public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
         AO3CommentsPage(comments: [], currentPage: page)
@@ -791,4 +1156,10 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
     public func subscribeToWork(workId: Int) async throws {}
+    public func leaveKudos(workId: Int) async throws -> KudosOutcome { .left }
+    public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+    public func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }

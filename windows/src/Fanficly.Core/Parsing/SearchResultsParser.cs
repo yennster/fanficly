@@ -21,7 +21,7 @@ public static partial class SearchResultsParser
         if (blurbs.Count == 0 && !IsListingPage(doc)) throw AO3Exception.ParseFailed("Not a works listing");
         var works = blurbs.Select(ParseBlurb).OfType<AO3WorkSummary>().ToList();
         var (currentPage, totalPages) = HtmlDom.Pagination(doc);
-        return new AO3SearchResults(works, totalPages, currentPage, TotalFound(doc));
+        return new AO3SearchResults(works, totalPages, currentPage, TotalFound(doc), AO3PageCheck.IsGuestPage(doc));
     }
 
     /// <summary>A works, bookmarks or readings listing, even an empty one: the index
@@ -200,6 +200,14 @@ internal static class AO3PageCheck
     /// as a 200). Only the login page has a login form inside <c>#main</c>.</summary>
     public static bool IsLoginPage(IDocument doc) =>
         doc.SelectFirst("div#main.sessions-new, #main #loginform, #main form[action*='/users/login']") is not null;
+
+    /// <summary>A page AO3 rendered for a signed-out reader: the header's small
+    /// login form and no <c>#greeting</c> link to <c>/users/&lt;login&gt;</c>. Both
+    /// are required, so a page without AO3's header (a test fixture, markup drift)
+    /// never reads as a guest page.</summary>
+    public static bool IsGuestPage(IDocument doc) =>
+        doc.SelectFirst("#greeting a[href^='/users/']") is null
+        && doc.SelectFirst("form#new_user, input[name='user[login]'], #loginform") is not null;
 
     public static void RejectLoginPage(IDocument doc)
     {

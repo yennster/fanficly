@@ -205,6 +205,106 @@ public sealed class LibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void AKeyAnotherProcessSavedDoesntBlockLaterSaves()
+    {
+        // The background task saves a subscription after the app loaded its
+        // library; the app's own poll then inserts the same key. The app's
+        // record replaces the task's row, and later saves still go through.
+        Directory.CreateDirectory(_dir);
+        var failures = new List<string>();
+        var saveFailed = LibraryHooks.SaveFailed;
+        LibraryHooks.SaveFailed = failures.Add;
+        try
+        {
+            using (var app = LibraryStore.Open(DbPath))
+            {
+                using (var task = LibraryStore.Open(DbPath))
+                {
+                    task.Insert(new SubscriptionRecord("work:7", "work", "From the task") { LastSeenChapterCount = 3 });
+                    task.Save();
+                }
+                app.Insert(new SubscriptionRecord("work:7", "work", "From the app") { LastSeenChapterCount = 4 });
+                Assert.True(app.TrySave());
+                app.Insert(new FollowedAuthor("later", "Later"));
+                Assert.True(app.TrySave());
+                Assert.False(app.HasChanges);
+                app.GetSubscription("work:7")!.DisplayName = "Renamed";
+                Assert.True(app.TrySave());
+            }
+            Assert.Empty(failures);
+            using var reopened = LibraryStore.Open(DbPath);
+            var sub = Assert.Single(reopened.All<SubscriptionRecord>());
+            Assert.Equal(("Renamed", 4), (sub.DisplayName, sub.LastSeenChapterCount));
+            Assert.Equal("later", Assert.Single(reopened.All<FollowedAuthor>()).Username);
+        }
+        finally
+        {
+            LibraryHooks.SaveFailed = saveFailed;
+        }
+    }
+
+    [Fact]
+    public void AWorkAnotherProcessSavedIsReplacedWithItsChaptersAndFolderLinks()
+    {
+        Directory.CreateDirectory(_dir);
+        using (var app = LibraryStore.Open(DbPath))
+        {
+            using (var other = LibraryStore.Open(DbPath))
+            {
+                var theirs = new Work(5, "Theirs", "A");
+                other.Insert(theirs);
+                other.Insert(new Chapter(theirs, 1, "Old", "<p>old</p>"));
+                theirs.Folders.Add(new CustomFolder("Shelf"));
+                other.Save();
+            }
+            var mine = new Work(5, "Mine", "A");
+            app.Insert(mine);
+            app.Insert(new Chapter(mine, 1, "New", "<p>new</p>"));
+            app.Save();
+        }
+        using var store = LibraryStore.Open(DbPath);
+        var work = Assert.Single(store.Works);
+        Assert.Equal("Mine", work.Title);
+        Assert.Equal("New", Assert.Single(store.All<Chapter>()).Title);
+        Assert.Empty(work.Folders);
+        Assert.Equal("Shelf", Assert.Single(store.Folders()).Name);
+    }
+
+    [Fact]
+    public void ADeletedAndReinsertedKeyStillSaves()
+    {
+        // The store's own row with the key is deleted in the same save, before
+        // the insert, so it isn't mistaken for another process's row.
+        Directory.CreateDirectory(_dir);
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new HiddenWork(9, "First"));
+            store.Save();
+            store.Insert(new HiddenWork(9, "Second"));
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal("Second", Assert.Single(store.All<HiddenWork>()).Title);
+    }
+
+    [Fact]
+    public void EveryUniqueKeyIsItsTablesFirstColumn()
+    {
+        // Save finds another process's row for a new record's key by the
+        // table's first column.
+        using var store = LibraryStore.Open(DbPath);
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath}");
+        conn.Open();
+        foreach (var t in LibrarySchema.Tables)
+        {
+            if (t.Type == typeof(Chapter)) continue;
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"SELECT COUNT(*) FROM pragma_index_list('{t.Table}') l JOIN pragma_index_info(l.name) i WHERE l.\"unique\" = 1 AND i.name = '{t.Columns[0]}'";
+            Assert.True((long)cmd.ExecuteScalar()! == 1, $"{t.Table}.{t.Columns[0]} isn't UNIQUE");
+        }
+    }
+
+    [Fact]
     public void QueriesSeeUnsavedInsertsAndDeletes()
     {
         using var store = LibraryStore.OpenInMemory();

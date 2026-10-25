@@ -7,6 +7,7 @@ struct SettingsView: View {
         case login
         case reader
         case hiddenWorks
+        case blockedTerms
         case contentPolicy
         case privacy
     }
@@ -17,9 +18,18 @@ struct SettingsView: View {
     @AppStorage("settings.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = false
     @AppStorage("library.showReadingProgress") private var showReadingProgress = true
     @State private var lastSync: Date? = nil
+    @State private var lastBackupFailure: String? = nil
     @State private var showingRestoreSuccess = false
     @State private var showingRestoreFailure = false
     @State private var isRestoring = false
+    @State private var isSyncing = false
+    /// What the last Sync Now did, shown under "Last synced" until the
+    /// screen goes away.
+    @State private var syncResult: String? = nil
+    /// The Sync Now line is a partial success (a warning, not a checkmark).
+    @State private var syncResultIsWarning = false
+    @State private var showingClearConfirmation = false
+    @State private var clearResult: ClearResultAlert? = nil
     @State private var exportItem: ShareItem? = nil
     @State private var showingImporter = false
     @State private var fileAlert: LibraryFileAlert? = nil
@@ -35,7 +45,9 @@ struct SettingsView: View {
             Section("Account") {
                 NavigationLink(value: SettingsRoute.login) {
                     if let username = auth.username {
-                        LabeledContent("AO3 Login", value: username)
+                        // An expired session (#131): the sign-in form is one tap away.
+                        LabeledContent("AO3 Login", value: auth.isSessionExpired
+                                       ? String(localized: "Session expired for \(username)") : username)
                     } else {
                         Text("AO3 Login")
                     }
@@ -65,25 +77,74 @@ struct SettingsView: View {
                                         lastSync = syncManager.lastBackupDate
                                         showingRestoreSuccess = true
                                         RestoreDownloadCenter.shared.proposeRedownload(context: context)
+                                    } else {
+                                        showingRestoreFailure = true
                                     }
                                 }
                             }
                         }
                     }
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || isSyncing)
                 
                 if iCloudSyncEnabled {
                     if let date = lastSync {
                         LabeledContent("Last synced", value: date.formatted())
                     } else {
-                        LabeledContent("Last synced") { Text("Never") }
+                        // A backup that's in iCloud but not on this device yet has no date here.
+                        LabeledContent("Last synced") {
+                            Text(syncManager.isBackupAvailable ? "Not downloaded yet" : "Never")
+                        }
                     }
                     
-                    Button("Sync Now") {
-                        syncManager.backupToiCloud(context: context)
-                        lastSync = syncManager.lastBackupDate
+                    if let lastBackupFailure {
+                        Label {
+                            Text("Last backup didn't run: \(lastBackupFailure)")
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle")
+                                .accessibilityHidden(true)
+                        }
+                        .foregroundStyle(.secondary)
                     }
-                    .disabled(isRestoring)
+
+                    if let syncResult {
+                        Label {
+                            Text(syncResult)
+                        } icon: {
+                            Image(systemName: syncResultIsWarning ? "exclamationmark.triangle" : "checkmark.circle")
+                                .accessibilityHidden(true)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        isSyncing = true
+                        syncResult = nil
+                        Task {
+                            let result = await syncManager.syncNow(context: context)
+                            isSyncing = false
+                            lastSync = syncManager.lastBackupDate
+                            lastBackupFailure = syncManager.backupProblem
+                            syncResult = Self.syncResultMessage(result)
+                            syncResultIsWarning = result.restoreFailed || !result.backup.succeeded
+                            if let message = syncResult ?? lastBackupFailure {
+                                announce(message)
+                            }
+                            if result.restored {
+                                RestoreDownloadCenter.shared.proposeRedownload(context: context)
+                            }
+                        }
+                    } label: {
+                        if isSyncing {
+                            HStack {
+                                Text("Syncing...")
+                                Spacer()
+                                ProgressView()
+                            }
+                        } else {
+                            Text("Sync Now")
+                        }
+                    }
+                    .disabled(isRestoring || isSyncing)
                     
                     if syncManager.isBackupAvailable || isRestoring {
                         Button {
@@ -110,14 +171,25 @@ struct SettingsView: View {
                                 Text("Restore from iCloud")
                             }
                         }
-                        .disabled(isRestoring)
+                        .disabled(isRestoring || isSyncing)
                     }
                     
                     Button("Clear iCloud Data", role: .destructive) {
-                        syncManager.clearFromiCloud()
-                        lastSync = nil
+                        showingClearConfirmation = true
                     }
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || isSyncing)
+                    .confirmationDialog("Clear iCloud Data?", isPresented: $showingClearConfirmation,
+                                        titleVisibility: .visible) {
+                        Button("Clear and Turn Off Sync", role: .destructive) {
+                            cleariCloudData(turnOffSync: true)
+                        }
+                        Button("Clear and Keep Syncing", role: .destructive) {
+                            cleariCloudData(turnOffSync: false)
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This deletes your library backup from iCloud. Your other devices that sync use the same backup, so they won't get changes from it until one of them backs up again. Your library on this device isn't affected. If sync stays on, this device starts a new backup with its next change.")
+                    }
                 } else {
                     Button {
                         isRestoring = true
@@ -144,7 +216,7 @@ struct SettingsView: View {
                             Text("Restore Library from iCloud")
                         }
                     }
-                    .disabled(isRestoring)
+                    .disabled(isRestoring || isSyncing)
                 }
             }
             Section {
@@ -155,24 +227,25 @@ struct SettingsView: View {
                         fileAlert = .exportFailed
                     }
                 }
-                .disabled(isRestoring)
+                .disabled(isRestoring || isSyncing)
                 Button("Import Library File…") {
                     showingImporter = true
                 }
-                .disabled(isRestoring)
+                .disabled(isRestoring || isSyncing)
             } header: {
                 Text("Library File")
             } footer: {
-                Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards, and uses the file's reader and content settings.")
+                Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards.")
             }
             Section {
                 Toggle("Filter mature & explicit works", isOn: $filterMature)
                 NavigationLink("Hidden works", value: SettingsRoute.hiddenWorks)
+                NavigationLink("Blocked tags & authors", value: SettingsRoute.blockedTerms)
                 NavigationLink("Content policy", value: SettingsRoute.contentPolicy)
             } header: {
                 Text("Content & Safety")
             } footer: {
-                Text("Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results.")
+                Text("Fanficly shows works from Archive of Our Own, which are created by other users. Filtering hides Mature- and Explicit-rated works; hiding removes individual works from your results; blocking a tag or author removes every work that has it.")
             }
             Section("Privacy") {
                 NavigationLink("What this app sees and stores", value: SettingsRoute.privacy)
@@ -199,6 +272,8 @@ struct SettingsView: View {
                 ReaderSettingsView()
             case .hiddenWorks:
                 HiddenWorksView()
+            case .blockedTerms:
+                BlockedTermsView()
             case .contentPolicy:
                 ContentPolicyView()
             case .privacy:
@@ -207,6 +282,8 @@ struct SettingsView: View {
         }
         .onAppear {
             lastSync = syncManager.lastBackupDate
+            lastBackupFailure = syncManager.backupProblem
+            syncResult = nil
         }
         .onChange(of: filterMature) { _, _ in
             syncManager.queueBackup(context: context)
@@ -241,6 +318,83 @@ struct SettingsView: View {
         } message: { alert in
             Text(alert.message)
         }
+        .alert(clearResult?.title ?? "", isPresented: Binding(
+            get: { clearResult != nil },
+            set: { if !$0 { clearResult = nil } }
+        ), presenting: clearResult) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { result in
+            Text(result.message)
+        }
+    }
+
+    /// The line Sync Now leaves under "Last synced". When the backup didn't
+    /// write, `backupProblem` says why, so this only mentions a restore that
+    /// still brought changes in.
+    static func syncResultMessage(_ result: SyncNowResult) -> String? {
+        guard result.backup.succeeded else {
+            return result.restored
+                ? String(localized: "Changes from your other devices were added to your library, but this device's backup didn't run.")
+                : nil
+        }
+        if result.restored {
+            return String(localized: "Synced. Changes from your other devices were added to your library.")
+        }
+        if result.restoreFailed {
+            return String(localized: "Backed up, but changes from your other devices couldn't be brought in. Fanficly will try again the next time it opens.")
+        }
+        return String(localized: "Synced. Your library is backed up to iCloud.")
+    }
+
+    private func cleariCloudData(turnOffSync: Bool) {
+        // The clear cancels a queued backup and nothing backs up in between
+        // (both run on the main actor), so sync goes off after it, and only
+        // when it worked: otherwise Clear iCloud Data must stay on screen to
+        // try again.
+        let outcome = syncManager.clearFromiCloud()
+        let turnedOff = turnOffSync && (outcome == .cleared || outcome == .nothingToClear)
+        if turnedOff { iCloudSyncEnabled = false }
+        lastSync = syncManager.lastBackupDate
+        lastBackupFailure = syncManager.backupProblem
+        syncResult = nil
+        let alert = ClearResultAlert(outcome, syncTurnedOff: turnedOff)
+        clearResult = alert
+        announce(alert.message)
+    }
+
+    private func announce(_ message: String) {
+        #if os(iOS)
+        UIAccessibility.post(notification: .announcement, argument: message)
+        #endif
+    }
+}
+
+/// The alert Clear iCloud Data ends with, saying what really happened.
+struct ClearResultAlert {
+    let title: String
+    let message: String
+
+    init(_ outcome: ClearOutcome, syncTurnedOff: Bool) {
+        let syncNote = syncTurnedOff
+            ? String(localized: "Sync is now off on this device.")
+            : String(localized: "Sync is still on, so this device starts a new backup with its next change.")
+        switch outcome {
+        case .cleared:
+            title = String(localized: "iCloud Data Cleared")
+            message = String(localized: "Your library backup was deleted from iCloud.") + " " + syncNote
+        case .nothingToClear:
+            title = String(localized: "Nothing to Clear")
+            message = String(localized: "There's no library backup in iCloud.") + " " + syncNote
+        case .waitingForDownload:
+            title = String(localized: "Not Cleared Yet")
+            message = String(localized: "The backup in iCloud is still downloading to this device, so it couldn't be deleted yet. Try again in a minute.")
+        case .iCloudUnavailable:
+            title = String(localized: "Couldn't Clear iCloud Data")
+            message = BackupOutcome.iCloudUnavailable.failureMessage ?? ""
+        case .failed(let reason):
+            title = String(localized: "Couldn't Clear iCloud Data")
+            message = reason
+        }
     }
 }
 
@@ -260,7 +414,7 @@ private enum LibraryFileAlert: String, Identifiable {
 
     var message: LocalizedStringKey {
         switch self {
-        case .imported: "The file's works, reading progress and stats have been added to your library, and its settings applied."
+        case .imported: "The file's works, reading progress and stats have been added to your library."
         case .importFailed: "That file couldn't be imported. Make sure it's a Fanficly library file and try again."
         case .exportFailed: "Your library couldn't be written to a file. Please try again."
         }

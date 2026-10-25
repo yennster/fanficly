@@ -75,9 +75,12 @@ public sealed class SubscriptionsScreen : Screen
 
     private void OnAuthChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(AuthState.Username)) return;
+        if (e.PropertyName is not (nameof(AuthState.Username) or nameof(AuthState.IsSessionExpired))) return;
         AccountKit.OnUIThread(() =>
         {
+            // Signed in again: the expired-session error no longer stands.
+            if (!AppHost.Auth.IsSessionExpired && _lastError?.StartsWith(SessionExpiry.Title, StringComparison.Ordinal) == true)
+                _lastError = null;
             CheckAccount();
             if (_isVisible) Render();
         });
@@ -180,7 +183,9 @@ public sealed class SubscriptionsScreen : Screen
             }
             catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Unauthorized)
             {
-                _lastError = "Not logged in. Open Settings → AO3 Login.";
+                // Signed in here, so AO3 dropped the session (#131).
+                SessionExpiry.Explains(e);
+                _lastError = $"{SessionExpiry.Title}. Sign in again to sync your subscriptions.";
             }
             catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Network)
             {
@@ -218,6 +223,7 @@ public sealed class SubscriptionsScreen : Screen
         _lastNotifyCount = chapters;
         _lastNewWorksCount = newWorks;
         _lastFailedChecks = poller.FailedChecks;
+        if (poller.SessionExpired) AppHost.Auth.MarkSessionExpired();
         UpdateRefreshButton();
         Render();
         MainWindow.Current.Announce(NotifySummary());
@@ -267,6 +273,8 @@ public sealed class SubscriptionsScreen : Screen
             items.Add(new Item("progress", () => ProgressLine(_isRefreshing ? "Fetching your subscriptions…" : "Checking for new chapters…")));
         if (_lastError is { } error)
             items.Add(new Item($"error:{error}", () => ErrorLine(error)));
+        if (AppHost.Auth.IsSessionExpired)
+            items.Add(new Item("expired", ExpiredLine));
         if (_lastNotifyCount is not null)
         {
             var summary = NotifySummary();
@@ -351,6 +359,17 @@ public sealed class SubscriptionsScreen : Screen
         row.Children.Add(UI.UI.Icon("exclamationmark.triangle.fill", 15, Theme.Danger).Also(i => i.VerticalAlignment = VerticalAlignment.Top).Col(0));
         row.Children.Add(UI.UI.Text(error, Theme.Style.Body, Theme.Danger, selectable: true).Col(1));
         AutomationProperties.SetName(row, error);
+        return row;
+    }
+
+    /// <summary>The way back from an expired session: Retry can't help.</summary>
+    private static FrameworkElement ExpiredLine()
+    {
+        var row = UI.UI.Grid("*,Auto", columnSpacing: 12);
+        row.Margin = new Thickness(14, 4, 14, 8);
+        row.Children.Add(UI.UI.Secondary(SessionExpiry.Message, Theme.Style.Callout).Col(0));
+        row.Children.Add(UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent)
+            .Also(b => b.VerticalAlignment = VerticalAlignment.Center).Id("subscriptions.signInAgain").Col(1));
         return row;
     }
 

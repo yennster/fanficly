@@ -689,3 +689,36 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         output.WriteLine($"{result.Pages.Count} pages across three chapters");
     }
 }
+
+/// <summary>Ctrl+Plus / Ctrl+Minus step the reader's text size, as the Mac's
+/// ⌘+ / ⌘− (the Swift <c>ReaderFontSizeStepTests</c>).</summary>
+public class ReaderFontSizeStepTests
+{
+    [Fact]
+    public void StepsByAPointEachWay()
+    {
+        Assert.Equal(19, ReaderMetrics.SteppedFontSize(18, bigger: true));
+        Assert.Equal(17, ReaderMetrics.SteppedFontSize(18, bigger: false));
+    }
+
+    [Fact]
+    public void StaysInsideTheSlidersRange()
+    {
+        var (min, max) = ReaderMetrics.FontSizeRange;
+        Assert.Equal(max, ReaderMetrics.SteppedFontSize(max, bigger: true));
+        Assert.Equal(min, ReaderMetrics.SteppedFontSize(min, bigger: false));
+        Assert.Equal(max, ReaderMetrics.SteppedFontSize(40, bigger: false));
+        Assert.Equal(min, ReaderMetrics.SteppedFontSize(4, bigger: true));
+    }
+
+    [Fact]
+    public void FractionalSize_SnapsToTheNextWholePoint()
+    {
+        Assert.Equal(19, ReaderMetrics.SteppedFontSize(18.4, bigger: true));
+        Assert.Equal(18, ReaderMetrics.SteppedFontSize(18.4, bigger: false));
+    }
+
+    [Fact]
+    public void InvalidStoredSize_StepsFromTheDefault() =>
+        Assert.Equal(ReaderMetrics.DefaultFontSize + 1, ReaderMetrics.SteppedFontSize(double.NaN, bigger: true));
+}
