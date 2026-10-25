@@ -383,10 +383,10 @@ public sealed class LibraryStoreTests : IDisposable
         }
     }
 
-    /// <summary>A library from before notes (schema version 1) gains the note
+    /// <summary>A library from before notes (schema version 2) gains the note
     /// columns on open and keeps its works.</summary>
     [Fact]
-    public void VersionOneLibraryMigratesToNotes()
+    public void VersionTwoLibraryMigratesToNotes()
     {
         using (var store = LibraryStore.Open(DbPath))
         {
@@ -397,7 +397,7 @@ public sealed class LibraryStoreTests : IDisposable
         {
             conn.Open();
             foreach (var sql in new[] { "ALTER TABLE works DROP COLUMN note", "ALTER TABLE works DROP COLUMN personal_tags",
-                                       "ALTER TABLE works DROP COLUMN notes_updated_at", "PRAGMA user_version = 1" })
+                                       "ALTER TABLE works DROP COLUMN notes_updated_at", "PRAGMA user_version = 2" })
             {
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = sql;
