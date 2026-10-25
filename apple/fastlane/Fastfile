@@ -173,6 +173,12 @@ platform :ios do
     end
   end
 
+  desc "Frame the committed captures in docs/screenshots/ into App Store images, without"
+  desc "capturing (e.g. after a framing fix, from the last Store assets run's captures)."
+  lane :frame_screenshots do
+    sh(python, File.join(ROOT, "bin/frame-screenshots.py"))
+  end
+
   desc "Render the product-page header and search-results creative assets."
   lane :creative_assets do
     sh(python, File.join(ROOT, "bin/make-creative-assets.py"))

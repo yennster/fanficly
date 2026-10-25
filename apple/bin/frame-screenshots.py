@@ -95,6 +95,11 @@ MAC_SCREEN_ASPECT = 16 / 10
 
 def mac_screen(shot: Image.Image) -> Image.Image:
     """Crop a landscape iPad capture to a 16:10 'Mac window', top-anchored."""
+    # Xcode 27's captures of the landscape iPad come back in its portrait
+    # buffer with the UI's top at the left edge (Xcode Cloud, and the raws
+    # committed since Oct 2026): turn those clockwise first.
+    if shot.height > shot.width:
+        shot = shot.rotate(-90, expand=True)
     w, h = shot.size
     shot = shot.crop((MAC_EDGE_CROP, MAC_STATUS_BAR, w - MAC_EDGE_CROP, h - MAC_EDGE_CROP))
     w, h = shot.size

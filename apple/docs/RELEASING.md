@@ -142,6 +142,9 @@ Run **Store assets**:
   and search-results art. The capture job waits for approval in `app-store`
   (it needs the API key) and pushes a temporary `store-art/capture-*` branch
   for Xcode Cloud to build, deleted when it's done.
+- `frame_screenshots` frames the captures committed in `docs/screenshots/`
+  without capturing (no Xcode Cloud time): for a framing fix, after merging
+  the last run's captures.
 - Tick **upload** to put it all on the editable App Store versions (iOS and
   Mac screenshots, previews, Duo screenshots, creative assets). The upload job
   waits for approval in `app-store`. An editable version must exist: run a

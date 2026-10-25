@@ -22,6 +22,7 @@ on:
           - screenshots
           - previews
           - creative_assets  # from the committed captures
+          - frame_screenshots  # frame the committed captures, no new capture
       upload:
         description: Upload to the editable App Store versions
         type: boolean
@@ -223,7 +224,7 @@ jobs:
       - name: fastlane ${{ inputs.what }}
         env:
           # The screenshots lane then only frames the Xcode Cloud captures.
-          SCREENSHOTS_CAPTURED: ${{ needs.capture.result == 'success' && '1' || '' }}
+          SCREENSHOTS_CAPTURED: ${{ (needs.capture.result == 'success' || inputs.what == 'frame_screenshots') && '1' || '' }}
         run: bundle exec fastlane ios "${{ inputs.what }}"
 
       # apple/project.yml (a file directly in apple/) keeps the artifact rooted
