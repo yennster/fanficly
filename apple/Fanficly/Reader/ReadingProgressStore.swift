@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 enum ReadingProgressStore {
     @MainActor
@@ -135,6 +136,34 @@ struct ReadingStatsSummary: Equatable, Sendable {
     )
 }
 
+/// Where the reader stands against their yearly goal (RM-011), from
+/// `ReadingStatsAggregator.goalProgress`. The goal is per-device
+/// (`@AppStorage(ReadingGoal.storageKey)`) and never synced.
+struct ReadingGoalProgress: Equatable, Sendable {
+    var goal: Int
+    var finished: Int
+    /// Stories an even pace would have finished by now.
+    var expected: Int
+
+    /// 0…1 for the progress ring; stays full once the goal is passed.
+    var fraction: Double { goal > 0 ? min(Double(finished) / Double(goal), 1) : 0 }
+    var isComplete: Bool { finished >= goal }
+    /// Stories ahead of an even pace (negative when behind).
+    var ahead: Int { finished - expected }
+
+    /// "Goal reached", "On pace", "3 ahead", "2 behind".
+    var paceLabel: String {
+        if isComplete { return "Goal reached" }
+        if ahead == 0 { return "On pace" }
+        return ahead > 0 ? "\(ahead) ahead" : "\(-ahead) behind"
+    }
+}
+
+enum ReadingGoal {
+    /// Stories to finish this year; 0 means no goal. Per-device, not synced.
+    static let storageKey = "reading.yearlyGoal"
+}
+
 /// Pure aggregation over `ReadingStatSnapshot`s. No SwiftData, no UI — fully
 /// unit-testable (see `ReadingStatsTests`). Time is bucketed per calendar day,
 /// so any `DateInterval` (a week, month, year, or nil for all-time) rolls up
@@ -229,6 +258,23 @@ enum ReadingStatsAggregator {
         )
     }
 
+    /// Progress toward a yearly goal of `goal` finished stories, given how many
+    /// the reader has finished so far in the year containing `now`. nil when
+    /// there's no goal (zero or negative), which hides the ring. Pace compares
+    /// against an even spread across the year, rounded down so nobody starts
+    /// January 1st already behind.
+    static func goalProgress(finished: Int, goal: Int, now: Date = Date(),
+                             calendar: Calendar = .current) -> ReadingGoalProgress? {
+        guard goal > 0 else { return nil }
+        let finished = max(finished, 0)
+        var elapsed = 0.0
+        if let year = calendar.dateInterval(of: .year, for: now), year.duration > 0 {
+            elapsed = min(max(now.timeIntervalSince(year.start) / year.duration, 0), 1)
+        }
+        let expected = Int((Double(goal) * elapsed).rounded(.down))
+        return ReadingGoalProgress(goal: goal, finished: finished, expected: expected)
+    }
+
     /// Tally occurrences of each name, most common first. Ties break
     /// alphabetically so the order is deterministic (and testable).
     static func rank(_ names: [String], topCount: Int) -> [ReadingTagCount] {
@@ -244,6 +290,91 @@ enum ReadingStatsAggregator {
             .prefix(topCount)
             .map { $0 }
     }
+}
+
+/// Reading-time estimates ("~45 min") from the reader's own pace. Pure and
+/// unit-tested (`ReadingSpeedTests`); computed from `ReadingStat` on the fly,
+/// so nothing new is persisted.
+enum ReadingSpeed {
+    /// The pace used until there's enough of the reader's own reading.
+    static let defaultWordsPerMinute = 250.0
+    /// Personal paces outside this range are almost always a reader left open
+    /// or skimmed, so they're clamped rather than trusted.
+    static let wordsPerMinuteRange: ClosedRange<Double> = 120...600
+    /// Finished works with recorded time needed before the personal pace is used.
+    static let minimumFinishedWorks = 3
+
+    /// Personal words per minute: the median of each finished work's own pace
+    /// (words read over active minutes, clamped to `wordsPerMinuteRange`),
+    /// counting only works with recorded time (backfilled reads have none).
+    /// Per work, so one long work skimmed to the end or a re-read can't swing
+    /// every estimate. `defaultWordsPerMinute` until there are
+    /// `minimumFinishedWorks` such works.
+    static func wordsPerMinute(_ snapshots: [ReadingStatSnapshot]) -> Double {
+        let paces = snapshots
+            .filter { $0.isFinished && $0.totalSeconds > 0 && $0.wordsRead > 0 }
+            .map { min(max(Double($0.wordsRead) / ($0.totalSeconds / 60), wordsPerMinuteRange.lowerBound),
+                       wordsPerMinuteRange.upperBound) }
+            .sorted()
+        guard paces.count >= minimumFinishedWorks else { return defaultWordsPerMinute }
+        let mid = paces.count / 2
+        return paces.count.isMultiple(of: 2) ? (paces[mid - 1] + paces[mid]) / 2 : paces[mid]
+    }
+
+    /// Whole minutes to read `words` at `wordsPerMinute` (rounded), nil for no words.
+    static func minutes(words: Int, wordsPerMinute: Double) -> Int? {
+        guard words > 0 else { return nil }
+        let pace = wordsPerMinute > 0 ? wordsPerMinute : defaultWordsPerMinute
+        return Int((Double(words) / pace).rounded())
+    }
+
+    /// "<1 min", "~45 min", "~2 hr 5 min", or "~12 hr" (past ten hours the
+    /// minutes are noise). nil when there's no word count to estimate from.
+    static func estimate(words: Int, wordsPerMinute: Double = defaultWordsPerMinute) -> String? {
+        guard let total = minutes(words: words, wordsPerMinute: wordsPerMinute) else { return nil }
+        if total < 1 { return "<1 min" }
+        if total < 60 { return "~\(total) min" }
+        let hours = total / 60, rest = total % 60
+        return rest == 0 || hours >= 10 ? "~\(hours) hr" : "~\(hours) hr \(rest) min"
+    }
+
+    /// The VoiceOver form of `estimate`: "About 2 hours 5 minutes to read".
+    static func spokenEstimate(words: Int, wordsPerMinute: Double = defaultWordsPerMinute) -> String? {
+        guard let total = minutes(words: words, wordsPerMinute: wordsPerMinute) else { return nil }
+        if total < 1 { return "Under a minute to read" }
+        func unit(_ n: Int, _ name: String) -> String { "\(n) \(name)\(n == 1 ? "" : "s")" }
+        if total < 60 { return "About \(unit(total, "minute")) to read" }
+        let hours = total / 60, rest = total % 60
+        return rest == 0 || hours >= 10
+            ? "About \(unit(hours, "hour")) to read"
+            : "About \(unit(hours, "hour")) \(unit(rest, "minute")) to read"
+    }
+}
+
+private struct ReadingWordsPerMinuteKey: EnvironmentKey {
+    static let defaultValue = ReadingSpeed.defaultWordsPerMinute
+}
+
+extension EnvironmentValues {
+    /// The reader's pace for reading-time estimates, set once near the root by
+    /// `.readingSpeedFromStats()` so list rows don't each fetch every stat.
+    var readingWordsPerMinute: Double {
+        get { self[ReadingWordsPerMinuteKey.self] }
+        set { self[ReadingWordsPerMinuteKey.self] = newValue }
+    }
+}
+
+private struct ReadingSpeedProvider: ViewModifier {
+    @Query private var stats: [ReadingStat]
+
+    func body(content: Content) -> some View {
+        content.environment(\.readingWordsPerMinute, ReadingSpeed.wordsPerMinute(stats.map(\.snapshot)))
+    }
+}
+
+extension View {
+    /// Supplies `readingWordsPerMinute` from the reader's `ReadingStat`s.
+    func readingSpeedFromStats() -> some View { modifier(ReadingSpeedProvider()) }
 }
 
 @MainActor

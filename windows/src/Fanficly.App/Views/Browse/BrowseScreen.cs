@@ -167,6 +167,7 @@ internal sealed class BrowseScreen : Screen
 
     private void Delete(SavedFilter saved)
     {
+        LibrarySyncManager.RecordDeletionShared(DeletionKind.Filter, saved.Name);
         AppHost.Library.Delete(saved);
         AppHost.Library.TrySave();
         RefreshSavedFilters();

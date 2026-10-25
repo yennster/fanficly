@@ -19,6 +19,11 @@ public sealed class StubAO3Client : IAO3Client
     public IReadOnlyList<AO3Subscription> SubscriptionsResponse { get; set; } = [];
     /// <summary>Scripted export failure (WorkExporter tests).</summary>
     public Exception? ExportError { get; set; }
+    /// <summary>Scripted kudos answer: an outcome, or an exception to throw (KudosGiver tests).</summary>
+    public KudosOutcome KudosOutcome { get; set; } = KudosOutcome.Left;
+    public Exception? KudosError { get; set; }
+    private readonly List<int> _kudosCalls = [];
+    public IReadOnlyList<int> KudosCalls => _kudosCalls;
 
     public Task<IReadOnlyList<string>> AutocompleteAsync(AO3AutocompleteField field, string term, CancellationToken ct = default)
     {
@@ -60,4 +65,14 @@ public sealed class StubAO3Client : IAO3Client
         return Task.FromResult(Path.Combine(Path.GetTempPath(), $"{filename}.{format.Ext()}"));
     }
     public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default)
+    {
+        _kudosCalls.Add(workId);
+        if (KudosError is not null) throw KudosError;
+        return Task.FromResult(KudosOutcome);
+    }
+    public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) =>
+        Task.FromResult(new AO3BookmarkForm(new Uri($"https://archiveofourown.org/works/{workId}/bookmarks"),
+            new Dictionary<string, string>(), IsExisting: false));
+    public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => Task.CompletedTask;
 }

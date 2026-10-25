@@ -36,8 +36,10 @@ final class ScreenshotTests: XCTestCase {
             .deletingLastPathComponent)
         shotDir = ((repoRoot as NSString).appendingPathComponent("docs/screenshots") as NSString)
             .appendingPathComponent(device)
+        // try?: Xcode Cloud's test machine has no checkout to write to; the
+        // shots also go into the result bundle (snap).
         if device != "duo" {
-            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
         }
 
         // US formatting ("48,213 words") whatever the simulator's region is.
@@ -85,7 +87,7 @@ final class ScreenshotTests: XCTestCase {
             let frame = app.windows.firstMatch.frame
             let display = min(frame.width, frame.height) >= 600 ? "duo-inner" : "duo-outer"
             shotDir = ((shotDir as NSString).deletingLastPathComponent as NSString).appendingPathComponent(display)
-            try FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(atPath: shotDir, withIntermediateDirectories: true)
             if display == "duo-inner" {
                 isDuoInner = true
                 // Unfolded, the Duo is a landscape book (fold down the middle),
@@ -123,15 +125,42 @@ final class ScreenshotTests: XCTestCase {
            }) {
             shot = screen.screenshot()
         }
+        let png = upright(shot.image)?.pngData() ?? shot.pngRepresentation
         let path = (shotDir as NSString).appendingPathComponent("\(name).png")
-        do {
-            try shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
-        } catch {
-            let att = XCTAttachment(screenshot: shot)
-            att.name = name
-            att.lifetime = .keepAlways
-            add(att)
+        try? png.write(to: URL(fileURLWithPath: path))
+        // Also in the result bundle, named "<folder>__<name>": Xcode Cloud's
+        // test machine can't write into the checkout, so the store art comes
+        // back as these (bin/xcode-cloud-store-art.py place).
+        let att = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
+        att.name = "\((shotDir as NSString).lastPathComponent)__\(name)"
+        att.lifetime = .keepAlways
+        add(att)
+    }
+
+    /// A landscape capture turned upright, or nil when it already is. With
+    /// Xcode 27 a rotated simulator's window screenshot comes back in the
+    /// portrait buffer, the UI on its side (the "mac" set in Xcode Cloud).
+    /// The unfolded Duo's whole-display shot is left as it was: a portrait
+    /// one there means the rotation didn't take, not a sideways capture.
+    private func upright(_ image: UIImage) -> UIImage? {
+        #if targetEnvironment(macCatalyst)
+        return nil
+        #else
+        guard !isDuoInner, currentOrientation.isLandscape, image.size.height > image.size.width else { return nil }
+        let size = CGSize(width: image.size.height, height: image.size.width)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            cg.translateBy(x: size.width / 2, y: size.height / 2)
+            // Landscape right comes back with the UI's top at the buffer's
+            // left edge, so it turns clockwise (checked on Xcode Cloud's
+            // captures).
+            cg.rotate(by: currentOrientation == .landscapeRight ? .pi / 2 : -.pi / 2)
+            image.draw(in: CGRect(x: -image.size.width / 2, y: -image.size.height / 2,
+                                  width: image.size.width, height: image.size.height))
         }
+        #endif
     }
 
     /// Tap the leading nav-bar (back) button until the sidebar is showing.
@@ -264,6 +293,13 @@ final class ScreenshotTests: XCTestCase {
     /// answer as "is a Duo"; setupAndLaunch picks inner vs outer from the
     /// app's window.
     private var duoDisplay: String? {
+        // A simulator says what it is: Xcode Cloud's iPhone Duo reported a
+        // screen the size check below took for an ordinary iPhone, so it
+        // ran the iPhone flow and filed its shots as the iPhone set.
+        if UIDevice.current.userInterfaceIdiom == .phone,
+           ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true {
+            return "duo-outer"
+        }
         let bounds = UIScreen.main.bounds
         let short = min(bounds.width, bounds.height), long = max(bounds.width, bounds.height)
         switch UIDevice.current.userInterfaceIdiom {

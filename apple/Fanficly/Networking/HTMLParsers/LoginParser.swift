@@ -35,12 +35,14 @@ enum LoginParser {
         ]
         for sel in selectors {
             for link in try doc.select(sel).array() {
-                let href = try link.attr("href")
+                // The path alone: the guest header links to
+                // /users/login?return_to=…, which isn't a name either.
+                let href = try link.attr("href").prefix { $0 != "?" && $0 != "#" }
                 let parts = href.split(separator: "/").map(String.init)
                 guard parts.count >= 2, parts[0] == "users" else { continue }
                 let name = parts[1]
-                // Skip the login/logout/signup action links.
-                if ["login", "logout", "signup", "activate"].contains(name.lowercased()) { continue }
+                // Skip the login/logout/signup/forgot-password action links.
+                if ["login", "logout", "signup", "activate", "password"].contains(name.lowercased()) { continue }
                 return name
             }
         }

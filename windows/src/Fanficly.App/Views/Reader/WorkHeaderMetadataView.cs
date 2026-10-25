@@ -130,6 +130,7 @@ internal static class WorkHeaderMetadataView
         AutomationProperties.SetHelpText(chip, "Shows works with this tag.");
         ToolTipService.SetToolTip(chip, $"Works tagged “{text}”");
         chip.Click += (_, _) => Routes.OpenFilteredWorks(Filters(text, kind), text);
+        chip.ContextFlyout = Account.ContentSafetyViews.BlockMenu(BlockedTermKind.Tag, text);
         return chip;
     }
 

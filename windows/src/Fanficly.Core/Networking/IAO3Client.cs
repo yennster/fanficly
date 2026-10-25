@@ -43,4 +43,15 @@ public interface IAO3Client
     /// <summary>Downloads an export to a temp file; returns its path.</summary>
     Task<string> ExportWorkAsync(int workId, WorkExportFormat format, string filename, CancellationToken ct = default);
     Task SubscribeToWorkAsync(int workId, CancellationToken ct = default);
+    /// <summary>Leaves kudos on a work as the signed-in user: one POST, never
+    /// retried. Throws Unauthorized when the session isn't signed in, so a stale
+    /// cookie can't quietly leave a guest kudo instead. Clients with no AO3 to
+    /// talk to (test fakes) don't support it.</summary>
+    Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) =>
+        throw new NotSupportedException("This client can't leave kudos.");
+    /// <summary>The signed-in user's bookmark form for a work, prefilled when they
+    /// already bookmarked it. Throws <c>Unauthorized</c> when signed out.</summary>
+    Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default);
+    /// <summary>Creates or updates the bookmark by posting <paramref name="form"/> back to AO3.</summary>
+    Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default);
 }

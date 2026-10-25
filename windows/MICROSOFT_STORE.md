@@ -173,7 +173,9 @@ In the repository: **Settings → Environments → New environment**, name it
 - Under **Deployment protection rules**, tick **Required reviewers** and add
   yourself. Every publish then waits for your click in the Actions tab, so a
   stray tag can't ship anything. (Optionally also limit **Deployment branches
-  and tags** to `main` and `windows-v*`.)
+  and tags** to `main`, `windows-v*` and `release-docs/*`: a full Release
+  submits from its `release-docs/vX.Y.Z` branch so the new screenshots go up
+  with it.)
 - Under **Environment secrets**, add the five secrets above. As environment
   secrets, only the publish job can read them, and only after approval.
 
@@ -377,12 +379,14 @@ submission into certification.
 
 ### Doing a release from your own machine
 
-Everything the workflow does works locally too. Install the CLI once:
+Everything the workflow does works locally too. Install the CLI once and
+sign in (reconfigure comes first: until it has run, msstore settings stops
+with "SellerId is not set"):
 
 ```powershell
 winget install "Microsoft Store Developer CLI"
-msstore settings --enableTelemetry false
 msstore reconfigure --tenantId <tenant> --sellerId <seller> --clientId <client> --clientSecret <secret>
+msstore settings --enableTelemetry false
 ```
 
 Build the package as in [the first submission](#the-first-submission-by-hand)
@@ -450,7 +454,7 @@ rendered at the Store's exact size by headless Chrome.
 | `windows/store/images/en-us/PromotionalArt16x9.png` | 3840 × 2160 | Hero image: the reader as an open book, tilted, with the app icon; no text, since the Store sets the name over it |
 | `windows/store/images/en-us/StoreLogoSquare.png` | 2160 × 2160 | Box art: icon and name |
 | `windows/store/images/en-us/StoreLogo9x16.png` | 1440 × 2160 | Poster art: icon, name, "Your AO3 reader for Windows." and the reader |
-| `docs/screenshots/windows/showcase.jpg` | | The first three screenshots side by side, for the README |
+| `windows/docs/screenshots/showcase.jpg` | | The first three screenshots side by side, for the README |
 
 How it fits together:
 

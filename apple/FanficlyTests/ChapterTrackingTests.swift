@@ -106,4 +106,74 @@ final class ChapterTrackingTests: XCTestCase {
     func test_adjacentChapterUnknownCurrentReturnsNil() {
         XCTAssertNil(ChapterTracking.adjacentChapter(in: [1, 2, 3], current: 9, forward: true))
     }
+
+    // MARK: - A saved place past the downloaded chapters
+
+    /// Twelve downloaded chapters of ten paragraphs each, as `chapters` in a
+    /// saved copy that stops a chapter short of the live work.
+    private static let downloadedChapters = Array(1...12)
+    private static let chapterHTML = (0..<10)
+        .map { "<p>Paragraph \($0) of a downloaded chapter, long enough to wrap onto a second line.</p>" }
+        .joined()
+
+    func test_clampedAnchor_pastTheLastChapter_landsOnItsLastParagraph() {
+        let anchor = ChapterTracking.clampedAnchor(
+            ReadingAnchor(chapter: 13, paragraph: 4), toChapters: Self.downloadedChapters,
+            lastParagraph: { _ in 9 })
+        XCTAssertEqual(anchor, ReadingAnchor(chapter: 12, paragraph: 9))
+    }
+
+    func test_clampedAnchor_keepsALoadedChapter() {
+        let saved = ReadingAnchor(chapter: 5, paragraph: 3)
+        XCTAssertEqual(ChapterTracking.clampedAnchor(saved, toChapters: Self.downloadedChapters,
+                                                     lastParagraph: { _ in 9 }), saved)
+    }
+
+    func test_clampedAnchor_inAGapOrBeforeTheFirst() {
+        XCTAssertEqual(ChapterTracking.clampedAnchor(ReadingAnchor(chapter: 3, paragraph: 2), toChapters: [4, 1, 2],
+                                                     lastParagraph: { $0 * 10 }),
+                       ReadingAnchor(chapter: 2, paragraph: 20))
+        XCTAssertEqual(ChapterTracking.clampedAnchor(ReadingAnchor(chapter: 1, paragraph: 2), toChapters: [2, 3],
+                                                     lastParagraph: { _ in 9 }),
+                       ReadingAnchor(chapter: 2, paragraph: 0))
+        XCTAssertNil(ChapterTracking.clampedAnchor(ReadingAnchor(chapter: 1, paragraph: 0), toChapters: [],
+                                                   lastParagraph: { _ in 9 }))
+    }
+
+    func test_progressFraction_isNilForAChapterThatIsNotLoaded() {
+        // Read as 0 this used to save 0% over the real progress.
+        XCTAssertNil(ChapterTracking.progressFraction(for: ReadingAnchor(chapter: 13, paragraph: 4),
+                                                      chapters: Self.downloadedChapters, paragraphCount: { _ in 10 }))
+        XCTAssertEqual(ChapterTracking.progressFraction(for: ReadingAnchor(chapter: 2, paragraph: 9),
+                                                        chapters: [1, 2, 3, 4], paragraphCount: { _ in 10 }) ?? -1,
+                       0.5, accuracy: 0.0001)
+    }
+
+    /// Opening the saved copy with an anchor in chapter 13: page-by-page has
+    /// a chapter to paginate (it used to get none and spin forever), the
+    /// page holding the place exists, and the place doesn't read as 0%.
+    @MainActor
+    func test_savedWorkWithAnAnchorPastItsLastChapter_producesPagesAndKeepsProgress() {
+        let saved = ReadingAnchor(chapter: 13, paragraph: 4)
+        let paragraphCount = ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false).count
+        guard let anchor = ChapterTracking.clampedAnchor(saved, toChapters: Self.downloadedChapters,
+                                                         lastParagraph: { _ in paragraphCount - 1 }) else {
+            return XCTFail("no anchor")
+        }
+        XCTAssertTrue(Self.downloadedChapters.contains(anchor.chapter))
+
+        var atoms = ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false)
+        let pages = ReaderPaginator.paginateChapter(
+            chapterIndex: anchor.chapter, atoms: &atoms, width: 320, viewportHeight: 560,
+            titleHeaderHeight: 0, chapterHeaderHeight: 60, isFirstChapter: false, showChapterHeader: true,
+            fontSize: 18, fontFamily: .serif, lineSpacing: 4, paragraphSpacing: 10, kerning: 0, boldText: false)
+        XCTAssertFalse(pages.isEmpty)
+        XCTAssertTrue(pages.contains { page in
+            page.paragraphIndices.contains { atoms[$0].originalParagraphIndex == anchor.paragraph }
+        })
+
+        let progress = ChapterTracking.progressFraction(for: anchor, chapters: Self.downloadedChapters,
+                                                        paragraphCount: { _ in paragraphCount })
+        XCTAssertEqual(progress ?? 0, 1, accuracy: 0.0001)
+    }
 }

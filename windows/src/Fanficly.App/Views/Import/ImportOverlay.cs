@@ -32,6 +32,9 @@ public static class ImportOverlay
 
     private static async Task RunAsync(int workId)
     {
+        // A link that cold-starts the app arrives while the 17+ gate is up:
+        // nothing is fetched or saved until it's confirmed.
+        await Account.ContentSafetyViews.EnsureAgeGateAsync();
         _currentCts?.Cancel();
         _currentDialog?.Hide();
         var cts = _currentCts = new CancellationTokenSource();

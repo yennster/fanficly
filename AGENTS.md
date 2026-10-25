@@ -14,22 +14,23 @@ Read the app's guide before changing anything in its folder; its paths are relat
 ```text
 apple/        the Apple app: project.yml, Fanficly*/, bin/ (its scripts), docs/ROADMAP.md,
               docs/screenshots/{iphone,ipad,mac,duo-*}, screenshots/ (store art), appstore/
-windows/      the Windows app: Fanficly.Windows.slnx, src/, tests/, store/, ROADMAP.md
+windows/      the Windows app: Fanficly.Windows.slnx, src/, tests/, store/, ROADMAP.md,
+              docs/screenshots/ (README pictures, written by windows-screenshots.yml)
 website/      fanficly.app; Vercel builds it from main and skips unchanged builds
-docs/screenshots/windows/  Windows README pictures (written by windows-screenshots.yml)
-bin/roadmap.sh             lists both roadmaps: `bin/roadmap.sh free apple|windows`
 CITATION.cff  machine-readable app summary (GitHub's "Cite this repository", search and AI indexes)
 PRIVACY.md    the Apple app's privacy policy; it stays at the root because the App Store
               listing and the website link to this URL
 .agents/      Linux orb setup (the Apple app's Python tooling in apple/bin/.venv)
 .github/      ci.yml (apple/**), windows-ci.yml / windows-store.yml / windows-screenshots.yml
               (windows/**), release.yml / store-assets.yml / xcode-cloud.yml (Apple releases
-              and Xcode Cloud upkeep, run by hand; apple/docs/RELEASING.md), the PR template
+              and Xcode Cloud upkeep, run by hand; apple/docs/RELEASING.md),
+              xcode-cloud-duo.yml (iPhone Duo tests in Xcode Cloud),
+              xcode-cloud-setup.yml (the Xcode Cloud CI and release workflows), the PR template
 ```
 
 ## Rules for both apps
 
-- **Keep a PR to one app.** CI is path-filtered: `ci.yml` runs for `apple/**`, the Windows workflows for `windows/**` (plus their own files). Shared files (this one, the root README, `bin/roadmap.sh`) can change with either.
+- **Keep a PR to one app.** CI is path-filtered: `ci.yml` runs for `apple/**`, the Windows workflows for `windows/**` (plus their own files). Shared files (this one, the root README, `.github/scripts/roadmap.sh`) can change with either.
 - **Privacy is the headline feature.** No servers, analytics, crash reporters or SDKs with a network side-channel. Each app's privacy policy is a store listing's policy: keep it accurate.
 - **Be a good guest to AO3.** Every request goes through the app's AO3 client and its 1 request/second throttle; never retry a POST.
 - **Search never guesses.** Typed words stay keywords; only picked suggestions and explicit `key:value` tokens become filters.

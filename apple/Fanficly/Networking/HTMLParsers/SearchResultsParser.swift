@@ -34,23 +34,46 @@ enum SearchResultsParser {
         }
 
         return AO3SearchResults(works: works, totalPages: totalPages, currentPage: currentPage,
-                                totalFound: try totalFound(in: doc))
+                                totalFound: try totalFound(in: doc),
+                                servedAsGuest: AO3PageCheck.isGuestPage(doc))
     }
 
-    /// A works or bookmarks listing, even an empty one: the index `<ol>` that
+    /// A works, bookmarks or readings listing, even an empty one: the index `<ol>` that
     /// author, tag and bookmark pages always render, the Rails controller-action
     /// class on `#main`, or the "No results found" line search shows instead of
     /// the list.
     private static func isListingPage(_ doc: Document) throws -> Bool {
         if try !doc.select("ol.work.index, ol.bookmark.index").isEmpty() { return true }
         if AO3PageCheck.mainHasClass(doc, ["works-search", "works-index", "works-collected",
-                                           "bookmarks-search", "bookmarks-index"]) {
+                                           "bookmarks-search", "bookmarks-index", "readings-index"]) {
             return true
         }
         for p in try doc.select("#main p").array() {
             if try p.text().contains("No results found") { return true }
         }
         return false
+    }
+
+    /// AO3's readings page (`/users/<name>/readings`, which with
+    /// `?show=to-read` is Marked for Later). Each entry is
+    /// `li.reading.work.blurb` with id `work_<id>` around the usual work blurb;
+    /// deleted works keep an entry with no id and no title link, so
+    /// `parseBlurb` skips them. Fails closed: the page is login-only, so a
+    /// login form means the session expired, and a page without the
+    /// `readings-index` shell (AO3 sends readers with history turned off to
+    /// their preferences) is never read as an empty list.
+    static func parseReadings(html: String) throws -> AO3SearchResults {
+        let doc = try SwiftSoup.parse(html)
+        if SubscriptionsParser.looksLikeLoginPage(doc) {
+            throw AO3Error.unauthorized
+        }
+        if try doc.select("div.readings-index").isEmpty() {
+            if try !doc.select("div.preferences-index").isEmpty() {
+                throw AO3Error.parseFailed(reason: "Your AO3 reading history is turned off. Check \"Turn on History\" in your AO3 preferences to see this list.")
+            }
+            throw AO3Error.parseFailed(reason: "AO3 sent a page that isn't your readings list. Try again, or check the list on the AO3 website.")
+        }
+        return try parse(html: html, blurbSelector: "li.reading.work.blurb")
     }
 
     /// The `<h3 class="heading">126,555 Found …</h3>` count on search pages.
@@ -212,8 +235,39 @@ enum AO3PageCheck {
         return !(hits?.isEmpty() ?? true)
     }
 
+    /// A page AO3 rendered for a signed-out reader: the header's small login
+    /// form and no `#greeting` link to `/users/<login>`. Both are required, so a
+    /// page without AO3's header (a test fixture, markup drift) never reads as
+    /// a guest page.
+    static func isGuestPage(_ doc: Document) -> Bool {
+        let noGreeting = (try? doc.select("#greeting a[href^=/users/]").isEmpty()) ?? true
+        let noLoginForm = (try? doc.select("form#new_user, input[name=user[login]], #loginform").isEmpty()) ?? true
+        return noGreeting && !noLoginForm
+    }
+
     static func rejectLoginPage(_ doc: Document) throws {
         if isLoginPage(doc) { throw AO3Error.unauthorized }
+    }
+
+    /// `isLoginPage` for a body that isn't parsed yet (a download).
+    static func isLoginPage(html: String) -> Bool {
+        guard let doc = try? SwiftSoup.parse(html) else { return false }
+        return isLoginPage(doc)
+    }
+
+    /// Whether an HTML download is the work itself: AO3's download template
+    /// wraps the text in `div#chapters` with no site chrome around it. The
+    /// login page and AO3 or Cloudflare error pages have no `div#chapters`;
+    /// the work page, where AO3 redirects a download it won't serve
+    /// (downloads off, a draft, a hidden work, a render failure), has one
+    /// inside `div#main` and `#workskin`. Throws `unauthorized` for the login
+    /// page.
+    static func isWorkDownload(html: String) throws -> Bool {
+        guard let doc = try? SwiftSoup.parse(html) else { return false }
+        try rejectLoginPage(doc)
+        let hasChapters = !((try? doc.select("div#chapters").isEmpty()) ?? true)
+        let hasSiteChrome = !((try? doc.select("div#main, #workskin").isEmpty()) ?? true)
+        return hasChapters && !hasSiteChrome
     }
 
     /// Whether `div#main` carries one of these classes (AO3 sets it to the
