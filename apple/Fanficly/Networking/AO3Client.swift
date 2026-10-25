@@ -446,8 +446,9 @@ public actor AO3Client: AO3ClientProtocol {
         let (loginRespData, _) = try await performRequest(post)
         let respHTML = String(data: loginRespData, encoding: .utf8) ?? ""
 
-        // Success: the response shows the logged-in user navigation.
-        if let name = try LoginParser.currentUsername(html: respHTML) {
+        // Success: the response shows the logged-in user navigation (and no
+        // login form, whose header links aren't a name).
+        if try !LoginParser.hasLoginForm(html: respHTML), let name = try LoginParser.currentUsername(html: respHTML) {
             cachedUsername = name
             return name
         }

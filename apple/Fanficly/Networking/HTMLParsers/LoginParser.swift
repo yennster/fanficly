@@ -41,8 +41,8 @@ enum LoginParser {
                 let parts = href.split(separator: "/").map(String.init)
                 guard parts.count >= 2, parts[0] == "users" else { continue }
                 let name = parts[1]
-                // Skip the login/logout/signup action links.
-                if ["login", "logout", "signup", "activate"].contains(name.lowercased()) { continue }
+                // Skip the login/logout/signup/forgot-password action links.
+                if ["login", "logout", "signup", "activate", "password"].contains(name.lowercased()) { continue }
                 return name
             }
         }
