@@ -6,7 +6,9 @@ import SwiftData
 /// the result alert has a live anchor after the menu closes. The POST is never
 /// retried. A subscription AO3 confirms is mirrored into a local
 /// `SubscriptionRecord` whose baseline is today's chapter count, so the poller
-/// only alerts for chapters posted after this.
+/// only alerts for chapters posted after this. With no live count (a saved
+/// copy can be behind AO3) the baseline stays nil, as a synced record's does,
+/// and the poller's first check sets it without alerting.
 @Observable @MainActor
 final class WorkSubscriber {
     var isSending = false
@@ -18,11 +20,12 @@ final class WorkSubscriber {
 
     static func key(workId: Int) -> String { "\(AO3Subscription.Kind.work.rawValue):\(workId)" }
 
-    func refresh(workId: Int, in context: ModelContext) {
-        isSubscribed = Self.record(workId: workId, in: context) != nil
+    /// Subscribed means a local record exists, and only while signed in.
+    func refresh(workId: Int, username: String?, in context: ModelContext) {
+        isSubscribed = username != nil && Self.record(workId: workId, in: context) != nil
     }
 
-    func subscribe(workId: Int, title: String, author: String, chapterCount: Int,
+    func subscribe(workId: Int, title: String, author: String, chapterCount: Int?,
                    username: String?, client: any AO3ClientProtocol, context: ModelContext) async {
         guard username != nil, !isSending, !isSubscribed else { return }
         isSending = true
@@ -71,7 +74,8 @@ struct SubscribeMenuButton: View {
     let workId: Int
     let title: String
     let author: String
-    let chapterCount: Int
+    /// The live chapter count, or nil when only a saved copy is on screen.
+    let chapterCount: Int?
     let subscriber: WorkSubscriber
 
     var body: some View {
@@ -105,7 +109,8 @@ private struct SubscribePresentation: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onAppear { subscriber.refresh(workId: workId, in: context) }
+            .onAppear { subscriber.refresh(workId: workId, username: auth.username, in: context) }
+            .onChange(of: auth.username) { _, name in subscriber.refresh(workId: workId, username: name, in: context) }
             .onChange(of: subscriber.sessionExpired) { _, expired in
                 guard expired else { return }
                 auth.markSessionExpired()

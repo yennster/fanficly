@@ -120,7 +120,7 @@ struct SavedWorkReader: View {
                         }
                         .disabled(isSavingOffline || isDownloaded)
                         SubscribeMenuButton(workId: work.ao3Id, title: work.title, author: work.authorName,
-                                            chapterCount: payload?.summary.chapterCount ?? work.chapterCount,
+                                            chapterCount: payload?.summary.chapterCount,
                                             subscriber: subscriber)
                     } label: {
                         if isSavingOffline || exporter.isExporting || kudos.isSending || subscriber.isSending {

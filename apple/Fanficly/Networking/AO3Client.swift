@@ -816,9 +816,8 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func subscribeToWork(workId: Int) async throws {
-        // The first page is enough for the token and shows whether the session
-        // is signed in: no view_full_work. A guest's POST would only bounce to
-        // the login page, so don't send one.
+        // The first page is enough: it shows whether the session is signed in
+        // and carries the work's subscribe form. No view_full_work.
         await throttle.wait()
         let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
         let (pageData, pageResponse) = try await performRequest(URLRequest(url: pageURL))
@@ -826,27 +825,34 @@ public actor AO3Client: AO3ClientProtocol {
         guard let pageHTML = String(data: pageData, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Work page not UTF-8")
         }
+        // A guest's POST would only bounce to the login page, so don't send one.
         guard KudosParser.isSignedIn(html: pageHTML) else { throw AO3Error.unauthorized }
+        guard let form = SubscribeParser.form(html: pageHTML, base: baseURL) else {
+            throw AO3Error.subscribeRejected(message: "AO3 doesn't offer a Subscribe button on this work.")
+        }
+        // Already subscribed (on the website, say): AO3 has no uniqueness
+        // check, so posting again would add a second subscription.
+        if form.isSubscribed { return }
+        // The page-wide token, as kudos and comments use.
         guard let token = try? LoginParser.authenticityToken(html: pageHTML) else {
             throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
         }
 
-        // One POST, never retried (`performRequest` only retries GETs). A 422
-        // (Rails refusing the token) throws `.http` there.
+        // The form's own action, `/users/<login>/subscriptions`: AO3 has no
+        // subscriptions route under `/works`. One POST, never retried
+        // (`performRequest` only retries GETs).
         await throttle.wait()
-        let subsURL = try AO3Endpoints.workSubscriptions(id: workId, base: baseURL)
-        var request = URLRequest(url: subsURL)
+        var request = URLRequest(url: form.action)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
         request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
         request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
-        let body = encodeForm([
-            "authenticity_token": token,
-            "subscription[subscribable_id]": String(workId),
-            "subscription[subscribable_type]": "Work",
-        ])
-        request.httpBody = body.data(using: .utf8)
+        var fields = form.fields
+        fields["authenticity_token"] = token
+        fields["subscription[subscribable_id]"] = fields["subscription[subscribable_id]"] ?? String(workId)
+        fields["subscription[subscribable_type]"] = fields["subscription[subscribable_type]"] ?? "Work"
+        request.httpBody = encodeForm(fields).data(using: .utf8)
 
         let (data, response) = try await performRequest(request)
         try SubscribeParser.checkOutcome(html: String(data: data, encoding: .utf8) ?? "", finalURL: response.url)
