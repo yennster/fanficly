@@ -13,6 +13,7 @@ public static class Dialogs
 
     public static async Task<ContentDialogResult> ShowAsync(ContentDialog dialog)
     {
+        await WhenWindowLoadedAsync();
         await OneAtATime.WaitAsync();
         try
         {
@@ -25,6 +26,24 @@ public static class Dialogs
         {
             OneAtATime.Release();
         }
+    }
+
+    /// <summary>A dialog needs the window's XamlRoot, which is null until the
+    /// window's content has loaded. A link or Share → Fanficly that cold-starts
+    /// the app (an import) asks for one before then, so wait for it, as
+    /// <c>RestoreBanner</c>'s prompt does.</summary>
+    private static Task WhenWindowLoadedAsync()
+    {
+        var root = MainWindow.Current.RootElement;
+        if (root.XamlRoot is not null) return Task.CompletedTask;
+        var loaded = new TaskCompletionSource();
+        void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            root.Loaded -= OnLoaded;
+            loaded.TrySetResult();
+        }
+        root.Loaded += OnLoaded;
+        return loaded.Task;
     }
 
     public static Task<ContentDialogResult> AlertAsync(string title, string? message = null, string ok = "OK") =>

@@ -26,7 +26,8 @@ public enum LibraryEntityKinds
     ReadingStats = 1 << 11,
     /// <summary>Folders themselves, or which works are in them.</summary>
     Folders = 1 << 12,
-    All = (1 << 13) - 1,
+    BlockedTerms = 1 << 13,
+    All = (1 << 14) - 1,
 }
 
 /// <summary>Base of every library record (the SwiftData <c>@Model</c> stand-in).
@@ -495,6 +496,11 @@ public sealed class Chapter : LibraryEntity
         }
     }
 
+    /// <summary>The body for a backup when it's loaded; null when it's only in
+    /// the database, where the backup reads it (off the UI thread) without
+    /// keeping it in memory.</summary>
+    internal string? LoadedBodyForBackup => BodyLoaded ? _body ?? "" : null;
+
     /// <summary>Drops a loaded, unchanged body from memory (it reloads on access).</summary>
     public void UnloadBody()
     {
@@ -727,6 +733,57 @@ public sealed class HiddenWork : LibraryEntity
     internal static HiddenWork Read(SqliteDataReader r) => new(Db.Int(r, 1), Db.Str(r, 2), Db.Date(r, 3));
 }
 
+/// <summary>What a <see cref="BlockedTerm"/> blocks.</summary>
+public enum BlockedTermKind { Tag, Author }
+
+/// <summary>A tag or author the user has blocked (BlockedTerm, RM-006). Works
+/// carrying a blocked tag, or by a blocked author, are filtered out of search
+/// and browse lists by <see cref="ContentFilter.Apply"/>, never out of works
+/// the user opened on purpose.</summary>
+public sealed class BlockedTerm : LibraryEntity
+{
+    internal static readonly string[] Columns = ["key", "kind", "value", "created_at"];
+    private DateTimeOffset _createdAt;
+
+    public BlockedTerm(BlockedTermKind kind, string value, DateTimeOffset? createdAt = null)
+        : this(KindName(kind), value, createdAt) { }
+
+    private BlockedTerm(string kind, string value, DateTimeOffset? createdAt)
+    {
+        Kind = kind;
+        Value = value.Trim();
+        Key = KeyFor(kind, Value);
+        _createdAt = createdAt ?? DateTimeOffset.Now;
+    }
+
+    internal override LibraryEntityKinds EntityKind => LibraryEntityKinds.BlockedTerms;
+    internal override object? UniqueKey => Key;
+
+    /// <summary>Unique: lowercased "kind:value", so a term can't be blocked
+    /// twice in different case.</summary>
+    public string Key { get; }
+    /// <summary>"tag" or "author", as the Swift backup spells it.</summary>
+    public string Kind { get; }
+    /// <summary>As blocked: AO3's tag name, or the author's login.</summary>
+    public string Value { get; }
+    public DateTimeOffset CreatedAt { get => _createdAt; set => Set(ref _createdAt, value); }
+
+    public static string KindName(BlockedTermKind kind) => kind == BlockedTermKind.Tag ? "tag" : "author";
+
+    public static BlockedTermKind? ParseKind(string kind) => kind switch
+    {
+        "tag" => BlockedTermKind.Tag,
+        "author" => BlockedTermKind.Author,
+        _ => null,
+    };
+
+    public static string KeyFor(string kind, string value) => $"{kind}:{Blocklist.Fold(value)}";
+    public static string KeyFor(BlockedTermKind kind, string value) => KeyFor(KindName(kind), value);
+
+    internal override object?[] ToRow() => [Key, Kind, Value, Db.D(CreatedAt)];
+    internal static BlockedTerm Read(SqliteDataReader r) => new(Db.Str(r, 2), Db.Str(r, 3), Db.Date(r, 4));
+}
+
 /// <summary>A mirror of one AO3 account subscription ("work:123", "series:9",
 /// "user:name"), plus the new-chapter baseline the poller compares against.</summary>
 public sealed class SubscriptionRecord : LibraryEntity
@@ -768,7 +825,8 @@ public sealed class SubscriptionRecord : LibraryEntity
 /// <summary>An AO3 author the user follows locally (no login required). The
 /// poller checks each followed author's works page for newly-published works.
 /// <see cref="KnownWorkIds"/> is the set of work ids already seen, so a new
-/// work notifies exactly once; it's seeded at follow time so previously
+/// work notifies exactly once (see <c>SubscriptionPoller.NewlyPostedWorks</c>
+/// for which unknown ones count as new); it's seeded at follow time so previously
 /// published works don't all alert on the first poll.</summary>
 public sealed class FollowedAuthor : LibraryEntity
 {

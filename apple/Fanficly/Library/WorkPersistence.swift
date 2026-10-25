@@ -80,6 +80,19 @@ enum WorkPersistence {
         CSSearchableIndex.default().indexSearchableItems([item], completionHandler: nil)
     }
 
+    /// Removes a work from the library with its downloaded EPUB and its
+    /// Spotlight entry, without saving. Recording the deletion for sync is
+    /// the caller's job: a user's delete records it, and a restore applying
+    /// another device's delete doesn't need to.
+    @MainActor
+    static func delete(_ work: Work, in context: ModelContext) {
+        if let url = epubURL(workId: work.ao3Id) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        deindexWork(ao3Id: work.ao3Id)
+        context.delete(work)
+    }
+
     @MainActor
     static func deindexWork(ao3Id: Int) {
         CSSearchableIndex.default().deleteSearchableItems(withIdentifiers: ["work-\(ao3Id)"], completionHandler: nil)
@@ -233,6 +246,38 @@ enum WorkPersistence {
         return inLibrary ? .inLibrary : nil
     }
 
+    static let invalidEPUBSweepKey = "library.invalidEPUBSweep.v1"
+
+    /// One-time: deletes `library/<id>.epub` files that aren't an e-book.
+    /// Before downloads failed closed (#128), AO3's login page or an error
+    /// page could be saved there, and `epubURL` only checks the file exists,
+    /// so the work showed as Downloaded and nothing ever re-downloaded it.
+    /// Returns the files it removed.
+    @discardableResult
+    static func removeInvalidEPUBsIfNeeded(defaults: UserDefaults = .standard,
+                                           directory: URL? = nil) -> [URL] {
+        guard !defaults.bool(forKey: invalidEPUBSweepKey) else { return [] }
+        let fm = FileManager.default
+        guard let dir = directory ?? (try? fm.url(
+            for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ))?.appendingPathComponent("library", isDirectory: true),
+              let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        else { return [] }
+        // Only once the folder could be listed, so a launch that can't read
+        // it (or before the first download) doesn't use up the sweep.
+        defaults.set(true, forKey: invalidEPUBSweepKey)
+        var removed: [URL] = []
+        for file in files where file.pathExtension == "epub" {
+            guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
+            let head = (try? handle.read(upToCount: 68)) ?? Data()
+            try? handle.close()
+            if !AO3Client.isEbook(head), (try? fm.removeItem(at: file)) != nil {
+                removed.append(file)
+            }
+        }
+        return removed
+    }
+
     static func epubURL(workId: Int) -> URL? {
         guard let docs = try? FileManager.default.url(
             for: .documentDirectory, in: .userDomainMask,
@@ -240,6 +285,34 @@ enum WorkPersistence {
         ) else { return nil }
         let url = docs.appendingPathComponent("library/\(workId).epub")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+}
+
+/// Works you've left kudos on, remembered on this device so the kudos button
+/// reads "Kudos Left" instead of inviting a second tap. Cleared on logout, so
+/// it always belongs to the signed-in account (AO3 counts one kudo per
+/// account) and no username is kept beside it. Not in the iCloud library
+/// backup: AO3 itself still refuses a duplicate, which reads as already left.
+enum KudosStore {
+    static let key = "kudos.leftWorkIds"
+
+    static func hasLeft(workId: Int, defaults: UserDefaults = .standard) -> Bool {
+        workIds(defaults).contains(workId)
+    }
+
+    static func markLeft(workId: Int, defaults: UserDefaults = .standard) {
+        var ids = workIds(defaults)
+        guard !ids.contains(workId) else { return }
+        ids.append(workId)
+        defaults.set(ids, forKey: key)
+    }
+
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: key)
+    }
+
+    private static func workIds(_ defaults: UserDefaults) -> [Int] {
+        defaults.array(forKey: key) as? [Int] ?? []
     }
 }
 

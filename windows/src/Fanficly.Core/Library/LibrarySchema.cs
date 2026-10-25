@@ -30,6 +30,7 @@ internal static class LibrarySchema
         (typeof(SubscriptionRecord), "subscriptions", SubscriptionRecord.Columns, LibraryEntityKinds.Subscriptions),
         (typeof(FollowedAuthor), "followed_authors", FollowedAuthor.Columns, LibraryEntityKinds.FollowedAuthors),
         (typeof(ReadingStat), "reading_stats", ReadingStat.Columns, LibraryEntityKinds.ReadingStats),
+        (typeof(BlockedTerm), "blocked_terms", BlockedTerm.Columns, LibraryEntityKinds.BlockedTerms),
     ];
 
     internal const string LinkTable = "work_folders";
@@ -194,12 +195,26 @@ internal static class LibrarySchema
         """,
     ];
 
+    /// <summary>Version 2: blocked tags and authors (RM-006's <c>BlockedTerm</c>).</summary>
+    private static readonly string[] V2 =
+    [
+        """
+        CREATE TABLE IF NOT EXISTS blocked_terms (
+            id INTEGER PRIMARY KEY,
+            key TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL DEFAULT '',
+            value TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL DEFAULT 0)
+        """,
+    ];
+
     /// <summary>Each entry migrates from version <c>index</c> to <c>index + 1</c>.
     /// Append only; never edit a shipped entry.</summary>
     internal static readonly Action<SqliteConnection>[] Migrations =
     [
         conn => Exec(conn, V1),
-        // Version 2: the reader's own note and tags on a work (RM-009).
+        conn => Exec(conn, V2),
+        // Version 3: the reader's own note and tags on a work (RM-009).
         conn =>
         {
             AddColumnIfMissing(conn, "works", "note", "TEXT");

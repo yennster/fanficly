@@ -1,6 +1,7 @@
 using System.Globalization;
 using Fanficly.App.Shell;
 using Fanficly.App.UI;
+using Fanficly.App.Views.Account;
 using Fanficly.App.Views.Shared;
 using Fanficly.Core;
 using Microsoft.UI.Xaml;
@@ -44,6 +45,8 @@ public sealed class SearchScreen : Screen
     private bool _hasSearched;
     private bool _isLoadingMore;
     private string? _errorMessage;
+    /// <summary>The error is an expired AO3 session (#131): offer Sign In Again.</summary>
+    private bool _sessionExpired;
     private CancellationTokenSource? _searchCts;
     /// <summary>Bumped by every search and cancel: a response from an older
     /// search can never overwrite the results asked for last.</summary>
@@ -330,11 +333,11 @@ public sealed class SearchScreen : Screen
 
     private void OnLibraryChanged(LibraryEntityKinds kinds)
     {
-        if ((kinds & (LibraryEntityKinds.SavedSearches | LibraryEntityKinds.HiddenWorks)) == 0) return;
+        if ((kinds & (LibraryEntityKinds.SavedSearches | LibraryEntityKinds.HiddenWorks | LibraryEntityKinds.BlockedTerms)) == 0) return;
         MainWindow.Current?.DispatcherQueue.TryEnqueue(() =>
         {
             if (!_built) return;
-            if ((kinds & LibraryEntityKinds.HiddenWorks) != 0) RefreshVisible();
+            if ((kinds & (LibraryEntityKinds.HiddenWorks | LibraryEntityKinds.BlockedTerms)) != 0) RefreshVisible();
             RenderContent();
         });
     }
@@ -543,6 +546,15 @@ public sealed class SearchScreen : Screen
         {
             view = SearchingView();
         }
+        else if (_errorMessage is { } expired && _sessionExpired && !AppHost.Auth.HasSession)
+        {
+            view = SessionExpiry.EmptyState(expired);
+        }
+        else if (_errorMessage is not null && _sessionExpired)
+        {
+            // Signed in again since: the expiry note no longer stands.
+            view = UI.UI.EmptyState("magnifyingglass", "Signed in again", "Search again to see every result, restricted works included.", "Try Again", StartSearch);
+        }
         else if (_errorMessage is { } error)
         {
             view = UI.UI.EmptyState("exclamationmark.triangle", "Search failed", error, "Try Again", StartSearch);
@@ -563,8 +575,13 @@ public sealed class SearchScreen : Screen
         }
         else if (_list.Items.Count == 0)
         {
-            view = UI.UI.EmptyState("eye.slash", "Nothing to show",
-                "Every match is hidden or filtered out by your content settings.");
+            // Rows are what ask for the next page, so offer it here.
+            view = _currentPage < _totalPages && !_isLoadingMore
+                ? UI.UI.EmptyState("eye.slash", "Nothing to show",
+                    "Every match so far is hidden or filtered out by your content settings.",
+                    "Load more results", () => _ = LoadMoreAsync())
+                : UI.UI.EmptyState("eye.slash", "Nothing to show",
+                    "Every match is hidden or filtered out by your content settings.");
         }
         else
         {
@@ -657,6 +674,7 @@ public sealed class SearchScreen : Screen
             {
                 void Delete()
                 {
+                    LibrarySyncManager.RecordDeletionShared(DeletionKind.Search, s.Name);
                     Store.Delete(s);
                     Store.TrySave();
                     MainWindow.Current.Announce($"Deleted {s.Name}");
@@ -738,10 +756,12 @@ public sealed class SearchScreen : Screen
 
     // MARK: - Results
 
-    /// <summary>Results minus hidden works and (optionally) Mature/Explicit-rated ones.</summary>
-    private static IReadOnlyList<AO3WorkSummary> Visible(IEnumerable<AO3WorkSummary> works) =>
+    /// <summary>Results minus hidden works, blocked tags and authors (except ones
+    /// this search asked for by name) and (optionally) Mature/Explicit-rated ones.</summary>
+    private IReadOnlyList<AO3WorkSummary> Visible(IEnumerable<AO3WorkSummary> works) =>
         ContentFilter.Apply(works, HiddenWorkStore.Ids(Store),
-            KeyValueStores.Default.GetBool(Fanficly.Core.ContentControl.FilterMatureKey, true));
+            KeyValueStores.Default.GetBool(Fanficly.Core.ContentControl.FilterMatureKey, true),
+            Blocklist.From(Store).Lifting(_searched ?? _active));
 
     private void ResetList()
     {
@@ -953,6 +973,7 @@ public sealed class SearchScreen : Screen
     private async Task PerformSearchAsync(AO3SearchFilters requested, int generation, CancellationToken ct)
     {
         _errorMessage = null;
+        _sessionExpired = false;
         _isSearching = true;
         _slowNoteVisible = false;
         StartSlowTimer(generation);
@@ -974,6 +995,7 @@ public sealed class SearchScreen : Screen
 
             var result = await Client.SearchAsync(filters, 1, ct);
             if (generation != _searchGeneration) return;
+            SessionExpiry.Check(result);
             _results = result.Works.ToList();
             _totalFound = result.TotalFound;
             _totalPages = result.TotalPages;
@@ -992,7 +1014,8 @@ public sealed class SearchScreen : Screen
         }
         catch (Exception e)
         {
-            _errorMessage = Message(e);
+            _sessionExpired = SessionExpiry.Explains(e);
+            _errorMessage = _sessionExpired ? SessionExpiry.MessageFor(e) : Message(e);
         }
         _slowTimer?.Stop();
         _isSearching = false;
@@ -1019,7 +1042,7 @@ public sealed class SearchScreen : Screen
         AO3Exception { Kind: AO3ErrorKind.ParseFailed } e => $"Couldn't read AO3's response: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.Network } e => $"Network: {e.Reason}",
         AO3Exception { Kind: AO3ErrorKind.RateLimited } => "AO3 is asking us to slow down. Try again in a minute.",
-        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "AO3 sent its login page instead of results. Log in again in Settings, then try again.",
+        AO3Exception { Kind: AO3ErrorKind.Unauthorized } => "AO3 sent its login page instead of results. Sign in again, then try again.",
         _ => error.Message,
     };
 
@@ -1039,6 +1062,7 @@ public sealed class SearchScreen : Screen
             {
                 var result = await Client.SearchAsync(searched, _currentPage + 1, ct);
                 if (generation != _searchGeneration) return; // a new search started meanwhile
+                SessionExpiry.Check(result);
                 var existing = _results.Select(w => w.Id).ToHashSet();
                 var added = result.Works.Where(w => !existing.Contains(w.Id)).ToList();
                 _results.AddRange(added);
@@ -1056,7 +1080,8 @@ public sealed class SearchScreen : Screen
         }
         catch (Exception e)
         {
-            _errorMessage = $"Couldn't load more: {Message(e)}";
+            _sessionExpired = SessionExpiry.Explains(e);
+            _errorMessage = _sessionExpired ? SessionExpiry.MessageFor(e) : $"Couldn't load more: {Message(e)}";
             RenderHeader();
         }
         finally

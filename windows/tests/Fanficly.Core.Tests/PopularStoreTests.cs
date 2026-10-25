@@ -31,6 +31,8 @@ public class PopularStoreTests
         public Task<string> DownloadEpubAsync(int workId, CancellationToken ct = default) => _stub.DownloadEpubAsync(workId, ct);
         public Task<string> ExportWorkAsync(int workId, WorkExportFormat format, string filename, CancellationToken ct = default) => _stub.ExportWorkAsync(workId, format, filename, ct);
         public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => _stub.SubscribeToWorkAsync(workId, ct);
+        public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) => _stub.FetchBookmarkFormAsync(workId, ct);
+        public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => _stub.SaveBookmarkAsync(form, ct);
     }
 
     private static readonly DateTimeOffset Now = new(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);

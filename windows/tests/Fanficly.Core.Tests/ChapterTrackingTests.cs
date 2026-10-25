@@ -205,4 +205,25 @@ public class ChapterTrackingTests
         Assert.Equal(AnchorSampleAction.None,
                      sampler.OnOffsets(new Dictionary<string, double> { ["c1-p0"] = 0 }, 400, true, t0.AddSeconds(5)).Action);
     }
+
+    // A saved place past the downloaded chapters: new-chapter notifications open
+    // the live work, so chapter 13 can be saved while the copy stops at 12.
+
+    [Fact]
+    public void ClampedAnchor_PastTheLastChapter_LandsOnItsLastParagraph() =>
+        Assert.Equal(new ReadingAnchor(12, 9),
+                     ChapterTracking.ClampedAnchor(new ReadingAnchor(13, 4), Enumerable.Range(1, 12).ToArray(), _ => 9));
+
+    [Fact]
+    public void ClampedAnchor_KeepsALoadedChapter() =>
+        Assert.Equal(new ReadingAnchor(5, 3),
+                     ChapterTracking.ClampedAnchor(new ReadingAnchor(5, 3), Enumerable.Range(1, 12).ToArray(), _ => 9));
+
+    [Fact]
+    public void ClampedAnchor_InAGapOrBeforeTheFirst()
+    {
+        Assert.Equal(new ReadingAnchor(2, 20), ChapterTracking.ClampedAnchor(new ReadingAnchor(3, 2), [1, 2, 4], c => c * 10));
+        Assert.Equal(new ReadingAnchor(2, 0), ChapterTracking.ClampedAnchor(new ReadingAnchor(1, 2), [2, 3], _ => 9));
+        Assert.Null(ChapterTracking.ClampedAnchor(new ReadingAnchor(1, 0), [], _ => 9));
+    }
 }

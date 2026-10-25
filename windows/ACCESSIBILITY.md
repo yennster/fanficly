@@ -13,7 +13,7 @@ Fanficly is built from standard WinUI controls, so Narrator and other UI Automat
   - search results arriving
   - a filter being added from a suggestion
   - switching tabs with a controller's bumpers
-  - changing the zoom
+  - changing the zoom or the story's text size
   - in the reader: changing chapter, showing or hiding the controls, stopping Listen, applying a profile, saving to the Library and hiding a work
   - slow downloads and exports starting
   - messages such as "Downloaded for offline reading"
@@ -38,7 +38,7 @@ Every screen can be used from the keyboard. Settings → Input → Keyboard shor
 - **Library:**
   - Enter opens a work, Delete removes it, F2 renames a folder.
   - Ctrl+F searches the library; Ctrl+Shift+N makes a new folder.
-- **View:** Ctrl+Plus and Ctrl+Minus zoom (with or without Shift), Ctrl+0 resets the zoom, and F11 toggles full screen.
+- **View:** Ctrl+Plus and Ctrl+Minus make the story text bigger or smaller, Ctrl+Shift+Plus and Ctrl+Shift+Minus zoom, Ctrl+0 resets the zoom, and F11 toggles full screen.
 
 ## Xbox controller
 
@@ -52,7 +52,7 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 
 ## Seeing the screen
 
-- **Zoom.** The whole interface zooms from 50 % to 200 % in 10 % steps with Ctrl+Plus and Ctrl+Minus (with or without Shift). The zoom is remembered between sessions.
+- **Zoom.** The whole interface zooms from 50 % to 200 % in 10 % steps with Ctrl+Shift+Plus and Ctrl+Shift+Minus. The zoom is remembered between sessions.
 - **Light and dark.** Settings → Appearance follows Windows or forces Light or Dark, and the title bar follows suit.
 - **High contrast.** When a Windows contrast theme is on, the app's colours switch to the system's contrast colours, and the brand colours step aside. Reader settings suggests the "Match System" or "Dracula Navy" reading theme so story text stays readable.
 - **Larger text.** Settings → Accessibility → Text size in Windows enlarges the app's text up to 225 %. From 150 % up, titles, authors and other lines that are otherwise cut to one or two lines wrap in full, settings controls move under their labels sooner, and the Library, Stats, Subscriptions and Settings screens keep their text from running off the edge. A Text size change applies to a screen's layout when the screen next rebuilds, for example when you open it again.
@@ -66,7 +66,7 @@ The reader's settings are in its Aa menu (quick presets) and in Settings → The
   - Story text goes from 12 to 30 points.
   - Line spacing, paragraph spacing, character spacing and margins each have their own control.
   - **Bold text** gives heavier strokes.
-  - Zooming the interface with Ctrl+Plus doesn't change the story's text size, so you can set the two separately.
+  - Zooming the interface with Ctrl+Shift+Plus doesn't change the story's text size, so you can set the two separately.
 - **Fonts:** a choice of serif, sans-serif, rounded and monospaced faces, including Sitka (designed for reading on screen), Georgia, Segoe UI and Cascadia Mono.
 - **Six reading themes:** Light, Sepia, Dark, OLED Black, Dracula Navy and Match System. They give you a low-glare or true-black page for reading in the dark.
 - **Profiles:** a complete typography setup can be saved under a name, for different readers or different lighting. Windows keeps its own settings, separate from your iPhone, iPad and Mac.
@@ -75,7 +75,7 @@ The reader's settings are in its Aa menu (quick presets) and in Settings → The
   - on a wide window, page by page can show two pages side by side like a book;
   - "Page-turn animation" can be turned off, and pages never slide when Windows' animation effects are off.
 - **Turning pages:**
-  - Keyboard: Left and Right, Page Up and Page Down, or Space and Shift+Space. Ctrl+Left and Ctrl+Right change chapter; Home and End go to the start or end of the chapter.
+  - Keyboard (and Bluetooth page turners, which pair as one): Left and Right, Page Up and Page Down, or Space and Shift+Space; in page by page, Up and Down too. Ctrl+Left and Ctrl+Right change chapter; Home and End go to the start or end of the chapter.
   - Mouse, pen and touch: click or tap the outer third of the page, swipe, or use the mouse wheel. The middle of the page shows or hides the reader's controls.
   - Controller: the triggers or the D-pad turn pages, and the bumpers change chapter.
 - **Narrator:** the story's context menu (Shift+F10, the Menu key, or right-click) has Next and Previous page, Next and Previous chapter, Show or Hide reader controls, and Listen. Narrator announces the new page ("Page 3 of 12, chapter 2"), chapter or controls state. The page footer, the chapter indicator and the Listen bar have spoken names, and headings mark the work title and each chapter.

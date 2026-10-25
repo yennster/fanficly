@@ -26,6 +26,9 @@ public sealed class SyncSettingsScreen : Screen
 {
     private readonly Grid _host = new();
     private bool _isRestoring;
+    private bool _isSyncing;
+    /// <summary>A restore or a Sync Now is running.</summary>
+    private bool Busy => _isRestoring || _isSyncing;
 
     public SyncSettingsScreen() => Title = "Sync";
 
@@ -58,7 +61,7 @@ public sealed class SyncSettingsScreen : Screen
     {
         var enabled = IsEnabled;
         var toggle = UI.UI.Toggle(enabled, on => _ = SetEnabledAsync(on), "Sync across devices");
-        toggle.IsEnabled = !_isRestoring;
+        toggle.IsEnabled = !Busy;
         AutomationProperties.SetAutomationId(toggle, "settings.sync.toggle");
         var rows = new List<UIElement>
         {
@@ -69,14 +72,25 @@ public sealed class SyncSettingsScreen : Screen
         if (enabled)
         {
             var last = Sync.LastBackupDate;
+            // A backup that's only a cloud placeholder here has no date yet.
             rows.Add(UI.UI.SettingsRow("Last synced",
-                UI.UI.Secondary(last is { } d ? d.ToLocalTime().ToString("g") : "Never", Theme.Style.Body)));
-            rows.Add(SettingsKit.ActionRow("Back Up Now", BackUpNow, "icloud.and.arrow.up", automationId: "settings.sync.backup")
-                .Also(b => b.IsEnabled = !_isRestoring && Sync.SyncFolder is not null));
+                UI.UI.Secondary(last is { } d ? d.ToLocalTime().ToString("g")
+                    : Sync.IsBackupAvailable ? "Not downloaded yet" : "Never", Theme.Style.Body)));
+            // The automatic backups only fail to the log, so say so quietly
+            // here while they keep failing (the Mac's "Last backup didn't run").
+            if (Sync.BackupProblem is { } problem)
+            {
+                var status = UI.UI.SettingsRow("Last backup didn't run", subtitle: problem, sfSymbol: "exclamationmark.triangle");
+                AutomationProperties.SetAutomationId(status, "settings.sync.backupProblem");
+                AutomationProperties.SetName(status, $"Last backup didn't run: {problem}");
+                rows.Add(status);
+            }
+            rows.Add(SettingsKit.ActionRow(_isSyncing ? "Syncing…" : "Sync Now", () => _ = SyncNowAsync(), "arrow.triangle.2.circlepath", automationId: "settings.sync.backup")
+                .Also(b => b.IsEnabled = !Busy && Sync.SyncFolder is not null));
             if (Sync.IsBackupAvailable || _isRestoring)
                 rows.Add(RestoreRow("Restore Now", enableAfter: false));
             rows.Add(SettingsKit.ActionRow("Clear Synced Data", () => _ = ClearAsync(), "trash", destructive: true,
-                automationId: "settings.sync.clear").Also(b => b.IsEnabled = !_isRestoring && Sync.IsBackupAvailable));
+                automationId: "settings.sync.clear").Also(b => b.IsEnabled = !Busy && Sync.IsBackupAvailable));
         }
         else
         {
@@ -101,6 +115,7 @@ public sealed class SyncSettingsScreen : Screen
         else
         {
             row = SettingsKit.ActionRow(title, () => _ = RestoreAsync(enableAfter), "icloud.and.arrow.down");
+            row.IsEnabled = !_isSyncing;
         }
         AutomationProperties.SetAutomationId(row, "settings.sync.restore");
         return row;
@@ -110,7 +125,7 @@ public sealed class SyncSettingsScreen : Screen
     {
         var folder = Sync.SyncFolder;
         var choose = UI.UI.Button("Choose…", () => _ = ChooseFolderAsync(), "folder");
-        choose.IsEnabled = !_isRestoring;
+        choose.IsEnabled = !Busy;
         AutomationProperties.SetAutomationId(choose, "settings.sync.chooseFolder");
         AutomationProperties.SetName(choose, "Choose sync folder");
         var suggestions = SuggestedFolders();
@@ -123,7 +138,7 @@ public sealed class SyncSettingsScreen : Screen
         {
             if (string.Equals(path, folder, StringComparison.OrdinalIgnoreCase)) continue;
             rows.Add(SettingsKit.ActionRow($"Use {label}", () => _ = UseFolderAsync(path, create: true), "folder.fill",
-                tooltip: path).Also(b => b.IsEnabled = !_isRestoring));
+                tooltip: path).Also(b => b.IsEnabled = !Busy));
         }
         if (folder is not null)
         {
@@ -177,6 +192,7 @@ public sealed class SyncSettingsScreen : Screen
         if (!on)
         {
             KeyValueStores.Default.SetBool(LibrarySyncManager.SyncEnabledKey, false);
+            Sync.CancelPendingBackup();
             ApplyFolderToStores(Sync.SyncFolder);
             MainWindow.Current.Announce("Sync turned off");
             Render();
@@ -277,14 +293,28 @@ public sealed class SyncSettingsScreen : Screen
         }
     }
 
-    private void BackUpNow()
+    /// <summary>Brings in other devices' changes, then backs up (the Mac's
+    /// Sync Now).</summary>
+    private async Task SyncNowAsync()
     {
+        if (Busy) return;
+        _isSyncing = true;
+        Render();
+        MainWindow.Current.Announce("Syncing library");
         try
         {
-            switch (Sync.Backup(AppHost.Library))
+            var result = await Sync.SyncNowAsync(AppHost.Library);
+            _isSyncing = false;
+            if (result.Restored) RestoreDownloadCenter.Shared.ProposeRedownload(AppHost.Library);
+            switch (result.Backup)
             {
-                case BackupOutcome.Written:
-                    MainWindow.Current.ShowMessage("Backed Up", "Your library was saved to the sync folder.");
+                case BackupOutcome.Written or BackupOutcome.Unchanged:
+                    MainWindow.Current.ShowMessage("Synced", result.Restored
+                        ? "Changes from your other devices were added to your library, and it was saved to the sync folder."
+                        : result.RestoreFailed
+                            ? "Your library was saved to the sync folder, but changes from your other devices couldn't be brought in. Fanficly will try again the next time it opens."
+                            : "Your library was saved to the sync folder.",
+                        result.RestoreFailed ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
                     break;
                 case BackupOutcome.NotDownloaded:
                     _ = Dialogs.AlertAsync("Not Backed Up Yet",
@@ -293,6 +323,10 @@ public sealed class SyncSettingsScreen : Screen
                 case BackupOutcome.FileBusy:
                     _ = Dialogs.AlertAsync("Not Backed Up Yet",
                         "The sync app is using the backup file right now. Try again in a minute.");
+                    break;
+                case BackupOutcome.Unreadable:
+                    _ = Dialogs.AlertAsync("Not Backed Up",
+                        $"Fanficly couldn't read the backup in the sync folder, so it left it alone rather than replace it with this PC's library. It may be damaged, or written by a newer version of Fanficly. Update Fanficly, or use Clear Synced Data to start a new backup from this PC. ({Sync.LastBackupError})");
                     break;
                 case BackupOutcome.NoFolder:
                     _ = Dialogs.AlertAsync("Backup Failed", "Choose a sync folder first.");
@@ -305,7 +339,8 @@ public sealed class SyncSettingsScreen : Screen
         }
         catch (Exception e)
         {
-            AppHost.Log($"Backup failed: {e.Message}");
+            _isSyncing = false;
+            AppHost.Log($"Sync failed: {e.Message}");
             _ = Dialogs.AlertAsync("Backup Failed", "Couldn't write to the sync folder. Make sure it's available and try again.");
         }
         Render();
@@ -313,7 +348,7 @@ public sealed class SyncSettingsScreen : Screen
 
     private async Task RestoreAsync(bool enableAfter)
     {
-        if (_isRestoring) return;
+        if (Busy) return;
         if (Sync.SyncFolder is null && !await PickFolderAsync())
         {
             Render();
@@ -351,13 +386,61 @@ public sealed class SyncSettingsScreen : Screen
         }
     }
 
+    /// <summary>Confirms first (other devices use the backup), offers to
+    /// turn sync off so the next change doesn't start a new backup, and
+    /// reports what really happened.</summary>
     private async Task ClearAsync()
     {
-        if (!await Dialogs.ConfirmAsync("Clear Synced Data?",
-                "This deletes the library backup from the sync folder, for every device that uses it. Your library on this PC is not affected.",
-                "Clear", destructive: true))
-            return;
-        if (Sync.Clear()) MainWindow.Current.Announce("Synced data cleared");
+        var dialog = new ContentDialog
+        {
+            Title = "Clear Synced Data?",
+            Content = UI.UI.Text("This deletes your library backup from the sync folder. Your other devices that sync use the same backup, so they won't get changes from it until one of them backs up again. Your library on this PC isn't affected. If sync stays on, this PC starts a new backup with its next change."),
+            PrimaryButtonText = "Clear and Turn Off Sync",
+            SecondaryButtonText = "Clear and Keep Syncing",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        var danger = new Style(typeof(Button));
+        danger.Setters.Add(new Setter(Control.ForegroundProperty, Theme.Danger));
+        dialog.PrimaryButtonStyle = danger;
+        dialog.SecondaryButtonStyle = danger;
+        var choice = await Dialogs.ShowAsync(dialog);
+        if (choice == ContentDialogResult.None) return;
+        // Clear cancels a queued backup and waits for one already writing.
+        // Sync goes off only when the clear worked, so Clear Synced Data
+        // stays on screen to try again.
+        var outcome = Sync.Clear();
+        var turnOff = choice == ContentDialogResult.Primary
+                      && outcome is ClearOutcome.Cleared or ClearOutcome.NothingToClear;
+        if (turnOff)
+        {
+            KeyValueStores.Default.SetBool(LibrarySyncManager.SyncEnabledKey, false);
+            ApplyFolderToStores(Sync.SyncFolder);
+        }
         Render();
+        var syncNote = turnOff
+            ? "Sync is now off on this PC."
+            : "Sync is still on, so this PC starts a new backup with its next change.";
+        switch (outcome)
+        {
+            case ClearOutcome.Cleared:
+                MainWindow.Current.ShowMessage("Synced Data Cleared", $"Your library backup was deleted from the sync folder. {syncNote}");
+                break;
+            case ClearOutcome.NothingToClear:
+                MainWindow.Current.ShowMessage("Nothing to Clear", $"There's no library backup in the sync folder. {syncNote}",
+                    InfoBarSeverity.Informational);
+                break;
+            case ClearOutcome.NotDownloaded:
+                await Dialogs.AlertAsync("Not Cleared Yet",
+                    "The backup in the sync folder is still downloading from the cloud, so it couldn't be deleted yet. Try again in a minute.");
+                break;
+            case ClearOutcome.NoFolder:
+                await Dialogs.AlertAsync("Couldn't Clear Synced Data", "Choose a sync folder first.");
+                break;
+            default:
+                await Dialogs.AlertAsync("Couldn't Clear Synced Data",
+                    $"Couldn't delete the backup from the sync folder. Make sure it's available and try again. ({Sync.LastClearError})");
+                break;
+        }
     }
 }

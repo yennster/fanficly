@@ -3,8 +3,8 @@ using Fanficly.Core;
 
 namespace Fanficly.App.Views.Account;
 
-/// <summary>Registers the Subscriptions, Bookmarks, Marked for Later and AO3 History tabs and the sign-in and
-/// comments routes.</summary>
+/// <summary>Registers the Subscriptions, Bookmarks, Marked for Later and AO3 History tabs and the sign-in,
+/// comments and bookmark routes.</summary>
 internal static class AccountModule
 {
     [ModuleInitializer]
@@ -15,6 +15,7 @@ internal static class AccountModule
         Tabs.Register(SidebarItem.MarkedForLater, () => new ReadingListScreen(AO3ReadingList.MarkedForLater));
         Tabs.Register(SidebarItem.AO3History, () => new ReadingListScreen(AO3ReadingList.History));
         Routes.Login = () => new LoginScreen();
+        Routes.Bookmark = (workId, title) => new BookmarkScreen(workId, title);
         Routes.Comments = (workId, chapterId, title, chapterNumber, totalChapters) =>
         {
             var (number, total) = chapterNumber is null || totalChapters is null

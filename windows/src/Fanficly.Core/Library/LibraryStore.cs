@@ -126,6 +126,7 @@ public sealed class LibraryStore : IDisposable
         ReadTable("subscriptions", SubscriptionRecord.Columns, SubscriptionRecord.Read);
         ReadTable("followed_authors", FollowedAuthor.Columns, FollowedAuthor.Read);
         ReadTable("reading_stats", ReadingStat.Columns, ReadingStat.Read);
+        ReadTable("blocked_terms", BlockedTerm.Columns, BlockedTerm.Read);
 
         using (var cmd = _conn.CreateCommand())
         {
@@ -171,15 +172,24 @@ public sealed class LibraryStore : IDisposable
         }
     }
 
-    internal string LoadChapterBody(long rowId)
+    internal string LoadChapterBody(long rowId) => LoadChapterBodyIfPresent(rowId) ?? "";
+
+    /// <summary>A chapter's stored body; null when the row is gone (or the
+    /// store is closed).</summary>
+    internal string? LoadChapterBodyIfPresent(long rowId)
     {
         lock (_gate)
         {
-            if (_disposed || rowId <= 0) return "";
+            if (_disposed || rowId <= 0) return null;
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = "SELECT body_html FROM chapters WHERE id = $id";
             cmd.Parameters.AddWithValue("$id", rowId);
-            return cmd.ExecuteScalar() as string ?? "";
+            return cmd.ExecuteScalar() switch
+            {
+                null => null,
+                string body => body,
+                _ => "",
+            };
         }
     }
 
@@ -294,6 +304,7 @@ public sealed class LibraryStore : IDisposable
     public ReadingStat? GetReadingStat(int ao3Id) => FindUnique<ReadingStat>(ao3Id);
     public RecentlyViewed? GetRecentlyViewed(int ao3Id) => FindUnique<RecentlyViewed>(ao3Id);
     public HiddenWork? GetHiddenWork(int ao3Id) => FindUnique<HiddenWork>(ao3Id);
+    public BlockedTerm? GetBlockedTerm(BlockedTermKind kind, string value) => FindUnique<BlockedTerm>(BlockedTerm.KeyFor(kind, value));
     public BookmarkRecord? GetBookmark(int ao3Id) => FindUnique<BookmarkRecord>(ao3Id);
     public SubscriptionRecord? GetSubscription(string key) => FindUnique<SubscriptionRecord>(key);
     public FollowedAuthor? GetFollowedAuthor(string username) => FindUnique<FollowedAuthor>(username);
@@ -381,6 +392,8 @@ public sealed class LibraryStore : IDisposable
                     }
                     foreach (var w in writes)
                     {
+                        if (w.Insert && w.Entity.UniqueKey is not null)
+                            changed |= ReplaceOtherWritersRow(w.Entity.GetType(), w.Table, w.Columns[0], w.Row[0]);
                         WriteRow(w.Table, w.Columns, w.Entity.RowId, w.Row, w.Insert);
                         changed |= w.Kind;
                     }
@@ -449,6 +462,34 @@ public sealed class LibraryStore : IDisposable
             foreach (var e in fresh) e.RowId = ++next;
             _lastId[t.Type] = next;
         }
+    }
+
+    /// <summary>A new record's unique key may already be in the table, written
+    /// by another process since this store loaded (the background task saving
+    /// a subscription the app's own poll then inserts too). Inserting it would
+    /// break the UNIQUE constraint, roll back, and fail every save after; so the
+    /// new record replaces that row, as <see cref="Insert"/> replaces a stored
+    /// record with the same key. A unique record's key is its first column.
+    /// Rows this store owns are left alone.</summary>
+    private LibraryEntityKinds ReplaceOtherWritersRow(Type type, string table, string keyColumn, object? key)
+    {
+        using var find = _conn.CreateCommand();
+        find.CommandText = $"SELECT id FROM {table} WHERE {keyColumn} = $k";
+        find.Parameters.AddWithValue("$k", key ?? DBNull.Value);
+        if (find.ExecuteScalar() is not long id) return LibraryEntityKinds.None;
+        if (_live[type].Any(e => e.PersistedRow is not null && e.RowId == id)) return LibraryEntityKinds.None;
+
+        var kind = LibrarySchema.Tables.First(t => t.Type == type).Kind;
+        Execute($"DELETE FROM {table} WHERE id = $id", ("$id", id));
+        if (table == "works")
+        {
+            Execute("DELETE FROM chapters WHERE work_id = $id", ("$id", id));
+            Execute($"DELETE FROM {LibrarySchema.LinkTable} WHERE work_id = $id", ("$id", id));
+            kind |= LibraryEntityKinds.Chapters;
+        }
+        if (table == "custom_folders") Execute($"DELETE FROM {LibrarySchema.LinkTable} WHERE folder_id = $id", ("$id", id));
+        LibraryHooks.Log?.Invoke($"Library: a new {table} row replaced one another process saved with the same key");
+        return kind;
     }
 
     /// <summary>Inserts chapters and folders reachable from live records that

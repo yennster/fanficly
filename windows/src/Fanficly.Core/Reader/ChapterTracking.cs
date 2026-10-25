@@ -60,6 +60,25 @@ public static class ChapterTracking
         return EndOfContentAnchor(offsets, last.Index, lastParagraph, viewportHeight);
     }
 
+    /// <summary><paramref name="anchor"/> moved onto the chapters actually loaded
+    /// (<paramref name="order"/>, their indices), or null when none are. A saved
+    /// position can point past them: new-chapter notifications open the live work,
+    /// so you can save a place in chapter 13 while the downloaded copy stops at 12.
+    /// An anchor in a chapter that isn't loaded lands on the last paragraph of the
+    /// nearest loaded chapter before it (the first chapter's top when there's none),
+    /// so every mode has a chapter to show. <paramref name="lastParagraph"/> gives a
+    /// loaded chapter's final paragraph index. (Swift:
+    /// <c>ChapterTracking.clampedAnchor</c>.)</summary>
+    public static ReadingAnchor? ClampedAnchor(ReadingAnchor anchor, IReadOnlyList<int> order,
+                                               Func<int, int> lastParagraph)
+    {
+        if (order.Count == 0) return null;
+        if (order.Contains(anchor.Chapter)) return anchor;
+        var before = order.Where(c => c < anchor.Chapter).DefaultIfEmpty(int.MinValue).Max();
+        if (before == int.MinValue) return new ReadingAnchor(order.Min(), 0);
+        return new ReadingAnchor(before, Math.Max(lastParagraph(before), 0));
+    }
+
     /// <summary>Parses <c>"c12-p3"</c>.</summary>
     public static ReadingAnchor? Parse(string key)
     {

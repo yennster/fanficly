@@ -26,8 +26,8 @@ That single answer produces the **"Data Not Collected"** label. Rationale:
 
 - **Privacy Policy URL:** https://github.com/yennster/fanficly/blob/main/PRIVACY.md
   - (Optional upgrade: publish `PRIVACY.md` via GitHub Pages for a cleaner URL.)
-- **Support URL:** https://github.com/yennster/fanficly
-- **Marketing URL (optional):** https://github.com/yennster/fanficly
+- **Support URL:** https://fanficly.app
+- **Marketing URL (optional):** https://fanficly.app
 
 ## Privacy manifest
 

@@ -127,6 +127,76 @@ public sealed class LibraryBackupJsonTests
         Assert.Equal("Night", decoded.GetString("activeProfileWindows"));
     }
 
+    /// <summary>Every key the encoder writes is in BackupUnknownKeys' known
+    /// sets. A key missing there would be taken for an unknown one and
+    /// overwritten with the file's old value whenever this device omits it
+    /// (a cleared optional), so add new fields to both.</summary>
+    [Fact]
+    public void KnownKeySetsCoverEverythingTheEncoderWrites()
+    {
+        var b = LibraryBackupJson.Decode(SwiftFixture);
+        b = b with
+        {
+            Works = [b.Works[0] with { PublishedAt = Utc(2026, 1, 1) }],
+            FollowedAuthors = [new AuthorBackup("writer", "Writer", Utc(2026, 1, 1), [1], Utc(2026, 1, 2))],
+        };
+        using var doc = JsonDocument.Parse(LibraryBackupJson.Encode(b));
+        var root = doc.RootElement;
+        Assert.Subset(BackupUnknownKeys.TopLevelKeys, root.EnumerateObject().Select(p => p.Name).ToHashSet());
+        foreach (var (array, _, known, _) in BackupUnknownKeys.Records)
+        {
+            var records = root.GetProperty(array).EnumerateArray().ToList();
+            Assert.NotEmpty(records);
+            foreach (var r in records) Assert.Subset(known, r.EnumerateObject().Select(p => p.Name).ToHashSet());
+        }
+        var chapters = root.GetProperty("works")[0].GetProperty("chapters").EnumerateArray().ToList();
+        Assert.Contains(chapters, c => c.TryGetProperty("aoId", out _));
+        foreach (var c in chapters) Assert.Subset(BackupUnknownKeys.ChapterKeys, c.EnumerateObject().Select(p => p.Name).ToHashSet());
+    }
+
+    [Fact]
+    public void KnownKeySetsListEveryBackupRecordField()
+    {
+        // Doesn't depend on a fixture: a field added to a backup record must be
+        // added to BackupUnknownKeys too, or a cleared value of it would be
+        // copied back from the file as "unknown".
+        static HashSet<string> Fields(Type t) =>
+            t.GetConstructors().Single().GetParameters().Select(p => p.Name!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var types = new Dictionary<string, Type>
+        {
+            ["works"] = typeof(WorkBackup), ["bookmarks"] = typeof(BookmarkBackup),
+            ["subscriptions"] = typeof(SubscriptionBackup), ["searches"] = typeof(SearchBackup),
+            ["progress"] = typeof(ProgressBackup), ["filters"] = typeof(FilterBackup),
+            ["hidden"] = typeof(HiddenBackup), ["folders"] = typeof(FolderBackup),
+            ["stats"] = typeof(StatBackup), ["followedAuthors"] = typeof(AuthorBackup),
+        };
+        Assert.Equal(types.Keys.Order(), BackupUnknownKeys.Records.Select(r => r.Array).Order());
+        foreach (var (array, _, known, _) in BackupUnknownKeys.Records)
+            Assert.True(Fields(types[array]).SetEquals(known), $"{array}: {string.Join(", ", Fields(types[array]).Except(known, StringComparer.OrdinalIgnoreCase))}");
+        Assert.True(Fields(typeof(ChapterBackup)).SetEquals(BackupUnknownKeys.ChapterKeys));
+        Assert.True(Fields(typeof(LibraryBackup)).SetEquals(BackupUnknownKeys.TopLevelKeys));
+    }
+
+    /// <summary>Deletion markers (#135) are written in the Swift app's shape
+    /// (<c>DeletionBackup</c>: kind, key, deletedAt) and read back; backups from
+    /// before them have none.</summary>
+    [Fact]
+    public void DeletionMarkersRoundTripInTheSwiftFormat()
+    {
+        Assert.Null(LibraryBackupJson.Decode(OlderSwiftFixture).Deleted);
+        var b = LibraryBackupJson.Decode(SwiftFixture) with
+        {
+            Deleted = [new DeletionBackup("work", "42", Utc(2026, 1, 1)), new DeletionBackup("folder", "Faves", Utc(2026, 1, 2))],
+        };
+        var bytes = LibraryBackupJson.Encode(b);
+        using var doc = JsonDocument.Parse(bytes);
+        var first = doc.RootElement.GetProperty("deleted")[0];
+        Assert.Equal("work", first.GetProperty("kind").GetString());
+        Assert.Equal("42", first.GetProperty("key").GetString());
+        Assert.Equal("2026-01-01T00:00:00Z", first.GetProperty("deletedAt").GetString());
+        Assert.Equal(b.Deleted, LibraryBackupJson.Decode(bytes).Deleted);
+    }
+
     [Fact]
     public void ReencodingSwiftOutputGivesTheSameJson()
     {
@@ -227,8 +297,9 @@ public sealed class LibraryBackupJsonTests
             Assert.NotNull(store.GetHiddenWork(666));
             Assert.Equal("sepia", settings.GetString("reader.theme"));
             Assert.Equal(22, settings.GetDouble("reader.fontSizePt"));
-            Assert.Equal("dracula", settings.GetString("reader.theme.pad"));
-            Assert.Equal(18, settings.GetDouble("reader.fontSizePt.mac"));
+            // The iPad's and the Mac's own settings stay theirs (#133).
+            Assert.False(settings.Contains("reader.theme.pad"));
+            Assert.False(settings.Contains("reader.fontSizePt.mac"));
             // No profile merger installed and nothing local: the incoming profiles are kept.
             Assert.Equal("[{\"name\":\"Default\"}]", settings.GetString("reader.profiles"));
             Assert.False(sync.CloudBackupHasUnappliedChanges);
@@ -240,6 +311,8 @@ public sealed class LibraryBackupJsonTests
             Assert.Equal(["Faves", "To Reread"], again.Works[0].FolderNames!.Order());
             Assert.Equal([900, null], again.Works[0].Chapters.Select(c => c.AoId));
             Assert.Equal(2, again.Folders!.Count);
+            Assert.Equal("dracula", again.Settings?.GetString("themePad"));
+            Assert.Equal(18, again.Settings?.GetDouble("fontSizePtMac"));
             // The merge lifts the total to Σ DaySeconds (1200 + 2400.5).
             Assert.Equal(3600.5, again.Stats![0].TotalSeconds);
         }

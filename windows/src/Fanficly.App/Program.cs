@@ -15,6 +15,7 @@ public static class Program
     private static int Main(string[] args)
     {
         WinRT.ComWrappersSupport.InitializeComWrappers();
+        UnexpectedErrors.InstallProcessHandlers();
 
         // Windows launched us to serve the Widgets board: no window, no redirect.
         if (args.Contains("-RegisterProcessAsComServer"))
