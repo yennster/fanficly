@@ -77,7 +77,9 @@ internal sealed class WorkKudos
         if (result is null) return;
         if (result.NeedsSignIn)
         {
-            if (await Dialogs.ConfirmAsync("Sign in to AO3", result.Message, "Sign In")) Routes.OpenLogin();
+            // Signed in here, so AO3 dropped the session (#131).
+            if (AppHost.Auth.IsLoggedIn) AppHost.Auth.MarkSessionExpired();
+            if (await Dialogs.ConfirmAsync("Sign in to AO3", result.Message, AppHost.Auth.IsLoggedIn ? Account.SessionExpiry.ActionTitle : "Sign In")) Routes.OpenLogin();
         }
         else if (_giver.HasLeft)
         {

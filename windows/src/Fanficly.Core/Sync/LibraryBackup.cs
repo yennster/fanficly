@@ -28,7 +28,10 @@ public sealed record LibraryBackup(
     IReadOnlyList<AuthorBackup>? FollowedAuthors = null,
     /// <summary>Blocked tags and authors (RM-006); optional so older backups
     /// still decode.</summary>
-    IReadOnlyList<BlockedBackup>? Blocked = null);
+    IReadOnlyList<BlockedBackup>? Blocked = null,
+    /// <summary>Deletion markers (#135); optional so older backups still
+    /// decode, and older app versions keep the key as one they don't know.</summary>
+    IReadOnlyList<DeletionBackup>? Deleted = null);
 
 /// <summary>A blocked tag or author, matched across devices by
 /// <see cref="Key"/> (kind plus the value ignoring case).</summary>
@@ -180,6 +183,43 @@ public sealed class SettingsBackup
     public string? GetString(string jsonKey) => Values.TryGetValue(jsonKey, out var v) ? v as string : null;
     public double? GetDouble(string jsonKey) => Values.TryGetValue(jsonKey, out var v) && v is double d ? d : null;
     public bool? GetBool(string jsonKey) => Values.TryGetValue(jsonKey, out var v) && v is bool b ? b : null;
+
+    /// <summary>The device a per-device JSON key belongs to (<c>fontSizePtPad</c> →
+    /// <see cref="ReaderDevice.Pad"/>), or null for a shared key.</summary>
+    public static ReaderDevice? DeviceOf(string jsonKey)
+    {
+        foreach (var device in Enum.GetValues<ReaderDevice>())
+        {
+            var suffix = device.ToString();
+            if (jsonKey.Length > suffix.Length && jsonKey.EndsWith(suffix, StringComparison.Ordinal)) return device;
+        }
+        return null;
+    }
+
+    /// <summary>Settings merge key by key (the Swift <c>mergedSettings</c>). This
+    /// device's own keys and the shared ones take its value (a key only the file
+    /// has is kept); another device's per-device keys always come from the file,
+    /// because any copies this device holds are only what an earlier restore
+    /// brought in, and writing those back would revert that device's newer
+    /// choices (#133).</summary>
+    public static SettingsBackup? Merged(SettingsBackup? local, SettingsBackup? cloud, ReaderDevice device)
+    {
+        if (local is null) return cloud;
+        var merged = new SettingsBackup();
+        if (cloud is not null)
+            foreach (var (key, value) in cloud.Values) merged.Values[key] = value;
+        foreach (var (key, value) in local.Values)
+        {
+            if (DeviceOf(key) is { } owner && owner != device) continue;
+            merged.Values[key] = value;
+        }
+        return merged;
+    }
+
+    /// <summary>Whether a restore writes this field on <paramref name="device"/>:
+    /// shared fields and the device's own, never another device's.</summary>
+    public static bool AppliesTo(SettingField field, ReaderDevice device) =>
+        DeviceOf(field.JsonKey) is not { } owner || owner == device;
 
     /// <summary>Reads every field that's set from a settings store (unparseable values count as unset).</summary>
     public static SettingsBackup Capture(IKeyValueStore settings)
@@ -336,6 +376,13 @@ public static class LibraryBackupJson
                     w.WriteEndArray();
                     WriteDate(w, "lastCheckedAt", x.LastCheckedAt);
                 });
+            if (b.Deleted is { } deleted)
+                WriteArray(w, "deleted", deleted, (w, x) =>
+                {
+                    w.WriteString("kind", x.Kind);
+                    w.WriteString("key", x.Key);
+                    WriteDate(w, "deletedAt", x.DeletedAt);
+                });
             WriteDate(w, "timestamp", b.Timestamp);
             w.WriteEndObject();
         }
@@ -486,6 +533,9 @@ public static class LibraryBackupJson
                 DateN(x, "lastCheckedAt"))) : null,
             Blocked: Present(o, "blocked", out _)
                 ? Array(o, "blocked", x => new BlockedBackup(Str(x, "kind"), Str(x, "value"), Date(x, "createdAt")))
+                : null,
+            Deleted: Present(o, "deleted", out _)
+                ? Array(o, "deleted", x => new DeletionBackup(Str(x, "kind"), Str(x, "key"), Date(x, "deletedAt")))
                 : null);
     }
 

@@ -9,9 +9,9 @@ final class PersistenceTests: XCTestCase {
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
             SubscriptionRecord.self, SavedSearch.self, ReadingProgress.self,
             RecentlyViewed.self, CustomFolder.self, FollowedAuthor.self,
-            ReadingStat.self, BlockedTerm.self,
+            ReadingStat.self, BlockedTerm.self, HiddenWork.self, SavedFilter.self,
         ])
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
+        let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         let container = try ModelContainer(for: schema, configurations: [config])
         return ModelContext(container)
     }
@@ -514,6 +514,11 @@ final class PersistenceTests: XCTestCase {
             try? FileManager.default.removeItem(at: testBackupURL)
         }
         
+        // This device's own keys: the tests run on an iPhone, an iPad and a Mac.
+        let themeKey = ReaderProfile.deviceKey("reader.theme")
+        let fontSizeKey = ReaderProfile.deviceKey("reader.fontSizePt")
+        let profileKey = ReaderProfile.deviceActiveProfileKey
+
         // 1. Set some settings in UserDefaults
         let defaults = UserDefaults.standard
         defer {
@@ -523,9 +528,9 @@ final class PersistenceTests: XCTestCase {
                 "reader.width",
                 "reader.fontSizePt",
                 "reader.profiles",
-                "reader.theme.pad",
-                "reader.activeProfile.pad",
-                "reader.fontSizePt.pad",
+                themeKey,
+                profileKey,
+                fontSizeKey,
                 "content.filterMatureExplicit"
             ].forEach { defaults.removeObject(forKey: $0) }
         }
@@ -536,9 +541,9 @@ final class PersistenceTests: XCTestCase {
         defaults.set(true, forKey: "content.filterMatureExplicit")
         
         // Device-specific settings
-        defaults.set("dracula", forKey: "reader.theme.pad")
-        defaults.set("compact", forKey: "reader.activeProfile.pad")
-        defaults.set(18.0, forKey: "reader.fontSizePt.pad")
+        defaults.set("dracula", forKey: themeKey)
+        defaults.set("compact", forKey: profileKey)
+        defaults.set(18.0, forKey: fontSizeKey)
 
         let macProfile = readerProfile(name: "Mac", theme: "dracula", fontSize: 24.0)
         defaults.set(ReaderProfile.saveProfiles([ReaderProfile.defaultProfiles[0], macProfile]),
@@ -548,42 +553,167 @@ final class PersistenceTests: XCTestCase {
         let syncManager = iCloudSyncManager.shared
         syncManager.backupToiCloud(context: ctx)
         
-        // 3. Reset settings in UserDefaults
+        // 3. Reset settings in UserDefaults, all but one: a setting this
+        // device has is its own, so restore leaves it alone (#133).
         defaults.removeObject(forKey: "reader.theme")
         defaults.removeObject(forKey: "reader.fontFamily")
         defaults.removeObject(forKey: "reader.width")
         defaults.removeObject(forKey: "reader.fontSizePt")
         defaults.removeObject(forKey: "content.filterMatureExplicit")
         
-        defaults.removeObject(forKey: "reader.theme.pad")
-        defaults.removeObject(forKey: "reader.activeProfile.pad")
-        defaults.removeObject(forKey: "reader.fontSizePt.pad")
+        defaults.removeObject(forKey: themeKey)
+        defaults.removeObject(forKey: profileKey)
+        defaults.set(15.0, forKey: fontSizeKey)
 
         let phoneProfile = readerProfile(name: "iPhone", theme: "system", fontSize: 20.0)
         defaults.set(ReaderProfile.saveProfiles([ReaderProfile.defaultProfiles[0], phoneProfile]),
                      forKey: "reader.profiles")
         
         XCTAssertNil(defaults.string(forKey: "reader.theme"))
-        XCTAssertNil(defaults.string(forKey: "reader.theme.pad"))
+        XCTAssertNil(defaults.string(forKey: themeKey))
         
         // 4. Restore from backup
         let success = await syncManager.restoreFromiCloud(context: ctx)
         XCTAssertTrue(success)
         
-        // 5. Verify they are restored
+        // 5. Verify the missing ones are restored and the set one is kept
         XCTAssertEqual(defaults.string(forKey: "reader.theme"), "sepia")
         XCTAssertEqual(defaults.string(forKey: "reader.fontFamily"), "rounded")
         XCTAssertEqual(defaults.string(forKey: "reader.width"), "wide")
         XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt"), 22.0)
         XCTAssertTrue(defaults.bool(forKey: "content.filterMatureExplicit"))
         
-        XCTAssertEqual(defaults.string(forKey: "reader.theme.pad"), "dracula")
-        XCTAssertEqual(defaults.string(forKey: "reader.activeProfile.pad"), "compact")
-        XCTAssertEqual(defaults.double(forKey: "reader.fontSizePt.pad"), 18.0)
+        XCTAssertEqual(defaults.string(forKey: themeKey), "dracula")
+        XCTAssertEqual(defaults.string(forKey: profileKey), "compact")
+        XCTAssertEqual(defaults.double(forKey: fontSizeKey), 15.0)
 
         let restoredProfiles = ReaderProfile.loadProfiles(from: defaults.string(forKey: "reader.profiles") ?? "")
         XCTAssertEqual(restoredProfiles.first(where: { $0.name == "Mac" })?.fontSizePt, 24.0)
         XCTAssertEqual(restoredProfiles.first(where: { $0.name == "iPhone" })?.fontSizePt, 20.0)
+    }
+
+    // MARK: - Per-device settings across devices (#133)
+
+    private func settingsBackup(_ json: String) throws -> SettingsBackup {
+        try JSONDecoder().decode(SettingsBackup.self, from: Data(json.utf8))
+    }
+
+    private func seededKeys(_ settings: SettingsBackup, device: String, has local: Set<String> = []) -> [String: String] {
+        var seeded: [String: String] = [:]
+        for seed in iCloudSyncManager.settingsToSeed(from: settings, deviceSuffix: device, isSet: local.contains) {
+            seeded[seed.key] = "\(seed.value)"
+        }
+        return seeded
+    }
+
+    func test_restoreSeedsOnlyThisDevicesMissingSettings() throws {
+        let backup = try settingsBackup("""
+            {"theme":"sepia","ttsRate":0.5,"filterMatureExplicit":true,"ageConfirmed":true,
+             "activeProfilePad":"Couch","activeProfilePhone":"Train",
+             "fontSizePtPad":16,"fontSizePtPhone":14,"fontSizePtMac":18,"boldTextPad":true,
+             "profiles":"[]"}
+            """)
+
+        // A fresh iPad takes the shared keys and its own, never the iPhone's or the Mac's.
+        XCTAssertEqual(seededKeys(backup, device: "Pad"), [
+            "reader.theme": "sepia",
+            "reader.ttsRate": "0.5",
+            "content.filterMatureExplicit": "true",
+            "content.ageConfirmed": "true",
+            "reader.activeProfile.pad": "Couch",
+            "reader.fontSizePt.pad": "16.0",
+            "reader.boldText.pad": "true",
+        ])
+        XCTAssertEqual(seededKeys(backup, device: "Phone")["reader.fontSizePt.phone"], "14.0")
+        XCTAssertEqual(seededKeys(backup, device: "Mac")["reader.fontSizePt.mac"], "18.0")
+
+        // An iPad that already set them keeps its own.
+        let seeded = seededKeys(backup, device: "Pad",
+                                has: ["reader.fontSizePt.pad", "content.filterMatureExplicit", "reader.activeProfile.pad"])
+        XCTAssertNil(seeded["reader.fontSizePt.pad"])
+        XCTAssertNil(seeded["content.filterMatureExplicit"])
+        XCTAssertNil(seeded["reader.activeProfile.pad"])
+        XCTAssertEqual(seeded["reader.boldText.pad"], "true")
+    }
+
+    func test_settingsMergeKeepsTheFilesValuesForOtherDevices() throws {
+        let cloud = try settingsBackup(#"{"fontSizePtPad":16,"themePad":"night","themeMac":"sepia","ttsRate":0.4}"#)
+        // This iPhone holds stale copies of the iPad's keys from an earlier restore.
+        let local = try settingsBackup(#"{"fontSizePtPad":14,"themePad":"day","boldTextPad":true,"fontSizePtPhone":20,"ttsRate":0.6}"#)
+
+        let merged = try XCTUnwrap(iCloudSyncManager.mergedSettings(local: local, cloud: cloud, deviceSuffix: "Phone"))
+        XCTAssertEqual(merged.fontSizePtPad, 16, "the iPad's own value stays")
+        XCTAssertEqual(merged.themePad, "night")
+        XCTAssertEqual(merged.themeMac, "sepia")
+        XCTAssertNil(merged.boldTextPad, "another device's keys only ever come from the file")
+        XCTAssertEqual(merged.fontSizePtPhone, 20, "this device's own key wins")
+        XCTAssertEqual(merged.ttsRate, 0.6, "a shared key takes this device's value")
+        XCTAssertNil(iCloudSyncManager.mergedSettings(local: nil, cloud: nil, deviceSuffix: "Phone"))
+        XCTAssertEqual(iCloudSyncManager.mergedSettings(local: nil, cloud: cloud, deviceSuffix: "Phone")?.themePad, "night")
+        // With no file yet, only this device's own and shared keys are written.
+        let first = try XCTUnwrap(iCloudSyncManager.mergedSettings(local: local, cloud: nil, deviceSuffix: "Phone"))
+        XCTAssertNil(first.fontSizePtPad)
+        XCTAssertEqual(first.fontSizePtPhone, 20)
+    }
+
+    /// The issue's example: the iPad sets 16 pt and backs up, the iPhone
+    /// (holding 14 from an earlier restore) backs up, and the iPad's next
+    /// restore keeps 16.
+    func test_aNewerSettingOnOneDeviceSurvivesAnotherDevicesBackupAndRestore() throws {
+        let pad = try settingsBackup(#"{"fontSizePtPad":16,"filterMatureExplicit":true,"activeProfilePad":"Couch"}"#)
+        let phone = try settingsBackup(#"{"fontSizePtPad":14,"fontSizePtPhone":20,"filterMatureExplicit":false,"activeProfilePad":"Default"}"#)
+
+        let file = try XCTUnwrap(iCloudSyncManager.mergedSettings(local: phone, cloud: pad, deviceSuffix: "Phone"))
+        XCTAssertEqual(file.fontSizePtPad, 16)
+        XCTAssertEqual(file.activeProfilePad, "Couch")
+
+        let padRestore = seededKeys(file, device: "Pad",
+                                    has: ["reader.fontSizePt.pad", "content.filterMatureExplicit", "reader.activeProfile.pad"])
+        XCTAssertTrue(padRestore.isEmpty, "the iPad keeps every setting it has: \(padRestore)")
+        XCTAssertNil(padRestore["reader.fontSizePt.phone"], "and never takes the iPhone's")
+    }
+
+    /// The same through the real backup and restore: this device sets its
+    /// text size and backs up, another device's backup holding a stale copy
+    /// of it lands in the file, and this device's next restore keeps its own.
+    func test_aNewerSettingSurvivesAnotherDevicesBackupThroughTheFile() async throws {
+        let url = makeTempBackupURL()
+        let defaults = UserDefaults.standard
+        let fontSizeKey = ReaderProfile.deviceKey("reader.fontSizePt")
+        let fontSizeJSONKey = "fontSizePt" + iCloudSyncManager.backupDeviceSuffix
+        let other = iCloudSyncManager.backupDeviceSuffix == "Pad" ? "Phone" : "Pad"
+        let originalSize = defaults.object(forKey: fontSizeKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: iCloudSyncManager.previousBackupURL(for: url))
+            defaults.set(originalSize, forKey: fontSizeKey)
+        }
+        let ctx = try makeContext()
+        defaults.set(16.0, forKey: fontSizeKey)
+        iCloudSyncManager.shared.backupToiCloud(context: ctx)
+        XCTAssertNil(iCloudSyncManager.shared.lastBackupFailure)
+
+        // The other device merges its backup, with a stale 14 for this device's key.
+        let file = try decodeBackup(at: url)
+        let stale = try settingsBackup(#"{"\#(fontSizeJSONKey)":14,"fontSizePt\#(other)":21}"#)
+        let otherBackup = LibraryBackup(
+            works: file.works, bookmarks: file.bookmarks, subscriptions: file.subscriptions,
+            searches: file.searches, progress: file.progress, filters: file.filters, hidden: file.hidden,
+            settings: stale, folders: file.folders, stats: file.stats, blocked: file.blocked, timestamp: .now)
+        let written = iCloudSyncManager.mergedBackup(local: otherBackup, cloud: file, deviceSuffix: other)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(written).write(to: url)
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let fileSettings = try XCTUnwrap(root["settings"] as? [String: Any])
+        XCTAssertEqual(fileSettings[fontSizeJSONKey] as? Double, 16, "the file keeps this device's value")
+        XCTAssertEqual(fileSettings["fontSizePt" + other] as? Double, 21)
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: ctx)
+        XCTAssertTrue(success)
+        XCTAssertEqual(defaults.double(forKey: fontSizeKey), 16)
     }
 
     // MARK: - iCloud backup/restore merge rules
@@ -624,9 +754,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2, 3, 4])
     }
 
-    /// On a per-work conflict the backing-up device's record wins, but the
-    /// cloud copy's chapters survive when the local copy is metadata-only.
-    func test_backupMergeLocalWinsButKeepsCloudChapters() throws {
+    /// On a per-work conflict the fresher metadata wins, and the cloud copy's
+    /// chapters survive when the local copy is metadata-only.
+    func test_backupMergeFresherMetadataWinsAndKeepsCloudChapters() throws {
         let url = makeTempBackupURL()
         iCloudSyncManager.overrideBackupURL = url
         defer {
@@ -647,7 +777,9 @@ final class PersistenceTests: XCTestCase {
 
         // …device B holds a metadata-only copy with fresher metadata.
         let b = try makeContext()
-        b.insert(Work(ao3Id: 1, title: "New Title", authorName: "A"))
+        let fresher = Work(ao3Id: 1, title: "New Title", authorName: "A")
+        fresher.updatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        b.insert(fresher)
         try b.save()
         iCloudSyncManager.shared.backupToiCloud(context: b)
 
@@ -684,6 +816,295 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(stat.daySeconds["2026-06-01"] ?? 0, 1000, accuracy: 0.001)
         XCTAssertEqual(stat.daySeconds["2026-06-02"] ?? 0, 2000, accuracy: 0.001)
         XCTAssertEqual(stat.totalSeconds, 3000, accuracy: 0.001)
+    }
+
+    /// The Windows app writes fields this one doesn't know (its reader
+    /// settings, followed authors, whatever comes later). An Apple backup that
+    /// merges with its file keeps them, while this device's values still win
+    /// where it has them, and a note cleared here stays cleared (#126).
+    func test_backupKeepsKeysOnlyTheOtherAppKnows() throws {
+        let url = makeTempBackupURL()
+        let defaults = UserDefaults.standard
+        // This device's own theme key (the tests run on an iPhone, an iPad and a Mac).
+        let themeKey = ReaderProfile.deviceKey("reader.theme")
+        let themeJSONKey = "theme" + iCloudSyncManager.backupDeviceSuffix
+        let originalTheme = defaults.object(forKey: themeKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: iCloudSyncManager.previousBackupURL(for: url))
+            defaults.set(originalTheme, forKey: themeKey)
+        }
+        let work = #"""
+            "authorName":"A","authorUsername":"","summary":"","rating":"Not Rated","warnings":[],"categories":[],"fandoms":[],"characters":[],"relationships":[],"freeforms":[],"language":"en","wordCount":0,"chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,"isComplete":false,"savedAt":"2026-01-01T00:00:00Z","isFollowed":false
+            """#
+        let windowsFile = """
+            {"works":[{"ao3Id":1,"title":"PC Title",\(work),"note":"Old note","notesUpdatedAt":"2026-01-01T00:00:00Z","futureWorkField":"kept","chapters":[{"index":1,"title":"Ch","bodyHTML":"<p>x</p>","futureChapterField":7}]},
+                      {"ao3Id":2,"title":"PC Only",\(work),"futureWorkField":"pc only","chapters":[]}],
+             "bookmarks":[],"subscriptions":[],"searches":[],"progress":[],"filters":[],"hidden":[{"ao3Id":9,"title":"Nope","hiddenAt":"2026-01-01T00:00:00Z","futureReason":"spoilers"}],
+             "settings":{"\(themeJSONKey)":"sepia","themeWindows":"night","activeProfileWindows":"Desk","fontSizePtWindows":19},
+             "followedAuthors":[{"username":"writer","displayName":"Writer","followedAt":"2026-01-01T00:00:00Z","knownWorkIds":[1]}],
+             "timestamp":"2026-01-01T00:00:00Z"}
+            """
+        try Data(windowsFile.utf8).write(to: url)
+
+        // This Mac holds work 1 with a newer title and the note cleared later.
+        defaults.set("dracula", forKey: themeKey)
+        let mac = try makeContext()
+        let local = Work(ao3Id: 1, title: "Mac Title", authorName: "A")
+        local.notesUpdatedAt = ISO8601DateFormatter().date(from: "2026-06-01T00:00:00Z")
+        mac.insert(local)
+        mac.insert(Chapter(work: local, index: 1, title: "Ch", bodyHTML: "<p>x</p>"))
+        mac.insert(HiddenWork(ao3Id: 9, title: "Nope", hiddenAt: .now))
+        try mac.save()
+        iCloudSyncManager.shared.backupToiCloud(context: mac)
+        XCTAssertNil(iCloudSyncManager.shared.lastBackupFailure)
+
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let works = try XCTUnwrap(root["works"] as? [[String: Any]])
+        let shared = try XCTUnwrap(works.first { ($0["ao3Id"] as? Int) == 1 })
+        XCTAssertEqual(shared["title"] as? String, "Mac Title")
+        XCTAssertNil(shared["note"], "a note cleared on this device must not come back")
+        XCTAssertEqual(shared["futureWorkField"] as? String, "kept")
+        let chapter = try XCTUnwrap((shared["chapters"] as? [[String: Any]])?.first)
+        XCTAssertEqual(chapter["futureChapterField"] as? Int, 7)
+        XCTAssertEqual(works.first { ($0["ao3Id"] as? Int) == 2 }?["futureWorkField"] as? String, "pc only")
+        XCTAssertEqual((root["hidden"] as? [[String: Any]])?.first?["futureReason"] as? String, "spoilers")
+        let settings = try XCTUnwrap(root["settings"] as? [String: Any])
+        XCTAssertEqual(settings[themeJSONKey] as? String, "dracula")
+        XCTAssertEqual(settings["themeWindows"] as? String, "night")
+        XCTAssertEqual(settings["activeProfileWindows"] as? String, "Desk")
+        XCTAssertEqual(settings["fontSizePtWindows"] as? Int, 19)
+        let authors = try XCTUnwrap(root["followedAuthors"] as? [[String: Any]])
+        XCTAssertEqual(authors.first?["username"] as? String, "writer")
+        // And the file still decodes for both apps.
+        XCTAssertEqual(try decodeBackup(at: url).works.count, 2)
+    }
+
+    /// A backup file that's there but won't decode (truncated, or a newer
+    /// app's format) is left alone: writing this device's library over it
+    /// would drop every other device's records (#125).
+    func test_backupSkipsAnUnreadableBackupAndLeavesItUntouched() throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+        for garbage in ["", "not json", #"{"works":[{"ao3Id":1}]"#] {
+            let original = Data(garbage.utf8)
+            try original.write(to: url)
+            iCloudSyncManager.shared.backupToiCloud(context: device)
+            XCTAssertEqual(try Data(contentsOf: url), original, "an unreadable backup must not be overwritten")
+            XCTAssertNotNil(iCloudSyncManager.shared.lastBackupFailure)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+    }
+
+    /// Each write keeps the file it replaces as library_backup.prev.json, and
+    /// clearing iCloud data removes both.
+    func test_backupKeepsThePreviousFileAndClearRemovesIt() throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+        XCTAssertEqual(iCloudSyncManager.previousBackupURL(for: URL(fileURLWithPath: "/a/library_backup.json")).lastPathComponent,
+                       "library_backup.prev.json")
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+        XCTAssertNil(iCloudSyncManager.shared.lastBackupFailure)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+        let first = try Data(contentsOf: url)
+
+        _ = WorkPersistence.upsert(payload: payload(id: 2, chapters: 1), into: device)
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+        XCTAssertEqual(try Data(contentsOf: previousURL), first)
+        XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1, 2])
+
+        XCTAssertEqual(iCloudSyncManager.shared.clearFromiCloud(), .cleared)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+    }
+
+    /// A backup says what it did, so Sync Now and Settings can tell the user
+    /// instead of only printing to the log (#136).
+    func test_backupSaysWhatHappened() throws {
+        let url = makeTempBackupURL()
+        let placeholderURL = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: placeholderURL)
+            try? FileManager.default.removeItem(at: iCloudSyncManager.previousBackupURL(for: url))
+        }
+        let sync = iCloudSyncManager.shared
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: device)
+
+        // Signed out of iCloud: there's nowhere to write.
+        XCTAssertEqual(sync.backup(to: nil, context: device), .iCloudUnavailable)
+        XCTAssertEqual(sync.lastBackupFailure, BackupOutcome.iCloudUnavailable.failureMessage)
+        XCTAssertNotNil(sync.lastBackupFailure)
+
+        // Only a placeholder: nothing is written over it.
+        try Data().write(to: placeholderURL)
+        XCTAssertEqual(sync.backup(to: url, context: device), .waitingForDownload)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertNotNil(sync.lastBackupFailure)
+        try FileManager.default.removeItem(at: placeholderURL)
+
+        // Damaged: left as it is.
+        try Data("not json".utf8).write(to: url)
+        XCTAssertEqual(sync.backup(to: url, context: device), .unreadable)
+        XCTAssertNotNil(sync.lastBackupFailure)
+        try FileManager.default.removeItem(at: url)
+
+        // The write itself fails (here, its folder doesn't exist).
+        let missingFolder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing_\(UUID().uuidString)/library_backup.json")
+        guard case .failed(let reason) = sync.backup(to: missingFolder, context: device) else {
+            return XCTFail("a write that can't happen must report .failed")
+        }
+        XCTAssertFalse(reason.isEmpty)
+        XCTAssertEqual(sync.lastBackupFailure, reason)
+
+        // Written: the failure clears.
+        XCTAssertEqual(sync.backup(to: url, context: device), .written)
+        XCTAssertNil(sync.lastBackupFailure)
+        XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [1])
+    }
+
+    /// Settings shows "iCloud isn't available" only while it isn't: once a
+    /// backup location is back, a stale signed-out failure no longer shows.
+    func test_backupProblemClearsWhenICloudIsBack() throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+        let sync = iCloudSyncManager.shared
+        let device = try makeContext()
+        sync.backup(to: nil, context: device)
+        XCTAssertNotNil(sync.lastBackupFailure)
+        XCTAssertNil(sync.backupProblem)
+
+        try Data("not json".utf8).write(to: url)
+        sync.backupToiCloud(context: device)
+        XCTAssertEqual(sync.backupProblem, BackupOutcome.unreadable.failureMessage)
+    }
+
+    /// Clear iCloud Data says what really happened (#136).
+    func test_clearSaysWhatHappened() throws {
+        let url = makeTempBackupURL()
+        let placeholderURL = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).icloud")
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: placeholderURL)
+        }
+        let sync = iCloudSyncManager.shared
+        let device = try makeContext()
+
+        XCTAssertEqual(sync.clear(at: nil), .iCloudUnavailable)
+        XCTAssertEqual(sync.clear(at: url), .nothingToClear)
+
+        // Only a placeholder: nothing on this device to delete yet.
+        try Data().write(to: placeholderURL)
+        XCTAssertEqual(sync.clear(at: url), .waitingForDownload)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: placeholderURL.path))
+        try FileManager.default.removeItem(at: placeholderURL)
+
+        // A real file is deleted, and the failure it caused goes with it.
+        try Data("not json".utf8).write(to: url)
+        XCTAssertEqual(sync.backup(to: url, context: device), .unreadable)
+        XCTAssertEqual(sync.clear(at: url), .cleared)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertNil(sync.lastBackupFailure)
+    }
+
+    /// What Settings says after Sync Now and Clear iCloud Data.
+    func test_syncAndClearResultMessages() {
+        XCTAssertNotNil(SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: .written)))
+        XCTAssertNotEqual(SettingsView.syncResultMessage(SyncNowResult(restored: true, restoreFailed: false, backup: .written)),
+                          SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: .written)))
+        XCTAssertNotEqual(SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: true, backup: .written)),
+                          SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: .written)))
+        // A backup that didn't write leaves the message to the failure line.
+        for outcome in [BackupOutcome.waitingForDownload, .iCloudUnavailable, .unreadable, .failed("disk full")] {
+            XCTAssertNil(SettingsView.syncResultMessage(SyncNowResult(restored: false, restoreFailed: false, backup: outcome)))
+            // A restore that brought changes in is still mentioned.
+            XCTAssertNotNil(SettingsView.syncResultMessage(SyncNowResult(restored: true, restoreFailed: false, backup: outcome)))
+            XCTAssertNotNil(outcome.failureMessage)
+        }
+        XCTAssertNil(BackupOutcome.written.failureMessage)
+
+        let cleared = ClearResultAlert(.cleared, syncTurnedOff: true)
+        XCTAssertTrue(cleared.message.contains("Sync is now off"))
+        XCTAssertTrue(ClearResultAlert(.cleared, syncTurnedOff: false).message.contains("Sync is still on"))
+        XCTAssertEqual(ClearResultAlert(.failed("disk full"), syncTurnedOff: false).message, "disk full")
+        XCTAssertNotEqual(ClearResultAlert(.waitingForDownload, syncTurnedOff: false).title, cleared.title)
+    }
+
+    /// Backing up a library that hasn't changed since the last backup leaves
+    /// the file as it is: no new timestamp, no .prev copy, nothing for iCloud
+    /// to upload again. A change still writes, from the background write
+    /// the app uses too (#137).
+    func test_backupLeavesTheFileAloneWhenNothingChanged() async throws {
+        let url = makeTempBackupURL()
+        let previousURL = iCloudSyncManager.previousBackupURL(for: url)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: previousURL)
+        }
+        let sync = iCloudSyncManager.shared
+
+        let device = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 2), into: device)
+        ReadingProgressStore.save(ao3Id: 1, anchor: ReadingAnchor(chapter: 2, paragraph: 3),
+                                  title: "Work 1", author: "Author", progress: 0.5, in: device)
+        sync.backupToiCloud(context: device)
+        let first = try Data(contentsOf: url)
+        let longAgo = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.modificationDate: longAgo], ofItemAtPath: url.path)
+
+        sync.backupToiCloud(context: device)
+        await sync.backupInBackground(context: device)
+        XCTAssertEqual(try Data(contentsOf: url), first, "an unchanged library must not rewrite the backup")
+        XCTAssertEqual(iCloudSyncManager.modificationDate(of: url), longAgo)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
+        XCTAssertNil(sync.lastBackupFailure)
+
+        ReadingProgressStore.save(ao3Id: 1, anchor: ReadingAnchor(chapter: 2, paragraph: 9),
+                                  title: "Work 1", author: "Author", progress: 0.8, in: device)
+        await sync.backupInBackground(context: device)
+        XCTAssertNotEqual(iCloudSyncManager.modificationDate(of: url), longAgo)
+        XCTAssertEqual(try decodeBackup(at: url).progress.first?.paragraphIndex, 9)
+        XCTAssertEqual(try Data(contentsOf: previousURL), first)
+    }
+
+    /// Only `timestamp` differing doesn't count as a change; anything else does.
+    func test_sameBackupContentIgnoresOnlyTheTimestamp() {
+        let a = Data(#"{"works":[{"ao3Id":1,"title":"A"}],"timestamp":"2026-01-01T00:00:00Z"}"#.utf8)
+        let b = Data(#"{"timestamp":"2026-02-02T00:00:00Z","works":[{"title":"A","ao3Id":1}]}"#.utf8)
+        let c = Data(#"{"works":[{"ao3Id":1,"title":"B"}],"timestamp":"2026-01-01T00:00:00Z"}"#.utf8)
+        XCTAssertTrue(iCloudSyncManager.sameBackupContent(a, b))
+        XCTAssertFalse(iCloudSyncManager.sameBackupContent(a, c))
+        XCTAssertFalse(iCloudSyncManager.sameBackupContent(a, Data("not json".utf8)))
     }
 
     /// A backup that merges in another device's records puts them in the
@@ -746,6 +1167,75 @@ final class PersistenceTests: XCTestCase {
         // Once applied, the phone's own backups stamp the file again.
         sync.backupToiCloud(context: phone)
         XCTAssertFalse(sync.cloudBackupHasUnappliedChanges)
+    }
+
+    /// Sync Now brings in other devices' changes before it backs up, and
+    /// stamps the file it writes.
+    func test_syncNowBringsInAnotherDevicesChangesThenBacksUp() async throws {
+        let url = makeTempBackupURL()
+        let stampKey = iCloudSyncManager.lastRestoredStampKey
+        let defaults = UserDefaults.standard
+        let originalStamp = defaults.object(forKey: stampKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalStamp, forKey: stampKey)
+        }
+        let sync = iCloudSyncManager.shared
+
+        // Nothing in iCloud yet: Sync Now just backs up.
+        defaults.removeObject(forKey: stampKey)
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: phone)
+        let first = await sync.syncNow(context: phone)
+        XCTAssertEqual(first, SyncNowResult(restored: false, restoreFailed: false, backup: .written))
+        let phoneStamp = try XCTUnwrap(defaults.object(forKey: stampKey) as? Date)
+
+        // The iPad (its own stamp) backs up two works.
+        defaults.removeObject(forKey: stampKey)
+        let pad = try makeContext()
+        for id in 10...11 { _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: pad) }
+        sync.backupToiCloud(context: pad)
+        try FileManager.default.setAttributes([.modificationDate: phoneStamp.addingTimeInterval(5)],
+                                              ofItemAtPath: url.path)
+
+        // The phone's Sync Now pulls them in, then backs up and stamps.
+        defaults.set(phoneStamp, forKey: stampKey)
+        let second = await sync.syncNow(context: phone)
+        XCTAssertTrue(second.restored)
+        XCTAssertFalse(second.restoreFailed)
+        XCTAssertTrue(second.backup.succeeded, "the file already holds the phone's work, so it may be left alone (#137)")
+        XCTAssertEqual(try phone.fetch(FetchDescriptor<Work>()).map(\.ao3Id).sorted(), [1, 10, 11])
+        XCTAssertEqual(try decodeBackup(at: url).works.count, 3)
+        XCTAssertFalse(sync.cloudBackupHasUnappliedChanges)
+
+        // With nothing new, it doesn't restore again, and leaves the file as it is.
+        let third = await sync.syncNow(context: phone)
+        XCTAssertEqual(third, SyncNowResult(restored: false, restoreFailed: false, backup: .unchanged))
+    }
+
+    /// Sync Now reports a restore that couldn't run, as well as the backup
+    /// after it (#136).
+    func test_syncNowReportsARestoreThatFailed() async throws {
+        let url = makeTempBackupURL()
+        let stampKey = iCloudSyncManager.lastRestoredStampKey
+        let defaults = UserDefaults.standard
+        let originalStamp = defaults.object(forKey: stampKey)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalStamp, forKey: stampKey)
+        }
+        defaults.removeObject(forKey: stampKey)
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 1), into: phone)
+        try Data("not json".utf8).write(to: url)
+
+        let result = await iCloudSyncManager.shared.syncNow(context: phone)
+        XCTAssertEqual(result, SyncNowResult(restored: false, restoreFailed: true, backup: .unreadable))
+        XCTAssertEqual(try Data(contentsOf: url), Data("not json".utf8))
     }
 
     /// Blocked tags and authors from two devices union in the backup file
@@ -923,6 +1413,459 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(work.folders.map(\.name), ["Faves"])
     }
 
+    // MARK: - Deletions (#135)
+
+    /// Two simulated devices on one backup file. The sync manager is shared,
+    /// so each device's own deletion markers (the per-device state these
+    /// tests need) are swapped in and out of their defaults key around its
+    /// turn. The phone saves works 1 and 2, a hidden work, a folder, a saved
+    /// search and a saved filter an hour ago and backs up; the iPad restores
+    /// them.
+    @MainActor
+    private final class TwoDevices {
+        let phone: ModelContext
+        let pad: ModelContext
+        private var markers: [ObjectIdentifier: Any] = [:]
+        private var current: ObjectIdentifier?
+
+        init(phone: ModelContext, pad: ModelContext) {
+            self.phone = phone
+            self.pad = pad
+        }
+
+        /// Makes `context`'s device the one whose markers are in defaults.
+        func use(_ context: ModelContext) {
+            let defaults = UserDefaults.standard
+            let key = iCloudSyncManager.deletionsKey
+            if let current { markers[current] = defaults.object(forKey: key) }
+            defaults.set(markers[ObjectIdentifier(context)], forKey: key)
+            current = ObjectIdentifier(context)
+        }
+    }
+
+    private static let anHourAgo = Date.now.addingTimeInterval(-3600)
+
+    private func twoSyncedDevices() async throws -> TwoDevices {
+        let phone = try makeContext()
+        for id in [1, 2] {
+            WorkPersistence.upsert(payload: payload(id: id, chapters: 2), into: phone).savedAt = Self.anHourAgo
+        }
+        phone.insert(HiddenWork(ao3Id: 5, title: "Hidden", hiddenAt: Self.anHourAgo))
+        phone.insert(CustomFolder(name: "Faves", createdAt: Self.anHourAgo))
+        phone.insert(SavedSearch(name: "Angst", prompt: "angst", savedAt: Self.anHourAgo))
+        phone.insert(SavedFilter(name: "Long", filtersJSON: "{}", savedAt: Self.anHourAgo))
+        try phone.save()
+        let devices = TwoDevices(phone: phone, pad: try makeContext())
+        devices.use(phone)
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        devices.use(devices.pad)
+        let restored = await iCloudSyncManager.shared.restoreFromiCloud(context: devices.pad)
+        XCTAssertTrue(restored)
+        XCTAssertEqual(try devices.pad.fetchCount(FetchDescriptor<Work>()), 2)
+        return devices
+    }
+
+    /// Runs `body` with a temporary backup file and this test's own deletion
+    /// markers, putting back whatever was there before.
+    private func withDeletionTest(_ body: (URL) async throws -> Void) async throws {
+        let url = makeTempBackupURL()
+        let defaults = UserDefaults.standard
+        let key = iCloudSyncManager.deletionsKey
+        let originalMarkers = defaults.object(forKey: key)
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            defaults.set(originalMarkers, forKey: key)
+        }
+        defaults.removeObject(forKey: key)
+        try await body(url)
+    }
+
+    private func work(_ id: Int, in context: ModelContext) throws -> Work? {
+        try context.fetch(FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == id })).first
+    }
+
+    /// The bug: a delete on one device came back on that device as soon as
+    /// another device backed up its copy. Now the deletion marker keeps it
+    /// out of the file, the deleting device's next restore leaves it deleted,
+    /// and the other device's restore deletes its copy too.
+    func test_deletedWorkStaysDeletedAfterAnotherDevicesBackup() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            // The phone deletes work 1 and backs up.
+            devices.use(devices.phone)
+            iCloudSyncManager.recordDeletion(.work, key: "1")
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.phone)), in: devices.phone)
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+            XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [2])
+
+            // The iPad, which hasn't restored since, backs up its copy of
+            // work 1: the marker keeps it out of the file.
+            devices.use(devices.pad)
+            sync.backupToiCloud(context: devices.pad)
+            let file = try decodeBackup(at: url)
+            XCTAssertEqual(file.works.map(\.ao3Id), [2])
+            XCTAssertEqual(file.deleted?.map { [$0.kind, $0.key] }, [["work", "1"]])
+
+            // The phone's next launch sync doesn't bring it back…
+            devices.use(devices.phone)
+            let phoneRestored = await sync.restoreFromiCloud(context: devices.phone)
+            XCTAssertTrue(phoneRestored)
+            XCTAssertNil(try work(1, in: devices.phone))
+
+            // …and the iPad's deletes its copy.
+            devices.use(devices.pad)
+            let padRestored = await sync.restoreFromiCloud(context: devices.pad)
+            XCTAssertTrue(padRestored)
+            XCTAssertNil(try work(1, in: devices.pad))
+            XCTAssertNotNil(try work(2, in: devices.pad))
+        }
+    }
+
+    /// Un-hiding, and deleting a folder, a saved search or a saved filter,
+    /// sticks the same way.
+    func test_unhiddenWorkAndDeletedFolderSearchAndFilterStayDeleted() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            devices.use(devices.phone)
+            HiddenWorkStore.unhide(ao3Id: 5, in: devices.phone)
+            iCloudSyncManager.recordDeletion(.folder, key: "Faves")
+            iCloudSyncManager.recordDeletion(.search, key: "Angst")
+            iCloudSyncManager.recordDeletion(.filter, key: "Long")
+            for folder in try devices.phone.fetch(FetchDescriptor<CustomFolder>()) { devices.phone.delete(folder) }
+            for search in try devices.phone.fetch(FetchDescriptor<SavedSearch>()) { devices.phone.delete(search) }
+            for filter in try devices.phone.fetch(FetchDescriptor<SavedFilter>()) { devices.phone.delete(filter) }
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+
+            devices.use(devices.pad)
+            sync.backupToiCloud(context: devices.pad)
+            let file = try decodeBackup(at: url)
+            XCTAssertTrue(file.hidden.isEmpty)
+            XCTAssertEqual(file.folders?.isEmpty, true)
+            XCTAssertTrue(file.searches.isEmpty)
+            XCTAssertTrue(file.filters.isEmpty)
+
+            for device in [devices.phone, devices.pad] {
+                devices.use(device)
+                let restored = await sync.restoreFromiCloud(context: device)
+                XCTAssertTrue(restored)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<HiddenWork>()), 0)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<CustomFolder>()), 0)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<SavedSearch>()), 0)
+                XCTAssertEqual(try device.fetchCount(FetchDescriptor<SavedFilter>()), 0)
+            }
+        }
+    }
+
+    /// A record saved again after the delete is newer than the marker, so
+    /// it comes back everywhere, and a restore doesn't delete it.
+    func test_workSavedAgainAfterADeleteComesBack() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            devices.use(devices.phone)
+            iCloudSyncManager.recordDeletion(.work, key: "1", at: Self.anHourAgo.addingTimeInterval(600))
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.phone)), in: devices.phone)
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+
+            // The iPad saves work 1 again (a fresh download, stamped now).
+            devices.use(devices.pad)
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.pad)), in: devices.pad)
+            try devices.pad.save()
+            _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 3), into: devices.pad)
+            sync.backupToiCloud(context: devices.pad)
+            XCTAssertTrue(try decodeBackup(at: url).works.contains { $0.ao3Id == 1 })
+
+            devices.use(devices.phone)
+            let phoneRestored = await sync.restoreFromiCloud(context: devices.phone)
+            XCTAssertTrue(phoneRestored)
+            XCTAssertEqual(try work(1, in: devices.phone)?.chapters.count, 3)
+            devices.use(devices.pad)
+            let padRestored = await sync.restoreFromiCloud(context: devices.pad)
+            XCTAssertTrue(padRestored)
+            XCTAssertNotNil(try work(1, in: devices.pad))
+        }
+    }
+
+    /// An app version without deletion markers writes the deleted work back
+    /// into the file (keeping the markers as a key it doesn't know); the
+    /// deleting device still doesn't restore it.
+    func test_olderAppWritingADeletedWorkBackDoesNotRestoreIt() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            devices.use(devices.phone)
+            iCloudSyncManager.recordDeletion(.work, key: "1")
+            WorkPersistence.delete(try XCTUnwrap(work(1, in: devices.phone)), in: devices.phone)
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+
+            // The older app: the file with work 1 added back, markers kept.
+            var json = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            var works = try XCTUnwrap(json["works"] as? [[String: Any]])
+            var stale = try XCTUnwrap(works.first)
+            stale["ao3Id"] = 1
+            stale["savedAt"] = ISO8601DateFormatter().string(from: Self.anHourAgo)
+            works.append(stale)
+            json["works"] = works
+            try JSONSerialization.data(withJSONObject: json).write(to: url)
+            XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id).sorted(), [1, 2])
+
+            let restored = await sync.restoreFromiCloud(context: devices.phone)
+            XCTAssertTrue(restored)
+            XCTAssertNil(try work(1, in: devices.phone))
+
+            // And the phone's next backup takes it out of the file again.
+            sync.backupToiCloud(context: devices.phone)
+            XCTAssertEqual(try decodeBackup(at: url).works.map(\.ao3Id), [2])
+        }
+    }
+
+    /// Markers live 90 days; the newest one per record is kept.
+    func test_deletionMarkersArePrunedAfterNinetyDays() {
+        let now = Date.now
+        let day: TimeInterval = 24 * 60 * 60
+        let pruned = iCloudSyncManager.prunedDeletions([
+            DeletionBackup(kind: "work", key: "1", deletedAt: now.addingTimeInterval(-91 * day)),
+            DeletionBackup(kind: "work", key: "2", deletedAt: now.addingTimeInterval(-89 * day)),
+            DeletionBackup(kind: "work", key: "2", deletedAt: now.addingTimeInterval(-100 * day)),
+        ], now: now)
+        XCTAssertEqual(pruned, [DeletionBackup(kind: "work", key: "2", deletedAt: now.addingTimeInterval(-89 * day))])
+    }
+
+    /// A backup written before deletion markers has no `deleted` key and
+    /// must still decode; one with markers decodes them in the shared format.
+    func test_backupDeletionMarkersDecodeAndAreOptional() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let old = """
+        {"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],
+         "filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z"}
+        """
+        XCTAssertNil(try decoder.decode(LibraryBackup.self, from: Data(old.utf8)).deleted)
+        let new = """
+        {"works":[],"bookmarks":[],"subscriptions":[],"searches":[],"progress":[],
+         "filters":[],"hidden":[],"timestamp":"2026-01-01T00:00:00Z",
+         "deleted":[{"kind":"folder","key":"Faves","deletedAt":"2026-01-01T00:00:00Z"}]}
+        """
+        let deleted = try XCTUnwrap(try decoder.decode(LibraryBackup.self, from: Data(new.utf8)).deleted)
+        XCTAssertEqual(deleted.map(\.kind), ["folder"])
+        XCTAssertEqual(deleted.map(\.key), ["Faves"])
+    }
+
+    /// Two devices backing up in either order end with the same file: the
+    /// newest reading position, the fresher AO3 metadata, both folders, and the highest notification baselines and latest check, so
+    /// the device that backs up second can't move anything backwards.
+    func test_backupMergeEitherOrderKeepsNewestPositionAndHighestBaseline() throws {
+        let older = Date(timeIntervalSince1970: 1_700_000_000)
+        let newer = Date(timeIntervalSince1970: 1_700_090_000)
+
+        // Device A: fresher metadata, starred and followed, baseline 10.
+        func deviceA() throws -> ModelContext {
+            let ctx = try makeContext()
+            let folder = CustomFolder(name: "A shelf")
+            ctx.insert(folder)
+            let work = Work(ao3Id: 1, title: "New Title", authorName: "A")
+            work.updatedAt = newer
+            work.chapterCount = 10
+            work.kudos = 50
+            work.savedAt = older
+            work.lastReadAt = older
+            work.lastReadChapter = 2
+            work.lastReadProgress = 0.2
+            work.isFollowed = true
+            work.isStarred = true
+            work.lastSeenChapterCount = 10
+            ctx.insert(work)
+            work.folders.append(folder)
+            let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+            sub.lastSeenChapterCount = 10
+            sub.lastCheckedAt = newer
+            ctx.insert(sub)
+            try ctx.save()
+            return ctx
+        }
+        // Device B: read more recently, but older metadata, no flags, a lower
+        // work baseline and a nil subscription baseline.
+        func deviceB() throws -> ModelContext {
+            let ctx = try makeContext()
+            let folder = CustomFolder(name: "B shelf")
+            ctx.insert(folder)
+            let work = Work(ao3Id: 1, title: "Old Title", authorName: "A")
+            work.updatedAt = older
+            work.chapterCount = 8
+            work.kudos = 5
+            work.savedAt = newer
+            work.lastReadAt = newer
+            work.lastReadChapter = 7
+            work.lastReadProgress = 0.7
+            work.lastSeenChapterCount = 4
+            ctx.insert(work)
+            work.folders.append(folder)
+            let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+            sub.lastCheckedAt = older
+            ctx.insert(sub)
+            try ctx.save()
+            return ctx
+        }
+
+        for aFirst in [true, false] {
+            let url = makeTempBackupURL()
+            iCloudSyncManager.overrideBackupURL = url
+            defer {
+                iCloudSyncManager.overrideBackupURL = nil
+                try? FileManager.default.removeItem(at: url)
+            }
+            let a = try deviceA()
+            let b = try deviceB()
+            let (first, second) = aFirst ? (a, b) : (b, a)
+            iCloudSyncManager.shared.backupToiCloud(context: first)
+            iCloudSyncManager.shared.backupToiCloud(context: second)
+
+            let merged = try decodeBackup(at: url)
+            let work = try XCTUnwrap(merged.works.first)
+            XCTAssertEqual(work.title, "New Title", "aFirst: \(aFirst)")
+            XCTAssertEqual(work.chapterCount, 10)
+            XCTAssertEqual(work.kudos, 50)
+            XCTAssertEqual(work.updatedAt, newer)
+            XCTAssertEqual(work.savedAt, newer)
+            XCTAssertEqual(work.lastReadAt, newer)
+            XCTAssertEqual(work.lastReadChapter, 7)
+            XCTAssertEqual(work.lastReadProgress, 0.7)
+            // Flags are the one exception: the device backing up second keeps
+            // its own, so an un-follow can reach the file (restore ORs them).
+            XCTAssertEqual(work.isFollowed, !aFirst)
+            XCTAssertEqual(work.isStarred, !aFirst)
+            XCTAssertEqual(work.lastSeenChapterCount, 10)
+            XCTAssertEqual(Set(work.folderNames ?? []), ["A shelf", "B shelf"])
+            let sub = try XCTUnwrap(merged.subscriptions.first)
+            XCTAssertEqual(sub.lastSeenChapterCount, 10, "aFirst: \(aFirst)")
+            XCTAssertEqual(sub.lastCheckedAt, newer)
+        }
+    }
+
+    /// An un-follow, un-star or un-pin reaches the file through this device's
+    /// own backup, so restoring that file (a reinstall) doesn't bring them back.
+    func test_unfollowSurvivesTheBackupMergeAndARestore() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+        let device = try makeContext()
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        work.isFollowed = true
+        work.isStarred = true
+        work.isPinned = true
+        device.insert(work)
+        try device.save()
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+
+        work.isFollowed = false
+        work.isStarred = false
+        work.isPinned = false
+        try device.save()
+        iCloudSyncManager.shared.backupToiCloud(context: device)
+
+        let reinstalled = try makeContext()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: reinstalled)
+        XCTAssertTrue(success)
+        let restored = try XCTUnwrap(try reinstalled.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertFalse(restored.isFollowed)
+        XCTAssertFalse(restored.isStarred)
+        XCTAssertFalse(restored.isPinned)
+    }
+
+    /// Restoring an older backup never lowers a baseline, clears one with nil,
+    /// or puts back older AO3 metadata; a newer backup still advances them.
+    func test_restoreOlderBackupNeverLowersBaselinesOrMetadata() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+        let older = Date(timeIntervalSince1970: 1_700_000_000)
+        let newer = Date(timeIntervalSince1970: 1_700_090_000)
+
+        // The backup is behind on work 1 and subscriptions a and b, ahead on work 2.
+        let cloudDevice = try makeContext()
+        let stale = Work(ao3Id: 1, title: "Old Title", authorName: "A")
+        stale.updatedAt = older
+        stale.chapterCount = 3
+        stale.kudos = 5
+        stale.savedAt = older
+        stale.lastSeenChapterCount = 3
+        cloudDevice.insert(stale)
+        let fresh = Work(ao3Id: 2, title: "Newer Title", authorName: "A")
+        fresh.updatedAt = newer
+        fresh.chapterCount = 6
+        fresh.lastSeenChapterCount = 6
+        cloudDevice.insert(fresh)
+        let subA = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+        subA.lastSeenChapterCount = 2
+        subA.lastCheckedAt = older
+        cloudDevice.insert(subA)
+        cloudDevice.insert(SubscriptionRecord(key: "work:2", kind: "work", displayName: "Other"))
+        try cloudDevice.save()
+        iCloudSyncManager.shared.backupToiCloud(context: cloudDevice)
+
+        let device = try makeContext()
+        let local1 = Work(ao3Id: 1, title: "New Title", authorName: "A")
+        local1.updatedAt = newer
+        local1.chapterCount = 8
+        local1.kudos = 50
+        local1.savedAt = newer
+        local1.lastSeenChapterCount = 8
+        device.insert(local1)
+        let local2 = Work(ao3Id: 2, title: "Older Title", authorName: "A")
+        local2.updatedAt = older
+        local2.chapterCount = 4
+        local2.lastSeenChapterCount = 4
+        device.insert(local2)
+        let localA = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Fic")
+        localA.lastSeenChapterCount = 9
+        localA.lastCheckedAt = newer
+        device.insert(localA)
+        let localB = SubscriptionRecord(key: "work:2", kind: "work", displayName: "Other")
+        localB.lastSeenChapterCount = 5
+        device.insert(localB)
+        try device.save()
+
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let works = try device.fetch(FetchDescriptor<Work>())
+        let w1 = try XCTUnwrap(works.first(where: { $0.ao3Id == 1 }))
+        XCTAssertEqual(w1.title, "New Title")
+        XCTAssertEqual(w1.chapterCount, 8)
+        XCTAssertEqual(w1.kudos, 50)
+        XCTAssertEqual(w1.updatedAt, newer)
+        XCTAssertEqual(w1.savedAt, newer)
+        XCTAssertEqual(w1.lastSeenChapterCount, 8)
+        let w2 = try XCTUnwrap(works.first(where: { $0.ao3Id == 2 }))
+        XCTAssertEqual(w2.title, "Newer Title")
+        XCTAssertEqual(w2.chapterCount, 6)
+        XCTAssertEqual(w2.lastSeenChapterCount, 6)
+        let subs = try device.fetch(FetchDescriptor<SubscriptionRecord>())
+        let a = try XCTUnwrap(subs.first(where: { $0.key == "work:1" }))
+        XCTAssertEqual(a.lastSeenChapterCount, 9)
+        XCTAssertEqual(a.lastCheckedAt, newer)
+        let b = try XCTUnwrap(subs.first(where: { $0.key == "work:2" }))
+        XCTAssertEqual(b.lastSeenChapterCount, 5, "a nil baseline in the backup must not switch alerts off")
+    }
+
     /// Only works with restored chapter text (i.e. downloaded on the device
     /// that made the backup) and no local EPUB file are offered for
     /// re-download after a restore.
@@ -932,6 +1875,61 @@ final class PersistenceTests: XCTestCase {
         ctx.insert(Work(ao3Id: 987654322, title: "Metadata only", authorName: "A"))          // follow
         try ctx.save()
         XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx), [987654321])
+    }
+
+    /// A folder's "Download All" queues the stories without an EPUB, in the
+    /// folder's on-screen order, each once.
+    func test_folderDownloadCandidatesSkipDownloadedKeepOrder() {
+        let works = [3, 1, 2, 1].map { Work(ao3Id: $0, title: "W\($0)", authorName: "A") }
+        let ids = RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { $0 == 2 })
+        XCTAssertEqual(ids, [3, 1])
+        XCTAssertEqual(RestoreDownloadCenter.folderDownloadCandidates(works, isDownloaded: { _ in true }), [])
+    }
+
+    func test_downloadProgressBookkeeping() {
+        let start = RestoreDownloadCenter.Progress(done: 0, failed: 0, total: 3, finished: false)
+        let tally = start.recording(succeeded: true).recording(succeeded: false).recording(succeeded: true)
+        XCTAssertEqual(tally, .init(done: 2, failed: 1, total: 3, finished: false))
+        XCTAssertEqual(tally.finishing(), .init(done: 2, failed: 1, total: 3, finished: true))
+    }
+
+    @MainActor
+    private final class QueueRecorder {
+        var attempted: [Int] = []
+        var downloaded: [Int] = []
+        var reports: [RestoreDownloadCenter.Progress] = []
+    }
+
+    /// A failed story is counted and skipped; the rest still download.
+    func test_downloadQueueSkipsFailures() async {
+        let rec = QueueRecorder()
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+            rec.attempted.append(id)
+            if id == 2 { throw URLError(.badServerResponse) }
+            rec.downloaded.append(id)
+        }, report: { rec.reports.append($0) })
+        XCTAssertEqual(rec.attempted, [1, 2, 3])
+        XCTAssertEqual(rec.downloaded, [1, 3])
+        XCTAssertEqual(rec.reports.count, 3)
+        XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
+    }
+
+    /// Cancelling mid-run stops before the next story and undoes nothing:
+    /// the stories that finished stay downloaded.
+    func test_downloadQueueCancelKeepsFinished() async {
+        let rec = QueueRecorder()
+        let task = Task { @MainActor in
+            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+                rec.attempted.append(id)
+                rec.downloaded.append(id)
+                if id == 2 { withUnsafeCurrentTask { $0?.cancel() } }
+            }, report: { rec.reports.append($0) })
+        }
+        let result = await task.value
+        XCTAssertNil(result)
+        XCTAssertEqual(rec.attempted, [1, 2])
+        XCTAssertEqual(rec.downloaded, [1, 2])
+        XCTAssertEqual(rec.reports, [.init(done: 1, failed: 0, total: 3, finished: false)])
     }
 
     /// Restore's stat merge must keep totalSeconds == Σ daySeconds: per-day
@@ -1409,6 +2407,116 @@ final class PersistenceTests: XCTestCase {
 
         let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
+    }
+
+    // Signed in, a guest page means the session expired (#131): its public
+    // works still join the baseline, so restricted ones alert once a
+    // signed-in poll sees them. (No baseline yet, so no alert is posted.)
+    func test_followedAuthor_guestPageWhileSignedIn_keepsThePublicWorks() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "locked", displayName: "Locked")
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(works: [.stub(id: 1, title: ""), .stub(id: 2, title: "")],
+                                                      totalPages: 1, currentPage: 1, servedAsGuest: true)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(Set(author.knownWorkIds), [1, 2])
+    }
+
+    // AO3 lists an author's works by last update, so an old work that was
+    // never in the baseline (past page 1 at follow time) rises to the top when
+    // it gets a chapter. It isn't a new work: alerting for it opened that old
+    // story, or the author's page when a real new work came in with it.
+    func test_followedAuthor_updatedOlderWorkIsNotANewWork() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "prolific", displayName: "Prolific", knownWorkIds: [50, 60])
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(70, "Brand New"), authorWork(10, "Old, Just Updated", chapters: 4),
+                    authorWork(60), authorWork(50)],
+            totalPages: 1, currentPage: 1)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 1)
+        // The old work joins the baseline quietly.
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 50, 60, 70])
+
+        // Only an updated old work: no alert at all.
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(5, "Older Still", chapters: 2), authorWork(70), authorWork(10, chapters: 4)],
+            totalPages: 1, currentPage: 1)
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 0)
+        XCTAssertEqual(Set(author.knownWorkIds), [5, 10, 50, 60, 70])
+    }
+
+    func test_newlyPostedWorks_newerThanTheBaselineOrOneChapter() {
+        let works = [authorWork(70, "New", chapters: 3), authorWork(10, "Updated", chapters: 4),
+                     authorWork(65, "Revealed Gift"), authorWork(60)]
+        let fresh = SubscriptionPoller.newlyPostedWorks(in: works, known: [50, 60])
+        // 65 is older than the newest known work but has one chapter: a gift
+        // revealed from an anonymous collection, or a long-held draft.
+        XCTAssertEqual(fresh.map(\.id), [70, 65])
+        // No baseline yet: never alert for the back catalogue.
+        XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
+    }
+
+    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1) -> AO3WorkSummary {
+        AO3WorkSummary(
+            id: id, title: title, author: "", summary: "", rating: "",
+            warnings: [], categories: [], fandoms: [], characters: [],
+            relationships: [], freeforms: [], wordCount: 0, chapterCount: chapters,
+            totalChapters: nil, language: "", kudos: 0, hits: 0,
+            isComplete: false, updatedAt: nil
+        )
+    }
+
+    // A check that gets an error or Cloudflare page instead of the work must
+    // leave the new-chapter baselines alone; overwriting them with 1 would
+    // send "N new chapters" on the next real check.
+    func test_pollOfErrorPage_keepsChapterBaselines() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        followed.lastSeenChapterCount = 11
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body><h1>Retry later</h1></body></html>"
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let subAlerts = await poller.checkForNewChapters()
+        let workAlerts = await poller.checkFollowedWorks()
+
+        XCTAssertEqual(subAlerts + workAlerts, 0)
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 5)
+        XCTAssertNotNil(rec?.lastCheckedAt)
+        XCTAssertEqual(followed.lastSeenChapterCount, 11)
+    }
+
+    // A real work page still moves the baseline forward.
+    func test_pollOfWorkPage_updatesChapterBaseline() async throws {
+        let ctx = try makeContext()
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">7/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        _ = await poller.checkFollowedWorks()
+
+        XCTAssertEqual(followed.lastSeenChapterCount, 7)
     }
 }
 

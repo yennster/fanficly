@@ -12,6 +12,11 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertTrue(s.contains("view_adult=true"))
     }
 
+    func test_workPageURL_isAdultWithoutFullWork() throws {
+        let url = try AO3Endpoints.workPage(id: 12345, base: base)
+        XCTAssertEqual(url.absoluteString, "https://archiveofourown.org/works/12345?view_adult=true")
+    }
+
     func test_authorWorksURL_paginates() throws {
         let p1 = try AO3Endpoints.authorWorks(name: "HoweverSheWrites", page: 1, base: base)
         XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/HoweverSheWrites/works")
@@ -108,6 +113,13 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/reader/readings?show=to-read")
         let p2 = try AO3Endpoints.userMarkedForLater(name: "reader", page: 2, base: base)
         XCTAssertEqual(p2.absoluteString, "https://archiveofourown.org/users/reader/readings?show=to-read&page=2")
+    }
+
+    func test_userReadingHistoryURL_paginates() throws {
+        let p1 = try AO3Endpoints.userReadingHistory(name: "reader", page: 1, base: base)
+        XCTAssertEqual(p1.absoluteString, "https://archiveofourown.org/users/reader/readings")
+        let p4 = try AO3Endpoints.userReadingHistory(name: "reader", page: 4, base: base)
+        XCTAssertEqual(p4.absoluteString, "https://archiveofourown.org/users/reader/readings?page=4")
     }
 
     func test_userSubscriptionsURL_paginates() throws {

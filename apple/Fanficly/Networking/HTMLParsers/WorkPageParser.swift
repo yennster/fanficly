@@ -230,6 +230,16 @@ enum WorkPageParser {
     }
 }
 
+/// AO3's answer to a comment POST (`CommentsParser.postOutcome`).
+enum CommentPostOutcome: Equatable {
+    case posted
+    /// The session ended: AO3 sent the login page or its "Session Expired" page.
+    case signedOut
+    case rejected(message: String)
+
+    static let unconfirmed = "AO3 didn't confirm the comment was posted. Check the comments before posting it again."
+}
+
 /// Parses the comment thread (and the comment-form pseud id) from a work page
 /// fetched with `?show_comments=true`. Comments nest via `ol.thread` inside
 /// each `li.comment`; depth drives the reply indentation in the UI.
@@ -332,8 +342,9 @@ enum CommentsParser {
     /// action plus the form's hidden inputs (CSRF token, any `commentable`
     /// fields) and the default pseud is enough to post to the right chapter.
     /// Returns nil when no composer is present (e.g. logged out). `base`
-    /// resolves a relative action.
-    static func newCommentForm(html: String, base: URL) -> (action: URL, fields: [String: String])? {
+    /// resolves a relative action. `isGuest` marks AO3's guest form (name and
+    /// email fields instead of a pseud), which a signed-in page never shows.
+    static func newCommentForm(html: String, base: URL) -> (action: URL, fields: [String: String], isGuest: Bool)? {
         guard let doc = try? SwiftSoup.parse(html),
               let forms = try? doc.select("form[action*=/comments]") else { return nil }
         let composers = forms.array().filter { hasCommentTextarea($0) }
@@ -352,7 +363,41 @@ enum CommentsParser {
             }
         }
         if let pseud = defaultPseudId(html: html) { fields["comment[pseud_id]"] = pseud }
-        return (action, fields)
+        let guestFields = try? form.select("input[name='comment[name]'], input[name='comment[email]']")
+        return (action, fields, !(guestFields?.isEmpty() ?? true))
+    }
+
+    /// How AO3 answered a comment POST, judged by the page URLSession landed on
+    /// after following redirects (otwarchive's `CommentsController#create`).
+    /// A saved comment redirects to the work or chapter with a
+    /// `div.flash.comment_notice` ("Comment created!", or the moderation
+    /// notice), or to `/comments/<id>` when it awaits moderation. A refused one
+    /// re-renders the form at the POST URL with a 200 (`div#error`, "Couldn't
+    /// save comment!"), or a check before saving (blocked, frozen, a pseud
+    /// that isn't yours) redirects with `div.flash.error` or
+    /// `div.flash.comment_error`. A stale CSRF token redirects to `/auth_error`
+    /// ("Session Expired"). Anything else isn't counted as posted.
+    static func postOutcome(html: String, finalURL: URL?, formAction: URL) -> CommentPostOutcome {
+        let path = finalURL?.path ?? ""
+        guard let doc = try? SwiftSoup.parse(html) else {
+            return .rejected(message: CommentPostOutcome.unconfirmed)
+        }
+        if path.hasPrefix("/users/login") || path.hasPrefix("/auth_error") || AO3PageCheck.isLoginPage(doc) {
+            return .signedOut
+        }
+        let errors = ((try? doc.select("div.flash.error, div.flash.comment_error, div#error li").array()) ?? [])
+            .compactMap { try? $0.text().trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !errors.isEmpty {
+            var seen = Set<String>()
+            return .rejected(message: errors.filter { seen.insert($0).inserted }.joined(separator: " "))
+        }
+        if path == formAction.path { return .rejected(message: "AO3 didn't save the comment.") }
+        let notice = (try? doc.select("div.flash.comment_notice").isEmpty()) == false
+        if notice || path.range(of: #"^/comments/\d+"#, options: .regularExpression) != nil {
+            return .posted
+        }
+        return .rejected(message: CommentPostOutcome.unconfirmed)
     }
 
     private static func hasCommentTextarea(_ form: Element) -> Bool {
@@ -367,6 +412,109 @@ enum CommentsParser {
             node = n.parent()
         }
         return false
+    }
+}
+
+/// Reads the bookmark form AO3 renders on a work page for a signed-in user
+/// (`div#bookmark_form_placement`, from otwarchive's `bookmarks/_bookmark_form`).
+/// AO3 fills it from the user's existing bookmark, so the same form both
+/// creates and edits.
+enum BookmarkFormParser {
+    /// nil when the page has no bookmark form (signed out).
+    static func parse(html: String, base: URL) -> AO3BookmarkForm? {
+        guard let doc = try? SwiftSoup.parse(html),
+              let forms = try? doc.select("form") else { return nil }
+        let candidates = forms.array().filter {
+            ((try? $0.select("textarea[name='bookmark[bookmarker_notes]']").isEmpty()) ?? true) == false
+        }
+        let form = candidates.first(where: { isInsidePlacement($0) }) ?? candidates.first
+        guard let form else { return nil }
+
+        let actionStr = (try? form.attr("action")) ?? ""
+        guard !actionStr.isEmpty, let action = URL(string: actionStr, relativeTo: base)?.absoluteURL else { return nil }
+
+        var hidden: [String: String] = [:]
+        for input in (try? form.select("input[type=hidden]").array()) ?? [] {
+            let name = (try? input.attr("name")) ?? ""
+            guard !name.isEmpty else { continue }
+            hidden[name] = (try? input.attr("value")) ?? ""
+        }
+        // Several pseuds render a <select> instead of a hidden input.
+        if let select = try? form.select("select[name='bookmark[pseud_id]']").first() {
+            let option = (try? select.select("option[selected]").first()) ?? (try? select.select("option").first())
+            if let value = try? option?.attr("value"), !value.isEmpty {
+                hidden["bookmark[pseud_id]"] = value
+            }
+        }
+        // Rails pairs each checkbox with a hidden "0"; the edited value is sent instead.
+        hidden["bookmark[private]"] = nil
+        hidden["bookmark[rec]"] = nil
+
+        let method = (hidden["_method"] ?? "").lowercased()
+        return AO3BookmarkForm(
+            action: action,
+            hiddenFields: hidden,
+            isExisting: method == "put" || method == "patch",
+            notes: textareaValue(form, name: "bookmark[bookmarker_notes]"),
+            tags: inputValue(form, name: "bookmark[tag_string]"),
+            collections: optionalInputValue(form, name: "bookmark[collection_names]"),
+            isPrivate: isChecked(form, name: "bookmark[private]"),
+            isRec: isChecked(form, name: "bookmark[rec]")
+        )
+    }
+
+    /// The messages in AO3's `div#error` list after a rejected save.
+    static func saveErrors(html: String) -> [String] {
+        texts(html: html, selector: "div#error li")
+    }
+
+    /// An error flash: a refused pseud or account redirects elsewhere with one.
+    static func flashErrors(html: String) -> [String] {
+        texts(html: html, selector: "div.flash.error")
+    }
+
+    private static func texts(html: String, selector: String) -> [String] {
+        guard let doc = try? SwiftSoup.parse(html),
+              let items = try? doc.select(selector) else { return [] }
+        return items.array().compactMap { try? $0.text() }.filter { !$0.isEmpty }
+    }
+
+    /// True for `/bookmarks/<id>`, where AO3 redirects a saved bookmark.
+    static func isBookmarkPage(path: String) -> Bool {
+        let parts = path.split(separator: "/")
+        return parts.count == 2 && parts[0] == "bookmarks" && Int(parts[1]) != nil
+    }
+
+    private static func isInsidePlacement(_ el: Element) -> Bool {
+        var node = el.parent()
+        while let n = node {
+            if n.id() == "bookmark_form_placement" { return true }
+            node = n.parent()
+        }
+        return false
+    }
+
+    /// Raw textarea text, so notes keep their line breaks (`text()` collapses
+    /// whitespace). HTML drops one newline right after `<textarea>`.
+    private static func textareaValue(_ form: Element, name: String) -> String {
+        guard let area = try? form.select("textarea[name='\(name)']").first() else { return "" }
+        var text = area.textNodes().map { $0.getWholeText() }.joined()
+        if text.first?.isNewline == true { text.removeFirst() }  // "\r\n" is one Character
+        return text
+    }
+
+    private static func inputValue(_ form: Element, name: String) -> String {
+        optionalInputValue(form, name: name) ?? ""
+    }
+
+    private static func optionalInputValue(_ form: Element, name: String) -> String? {
+        guard let input = try? form.select("input[name='\(name)']:not([type=hidden])").first() else { return nil }
+        return (try? input.attr("value")) ?? ""
+    }
+
+    private static func isChecked(_ form: Element, name: String) -> Bool {
+        guard let box = try? form.select("input[type=checkbox][name='\(name)']").first() else { return false }
+        return box.hasAttr("checked")
     }
 }
 
@@ -394,7 +542,7 @@ enum KudosParser {
     /// Whether the page was served to a signed-in reader: AO3's `nav#greeting`
     /// links to `/users/<login>` only then, and a signed-out header carries the
     /// login form. Stricter than `LoginParser.currentUsername`, whose `#header`
-    /// fallback also matches the signed-out `/users/login?return_to=…` link.
+    /// fallback reads any `/users/` link in the header.
     static func isSignedIn(html: String) -> Bool {
         guard (try? LoginParser.hasLoginForm(html: html)) == false,
               let doc = try? SwiftSoup.parse(html),

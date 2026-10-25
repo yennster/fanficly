@@ -16,6 +16,10 @@ public class AO3EndpointsTests
     }
 
     [Fact]
+    public void WorkPageURL_IsAdultWithoutFullWork() =>
+        Assert.Equal("https://archiveofourown.org/works/12345?view_adult=true", AO3Endpoints.WorkPage(12345, _base).AbsoluteUri);
+
+    [Fact]
     public void AuthorWorksURL_Paginates()
     {
         var p1 = AO3Endpoints.AuthorWorks("HoweverSheWrites", 1, _base);

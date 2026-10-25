@@ -433,6 +433,74 @@ final class CommentsParserTests: XCTestCase {
         XCTAssertNil(CommentsParser.newCommentForm(html: "<html><body><p>no form</p></body></html>",
                                                    base: URL(string: "https://archiveofourown.org")!))
     }
+
+    func test_newCommentForm_marksTheGuestForm() throws {
+        let base = URL(string: "https://archiveofourown.org")!
+        let guest = """
+        <form action="/works/12/comments" method="post">
+          <input type="hidden" name="authenticity_token" value="T">
+          <input type="text" name="comment[name]"><input type="text" name="comment[email]">
+          <textarea name="comment[comment_content]"></textarea>
+        </form>
+        """
+        XCTAssertTrue(try XCTUnwrap(CommentsParser.newCommentForm(html: guest, base: base)).isGuest)
+        let signedIn = """
+        <form action="/works/12/comments" method="post">
+          <input type="hidden" name="comment[pseud_id]" value="20">
+          <textarea name="comment[comment_content]"></textarea>
+        </form>
+        """
+        XCTAssertFalse(try XCTUnwrap(CommentsParser.newCommentForm(html: signedIn, base: base)).isGuest)
+    }
+
+    // MARK: postOutcome (otwarchive's CommentsController#create answers)
+
+    private let action = URL(string: "https://archiveofourown.org/works/12/chapters/34/comments")!
+
+    private func outcome(_ html: String, at path: String) -> CommentPostOutcome {
+        CommentsParser.postOutcome(html: html, finalURL: URL(string: "https://archiveofourown.org" + path),
+                                   formAction: action)
+    }
+
+    func test_postOutcome_postedOnTheCommentNotice() {
+        let html = #"<div id="main"><div class="flash comment_notice">Comment created!</div></div>"#
+        XCTAssertEqual(outcome(html, at: "/works/12/chapters/34"), .posted)
+    }
+
+    func test_postOutcome_postedOnTheModeratedCommentsPage() {
+        XCTAssertEqual(outcome("<div id=\"main\"></div>", at: "/comments/987"), .posted)
+    }
+
+    func test_postOutcome_rejectedWhenTheFormIsReRendered() {
+        let html = """
+        <div id="main"><div class="flash error">Couldn't save comment!</div>
+        <div id="error" class="error"><ul><li>Comment content can't be blank.</li></ul></div></div>
+        """
+        XCTAssertEqual(outcome(html, at: "/works/12/chapters/34/comments"),
+                       .rejected(message: "Couldn't save comment! Comment content can't be blank."))
+        // The same URL with no error markup is still a re-render, not a post.
+        XCTAssertEqual(outcome("<div id=\"main\"></div>", at: "/works/12/chapters/34/comments"),
+                       .rejected(message: "AO3 didn't save the comment."))
+    }
+
+    func test_postOutcome_rejectedOnARedirectWithAnError() {
+        let html = #"<div id="main"><div class="flash comment_error">Sorry, you have been blocked by one or more of this work's creators.</div></div>"#
+        XCTAssertEqual(outcome(html, at: "/works/12/chapters/34"),
+                       .rejected(message: "Sorry, you have been blocked by one or more of this work's creators."))
+    }
+
+    func test_postOutcome_signedOutOnTheLoginPage() {
+        let html = #"<div id="main" class="sessions-new"><form id="new_user" action="/users/login"></form></div>"#
+        XCTAssertEqual(outcome(html, at: "/users/login"), .signedOut)
+        XCTAssertEqual(outcome(html, at: "/works/12"), .signedOut)
+        // A stale CSRF token: AO3's `display_auth_error` page.
+        XCTAssertEqual(outcome("<div id=\"main\"><h2>Session Expired</h2></div>", at: "/auth_error"), .signedOut)
+    }
+
+    func test_postOutcome_unconfirmedOtherwise() {
+        XCTAssertEqual(outcome("<div id=\"main\"><p>Work text</p></div>", at: "/works/12/chapters/34"),
+                       .rejected(message: CommentPostOutcome.unconfirmed))
+    }
 }
 
 final class LoginParserTests: XCTestCase {
@@ -501,11 +569,170 @@ final class LoginParserTests: XCTestCase {
         XCTAssertNil(try LoginParser.currentUsername(html: html))
     }
 
+    func test_currentUsernameSkipsTheGuestHeadersLoginLink() throws {
+        // Every signed-out page's header links to /users/login?return_to=… (#144).
+        XCTAssertNil(try LoginParser.currentUsername(html: "<html><body>\(AO3PageFixtures.guestHeader)</body></html>"))
+        // …and its small sign-in box to "Forgot password?".
+        let forgot = #"<div id="header"><a href="/users/login?return_to=%2F">Log In</a><a href="/users/password/new">Forgot password?</a></div>"#
+        XCTAssertNil(try LoginParser.currentUsername(html: "<html><body>\(forgot)</body></html>"))
+    }
+
     func test_hasLoginForm() throws {
         let withForm = "<html><body><form id=\"new_user\"><input name=\"user[login]\"></form></body></html>"
         XCTAssertTrue(try LoginParser.hasLoginForm(html: withForm))
         let dashboard = "<html><body><div id=\"greeting\">Hi!</div></body></html>"
         XCTAssertFalse(try LoginParser.hasLoginForm(html: dashboard))
+    }
+}
+
+/// Fixtures follow otwarchive's `bookmarks/_bookmark_form.html.erb` as Rails
+/// renders it inside the work page's `#bookmark_form_placement`.
+final class BookmarkFormParserTests: XCTestCase {
+    private let base = URL(string: "https://archiveofourown.org")!
+
+    private let newForm = """
+    <html><body>
+    <form action="/works/12345/chapters/678/comments" method="post">
+      <input type="hidden" name="authenticity_token" value="COMMENTTOK">
+      <textarea name="comment[comment_content]"></textarea>
+    </form>
+    <div id="bookmark_form_placement" class="wrapper toggled">
+    <div class="post bookmark" id="bookmark-form">
+      <form action="/works/12345/bookmarks" accept-charset="UTF-8" method="post">
+        <input type="hidden" name="authenticity_token" value="TOK123" autocomplete="off">
+        <fieldset>
+          <h4 class="heading"><span class="byline">reader,
+            <input value="20" autocomplete="off" type="hidden" name="bookmark[pseud_id]" id="bookmark_pseud_id">
+          </span> save a bookmark!</h4>
+          <textarea rows="4" id="bookmark_notes" class="observe_textlength" name="bookmark[bookmarker_notes]">
+    </textarea>
+          <input size="60" type="text" name="bookmark[tag_string]" id="bookmark_tag_string">
+          <input type="text" name="bookmark[collection_names]" id="bookmark_collection_names">
+          <input name="bookmark[private]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[private]" id="bookmark_private">
+          <input name="bookmark[rec]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[rec]" id="bookmark_rec">
+          <input type="submit" name="commit" value="Create">
+        </fieldset>
+      </form>
+    </div>
+    </div>
+    </body></html>
+    """
+
+    private let existingForm = """
+    <html><body>
+    <div id="bookmark_form_placement" class="wrapper toggled">
+    <div class="post bookmark" id="bookmark-form">
+      <form action="/bookmarks/999" accept-charset="UTF-8" method="post">
+        <input type="hidden" name="_method" value="put" autocomplete="off">
+        <input type="hidden" name="authenticity_token" value="TOK456" autocomplete="off">
+        <select name="bookmark[pseud_id]" title="choose pseud">
+          <option value="20">reader</option>
+          <option selected="selected" value="21">other_pseud</option>
+        </select>
+        <textarea rows="4" id="bookmark_notes" name="bookmark[bookmarker_notes]">
+    Loved it.
+
+    &lt;b&gt;Reread&lt;/b&gt; soon</textarea>
+        <input size="60" type="text" value="comfort read, favourites" name="bookmark[tag_string]" id="bookmark_tag_string">
+        <input type="text" value="my_collection" name="bookmark[collection_names]" id="bookmark_collection_names">
+        <input name="bookmark[private]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" checked="checked" name="bookmark[private]" id="bookmark_private">
+        <input name="bookmark[rec]" type="hidden" value="0" autocomplete="off"><input type="checkbox" value="1" name="bookmark[rec]" id="bookmark_rec">
+        <input type="submit" name="commit" value="Update">
+      </form>
+    </div>
+    </div>
+    </body></html>
+    """
+
+    func test_newBookmark_readsActionTokenAndPseud() throws {
+        let form = try XCTUnwrap(BookmarkFormParser.parse(html: newForm, base: base))
+        XCTAssertEqual(form.action.absoluteString, "https://archiveofourown.org/works/12345/bookmarks")
+        XCTAssertFalse(form.isExisting)
+        XCTAssertEqual(form.hiddenFields["authenticity_token"], "TOK123")
+        XCTAssertEqual(form.hiddenFields["bookmark[pseud_id]"], "20")
+        XCTAssertNil(form.hiddenFields["_method"])
+        XCTAssertEqual(form.notes, "")
+        XCTAssertEqual(form.tags, "")
+        XCTAssertFalse(form.isPrivate)
+        XCTAssertFalse(form.isRec)
+    }
+
+    func test_existingBookmark_isPrefilledAndUpdates() throws {
+        let form = try XCTUnwrap(BookmarkFormParser.parse(html: existingForm, base: base))
+        XCTAssertEqual(form.action.absoluteString, "https://archiveofourown.org/bookmarks/999")
+        XCTAssertTrue(form.isExisting)
+        XCTAssertEqual(form.hiddenFields["_method"], "put")
+        XCTAssertEqual(form.hiddenFields["authenticity_token"], "TOK456")
+        XCTAssertEqual(form.hiddenFields["bookmark[pseud_id]"], "21", "the selected pseud, not the first")
+        XCTAssertEqual(form.notes, "Loved it.\n\n<b>Reread</b> soon", "line breaks and HTML source survive")
+        XCTAssertEqual(form.tags, "comfort read, favourites")
+        XCTAssertEqual(form.collections, "my_collection")
+        XCTAssertTrue(form.isPrivate)
+        XCTAssertFalse(form.isRec)
+    }
+
+    func test_postFields_sendEditedValuesOnce() throws {
+        var form = try XCTUnwrap(BookmarkFormParser.parse(html: existingForm, base: base))
+        form.notes = "New notes"
+        form.tags = "angst"
+        form.isPrivate = false
+        form.isRec = true
+        let fields = form.postFields
+        XCTAssertEqual(fields["_method"], "put")
+        XCTAssertEqual(fields["authenticity_token"], "TOK456")
+        XCTAssertEqual(fields["bookmark[pseud_id]"], "21")
+        XCTAssertEqual(fields["bookmark[bookmarker_notes]"], "New notes")
+        XCTAssertEqual(fields["bookmark[tag_string]"], "angst")
+        XCTAssertEqual(fields["bookmark[collection_names]"], "my_collection", "collections are kept")
+        XCTAssertEqual(fields["bookmark[private]"], "0")
+        XCTAssertEqual(fields["bookmark[rec]"], "1")
+        XCTAssertEqual(fields["commit"], "Update")
+    }
+
+    func test_newBookmark_commitsCreate() throws {
+        let form = try XCTUnwrap(BookmarkFormParser.parse(html: newForm, base: base))
+        XCTAssertEqual(form.postFields["commit"], "Create")
+        XCTAssertEqual(form.postFields["bookmark[private]"], "0")
+    }
+
+    func test_nilWhenSignedOut() {
+        let html = """
+        <html><body><ul class="work navigation actions"><li class="comments"><a href="#comments">Comments</a></li></ul></body></html>
+        """
+        XCTAssertNil(BookmarkFormParser.parse(html: html, base: base))
+    }
+
+    func test_missingCollectionsField_isNotSent() throws {
+        let html = newForm.replacingOccurrences(
+            of: #"<input type="text" name="bookmark[collection_names]" id="bookmark_collection_names">"#, with: "")
+        let form = try XCTUnwrap(BookmarkFormParser.parse(html: html, base: base))
+        XCTAssertNil(form.collections)
+        XCTAssertNil(form.postFields["bookmark[collection_names]"])
+    }
+
+    func test_isBookmarkPage_onlyForASavedBookmark() {
+        XCTAssertTrue(BookmarkFormParser.isBookmarkPage(path: "/bookmarks/999"))
+        XCTAssertFalse(BookmarkFormParser.isBookmarkPage(path: "/works/12345/bookmarks"))
+        XCTAssertFalse(BookmarkFormParser.isBookmarkPage(path: "/"))
+        XCTAssertFalse(BookmarkFormParser.isBookmarkPage(path: "/bookmarks/999/edit"))
+    }
+
+    func test_saveErrors_readsErrorFlash() {
+        let html = #"<html><body><div class="flash error">You can't bookmark with that pseud.</div></body></html>"#
+        XCTAssertEqual(BookmarkFormParser.flashErrors(html: html), ["You can't bookmark with that pseud."])
+        XCTAssertEqual(BookmarkFormParser.saveErrors(html: html), [], "a flash isn't a form error")
+    }
+
+    func test_saveErrors_readsAO3ErrorList() {
+        let html = """
+        <html><body>
+        <div id="error" class="error"><h4>Sorry! We couldn't save this bookmark because:</h4>
+        <ul><li>Notes must be less than 5000 characters long.</li><li>Tag is too long</li></ul></div>
+        </body></html>
+        """
+        XCTAssertEqual(BookmarkFormParser.saveErrors(html: html),
+                       ["Notes must be less than 5000 characters long.", "Tag is too long"])
+        XCTAssertEqual(BookmarkFormParser.saveErrors(html: "<html><body><div class=\"flash notice\">Bookmark was successfully updated.</div></body></html>"), [])
     }
 }
 

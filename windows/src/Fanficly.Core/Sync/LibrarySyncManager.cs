@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Fanficly.Core;
 
@@ -19,8 +20,10 @@ namespace Fanficly.Core;
 /// assignments union, the new-chapter baseline only advances, chapters are
 /// replaced only by a fuller copy, stats merge conservatively.</item>
 /// <item>A backup file that exists but can't be read yet (a cloud placeholder
-/// still downloading, a file locked by the sync client) is skipped — the next
-/// queued backup retries — rather than overwritten.</item>
+/// still downloading, a file locked by the sync client) or can't be decoded (a
+/// truncated file, a newer app's format) is skipped — the next queued backup
+/// retries — rather than overwritten. Each write first keeps the file it
+/// replaces as <c>library_backup.prev.json</c>.</item>
 /// </list></summary>
 public sealed class LibrarySyncManager
 {
@@ -42,9 +45,45 @@ public sealed class LibrarySyncManager
     /// either way) — what every library mutation calls.</summary>
     public static void QueueBackupShared(LibraryStore store)
     {
-        if (Shared is { } manager) manager.QueueBackup(store);
+        if (Shared is { } manager) manager.QueueBackup(store, readingActivity: InReadingActivity);
         else LibraryHooks.UpdateWidgetData?.Invoke(store);
     }
+
+    [ThreadStatic] private static int t_readingActivity;
+
+    /// <summary>Whether this thread is inside a <see cref="ReadingActivity"/> mark.</summary>
+    internal static bool InReadingActivity => t_readingActivity > 0;
+
+    /// <summary>Marks the library saves this thread makes until it's disposed
+    /// as reading activity (a reading position, reading time), which queues
+    /// the slow <see cref="ActivityBackupDebounce"/> backup instead of the
+    /// 2-second one (#137). <see cref="LibraryStore.Changed"/> is raised on the
+    /// saving thread, so the hook that queues backups sees the mark.</summary>
+    public static ReadingActivityScope ReadingActivity()
+    {
+        t_readingActivity++;
+        return default;
+    }
+
+    /// <summary>Ends a <see cref="ReadingActivity"/> mark.</summary>
+    public readonly struct ReadingActivityScope : IDisposable
+    {
+        public void Dispose() => t_readingActivity--;
+    }
+
+    /// <summary>The settings <see cref="Shared"/> keeps its deletion markers
+    /// in (the app-wide store until the app sets it).</summary>
+    public static IKeyValueStore SharedSettings => Shared?._settings ?? KeyValueStores.Default;
+
+    /// <summary>Remembers on this device that a record was deleted, so the next
+    /// backup carries the deletion to the other devices (#135).</summary>
+    public static void RecordDeletionShared(DeletionKind kind, string key) => SyncDeletions.Record(SharedSettings, kind, key);
+
+    public static void RecordDeletionShared(DeletionKind kind, int ao3Id) => SyncDeletions.Record(SharedSettings, kind, ao3Id);
+
+    /// <summary>This device's settings, where its deletion markers and removed
+    /// downloads live.</summary>
+    public IKeyValueStore Settings => _settings;
 
     public LibrarySyncManager(IKeyValueStore? settings = null)
     {
@@ -60,6 +99,12 @@ public sealed class LibrarySyncManager
     /// <summary>How long <see cref="QueueBackup"/> waits for more changes before backing up.</summary>
     public TimeSpan BackupDebounce { get; set; } = TimeSpan.FromSeconds(2);
 
+    /// <summary>How long a backup queued by reading activity alone (position
+    /// saves come every 1.5 s while reading) waits. More reading doesn't push
+    /// it back, a library change brings it forward, and closing the app backs
+    /// up anyway.</summary>
+    public TimeSpan ActivityBackupDebounce { get; set; } = TimeSpan.FromMinutes(5);
+
     /// <summary>Merges reader-profile JSON (<c>ReaderProfile.mergedProfiles(localJSON:incomingJSON:)</c>):
     /// (local, incoming) → merged. Installed by the app; ported elsewhere.</summary>
     public Func<string?, string, string>? MergeReaderProfiles { get; set; }
@@ -70,6 +115,12 @@ public sealed class LibrarySyncManager
 
     public string? BackupPath =>
         BackupPathOverride ?? (string.IsNullOrEmpty(SyncFolder) ? null : Path.Combine(SyncFolder, BackupFileName));
+
+    /// <summary>Where the copy of the backup a write replaces is kept, beside
+    /// it: <c>library_backup.prev.json</c>.</summary>
+    internal static string PreviousBackupPath(string path) =>
+        Path.Combine(Path.GetDirectoryName(path) ?? "",
+            $"{Path.GetFileNameWithoutExtension(path)}.prev{Path.GetExtension(path)}");
 
     /// <summary>A Mac-synced iCloud folder can hold an undownloaded
     /// <c>.library_backup.json.icloud</c> placeholder instead of the file.</summary>
@@ -94,61 +145,252 @@ public sealed class LibrarySyncManager
     public bool IsSyncEnabled => _settings.GetBool(SyncEnabledKey);
 
     /// <summary>Triggers a debounced backup (when sync is on). Always refreshes
-    /// the widget data first.</summary>
-    public void QueueBackup(LibraryStore store)
+    /// the widget data first. <paramref name="readingActivity"/> (a reading
+    /// position or reading time, nothing else) waits
+    /// <see cref="ActivityBackupDebounce"/>, and leaves a backup already queued
+    /// to carry it; anything else replaces the queued backup with one
+    /// <see cref="BackupDebounce"/> from now.</summary>
+    public void QueueBackup(LibraryStore store, bool readingActivity = false)
     {
         LibraryHooks.UpdateWidgetData?.Invoke(store);
         if (!IsSyncEnabled) return;
+        ScheduleBackup(store, readingActivity);
+    }
 
+    /// <summary>How many times in a row a queued backup is tried again after
+    /// its snapshot was interrupted, before it waits for the next change.</summary>
+    private const int MaxSnapshotRetries = 3;
+
+    private void ScheduleBackup(LibraryStore store, bool readingActivity, int retry = 0)
+    {
         CancellationTokenSource cts;
+        TimeSpan delay;
         lock (_queueGate)
         {
-            _pendingBackup?.Cancel();
+            if (readingActivity)
+            {
+                if (_pendingBackup is { IsCancellationRequested: false }) return;
+                delay = ActivityBackupDebounce;
+            }
+            else
+            {
+                _pendingBackup?.Cancel();
+                delay = BackupDebounce;
+            }
             cts = _pendingBackup = new CancellationTokenSource();
         }
         _ = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(BackupDebounce, cts.Token).ConfigureAwait(false);
+                await Task.Delay(delay, cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 return;
             }
-            if (cts.IsCancellationRequested) return;
-            Backup(store);
+            lock (_queueGate)
+            {
+                if (cts.IsCancellationRequested) return;
+                if (ReferenceEquals(_pendingBackup, cts)) _pendingBackup = null;
+            }
+            // Sync may have been turned off while this waited.
+            if (!IsSyncEnabled) return;
+            try
+            {
+                if (CantWrite() is { } early)
+                {
+                    Finish(early);
+                    return;
+                }
+                LocalSnapshot snapshot;
+                try
+                {
+                    snapshot = await OnRecordsContextAsync(() => TakeSnapshot(store)).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException e)
+                {
+                    // A record changed under the snapshot ("Collection was
+                    // modified": something changed it off the UI thread).
+                    // Nothing was written, so try again rather than drop this
+                    // change (#139).
+                    LibraryHooks.Log?.Invoke($"Backup interrupted: {e.Message}");
+                    if (retry < MaxSnapshotRetries) ScheduleBackup(store, readingActivity: false, retry + 1);
+                    return;
+                }
+                Write(store, snapshot);
+            }
+            catch (Exception e)
+            {
+                // Logged rather than lost with the fire-and-forget task.
+                LibraryHooks.Log?.Invoke($"Backup failed: {e}");
+            }
         });
+    }
+
+    /// <summary>Where library records are read and changed: the UI thread's
+    /// context, which the app sets. The backup's snapshot and the restore's
+    /// changes run there, so neither touches a record (or its folder list)
+    /// while the UI is changing or enumerating it; only the merge and the file
+    /// IO run on the thread pool (#139). Set it on that thread. Null (tests,
+    /// tools): run on the calling thread.</summary>
+    public SynchronizationContext? RecordsContext
+    {
+        get => _recordsContext;
+        set
+        {
+            _recordsContext = value;
+            _recordsThread = value is null ? 0 : Environment.CurrentManagedThreadId;
+        }
+    }
+
+    private SynchronizationContext? _recordsContext;
+    private int _recordsThread;
+
+    /// <summary>Runs <paramref name="body"/> on <see cref="RecordsContext"/>
+    /// (inline when that's this thread, or none is set).</summary>
+    private Task<T> OnRecordsContextAsync<T>(Func<T> body)
+    {
+        // Already there: run inline (posting and waiting would deadlock).
+        if (_recordsContext is not { } context || SynchronizationContext.Current == context
+            || Environment.CurrentManagedThreadId == _recordsThread)
+        {
+            try { return Task.FromResult(body()); }
+            catch (Exception e) { return Task.FromException<T>(e); }
+        }
+        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        context.Post(_ =>
+        {
+            try { done.SetResult(body()); }
+            catch (Exception e) { done.SetException(e); }
+        }, null);
+        return done.Task;
+    }
+
+    /// <summary>Drops a queued backup that hasn't started (sync turned off,
+    /// synced data cleared).</summary>
+    public void CancelPendingBackup()
+    {
+        lock (_queueGate)
+        {
+            _pendingBackup?.Cancel();
+            _pendingBackup = null;
+        }
     }
 
     /// <summary>Backs the library up to the sync folder, merging with the
     /// backup already there so a device that holds only part of the library (a
     /// fresh install, a metadata-only laptop) can never last-writer-wins away
     /// another device's records. Says whether the file was written, so Back
-    /// Up Now can report what really happened.</summary>
+    /// Up Now can report what really happened, and keeps it as
+    /// <see cref="LastBackupOutcome"/> so Sync settings can say when the
+    /// automatic backups keep failing.</summary>
+    /// <remarks>The snapshot runs on <see cref="RecordsContext"/>; called from
+    /// another thread, this waits for it. Prefer <see cref="BackupAsync"/>
+    /// there.</remarks>
     public BackupOutcome Backup(LibraryStore store)
     {
-        if (BackupPath is not { } path) return BackupOutcome.NoFolder;
+        if (CantWrite() is { } early) return Finish(early);
+        var snapshot = OnRecordsContextAsync(() => TakeSnapshot(store)).GetAwaiter().GetResult();
+        return Write(store, snapshot);
+    }
 
-        // A backup that exists only as a not-yet-downloaded placeholder can't
-        // be merged with, and overwriting would drop every record the other
-        // device backed up. Let a later QueueBackup (they fire on every
-        // mutation) retry once it's local.
+    /// <summary><see cref="Backup"/> with only the snapshot on
+    /// <see cref="RecordsContext"/>: the merge with the file there, the
+    /// encoding and the write run on the thread pool, so a large library
+    /// doesn't stall the UI (the Swift app's <c>backupInBackground</c>).</summary>
+    public async Task<BackupOutcome> BackupAsync(LibraryStore store)
+    {
+        if (CantWrite() is { } early) return Finish(early);
+        var snapshot = await OnRecordsContextAsync(() => TakeSnapshot(store)).ConfigureAwait(false);
+        return await Task.Run(() => Write(store, snapshot)).ConfigureAwait(false);
+    }
+
+    /// <summary>Why there's nothing to write to yet (no folder, or only a
+    /// cloud placeholder), checked before taking a snapshot for nothing. A
+    /// backup that exists only as a not-yet-downloaded placeholder can't be
+    /// merged with, and overwriting would drop every record the other device
+    /// backed up. Let a later QueueBackup (they fire on every mutation) retry
+    /// once it's local.</summary>
+    private BackupOutcome? CantWrite()
+    {
+        if (BackupPath is not { } path) return BackupOutcome.NoFolder;
         if (!File.Exists(path) && File.Exists(PlaceholderPath(path))) return BackupOutcome.NotDownloaded;
+        return null;
+    }
+
+    internal BackupOutcome Write(LibraryStore store, LocalSnapshot snapshot)
+    {
+        // One at a time (a queued backup on the thread pool, Sync Now, Clear),
+        // so the outcome kept is the last one's and a clear can't be undone
+        // by a backup already writing. Snapshots are taken outside this lock
+        // (taking one may wait for the UI thread, which may be waiting here),
+        // so one taken before a snapshot that's already written, or before a
+        // clear, holds nothing newer and is dropped rather than written over
+        // it.
+        lock (_fileGate)
+        {
+            if (snapshot.Sequence <= _writtenSequence)
+                lock (_queueGate) return _lastBackup?.Outcome ?? BackupOutcome.Unchanged;
+            var outcome = WriteBackup(store, snapshot);
+            if (outcome is BackupOutcome.Written or BackupOutcome.Unchanged) _writtenSequence = snapshot.Sequence;
+            return Finish(outcome);
+        }
+    }
+
+    private BackupOutcome Finish(BackupOutcome outcome)
+    {
+        var problem = BackupOutcomeText.Problem(outcome, LastBackupError);
+        lock (_queueGate) _lastBackup = (outcome, problem);
+        return outcome;
+    }
+
+    /// <summary>Serializes the writes and deletes of the backup file.</summary>
+    private readonly Lock _fileGate = new();
+    private (BackupOutcome Outcome, string? Problem)? _lastBackup;
+    /// <summary>The last snapshot number handed out, and the newest one the
+    /// file holds (or that a clear made stale).</summary>
+    private long _snapshotSequence, _writtenSequence;
+
+    /// <summary>How the last backup (automatic or Sync Now) went; null before
+    /// the first one and after Clear.</summary>
+    public BackupOutcome? LastBackupOutcome
+    {
+        get { lock (_queueGate) return _lastBackup?.Outcome; }
+    }
+
+    /// <summary>Why backups aren't writing the file right now, for the quiet
+    /// status line in Sync settings (the Swift app's <c>backupProblem</c>);
+    /// null when the last one wrote it.</summary>
+    public string? BackupProblem
+    {
+        get { lock (_queueGate) return _lastBackup?.Problem; }
+    }
+
+    private BackupOutcome WriteBackup(LibraryStore store, LocalSnapshot snapshot)
+    {
+        // Checked again: the file may have changed while the snapshot waited.
+        if (CantWrite() is { } early) return early;
+        var path = BackupPath!;
 
         try
         {
-            // 1–2. Snapshot the store into the backup shape.
-            var backup = MakeLocalBackup(store);
+            // 1–2. The snapshot in the backup shape, with the chapter text it
+            // left in the database.
+            var backup = snapshot.WithBodies(store);
 
             // 3. Union with the backup already there. A file that's present but
             // unreadable (still hydrating, locked by the sync client) is the
-            // placeholder case: skip and retry later. An undecodable file falls
-            // back to writing the local snapshot, as the Swift app does. Note
+            // placeholder case: skip and retry later. So is a file that won't
+            // decode (truncated, or a newer app's format): writing this
+            // library alone over it would drop every other device's records,
+            // and restore couldn't bring them back. Only a missing file
+            // starts from the local snapshot alone. Note
             // whether that file held changes this device hasn't applied yet:
             // they go into the file, not into this library, so the file we
             // write isn't "applied here" until a restore pulls them in.
             var mergedUnappliedChanges = false;
+            byte[]? mergedWith = null;
             if (File.Exists(path))
             {
                 byte[] existing;
@@ -161,20 +403,49 @@ public sealed class LibrarySyncManager
                     LibraryHooks.Log?.Invoke($"Backup skipped, the sync folder's backup is busy: {e.Message}");
                     return BackupOutcome.FileBusy;
                 }
+                LibraryBackup cloud;
                 try
                 {
-                    var cloud = LibraryBackupJson.Decode(existing);
-                    mergedUnappliedChanges = CloudBackupHasUnappliedChanges;
-                    backup = MergedBackup(backup, cloud);
+                    cloud = LibraryBackupJson.Decode(existing);
                 }
-                catch (JsonException) { }
+                catch (JsonException e)
+                {
+                    LibraryHooks.Log?.Invoke($"Backup skipped, the sync folder's backup can't be read: {e.Message}");
+                    LastBackupError = e.Message;
+                    return BackupOutcome.Unreadable;
+                }
+                mergedUnappliedChanges = CloudBackupHasUnappliedChanges;
+                backup = MergedBackup(backup, cloud);
+                mergedWith = existing;
             }
 
-            // 4. Serialize and write atomically.
+            // 4. Serialize, keeping the keys this app doesn't know from the file
+            // it merged with (the Apple app's newer fields), and write atomically.
             var data = LibraryBackupJson.Encode(backup);
+            if (mergedWith is not null)
+            {
+                data = BackupUnknownKeys.Preserve(data, mergedWith);
+                // When that's what the file already holds, leave it alone:
+                // rewriting it would only change the timestamp, and the sync
+                // app would upload the whole library again for nothing (#137).
+                // Nothing unapplied means the stamp is already this file's
+                // date, so it isn't stamped again: that could mark a file
+                // another device swapped in since the read as applied.
+                if (SameBackupContent(data, mergedWith)) return BackupOutcome.Unchanged;
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllBytes(tmp, data);
+            // Keep the file this write replaces (it decoded above), so one bad
+            // write can be undone by hand.
+            if (File.Exists(path))
+            {
+                try { File.Copy(path, PreviousBackupPath(path), overwrite: true); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    LibraryHooks.Log?.Invoke($"Couldn't keep the previous backup: {e.Message}");
+                }
+            }
             File.Move(tmp, path, overwrite: true);
             // When everything in the file came from this library (or was
             // already applied here), stamp it so the launch auto-sync doesn't
@@ -192,50 +463,91 @@ public sealed class LibrarySyncManager
         }
     }
 
+    /// <summary>Whether two encoded backups hold the same records and settings,
+    /// ignoring <c>timestamp</c>, which every backup stamps afresh. Compares the
+    /// parsed JSON, so key order and formatting don't count; a file the Apple
+    /// app wrote (its date format) just counts as different once.</summary>
+    internal static bool SameBackupContent(byte[] a, byte[] b)
+    {
+        try
+        {
+            if (JsonNode.Parse(a) is not JsonObject first || JsonNode.Parse(b) is not JsonObject second) return false;
+            first.Remove("timestamp");
+            second.Remove("timestamp");
+            return JsonNode.DeepEquals(first, second);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Why the last backup that failed to write failed.</summary>
     public string? LastBackupError { get; private set; }
 
-    /// <summary>The library as a backup, mapping every record type.</summary>
-    internal LibraryBackup MakeLocalBackup(LibraryStore store)
-    {
-        var works = store.All<Work>().Select(work => new WorkBackup(
-            Ao3Id: work.Ao3Id,
-            Title: work.Title,
-            AuthorName: work.AuthorName,
-            AuthorUsername: work.AuthorUsername,
-            Summary: work.Summary,
-            Rating: work.Rating,
-            Warnings: work.Warnings,
-            Categories: work.Categories,
-            Fandoms: work.Fandoms,
-            Characters: work.Characters,
-            Relationships: work.Relationships,
-            Freeforms: work.Freeforms,
-            Language: work.Language,
-            WordCount: work.WordCount,
-            ChapterCount: work.ChapterCount,
-            TotalChapters: work.TotalChapters,
-            Kudos: work.Kudos,
-            Hits: work.Hits,
-            BookmarksCount: work.BookmarksCount,
-            CommentsCount: work.CommentsCount,
-            IsComplete: work.IsComplete,
-            PublishedAt: work.PublishedAt,
-            UpdatedAt: work.UpdatedAt,
-            SavedAt: work.SavedAt,
-            LastReadAt: work.LastReadAt,
-            LastReadChapter: work.LastReadChapter,
-            LastReadProgress: work.LastReadProgress,
-            IsFollowed: work.IsFollowed,
-            FollowedAt: work.FollowedAt,
-            LastSeenChapterCount: work.LastSeenChapterCount,
-            IsStarred: work.IsStarred,
-            IsPinned: work.IsPinned,
-            Chapters: store.ChaptersOf(work).Select(ch => new ChapterBackup(ch.Index, ch.Title, ch.BodyHtml, ch.AoId)).ToList(),
-            FolderName: work.Folders.FirstOrDefault()?.Name,
-            FolderNames: work.Folders.Select(f => f.Name).ToList())).ToList();
+    /// <summary>A work as its backup record. Restore passes no chapters to merge
+    /// a local work with the backup's copy by the backup's rules
+    /// (<see cref="MergedWork"/>) without copying its chapter text.</summary>
+    internal static WorkBackup ToBackup(Work work, IReadOnlyList<ChapterBackup> chapters) => new(
+        Ao3Id: work.Ao3Id,
+        Title: work.Title,
+        AuthorName: work.AuthorName,
+        AuthorUsername: work.AuthorUsername,
+        Summary: work.Summary,
+        Rating: work.Rating,
+        Warnings: work.Warnings,
+        Categories: work.Categories,
+        Fandoms: work.Fandoms,
+        Characters: work.Characters,
+        Relationships: work.Relationships,
+        Freeforms: work.Freeforms,
+        Language: work.Language,
+        WordCount: work.WordCount,
+        ChapterCount: work.ChapterCount,
+        TotalChapters: work.TotalChapters,
+        Kudos: work.Kudos,
+        Hits: work.Hits,
+        BookmarksCount: work.BookmarksCount,
+        CommentsCount: work.CommentsCount,
+        IsComplete: work.IsComplete,
+        PublishedAt: work.PublishedAt,
+        UpdatedAt: work.UpdatedAt,
+        SavedAt: work.SavedAt,
+        LastReadAt: work.LastReadAt,
+        LastReadChapter: work.LastReadChapter,
+        LastReadProgress: work.LastReadProgress,
+        IsFollowed: work.IsFollowed,
+        FollowedAt: work.FollowedAt,
+        LastSeenChapterCount: work.LastSeenChapterCount,
+        IsStarred: work.IsStarred,
+        IsPinned: work.IsPinned,
+        Chapters: chapters,
+        FolderName: work.Folders.FirstOrDefault()?.Name,
+        FolderNames: work.Folders.Select(f => f.Name).ToList());
 
-        return new LibraryBackup(
+    /// <summary>The library as a backup, mapping every record type.</summary>
+    internal LibraryBackup MakeLocalBackup(LibraryStore store) => TakeSnapshot(store).WithBodies(store);
+
+    /// <summary>The library as a backup, read on <see cref="RecordsContext"/>
+    /// (#139). Chapter text that isn't loaded is left for
+    /// <see cref="LocalSnapshot.WithBodies"/> to read from the database off
+    /// that thread, without keeping it, so a backup neither stalls the UI on
+    /// the whole library's text nor leaves it in memory (#137).</summary>
+    internal LocalSnapshot TakeSnapshot(LibraryStore store)
+    {
+        var unloaded = new List<(List<ChapterBackup> Chapters, int Position, long RowId)>();
+        var works = store.All<Work>().Select(work =>
+        {
+            var chapters = new List<ChapterBackup>();
+            foreach (var ch in store.ChaptersOf(work))
+            {
+                if (ch.LoadedBodyForBackup is null) unloaded.Add((chapters, chapters.Count, ch.RowId));
+                chapters.Add(new ChapterBackup(ch.Index, ch.Title, ch.LoadedBodyForBackup ?? "", ch.AoId));
+            }
+            return ToBackup(work, chapters);
+        }).ToList();
+
+        var backup = new LibraryBackup(
             Works: works,
             Bookmarks: store.All<BookmarkRecord>().Select(b => new BookmarkBackup(b.Ao3Id, b.WorkAo3Id, b.Notes, b.Tags, b.SavedAt)).ToList(),
             Subscriptions: store.All<SubscriptionRecord>().Select(s => new SubscriptionBackup(
@@ -253,7 +565,31 @@ public sealed class LibrarySyncManager
             Timestamp: DateTimeOffset.Now,
             FollowedAuthors: store.All<FollowedAuthor>().Where(a => a.Username.Length > 0).Select(a => new AuthorBackup(
                 a.Username, a.DisplayName, a.FollowedAt, a.KnownWorkIds, a.LastCheckedAt)).ToList(),
-            Blocked: store.All<BlockedTerm>().Select(t => new BlockedBackup(t.Kind, t.Value, t.CreatedAt)).ToList());
+            Blocked: store.All<BlockedTerm>().Select(t => new BlockedBackup(t.Kind, t.Value, t.CreatedAt)).ToList(),
+            Deleted: SyncDeletions.Pruned(SyncDeletions.Local(_settings), DateTimeOffset.Now) is { Count: > 0 } deleted ? deleted : null);
+        return new LocalSnapshot(backup, Interlocked.Increment(ref _snapshotSequence), unloaded);
+    }
+
+    /// <summary>A backup snapshot of this library, numbered in the order
+    /// snapshots were taken, with the chapter bodies still to read.</summary>
+    internal sealed record LocalSnapshot(
+        LibraryBackup Backup, long Sequence, List<(List<ChapterBackup> Chapters, int Position, long RowId)> Unloaded)
+    {
+        /// <summary>The backup with the bodies that weren't loaded read in
+        /// (the store's lock makes that safe from any thread). A chapter
+        /// deleted since the snapshot is left out rather than backed up
+        /// empty; the next backup has the change that deleted it.</summary>
+        public LibraryBackup WithBodies(LibraryStore store)
+        {
+            // Back to front, so removing one doesn't move the ones still to read.
+            foreach (var (chapters, position, rowId) in Enumerable.Reverse(Unloaded))
+            {
+                if (store.LoadChapterBodyIfPresent(rowId) is { } body) chapters[position] = chapters[position] with { BodyHtml = body };
+                else chapters.RemoveAt(position);
+            }
+            Unloaded.Clear();
+            return Backup;
+        }
     }
 
     // MARK: - Launch auto-sync bookkeeping
@@ -284,25 +620,40 @@ public sealed class LibrarySyncManager
 
     /// <summary>Unions a freshly-built local backup with the one already in the
     /// sync folder. Records only the other device holds are kept; on conflicts
-    /// the local record wins (this device just produced it), except that
-    /// chapters survive from whichever side has more, reading positions keep
-    /// the newer one, and reading stats merge conservatively.</summary>
-    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud)
+    /// the local record wins (this device just produced it), except where a
+    /// field only moves forward: works and subscriptions merge by the restore's
+    /// rules (<see cref="MergedWork"/>, <see cref="MergedSubscription"/>),
+    /// reading positions keep the newer one, reading stats merge
+    /// conservatively, and settings merge key by key
+    /// (<see cref="SettingsBackup.Merged"/>, for this device). Deletion
+    /// markers from both sides are kept, and a work, hidden work, folder,
+    /// saved search or filter that a newer marker covers is left out, so a
+    /// delete doesn't come back from another device's copy (#135).</summary>
+    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud) =>
+        MergedBackup(local, cloud, ReaderProfile.CurrentDevice);
+
+    /// <inheritdoc cref="MergedBackup(LibraryBackup, LibraryBackup)"/>
+    public static LibraryBackup MergedBackup(LibraryBackup local, LibraryBackup cloud, ReaderDevice device)
     {
         var worksById = FirstByKey(cloud.Works, w => w.Ao3Id);
         foreach (var w in local.Works)
         {
-            var merged = w;
-            if (worksById.TryGetValue(w.Ao3Id, out var cloudWork) && cloudWork.Chapters.Count > w.Chapters.Count)
-                merged = w with { Chapters = cloudWork.Chapters };
-            worksById[w.Ao3Id] = merged;
+            if (!worksById.TryGetValue(w.Ao3Id, out var cloudWork)) { worksById[w.Ao3Id] = w; continue; }
+            // Follow, star and pin keep this PC's values here (restore ORs them):
+            // the file is the only record of an un-follow, and without an edit
+            // stamp an OR would bring every un-followed work back on a restore.
+            worksById[w.Ao3Id] = MergedWork(w, cloudWork) with
+            {
+                IsFollowed = w.IsFollowed, FollowedAt = w.FollowedAt, IsStarred = w.IsStarred, IsPinned = w.IsPinned,
+            };
         }
 
         var bookmarksById = FirstByKey(cloud.Bookmarks, b => b.Ao3Id);
         foreach (var b in local.Bookmarks) bookmarksById[b.Ao3Id] = b;
 
         var subscriptionsByKey = FirstByKey(cloud.Subscriptions, s => s.Key);
-        foreach (var s in local.Subscriptions) subscriptionsByKey[s.Key] = s;
+        foreach (var s in local.Subscriptions)
+            subscriptionsByKey[s.Key] = subscriptionsByKey.TryGetValue(s.Key, out var cloudSub) ? MergedSubscription(s, cloudSub) : s;
 
         var searchesByName = FirstByKey(cloud.Searches, s => s.Name);
         foreach (var s in local.Searches) searchesByName[s.Name] = s;
@@ -344,16 +695,24 @@ public sealed class LibrarySyncManager
                 }
                 : a;
 
+        // Deletion markers from both sides remove the records they're newer
+        // than, whichever side still held them (#135).
+        var deleted = SyncDeletions.Pruned((cloud.Deleted ?? []).Concat(local.Deleted ?? []), local.Timestamp);
+        var tombstones = new DeletionIndex(deleted);
+
         return new LibraryBackup(
-            Works: worksById.Values.OrderBy(w => w.Ao3Id).ToList(),
+            Works: worksById.Values.Where(w => !tombstones.Removes(DeletionKind.Work, w.Ao3Id, w.SavedAt)).OrderBy(w => w.Ao3Id).ToList(),
             Bookmarks: bookmarksById.Values.OrderBy(b => b.Ao3Id).ToList(),
             Subscriptions: subscriptionsByKey.Values.OrderBy(s => s.Key, StringComparer.Ordinal).ToList(),
-            Searches: searchesByName.Values.OrderBy(s => s.Name, StringComparer.Ordinal).ToList(),
+            Searches: searchesByName.Values.Where(s => !tombstones.Removes(DeletionKind.Search, s.Name, s.SavedAt))
+                .OrderBy(s => s.Name, StringComparer.Ordinal).ToList(),
             Progress: progressById.Values.OrderBy(p => p.Ao3Id).ToList(),
-            Filters: filtersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
-            Hidden: hiddenById.Values.OrderBy(h => h.Ao3Id).ToList(),
-            Settings: local.Settings ?? cloud.Settings,
-            Folders: foldersByName.Values.OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
+            Filters: filtersByName.Values.Where(f => !tombstones.Removes(DeletionKind.Filter, f.Name, f.SavedAt))
+                .OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
+            Hidden: hiddenById.Values.Where(h => !tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)).OrderBy(h => h.Ao3Id).ToList(),
+            Settings: SettingsBackup.Merged(local.Settings, cloud.Settings, device),
+            Folders: foldersByName.Values.Where(f => !tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt))
+                .OrderBy(f => f.Name, StringComparer.Ordinal).ToList(),
             Stats: statsById.Values.OrderBy(s => s.Ao3Id).ToList(),
             Timestamp: local.Timestamp,
             FollowedAuthors: local.FollowedAuthors is null && cloud.FollowedAuthors is null
@@ -361,14 +720,80 @@ public sealed class LibrarySyncManager
                 : authorsByName.Values.OrderBy(a => a.Username, StringComparer.Ordinal).ToList(),
             Blocked: local.Blocked is null && cloud.Blocked is null
                 ? null
-                : blockedByKey.Values.OrderBy(b => b.Key, StringComparer.Ordinal).ToList());
+                : blockedByKey.Values.OrderBy(b => b.Key, StringComparer.Ordinal).ToList(),
+            Deleted: deleted.Count == 0 ? null : deleted);
     }
 
-    /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
-    /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
+    /// <summary>Two copies of one work merged so nothing moves backwards,
+    /// whichever device merges first: the backup merge passes this device's
+    /// record as <paramref name="local"/> and the file's as
+    /// <paramref name="other"/>, and restore passes this device's work and the
+    /// backup's copy the same way. The Swift app's
+    /// <c>iCloudSyncManager.mergedWork</c> applies the same rules:
+    /// AO3 metadata (Title through UpdatedAt) comes whole from the fresher copy
+    /// (<see cref="HasFresherMetadata"/>) and SavedAt keeps the later date; the
+    /// reading position comes from the copy read last; follow, star and pin are
+    /// an OR (FollowedAt keeps local's when set; the backup merge then puts
+    /// local's flags back, see <see cref="MergedBackup"/>); LastSeenChapterCount keeps the
+    /// higher count, so an older copy never re-announces chapters; chapters come
+    /// from the copy with more, and folders union.</summary>
+    public static WorkBackup MergedWork(WorkBackup local, WorkBackup other)
+    {
+        var meta = HasFresherMetadata(other, local) ? other : local;
+        var position = (other.LastReadAt ?? DateTimeOffset.MinValue) > (local.LastReadAt ?? DateTimeOffset.MinValue) ? other : local;
+        var localFolders = local.FolderNames ?? (local.FolderName is { } lf ? [lf] : []);
+        var otherFolders = other.FolderNames ?? (other.FolderName is { } of ? [of] : []);
+        var folders = localFolders.Concat(otherFolders.Where(f => !localFolders.Contains(f))).ToList();
+        return meta with
+        {
+            Ao3Id = local.Ao3Id,
+            SavedAt = local.SavedAt > other.SavedAt ? local.SavedAt : other.SavedAt,
+            LastReadAt = position.LastReadAt,
+            LastReadChapter = position.LastReadChapter,
+            LastReadProgress = position.LastReadProgress,
+            IsFollowed = local.IsFollowed || other.IsFollowed,
+            FollowedAt = local.FollowedAt ?? other.FollowedAt,
+            LastSeenChapterCount = Higher(local.LastSeenChapterCount, other.LastSeenChapterCount),
+            IsStarred = (local.IsStarred ?? false) || (other.IsStarred ?? false),
+            IsPinned = (local.IsPinned ?? false) || (other.IsPinned ?? false),
+            Chapters = other.Chapters.Count > local.Chapters.Count ? other.Chapters : local.Chapters,
+            FolderName = folders.FirstOrDefault(),
+            FolderNames = folders,
+        };
+    }
+
+    /// <summary>Whether <paramref name="other"/> carries newer AO3 metadata than
+    /// <paramref name="local"/>: a later UpdatedAt (AO3's "Updated" date), then,
+    /// on the same date, more chapters, then more hits (they only grow, so the
+    /// copy fetched last has the most). A full tie keeps local.</summary>
+    public static bool HasFresherMetadata(WorkBackup other, WorkBackup local)
+    {
+        var otherDate = other.UpdatedAt ?? DateTimeOffset.MinValue;
+        var localDate = local.UpdatedAt ?? DateTimeOffset.MinValue;
+        if (otherDate != localDate) return otherDate > localDate;
+        if (other.ChapterCount != local.ChapterCount) return other.ChapterCount > local.ChapterCount;
+        return other.Hits > local.Hits;
+    }
+
+    /// <summary>A subscription's two copies merged: the notification baseline
+    /// keeps the higher count and LastCheckedAt the later date, so an older copy
+    /// can't re-announce chapters or turn alerts off with a null baseline. Its
+    /// kind and names come from <paramref name="local"/>.</summary>
+    public static SubscriptionBackup MergedSubscription(SubscriptionBackup local, SubscriptionBackup other) =>
+        local with
+        {
+            LastSeenChapterCount = Higher(local.LastSeenChapterCount, other.LastSeenChapterCount),
+            LastCheckedAt = Later(local.LastCheckedAt, other.LastCheckedAt),
+        };
+
+    private static int? Higher(int? a, int? b) =>
+        a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
+
     private static DateTimeOffset? Later(DateTimeOffset? a, DateTimeOffset? b) =>
         a is null ? b : b is null ? a : a > b ? a : b;
 
+    /// <summary>Dictionary keyed by <paramref name="key"/>, keeping the first of
+    /// any duplicates (Swift's <c>uniquingKeysWith: { a, _ in a }</c>).</summary>
     private static Dictionary<TKey, T> FirstByKey<TKey, T>(IEnumerable<T> items, Func<T, TKey> key) where TKey : notnull
     {
         var d = new Dictionary<TKey, T>();
@@ -401,6 +826,33 @@ public sealed class LibrarySyncManager
             DaySeconds: daySeconds,
             MaxProgress: Math.Max(local.MaxProgress ?? 0, cloud.MaxProgress ?? 0),
             WorkIsComplete: local.WorkIsComplete == true || cloud.WorkIsComplete == true);
+    }
+
+    /// <summary>Settings → Sync → Sync Now (the Swift app's
+    /// <c>iCloudSyncManager.syncNow</c>): first brings in what other devices
+    /// backed up since this PC last applied the file (the same forward-only
+    /// restore the launch runs), then backs up. Restoring first means the
+    /// backup's merge finds nothing unapplied, so it stamps the file it
+    /// writes.</summary>
+    public async Task<SyncNowResult> SyncNowAsync(LibraryStore store, CancellationToken ct = default)
+    {
+        var restored = false;
+        var restoreFailed = false;
+        if (IsBackupAvailable && CloudBackupHasUnappliedChanges)
+        {
+            try
+            {
+                restored = await RestoreAsync(store, ct);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                LibraryHooks.Log?.Invoke($"Sync Now's restore failed: {e.Message}");
+            }
+            // Still back up this PC's changes; the stamp didn't move, so the
+            // next launch or Sync Now tries the restore again.
+            restoreFailed = !restored;
+        }
+        return new SyncNowResult(restored, await BackupAsync(store), restoreFailed);
     }
 
     // MARK: - Restore
@@ -437,9 +889,17 @@ public sealed class LibrarySyncManager
         var readDate = LastBackupDate;
         try
         {
-            var backup = LibraryBackupJson.Decode(await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false));
-            Apply(backup, store);
-            store.Save();
+            var data = await File.ReadAllBytesAsync(path, ct).ConfigureAwait(false);
+            var backup = LibraryBackupJson.Decode(data);
+            // The records change where the UI uses them, not on this pool
+            // thread: at launch the Library screen is building from them (#139).
+            await OnRecordsContextAsync(() =>
+            {
+                ct.ThrowIfCancellationRequested();
+                Apply(backup, store);
+                store.Save();
+                return true;
+            }).ConfigureAwait(false);
             MarkCloudBackupApplied(readDate);
             return true;
         }
@@ -453,12 +913,24 @@ public sealed class LibrarySyncManager
 
     private void Apply(LibraryBackup backup, LibraryStore store)
     {
-        // 0. Settings and themes.
+        // Deletion markers: the file's (every device's) and this device's own,
+        // which the file may not hold yet. A record they cover isn't restored,
+        // and this device's copy of it is deleted at the end (#135).
+        var tombstones = new DeletionIndex(SyncDeletions.Pruned(
+            (backup.Deleted ?? []).Concat(SyncDeletions.Local(_settings)), DateTimeOffset.Now));
+        // Works whose download was removed on this device keep their chapters
+        // out: another device's copy mustn't bring the download back.
+        var removedDownloads = SyncDeletions.RemovedDownloads(_settings);
+
+        // 0. Settings and themes. Restore only fills in what this device hasn't
+        // set (a fresh install) and never copies another device's per-device
+        // keys, so each device keeps its own (#133).
         if (backup.Settings is { } s)
         {
             foreach (var field in SettingsBackup.Fields)
             {
                 if (field.JsonKey == SettingsBackup.ProfilesJsonKey) continue;
+                if (!SettingsBackup.AppliesTo(field, ReaderProfile.CurrentDevice) || _settings.Contains(field.DefaultsKey)) continue;
                 switch (field.Kind)
                 {
                     case SettingKind.String when s.GetString(field.JsonKey) is { } str:
@@ -484,65 +956,65 @@ public sealed class LibrarySyncManager
 
         // 0.5. Folders.
         foreach (var f in backup.Folders ?? [])
-            if (store.GetFolder(f.Name) is null) store.Insert(new CustomFolder(f.Name, f.CreatedAt));
+            if (!tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt) && store.GetFolder(f.Name) is null) store.Insert(new CustomFolder(f.Name, f.CreatedAt));
 
         // 1. Works and their chapters.
         foreach (var w in backup.Works)
         {
+            if (tombstones.Removes(DeletionKind.Work, w.Ao3Id, w.SavedAt)) continue;
+            // Merge with the local copy by the backup's rules (MergedWork), so a
+            // background launch sync never rewinds this device to an older
+            // backup: fresher AO3 metadata, the position read last, OR'd flags
+            // and the higher notification baseline (regressing it would re-fire
+            // "new chapter" alerts).
             var work = store.GetWork(w.Ao3Id);
+            var m = w;
             if (work is null)
             {
                 work = new Work(w.Ao3Id, w.Title, w.AuthorName);
                 store.Insert(work);
             }
-
-            work.Title = w.Title;
-            work.AuthorName = w.AuthorName;
-            work.AuthorUsername = w.AuthorUsername;
-            work.Summary = w.Summary;
-            work.Rating = w.Rating;
-            work.Warnings = w.Warnings;
-            work.Categories = w.Categories;
-            work.Fandoms = w.Fandoms;
-            work.Characters = w.Characters;
-            work.Relationships = w.Relationships;
-            work.Freeforms = w.Freeforms;
-            work.Language = w.Language;
-            work.WordCount = w.WordCount;
-            work.ChapterCount = w.ChapterCount;
-            work.TotalChapters = w.TotalChapters;
-            work.Kudos = w.Kudos;
-            work.Hits = w.Hits;
-            work.BookmarksCount = w.BookmarksCount;
-            work.CommentsCount = w.CommentsCount;
-            work.IsComplete = w.IsComplete;
-            work.PublishedAt = w.PublishedAt;
-            work.UpdatedAt = w.UpdatedAt;
-            work.SavedAt = w.SavedAt;
-            // Reading position: keep whichever side read more recently. Restore
-            // runs as a background launch sync, which must never rewind this
-            // device to an older backup.
-            if ((w.LastReadAt ?? DateTimeOffset.MinValue) > (work.LastReadAt ?? DateTimeOffset.MinValue))
+            else
             {
-                work.LastReadAt = w.LastReadAt;
-                work.LastReadChapter = w.LastReadChapter;
-                work.LastReadProgress = w.LastReadProgress;
+                m = MergedWork(ToBackup(work, []), w);
             }
-            // Follow/star/pin merge as an OR: the cloud union can lag a flag set
-            // locally moments ago, and un-flagging deliberately doesn't propagate.
-            work.IsFollowed = work.IsFollowed || w.IsFollowed;
-            work.FollowedAt ??= w.FollowedAt;
-            // Notification baseline only advances — regressing it would re-fire
-            // "new chapter" alerts for chapters already seen.
-            if (w.LastSeenChapterCount is { } cloudSeen)
-                work.LastSeenChapterCount = Math.Max(work.LastSeenChapterCount ?? 0, cloudSeen);
-            work.IsStarred = work.IsStarred || (w.IsStarred ?? false);
-            work.IsPinned = work.IsPinned || (w.IsPinned ?? false);
+
+            work.Title = m.Title;
+            work.AuthorName = m.AuthorName;
+            work.AuthorUsername = m.AuthorUsername;
+            work.Summary = m.Summary;
+            work.Rating = m.Rating;
+            work.Warnings = m.Warnings;
+            work.Categories = m.Categories;
+            work.Fandoms = m.Fandoms;
+            work.Characters = m.Characters;
+            work.Relationships = m.Relationships;
+            work.Freeforms = m.Freeforms;
+            work.Language = m.Language;
+            work.WordCount = m.WordCount;
+            work.ChapterCount = m.ChapterCount;
+            work.TotalChapters = m.TotalChapters;
+            work.Kudos = m.Kudos;
+            work.Hits = m.Hits;
+            work.BookmarksCount = m.BookmarksCount;
+            work.CommentsCount = m.CommentsCount;
+            work.IsComplete = m.IsComplete;
+            work.PublishedAt = m.PublishedAt;
+            work.UpdatedAt = m.UpdatedAt;
+            work.SavedAt = m.SavedAt;
+            work.LastReadAt = m.LastReadAt;
+            work.LastReadChapter = m.LastReadChapter;
+            work.LastReadProgress = m.LastReadProgress;
+            work.IsFollowed = m.IsFollowed;
+            work.FollowedAt = m.FollowedAt;
+            work.LastSeenChapterCount = m.LastSeenChapterCount;
+            work.IsStarred = m.IsStarred ?? false;
+            work.IsPinned = m.IsPinned ?? false;
 
             work.Folder = null; // clear the legacy single-folder reference
             // Folders union, not replace: a launch sync must not drop an
             // assignment made locally since the last backup.
-            var folderNames = w.FolderNames ?? (w.FolderName is { } single ? [single] : []);
+            var folderNames = m.FolderNames ?? (m.FolderName is { } single ? [single] : []);
             foreach (var name in folderNames)
             {
                 if (work.Folders.Any(f => f.Name == name)) continue;
@@ -552,7 +1024,7 @@ public sealed class LibrarySyncManager
             // Replace chapters only when the backup carries more than we hold: a
             // metadata-only backup (chapters: []) or a stale partial download
             // must not wipe a fuller offline download.
-            if (w.Chapters.Count > work.Chapters.Count)
+            if (w.Chapters.Count > work.Chapters.Count && !removedDownloads.Contains(w.Ao3Id))
             {
                 foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
                 foreach (var ch in w.Chapters)
@@ -581,11 +1053,17 @@ public sealed class LibrarySyncManager
         {
             if (store.GetSubscription(sub.Key) is { } existing)
             {
-                existing.Kind = sub.Kind;
-                existing.DisplayName = sub.DisplayName;
-                existing.AuthorName = sub.AuthorName;
-                existing.LastSeenChapterCount = sub.LastSeenChapterCount;
-                existing.LastCheckedAt = sub.LastCheckedAt;
+                // The baseline and last check only move forward: an older backup
+                // must not re-announce chapters, and a null baseline must not
+                // switch alerts off until the next poll. Names come from the backup.
+                var m = MergedSubscription(sub, new SubscriptionBackup(
+                    existing.Key, existing.Kind, existing.DisplayName, existing.AuthorName,
+                    existing.LastSeenChapterCount, existing.LastCheckedAt));
+                existing.Kind = m.Kind;
+                existing.DisplayName = m.DisplayName;
+                existing.AuthorName = m.AuthorName;
+                existing.LastSeenChapterCount = m.LastSeenChapterCount;
+                existing.LastCheckedAt = m.LastCheckedAt;
             }
             else
             {
@@ -600,6 +1078,7 @@ public sealed class LibrarySyncManager
         // 4. Saved searches.
         foreach (var search in backup.Searches)
         {
+            if (tombstones.Removes(DeletionKind.Search, search.Name, search.SavedAt)) continue;
             if (store.GetSavedSearch(search.Name) is { } existing)
             {
                 existing.Prompt = search.Prompt;
@@ -637,6 +1116,7 @@ public sealed class LibrarySyncManager
         // 6. Saved filters.
         foreach (var f in backup.Filters)
         {
+            if (tombstones.Removes(DeletionKind.Filter, f.Name, f.SavedAt)) continue;
             if (store.GetSavedFilter(f.Name) is { } existing)
             {
                 existing.FiltersJson = f.FiltersJson;
@@ -651,6 +1131,7 @@ public sealed class LibrarySyncManager
         // 7. Hidden works.
         foreach (var h in backup.Hidden)
         {
+            if (tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)) continue;
             if (store.GetHiddenWork(h.Ao3Id) is { } existing)
             {
                 existing.Title = h.Title;
@@ -728,34 +1209,145 @@ public sealed class LibrarySyncManager
                     a.FollowedAt, a.LastCheckedAt, a.KnownWorkIds));
             }
         }
+
+        // 10. Deletions made on other devices: remove this device's copy of a
+        // record a marker covers, unless the file holds a newer copy (saved
+        // again since), which the steps above applied.
+        ApplyDeletions(tombstones, backup, store);
     }
 
-    /// <summary>Deletes the backup file from the sync folder.</summary>
-    public bool Clear()
+    /// <summary>Deletes this device's records that a deletion marker covers:
+    /// ones stamped no later than the marker, when the backup has no newer copy.</summary>
+    private static void ApplyDeletions(DeletionIndex tombstones, LibraryBackup backup, LibraryStore store)
     {
-        if (BackupPath is not { } path || !File.Exists(path)) return false;
+        var liveWorks = backup.Works.Where(w => !tombstones.Removes(DeletionKind.Work, w.Ao3Id, w.SavedAt)).Select(w => w.Ao3Id).ToHashSet();
+        foreach (var work in store.All<Work>().ToList())
+            if (!liveWorks.Contains(work.Ao3Id) && tombstones.Removes(DeletionKind.Work, work.Ao3Id, work.SavedAt))
+                WorkPersistence.RemoveWork(work, store);
+
+        var liveHidden = backup.Hidden.Where(h => !tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)).Select(h => h.Ao3Id).ToHashSet();
+        foreach (var hidden in store.All<HiddenWork>().ToList())
+            if (!liveHidden.Contains(hidden.Ao3Id) && tombstones.Removes(DeletionKind.Hidden, hidden.Ao3Id, hidden.HiddenAt))
+                store.Delete(hidden);
+
+        var liveFolders = (backup.Folders ?? []).Where(f => !tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt))
+            .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var folder in store.All<CustomFolder>().ToList())
+            if (!liveFolders.Contains(folder.Name) && tombstones.Removes(DeletionKind.Folder, folder.Name, folder.CreatedAt))
+                store.Delete(folder);
+
+        var liveSearches = backup.Searches.Where(s => !tombstones.Removes(DeletionKind.Search, s.Name, s.SavedAt))
+            .Select(s => s.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var search in store.All<SavedSearch>().ToList())
+            if (!liveSearches.Contains(search.Name) && tombstones.Removes(DeletionKind.Search, search.Name, search.SavedAt))
+                store.Delete(search);
+
+        var liveFilters = backup.Filters.Where(f => !tombstones.Removes(DeletionKind.Filter, f.Name, f.SavedAt))
+            .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);
+        foreach (var filter in store.All<SavedFilter>().ToList())
+            if (!liveFilters.Contains(filter.Name) && tombstones.Removes(DeletionKind.Filter, filter.Name, filter.SavedAt))
+                store.Delete(filter);
+    }
+
+    /// <summary>Deletes the backup file (and the copy of the previous one)
+    /// from the sync folder, and says what really happened.</summary>
+    public ClearOutcome Clear()
+    {
+        if (BackupPath is not { } path) return ClearOutcome.NoFolder;
+        lock (_fileGate) return ClearFile(path);
+    }
+
+    private ClearOutcome ClearFile(string path)
+    {
+        try { File.Delete(PreviousBackupPath(path)); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            LibraryHooks.Log?.Invoke($"Failed to clear the previous library backup: {e.Message}");
+        }
+        if (!File.Exists(path))
+            return File.Exists(PlaceholderPath(path)) ? ClearOutcome.NotDownloaded : ClearOutcome.NothingToClear;
         try
         {
             File.Delete(path);
-            return true;
+            // Nor can a snapshot taken before the clear and written after it.
+            _writtenSequence = Interlocked.Read(ref _snapshotSequence);
+            lock (_queueGate)
+            {
+                // A backup queued before the clear would write the file
+                // straight back. (Only cancelled here: when nothing is
+                // deleted, this PC's last change still needs backing up.)
+                _pendingBackup?.Cancel();
+                // Whatever stopped the last backup was about the file just deleted.
+                _lastBackup = null;
+            }
+            return ClearOutcome.Cleared;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             LibraryHooks.Log?.Invoke($"Failed to clear the library backup: {e.Message}");
-            return false;
+            LastClearError = e.Message;
+            return ClearOutcome.Failed;
         }
     }
+
+    /// <summary>Why the last Clear that failed failed.</summary>
+    public string? LastClearError { get; private set; }
 }
+
+/// <summary>What Sync Now did: whether it restored other devices' changes
+/// into the library (or tried and couldn't), and how the backup after it went.</summary>
+public readonly record struct SyncNowResult(bool Restored, BackupOutcome Backup, bool RestoreFailed = false);
 
 /// <summary>What <see cref="LibrarySyncManager.Backup"/> did.</summary>
 public enum BackupOutcome
 {
     Written,
+    /// <summary>The backup there already held this library, so it was left as it is.</summary>
+    Unchanged,
     /// <summary>Sync is off or has no folder.</summary>
     NoFolder,
     /// <summary>The backup there is a cloud placeholder that isn't downloaded yet.</summary>
     NotDownloaded,
     /// <summary>The backup there couldn't be read (locked by the sync app).</summary>
     FileBusy,
+    /// <summary>The backup there couldn't be decoded (damaged, or a newer app's
+    /// format), so it was left alone rather than overwritten.</summary>
+    Unreadable,
     Failed,
+}
+
+/// <summary>What <see cref="LibrarySyncManager.Clear"/> did.</summary>
+public enum ClearOutcome
+{
+    Cleared,
+    /// <summary>There was no backup in the sync folder.</summary>
+    NothingToClear,
+    /// <summary>The backup there is a cloud placeholder that isn't downloaded
+    /// yet, so there's nothing on this PC to delete.</summary>
+    NotDownloaded,
+    /// <summary>No sync folder is chosen.</summary>
+    NoFolder,
+    Failed,
+}
+
+/// <summary>What Sync settings says about a backup that didn't write the file
+/// (the Swift app's <c>BackupOutcome.failureMessage</c>).</summary>
+public static class BackupOutcomeText
+{
+    /// <summary>Why the file wasn't written, or null when it was (or already
+    /// held this library).</summary>
+    public static string? Problem(BackupOutcome outcome, string? error) => outcome switch
+    {
+        BackupOutcome.Written or BackupOutcome.Unchanged => null,
+        BackupOutcome.NoFolder => "No sync folder is chosen. Choose one below.",
+        BackupOutcome.NotDownloaded =>
+            "The backup in the sync folder is still downloading from the cloud. Fanficly will back up once it's on this PC.",
+        BackupOutcome.FileBusy => "The sync app was using the backup file. Fanficly will try again with your next change.",
+        BackupOutcome.Unreadable =>
+            "Fanficly couldn't read the backup in the sync folder, so it left it alone rather than replace it with this PC's library. It may be damaged, or written by a newer version of Fanficly. Update Fanficly, or use Clear Synced Data to start a new backup from this PC."
+            + Detail(error),
+        _ => "Couldn't write to the sync folder. Make sure it's available." + Detail(error),
+    };
+
+    private static string Detail(string? error) => string.IsNullOrEmpty(error) ? "" : $" ({error})";
 }

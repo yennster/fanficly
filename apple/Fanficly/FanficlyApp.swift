@@ -113,6 +113,14 @@ struct FanficlyApp: App {
                     // DemoAO3Client serves all of this offline. Never ships.
                     if Self.isDemoMode { auth.username = "demo_reader" }
 
+                    // Older builds stored the email address a reader signed
+                    // in with; swap it for the AO3 login name (#144) before a
+                    // restored Bookmarks or Subscriptions screen loads with it.
+                    // Costs a request only when an email is stored.
+                    if !Self.isDemoMode {
+                        await auth.repairStoredLogin(using: client)
+                    }
+
                     let context = Self.sharedModelContainer.mainContext
 
                     // Migrate legacy single folder to folders array if needed
@@ -130,6 +138,12 @@ struct FanficlyApp: App {
                         if migratedAny {
                             try? context.save()
                         }
+                    }
+
+                    // One-time: drop login or error pages older builds saved
+                    // as EPUBs, so those works stop showing as Downloaded.
+                    if !Self.isDemoMode {
+                        WorkPersistence.removeInvalidEPUBsIfNeeded()
                     }
 
                     let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
@@ -220,10 +234,14 @@ struct FanficlyApp: App {
                 }
                 .keyboardShortcut("7", modifiers: [.command])
 
-                // ⌘1–⌘9 are all taken, so this one has no ⌘-number shortcut
+                // ⌘1–⌘9 are all taken, so these two have no ⌘-number shortcut
                 // (the Windows app's Ctrl+number list matches).
                 Button("Marked for Later") {
                     selectedTabRaw = SidebarItem.markedForLater.rawValue
+                }
+
+                Button("AO3 History") {
+                    selectedTabRaw = SidebarItem.ao3History.rawValue
                 }
 
                 Button("Subscriptions") {
@@ -284,7 +302,11 @@ struct FanficlyApp: App {
                 
                 let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")
                 if iCloudEnabled && !Self.isDemoMode {
-                    iCloudSyncManager.shared.backupToiCloud(context: Self.sharedModelContainer.mainContext)
+                    // The snapshot and a background-task assertion now, the
+                    // write off the main actor; it leaves the file alone when
+                    // nothing changed, so backgrounding doesn't re-upload the
+                    // library every time (#137).
+                    iCloudSyncManager.shared.startBackgroundBackup(context: Self.sharedModelContainer.mainContext)
                 }
             }
         }

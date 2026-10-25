@@ -124,7 +124,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Models/Work.swift`, `Library/LibraryView.swift`, `Library/iCloudSyncManager.swift`.
 
 ### RM-010 — Bulk download for a folder
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** Offline reading before a flight means tapping download on each work.
 - **Scope:** "Download all" on a custom folder, reusing the sequential, cancellable queue pattern from `RestoreDownloadCenter` (candidates: works with no `WorkPersistence.epubURL`). Progress banner, cancel keeps what finished. The 1 req/sec throttle paces it; no parallelism.
 - **Done when:** the candidate selection and progress bookkeeping are pure and tested; cancelling mid-run keeps finished downloads.
@@ -160,11 +160,11 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Open question:** AO3 returns guest-kudos differently from logged-in kudos; confirm against the live site by hand before shipping.
 
 ### RM-014 — Create and edit AO3 bookmarks
-- **Status:** open · **Size:** M · **Validation:** unit + mac
+- **Status:** done · **Size:** M · **Validation:** unit + mac
 - **Scope:** The Bookmarks tab is read-only today. Add "Bookmark on AO3" (with notes, tags, rec, private) as a POST to `/works/<id>/bookmarks`. Needs the form scraped for field names; must be tested against the live site by hand.
 
 ### RM-015 — Reading history import
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Scope:** Login-gated list of `/users/<name>/readings` (AO3's history), parsed like the bookmarks page (reuse `SearchResultsParser` with a blurb selector). Read-only first. The Marked for Later list moved to RM-023; build on its fetch and parser.
 
 ### RM-016 — Open Spotlight results, and App Shortcuts
@@ -176,7 +176,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** Move user-facing strings to a String Catalog, one screen family per PR. Do not translate yet. AO3 tag and category names stay in AO3's exact English forms.
 
 ### RM-018 — Split the big view files
-- **Status:** open · **Size:** M · **Validation:** unit
+- **Status:** done · **Size:** M · **Validation:** unit
 - **Why:** `SearchView.swift` holds search, `WorkDetailView` and `CommentsView`.
 - **Scope:** Move types verbatim to their own files. This needs `xcodegen generate` and a committed `.xcodeproj`, which is why it isn't done in passing. Do it as the only change in the PR, with no behavior edits.
 
@@ -199,6 +199,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** One screen family per PR, following the convention in AGENTS.md: Search (incl. `WorkFilterSheet`), Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, Auth, the rest of Settings (`ReaderSettingsView`, `ContentSafetyViews`), then the widget and share extension (their own catalogs). Do not translate. AO3 tag and category names stay verbatim.
 - **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
 - **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
+
+### RM-025 — Turn page-by-page pages with the mouse wheel (iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** mac
+- **Why:** Windows turns one page per wheel notch in page by page (with a 300 ms pause). On iPad and the Mac, a vertical wheel over the horizontal page `TabView` does nothing, so a Bluetooth scroll remote in mouse mode, or a plain mouse, can't turn pages there. Keyboard and touch-mode remotes already work (#281).
+- **Scope:** Turn a page per wheel notch in page-by-page (`ReaderView.turnPageByPage`), rate-limited like Windows. iPhone accepts a mouse only with AssistiveTouch, so it gets the same code harmlessly.
+- **Done when:** a pure rate-limit/accumulator function with tests; the PR says how to try it with a mouse on an iPad or Mac.
+- **Touches:** `Reader/ReaderView.swift`, `Reader/ReaderKeyCommands.swift`.
 
 ## Engineering health (any release)
 

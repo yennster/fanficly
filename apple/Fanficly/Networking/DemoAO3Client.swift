@@ -12,7 +12,7 @@ import Foundation
 public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public init() {}
 
-    public func login(username: String, password: String) async throws {}
+    public func login(username: String, password: String) async throws -> String { "demo_reader" }
     public func logout() async {}
     public func currentUsername() async -> String? { "demo_reader" }
 
@@ -77,6 +77,10 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3SearchResults(works: Array(DemoCatalog.works.suffix(4)), totalPages: 1, currentPage: page)
     }
 
+    public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: Array(DemoCatalog.works.prefix(6)), totalPages: 1, currentPage: page)
+    }
+
     public func fetchWork(id: Int) async throws -> AO3WorkPayload {
         DemoCatalog.payload(for: id)
     }
@@ -139,6 +143,13 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
 
     public func subscribeToWork(workId: Int) async throws {}
     public func leaveKudos(workId: Int) async throws -> KudosOutcome { .left }
+
+    public func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+
+    public func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }
 
 // MARK: - Curated demo catalog

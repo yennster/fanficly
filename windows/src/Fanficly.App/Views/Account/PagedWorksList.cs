@@ -36,6 +36,8 @@ internal sealed class PagedWorksList
     private bool _isLoadingMore;
     private string? _errorMessage;
     private string? _loadMoreError;
+    /// <summary>The last load failed because the AO3 session expired (#131).</summary>
+    private bool _sessionExpired;
     private List<int> _shownIds = [];
 
     /// <param name="blocklist">The blocked tags and authors to leave out, read
@@ -53,7 +55,17 @@ internal sealed class PagedWorksList
         };
         _list.Element.Id(automationId);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_list.Element, listName);
+        // Back from signing in again: load what the expired session couldn't.
+        _host.Loaded += (_, _) =>
+        {
+            if (_sessionExpired && AppHost.Auth.HasSession) _ = RefreshAsync();
+        };
     }
+
+    /// <summary>Fetches a page, failing when it came back rendered for a guest
+    /// while signed in: that page leaves out restricted works.</summary>
+    private async Task<AO3SearchResults> FetchAsync(int page, CancellationToken ct) =>
+        SessionExpiry.Check(await _fetch(page, ct));
 
     private IReadOnlyList<AO3WorkSummary> Visible() => AccountKit.Visible(_works, _blocklist?.Invoke());
 
@@ -103,10 +115,11 @@ internal sealed class PagedWorksList
         SetLoading(true);
         _errorMessage = null;
         _loadMoreError = null;
+        _sessionExpired = false;
         Render();
         try
         {
-            var result = await _fetch(1, cts.Token);
+            var result = await FetchAsync(1, cts.Token);
             if (cts.IsCancellationRequested) return;
             _works.Clear();
             AppendUnique(result.Works);
@@ -121,7 +134,8 @@ internal sealed class PagedWorksList
         catch (Exception e)
         {
             if (cts.IsCancellationRequested) return;
-            _errorMessage = e.Message;
+            _sessionExpired = SessionExpiry.Explains(e);
+            _errorMessage = _sessionExpired ? SessionExpiry.MessageFor(e) : e.Message;
         }
         finally
         {
@@ -160,6 +174,7 @@ internal sealed class PagedWorksList
         _totalPages = 1;
         _errorMessage = null;
         _loadMoreError = null;
+        _sessionExpired = false;
         _shownIds = [];
         _list.Reset([]);
     }
@@ -191,6 +206,10 @@ internal sealed class PagedWorksList
         if (IsLoading && _works.Count == 0)
         {
             content = UI.UI.Loading(_texts.Loading);
+        }
+        else if (_errorMessage is not null && _works.Count == 0 && _sessionExpired && !AppHost.Auth.HasSession)
+        {
+            content = SessionExpiry.EmptyState(_errorMessage);
         }
         else if (_errorMessage is not null && _works.Count == 0)
         {
@@ -285,6 +304,11 @@ internal sealed class PagedWorksList
         if (_isLoadingMore)
             _list.Footer = new ProgressRing { IsActive = true, Width = 24, Height = 24, Margin = new Thickness(0, 8, 0, 8) }
                 .Also(r => Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(r, "Loading more"));
+        else if (_loadMoreError is not null && _sessionExpired && !AppHost.Auth.HasSession)
+            _list.Footer = UI.UI.VStack(6,
+                    UI.UI.Secondary(_loadMoreError, Theme.Style.Footnote).Also(t => t.TextAlignment = TextAlignment.Center),
+                    UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent).Also(b => b.HorizontalAlignment = HorizontalAlignment.Center))
+                .Also(s => { s.HorizontalAlignment = HorizontalAlignment.Center; s.Margin = new Thickness(0, 8, 0, 8); });
         else if (_loadMoreError is not null)
             _list.Footer = UI.UI.VStack(6,
                     UI.UI.Secondary(_loadMoreError, Theme.Style.Footnote).Also(t => t.TextAlignment = TextAlignment.Center),
@@ -303,6 +327,7 @@ internal sealed class PagedWorksList
         var cts = _cts ??= new CancellationTokenSource();
         _isLoadingMore = true;
         _loadMoreError = null;
+        _sessionExpired = false;
         UpdateFooter();
         Render();
         try
@@ -310,7 +335,7 @@ internal sealed class PagedWorksList
             for (var attempt = 0; attempt < 3 && _currentPage < _totalPages; attempt++)
             {
                 var before = Visible().Count;
-                var result = await _fetch(_currentPage + 1, cts.Token);
+                var result = await FetchAsync(_currentPage + 1, cts.Token);
                 if (cts.IsCancellationRequested) return;
                 AppendUnique(result.Works);
                 _currentPage = result.CurrentPage;
@@ -324,7 +349,8 @@ internal sealed class PagedWorksList
         }
         catch (Exception e)
         {
-            _loadMoreError = $"Couldn't load more: {e.Message}";
+            _sessionExpired = SessionExpiry.Explains(e);
+            _loadMoreError = _sessionExpired ? SessionExpiry.MessageFor(e) : $"Couldn't load more: {e.Message}";
         }
         finally
         {

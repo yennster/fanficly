@@ -327,7 +327,8 @@ final class SubscriptionRecord {
 /// per-work `isFollowed` flow. The background poller checks each followed
 /// author's works page for newly-published works and fires a local
 /// notification. `knownWorkIds` is the set of work ids already seen, so a new
-/// work notifies exactly once; it's seeded when the user follows so previously
+/// work notifies exactly once (see `SubscriptionPoller.newlyPostedWorks` for
+/// which unknown ones count as new); it's seeded when the user follows so previously
 /// published works don't all alert on the first poll.
 @Model
 final class FollowedAuthor {

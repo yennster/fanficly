@@ -151,6 +151,11 @@ public sealed class DemoAO3Client : IAO3Client
     public Task SubscribeToWorkAsync(int workId, CancellationToken ct = default) => Task.CompletedTask;
 
     public Task<KudosOutcome> LeaveKudosAsync(int workId, CancellationToken ct = default) => Task.FromResult(KudosOutcome.Left);
+    public Task<AO3BookmarkForm> FetchBookmarkFormAsync(int workId, CancellationToken ct = default) =>
+        Task.FromResult(new AO3BookmarkForm(new Uri($"https://archiveofourown.org/works/{workId}/bookmarks"),
+            new Dictionary<string, string>(), IsExisting: false));
+
+    public Task SaveBookmarkAsync(AO3BookmarkForm form, CancellationToken ct = default) => Task.CompletedTask;
 }
 
 /// <summary>The curated demo catalog.</summary>

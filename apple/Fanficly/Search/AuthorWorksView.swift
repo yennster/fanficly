@@ -14,6 +14,7 @@ struct AuthorRef: Hashable {
 struct AuthorWorksView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(AuthState.self) private var auth
     @Query private var hiddenWorks: [HiddenWork]
     @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
@@ -26,6 +27,8 @@ struct AuthorWorksView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// The last load failed because the AO3 session expired (#131).
+    @State private var sessionExpired = false
     @State private var isFollowingAuthor = false
 
     /// Opening a blocked author's page is asking for them, so only blocked
@@ -39,6 +42,8 @@ struct AuthorWorksView: View {
         Group {
             if isLoading && works.isEmpty {
                 VStack { Spacer(); ProgressView("Loading…"); Spacer() }
+            } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
+                SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
                 ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
                     description: Text(errorMessage))
@@ -63,6 +68,9 @@ struct AuthorWorksView: View {
                     if isLoadingMore {
                         HStack { Spacer(); ProgressView(); Spacer() }
                             .padding(.vertical, 8)
+                            .listRowSeparator(.hidden)
+                    } else if let errorMessage, sessionExpired, !auth.hasSession {
+                        SessionExpiredView(message: errorMessage)
                             .listRowSeparator(.hidden)
                     }
                 }
@@ -106,14 +114,17 @@ struct AuthorWorksView: View {
         guard works.isEmpty else { return }  // don't refetch when returning from a work
         isLoading = true
         errorMessage = nil
+        sessionExpired = false
         defer { isLoading = false }
         do {
-            let result = try await client.fetchAuthorWorks(username: author.username, page: 1)
+            // A guest page while signed in leaves out restricted works.
+            let result = try auth.check(await client.fetchAuthorWorks(username: author.username, page: 1))
             works = result.works
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "\(error)"
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
         }
     }
 
@@ -122,13 +133,14 @@ struct AuthorWorksView: View {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let result = try await client.fetchAuthorWorks(username: author.username, page: currentPage + 1)
+            let result = try auth.check(await client.fetchAuthorWorks(username: author.username, page: currentPage + 1))
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "\(error)"
+            sessionExpired = auth.explains(error)
+            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
         }
     }
 }

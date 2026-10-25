@@ -12,6 +12,7 @@ public sealed class AuthState : INotifyPropertyChanged
     private string? _username;
     private bool _isAuthenticating;
     private string? _lastError;
+    private bool _isSessionExpired;
 
     public AuthState(ICookieVault? vault = null)
     {
@@ -42,7 +43,46 @@ public sealed class AuthState : INotifyPropertyChanged
         set => Set(ref _lastError, value);
     }
 
+    /// <summary>A username is stored (the reader signed in on this PC). The session
+    /// cookie may still have expired; see <see cref="IsSessionExpired"/>.</summary>
     public bool IsLoggedIn => Username is not null;
+
+    /// <summary>AO3 dropped the session while a username is stored: a request that
+    /// needs the account got the login page, or a page came back rendered for a
+    /// guest. Only signing in again (or out) clears it.</summary>
+    public bool IsSessionExpired
+    {
+        get => _isSessionExpired;
+        private set => Set(ref _isSessionExpired, value);
+    }
+
+    /// <summary>Signed in with a live session: what account features need.</summary>
+    public bool HasSession => IsLoggedIn && !IsSessionExpired;
+
+    /// <summary>Marks the session expired when signed in (a guest has nothing to expire).</summary>
+    public void MarkSessionExpired()
+    {
+        if (IsLoggedIn) IsSessionExpired = true;
+    }
+
+    /// <summary>Notes a failed AO3 request: <c>Unauthorized</c> while signed in means
+    /// the session expired. Returns whether it did.</summary>
+    public bool NoteFailure(Exception error)
+    {
+        if (error is not AO3Exception { Kind: AO3ErrorKind.Unauthorized } || !IsLoggedIn) return false;
+        IsSessionExpired = true;
+        return true;
+    }
+
+    /// <summary>Notes a works listing (search, an author's works, bookmarks): one
+    /// AO3 rendered for a guest while signed in means the session expired, and
+    /// the listing is missing every restricted work. Returns whether it did.</summary>
+    public bool NoteListing(AO3SearchResults results)
+    {
+        if (!results.ServedAsGuest || !IsLoggedIn) return false;
+        IsSessionExpired = true;
+        return true;
+    }
 
     public async Task LoginAsync(IAO3Client client, string username, string password, CancellationToken ct = default)
     {
@@ -51,8 +91,12 @@ public sealed class AuthState : INotifyPropertyChanged
         try
         {
             await client.LoginAsync(username, password, ct);
+            // Signing in as someone else from the expired-session form skips
+            // logout, so drop the previous account's kudos here.
+            if (Username is { } previous && !string.Equals(previous, username, StringComparison.OrdinalIgnoreCase)) KudosStore.Clear();
             Username = username;
             _vault.SetUsername(username);
+            IsSessionExpired = false;
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.LoginFailed)
         {
@@ -78,6 +122,7 @@ public sealed class AuthState : INotifyPropertyChanged
         _vault.SetUsername(null);
         KudosStore.Clear();
         Username = null;
+        IsSessionExpired = false;
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
