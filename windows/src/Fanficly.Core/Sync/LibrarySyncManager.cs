@@ -1216,6 +1216,41 @@ public sealed class LibrarySyncManager
         ApplyDeletions(tombstones, backup, store);
     }
 
+    // MARK: - Library file export and import
+
+    /// <summary>The exported file's name, e.g. "Fanficly Library 2026-10-18.json".</summary>
+    public static string ExportFileName(DateTimeOffset date) =>
+        $"Fanficly Library {date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}.json";
+
+    /// <summary>The library as a file ("Export Library File…"): the same JSON
+    /// as the sync folder's backup, so the Apple apps read it too. Works
+    /// whether or not sync is on. The snapshot runs on
+    /// <see cref="RecordsContext"/>, like a backup's; called from another
+    /// thread, this waits for it.</summary>
+    public byte[] ExportLibraryFile(LibraryStore store)
+    {
+        var snapshot = OnRecordsContextAsync(() => TakeSnapshot(store)).GetAwaiter().GetResult();
+        return LibraryBackupJson.Encode(snapshot.WithBodies(store));
+    }
+
+    /// <summary>Merges a library file (exported here, by another PC, or by the
+    /// Apple apps) into the library through the same forward-only rules as a
+    /// restore, then saves. Throws <see cref="JsonException"/> when the bytes
+    /// aren't a library file; nothing is changed then. Unlike a restore it
+    /// doesn't stamp the sync folder's backup as applied. The records change
+    /// on <see cref="RecordsContext"/>, as a restore's do (#139); called from
+    /// another thread, this waits for it.</summary>
+    public void ImportLibraryFile(byte[] data, LibraryStore store)
+    {
+        var backup = LibraryBackupJson.Decode(data);
+        OnRecordsContextAsync(() =>
+        {
+            Apply(backup, store);
+            store.Save();
+            return true;
+        }).GetAwaiter().GetResult();
+    }
+
     /// <summary>Deletes this device's records that a deletion marker covers:
     /// ones stamped no later than the marker, when the backup has no newer copy.</summary>
     private static void ApplyDeletions(DeletionIndex tombstones, LibraryBackup backup, LibraryStore store)

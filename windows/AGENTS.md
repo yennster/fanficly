@@ -226,7 +226,7 @@ windows/
                                #   SpeechController (Listen), WorkExporter,
                                #   WorkHeaderMetadataView, ReaderPrefs, ReaderBrushes
   tests/
-    Fanficly.Core.Tests/       # xUnit, 721 cases, fixture-based, no network
+    Fanficly.Core.Tests/       # xUnit, 731 cases, fixture-based, no network
     Fanficly.UITests/          # FlaUI: SmokeTests, ScreenshotTests,
                                #   ReaderLayoutTests (Windows only)
 ```
@@ -257,7 +257,7 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 ## Tests
 
-**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 721 cases in 45 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
+**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 731 cases in 45 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
 - **Parsers:** `SearchResultsParserTests` (incl. the bookmarks page), `WorkPageParserTests` (incl. login, comments and bookmark-form parsing), `KudosParserTests` and `KudosGiverTests` (in `KudosTests.cs`), `SubscriptionsParserTests` (fails closed), `MediaCategoryParserTests`, `WorkMetadataParserTests`, `HtmlDomTests`.
 - **Networking:** `AO3ClientTests` (through a fake `HttpMessageHandler`: retries, cookies, redirects, timeouts, form posts), `AO3EndpointsTests`, `ThrottleTests` (spacing, and concurrent waiters serialized), `DemoAO3ClientTests`.
 - **Search:** `SearchSyntaxTests`, `SearchSuggestionsTests`, `AO3SearchFiltersTests`, `TagResolverTests` (with `StubAO3Client`), `FandomCatalogTests`, `BrowseModelsTests`, `PopularStoreTests`.
@@ -388,6 +388,7 @@ Windows has no iCloud API, so sync is a folder the user picks in Settings → Sy
 - Settings are per device, not shared state (#133, the Swift rule): a restore only fills in a setting this PC hasn't set (a fresh install) and never copies another device's per-device keys (`SettingsBackup.AppliesTo`), and a backup merges settings key by key (`SettingsBackup.Merged`): this device's own and the shared keys take its value, other devices' suffixed keys (`*Phone`, `*Pad`, `*Mac`, `*Windows`; `SettingsBackup.DeviceOf`) keep the file's, because the copies a device holds are stale. Reader profiles keep their own merge.
 - **Deletions travel as markers (#135)**, the Swift app's rules exactly: `WorkPersistence.DeleteWork` / `DeleteFolder`, `HiddenWorkStore.Unhide`, renaming a folder (the old name) and deleting a saved search or filter call `LibrarySyncManager.RecordDeletionShared`, which keeps a `DeletionBackup` (kind, key, `DeletedAt`) in this PC's settings (`sync.deletions`, `SyncDeletions`). Backups write them to the file's optional `deleted` array; `MergedBackup` unions both sides' markers (newest per record, pruned after 90 days) and leaves out the records they cover; restore skips covered records and deletes this PC's copies unless the file has a newer one (`ApplyDeletions`). A record is covered unless it's newer than the marker (works `SavedAt`, hidden `HiddenAt`, folders `CreatedAt`, searches and filters `SavedAt`; whole seconds, ties go to the marker), so saving a work again brings it back (a renamed folder gets a fresh `CreatedAt` for the same reason). Like profile tombstones this trusts device clocks: a device whose clock runs fast can make its delete beat a save made just after it elsewhere. Unfollow, unstar, unpin and unblock still don't propagate. Settings → Sync → Clear Synced Data removes the synced files.
 - **Remove Download is per PC.** `WorkPersistence.RemoveDownload` deletes the EPUB and chapters and adds the work to `sync.removedDownloads`; restore then never puts chapters back for it from another device's copy (so the re-download offer doesn't include it), while the file keeps the other devices' downloads. Saving the work offline again (`Upsert`) or deleting it (`RemoveWork`) clears the mark.
+- **Library file export/import** (Settings → Sync → Library file, RM-113): `ExportLibraryFile` takes the backup's snapshot on `RecordsContext` and encodes it with `LibraryBackupJson.Encode`, saved with a `FileSavePicker` whether or not sync is on; `ImportLibraryFile` decodes a picked file and runs it through `Apply` (the restore's merge: records forward-only, deletion markers applied, settings filled in only where this PC has none) and `Save` on `RecordsContext`, as a restore does; a `JsonException` means nothing changed, anything else means the save failed with changes pending. It doesn't stamp `icloud.lastRestoredBackupDate`; the save's `Changed` queues a backup as any change does. The Apple app's Settings → Library File (RM-012) writes and reads the same file.
 
 ## Reader settings profiles
 
