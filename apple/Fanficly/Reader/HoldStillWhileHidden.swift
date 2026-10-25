@@ -29,6 +29,8 @@ struct HoldStillWhileHidden: ViewModifier {
     @State private var shown: Snapshot?
     /// True from showing the controls until the area is back to `shown`.
     @State private var releasing = false
+    /// The latest show's release, so an older timeout can't end it early.
+    @State private var releaseID = UUID()
 
     private struct Snapshot: Equatable {
         var frame: CGRect
@@ -55,16 +57,25 @@ struct HoldStillWhileHidden: ViewModifier {
                 }
                 .onChange(of: hidden) { _, isHidden in
                     guard !isHidden else {
-                        releasing = false
-                        // The window may not have been found yet when the
-                        // controls-up frame was recorded.
-                        shown?.window = window.size
+                        if releasing {
+                            // Hidden again before the area settled back (it
+                            // may never have, after a rotation): what's on
+                            // screen now is the controls-up frame.
+                            releasing = false
+                            record(live)
+                        } else if shown?.window == .zero {
+                            // The window wasn't found yet when the
+                            // controls-up frame was recorded.
+                            shown?.window = window.size
+                        }
                         return
                     }
                     releasing = true
+                    let release = UUID()
+                    releaseID = release
                     Task { @MainActor in
                         try? await Task.sleep(for: Self.releaseTimeout)
-                        guard releasing else { return }
+                        guard releasing, releaseID == release else { return }
                         releasing = false
                         record(window.lastLive)
                     }

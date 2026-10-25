@@ -116,7 +116,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** CI's `ui-screenshots` artifact shows the fandom list populated at all three sizes.
 - **Touches:** `windows/tests/Fanficly.UITests/ScreenshotTests.cs`.
 
-### ~~RM-120 — A visible way out of full screen~~
+### RM-120 — A visible way out of full screen
 - **Status:** dropped · **Size:** S · **Validation:** windows
 - ~~Show one back arrow in full screen.~~ Dropped before it was built: the Apple app's reader went back to leaving nothing on screen in full screen, like Apple Books (#296). Its Windows port is RM-123.
 
