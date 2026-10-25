@@ -99,6 +99,7 @@ struct RootView: View {
                     case .authors: FollowedAuthorsView()
                     case .bookmarks: BookmarksView()
                     case .markedForLater: ReadingListView(list: .markedForLater)
+                    case .ao3History: ReadingListView(list: .history)
                     case .subscriptions: SubscriptionsView()
                     case .settings: SettingsView()
                     }
@@ -613,7 +614,7 @@ struct ImportOverlay: View {
 
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case search, browse, popular, library, recentlyViewed, authors, bookmarks, markedForLater, subscriptions, stats, settings
+    case search, browse, popular, library, recentlyViewed, authors, bookmarks, markedForLater, ao3History, subscriptions, stats, settings
 
     var id: String { rawValue }
 
@@ -628,6 +629,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .authors: "Followed Authors"
         case .bookmarks: "Bookmarks"
         case .markedForLater: "Marked for Later"
+        case .ao3History: "AO3 History"
         case .subscriptions: "Subscriptions"
         case .settings: "Settings"
         }
@@ -644,6 +646,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .authors: "person.2"
         case .bookmarks: "bookmark"
         case .markedForLater: "clock"
+        case .ao3History: "calendar.badge.clock"
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }

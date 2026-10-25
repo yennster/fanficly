@@ -12,10 +12,15 @@ require "fileutils"
 
 default_platform(:ios)
 
-ROOT = File.expand_path("..", __dir__)
+# fastlane evals this file with a relative name, so __dir__ is "." here, and
+# actions run from apple/ while lanes run from apple/fastlane/. Every path is
+# absolute so both agree (a relative metadata_path once made deliver upload
+# no store text at all).
+FASTLANE_DIR = File.expand_path(__dir__)
+ROOT = File.dirname(FASTLANE_DIR)
 PROJECT = File.join(ROOT, "Fanficly.xcodeproj")
 SCHEME = "Fanficly"
-API_KEY_JSON = File.join(__dir__, "api_key.json")
+API_KEY_JSON = File.join(FASTLANE_DIR, "api_key.json")
 SIGNING_XCCONFIG = File.join(ROOT, "Signing.xcconfig")
 BUILD_DIR = File.join(ROOT, "build", "release")
 
@@ -27,8 +32,8 @@ TARGETS = {
   "FanficlyWidget" => "io.github.yennster.fanficly.widget"
 }.freeze
 
-METADATA = { "ios" => File.join(__dir__, "metadata"), "osx" => File.join(__dir__, "metadata-mac") }.freeze
-SCREENSHOTS = { "ios" => File.join(__dir__, "screenshots"), "osx" => File.join(__dir__, "screenshots-mac") }.freeze
+METADATA = { "ios" => File.join(FASTLANE_DIR, "metadata"), "osx" => File.join(FASTLANE_DIR, "metadata-mac") }.freeze
+SCREENSHOTS = { "ios" => File.join(FASTLANE_DIR, "screenshots"), "osx" => File.join(FASTLANE_DIR, "screenshots-mac") }.freeze
 
 # Simulators the store art is captured on: the 6.9" iPhone and 13" iPad are
 # the required App Store sizes, and the landscape 13" iPad stands in for the
@@ -36,6 +41,11 @@ SCREENSHOTS = { "ios" => File.join(__dir__, "screenshots"), "osx" => File.join(_
 IPHONE_SIM = "iPhone 17 Pro Max"
 IPAD_SIM = "iPad Pro 13-inch (M5)"
 DUO_SIM = "iPhone Duo"
+
+# Every Apple build needs Xcode 27 or later, and an iOS build the iOS 27.1
+# SDK, which knows the iPhone Duo (check_xcode).
+MIN_XCODE = 27
+MIN_IOS_SDK = "27.1"
 
 platform :ios do
   # ---------------------------------------------------------------- signing
@@ -50,8 +60,16 @@ platform :ios do
   # --------------------------------------------------------------- binaries
 
   desc "Build and upload to TestFlight. platform: ios, mac or both (default)."
+  desc "ios_build:/mac_build: builds Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :beta do |options|
     platforms(options).each do |p|
+      if (number = cloud_build(p, options))
+        asc_api_key
+        upload_to_testflight(distribute_only: true, app_platform: p, app_identifier: TARGETS["Fanficly"],
+                             app_version: marketing_version, build_number: number,
+                             changelog: release_notes)
+        next
+      end
       path = build_signed(platform: p)
       upload_to_testflight(**binary_option(p, path), app_platform: p, changelog: release_notes,
                            # Waiting lets pilot set the changelog ("What to Test") once processed.
@@ -61,8 +79,15 @@ platform :ios do
 
   desc "Build, upload, and push metadata + screenshots to the App Store version."
   desc "Does not submit for review. platform: ios, mac or both (default)."
+  desc "ios_build:/mac_build: builds Xcode Cloud already uploaded (bin/xcode-cloud-release.py)."
   lane :release do |options|
     platforms(options).each do |p|
+      if (number = cloud_build(p, options))
+        asc_api_key
+        deliver_version(p)
+        attach_build(p, number)
+        next
+      end
       path = build_signed(platform: p)
       deliver_version(p, binary: path)
     end
@@ -101,8 +126,15 @@ platform :ios do
     creative_assets
   end
 
-  desc "Capture demo-mode screenshots on the simulators and frame them into App Store images."
+  desc "Capture demo-mode screenshots on the simulators and frame them into App Store images"
+  desc "(only frame them with SCREENSHOTS_CAPTURED=1, after an Xcode Cloud capture)."
   lane :screenshots do
+    # store-assets.yml captures in Xcode Cloud (bin/xcode-cloud-store-art.py)
+    # and places the shots in docs/screenshots/ first: then only frame them.
+    if ENV["SCREENSHOTS_CAPTURED"] == "1"
+      sh(python, File.join(ROOT, "bin/frame-screenshots.py"))
+      next
+    end
     iphone = simulator(IPHONE_SIM)
     ipad = simulator(IPAD_SIM)
     UI.user_error!("Need the #{IPHONE_SIM} and #{IPAD_SIM} simulators") unless iphone && ipad
@@ -123,13 +155,18 @@ platform :ios do
 
   desc "Record the app-preview videos (iPhone, iPad, Mac) and write a contact sheet of each."
   lane :previews do
-    UI.user_error!("Need the #{IPHONE_SIM} and #{IPAD_SIM} simulators") unless simulator(IPHONE_SIM) && simulator(IPAD_SIM)
+    iphone = simulator(IPHONE_SIM)
+    ipad = simulator(IPAD_SIM)
+    UI.user_error!("Need the #{IPHONE_SIM} and #{IPAD_SIM} simulators") unless iphone && ipad
+    # The same simulators the screenshots used, not the script's own pick.
+    ENV["IPHONE_UDID"] = iphone
+    ENV["IPAD_UDID"] = ipad
     sh(File.join(ROOT, "bin/record-app-previews.sh"))
     # Caption timings are tuned to the recordings; a contact sheet per video
     # makes drift easy to spot before uploading.
     sheets = File.join(ROOT, "build", "preview-contact-sheets")
     FileUtils.mkdir_p(sheets)
-    Dir.glob(File.join(__dir__, "previews", "en-US", "*.mp4")).each do |mp4|
+    Dir.glob(File.join(FASTLANE_DIR, "previews", "en-US", "*.mp4")).each do |mp4|
       sh("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", mp4,
          "-vf", "fps=1,scale=240:-2,tile=6x5", "-frames:v", "1",
          File.join(sheets, "#{File.basename(mp4, '.mp4')}.png"))
@@ -146,7 +183,11 @@ platform :ios do
   lane :upload_store_art do
     asc_api_key
     write_key_files
-    %w[ios osx].each do |p|
+    # SKIP_MAC=1 (store-assets.yml skip_mac) while the Mac has no editable
+    # version, say when the previous one is still in review: the iOS art,
+    # Duo screenshots and previews still go up.
+    platforms = ENV["SKIP_MAC"] == "1" ? %w[ios] : %w[ios osx]
+    platforms.each do |p|
       next unless Dir.exist?(SCREENSHOTS[p])
       deliver(
         platform: p,
@@ -160,15 +201,16 @@ platform :ios do
         run_precheck_before_submit: false
       )
     end
-    sh(python, File.join(ROOT, "bin/upload-app-previews.py"), "--replace") if Dir.exist?(File.join(__dir__, "previews", "en-US"))
-    sh(python, File.join(ROOT, "bin/upload-duo-assets.py")) if Dir.exist?(File.join(__dir__, "screenshots-duo", "en-US"))
-    sh(python, File.join(ROOT, "bin/upload-creative-assets.py"), "--replace") if Dir.exist?(File.join(__dir__, "creative", "en-US"))
+    sh(python, File.join(ROOT, "bin/upload-app-previews.py"), "--replace") if Dir.exist?(File.join(FASTLANE_DIR, "previews", "en-US"))
+    sh(python, File.join(ROOT, "bin/upload-duo-assets.py")) if Dir.exist?(File.join(FASTLANE_DIR, "screenshots-duo", "en-US"))
+    sh(python, File.join(ROOT, "bin/upload-creative-assets.py"), "--replace") if Dir.exist?(File.join(FASTLANE_DIR, "creative", "en-US"))
   end
 
   # ------------------------------------------------------------------ tests
 
   desc "Unit tests on an iPhone and an iPad simulator, then under Mac Catalyst."
   lane :unit_tests do
+    check_xcode
     [simulator(IPHONE_SIM), simulator(IPAD_SIM)].compact.each do |udid|
       xcodebuild_test("id=#{udid}", "FanficlyTests")
     end
@@ -178,6 +220,7 @@ platform :ios do
   desc "Reader layout UI tests on the iPhone, iPad and iPhone Duo simulators, then the Mac"
   desc "(see AGENTS.md). Options: devices:\"iPhone Duo\" (comma-separated), mac:false."
   lane :reader_layout_tests do |options|
+    check_xcode
     names = (options[:devices] || [IPHONE_SIM, IPAD_SIM, DUO_SIM].join(",")).split(",").map(&:strip)
     names.map { |name| simulator(name) }.compact.each do |udid|
       xcodebuild_test("id=#{udid}", "FanficlyUITests/ReaderLayoutTests")
@@ -237,6 +280,7 @@ platform :ios do
   # build number, and returns its path. Signing.xcconfig is restored afterwards.
   private_lane :build_signed do |options|
     p = options[:platform]
+    check_xcode(ios: p == "ios")
     asc_api_key
     original = File.read(SIGNING_XCCONFIG)
     begin
@@ -253,7 +297,10 @@ platform :ios do
         output_directory: BUILD_DIR,
         output_name: "Fanficly-#{p}",
         clean: true,
-        xcargs: "CURRENT_PROJECT_VERSION=#{build}"
+        # On the command line because XcodeGen's iOS preset puts
+        # CODE_SIGN_IDENTITY = "iPhone Developer" on the app target itself,
+        # which beats the Signing.xcconfig written above.
+        xcargs: "CURRENT_PROJECT_VERSION=#{build} CODE_SIGN_IDENTITY='Apple Distribution'"
       }
       if p == "ios"
         build_app(**common,
@@ -302,11 +349,71 @@ platform :ios do
       overwrite_screenshots: true,
       app_review_information: review_information,
       submit_for_review: false,
-      automatic_release: false,
+      # The version goes live by itself once App Review approves it. deliver
+      # sets the release type on every run, so false here would switch App
+      # Store Connect back to "Manually release this version".
+      automatic_release: true,
       force: true,
       run_precheck_before_submit: false,
       precheck_include_in_app_purchases: false
     )
+    verify_store_text(p)
+  end
+
+  # An iOS app runs in compatibility mode on any device newer than its SDK:
+  # 1.11.0, built with Xcode 26.6, was a letterboxed iPhone app on the iPhone
+  # Duo. So every build needs Xcode 27 or later, and an iOS one the 27.1 SDK.
+  # GitHub's runners don't have it yet, so release.yml archives in Xcode Cloud
+  # (bin/xcode-cloud-release.py) and passes ios_build:/mac_build:.
+  def check_xcode(ios: true)
+    xcode = sh("xcodebuild", "-version", log: false)[/Xcode (\d+)/, 1].to_i
+    if xcode < MIN_XCODE
+      UI.user_error!("This is Xcode #{xcode}, and Fanficly builds need Xcode #{MIN_XCODE} or later (iPhone Duo). " \
+                     "Build in Xcode Cloud (bin/xcode-cloud-release.py, bin/xcode-cloud-ci.py), as release.yml does.")
+    end
+    return unless ios
+    sdk = sh("xcrun", "--sdk", "iphoneos", "--show-sdk-version", log: false).strip
+    return if Gem::Version.new(sdk) >= Gem::Version.new(MIN_IOS_SDK)
+    UI.user_error!("This Xcode has the iOS #{sdk} SDK, and an iOS build needs #{MIN_IOS_SDK} or newer, or " \
+                   "the iPhone Duo runs it in compatibility mode.")
+  end
+
+  # The build number Xcode Cloud uploaded for this platform, if release.yml passed one.
+  def cloud_build(p, options)
+    number = options[p == "ios" ? :ios_build : :mac_build].to_s
+    number.empty? ? nil : number
+  end
+
+  # Puts an uploaded build on the editable App Store version, once processed.
+  def attach_build(p, number)
+    platform = Spaceship::ConnectAPI::Platform.map(p)
+    app = Spaceship::ConnectAPI::App.find(TARGETS["Fanficly"])
+    build = nil
+    60.times do
+      build = Spaceship::ConnectAPI::Build.all(app_id: app.id, version: marketing_version,
+                                               build_number: number, platform: platform).first
+      break if build&.processing_state == "VALID"
+      UI.message("Waiting for #{p} build #{number} to finish processing...")
+      sleep(60)
+    end
+    UI.user_error!("#{p} build #{marketing_version} (#{number}) isn't processed on App Store Connect") unless build&.processing_state == "VALID"
+    version = app.get_edit_app_store_version(platform: platform)
+    UI.user_error!("No editable #{p} version on App Store Connect") unless version
+    version.select_build(build_id: build.id)
+    UI.success("#{p} #{version.version_string}: build #{number} attached")
+  end
+
+  # deliver skips text it can't find without a word, so check that the
+  # editable version really has its What's New and Promotional Text.
+  def verify_store_text(p)
+    app = Spaceship::ConnectAPI::App.find(TARGETS["Fanficly"])
+    version = app.get_edit_app_store_version(platform: Spaceship::ConnectAPI::Platform.map(p))
+    UI.user_error!("No editable #{p} version on App Store Connect") unless version
+    loc = version.get_app_store_version_localizations.find { |l| l.locale == "en-US" }
+    missing = { "What's New" => loc&.whats_new, "Promotional Text" => loc&.promotional_text }
+              .select { |_, v| v.to_s.strip.empty? }.keys
+    UI.user_error!("#{p} #{version.version_string} en-US has no #{missing.join(' or ')} on App Store Connect") unless missing.empty?
+    UI.success("#{p} #{version.version_string}: What's New and Promotional Text are set")
   end
 
   # The ipa:/pkg: option for an upload. pilot and deliver default ipa: to the
@@ -318,7 +425,7 @@ platform :ios do
   end
 
   # The App Store "What's New" and TestFlight text the release workflow
-  # collected (bin/release-notes.sh), or nil to keep what's in metadata/.
+  # collected (bin/release-notes.py), or nil to keep what's in metadata/.
   def release_notes
     file = ENV["RELEASE_NOTES_FILE"].to_s
     file.empty? || !File.exist?(file) ? nil : File.read(file).strip
@@ -368,7 +475,7 @@ platform :ios do
       "key_id" => ENV["ASC_KEY_ID"], "issuer_id" => ENV["ASC_ISSUER_ID"],
       "key" => ENV["ASC_KEY_P8"], "in_house" => false
     ))
-    File.write(File.join(__dir__, "AuthKey_#{ENV['ASC_KEY_ID']}.p8"), ENV["ASC_KEY_P8"])
+    File.write(File.join(FASTLANE_DIR, "AuthKey_#{ENV['ASC_KEY_ID']}.p8"), ENV["ASC_KEY_P8"])
   end
 
   def python

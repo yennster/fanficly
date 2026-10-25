@@ -19,7 +19,8 @@ namespace Fanficly.App.Views.Reader;
 /// restore and narration work in pages whatever is on screen.
 ///
 /// Turning: swipe (touch), a pen flick, the mouse wheel, the outer thirds of the
-/// page (tap or click), ←/→, Page Up/Down, Space, a controller's triggers and
+/// page (tap or click), ←/→, ↑/↓, Page Up/Down, Space (so Bluetooth page turners
+/// that pair as a keyboard), a controller's triggers and
 /// D-pad. The middle third shows or hides the controls.
 /// </summary>
 internal sealed partial class ReaderView

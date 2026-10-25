@@ -11,8 +11,16 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     private(set) var autocompleteCalls: [String] = []
     /// Scripted subscriptions-list response (SubscriptionPoller tests).
     var subscriptionsResponse: [AO3Subscription] = []
+    /// Scripted author works page (SubscriptionPoller tests); empty when nil.
+    var authorWorksResponse: AO3SearchResults?
+    /// Scripted work page for `fetchWorkMetadata`, run through the real
+    /// parser (SubscriptionPoller tests); nil returns a one-chapter work.
+    var workMetadataHTML: String?
     /// Scripted export failure (WorkExporter tests).
     var exportError: Error?
+    /// Scripted kudos answer, and the works kudos were sent for (KudosGiver tests).
+    var kudosResult: Result<KudosOutcome, Error> = .success(.left)
+    private(set) var kudosCalls: [Int] = []
 
     func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
         autocompleteCalls.append(term)
@@ -23,14 +31,14 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
 
     // Unused protocol stubs.
-    func login(username: String, password: String) async throws {}
+    func login(username: String, password: String) async throws -> String { username }
     func logout() async {}
     func currentUsername() async -> String? { nil }
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
-        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+        authorWorksResponse ?? AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
@@ -38,11 +46,18 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
+    func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
+        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+    }
     func fetchWork(id: Int) async throws -> AO3WorkPayload {
         AO3WorkPayload(summary: .stub(id: id, title: "x"), chapters: [])
     }
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
-        AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
+        if let workMetadataHTML { return try WorkMetadataParser.parse(html: workMetadataHTML, workId: id) }
+        return AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
+    }
+    func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
+        AO3Series(id: id, title: "x", creator: "x", works: [], currentPage: page)
     }
     func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
     func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
@@ -61,4 +76,13 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(filename).\(format.ext)")
     }
     func subscribeToWork(workId: Int) async throws {}
+    func leaveKudos(workId: Int) async throws -> KudosOutcome {
+        kudosCalls.append(workId)
+        return try kudosResult.get()
+    }
+    func fetchBookmarkForm(workId: Int) async throws -> AO3BookmarkForm {
+        AO3BookmarkForm(action: URL(string: "https://archiveofourown.org/works/\(workId)/bookmarks")!,
+                        hiddenFields: [:], isExisting: false)
+    }
+    func saveBookmark(_ form: AO3BookmarkForm) async throws {}
 }

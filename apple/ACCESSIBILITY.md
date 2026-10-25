@@ -44,8 +44,9 @@ to readers who need **larger text** or a **darker interface**.
 - **Reader profiles** save complete typography setups under a name, and
   iPhone, iPad, and Mac each keep their own settings — useful when different
   readers (or different lighting conditions) need very different text.
-- **Keyboard support**: arrow keys turn pages in the reader with a hardware
-  keyboard, and the Mac app has a global interface zoom in the View menu (⇧⌘+ / ⇧⌘−; ⌘0 for actual size), separate from the story's text size (⌘= / ⌘− in the Reader menu).
+- **Keyboard support**: in the reader, the arrow keys, Page Up / Page Down
+  and Space (Shift+Space back) turn pages or scroll a screenful with a
+  hardware keyboard or a Bluetooth page turner, and the Mac app has a global interface zoom in the View menu (⇧⌘+ / ⇧⌘−; ⌘0 for actual size), separate from the story's text size (⌘= / ⌘− in the Reader menu).
 - All reading preferences persist across the app and between sessions.
 
 ## Native by design

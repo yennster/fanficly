@@ -148,6 +148,8 @@ struct LibrarySort: Equatable, Sendable {
 struct LibrarySortMenu: View {
     @AppStorage(LibrarySort.keyStorageKey) private var keyRaw = LibrarySort.default.key.rawValue
     @AppStorage(LibrarySort.ascendingStorageKey) private var ascending = LibrarySort.default.ascending
+    /// Grows with the text size so the symbol never crowds its circle.
+    @ScaledMetric(relativeTo: .subheadline) private var buttonSize: CGFloat = 36
 
     private var sort: LibrarySort { LibrarySort(keyRaw: keyRaw, ascending: ascending) }
 
@@ -172,7 +174,7 @@ struct LibrarySortMenu: View {
             Image(systemName: "arrow.up.arrow.down")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(sort.isDefault ? Color.primary : Color.accentColor)
-                .frame(width: 36, height: 36)
+                .frame(width: buttonSize, height: buttonSize)
                 .background {
                     Circle()
                         .fill(sort.isDefault ? Color(.secondarySystemFill) : Color.accentColor.opacity(0.14))
