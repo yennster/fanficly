@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// AO3 sign-in. Logged out: username, password and Log in. Logged in: who you
+/// AO3 sign-in. Logged out: username or email, password and Log in. Logged in: who you
 /// are and Log out. Session expired (#131): the form again, with the username
 /// filled in and a note saying why.
 struct LoginView: View {
@@ -29,7 +29,7 @@ struct LoginView: View {
                     }
                 }
                 Section {
-                    TextField("Username", text: $username)
+                    TextField("Username or email", text: $username)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

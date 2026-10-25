@@ -569,6 +569,11 @@ final class LoginParserTests: XCTestCase {
         XCTAssertNil(try LoginParser.currentUsername(html: html))
     }
 
+    func test_currentUsernameSkipsTheGuestHeadersLoginLink() throws {
+        // Every signed-out page's header links to /users/login?return_to=… (#144).
+        XCTAssertNil(try LoginParser.currentUsername(html: "<html><body>\(AO3PageFixtures.guestHeader)</body></html>"))
+    }
+
     func test_hasLoginForm() throws {
         let withForm = "<html><body><form id=\"new_user\"><input name=\"user[login]\"></form></body></html>"
         XCTAssertTrue(try LoginParser.hasLoginForm(html: withForm))

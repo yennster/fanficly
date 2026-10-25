@@ -162,6 +162,12 @@ struct FanficlyApp: App {
                     if !Self.isDemoMode {
                         ReadingStatsBackfill.runIfNeeded(in: context)
                     }
+
+                    // Older builds stored the email address a reader signed
+                    // in with; swap it for the AO3 login name (#144).
+                    if !Self.isDemoMode {
+                        await auth.repairStoredLogin(using: client)
+                    }
                 }
         }
         .modelContainer(Self.sharedModelContainer)
