@@ -92,6 +92,7 @@ struct FanficlyApp: App {
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("app.zoomScale") private var zoomScale: Double = UIZoom.actualSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
 
     var body: some Scene {
         WindowGroup {
@@ -176,9 +177,10 @@ struct FanficlyApp: App {
         .commands {
             SidebarCommands()
 
-            // In the system View menu, after Show/Hide Sidebar. RootView keeps
-            // the other spellings of these keys (⌘+, ⌘=, ⌘−, ⇧⌘=) as hidden
-            // shortcuts, since a menu item shows only one.
+            // In the system View menu, after Show/Hide Sidebar. ⌘+ / ⌘− are
+            // the reader's text size (the Reader menu). RootView keeps the
+            // other spellings of these keys (⇧⌘=, ⇧⌘_) as hidden shortcuts,
+            // since a menu item shows only one.
             CommandGroup(after: .sidebar) {
                 Divider()
 
@@ -290,6 +292,22 @@ struct FanficlyApp: App {
                         }
                     }
                 }
+
+                Divider()
+
+                // The same text size the Aa menu and Settings → Reader set on
+                // this device. Bigger Text is ⌘=, not ⌘+: on a US layout ⌘+ is
+                // typed as ⇧⌘=, which is Zoom In's key, so "+" here would
+                // claim the same keystroke as Zoom In.
+                Button("Bigger Text") {
+                    fontSizePt = ReaderMetrics.steppedFontSize(fontSizePt, bigger: true)
+                }
+                .keyboardShortcut("=", modifiers: [.command])
+
+                Button("Smaller Text") {
+                    fontSizePt = ReaderMetrics.steppedFontSize(fontSizePt, bigger: false)
+                }
+                .keyboardShortcut("-", modifiers: [.command])
             }
         }
         .backgroundTask(.appRefresh(BackgroundRefresh.identifier)) {
