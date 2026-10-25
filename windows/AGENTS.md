@@ -226,7 +226,7 @@ windows/
                                #   SpeechController (Listen), WorkExporter,
                                #   WorkHeaderMetadataView, ReaderPrefs, ReaderBrushes
   tests/
-    Fanficly.Core.Tests/       # xUnit, 721 cases, fixture-based, no network
+    Fanficly.Core.Tests/       # xUnit, 725 cases, fixture-based, no network
     Fanficly.UITests/          # FlaUI: SmokeTests, ScreenshotTests,
                                #   ReaderLayoutTests (Windows only)
 ```
