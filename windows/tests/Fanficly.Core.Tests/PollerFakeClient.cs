@@ -55,9 +55,9 @@ internal sealed class PollerFakeClient : IAO3Client
         return $"/library/{workId}.epub";
     }
 
-    public Task LoginAsync(string username, string password, CancellationToken ct = default) => throw new NotSupportedException();
+    public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => throw new NotSupportedException();
     public Task LogoutAsync() => throw new NotSupportedException();
-    public Task<string?> CurrentUsernameAsync() => Task.FromResult<string?>(null);
+    public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
     public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) => throw new NotSupportedException();
