@@ -213,6 +213,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         _isSavingOffline = true;
         UpdateMoreButton();
         MainWindow.Current.Announce("Saving for offline reading");
+        var textSaved = false;
         try
         {
             // Make sure we have the whole work to keep its chapters (never
@@ -232,6 +233,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
                 WorkPersistence.Upsert(toSave, AppHost.Library);
                 _payload = toSave;
                 _isWholeWork = true;
+                textSaved = true;
             }
             await AppHost.Client.DownloadEpubAsync(_work.Ao3Id);
             _isDownloaded = true;
@@ -240,7 +242,9 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         catch (Exception e)
         {
             AppHost.Log($"Save offline failed: {e}");
-            await Dialogs.AlertAsync("Couldn't download for offline", e.Message);
+            await Dialogs.AlertAsync("Couldn't download for offline", textSaved
+                ? $"The text is saved for offline reading, but the EPUB download failed: {e.Message}"
+                : e.Message);
         }
         finally
         {
