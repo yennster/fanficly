@@ -202,6 +202,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - A `BookmarkScreen` (Notes, Your tags, Rec, Private bookmark; Cancel and Save), opened from "Bookmark on AO3" in the live work page's options menu and the saved reader's More menu (`work.options.bookmark`); signed out the item opens sign-in.
 - **Done when:** parser and client tests cover a new and an existing bookmark, the posted fields, a login redirect, AO3's error list, and a create that stays on the form; every `IAO3Client` implementation has the two methods.
 - **Touches:** `windows/src/Fanficly.Core/Networking/*`, `Parsing/WorkPageParser.cs`, `Demo/DemoAO3Client.cs`, `windows/src/Fanficly.App/Views/Account/`, `Views/Reader/{WorkDetailScreen,SavedWorkReaderScreen}.cs`, `Views/Routes.cs`, `windows/tests/Fanficly.Core.Tests/`.
+
 ### RM-122 — Series page and "next in series"
 - **Status:** done · **Size:** M · **Validation:** unit + windows
 - **Why:** The Windows port of the Apple app's RM-007 (#79: `SeriesParser`, `AO3Client.fetchSeries`, `SeriesView`), so a work in a series shows where it sits and opens the rest.
