@@ -122,6 +122,14 @@ Lane `beta` builds and uploads to TestFlight only, with the same notes as
 the TestFlight "What to Test", and doesn't tag. `metadata_only` pushes copy
 and screenshots without a build.
 
+When a `release` run stops after its builds reached App Store Connect (a
+store step failed, so the tag job never ran), lane `tag_only` finishes it
+without building again: it tags `vX.Y.Z` on `sha` (the commit the builds came
+from) and publishes the GitHub release, listing `build` as the build numbers.
+```bash
+gh workflow run release.yml -f lane=tag_only -f sha=<commit> -f build="219 for iOS, 220 for Mac"
+```
+
 ## Regenerating the store art
 
 Run **Store assets**:
