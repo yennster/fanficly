@@ -225,7 +225,8 @@ def fetch(sha: str, out: Path) -> None:
         sys.exit(f"No Xcode Cloud workflow named {NAME}")
     # The check can end a little before the API shows the build complete.
     for _ in range(10):
-        builds = req("GET", f"{API}/ciWorkflows/{wf['id']}/buildRuns", params={"limit": 50})["data"]
+        # Every page: the API doesn't list the newest builds first.
+        builds = all_pages(f"{API}/ciWorkflows/{wf['id']}/buildRuns")
         builds = sorted(builds, key=lambda b: b["attributes"].get("number") or 0, reverse=True)
         build = next((b for b in builds
                       if (b["attributes"].get("sourceCommit") or {}).get("commitSha") == sha), None)
