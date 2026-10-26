@@ -183,8 +183,8 @@ final class ReaderLayoutTests: XCTestCase {
         }
         app.terminate()
         if before < 170 {
+            poseToRestore = before  // before the assert, which ends the test if it fails
             XCTAssertTrue(DuoHinge.set(180), "the hinge opened to 180° (it was \(before)°)")
-            poseToRestore = before
             sleep(3)  // the app moves to the inner display 1–2.5 s after the hinge
         }
         launchWithFullWidthMargins()
@@ -767,8 +767,9 @@ final class NonReaderAccessibilityTests: XCTestCase {
 /// hinge slider sends, through the simulator's private IOHIDEventSystem, and
 /// reads the angle back from CoreMotion's private CMAngleManager, which UIKit's
 /// UIHinge reads. The protocol is the one artemnovichkov/hinge (MIT) found,
-/// verified with Xcode 27.1 and 27.2 on the iOS 27.1 runtime; a later Xcode
-/// may change it, and then `angle()` returns nil and the test skips.
+/// verified with Xcode 27.1 and 27.2 on the iOS 27.1 runtime. A later Xcode
+/// may change it: then the test skips (no angle to read) or fails saying the
+/// Duo didn't unfold.
 enum DuoHinge {
     private typealias CreateVendorEvent = @convention(c) (CFAllocator?, UInt64, UInt32, UInt32, UInt32,
                                                           UnsafePointer<UInt8>?, CFIndex, UInt32) -> OpaquePointer?
