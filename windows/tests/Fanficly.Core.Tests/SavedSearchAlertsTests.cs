@@ -133,6 +133,75 @@ public sealed class SavedSearchAlertsTests
         Assert.Null(search.AlertsBaselineAt);
     }
 
+    // Deleted, or alerts switched off and on again, while the search runs: the
+    // results belong to nothing any more.
+    [Fact]
+    public async Task SearchDeletedOrSwitchedMidCheckIsLeftAlone()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var search = Alerting(store);
+        var client = new PollerFakeClient { SearchResults = [Work(30)] };
+        client.OnRequest = _ => store.Delete(search);
+        Assert.Equal(0, await new SubscriptionPoller(client, store, null).CheckSavedSearchAsync(search));
+        Assert.Empty(search.AlertKnownWorkIds);
+
+        var other = Alerting(store, "angst");
+        var changedAt = other.AlertsChangedAt;
+        client.OnRequest = _ =>
+        {
+            SavedSearchAlerts.SetAlerts(false, other, store);
+            SavedSearchAlerts.SetAlerts(true, other, store);
+            other.AlertsChangedAt = changedAt!.Value.AddSeconds(1);
+        };
+        await new SubscriptionPoller(client, store, null).CheckSavedSearchAsync(other);
+        Assert.Empty(other.AlertKnownWorkIds);
+        Assert.Null(other.AlertsBaselineAt);
+    }
+
+    // Only a check that read the results counts: a failed one or a guest page
+    // (signed in, session expired: restricted works left out) leaves the
+    // baseline and the last check alone, and only moves the poll rotation on.
+    [Fact]
+    public async Task FailedAndGuestChecksDontCount()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var search = Alerting(store);
+        var client = new PollerFakeClient { SearchResults = [Work(30)] };
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, "me", notifier);
+        await poller.CheckSavedSearchAsync(search);
+        var checkedAt = search.AlertsLastCheckedAt;
+
+        client.SearchResults = [Work(50), Work(30)];
+        client.SearchServedAsGuest = true;
+        Assert.Equal(0, await poller.CheckSavedSearchAsync(search));
+        Assert.True(poller.SessionExpired);
+        Assert.Equal([30], search.AlertKnownWorkIds);
+        Assert.Equal(checkedAt, search.AlertsLastCheckedAt);
+
+        client.SearchResults = null;
+        Assert.Equal(0, await poller.CheckSavedSearchAsync(search));
+        Assert.Equal(checkedAt, search.AlertsLastCheckedAt);
+        Assert.NotNull(search.AlertsAttemptedAt);
+        Assert.Empty(notifier.Posted);
+    }
+
+    // A backup merge can bring in more alerting searches than one device lets
+    // the reader switch on; the poll still runs at most the limit.
+    [Fact]
+    public async Task FullPollRunsAtMostTheAlertLimit()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        for (var i = 0; i < SavedSearchAlerts.MaxAlertingSearches + 2; i++)
+            store.Insert(new SavedSearch($"Search {i}", $"tag{i}") { AlertsEnabled = true, AlertsChangedAt = T0.AddMinutes(i) });
+        store.Save();
+        var client = new PollerFakeClient { SearchResults = [] };
+        await new SubscriptionPoller(client, store, null).RunFullPollAsync();
+        Assert.Equal(SavedSearchAlerts.MaxAlertingSearches, client.SearchFilters.Count);
+        // The two switched on first are the ones left out.
+        Assert.DoesNotContain(client.SearchFilters, f => f.Query is "tag0" or "tag1");
+    }
+
     [Fact]
     public void NewMatchesRules()
     {

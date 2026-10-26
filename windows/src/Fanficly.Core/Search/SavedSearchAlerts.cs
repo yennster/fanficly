@@ -81,6 +81,7 @@ public static class SavedSearchAlerts
         search.AlertKnownWorkIds = [];
         search.AlertsBaselineAt = null;
         search.AlertsLastCheckedAt = null;
+        search.AlertsAttemptedAt = null;
         search.AlertNewWorkIds = [];
     }
 

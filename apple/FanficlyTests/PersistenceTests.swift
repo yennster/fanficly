@@ -2832,6 +2832,91 @@ final class PersistenceTests: XCTestCase {
         XCTAssertNotNil(search.alertsBaselineAt)
     }
 
+    // Deleted while the search runs: the results belong to nothing, and the
+    // deleted model isn't touched.
+    func test_savedSearch_deletedMidCheck_isLeftAlone() async throws {
+        let ctx = try makeContext()
+        let search = try alertingSearch(in: ctx)
+        let client = StubAO3Client()
+        client.searchResponse = AO3SearchResults(works: [searchWork(30)], totalPages: 1, currentPage: 1)
+        client.onSearch = {
+            ctx.delete(search)
+            try? ctx.save()
+        }
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkSavedSearch(search)
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<SavedSearch>()), 0)
+    }
+
+    // Edited on the Search tab while a background check (its own context)
+    // runs: the old search's results don't become the new one's baseline.
+    func test_savedSearch_editedInAnotherContextMidCheck_keepsItsFreshBaseline() async throws {
+        let ctx = try makeContext()
+        let search = try alertingSearch(in: ctx)
+        let client = StubAO3Client()
+        client.searchResponse = AO3SearchResults(works: [searchWork(30)], totalPages: 1, currentPage: 1)
+        client.onSearch = {
+            let ui = ModelContext(ctx.container)
+            guard let edited = try? ui.fetch(FetchDescriptor<SavedSearch>()).first else { return XCTFail("no search") }
+            edited.prompt = "angst"
+            SavedSearchAlerts.resetBaseline(of: edited)
+            try? ui.save()
+        }
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        _ = await poller.checkSavedSearch(search)
+        XCTAssertTrue(search.alertKnownWorkIds.isEmpty)
+        XCTAssertNil(search.alertsBaselineAt)
+    }
+
+    // Only a check that read the results counts: a failed one or a guest page
+    // (signed in, session expired: restricted works left out) leaves the
+    // baseline and the last check alone, and only moves the poll rotation on.
+    func test_savedSearch_failedAndGuestChecksDontCount() async throws {
+        let ctx = try makeContext()
+        let search = try alertingSearch(in: ctx)
+        let client = StubAO3Client()
+        client.searchResponse = AO3SearchResults(works: [searchWork(30)], totalPages: 1, currentPage: 1)
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        _ = await poller.checkSavedSearch(search)
+        let checkedAt = search.alertsLastCheckedAt
+        XCTAssertNotNil(checkedAt)
+
+        client.searchResponse = AO3SearchResults(works: [searchWork(50), searchWork(30)],
+                                                 totalPages: 1, currentPage: 1, servedAsGuest: true)
+        let guest = await poller.checkSavedSearch(search)
+        XCTAssertEqual(guest, 0)
+        XCTAssertEqual(search.alertKnownWorkIds, [30])
+        XCTAssertEqual(search.alertsLastCheckedAt, checkedAt)
+
+        client.searchError = URLError(.timedOut)
+        let failed = await poller.checkSavedSearch(search)
+        XCTAssertEqual(failed, 0)
+        XCTAssertEqual(search.alertsLastCheckedAt, checkedAt)
+        XCTAssertNotNil(search.alertsAttemptedAt)
+        XCTAssertTrue(search.alertNewWorkIds.isEmpty)
+    }
+
+    // A backup merge can bring in more alerting searches than one device
+    // lets the reader switch on; the poll still runs at most the limit.
+    func test_fullPoll_runsAtMostTheAlertLimit() async throws {
+        let ctx = try makeContext()
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        for i in 0..<(SavedSearchAlerts.maxAlertingSearches + 2) {
+            let search = SavedSearch(name: "Search \(i)", prompt: "tag\(i)")
+            search.alertsEnabled = true
+            search.alertsChangedAt = t0.addingTimeInterval(Double(i) * 60)
+            ctx.insert(search)
+        }
+        try ctx.save()
+        let client = StubAO3Client()
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        _ = await poller.runFullPoll()
+        XCTAssertEqual(client.searchCalls.count, SavedSearchAlerts.maxAlertingSearches)
+        // The two switched on first are the ones left out.
+        XCTAssertFalse(client.searchCalls.contains { $0.query == "tag0" || $0.query == "tag1" })
+    }
+
     func test_savedSearchNewMatches_rules() {
         let lastCheck = Date(timeIntervalSince1970: 1_800_000_000)
         let recent = lastCheck.addingTimeInterval(-3600)

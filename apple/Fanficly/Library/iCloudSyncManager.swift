@@ -1354,7 +1354,11 @@ final class iCloudSyncManager {
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
                     let merged = Self.mergedSearch(local: SearchBackup(search: existing), other: s)
-                    if merged.prompt != existing.prompt { existing.alertNewWorkIds = [] }
+                    // A new prompt or a newer alert switch replaces the
+                    // baseline, so the "New" count from the old one goes too.
+                    if merged.prompt != existing.prompt || merged.alertsChangedAt != existing.alertsChangedAt {
+                        existing.alertNewWorkIds = []
+                    }
                     merged.apply(to: existing)
                 } else {
                     let search = SavedSearch(name: s.name, prompt: s.prompt, sortColumn: s.sortColumn, sortDirection: s.sortDirection, savedAt: s.savedAt)

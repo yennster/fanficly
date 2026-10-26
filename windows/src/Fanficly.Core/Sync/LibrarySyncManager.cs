@@ -1182,7 +1182,10 @@ public sealed class LibrarySyncManager
                 // Forward-only, like the backup merge: an older copy can't undo an
                 // edit or an alert switch, or make alerts fire again (#309).
                 var m = MergedSearch(SearchBackupOf(existing), search);
-                if (m.Prompt != existing.Prompt) existing.AlertNewWorkIds = [];
+                // A new prompt or a newer alert switch replaces the baseline, so
+                // the "New" count from the old one goes too.
+                if (m.Prompt != existing.Prompt || m.AlertsChangedAt != existing.AlertsChangedAt)
+                    existing.AlertNewWorkIds = [];
                 ApplySearch(m, existing);
             }
             else

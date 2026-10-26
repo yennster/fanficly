@@ -263,7 +263,13 @@ final class SavedSearch {
     /// When the baseline was first taken. Nil until then: the first check
     /// only records what's there, so it never alerts for the back catalogue.
     var alertsBaselineAt: Date?
+    /// When a check last read this search's results. A check that was cut
+    /// off, failed or got a guest page doesn't count.
     var alertsLastCheckedAt: Date?
+    /// When a check last started, whatever came of it: the full poll's
+    /// rotation, so a search that keeps failing can't hold the front of the
+    /// queue. This device only; not backed up.
+    var alertsAttemptedAt: Date?
     /// Works that alerted and haven't been looked at yet (the "New" count).
     /// This device only; not backed up.
     var alertNewWorkIds: [Int] = []

@@ -230,6 +230,7 @@ internal static class LibrarySchema
             AddColumnIfMissing(conn, "saved_searches", "alerts_baseline_at", "INTEGER");
             AddColumnIfMissing(conn, "saved_searches", "alerts_last_checked_at", "INTEGER");
             AddColumnIfMissing(conn, "saved_searches", "alert_new_work_ids", "TEXT NOT NULL DEFAULT '[]'");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_attempted_at", "INTEGER");
         },
     ];
 

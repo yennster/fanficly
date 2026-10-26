@@ -17,6 +17,9 @@ enum SavedSearchAlerts {
     /// check is older than this (the background refresh rarely has time for
     /// an AO3 search, see `checkStaleSavedSearches`).
     static let foregroundCheckInterval: TimeInterval = 4 * 60 * 60
+    /// …and no check has started in this long, so a search that's failing
+    /// (or was just cut off) isn't retried every time the tab appears.
+    static let foregroundRetryInterval: TimeInterval = 15 * 60
 
     /// What a check runs: exactly the saved search's keywords and filters,
     /// nothing inferred, sorted by date posted, newest first.
@@ -88,6 +91,7 @@ enum SavedSearchAlerts {
         search.alertKnownWorkIds = []
         search.alertsBaselineAt = nil
         search.alertsLastCheckedAt = nil
+        search.alertsAttemptedAt = nil
         search.alertNewWorkIds = []
     }
 

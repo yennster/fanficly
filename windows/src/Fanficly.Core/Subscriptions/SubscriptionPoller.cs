@@ -202,7 +202,7 @@ public sealed class SubscriptionPoller
             targets.AddRange(WorkSubscriptionRecords().Select(r => (r.LastCheckedAt, (Func<Task<int>>)(() => CheckWorkSubscriptionAsync(r, ct)))));
         targets.AddRange(FollowedWorks().Select(w => (w.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedWorkAsync(w, ct)))));
         targets.AddRange(FollowedAuthors().Select(a => (a.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedAuthorAsync(a, ct)))));
-        targets.AddRange(AlertingSearches().Select(s => (s.AlertsLastCheckedAt, (Func<Task<int>>)(() => CheckSavedSearchAsync(s, ct)))));
+        targets.AddRange(AlertingSearches().Select(s => (s.AlertsAttemptedAt ?? s.AlertsLastCheckedAt, (Func<Task<int>>)(() => CheckSavedSearchAsync(s, ct)))));
         var ordered = targets.OrderBy(t => t.LastCheckedAt ?? DateTimeOffset.MinValue).ToList();
 
         var total = 0;
@@ -320,45 +320,58 @@ public sealed class SubscriptionPoller
 
     /// <summary>Run a saved search with alerts on, newest posted first (one
     /// throttled request), and alert for works posted since its baseline. The
-    /// first check after alerts go on only takes the baseline.</summary>
+    /// first check after alerts go on only takes the baseline. Only a check that
+    /// reads the results counts as one (<see cref="SavedSearch.AlertsLastCheckedAt"/>):
+    /// one that's cut off, fails, comes back stale or gets a guest page leaves the
+    /// baseline and the last check alone.</summary>
     public async Task<int> CheckSavedSearchAsync(SavedSearch search, CancellationToken ct = default)
     {
         var checkedBefore = search.AlertsLastCheckedAt;
         var prompt = search.Prompt;
+        var changedAt = search.AlertsChangedAt;
         var filters = SavedSearchAlerts.Filters(prompt);
+        search.AlertsAttemptedAt = DateTimeOffset.Now;
+        AO3SearchResults result;
         try
         {
-            var result = await _client.SearchAsync(filters, 1, ct).ConfigureAwait(false);
-            // An AO3 search can take half a minute: if the search was edited or
-            // its alerts switched off meanwhile, these results are stale.
-            if (!search.AlertsEnabled || search.Prompt != prompt) return 0;
-            if (Username is not null && result.ServedAsGuest) SessionExpired = true;
-            var fresh = SavedSearchAlerts.NewMatches(result.Works, search.AlertKnownWorkIds.ToHashSet(),
-                                                     search.AlertsBaselineAt is not null, checkedBefore);
-            search.AlertsBaselineAt ??= DateTimeOffset.Now;
-            search.AlertKnownWorkIds = SavedSearchAlerts.Baseline(search.AlertKnownWorkIds, result.Works.Select(w => w.Id));
-            // The same rules as the results list: hidden works, blocked tags and
-            // authors (except ones the search names) and, when that setting is on,
-            // Mature and Explicit works never alert.
-            var shown = ContentFilter.Apply(fresh, HiddenWorkStore.Ids(_store),
-                KeyValueStores.Default.GetBool(ContentControl.FilterMatureKey, true),
-                Blocklist.From(_store).Lifting(filters));
-            if (shown.Count == 0) return 0;
-            var alreadyNew = search.AlertNewWorkIds.ToHashSet();
-            search.AlertNewWorkIds = search.AlertNewWorkIds.Concat(shown.Select(w => w.Id).Where(id => !alreadyNew.Contains(id))).ToList();
-            await PostAsync(SavedSearchContent(search.Name, prompt, shown)).ConfigureAwait(false);
-            return shown.Count;
+            result = await _client.SearchAsync(filters, 1, ct).ConfigureAwait(false);
         }
         catch (Exception e)
         {
-            FailedChecks++;
+            if (e is not OperationCanceledException) FailedChecks++;
             LibraryHooks.Log?.Invoke($"Skipping saved search {search.Name}: {e.Message}");
             return 0;
         }
-        finally
+        // An AO3 search can take half a minute: if the search was deleted, edited
+        // or its alerts switched (off, or off and on again) meanwhile, these
+        // results are stale.
+        if (!ReferenceEquals(_store.GetSavedSearch(search.Name), search) || !search.AlertsEnabled
+            || search.Prompt != prompt || search.AlertsChangedAt != changedAt) return 0;
+        // Signed in but served the guest page: the session expired, and the
+        // results leave out restricted works. Recording them would mark the
+        // public ones seen ahead of the restricted ones, which then never alert.
+        if (Username is not null && result.ServedAsGuest)
         {
-            search.AlertsLastCheckedAt = DateTimeOffset.Now;
+            SessionExpired = true;
+            return 0;
         }
+        var fresh = SavedSearchAlerts.NewMatches(result.Works, search.AlertKnownWorkIds.ToHashSet(),
+                                                 search.AlertsBaselineAt is not null, checkedBefore);
+        search.AlertsBaselineAt ??= DateTimeOffset.Now;
+        search.AlertKnownWorkIds = SavedSearchAlerts.Baseline(search.AlertKnownWorkIds, result.Works.Select(w => w.Id));
+        search.AlertsLastCheckedAt = DateTimeOffset.Now;
+        if (fresh.Count == 0) return 0;
+        // The same rules as the results list: hidden works, blocked tags and
+        // authors (except ones the search names) and, when that setting is on,
+        // Mature and Explicit works never alert.
+        var shown = ContentFilter.Apply(fresh, HiddenWorkStore.Ids(_store),
+            KeyValueStores.Default.GetBool(ContentControl.FilterMatureKey, true),
+            Blocklist.From(_store).Lifting(filters));
+        if (shown.Count == 0) return 0;
+        var alreadyNew = search.AlertNewWorkIds.ToHashSet();
+        search.AlertNewWorkIds = search.AlertNewWorkIds.Concat(shown.Select(w => w.Id).Where(id => !alreadyNew.Contains(id))).ToList();
+        await PostAsync(SavedSearchContent(search.Name, prompt, shown)).ConfigureAwait(false);
+        return shown.Count;
     }
 
     // MARK: - Record fetches
@@ -369,7 +382,12 @@ public sealed class SubscriptionPoller
 
     private IReadOnlyList<FollowedAuthor> FollowedAuthors() => _store.Where<FollowedAuthor>(a => a.Username.Length > 0);
 
-    private IReadOnlyList<SavedSearch> AlertingSearches() => _store.Where<SavedSearch>(s => s.AlertsEnabled);
+    /// <summary>At most <see cref="SavedSearchAlerts.MaxAlertingSearches"/>, the most
+    /// recently switched on first: a backup merge can bring in more than this PC
+    /// lets the reader switch on, and each one costs an AO3 search per poll.</summary>
+    private IReadOnlyList<SavedSearch> AlertingSearches() => _store.Where<SavedSearch>(s => s.AlertsEnabled)
+        .OrderByDescending(s => s.AlertsChangedAt ?? DateTimeOffset.MinValue)
+        .Take(SavedSearchAlerts.MaxAlertingSearches).ToList();
 
     private async Task PostAsync(LocalNotification notification)
     {
