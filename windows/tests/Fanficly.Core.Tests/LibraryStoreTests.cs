@@ -505,8 +505,8 @@ public sealed class LibraryStoreTests : IDisposable
     public void RecentlyViewedHelpersRemoveAndClear()
     {
         using var store = LibraryStore.OpenInMemory();
-        WorkPersistence.RecordView(1, "One", "A", "F", store);
-        WorkPersistence.RecordView(2, "Two", "A", "F", store);
+        WorkPersistence.RecordView(new AO3WorkSummary { Id = 1, Title = "One", Author = "A", Fandoms = ["F"] }, store);
+        WorkPersistence.RecordView(new AO3WorkSummary { Id = 2, Title = "Two", Author = "A", Fandoms = ["F"] }, store);
         WorkPersistence.RemoveViews([store.GetRecentlyViewed(1)!], store);
         Assert.Equal([2], store.All<RecentlyViewed>().Select(r => r.Ao3Id));
         WorkPersistence.ClearRecentlyViewed(store);

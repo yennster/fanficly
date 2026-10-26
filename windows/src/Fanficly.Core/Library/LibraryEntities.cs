@@ -764,8 +764,7 @@ public sealed class RecentlyViewed : LibraryEntity
     }
 
     /// <summary>The entry as a summary for the result row. Older entries
-    /// without details carry only the title, author and fandom, which the row
-    /// shows alone.</summary>
+    /// without details carry only the title, author and fandom.</summary>
     public AO3WorkSummary ToSummary() => new()
     {
         Id = Ao3Id,

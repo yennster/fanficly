@@ -10,8 +10,9 @@ struct RecentlyViewedView: View {
     @Query(sort: \RecentlyViewed.viewedAt, order: .reverse) private var recents: [RecentlyViewed]
     @State private var showingClearConfirmation = false
     @State private var badges: [Int: ResultBadge] = [:]
-    /// Library copies of entries recorded before the history kept story
-    /// details, so those rows can still show them.
+    /// Library copies of the entries' stories. A saved story's copy wins over
+    /// the entry's snapshot, which can be older: the bookmark button writes
+    /// the row's summary over the saved Work.
     @State private var savedSummaries: [Int: AO3WorkSummary] = [:]
 
     var body: some View {
@@ -44,9 +45,8 @@ struct RecentlyViewedView: View {
                 }
                 .listStyle(.plain)
                 .toolbar { EditButton() }
-                .resultBadges(for: recents.map(rowSummary(for:)), into: $badges)
-                .onAppear(perform: loadSavedSummaries)
-                .onChange(of: recents.map(\.ao3Id)) { loadSavedSummaries() }
+                .onAppear(perform: refresh)
+                .onChange(of: recents.map(\.ao3Id)) { refresh() }
             }
         }
         .navigationTitle("Recently Viewed")
@@ -72,18 +72,21 @@ struct RecentlyViewedView: View {
         }
     }
 
-    /// The entry's own details, or the Library's for an entry recorded
-    /// before the history kept them.
+    /// The Library's copy of a saved story, else the entry's own details
+    /// (title, author and fandom alone for an entry recorded before the
+    /// history kept details).
     private func rowSummary(for item: RecentlyViewed) -> AO3WorkSummary {
-        if !item.hasDetails, let saved = savedSummaries[item.ao3Id] { return saved }
-        return item.workSummary
+        savedSummaries[item.ao3Id] ?? item.workSummary
     }
 
-    private func loadSavedSummaries() {
-        let ids = recents.filter { !$0.hasDetails }.map(\.ao3Id)
-        guard !ids.isEmpty else { savedSummaries = [:]; return }
-        let saved = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
+    /// Reloads the Library copies, then the badges from them (the
+    /// `.resultBadges(for:into:)` lookup, run after the copies are in so a
+    /// saved story's completion counts).
+    private func refresh() {
+        let ids = recents.map(\.ao3Id)
+        let saved = ids.isEmpty ? [] : (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
         savedSummaries = Dictionary(saved.map { ($0.ao3Id, $0.workSummary) }, uniquingKeysWith: { first, _ in first })
+        badges = WorkPersistence.resultBadges(for: recents.map(rowSummary(for:)), in: context)
     }
 
     private func remove(_ item: RecentlyViewed) {

@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.System;
 
 namespace Fanficly.App.Views.History;
@@ -61,7 +62,8 @@ internal sealed class RecentlyViewedScreen : Screen
             if (e.Key != VirtualKey.Delete) return;
             e.Handled = true;
             if (_editing) RemoveSelected();
-            else if (FocusManager.GetFocusedElement(_list.XamlRoot) is ListViewItem container && Entry(container) is { } item)
+            // The focus can be on the row's bookmark button, inside the item.
+            else if (ContainerOf(FocusManager.GetFocusedElement(_list.XamlRoot) as DependencyObject) is { } container && Entry(container) is { } item)
                 Remove([item]);
         };
 
@@ -147,13 +149,14 @@ internal sealed class RecentlyViewedScreen : Screen
 
     /// <summary>A result row (WorkRow's content), like AO3 History's: reading
     /// badge, rating, words, reading time, chapters, kudos, summary and the
-    /// bookmark button. An entry recorded before the history kept details
-    /// borrows the Library's copy; with neither it shows title, author and
-    /// fandom, and no bookmark button, since saving it would put an empty
-    /// record in the Library.</summary>
+    /// bookmark button. A saved story's Library copy wins over the entry's
+    /// snapshot, which can be older (the bookmark writes the row's summary
+    /// over the saved Work). An entry recorded before the history kept
+    /// details, with no Library copy, shows title and author with no bookmark
+    /// button, since saving it would put an empty record in the Library.</summary>
     private ListViewItem Row(RecentlyViewed item)
     {
-        var saved = item.HasDetails ? null : AppHost.Library.GetWork(item.Ao3Id);
+        var saved = AppHost.Library.GetWork(item.Ao3Id);
         var summary = saved?.ToSummary() ?? item.ToSummary();
         ListViewItem? container = null;
         var (view, refresh) = WorkRow.Parts(summary,
@@ -177,6 +180,12 @@ internal sealed class RecentlyViewedScreen : Screen
             new MenuFlyoutSeparator(),
             UI.UI.MenuItem("Remove", () => Remove([item]), "trash", isDestructive: true));
         return container;
+    }
+
+    private static ListViewItem? ContainerOf(DependencyObject? element)
+    {
+        while (element is not null and not ListViewItem) element = VisualTreeHelper.GetParent(element);
+        return element as ListViewItem;
     }
 
     private static RecentlyViewed? Entry(object? element) => element switch

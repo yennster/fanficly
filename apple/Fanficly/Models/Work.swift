@@ -310,7 +310,7 @@ final class RecentlyViewed {
     }
 
     /// The entry as a summary for `WorkRow`. Older entries without details
-    /// carry only the title, author and fandom, which the row shows alone.
+    /// carry only the title, author and fandom.
     var workSummary: AO3WorkSummary {
         AO3WorkSummary(
             id: ao3Id, title: title, author: author, authorUsername: authorUsername,

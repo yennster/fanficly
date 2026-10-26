@@ -252,23 +252,6 @@ public static class WorkPersistence
     public static void RecordView(Work work, LibraryStore store, int limit = 50) =>
         RecordView(work.ToSummary(), store, limit);
 
-    /// <summary>Upsert a recently-viewed entry with no story details, then trim the list.</summary>
-    public static void RecordView(int ao3Id, string title, string author, string fandom, LibraryStore store, int limit = 50)
-    {
-        if (store.GetRecentlyViewed(ao3Id) is { } existing)
-        {
-            existing.ViewedAt = DateTimeOffset.Now;
-            existing.Title = title;
-            existing.Author = author;
-            existing.Fandom = fandom;
-        }
-        else
-        {
-            store.Insert(new RecentlyViewed(ao3Id, title, author, fandom));
-        }
-        Trim(store, limit);
-    }
-
     private static void Trim(LibraryStore store, int limit)
     {
         var all = store.RecentlyViewedNewestFirst();
