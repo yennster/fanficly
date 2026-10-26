@@ -1235,8 +1235,11 @@ struct ReaderView: View {
     static let pageVerticalMargin: CGFloat = 12
 
     private func columnWidth(_ containerWidth: CGFloat, widthPercent percent: Double? = nil) -> CGFloat {
+        // The zoomed size, as performPagination caps the column with: the
+        // unzoomed one drew a capped column narrower than it was paginated
+        // at whenever the zoom was below 1, and pages ran a line past the end.
         ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
-                                      fontSize: fontSizePt, limitLineLength: Self.limitsLineLength)
+                                      fontSize: Double(fontSize), limitLineLength: Self.limitsLineLength)
     }
 
     /// Scrolls the paragraph that was on top back to the top once a resize
