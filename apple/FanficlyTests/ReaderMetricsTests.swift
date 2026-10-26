@@ -99,6 +99,36 @@ final class ReaderSpreadTests: XCTestCase {
 /// Page-by-page's page height: pages fill the page area on screen, shrink at
 /// once and grow only once the area settles. The heights are an iPhone's page
 /// area: 700 with the controls up, 784 with them hidden.
+/// Which side insets the reader runs under (`RunUnderSideColumn`).
+final class ReaderSideColumnTests: XCTestCase {
+    private func edges(leading: CGFloat, trailing: CGFloat, isPhone: Bool = true) -> Edge.Set {
+        RunUnderSideColumn.columnEdges(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: trailing),
+                                        isPhone: isPhone)
+    }
+
+    func test_duoColumn_isRunUnder() {
+        XCTAssertEqual(edges(leading: 0, trailing: 64), .trailing)
+        XCTAssertEqual(edges(leading: 64, trailing: 0), .leading)
+    }
+
+    func test_duoColumnBesideASidebar_onlyTheColumnIsRunUnder() {
+        XCTAssertEqual(edges(leading: 320, trailing: 64), .trailing)
+    }
+
+    func test_landscapeNotch_isKept() {
+        XCTAssertEqual(edges(leading: 62, trailing: 62), [])
+    }
+
+    func test_noInsets_orASidebarAlone_changeNothing() {
+        XCTAssertEqual(edges(leading: 0, trailing: 0), [])
+        XCTAssertEqual(edges(leading: 320, trailing: 0), [])
+    }
+
+    func test_iPadAndMac_keepTheirInsets() {
+        XCTAssertEqual(edges(leading: 0, trailing: 64, isPhone: false), [])
+    }
+}
+
 final class PageAreaTrackerTests: XCTestCase {
     func test_shrinksAtOnce() {
         var tracker = PageAreaTracker()

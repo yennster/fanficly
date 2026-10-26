@@ -64,6 +64,16 @@ final class ReaderLayoutTests: XCTestCase {
         turnToMiddlePage(footer)
         capture("01-page")
         try assertPageLayout(footer, "on opening")
+        #if !targetEnvironment(macCatalyst)
+        if UIDevice.current.userInterfaceIdiom == .phone && !isDuoUnfolded {
+            // A phone in portrait gives the page the whole width: on iPhone
+            // Duo's outer display it runs under the side column of status bar
+            // and toolbar strip, as in Apple Books, instead of leaving it blank.
+            let window = app.windows.firstMatch.frame
+            XCTAssertEqual(footer.frame.minX, window.minX, accuracy: 1, "the page left room on the left")
+            XCTAssertEqual(footer.frame.maxX, window.maxX, accuracy: 1, "the page left room on the right")
+        }
+        #endif
     }
 
     func test_backgrounding_keepsThePageLayout() throws {
