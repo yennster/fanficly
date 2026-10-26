@@ -11,9 +11,9 @@ namespace Fanficly.Core;
 /// explicit third-party content.</summary>
 public sealed class DemoAO3Client : IAO3Client
 {
-    public Task LoginAsync(string username, string password, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => Task.FromResult("demo_reader");
     public Task LogoutAsync() => Task.CompletedTask;
-    public Task<string?> CurrentUsernameAsync() => Task.FromResult<string?>("demo_reader");
+    public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>("demo_reader");
 
     public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default)
     {

@@ -23,6 +23,16 @@ extension View {
     }
 }
 
+/// Whether the reader is in full screen (its controls hidden), so the
+/// screen hosting it (`WorkDetailView`, `SavedWorkReader`) can drop its own
+/// toolbar items: full screen shows only the back arrow that leaves it.
+struct ReaderFullScreenKey: PreferenceKey {
+    static var defaultValue: Bool { false }
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
 /// Reports the top offset of each paragraph (keyed "c<chapter>-p<para>")
 /// so the reader can remember the exact reading position.
 struct ScrollAnchorKey: PreferenceKey {

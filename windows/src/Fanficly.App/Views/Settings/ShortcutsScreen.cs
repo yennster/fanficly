@@ -46,6 +46,7 @@ public sealed class ShortcutsScreen : Screen
                 ("Left / Right", "Previous / next page (in swipe by chapter: previous / next chapter)"),
                 ("Page Up / Page Down", "Previous / next page"),
                 ("Space / Shift+Space", "Next / previous page"),
+                ("Up / Down", "Scroll (in page by page: previous / next page)"),
                 ("Ctrl+Left / Ctrl+Right", "Previous / next chapter"),
                 ("Home / End", "Start / end of the chapter"),
                 ("Ctrl+L", "Listen to the chapter, or stop"),

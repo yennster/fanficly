@@ -47,6 +47,7 @@ public static partial class AppHost
         else
         {
             var shared = new JsonFileKeyValueStore(WidgetStorage.SharedStorePath);
+            LogSettingsProblem(shared, WidgetStorage.SharedStorePath);
             WidgetStorage.MirrorStreak(KeyValueStores.Default, shared);
             AppGroupStore.Shared = shared;
             CredentialStore.Shared = new ProtectedCookieVault(Path.Combine(AppPaths.LocalData, "Credentials"));
@@ -60,6 +61,9 @@ public static partial class AppHost
             SyncFolder = KeyValueStores.Default.GetString(SyncFolderKey),
             MergeReaderProfiles = (local, incoming) => ReaderProfile.MergedProfiles(local, incoming),
             PublishReaderProfiles = ReaderProfileSyncStore.PublishLocalProfiles,
+            // This runs on the UI thread (OnLaunched): backups snapshot and
+            // restores apply the library here, where the screens use it.
+            RecordsContext = SynchronizationContext.Current,
         };
         // Without the real library, a backup or restore would stamp the sync
         // folder as applied while this PC's library never saw it.
@@ -86,6 +90,9 @@ public static partial class AppHost
 
     private static LibraryStore OpenLibrary()
     {
+        // Waits for a background refresh that has the library open to save and
+        // let go, so this load includes what it wrote.
+        LibraryLock.AcquireForApp();
         for (var attempt = 1; ; attempt++)
         {
             try
@@ -164,11 +171,34 @@ public static partial class AppHost
         }).ToList(),
         store.Subscriptions().Select(s => new WidgetSubscriptionSource(s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt)).ToList());
 
+    /// <summary>Says so when settings.json was damaged or couldn't be read at
+    /// launch, so a run on fallback settings is never silent.</summary>
+    private static void ReportSettingsProblem()
+    {
+        if (KeyValueStores.Default is not JsonFileKeyValueStore s) return;
+        var fallback = s.LoadedFromBackup ? "its last good copy of your settings" : "default settings";
+        var (title, message) = s.Problem switch
+        {
+            SettingsFileProblem.Damaged when s.DamagedCopyPath is { } aside => ("Your settings file was damaged",
+                $"Fanficly is using {fallback} and kept the damaged file as {Path.GetFileName(aside)}."),
+            SettingsFileProblem.Damaged => ("Your settings file was damaged",
+                $"Fanficly couldn't move settings.json aside, so it's using {fallback} this time and left the file alone."),
+            // Already read and saved by now: nothing to warn about.
+            SettingsFileProblem.Unreadable when !s.IsWaitingForFile => (null, null),
+            SettingsFileProblem.Unreadable => ("Couldn't read your settings",
+                $"Another program was using settings.json, so Fanficly is using {fallback} for now. Your file was left alone, and your changes are added to it once it can be read."),
+            _ => (null, null),
+        };
+        if (title is null) return;
+        MainWindow.Current?.ShowMessage(title, message, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning, seconds: 15);
+    }
+
     /// <summary>The launch task (FanficlyApp's .task): restore from the sync
     /// folder when it changed elsewhere, then backfill stats.</summary>
     public static async Task RunLaunchTasksAsync()
     {
         if (IsDemoMode) return;
+        ReportSettingsProblem();
         if (LibraryOpenFailed is { } why)
         {
             MainWindow.Current?.ShowMessage("Couldn't open your library",
@@ -176,6 +206,11 @@ public static partial class AppHost
                 Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 20);
             return;
         }
+        // Older builds stored the email address a reader signed in with; swap
+        // it for the AO3 login name (#144) as soon as possible, alongside the
+        // restore rather than ahead of it. Costs a request only when an email
+        // is stored.
+        var repair = RepairStoredLoginAsync();
         try
         {
             if (Sync.IsSyncEnabled && Sync.IsBackupAvailable && Sync.CloudBackupHasUnappliedChanges)
@@ -189,6 +224,19 @@ public static partial class AppHost
         catch (Exception e)
         {
             Log($"Launch tasks failed: {e}");
+        }
+        await repair;
+    }
+
+    private static async Task RepairStoredLoginAsync()
+    {
+        try
+        {
+            await Auth.RepairStoredLoginAsync(Client);
+        }
+        catch (Exception e)
+        {
+            Log($"Couldn't repair the stored AO3 login: {e.Message}");
         }
     }
 

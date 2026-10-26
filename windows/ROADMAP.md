@@ -23,6 +23,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
   - All, Starred, Downloaded and Folders, with folders, sorting, pins and stars;
   - offline EPUB downloads and sharing;
   - a reading-stats strip that opens the Stats tab.
+  - export and import of the whole library as a file (Settings → Sync), in the Apple app's format.
 - **History, authors and account:**
   - Recently Viewed, followed authors, and an author's works page with a Follow button.
   - AO3 sign-in, Bookmarks, and Subscriptions, which shows AO3 subscriptions alongside local follows.
@@ -42,7 +43,7 @@ Fanficly for Windows is a native WinUI 3 port of the Swift app, compiled with Na
 - **Reader:** `Views/Reader` registers `Routes.WorkDetail`, `SavedWork` and `Resume`.
   - The live work page and the saved-work reader, which reads offline from saved chapter text.
   - Three reading modes: continuous scroll, swipe by chapter, and page by page with a two-page spread on wide windows. Pages fill the window and keep their place when re-paginated.
-  - Page turns by keyboard, mouse wheel, pen, touch and controller, with Narrator menu actions.
+  - Page turns by keyboard, Bluetooth page turner, mouse wheel, pen, touch and controller, with Narrator menu actions.
   - Typography presets and profiles, full screen, and keep screen awake.
   - Listen (on-device speech, highlighted, with media keys).
   - Opt-in story images, and export in five formats to the share sheet or a file.
@@ -115,6 +116,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** CI's `ui-screenshots` artifact shows the fandom list populated at all three sizes.
 - **Touches:** `windows/tests/Fanficly.UITests/ScreenshotTests.cs`.
 
+### RM-120 — A visible way out of full screen
+- **Status:** open · **Size:** S · **Validation:** windows
+- **Why:** The Apple app's reader no longer hides its whole toolbar in full screen. The bar's background and items go, and so does the system back button, but one back arrow stays, labeled Exit full screen, in every reading mode (`ReaderView.swift`). Tapping it leaves full screen and brings the toolbar back. On iPhone Duo the invisible middle-of-the-page tap had been the only way out and could fail, trapping the reader. Here full screen and hidden controls also leave only invisible ways back (Esc, F11, the middle third, the story's context menu; the title-bar back button only in immersive), so a tablet with no keyboard depends on the middle tap alone.
+- **Scope:** While `_isUIMinimized`, show one standard back-arrow button (the title bar's back button or the reader header's `_fullScreenButton`, on a transparent background), labeled Exit full screen, in every reading mode, one page or two. It leaves full screen and brings the controls back, and the narrator announces the change. No custom-drawn controls.
+- **Done when:** a reader UI test hides the controls, finds only the back arrow, and taps it to bring the controls back.
+- **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.Chrome.cs`, `ReaderView.cs`, `windows/tests/Fanficly.UITests/`.
+
 ## Next
 
 ### RM-105 — Paste or drop an AO3 link to open it
@@ -174,6 +182,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
   - The PR lists what to check on Windows: the tab signed out (sign-in prompt) and signed in.
 - **Touches:** `windows/src/Fanficly.Core/Networking/{IAO3Client,AO3Client,AO3Endpoints,MockAO3Client}.cs`, `Demo/DemoAO3Client.cs`, `Settings/SidebarItem.cs`, `windows/src/Fanficly.App/Shell/SidebarItem.cs`, `Views/Account/BookmarksScreen.cs` (pattern), `Views/Account/AccountModule.cs`, `Views/Settings/ShortcutsScreen.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`, `windows/tests/Fanficly.UITests/SmokeTests.cs`, AGENTS.md.
 
+### RM-113 — Library export and import as a file
+- **Status:** done · **Size:** S · **Validation:** unit
+- **Why:** Sync needs a folder a sync app keeps up to date; a plain file is a safe fallback and a way to move a library between PCs, accounts or platforms. The Apple app's item is RM-012 on `main` (issue #49); the two use one file format, the backup's JSON, so a file exported on either imports on the other.
+- **Scope:** "Export Library File…" in Settings → Sync writes `LibrarySyncManager.MakeLocalBackup` as `LibraryBackupJson` through a save picker; "Import Library File…" runs a picked file through the restore's forward-only merge (`Apply`). No new merge rules.
+- **Done when:** a round-trip test (export → import into an empty in-memory store), a test that importing an older file never moves progress backwards, and tests that a non-library file is refused and an Apple-written file imports.
+- **Touches:** `windows/src/Fanficly.Core/Sync/LibrarySyncManager.cs`, `windows/src/Fanficly.App/Views/Settings/SyncSettingsScreen.cs`, `windows/tests/Fanficly.Core.Tests/PersistenceTests.cs`.
+
 ### RM-114 — AO3 reading history
 - **Status:** done · **Size:** M · **Validation:** unit + windows
 - **Why:** The Windows half of the Apple app's RM-015 (#52): a signed-in reader's AO3 history (`/users/<name>/readings`) had no place in the app. Keep the two the same in name and behavior.
@@ -186,6 +201,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Scope:** "Leave Kudos" in the work page's options menu and the saved reader's More menu: sign-in gated, once per work and remembered per account so it reads "Kudos Left", one POST that is never retried. The request replays the work page's `form#new_kudo` to `/kudos.js`, as AO3's own button does (201, or 422 with `{"error_message": …}`); "already left kudos" counts as left.
 - **Done when:** `AO3ClientTests` and `KudosTests` cover the POST, the duplicate answer, a refusal, a signed-out page, no kudos button and no retry; the PR lists what to check on Windows.
 - **Touches:** `windows/src/Fanficly.Core/Networking/`, `Parsing/WorkPageParser.cs`, `Library/Kudos.cs`, `windows/src/Fanficly.App/Views/Reader/{WorkKudos,WorkDetailScreen,SavedWorkReaderScreen}.cs`, `UI/Symbols.cs`, `windows/tests/Fanficly.Core.Tests/`.
+
+### RM-116 — Bulk download for a folder
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** Offline reading before a flight means downloading each work from its menu. Follows the Apple app's RM-010 (PR #93).
+- **Scope:** "Download All" on a custom folder through `RestoreDownloadCenter`'s sequential, cancellable queue (candidates: works with no `EpubPath`), each saved like Save Offline (chapters when none are stored, then the EPUB). The `RestoreBanner` shows progress; cancel keeps what finished. The throttle paces it; no parallelism.
+- **Done when:** candidate selection, the progress tally and the queue loop are pure and tested; cancelling mid-run keeps finished downloads.
+- **Touches:** `windows/src/Fanficly.Core/Sync/RestoreDownloadCenter.cs`, `windows/src/Fanficly.App/Views/Library/{FolderScreen,RestoreBanner}.cs`.
 
 ### RM-119 — Create and edit AO3 bookmarks
 - **Status:** done · **Size:** M · **Validation:** unit + windows
@@ -204,6 +226,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Why it's an exception:** Windows 11 has no public API for an app to add its own items to Windows Search. The taskbar and Start search show apps, settings, files in indexed folders and web results only. The public WinRT `Windows.Storage.Search.ContentIndexer` builds an index only the app itself can query; its items never appear in taskbar or Start search. The Windows App SDK's `AppContentIndex` is a limited-access feature (it needs a token from Microsoft) and is queried by the app itself, not shown in Windows Search. The only workaround is to write a shortcut file per work into an indexed folder such as Documents, which clutters a folder the user sees and, when OneDrive backs up Documents, uploads the library's titles, against principle 1.
 - **Already covered:** the App Shortcut half of RM-016 ("Continue Reading") is the jump list's "Continue “<title>”" entry and the Continue reading widget, both opening `fanficly://resume/<id>`.
 - **Revisit when:** Windows offers a public search-provider API for packaged apps, or `AppContentIndex` leaves limited access and its results reach Windows Search.
+
+### RM-118 — Lock-screen widget for last read
+- **Status:** exception · **Size:** S · **Validation:** windows
+- **Why:** The Swift app's Recently Read widget also comes in the iPhone and iPad lock-screen sizes, a progress ring and a title-and-progress card (RM-004 in `apple/docs/ROADMAP.md`).
+- **Why it's an exception:** Windows has no lock-screen widget family an app can build for. Where Windows 11 offers lock-screen widgets (rolling out from Insider builds, first in the EEA), they are Widgets-board widgets, and people can add a third-party one only if it has the small size; the app can't place it or draw a lock-screen-only layout.
+- **Already covered:** the "Continue reading" Widgets-board widget already supports the small size (`Package.appxmanifest`), so where Windows offers lock-screen widgets people can add it there. It and the jump list's "Continue “<title>”" entry both open `fanficly://resume/<id>`.
+- **Revisit when:** Windows gives widget providers a lock-screen size or template of their own.
 
 ### RM-109 — Localization groundwork
 - **Status:** done · **Size:** M · **Validation:** windows
@@ -256,9 +285,16 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** Core tests cover tag match (case-insensitive, AO3 names), author and co-author match, no match, an empty list and lifting; a backup test shows two devices union their lists.
 - **Touches:** `Settings/ContentFilter.cs`, `Library/*`, `Sync/*`, `Views/Account/ContentSafetyViews.cs`, the reader header, Search, Browse and author screens.
 
+### RM-121 — Keep story titles off the Windows lock screen
+- **Status:** open · **Size:** S (M with the Settings fallback) · **Validation:** windows
+- **Why:** Ports the Apple app's fix for #141, which redacts titles, authors, summaries, tags, folder names and saved-search names in its widgets while the device is locked. Windows 11 is rolling out lock-screen widgets that take small Widgets-board widgets, third-party ones included (Settings → Personalization → Lock screen; reported by Windows Latest in February 2025, so verify on a current build first), and the small Continue reading, Subscriptions, Recommendation, Folder Shortcuts and Saved Searches cards show that text. Adaptive Cards have no redaction, and the widget provider isn't told which host shows the card.
+- **Scope:** First check whether the current Windows App SDK tells a provider that a widget is on the lock screen (or lets a definition opt out of it). If it does, render the small cards without the personal text there. If not, add a Settings → Privacy switch, "Hide story details in widgets", that leaves out that text in every card, and file the matching Apple item so both apps offer it. The jump list's "Continue “<title>”" entry is a separate issue.
+- **Done when:** a Core test covers the card data with the text hidden (move the choice of card text into Core so it can be tested); on Windows, a small widget added to the lock screen shows no title.
+- **Touches:** `windows/src/Fanficly.App/Platform/Widgets/*`, `Package.appxmanifest` if a definition can opt out, Settings → Privacy.
+
 ## Ideas from the Apple roadmap
 
-The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages, bulk download for a folder, and notes and personal tags (kudos is RM-115, creating AO3 bookmarks RM-119). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages (kudos is RM-115, creating AO3 bookmarks RM-119, bulk download for a folder RM-116, notes and personal tags the RM-009 port). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 

@@ -2,11 +2,13 @@ name: Store assets
 
 # Regenerates everything the App Store listing shows: the screenshots (iPhone,
 # iPad, Mac, iPhone Duo), the app-preview videos, and the product-page header
-# and search-results art. Generating needs no secrets. Uploading to App Store
-# Connect is a second job in the protected `app-store` environment, and
-# committing the refreshed tracked screenshots pushes a branch to open a PR
-# from. See apple/docs/RELEASING.md. Everything here is the Apple app's
-# (apple/), so every run step starts there.
+# and search-results art. The screenshots are captured in Xcode Cloud on the
+# newest Xcode 27+, like every build (bin/xcode-cloud-store-art.py), by the
+# capture job in the protected `app-store` environment; generating (framing,
+# previews, creative art) needs no secrets. Uploading to App Store Connect is a
+# third job in `app-store`, and committing the refreshed tracked screenshots
+# pushes a branch to open a PR from. See apple/docs/RELEASING.md. Everything
+# here is the Apple app's (apple/), so every run step starts there.
 
 on:
   workflow_dispatch:
@@ -20,6 +22,7 @@ on:
           - screenshots
           - previews
           - creative_assets  # from the committed captures
+          - upload_only      # upload the art of an earlier run (art_run), nothing regenerated
       upload:
         description: Upload to the editable App Store versions
         type: boolean
@@ -36,6 +39,14 @@ on:
         description: Branch to push them to (blank = store-assets/run-N; the Release workflow passes its release-docs/ branch)
         type: string
         required: false
+      art_run:
+        description: "upload_only: the run ID whose store-art artifact to upload"
+        type: string
+        required: false
+      skip_mac:
+        description: Leave the Mac screenshots out of the upload (no editable macOS version yet)
+        type: boolean
+        default: false
 
 concurrency:
   group: store-assets
@@ -49,10 +60,113 @@ defaults:
     working-directory: apple
 
 jobs:
+  capture:
+    name: Capture the screenshots in Xcode Cloud
+    # github-actions[bot] is the Release workflow starting a release's refresh.
+    if: >-
+      github.repository == 'yennster/fanficly' &&
+      (github.actor == 'yennster' || github.actor == 'github-actions[bot]') &&
+      (inputs.what == 'store_art' || inputs.what == 'screenshots')
+    # macOS for xcresulttool; the capturing is in Xcode Cloud.
+    runs-on: macos-26
+    timeout-minutes: 180
+    environment: app-store
+    permissions:
+      contents: write   # the temporary branch Xcode Cloud captures from
+    env:
+      BRANCH: store-art/capture-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+
+      # The newest xcresulttool reads the newest Xcode Cloud bundles best.
+      - name: Select newest installed Xcode
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install the API client's Python packages
+        run: |
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+
+      # Xcode Cloud starts builds from a branch, and the commit to capture may
+      # not be a branch's head (the Release workflow passes its own commit).
+      - name: Xcode Cloud
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          git push origin "HEAD:refs/heads/$BRANCH"
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          EXPECTED_SHA=$(git rev-parse HEAD) bin/.venv/bin/python bin/xcode-cloud-store-art.py run "$BRANCH" build/xcode-cloud
+
+      - name: Remove the keys and the branch
+        if: always()
+        run: |
+          rm -f fastlane/api_key.json fastlane/AuthKey_*.p8
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+
+      # The bundles come from a newer Xcode than this runner's; its
+      # xcresulttool reads them (as for the Duo tests' screenshots).
+      # The bundles come from a newer Xcode than this runner's; its
+      # xcresulttool reads them (as for the Duo tests' screenshots). Each zip
+      # holds one <name>.xcresult folder; a bundle that won't export is
+      # skipped (place then keeps that device's committed captures).
+      - name: Put the screenshots in docs/screenshots
+        run: |
+          mkdir -p build/attachments build/bundles
+          n=0
+          for z in build/xcode-cloud/*XCResult*.zip; do
+            [ -f "$z" ] || continue
+            n=$((n + 1))
+            ditto -x -k "$z" "build/bundles/$n"
+          done
+          n=0
+          while read -r plist; do
+            n=$((n + 1))
+            b=$(dirname "$plist")
+            echo "==> $b"
+            # Named for the bundle, which names its device: place takes each
+            # device's own folders only.
+            xcrun xcresulttool export attachments --path "$b" \
+              --output-path "build/attachments/$n $(basename "$b" .xcresult)" \
+              || echo "::warning::Couldn't export $(basename "$b")"
+          done < <(find build/bundles -path "*.xcresult/Info.plist")
+          bin/.venv/bin/python bin/xcode-cloud-store-art.py place build/attachments
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: captures
+          path: apple/docs/screenshots
+
+      # Always: a device that errors doesn't fail the job, and its log
+      # bundle is the only record of why.
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: capture-results
+          path: apple/build/xcode-cloud/*.zip   # result and log bundles
+          if-no-files-found: ignore
+          retention-days: 7
+
   generate:
     name: Generate (${{ inputs.what }})
-    # github-actions[bot] is the Release workflow starting a release's refresh.
-    if: github.repository == 'yennster/fanficly' && (github.actor == 'yennster' || github.actor == 'github-actions[bot]')
+    needs: capture
+    if: >-
+      !cancelled() && needs.capture.result != 'failure' && inputs.what != 'upload_only' &&
+      github.repository == 'yennster/fanficly' &&
+      (github.actor == 'yennster' || github.actor == 'github-actions[bot]')
     runs-on: macos-26
     timeout-minutes: 180
     permissions:
@@ -63,7 +177,7 @@ jobs:
       LC_ALL: en_US.UTF-8
       LANG: en_US.UTF-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.sha || github.sha }}
 
@@ -74,7 +188,9 @@ jobs:
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           echo "DEVELOPER_DIR=$XCODE_APP/Contents/Developer" >> "$GITHUB_ENV"
           xcodebuild -version
-          xcrun simctl list devicetypes | grep -E "iPhone 17 Pro Max|iPad Pro 13|iPhone Duo" || true
+          # Only the app previews still build here: the screenshots come from
+          # Xcode Cloud (the capture job).
+          xcrun simctl list devicetypes | grep -E "iPhone 17 Pro Max|iPad Pro 13" || true
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -82,7 +198,7 @@ jobs:
           bundler-cache: true
           working-directory: apple
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -107,7 +223,16 @@ jobs:
           ls /Library/Fonts | grep -E "NewYorkExtraLarge|SF-Pro-(Display|Text)" | head
           bundle exec fastlane frameit download_frames
 
+      - uses: actions/download-artifact@v7
+        if: needs.capture.result == 'success'
+        with:
+          name: captures
+          path: apple/docs/screenshots
+
       - name: fastlane ${{ inputs.what }}
+        env:
+          # The screenshots lane then only frames the Xcode Cloud captures.
+          SCREENSHOTS_CAPTURED: ${{ needs.capture.result == 'success' && '1' || '' }}
         run: bundle exec fastlane ios "${{ inputs.what }}"
 
       # apple/project.yml (a file directly in apple/) keeps the artifact rooted
@@ -115,7 +240,7 @@ jobs:
       # folders were made.
       - name: Upload the store art
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: store-art
           path: |
@@ -130,7 +255,7 @@ jobs:
 
       - name: Upload the logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs
           path: |
@@ -175,17 +300,25 @@ jobs:
   upload:
     name: Upload to App Store Connect
     needs: generate
-    if: inputs.upload
+    # !cancelled(): a skipped capture (previews, creative_assets) mustn't skip this too.
+    # upload_only skips generating and uploads an earlier run's art.
+    if: >-
+      !cancelled() && github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
+      ((needs.generate.result == 'success' && inputs.upload) ||
+       (inputs.what == 'upload_only' && needs.generate.result == 'skipped'))
     runs-on: macos-26
     timeout-minutes: 60
     environment: app-store
+    permissions:
+      contents: read
+      actions: read     # upload_only: another run's store-art artifact
     env:
       FASTLANE_SKIP_UPDATE_CHECK: "1"
       FASTLANE_HIDE_CHANGELOG: "1"
       LC_ALL: en_US.UTF-8
       LANG: en_US.UTF-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -193,7 +326,7 @@ jobs:
           bundler-cache: true
           working-directory: apple
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -202,16 +335,19 @@ jobs:
           python -m venv bin/.venv
           bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: store-art
           path: apple
+          run-id: ${{ inputs.what == 'upload_only' && inputs.art_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: fastlane upload_store_art
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          SKIP_MAC: ${{ inputs.skip_mac && '1' || '' }}
         run: bundle exec fastlane ios upload_store_art
 
       - name: Remove the keys

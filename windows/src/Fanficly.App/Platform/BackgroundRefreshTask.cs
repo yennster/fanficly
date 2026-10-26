@@ -146,11 +146,18 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
         var cts = new CancellationTokenSource(Budget);
         try { taskInstance.Canceled += (_, reason) => { AppHost.Log($"Background refresh cancelled: {reason}"); cts.Cancel(); }; }
         catch { }
-        _ = Task.Run(async () =>
+        _ = Task.Run(() =>
         {
             try
             {
-                await RunPollAsync(cts.Token);
+                // Only while the app doesn't have the library open (it holds the
+                // lock from launch); a launch during the poll stops it early.
+                if (IsAppRunning() || !LibraryLock.RunExclusive(RunPollAsync, cts))
+                    AppHost.Log("Background refresh skipped: the app is running and polls itself");
+            }
+            catch (OperationCanceledException)
+            {
+                AppHost.Log("Background refresh stopped early");
             }
             catch (Exception e)
             {
@@ -166,8 +173,8 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
     }
 
     /// <summary>Whether Fanficly's window is open (it registers the "main"
-    /// instance key). It polls on its own schedule then, and two processes
-    /// writing one library would each keep a stale copy of the other's stamps.</summary>
+    /// instance key). A second check beside <see cref="LibraryLock"/>, for an
+    /// app that gave up waiting for the lock at launch and runs without it.</summary>
     private static bool IsAppRunning()
     {
         try
@@ -180,14 +187,11 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
         }
     }
 
+    /// <summary>The poll, run under <see cref="LibraryLock"/>: the app polls on
+    /// its own schedule while it's open, and two processes writing one library
+    /// would each keep a stale copy of the other's rows.</summary>
     internal static async Task RunPollAsync(CancellationToken ct)
     {
-        if (IsAppRunning())
-        {
-            AppHost.Log("Background refresh skipped: the app is running and polls itself");
-            return;
-        }
-
         // This process's own services (FanficlyApp's container, opened by the
         // BGTask handler). Settings stay in memory: the poll writes only the
         // library and the widgets' shared store, never the app's settings file.
@@ -203,7 +207,9 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
 
         using var library = LibraryStore.Open(AppPaths.Database);
         using var client = new AO3Client(AppPaths.Downloads, vault, AppHost.AppVersion);
-        var username = new AuthState(vault).Username;
+        // Repaired first: a stored email address (#144) can't build the
+        // subscriptions URL.
+        var username = await AuthState.RepairedLoginAsync(vault, client, ct);
         try
         {
             var notified = await BackgroundRefresh.RunPollAsync(client, library, username, new AppHost.ToastNotifier(), ct);

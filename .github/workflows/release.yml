@@ -15,6 +15,11 @@ name: Release
 #   windows  the Microsoft Store, from that branch with its new screenshots
 #            (dispatches windows-store.yml)
 #   tag      vX.Y.Z and the GitHub release
+#
+# `tag_only` is for a release whose builds are already on App Store Connect but
+# whose run stopped before the tag job (say, a store step failed after the
+# archives): it tags vX.Y.Z on `sha` and publishes the GitHub release, with no
+# build and no store step.
 
 on:
   workflow_dispatch:
@@ -29,6 +34,7 @@ on:
           - metadata_only   # Apple metadata + screenshots, no build
           - pull_metadata   # download the live Apple store copy (artifact)
           - signing_setup   # create Apple certificates/profiles in the match repo
+          - tag_only        # tag vX.Y.Z on `sha` + GitHub release, no build or store step
       platform:
         description: Platform (all = iPhone, iPad, Mac and Windows)
         type: choice
@@ -36,6 +42,14 @@ on:
         options: [all, apple, ios, mac, windows]
       notes:
         description: What's New text for every store (blank = built from the PRs merged since the last release)
+        type: string
+        required: false
+      sha:
+        description: "tag_only: the released commit (blank = this run's)"
+        type: string
+        required: false
+      build:
+        description: "tag_only: the App Store build numbers, for the release notes (e.g. 219 for iOS, 220 for Mac)"
         type: string
         required: false
 
@@ -55,7 +69,7 @@ jobs:
     name: Release notes
     if: >-
       github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
-      (inputs.lane == 'beta' || inputs.lane == 'release')
+      (inputs.lane == 'beta' || inputs.lane == 'release' || inputs.lane == 'tag_only')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -68,9 +82,10 @@ jobs:
       notes: ${{ steps.collect.outputs.notes }}
       windows_notes: ${{ steps.collect.outputs.windows_notes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the tags, to find the previous release
+          ref: ${{ inputs.sha || github.sha }}
 
       - name: Check the version is new
         id: version
@@ -80,7 +95,7 @@ jobs:
         run: |
           version=$(sed -nE 's/^ *MARKETING_VERSION: "([^"]+)"/\1/p' project.yml)
           # A Windows-only release ships no Apple version, so it needs no new tag.
-          if [ "$LANE" = release ] && [ "$PLATFORM" != windows ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+          if { [ "$LANE" = release ] || [ "$LANE" = tag_only ]; } && [ "$PLATFORM" != windows ] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "::error::v$version is already released. Bump MARKETING_VERSION in apple/project.yml first."
             exit 1
           fi
@@ -103,7 +118,7 @@ jobs:
             cat build/release/changes.md
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: apple/build/release
@@ -113,9 +128,10 @@ jobs:
     needs: notes
     if: >-
       !cancelled() && github.repository == 'yennster/fanficly' && github.actor == 'yennster' &&
-      inputs.platform != 'windows' && needs.notes.result != 'failure'
+      inputs.lane != 'tag_only' && inputs.platform != 'windows' && needs.notes.result != 'failure'
     runs-on: macos-26
-    timeout-minutes: 120
+    # The archives wait on Xcode Cloud and App Store Connect processing.
+    timeout-minutes: 240
     environment: app-store
     permissions:
       contents: read
@@ -129,9 +145,9 @@ jobs:
       LC_ALL: en_US.UTF-8
       LANG: en_US.UTF-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         if: needs.notes.result == 'success'
         with:
           name: release-notes
@@ -158,6 +174,35 @@ jobs:
         run: |
           brew install xcodegen
           xcodegen generate
+
+      # Every Apple build uses the newest Xcode 27 or later: one built with an
+      # older SDK runs in compatibility mode on the iPhone Duo, as 1.11.0 did.
+      # This runner's Xcode predates it, so both binaries are archived in Xcode
+      # Cloud (bin/xcode-cloud-release.py) and fastlane attaches the uploads
+      # (ios_build:, mac_build:). fastlane's check_xcode refuses to build here
+      # with anything older.
+      - uses: actions/setup-python@v7
+        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        with:
+          python-version: "3.11"
+
+      - name: Archive in Xcode Cloud
+        if: inputs.lane == 'beta' || inputs.lane == 'release'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          case "$PLATFORM" in ios|mac) platforms="$PLATFORM" ;; *) platforms="ios mac" ;; esac
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          # shellcheck disable=SC2086
+          bin/.venv/bin/python bin/xcode-cloud-release.py run "$GITHUB_REF_NAME" build/release $platforms
 
       # match clones the private certificates repo over SSH with a deploy key.
       - name: Give match its deploy key
@@ -187,16 +232,31 @@ jobs:
           PLATFORM: ${{ inputs.platform }}
         run: |
           case "$PLATFORM" in ios|mac) p="$PLATFORM" ;; *) p=both ;; esac
-          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p"
+          extra=()
+          for q in ios mac; do
+            if [ -s "build/release/$q-build-number.txt" ]; then
+              extra+=("${q}_build:$(cat "build/release/$q-build-number.txt")")
+            fi
+          done
+          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p" "${extra[@]}"
 
       - name: Report the build number
         id: build
         if: always()
-        run: echo "build=$(cat build/release/build-number.txt 2>/dev/null)" >> "$GITHUB_OUTPUT"
+        run: |
+          # Xcode Cloud numbers each archive (iOS and Mac) separately.
+          ios=$(cat build/release/ios-build-number.txt 2>/dev/null || true)
+          mac=$(cat build/release/mac-build-number.txt build/release/build-number.txt 2>/dev/null | head -1 || true)
+          if [ -n "$ios" ] && [ -n "$mac" ] && [ "$ios" != "$mac" ]; then
+            build="$ios for iOS, $mac for Mac"
+          else
+            build="${mac:-$ios}"
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
 
       - name: Upload the downloaded store copy
         if: inputs.lane == 'pull_metadata'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: metadata
           path: |
@@ -353,13 +413,13 @@ jobs:
     name: Tag and GitHub release
     needs: [notes, apple]
     if: >-
-      !cancelled() && inputs.lane == 'release' &&
-      needs.notes.result == 'success' && needs.apple.result == 'success'
+      !cancelled() && needs.notes.result == 'success' &&
+      ((inputs.lane == 'release' && needs.apple.result == 'success') || inputs.lane == 'tag_only')
     runs-on: ubuntu-latest
     permissions:
       contents: write   # tags vX.Y.Z and publishes the GitHub release
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: release-notes
           path: notes
@@ -369,8 +429,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.notes.outputs.version }}
-          BUILD: ${{ needs.apple.outputs.build }}
+          BUILD: ${{ needs.apple.outputs.build || inputs.build }}
           PLATFORM: ${{ inputs.platform }}
+          TARGET: ${{ inputs.sha || github.sha }}
         run: |
           case "$PLATFORM" in
             ios) where="iOS" ;; mac) where="Mac" ;; apple) where="iOS + Mac" ;;
@@ -394,5 +455,5 @@ jobs:
             cat notes/changes.md
             echo "App Store: version $VERSION, build $BUILD ($where). Submit for Review in App Store Connect once the store art is uploaded."
           } > github-release.md
-          gh release create "v$VERSION" --target "$GITHUB_SHA" \
+          gh release create "v$VERSION" --target "$TARGET" \
             --title "Fanficly v$VERSION" --notes-file github-release.md

@@ -184,7 +184,7 @@ public static class WidgetStorage
     {
         if (!ReadsFreshCopies && AppGroupStore.Shared is not null) return;
         var previous = AppGroupStore.Shared as IDisposable;
-        AppGroupStore.Shared = new JsonFileKeyValueStore(SharedStorePath);
+        AppGroupStore.Shared = new JsonFileKeyValueStore(SharedStorePath, readOnly: ReadsFreshCopies);
         previous?.Dispose();
     }
 

@@ -75,7 +75,7 @@ The reader's settings are in its Aa menu (quick presets) and in Settings → The
   - on a wide window, page by page can show two pages side by side like a book;
   - "Page-turn animation" can be turned off, and pages never slide when Windows' animation effects are off.
 - **Turning pages:**
-  - Keyboard: Left and Right, Page Up and Page Down, or Space and Shift+Space. Ctrl+Left and Ctrl+Right change chapter; Home and End go to the start or end of the chapter.
+  - Keyboard (and Bluetooth page turners, which pair as one): Left and Right, Page Up and Page Down, or Space and Shift+Space; in page by page, Up and Down too. Ctrl+Left and Ctrl+Right change chapter; Home and End go to the start or end of the chapter.
   - Mouse, pen and touch: click or tap the outer third of the page, swipe, or use the mouse wheel. The middle of the page shows or hides the reader's controls.
   - Controller: the triggers or the D-pad turn pages, and the bumpers change chapter.
 - **Narrator:** the story's context menu (Shift+F10, the Menu key, or right-click) has Next and Previous page, Next and Previous chapter, Show or Hide reader controls, and Listen. Narrator announces the new page ("Page 3 of 12, chapter 2"), chapter or controls state. The page footer, the chapter indicator and the Listen bar have spoken names, and headings mark the work title and each chapter.

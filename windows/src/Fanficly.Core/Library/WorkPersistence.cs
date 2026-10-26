@@ -122,6 +122,14 @@ public static class WorkPersistence
         return work.IsPinned;
     }
 
+    /// <summary>Saves the reader's own note and tags on a work (RM-009).</summary>
+    public static void SetNotes(Work work, string note, string tagsText, LibraryStore store)
+    {
+        work.SetNotes(note, tagsText);
+        store.TrySave();
+        LibrarySyncManager.QueueBackupShared(store);
+    }
+
     /// <summary>Removes a work from the library, with its downloaded EPUB, and
     /// records the deletion so sync carries it to the other devices.</summary>
     public static void DeleteWork(Work work, LibraryStore store)

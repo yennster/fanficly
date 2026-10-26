@@ -111,7 +111,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     // MARK: - Session
 
-    public async Task LoginAsync(string username, string password, CancellationToken ct = default)
+    public async Task<string> LoginAsync(string username, string password, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var loginUri = AO3Endpoints.Login(_baseUri);
@@ -132,11 +132,12 @@ public sealed class AO3Client : IAO3Client, IDisposable
         var response = await PerformRequestAsync(post, ct: ct).ConfigureAwait(false);
         var respHtml = TryDecode(response.Body) ?? "";
 
-        // Success: the response shows the logged-in user navigation.
-        if (LoginParser.CurrentUsername(respHtml) is { } name)
+        // Success: the response shows the logged-in user navigation (and no
+        // login form, whose header links aren't a name).
+        if (!LoginParser.HasLoginForm(respHtml) && LoginParser.CurrentUsername(respHtml) is { } name)
         {
             _cachedUsername = name;
-            return;
+            return name;
         }
         // Explicit AO3 error flash.
         if (LoginParser.DetectLoginFailure(respHtml) is { } err) throw AO3Exception.LoginFailed(err);
@@ -146,8 +147,18 @@ public sealed class AO3Client : IAO3Client, IDisposable
         if (SiteCookies().Any(c => c.Name.Contains("user_credentials", StringComparison.Ordinal)
                                    || c.Name.Contains("remember_user_token", StringComparison.Ordinal)))
         {
-            _cachedUsername = username;
-            return;
+            // The typed text may be an email address, which no /users/ page
+            // takes, so ask AO3 for the login name.
+            if (await FetchLoggedInNameAsync(ct).ConfigureAwait(false) is { } loggedIn)
+            {
+                _cachedUsername = loggedIn;
+                return loggedIn;
+            }
+            if (!username.Contains('@'))
+            {
+                _cachedUsername = username;
+                return username;
+            }
         }
         throw AO3Exception.LoginFailed("Couldn't confirm login. Please try again.");
     }
@@ -165,7 +176,29 @@ public sealed class AO3Client : IAO3Client, IDisposable
         return Task.CompletedTask;
     }
 
-    public Task<string?> CurrentUsernameAsync() => Task.FromResult(_cachedUsername);
+    public async Task<string?> CurrentUsernameAsync(CancellationToken ct = default)
+    {
+        if (_cachedUsername is { } cached) return cached;
+        return _cachedUsername = await FetchLoggedInNameAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The login name in the header of AO3's home page; null for a guest
+    /// page or a failed request.</summary>
+    private async Task<string?> FetchLoggedInNameAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _throttle.WaitAsync(ct).ConfigureAwait(false);
+            var response = await PerformRequestAsync(Get(_baseUri), ct: ct).ConfigureAwait(false);
+            var html = TryDecode(response.Body);
+            if (html is null || LoginParser.HasLoginForm(html)) return null;
+            return LoginParser.CurrentUsername(html);
+        }
+        catch (Exception e) when (e is AO3Exception or HttpRequestException)
+        {
+            return null;
+        }
+    }
 
     // MARK: - Listings
 

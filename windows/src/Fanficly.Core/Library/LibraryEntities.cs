@@ -159,15 +159,17 @@ public sealed class Work : LibraryEntity, ILibrarySortable
         "total_chapters", "kudos", "hits", "bookmarks_count", "comments_count", "is_complete", "published_at",
         "updated_at", "saved_at", "last_read_at", "last_read_chapter", "last_read_progress", "epub_local_path",
         "is_followed", "followed_at", "last_seen_chapter_count", "last_checked_at", "is_starred", "is_pinned",
-        "folder_id",
+        "folder_id", "note", "personal_tags", "notes_updated_at",
     ];
 
     private string _title, _authorName, _authorUsername = "", _summary, _rating, _language;
     private IReadOnlyList<string> _warnings, _categories, _fandoms, _characters, _relationships, _freeforms;
+    private IReadOnlyList<string> _personalTags = [];
+    private string? _note;
     private int _wordCount, _chapterCount, _kudos, _hits, _bookmarksCount, _commentsCount;
     private int? _totalChapters, _lastReadChapter, _lastSeenChapterCount;
     private bool _isComplete, _isFollowed, _isStarred, _isPinned;
-    private DateTimeOffset? _publishedAt, _updatedAt, _lastReadAt, _followedAt, _lastCheckedAt;
+    private DateTimeOffset? _publishedAt, _updatedAt, _lastReadAt, _followedAt, _lastCheckedAt, _notesUpdatedAt;
     private DateTimeOffset _savedAt;
     private double? _lastReadProgress;
     private string? _epubLocalPath;
@@ -272,6 +274,52 @@ public sealed class Work : LibraryEntity, ILibrarySortable
     public bool IsStarred { get => _isStarred; set => Set(ref _isStarred, value); }
     public bool IsPinned { get => _isPinned; set => Set(ref _isPinned, value); }
 
+    /// <summary>The reader's own note ("for a bad day"), separate from AO3's
+    /// tags; null when there is none (Swift's <c>Work.note</c>).</summary>
+    public string? Note { get => _note; set => Set(ref _note, value); }
+    /// <summary>The reader's own tags ("reread at Christmas"), separate from
+    /// AO3's (Swift's <c>Work.personalTags</c>).</summary>
+    public IReadOnlyList<string> PersonalTags { get => _personalTags; set => Set(ref _personalTags, value); }
+    /// <summary>When the note or tags were last edited on any device; null
+    /// until then. The newest edit wins in backup merges, so clearing a note
+    /// sticks.</summary>
+    public DateTimeOffset? NotesUpdatedAt { get => _notesUpdatedAt; set => Set(ref _notesUpdatedAt, value); }
+
+    /// <summary>Splits the note dialog's comma-separated tag field into tags:
+    /// trimmed, empties dropped, duplicates (ignoring case) dropped, first
+    /// spelling kept (Swift's <c>Work.personalTags(from:)</c>).</summary>
+    public static IReadOnlyList<string> ParsePersonalTags(string text)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var tags = new List<string>();
+        foreach (var part in text.Split(','))
+        {
+            var tag = part.Trim();
+            if (tag.Length > 0 && seen.Add(tag)) tags.Add(tag);
+        }
+        return tags;
+    }
+
+    /// <summary>Stores what the note dialog edited; a blank note is stored as
+    /// null. Stamps <see cref="NotesUpdatedAt"/> only when something changed
+    /// (Swift's <c>setNotes(note:tagsText:now:)</c>).</summary>
+    public void SetNotes(string note, string tagsText, DateTimeOffset? now = null)
+    {
+        // One line ending everywhere: WinUI's TextBox hands back "\r", and
+        // the Swift app stores "\n", so an untouched note must compare equal
+        // (a false edit would get a new stamp and win the next merge).
+        var trimmed = note.ReplaceLineEndings("\n").Trim();
+        var newNote = trimmed.Length == 0 ? null : trimmed;
+        var newTags = ParsePersonalTags(tagsText);
+        if (newNote == Note && newTags.SequenceEqual(PersonalTags)) return;
+        Note = newNote;
+        PersonalTags = newTags;
+        // Whole seconds, like the backup file's dates, so this PC's stamp and
+        // its own backed-up copy compare equal.
+        var stamp = now ?? DateTimeOffset.UtcNow;
+        NotesUpdatedAt = DateTimeOffset.FromUnixTimeSeconds(stamp.ToUnixTimeSeconds());
+    }
+
     /// <summary>The downloaded chapters (cascade-deleted with the work). Add one
     /// by constructing a <see cref="Chapter"/> with this work; remove one with
     /// <see cref="LibraryStore.Delete"/>.</summary>
@@ -284,8 +332,9 @@ public sealed class Work : LibraryEntity, ILibrarySortable
     public EntityLinks<Work, CustomFolder> Folders { get; }
 
     /// <summary>The Library's metadata search: case-insensitive substring match
-    /// on title, author, fandoms, characters, ships, tags, rating, warnings and
-    /// categories. An empty (or blank) query matches everything.</summary>
+    /// on title, author, fandoms, characters, ships, tags, rating, warnings,
+    /// categories, and the reader's own note and tags. An empty (or blank)
+    /// query matches everything.</summary>
     public bool Matches(string query)
     {
         var trimmed = query.Trim().ToLowerInvariant();
@@ -299,7 +348,9 @@ public sealed class Work : LibraryEntity, ILibrarySortable
             Freeforms.Any(Has) ||
             Has(Rating) ||
             Warnings.Any(Has) ||
-            Categories.Any(Has);
+            Categories.Any(Has) ||
+            (Note is { } note && Has(note)) ||
+            PersonalTags.Any(Has);
     }
 
     internal override object?[] ToRow() =>
@@ -312,6 +363,7 @@ public sealed class Work : LibraryEntity, ILibrarySortable
         Db.D(LastReadAt), Db.I(LastReadChapter), LastReadProgress, EpubLocalPath, Db.B(IsFollowed),
         Db.D(FollowedAt), Db.I(LastSeenChapterCount), Db.D(LastCheckedAt), Db.B(IsStarred), Db.B(IsPinned),
         Folder is { RowId: > 0 } f && f.Store is not null ? f.RowId : null,
+        Note, LibraryJson.Strings(PersonalTags), Db.D(NotesUpdatedAt),
     ];
 
     /// <summary>Reads a row (column 0 is the row id). Returns the legacy folder id
@@ -351,6 +403,9 @@ public sealed class Work : LibraryEntity, ILibrarySortable
             _lastCheckedAt = Db.DateN(r, 32),
             _isStarred = Db.Bool(r, 33),
             _isPinned = Db.Bool(r, 34),
+            _note = Db.StrN(r, 36),
+            _personalTags = LibraryJson.ParseStrings(Db.StrN(r, 37)),
+            _notesUpdatedAt = Db.DateN(r, 38),
         };
         legacyFolderId = Db.LongN(r, 35);
         return w;
@@ -441,9 +496,10 @@ public sealed class Chapter : LibraryEntity
         }
     }
 
-    /// <summary>The body for a backup: the loaded one, else read from the
-    /// database without keeping it in memory.</summary>
-    internal string BodyForBackup => BodyLoaded ? _body ?? "" : Store?.LoadChapterBody(RowId) ?? "";
+    /// <summary>The body for a backup when it's loaded; null when it's only in
+    /// the database, where the backup reads it (off the UI thread) without
+    /// keeping it in memory.</summary>
+    internal string? LoadedBodyForBackup => BodyLoaded ? _body ?? "" : null;
 
     /// <summary>Drops a loaded, unchanged body from memory (it reloads on access).</summary>
     public void UnloadBody()
@@ -769,7 +825,8 @@ public sealed class SubscriptionRecord : LibraryEntity
 /// <summary>An AO3 author the user follows locally (no login required). The
 /// poller checks each followed author's works page for newly-published works.
 /// <see cref="KnownWorkIds"/> is the set of work ids already seen, so a new
-/// work notifies exactly once; it's seeded at follow time so previously
+/// work notifies exactly once (see <c>SubscriptionPoller.NewlyPostedWorks</c>
+/// for which unknown ones count as new); it's seeded at follow time so previously
 /// published works don't all alert on the first poll.</summary>
 public sealed class FollowedAuthor : LibraryEntity
 {

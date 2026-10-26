@@ -11,12 +11,18 @@ public class AuthStateTests
         public Exception? LoginError { get; set; }
         public int Logouts { get; private set; }
 
-        public Task LoginAsync(string username, string password, CancellationToken ct = default) =>
-            LoginError is { } e ? Task.FromException(e) : Task.CompletedTask;
+        /// <summary>The login name AO3 answers with; the typed text when null.</summary>
+        public string? LoginName { get; set; }
+        /// <summary>What <see cref="CurrentUsernameAsync"/> answers.</summary>
+        public string? HeaderName { get; set; }
+        public int CurrentUsernameCalls { get; private set; }
+
+        public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) =>
+            LoginError is { } e ? Task.FromException<string>(e) : Task.FromResult(LoginName ?? username);
         public Task LogoutAsync() { Logouts++; return Task.CompletedTask; }
 
         private readonly MockAO3Client _rest = new();
-        public Task<string?> CurrentUsernameAsync() => _rest.CurrentUsernameAsync();
+        public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) { CurrentUsernameCalls++; return Task.FromResult(HeaderName); }
         public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => _rest.SearchAsync(filters, page, ct);
         public Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default) => _rest.FetchAuthorWorksAsync(username, page, ct);
         public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => _rest.FetchBookmarksAsync(username, page, ct);
@@ -181,6 +187,52 @@ public class AuthStateTests
         await auth.LoginAsync(new ClientTestDouble(), "reader", "pw");
         Assert.False(auth.IsSessionExpired);
         Assert.True(auth.HasSession);
+    }
+
+    [Fact]
+    public async Task SigningInWithAnEmailStoresTheAO3LoginName()
+    {
+        var vault = new InMemoryCookieVault();
+        var auth = new AuthState(vault);
+        await auth.LoginAsync(new ClientTestDouble { LoginName = "real_reader" }, "  reader@example.com\n", "pw");
+
+        Assert.Null(auth.LastError);
+        Assert.Equal("real_reader", auth.Username);
+        Assert.Equal("real_reader", vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task AStoredEmailIsRepairedFromAO3sHeader()
+    {
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("reader@example.com");
+        var auth = new AuthState(vault);
+        await auth.RepairStoredLoginAsync(new ClientTestDouble { HeaderName = "real_reader" });
+
+        Assert.Equal("real_reader", auth.Username);
+        Assert.Equal("real_reader", vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task AStoredEmailStaysWhenAO3CantSay()
+    {
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("reader@example.com");
+        var auth = new AuthState(vault);
+        await auth.RepairStoredLoginAsync(new ClientTestDouble());
+
+        Assert.Equal("reader@example.com", auth.Username);
+        Assert.Equal("reader@example.com", vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task AStoredLoginNameNeedsNoRequest()
+    {
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("real_reader");
+        var client = new ClientTestDouble { HeaderName = "someone" };
+        Assert.Equal("real_reader", await AuthState.RepairedLoginAsync(vault, client));
+        Assert.Equal(0, client.CurrentUsernameCalls);
     }
 
     [Fact]

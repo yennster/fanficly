@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UIKit // UIAccessibility announcements (SaveOfflineAlert)
 
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
@@ -10,6 +11,9 @@ struct WorkDetailView: View {
     let workId: Int
     @State private var payload: AO3WorkPayload?
     @State private var errorMessage: String?
+    /// Why Download failed, shown in an alert: `errorMessage` only shows when
+    /// the work never loaded.
+    @State private var saveError: String?
     @State private var isSavingOffline: Bool = false
     @State private var followed: Bool = false
     @State private var epubURL: URL?
@@ -17,6 +21,8 @@ struct WorkDetailView: View {
     @State private var showingComments: Bool = false
     @State private var showingBookmark: Bool = false
     @State private var currentChapterIndex = 1
+    /// The reader is in full screen: its back arrow is the only toolbar item.
+    @State private var readerFullScreen = false
     @State private var exporter = WorkExporter()
     @State private var kudos = KudosGiver()
 
@@ -32,17 +38,20 @@ struct WorkDetailView: View {
         Group {
             if let payload {
                 ReaderView(payload: payload, currentChapter: $currentChapterIndex)
+                    .onPreferenceChange(ReaderFullScreenKey.self) { readerFullScreen = $0 }
                     .toolbar {
-                        ToolbarItemGroup(placement: .topBarTrailing) {
-                            Button {
-                                followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
-                            } label: {
-                                Label(followed ? "Remove from Library" : "Save to Library",
-                                      systemImage: followed ? "bookmark.fill" : "bookmark")
-                            }
-                            .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
+                        if !readerFullScreen {
+                            ToolbarItemGroup(placement: .topBarTrailing) {
+                                Button {
+                                    followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
+                                } label: {
+                                    Label(followed ? "Remove from Library" : "Save to Library",
+                                          systemImage: followed ? "bookmark.fill" : "bookmark")
+                                }
+                                .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
                             
-                            moreMenu(payload: payload)
+                                moreMenu(payload: payload)
+                            }
                         }
                     }
                     .sheet(isPresented: $showingReport) {
@@ -73,6 +82,7 @@ struct WorkDetailView: View {
         // On the screen view, NOT inside the menu — see WorkExporter's docs.
         .workExportPresentation(exporter)
         .kudosPresentation(kudos, workId: workId)
+        .saveOfflineAlert($saveError)
         .task { await load() }
     }
 
@@ -158,11 +168,12 @@ struct WorkDetailView: View {
         isSavingOffline = true
         defer { isSavingOffline = false }
         _ = WorkPersistence.upsert(payload: payload, into: context)
+        iCloudSyncManager.shared.queueBackup(context: context)
         do {
             let url = try await client.downloadEPUB(workId: payload.summary.id)
             epubURL = url
         } catch {
-            errorMessage = "Saved metadata but EPUB download failed: \(error)"
+            saveError = "The text is saved for offline reading, but the EPUB download failed: \(error)"
         }
     }
 
@@ -272,7 +283,36 @@ private struct KudosPresentation: ViewModifier {
     }
 }
 
+/// The alert a failed Save Offline or Download ends with, also spoken to
+/// VoiceOver: the menu has closed by then, so nothing else says it failed.
+private struct SaveOfflineAlert: ViewModifier {
+    @Binding var message: String?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: message) { _, message in
+                guard let message else { return }
+                UIAccessibility.post(notification: .announcement, argument: NSAttributedString(
+                    string: message,
+                    attributes: [.accessibilitySpeechQueueAnnouncement: true]))
+            }
+            .alert("Couldn't finish saving offline", isPresented: Binding(
+                get: { message != nil },
+                set: { if !$0 { message = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(message ?? "")
+            }
+    }
+}
+
 extension View {
+    /// Presents a Save Offline / Download failure. Attach to the screen view,
+    /// never inside `Menu` content.
+    func saveOfflineAlert(_ message: Binding<String?>) -> some View {
+        modifier(SaveOfflineAlert(message: message))
+    }
+
     /// Loads the remembered kudos state and presents a `KudosGiver`'s result.
     /// Attach to the screen view that owns the giver, never inside `Menu` content.
     func kudosPresentation(_ giver: KudosGiver, workId: Int) -> some View {

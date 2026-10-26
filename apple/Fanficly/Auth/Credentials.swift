@@ -35,7 +35,14 @@ struct SerializableCookie: Codable, Sendable {
     }
 }
 
-final class CredentialStore: @unchecked Sendable {
+/// Where the signed-in AO3 login name is kept. `CredentialStore` in the app;
+/// tests pass one that keeps it in memory.
+protocol LoginNameStore: AnyObject, Sendable {
+    func storedUsername() -> String?
+    func setUsername(_ username: String?)
+}
+
+final class CredentialStore: LoginNameStore, @unchecked Sendable {
     static let shared = CredentialStore()
 
     private let keychain = Keychain(service: "io.github.yennster.fanficly")
@@ -94,22 +101,28 @@ final class AuthState {
     var username: String?
     var isAuthenticating: Bool = false
     var lastError: String?
+    private let store: any LoginNameStore
 
-    init() {
-        self.username = CredentialStore.shared.storedUsername()
+    init(store: any LoginNameStore = CredentialStore.shared) {
+        self.store = store
+        self.username = store.storedUsername()
     }
 
-    func login(using client: any AO3ClientProtocol, username: String, password: String) async {
+    /// Signs in with what the reader typed, a username or an email address, and
+    /// keeps the AO3 login name AO3 answers with: `/users/<name>` pages and the
+    /// subscription poller need the login name, never the email (#144).
+    func login(using client: any AO3ClientProtocol, username typed: String, password: String) async {
         isAuthenticating = true
         lastError = nil
         defer { isAuthenticating = false }
         do {
-            try await client.login(username: username, password: password)
+            let login = try await client.login(username: typed.trimmingCharacters(in: .whitespacesAndNewlines),
+                                               password: password)
             // Signing in as someone else from the expired-session form skips
             // logout, so drop the previous account's kudos here.
-            if let previous = self.username, previous.caseInsensitiveCompare(username) != .orderedSame { KudosStore.clear() }
-            self.username = username
-            CredentialStore.shared.setUsername(username)
+            if let previous = self.username, previous.caseInsensitiveCompare(login) != .orderedSame { KudosStore.clear() }
+            self.username = login
+            store.setUsername(login)
             isSessionExpired = false
         } catch let AO3Error.loginFailed(reason) {
             lastError = reason
@@ -122,10 +135,29 @@ final class AuthState {
 
     func logout(using client: any AO3ClientProtocol) async {
         await client.logout()
-        CredentialStore.shared.setUsername(nil)
+        store.setUsername(nil)
         KudosStore.clear()
         username = nil
         isSessionExpired = false
+    }
+
+    /// Builds before #144 stored whatever was typed at sign-in, so a reader who
+    /// signed in with an email address has it stored in place of the login
+    /// name. Swaps it for the name in AO3's page header. Runs at launch.
+    func repairStoredLogin(using client: any AO3ClientProtocol) async {
+        if let login = await Self.repairedLogin(store: store, client: client) { username = login }
+    }
+
+    /// The stored login name, first replacing a stored email address with the
+    /// name AO3 shows the signed-in reader. Leaves an email in place when AO3
+    /// can't say (offline, or the session expired); signing in again fixes it.
+    /// AO3 login names can't contain "@", so only an email costs a request.
+    static func repairedLogin(store: any LoginNameStore = CredentialStore.shared,
+                              client: any AO3ClientProtocol) async -> String? {
+        guard let stored = store.storedUsername(), stored.contains("@") else { return store.storedUsername() }
+        guard let login = await client.currentUsername(), !login.contains("@") else { return stored }
+        store.setUsername(login)
+        return login
     }
 
     /// A username is stored (the reader signed in on this device). The session

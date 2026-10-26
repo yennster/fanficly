@@ -17,7 +17,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
 - **Your AO3 session.** If you sign in, your AO3 username and AO3's session cookies are stored encrypted with Windows Data Protection (DPAPI) for your Windows account only. Another Windows user on the same PC can't read them. Your password is sent once to AO3 when you sign in and is never stored. Signing out deletes the cookies and username.
 - **Your library.** In a database file (`library.sqlite`) on your PC:
   - works you've saved, and their chapter text if you downloaded it
-  - folders, stars and pins
+  - folders, stars and pins, and your own notes and tags on saved works
   - reading positions, recently viewed works and reading stats
   - followed works and authors, and the list of your AO3 subscriptions
   - saved searches and filters, works you've hidden, and tags and authors you've blocked
@@ -32,7 +32,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
 - **The taskbar jump list.** Right-clicking Fanficly on the taskbar shows "Continue “title”" for the story you read last. Windows keeps that list on your PC.
 - **A cached Popular list.** This is the daily snapshot of popular fandoms, ships and characters.
 
-None of this is sent to us. There is no Fanficly server. The only way any of it leaves your PC is the optional sync described next.
+None of this is sent to us. There is no Fanficly server. On its own, the only way any of it leaves your PC is the optional sync described next. You can also choose to export your library as a file (Settings → Sync → Export Library File); that file goes only where you save it, and importing one only reads the file you pick.
 
 ## Sync (your folder, not ours)
 
@@ -40,7 +40,7 @@ Sync is **off** until you turn it on in Settings → Sync and choose a folder. T
 
 - **`library_backup.json`.** It holds:
   - your saved works, including downloaded chapter text
-  - folders, reading positions and reading stats
+  - folders, your notes and tags on saved works, reading positions and reading stats
   - your AO3 bookmarks and subscriptions lists
   - saved searches and filters, hidden works, and blocked tags and authors
   - your reader settings, your content settings, and whether you confirmed you're 17 or older

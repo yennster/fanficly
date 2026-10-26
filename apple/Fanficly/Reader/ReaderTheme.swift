@@ -71,6 +71,16 @@ enum ReaderMetrics {
 
     static let defaultFontSize: Double = 18
     static let fontSizeRange: ClosedRange<Double> = 12...30
+    static let fontSizeStep: Double = 1
+
+    /// ⌘+ / ⌘− (Reader → Bigger / Smaller Text): one point bigger or smaller,
+    /// snapped to whole points and kept in `fontSizeRange`. A size the slider
+    /// left between points (18.4) steps to the next whole point (19 or 18).
+    static func steppedFontSize(_ size: Double, bigger: Bool) -> Double {
+        let current = size.isFinite ? size : defaultFontSize
+        let next = bigger ? (current + fontSizeStep).rounded(.down) : (current - fontSizeStep).rounded(.up)
+        return min(fontSizeRange.upperBound, max(fontSizeRange.lowerBound, next))
+    }
 
     static let defaultLineSpacing: Double = 6
     static let lineSpacingRange: ClosedRange<Double> = 0...20

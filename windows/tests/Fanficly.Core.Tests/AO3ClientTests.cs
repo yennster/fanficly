@@ -493,6 +493,79 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal("typed_name", await client.CurrentUsernameAsync());
     }
 
+    [Fact]
+    public async Task LoginWithAnEmailReturnsTheAO3LoginName()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => FakeHandler.Redirect("/users/real_reader"),
+            _ => FakeHandler.Html("""<html><body><div id="greeting"><a href="/users/real_reader">real_reader</a></div></body></html>"""));
+        var client = MakeClient();
+        Assert.Equal("real_reader", await client.LoginAsync("reader@example.com", "pw"));
+        Assert.Equal("real_reader", await client.CurrentUsernameAsync());
+        Assert.Contains("user%5Blogin%5D=reader%40example.com", _handler.Requests[1].Body);
+    }
+
+    [Fact]
+    public async Task LoginWithAnEmailAndAnUnrecognisedPageAsksAO3ForTheName()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => FakeHandler.Html("<html><body>Welcome</body></html>", "user_credentials=1; path=/"),
+            _ => FakeHandler.Html("""<html><body><div id="greeting"><a href="/users/real_reader">real_reader</a></div></body></html>"""));
+        Assert.Equal("real_reader", await MakeClient().LoginAsync("reader@example.com", "x"));
+        Assert.Equal("https://archiveofourown.org/", _handler.Requests[2].Uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task LoginWithAnEmailNeverStoresTheEmail()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => FakeHandler.Html("<html><body>Welcome</body></html>", "user_credentials=1; path=/"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().LoginAsync("reader@example.com", "x"));
+        Assert.Equal(AO3ErrorKind.LoginFailed, e.Kind);
+    }
+
+    [Fact]
+    public async Task CurrentUsernameReadsAO3sHeaderWhenNotSignedInThisRun()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""<html><body><div id="greeting"><a href="/users/real_reader">real_reader</a></div></body></html>"""));
+        var client = MakeClient();
+        Assert.Equal("real_reader", await client.CurrentUsernameAsync());
+        Assert.Equal("real_reader", await client.CurrentUsernameAsync());
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SigningInWithAnEmailStoresTheAO3LoginName()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => FakeHandler.Redirect("/users/real_reader"),
+            _ => FakeHandler.Html("""<html><body><div id="greeting"><a href="/users/real_reader">real_reader</a></div></body></html>"""));
+        var auth = new AuthState(_vault);
+        await auth.LoginAsync(MakeClient(), " reader@example.com ", "pw");
+
+        Assert.Null(auth.LastError);
+        Assert.Equal("real_reader", auth.Username);
+        Assert.Equal("real_reader", _vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task CurrentUsernameIsNullWhenAO3IsUnreachable()
+    {
+        _online = false;
+        Assert.Null(await MakeClient().CurrentUsernameAsync());
+    }
+
+    [Fact]
+    public async Task CurrentUsernameIsNullOnAGuestPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html($"<html><body>{AO3PageFixtures.GuestHeader}</body></html>"));
+        Assert.Null(await MakeClient().CurrentUsernameAsync());
+    }
+
     // MARK: - A chapter at a time
 
     [Fact]

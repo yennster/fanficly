@@ -135,6 +135,41 @@ public sealed class SubscriptionPollerTests
         Assert.Equal("Prolific", note.Payload["authorName"]);
     }
 
+    /// <summary>AO3 lists an author's works by last update, so an old work that
+    /// was never in the baseline (past page 1 at follow time) rises to the top
+    /// when it gets a chapter. It isn't a new work: alerting for it opened that
+    /// old story, or the author's page when a real new work came in with it.</summary>
+    [Fact]
+    public async Task AnUpdatedOlderWorkIsNotANewWork()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new FollowedAuthor("prolific", "Prolific", knownWorkIds: [50, 60]));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.AuthorWorks["prolific"] = [Summary(70, "Brand New"), Summary(10, "Old, Just Updated") with { ChapterCount = 4 }, Summary(60), Summary(50)];
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, null, notifier);
+
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        var note = Assert.Single(notifier.Posted);
+        Assert.Equal("New work: Brand New", note.Body);
+        Assert.Equal("newWork", note.Payload["kind"]);
+        Assert.Equal("70", note.Payload["workId"]);
+        // The old work joins the baseline quietly.
+        Assert.Equal([10, 50, 60, 70], store.GetFollowedAuthor("prolific")!.KnownWorkIds.Order());
+
+        // Only an updated old work: no alert at all.
+        client.AuthorWorks["prolific"] = [Summary(5, "Older Still") with { ChapterCount = 2 }, Summary(70), Summary(10)];
+        Assert.Equal(0, await poller.CheckFollowedAuthorsAsync());
+        Assert.Single(notifier.Posted);
+
+        // A one-chapter work with a lower id (a gift revealed from an anonymous
+        // collection, a long-held draft) is still a new work.
+        client.AuthorWorks["prolific"] = [Summary(65, "Revealed Gift"), Summary(70), Summary(10)];
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal("New work: Revealed Gift", notifier.Posted[^1].Body);
+    }
+
     /// <summary>Signed in, a guest page means the session expired (#131): the
     /// public works still alert, and the poller says so.</summary>
     [Fact]
@@ -248,5 +283,105 @@ public sealed class SubscriptionPollerTests
         Assert.Single(client.Requests);
         Assert.Null(center.Progress);
         Assert.False(center.IsDownloading);
+    }
+
+    // MARK: - Folder Download All (RM-010)
+
+    [Fact]
+    public void FolderDownloadCandidatesSkipDownloadedKeepOrder()
+    {
+        var works = new[] { 3, 1, 2, 1 }.Select(id => new Work(id, $"W{id}", "A")).ToList();
+        Assert.Equal([3, 1], RestoreDownloadCenter.FolderDownloadCandidates(works, id => id == 2));
+        Assert.Empty(RestoreDownloadCenter.FolderDownloadCandidates(works, _ => true));
+    }
+
+    [Fact]
+    public void DownloadProgressBookkeeping()
+    {
+        var tally = new RestoreDownloadCenter.DownloadProgress(0, 0, 3, false)
+            .Recording(succeeded: true).Recording(succeeded: false).Recording(succeeded: true);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(2, 1, 3, false), tally);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(2, 1, 3, true), tally.Finishing());
+    }
+
+    [Fact]
+    public async Task DownloadQueueSkipsFailures()
+    {
+        var downloaded = new List<int>();
+        var reports = new List<RestoreDownloadCenter.DownloadProgress>();
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3], (id, _) =>
+        {
+            if (id == 2) throw AO3Exception.Http(404);
+            downloaded.Add(id);
+            return Task.CompletedTask;
+        }, reports.Add, CancellationToken.None);
+
+        Assert.Equal([1, 3], downloaded);
+        Assert.Equal(3, reports.Count);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(2, 1, 3, true), result);
+    }
+
+    /// <summary>Cancelling mid-run stops before the next story and undoes
+    /// nothing: the stories that finished stay downloaded.</summary>
+    [Fact]
+    public async Task DownloadQueueCancelKeepsFinished()
+    {
+        using var cts = new CancellationTokenSource();
+        var downloaded = new List<int>();
+        var reports = new List<RestoreDownloadCenter.DownloadProgress>();
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3], (id, _) =>
+        {
+            downloaded.Add(id);
+            if (id == 2) cts.Cancel();
+            return Task.CompletedTask;
+        }, reports.Add, cts.Token);
+
+        Assert.Null(result);
+        Assert.Equal([1, 2], downloaded);
+        Assert.Equal([new RestoreDownloadCenter.DownloadProgress(1, 0, 3, false)], reports);
+    }
+
+    [Fact]
+    public async Task FolderDownloadSavesTextWhenMissingThenEpub()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var withText = new Work(987670001, "Saved text", "A");
+        store.Insert(withText);
+        new Chapter(withText, 1, "Ch", "<p>x</p>");
+        store.Insert(new Work(987670002, "Metadata only", "A"));
+        store.Save();
+
+        var client = new PollerFakeClient();
+        client.Works[987670002] = new AO3WorkPayload(
+            new AO3WorkSummary { Id = 987670002, Title = "Metadata only", Author = "A", ChapterCount = 2 },
+            [new AO3ChapterPayload(1, "One", "<p>1</p>"), new AO3ChapterPayload(2, "Two", "<p>2</p>")]);
+        var center = new RestoreDownloadCenter { FinishedBannerDuration = TimeSpan.Zero };
+        await center.StartFolderDownload(client, store, [987670001, 987670002]);
+
+        // Stored text isn't fetched again; the metadata-only work gets its chapters first.
+        Assert.Equal(["epub:987670001", "fetch:987670002", "epub:987670002"], client.Requests);
+        Assert.Equal(2, store.ChaptersOf(store.GetWork(987670002)!).Count);
+        Assert.Equal(RestoreDownloadCenter.DownloadKind.Folder, center.Kind);
+        Assert.False(center.IsDownloading);
+        Assert.Null(center.Progress);
+    }
+
+    /// <summary>A story removed from the library before its turn is skipped:
+    /// no request, no EPUB, and it doesn't come back.</summary>
+    [Fact]
+    public async Task FolderDownloadSkipsWorksRemovedMidRun()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var gone = new Work(987680001, "Gone", "A");
+        store.Insert(gone);
+        store.Save();
+        store.Delete(gone);
+        store.Save();
+
+        var client = new PollerFakeClient();
+        await RestoreDownloadCenter.SaveOfflineAsync(client, store, 987680001);
+
+        Assert.Empty(client.Requests);
+        Assert.Null(store.GetWork(987680001));
     }
 }

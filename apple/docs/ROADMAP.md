@@ -138,7 +138,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/LibraryView.swift` (`StatsView`, `WrapShareCard`), `Reader/ReadingProgressStore.swift`.
 
 ### RM-012 — Library export and import as a file
-- **Status:** open · **Size:** S · **Validation:** unit
+- **Status:** done · **Size:** S · **Validation:** unit
 - **Why:** iCloud backup is opt-in and tied to one Apple ID; a plain file is a safe fallback and a way to move between accounts.
 - **Scope:** Reuse the backup encoder: "Export library file…" writes the JSON to the share sheet; "Import…" runs it through the existing forward-only restore merge. No new merge rules.
 - **Done when:** a round-trip test (export → restore into an empty in-memory container) and a test that importing an older file never moves progress backwards.
@@ -186,12 +186,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 
 ### RM-021 — Shift-⌘ +/− to change the Mac UI size
 - **Status:** done · **Size:** S · **Validation:** unit + mac
-- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows gets Ctrl+Shift +/− in its own PR.
+- **Platforms:** built for the Mac, where the commands show in the View menu. iPhone and iPad aren't a target (no window to zoom on iPhone, no Mac-style menu bar on either), but the same keys work there harmlessly with a hardware keyboard. Windows does the same in its own PRs.
 - **Why:** Global UI zoom (`app.zoomScale` in `RootView`) is bound to hidden buttons for ⌘+, ⌘=, ⌘− and ⌘0 only. The request is to also change the interface size with ⇧⌘+ / ⇧⌘− (and ⇧⌘= for keyboards where + needs no shift), and to make the shortcuts discoverable.
-- **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. Keep the existing ⌘ bindings working unless the maintainer says to drop them. Extract the clamp/step into a pure function.
-- **Open question for the maintainer:** should ⌘+/− keep controlling UI size, or move to reader text size, leaving only ⇧⌘+/− for UI? The PR keeps both until told otherwise.
+- **Scope:** Add the Shift-⌘ bindings to the existing zoom in/out actions (no second zoom mechanism, same step and min/max clamp). Move the zoom commands into a "View" `CommandMenu` in `FanficlyApp` so they show in the Mac menu bar with their shortcuts, instead of hidden buttons. ⌘+/− moved to the reader's text size (see the answer below). Extract the clamp/step into a pure function.
+- **Maintainer's answer (2026-10-19):** ⌘+/− change the reader's text size; only ⇧⌘+/− change the interface size. Windows does the same with Ctrl+/− and Ctrl+Shift+/−. On the Mac, Bigger Text shows as ⌘= (the ⌘+ key on a US layout), since "+" with ⌘ is typed as ⇧⌘=, Zoom In's keystroke.
 - **Done when:** tests for the pure step/clamp function (up at max, down at min, 1.0 reset); the PR lists the shortcuts to try on a Mac, including a non-US layout if available. Mac Catalyst only; iPad hardware keyboards get the same bindings harmlessly.
-- **Touches:** `RootView.swift`, `FanficlyApp.swift`.
+- **Touches:** `RootView.swift`, `FanficlyApp.swift`, `Reader/ReaderTheme.swift`, `ReaderMetricsTests.swift`.
 
 ### RM-024 — Move the remaining screens' strings to the String Catalog
 - **Status:** open · **Size:** S per screen family · **Validation:** unit + mac
@@ -199,6 +199,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Scope:** One screen family per PR, following the convention in AGENTS.md: Search (incl. `WorkFilterSheet`), Browse and Popular, the reader, Library and Stats, Subscriptions and Bookmarks, Auth, the rest of Settings (`ReaderSettingsView`, `ContentSafetyViews`), then the widget and share extension (their own catalogs). Do not translate. AO3 tag and category names stay verbatim.
 - **Done when:** each family's literals are catalog entries, `String` helper parameters that show text take `LocalizedStringKey`, its keys are added to `LocalizationTests`, and English reads the same.
 - **Windows counterpart:** RM-109 (its groundwork) and the follow-up item added with it.
+
+### RM-025 — Turn page-by-page pages with the mouse wheel (iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** mac
+- **Why:** Windows turns one page per wheel notch in page by page (with a 300 ms pause). On iPad and the Mac, a vertical wheel over the horizontal page `TabView` does nothing, so a Bluetooth scroll remote in mouse mode, or a plain mouse, can't turn pages there. Keyboard and touch-mode remotes already work (#281).
+- **Scope:** Turn a page per wheel notch in page-by-page (`ReaderView.turnPageByPage`), rate-limited like Windows. iPhone accepts a mouse only with AssistiveTouch, so it gets the same code harmlessly.
+- **Done when:** a pure rate-limit/accumulator function with tests; the PR says how to try it with a mouse on an iPad or Mac.
+- **Touches:** `Reader/ReaderView.swift`, `Reader/ReaderKeyCommands.swift`.
 
 ## Engineering health (any release)
 
