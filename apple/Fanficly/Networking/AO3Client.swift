@@ -379,7 +379,8 @@ extension AO3Error: LocalizedError {
         switch self {
         case .loginFailed(let reason): reason
         case .rateLimited: "AO3 is asking us to slow down. Try again in a minute."
-        case .unauthorized: "AO3 sent its login page instead. Sign in again, then try again."
+        // Not "sign in again": a guest opening a restricted work gets this too.
+        case .unauthorized: "AO3 asked for a sign-in first. Sign in, then try again."
         // Some reasons are already a sentence for the reader ("Your AO3 reading
         // history is turned off…"); the rest name what didn't parse.
         case .parseFailed(let reason) where reason.hasSuffix(".") || reason.hasSuffix("!") || reason.hasSuffix("?"):
@@ -388,7 +389,8 @@ extension AO3Error: LocalizedError {
         case .http(let status) where (500...599).contains(status):
             "AO3 isn't responding right now (HTTP \(status)). This is on AO3's side; try again in a minute."
         case .http(let status): "AO3 returned an error (HTTP \(status))."
-        case .network(let underlying): "Couldn't reach AO3: \(underlying)"
+        case .network(let underlying):
+            "Couldn't reach AO3: \(underlying)" + (underlying.hasSuffix(".") ? "" : ".")
         case .kudosRejected(let message), .commentRejected(let message): message
         case .forbidden: "AO3 refused this request. Try again later, or open the page on the AO3 website."
         case .blockedByProtection: "AO3's protection blocked the request. Wait a few minutes, then try again."
@@ -1096,14 +1098,16 @@ public actor AO3Client: AO3ClientProtocol {
     /// tell the two apart: the `cf-mitigated` header and the challenge page's
     /// markup can.
     static func forbiddenError(data: Data, response: HTTPURLResponse) -> AO3Error {
-        let path = response.url?.path ?? ""
-        if path.hasPrefix("/users/login") || path.hasPrefix("/auth_error") { return .unauthorized }
-        let html = String(decoding: data, as: UTF8.self)
-        if AO3PageCheck.isLoginPage(html: html) { return .unauthorized }
+        // Cloudflare first: it can challenge the login page itself (signing in,
+        // or a stale session's redirect there).
         if response.value(forHTTPHeaderField: "cf-mitigated") != nil { return .blockedByProtection }
+        let html = String(decoding: data, as: UTF8.self)
         if cloudflareMarkers.contains(where: { html.localizedCaseInsensitiveContains($0) }) {
             return .blockedByProtection
         }
+        let path = response.url?.path ?? ""
+        if path.hasPrefix("/users/login") || path.hasPrefix("/auth_error") { return .unauthorized }
+        if AO3PageCheck.isLoginPage(html: html) { return .unauthorized }
         return .forbidden
     }
 

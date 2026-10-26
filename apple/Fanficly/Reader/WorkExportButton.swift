@@ -31,7 +31,7 @@ final class WorkExporter {
             let url = try await client.exportWork(workId: workId, format: format, filename: title)
             shareItem = ShareItem(url: url)
         } catch {
-            errorMessage = "Couldn't download the \(format.displayName) file: \(error.localizedDescription)"
+            errorMessage = "Couldn't download the \(format.displayName) file. \(error.localizedDescription)"
         }
     }
 }

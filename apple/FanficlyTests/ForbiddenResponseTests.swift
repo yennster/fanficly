@@ -50,6 +50,13 @@ final class ForbiddenResponseTests: XCTestCase {
                        .blockedByProtection)
     }
 
+    /// Cloudflare can challenge the login page itself: signing in again
+    /// wouldn't help there either.
+    func test_cloudflareOnTheLoginURL_isBlockedByProtection() {
+        XCTAssertEqual(classify(Data(), url: Self.loginURL, headers: ["cf-mitigated": "challenge"]), .blockedByProtection)
+        XCTAssertEqual(classify(Data(Self.challengePage.utf8), url: Self.loginURL), .blockedByProtection)
+    }
+
     func test_challengeAndBlockPages_areBlockedByProtection_withoutTheHeader() {
         XCTAssertEqual(classify(Data(Self.challengePage.utf8)), .blockedByProtection)
         XCTAssertEqual(classify(Data(Self.blockPage.utf8)), .blockedByProtection)
@@ -104,7 +111,7 @@ final class ForbiddenResponseTests: XCTestCase {
         let errors: [AO3Error] = [
             .loginFailed(reason: "Incorrect username or password."), .rateLimited, .unauthorized,
             .parseFailed(reason: "Not a works listing"), .http(status: 404), .http(status: 503),
-            .network(underlying: "The request timed out."), .kudosRejected(message: "You can't leave kudos on your own work."),
+            .network(underlying: "The request timed out."), .network(underlying: "Non-HTTP response"), .kudosRejected(message: "You can't leave kudos on your own work."),
             .commentRejected(message: "The comment is empty."), .forbidden, .blockedByProtection,
         ]
         for error in errors {
@@ -115,6 +122,8 @@ final class ForbiddenResponseTests: XCTestCase {
         }
         XCTAssertEqual(AO3Error.blockedByProtection.localizedDescription,
                        "AO3's protection blocked the request. Wait a few minutes, then try again.")
+        XCTAssertEqual(AO3Error.network(underlying: "Non-HTTP response").localizedDescription,
+                       "Couldn't reach AO3: Non-HTTP response.")
         XCTAssertEqual(AO3Error.parseFailed(reason: "Not a works listing").localizedDescription,
                        "Couldn't read AO3's response: Not a works listing.")
     }
