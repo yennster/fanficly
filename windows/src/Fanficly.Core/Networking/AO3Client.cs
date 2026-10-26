@@ -988,7 +988,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
                                                        && !timeoutCts.IsCancellationRequested && IsConnectTimeout(e))
             {
                 TurnHttp3Off();
-                Log?.Invoke($"HTTP/3 to {uri.Host} couldn't connect in {Elapsed(started)}, so HTTP/2 for the next 10 minutes");
+                Log?.Invoke($"HTTP/3 to {uri.Host} couldn't connect in {Elapsed(started)}, so HTTP/2 for the next 10 minutes: {ExceptionChain(e)}");
                 useHttp2 = true;
                 hop--;
                 await _throttle.WaitAsync(ct).ConfigureAwait(false);
