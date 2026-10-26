@@ -13,6 +13,11 @@ import UIKit
 /// landscape has the same inset on both sides and keeps them. A sidebar's
 /// inset is wider than any strip and is kept too.
 struct RunUnderSideColumn: ViewModifier {
+    /// The controls are hidden: hiding the status bar may take the column's
+    /// inset away, so the page keeps running under it until they're back, or
+    /// for one layout pass on showing them the page would narrow.
+    let controlsHidden: Bool
+
     @State private var edges: Edge.Set = []
 
     /// Wider than this, a side inset isn't the Duo's column.
@@ -27,7 +32,7 @@ struct RunUnderSideColumn: ViewModifier {
                 GeometryReader { geo in
                     Color.clear
                         .onChange(of: Self.columnEdges(geo.safeAreaInsets, isPhone: Self.isPhone), initial: true) { _, value in
-                            edges = value
+                            if !(controlsHidden && value.isEmpty) { edges = value }
                         }
                 }
             }

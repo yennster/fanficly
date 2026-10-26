@@ -96,9 +96,6 @@ final class ReaderSpreadTests: XCTestCase {
 }
 
 
-/// Page-by-page's page height: pages fill the page area on screen, shrink at
-/// once and grow only once the area settles. The heights are an iPhone's page
-/// area: 700 with the controls up, 784 with them hidden.
 /// Which side insets the reader runs under (`RunUnderSideColumn`).
 final class ReaderSideColumnTests: XCTestCase {
     private func edges(leading: CGFloat, trailing: CGFloat, isPhone: Bool = true) -> Edge.Set {
@@ -129,6 +126,9 @@ final class ReaderSideColumnTests: XCTestCase {
     }
 }
 
+/// Page-by-page's page height: pages fill the page area on screen, shrink at
+/// once and grow only once the area settles. The heights are an iPhone's page
+/// area: 700 with the controls up, 784 with them hidden.
 final class PageAreaTrackerTests: XCTestCase {
     func test_shrinksAtOnce() {
         var tracker = PageAreaTracker()

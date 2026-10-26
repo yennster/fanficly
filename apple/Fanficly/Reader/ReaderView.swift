@@ -410,7 +410,7 @@ struct ReaderView: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // On iPhone Duo the page runs under the side column of status bar
         // and toolbar strip, which floats over it, as in Apple Books.
-        .modifier(RunUnderSideColumn())
+        .modifier(RunUnderSideColumn(controlsHidden: isUIMinimized))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
