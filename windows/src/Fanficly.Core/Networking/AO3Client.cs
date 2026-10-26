@@ -676,7 +676,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
         string? FormBody,
         TimeSpan Timeout);
 
-    internal sealed record Response(int Status, byte[] Body, TimeSpan? RetryAfter, Uri FinalUri);
+    /// <summary><paramref name="CfMitigated"/>: the response carried Cloudflare's
+    /// <c>cf-mitigated</c> header (its bot challenge answered instead of AO3).</summary>
+    internal sealed record Response(int Status, byte[] Body, TimeSpan? RetryAfter, Uri FinalUri, bool CfMitigated = false);
 
     private const string DefaultAccept = "text/html,application/xhtml+xml";
 
@@ -722,8 +724,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
             {
                 case >= 200 and < 300 or 302:
                     return response;
-                case 401 or 403:
+                case 401:
                     throw AO3Exception.Unauthorized();
+                case 403:
+                    throw ForbiddenError(response);
                 case 429:
                     // Rate-limited. Only retry when AO3's own Retry-After says the
                     // window is short enough to politely wait out; otherwise fail
@@ -750,6 +754,32 @@ public sealed class AO3Client : IAO3Client, IDisposable
             }
         }
     }
+
+    /// <summary>What a 403 means (Swift's <c>AO3Client.forbiddenError</c>). Only AO3's
+    /// login page (or a redirect that ended there) is a sign-in problem. Cloudflare's bot
+    /// challenge and block pages answer 403 to signed-out readers too, and AO3's own
+    /// "forbidden" pages don't change with a new session, so telling the reader to sign
+    /// in again (or marking their session expired) would just fail the same way. AO3 is
+    /// always served through Cloudflare, so <c>Server: cloudflare</c> alone can't tell the
+    /// two apart: the <c>cf-mitigated</c> header and the challenge page's markup can.</summary>
+    internal static AO3Exception ForbiddenError(Response response)
+    {
+        var path = response.FinalUri.AbsolutePath;
+        if (path.StartsWith("/users/login", StringComparison.Ordinal) || path.StartsWith("/auth_error", StringComparison.Ordinal))
+            return AO3Exception.Unauthorized();
+        var html = Encoding.UTF8.GetString(response.Body);
+        if (AO3PageCheck.IsLoginPage(HtmlDom.Parse(html))) return AO3Exception.Unauthorized();
+        if (response.CfMitigated || CloudflareMarkers.Any(m => html.Contains(m, StringComparison.OrdinalIgnoreCase)))
+            return AO3Exception.BlockedByProtection();
+        return AO3Exception.Forbidden();
+    }
+
+    /// <summary>Markup only Cloudflare's challenge ("Just a moment…") and block
+    /// ("Attention Required!", error 1020) pages carry. Not
+    /// <c>/cdn-cgi/challenge-platform/</c>: Cloudflare injects that script into ordinary
+    /// pages too.</summary>
+    private static readonly string[] CloudflareMarkers =
+        ["_cf_chl_opt", "cf-error-details", "<title>Just a moment", "Attention Required! | Cloudflare"];
 
     /// <summary>Exponential backoff before a retry: ~0.5 s, then ~1 s.</summary>
     internal static TimeSpan Backoff(int attempt) => TimeSpan.FromSeconds(0.5 * Math.Pow(2, attempt));
@@ -978,7 +1008,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 {
                     throw new TimeoutException("The request timed out.", e);
                 }
-                return new Response(status, data, RetryAfterSeconds(response), uri);
+                return new Response(status, data, RetryAfterSeconds(response), uri, response.Headers.Contains("cf-mitigated"));
             }
         }
     }

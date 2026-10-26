@@ -123,7 +123,7 @@ public sealed class AO3ClientTests : IDisposable
 
     [Theory]
     [InlineData(401, AO3ErrorKind.Unauthorized)]
-    [InlineData(403, AO3ErrorKind.Unauthorized)]
+    [InlineData(403, AO3ErrorKind.Forbidden)]
     [InlineData(404, AO3ErrorKind.Http)]
     [InlineData(500, AO3ErrorKind.Http)]
     public async Task MapsErrorStatusesWithoutRetrying(int status, AO3ErrorKind kind)
@@ -134,6 +134,79 @@ public sealed class AO3ClientTests : IDisposable
         if (kind == AO3ErrorKind.Http) Assert.Equal(status, e.Status);
         Assert.Single(_handler.Requests);
         Assert.Empty(_sleeps);
+    }
+
+    // A 403 is a sign-in problem only when it's AO3's login page (#146): Cloudflare's
+    // bot challenge and block pages, and AO3's own forbidden pages, answer 403 to
+    // signed-out readers too.
+
+    /// <summary>Cloudflare's managed challenge ("Just a moment..."), trimmed.</summary>
+    private const string ChallengeHtml = """
+        <!DOCTYPE html><html lang="en-US"><head><title>Just a moment...</title></head><body>
+        <h2 class="h2" id="challenge-running">Checking if the site connection is secure</h2>
+        <script>(function(){window._cf_chl_opt={cvId: '3',cZone: "archiveofourown.org",cType: 'managed'};}());</script>
+        </body></html>
+        """;
+
+    /// <summary>Cloudflare's firewall block page (error 1020), trimmed.</summary>
+    private const string BlockHtml = """
+        <!DOCTYPE html><html lang="en-US"><head><title>Attention Required! | Cloudflare</title></head><body>
+        <div id="cf-error-details"><h1>Sorry, you have been blocked</h1></div></body></html>
+        """;
+
+    /// <summary>An AO3 page that isn't the login page, with the bot-detection script
+    /// Cloudflare injects into ordinary pages.</summary>
+    private const string AO3ForbiddenHtml = """
+        <html><body><div id="main" class="errors-forbidden region"><h2 class="heading">Error 403</h2>
+        <p>Sorry, you don't have permission to access the page you were trying to reach.</p></div>
+        <script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></body></html>
+        """;
+
+    private const string LoginPageHtml = """
+        <html><body><div id="main" class="sessions-new system session region">
+        <p>This work is only available to registered users of the Archive.</p>
+        <div id="loginform"><form id="new_user" action="/users/login" method="post"><input name="user[login]"/></form></div>
+        </div></body></html>
+        """;
+
+    private static HttpResponseMessage Forbidden(string html, string? cfMitigated = null)
+    {
+        var r = new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent(html, Encoding.UTF8, "text/html") };
+        r.Headers.Add("Server", "cloudflare");
+        if (cfMitigated is not null) r.Headers.Add("cf-mitigated", cfMitigated);
+        return r;
+    }
+
+    [Fact]
+    public async Task Cloudflare403IsBlockedByProtection_ByHeaderOrPage()
+    {
+        _handler.Respond(_ => Forbidden("", cfMitigated: "challenge"), _ => Forbidden(ChallengeHtml), _ => Forbidden(BlockHtml));
+        var client = MakeClient();
+        for (var i = 0; i < 3; i++)
+        {
+            var e = await Assert.ThrowsAsync<AO3Exception>(() => client.FetchWorkMetadataAsync(1));
+            Assert.Equal(AO3ErrorKind.BlockedByProtection, e.Kind);
+            Assert.Equal("AO3's protection blocked the request. Wait a few minutes, then try again.", e.Message);
+        }
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.Empty(_sleeps);
+    }
+
+    [Fact]
+    public async Task Login403IsUnauthorized()
+    {
+        _handler.Respond(_ => Forbidden(LoginPageHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task AO3sOwn403IsForbidden_EvenWithCloudflaresInjectedScript()
+    {
+        _handler.Respond(_ => Forbidden(AO3ForbiddenHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.Forbidden, e.Kind);
+        Assert.Equal("AO3 refused this request. Try again later, or open the page on the AO3 website.", e.Message);
     }
 
     [Fact]
