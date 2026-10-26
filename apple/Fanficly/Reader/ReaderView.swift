@@ -20,6 +20,8 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
+    // Global, not in reading profiles: it's about the reader's remote.
+    @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     // Page-by-page shows two pages side by side on a wide window (iPhone Duo
@@ -485,6 +487,24 @@ struct ReaderView: View {
                 return true
             }
         ))
+        #if !targetEnvironment(macCatalyst)
+        .modifier(VolumeButtonPageTurnModifier(
+            enabled: volumeButtonsTurnPages,
+            speaking: speech.isActive,
+            scenePhase: scenePhase,
+            turn: { performVolumeTurn(forward: $0) }
+        ))
+        #endif
+    }
+
+    /// A volume button press with "Volume buttons turn pages" on: forward or
+    /// back as Page Down / Page Up would (a page, a chapter's screenful, or a
+    /// screen of continuous scroll).
+    private func performVolumeTurn(forward: Bool) {
+        guard let action = ReaderKeyAction.action(for: forward ? .pageDown : .pageUp,
+                                                  shift: false, otherModifiers: false, mode: mode)
+        else { return }
+        performKeyAction(action)
     }
 
     /// A turn or scroll key from a keyboard or a Bluetooth page turner.
