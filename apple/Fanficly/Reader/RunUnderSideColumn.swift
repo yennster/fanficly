@@ -85,9 +85,17 @@ struct PagingInsetsOff: UIViewRepresentable {
 
     final class FinderView: UIView {
         var active = false
+        /// The scroll view's width at the last snap: a new one (a fold or
+        /// unfold resizing the pages) is snapped again.
+        private var snappedWidth: CGFloat = 0
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            apply()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
             apply()
         }
 
@@ -98,11 +106,23 @@ struct PagingInsetsOff: UIViewRepresentable {
                 if let scroll = current as? UIScrollView, scroll.isPagingEnabled { break }
                 view = current.superview
             }
-            guard let scroll = view as? UIScrollView, scroll.contentInsetAdjustmentBehavior != .never else { return }
-            scroll.contentInsetAdjustmentBehavior = .never
+            guard let scroll = view as? UIScrollView else { return }
             let width = scroll.bounds.width
-            guard width > 0 else { return }
-            scroll.contentOffset.x = (scroll.contentOffset.x / width).rounded() * width
+            guard scroll.contentInsetAdjustmentBehavior != .never || abs(width - snappedWidth) >= 1 else { return }
+            scroll.contentInsetAdjustmentBehavior = .never
+            snappedWidth = width
+            Self.snap(scroll)
+            // Again once the TabView has placed its page for this size.
+            DispatchQueue.main.async { [weak scroll] in
+                if let scroll { Self.snap(scroll) }
+            }
+        }
+
+        private static func snap(_ scroll: UIScrollView) {
+            let width = scroll.bounds.width
+            guard width > 0, !scroll.isTracking, !scroll.isDecelerating else { return }
+            let snapped = (scroll.contentOffset.x / width).rounded() * width
+            if abs(snapped - scroll.contentOffset.x) >= 0.5 { scroll.contentOffset.x = snapped }
         }
     }
 }
