@@ -115,6 +115,18 @@ final class Work {
 }
 
 extension Work {
+    /// The saved work as a summary, for the reader and the history row.
+    var workSummary: AO3WorkSummary {
+        AO3WorkSummary(
+            id: ao3Id, title: title, author: authorName, authorUsername: authorUsername,
+            summary: summary, rating: rating, warnings: warnings, categories: categories,
+            fandoms: fandoms, characters: characters, relationships: relationships,
+            freeforms: freeforms, wordCount: wordCount, chapterCount: chapterCount,
+            totalChapters: totalChapters, language: language, kudos: kudos, hits: hits,
+            isComplete: isComplete, updatedAt: updatedAt
+        )
+    }
+
     /// Splits the notes sheet's comma-separated tag field into tags: trimmed,
     /// empties dropped, duplicates (ignoring case) dropped, first spelling kept.
     static func personalTags(from text: String) -> [String] {
@@ -234,12 +246,81 @@ final class RecentlyViewed {
     var fandom: String
     var viewedAt: Date
 
+    // The story's details as of the last view, so the row can show what an
+    // AO3 History row shows and its bookmark button can save the story with
+    // full metadata. Additive (defaulted) so SwiftData migrates existing
+    // stores automatically; entries recorded before them have
+    // `hasDetails == false` until the story is opened again.
+    var hasDetails: Bool = false
+    var authorUsername: String = ""
+    var summary: String = ""
+    var rating: String = ""
+    var warnings: [String] = []
+    var categories: [String] = []
+    var fandoms: [String] = []
+    var characters: [String] = []
+    var relationships: [String] = []
+    var freeforms: [String] = []
+    var language: String = ""
+    var wordCount: Int = 0
+    var chapterCount: Int = 0
+    var totalChapters: Int?
+    var kudos: Int = 0
+    var hits: Int = 0
+    var isComplete: Bool = false
+    var updatedAt: Date?
+
     init(ao3Id: Int, title: String, author: String = "", fandom: String = "", viewedAt: Date = .now) {
         self.ao3Id = ao3Id
         self.title = title
         self.author = author
         self.fandom = fandom
         self.viewedAt = viewedAt
+    }
+
+    convenience init(summary: AO3WorkSummary, viewedAt: Date = .now) {
+        self.init(ao3Id: summary.id, title: summary.title, author: summary.author,
+                  fandom: summary.fandoms.first ?? "", viewedAt: viewedAt)
+        update(from: summary)
+    }
+
+    /// Copies a fresh summary's details into the entry.
+    func update(from s: AO3WorkSummary) {
+        title = s.title
+        author = s.author
+        fandom = s.fandoms.first ?? ""
+        hasDetails = true
+        authorUsername = s.authorUsername
+        summary = s.summary
+        rating = s.rating
+        warnings = s.warnings
+        categories = s.categories
+        fandoms = s.fandoms
+        characters = s.characters
+        relationships = s.relationships
+        freeforms = s.freeforms
+        language = s.language
+        wordCount = s.wordCount
+        chapterCount = s.chapterCount
+        totalChapters = s.totalChapters
+        kudos = s.kudos
+        hits = s.hits
+        isComplete = s.isComplete
+        updatedAt = s.updatedAt
+    }
+
+    /// The entry as a summary for `WorkRow`. Older entries without details
+    /// carry only the title, author and fandom, which the row shows alone.
+    var workSummary: AO3WorkSummary {
+        AO3WorkSummary(
+            id: ao3Id, title: title, author: author, authorUsername: authorUsername,
+            summary: summary, rating: rating, warnings: warnings, categories: categories,
+            fandoms: hasDetails ? fandoms : (fandom.isEmpty ? [] : [fandom]),
+            characters: characters, relationships: relationships, freeforms: freeforms,
+            wordCount: wordCount, chapterCount: chapterCount, totalChapters: totalChapters,
+            language: language, kudos: kudos, hits: hits, isComplete: isComplete,
+            updatedAt: updatedAt
+        )
     }
 }
 

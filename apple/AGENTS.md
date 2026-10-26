@@ -110,7 +110,7 @@ to attributed paragraphs and drawn natively. `ReaderPaginator` lives in
 | Data | Owner / storage | Important distinction |
 | --- | --- | --- |
 | Library metadata and text | `Models/Work.swift`: `Work` → `Chapter` (cascade delete), `CustomFolder` relationships | `upsertMetadata` preserves chapter bodies; `upsert(payload:)` replaces them and leaves `queueBackup` to its callers. |
-| Local activity | `ReadingProgress`, `RecentlyViewed`, `ReadingStat` | Keyed by AO3 work ID independently of a saved `Work`; reading unsaved stories still records progress/stats. |
+| Local activity | `ReadingProgress`, `RecentlyViewed`, `ReadingStat` | Keyed by AO3 work ID independently of a saved `Work`; reading unsaved stories still records progress/stats. `RecentlyViewed` keeps a snapshot of the story's summary (`hasDetails`, `workSummary`) so its rows are `WorkRow`s like AO3 History's; older entries without one borrow the Library's copy or show title, author and fandom. |
 | Follows/account records | `Work.isFollowed`, `FollowedAuthor`, `SubscriptionRecord`, `BookmarkRecord` | Remote Bookmarks UI fetches live; these model types do not imply every AO3 record is cached. |
 | Search/safety records | `SavedSearch`, `SavedFilter`, `HiddenWork`, `BlockedTerm`, `TagRecord` | Saved filters encode `AO3SearchFilters` as JSON; saved search prompts round-trip through `SearchSyntax`. |
 | EPUB files | `Documents/library/<workId>.epub`, via `AO3Client.downloadEPUB` | `WorkPersistence.epubURL` checks file existence, not `Work.epubLocalPath`. Offline chapter text and the Downloaded badge are separate. |

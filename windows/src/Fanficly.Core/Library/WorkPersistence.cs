@@ -231,15 +231,28 @@ public static class WorkPersistence
 
     // MARK: - Recently viewed
 
-    /// <summary>Record (or bump to "now") a work in the recently-viewed history.</summary>
-    public static void RecordView(AO3WorkSummary summary, LibraryStore store, int limit = 50) =>
-        RecordView(summary.Id, summary.Title, summary.Author, summary.Fandoms.FirstOrDefault() ?? "", store, limit);
+    /// <summary>Record (or bump to "now") a work in the recently-viewed history,
+    /// keeping its details for the row; then trim the list to the newest
+    /// <paramref name="limit"/>.</summary>
+    public static void RecordView(AO3WorkSummary summary, LibraryStore store, int limit = 50)
+    {
+        if (store.GetRecentlyViewed(summary.Id) is { } existing)
+        {
+            existing.ViewedAt = DateTimeOffset.Now;
+            existing.Update(summary);
+        }
+        else
+        {
+            store.Insert(new RecentlyViewed(summary));
+        }
+        Trim(store, limit);
+    }
 
     /// <summary>Overload for Library reads, which carry a <see cref="Work"/>.</summary>
     public static void RecordView(Work work, LibraryStore store, int limit = 50) =>
-        RecordView(work.Ao3Id, work.Title, work.AuthorName, work.Fandoms.FirstOrDefault() ?? "", store, limit);
+        RecordView(work.ToSummary(), store, limit);
 
-    /// <summary>Upsert a recently-viewed entry, then trim the list to the newest <paramref name="limit"/>.</summary>
+    /// <summary>Upsert a recently-viewed entry with no story details, then trim the list.</summary>
     public static void RecordView(int ao3Id, string title, string author, string fandom, LibraryStore store, int limit = 50)
     {
         if (store.GetRecentlyViewed(ao3Id) is { } existing)
@@ -253,7 +266,11 @@ public static class WorkPersistence
         {
             store.Insert(new RecentlyViewed(ao3Id, title, author, fandom));
         }
+        Trim(store, limit);
+    }
 
+    private static void Trim(LibraryStore store, int limit)
+    {
         var all = store.RecentlyViewedNewestFirst();
         if (all.Count > limit)
             foreach (var stale in all.Skip(limit)) store.Delete(stale);

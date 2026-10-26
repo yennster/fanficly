@@ -184,29 +184,7 @@ internal sealed partial class ReaderView
         }
     }
 
-    public static AO3WorkSummary SummaryOf(Work work) => new()
-    {
-        Id = work.Ao3Id,
-        Title = work.Title,
-        Author = work.AuthorName,
-        AuthorUsername = work.AuthorUsername,
-        Summary = work.Summary,
-        Rating = work.Rating,
-        Warnings = work.Warnings,
-        Categories = work.Categories,
-        Fandoms = work.Fandoms,
-        Characters = work.Characters,
-        Relationships = work.Relationships,
-        Freeforms = work.Freeforms,
-        WordCount = work.WordCount,
-        ChapterCount = work.ChapterCount,
-        TotalChapters = work.TotalChapters,
-        Language = work.Language,
-        Kudos = work.Kudos,
-        Hits = work.Hits,
-        IsComplete = work.IsComplete,
-        UpdatedAt = work.UpdatedAt,
-    };
+    public static AO3WorkSummary SummaryOf(Work work) => work.ToSummary();
 
     // MARK: - Derived settings
 

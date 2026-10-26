@@ -6,6 +6,9 @@ struct WorkRow: View {
     /// "In Library", "Finished" or a percent, from the list's one lookup per
     /// page (`.resultBadges(for:into:)`).
     var badge: ResultBadge? = nil
+    /// Recently Viewed hides the button for an old entry it knows too little
+    /// about to save.
+    var showsBookmark = true
     @Environment(\.modelContext) private var context
     @Environment(\.readingWordsPerMinute) private var wordsPerMinute
     // Reflects the local follow ("bookmark") state; seeded on appear and
@@ -67,7 +70,9 @@ struct WorkRow: View {
             // its own focusable element.
             .accessibilityElement(children: .combine)
             Spacer(minLength: 8)
-            bookmarkButton
+            if showsBookmark {
+                bookmarkButton
+            }
         }
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }

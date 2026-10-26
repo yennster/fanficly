@@ -188,6 +188,21 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).count, 3)
     }
 
+    func test_recordViewKeepsStoryDetailsForTheRow() throws {
+        let ctx = try makeContext()
+        let summary = payload(id: 7, chapters: 3).summary
+        WorkPersistence.recordView(summary: summary, into: ctx)
+        let entry = try XCTUnwrap(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).first)
+        XCTAssertTrue(entry.hasDetails)
+        XCTAssertEqual(entry.workSummary, summary)
+
+        // An entry recorded before details were kept shows what it has.
+        let legacy = RecentlyViewed(ao3Id: 8, title: "Old", author: "A", fandom: "F")
+        XCTAssertFalse(legacy.hasDetails)
+        XCTAssertEqual(legacy.workSummary.fandoms, ["F"])
+        XCTAssertEqual(legacy.workSummary.wordCount, 0)
+    }
+
     func test_readingProgressRoundTrips() throws {
         let ctx = try makeContext()
         XCTAssertNil(ReadingProgressStore.load(ao3Id: 42, in: ctx))

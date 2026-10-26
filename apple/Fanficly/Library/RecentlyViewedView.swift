@@ -2,11 +2,17 @@ import SwiftUI
 import SwiftData
 
 /// Main-navigation history of fics the user has opened, most recent first.
-/// Entries are written by `WorkDetailView` via `WorkPersistence.recordView`.
+/// Entries are written by `WorkDetailView` and `SavedWorkReader` via
+/// `WorkPersistence.recordView`. Rows are `WorkRow`s, like AO3 History's:
+/// reading badge, stats, summary and the bookmark button.
 struct RecentlyViewedView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \RecentlyViewed.viewedAt, order: .reverse) private var recents: [RecentlyViewed]
     @State private var showingClearConfirmation = false
+    @State private var badges: [Int: ResultBadge] = [:]
+    /// Library copies of entries recorded before the history kept story
+    /// details, so those rows can still show them.
+    @State private var savedSummaries: [Int: AO3WorkSummary] = [:]
 
     var body: some View {
         Group {
@@ -20,7 +26,12 @@ struct RecentlyViewedView: View {
                 List {
                     ForEach(recents) { item in
                         NavigationLink(value: item.ao3Id) {
-                            RecentlyViewedRow(item: item)
+                            let summary = rowSummary(for: item)
+                            // An entry with no details anywhere hides the
+                            // bookmark button: saving from it would put an
+                            // empty record in the Library.
+                            WorkRow(work: summary, badge: badges[item.ao3Id],
+                                    showsBookmark: item.hasDetails || savedSummaries[item.ao3Id] != nil)
                         }
                         .swipeActions {
                             Button(role: .destructive) {
@@ -33,6 +44,9 @@ struct RecentlyViewedView: View {
                 }
                 .listStyle(.plain)
                 .toolbar { EditButton() }
+                .resultBadges(for: recents.map(rowSummary(for:)), into: $badges)
+                .onAppear(perform: loadSavedSummaries)
+                .onChange(of: recents.map(\.ao3Id)) { loadSavedSummaries() }
             }
         }
         .navigationTitle("Recently Viewed")
@@ -58,6 +72,20 @@ struct RecentlyViewedView: View {
         }
     }
 
+    /// The entry's own details, or the Library's for an entry recorded
+    /// before the history kept them.
+    private func rowSummary(for item: RecentlyViewed) -> AO3WorkSummary {
+        if !item.hasDetails, let saved = savedSummaries[item.ao3Id] { return saved }
+        return item.workSummary
+    }
+
+    private func loadSavedSummaries() {
+        let ids = recents.filter { !$0.hasDetails }.map(\.ao3Id)
+        guard !ids.isEmpty else { savedSummaries = [:]; return }
+        let saved = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
+        savedSummaries = Dictionary(saved.map { ($0.ao3Id, $0.workSummary) }, uniquingKeysWith: { first, _ in first })
+    }
+
     private func remove(_ item: RecentlyViewed) {
         context.delete(item)
         try? context.save()
@@ -71,38 +99,6 @@ struct RecentlyViewedView: View {
     private func clearAll() {
         for item in recents { context.delete(item) }
         try? context.save()
-    }
-}
-
-/// Mirrors `LibraryRow`'s visual hierarchy so the two lists feel like one app.
-/// `RecentlyViewed` carries less metadata than `Work` (no rating/word/chapter
-/// counts), so those rows are omitted rather than faked.
-struct RecentlyViewedRow: View {
-    let item: RecentlyViewed
-
-    private var fandomShort: String {
-        guard !item.fandom.isEmpty else { return "" }
-        return item.fandom.components(separatedBy: " - ").first ?? item.fandom
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(item.title).font(.headline)
-            if !item.author.isEmpty {
-                Text("by \(item.author)").font(.subheadline).foregroundStyle(.secondary)
-            }
-            if !fandomShort.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: FandomCatalog.symbol(for: item.fandom)).font(.caption2)
-                        .accessibilityHidden(true)
-                    Text(fandomShort).font(.caption)
-                }
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 4)
-        .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
     }
 }
 

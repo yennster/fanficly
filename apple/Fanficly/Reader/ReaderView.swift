@@ -241,28 +241,7 @@ struct ReaderView: View {
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
             .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
-        self.summary = AO3WorkSummary(
-            id: work.ao3Id,
-            title: work.title,
-            author: work.authorName,
-            authorUsername: work.authorUsername,
-            summary: work.summary,
-            rating: work.rating,
-            warnings: work.warnings,
-            categories: work.categories,
-            fandoms: work.fandoms,
-            characters: work.characters,
-            relationships: work.relationships,
-            freeforms: work.freeforms,
-            wordCount: work.wordCount,
-            chapterCount: work.chapterCount,
-            totalChapters: work.totalChapters,
-            language: work.language,
-            kudos: work.kudos,
-            hits: work.hits,
-            isComplete: work.isComplete,
-            updatedAt: work.updatedAt
-        )
+        self.summary = work.workSummary
     }
 
     init(payload: AO3WorkPayload, currentChapter: Binding<Int>? = nil) {
