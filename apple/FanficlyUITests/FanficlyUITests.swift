@@ -553,8 +553,14 @@ final class NonReaderAccessibilityTests: XCTestCase {
             usleep(500_000)
             audit("settings-\(page)")
         }
+        // Back to the top: at this text size four swipes up can take more
+        // than four swipes down to undo, and the List unloads rows it scrolled
+        // past, so keep going until the row is there and tappable.
         let reader = app.buttons["Theme & typography"].firstMatch
-        for _ in 0..<4 where !reader.exists { app.swipeDown() }
+        for _ in 0..<10 where !(reader.exists && reader.isHittable) {
+            app.swipeDown()
+            usleep(300_000)
+        }
         if reader.waitForExistence(timeout: 3) {
             reader.tap()
             usleep(1_000_000)
