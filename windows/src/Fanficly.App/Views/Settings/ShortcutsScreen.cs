@@ -49,6 +49,7 @@ public sealed class ShortcutsScreen : Screen
                 ("Up / Down", "Scroll (in page by page: previous / next page)"),
                 ("Ctrl+Left / Ctrl+Right", "Previous / next chapter"),
                 ("Home / End", "Start / end of the chapter"),
+                ("Volume up / down", "Next / previous page, with “Volume buttons turn pages” on"),
                 ("Ctrl+L", "Listen to the chapter, or stop"),
                 ("Esc", "Leave full screen, or show the reader controls"),
                 ("F11", "Full screen"),

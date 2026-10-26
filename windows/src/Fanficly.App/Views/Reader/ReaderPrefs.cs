@@ -28,9 +28,6 @@ internal static class ReaderPrefs
     public const string SpreadWidthBase = "reader.spreadWidthPercent";
     public const string KeepScreenAwakeKey = "reader.keepScreenAwake";
     public const string ShowImagesKey = "reader.showImages";
-    /// <summary>Global, off by default: volume keys turn pages (Bluetooth remotes in
-    /// their volume mode). The Swift key; the Mac has no counterpart.</summary>
-    public const string VolumeButtonsTurnPagesKey = "reader.volumeButtonsTurnPages";
     public const string ZoomKey = "app.zoomScale";
 
     /// <summary>The per-device keys a profile carries (a change queues a library backup).</summary>
@@ -94,10 +91,11 @@ internal static class ReaderPrefs
         set => Store.SetBool(K(HapticsBase), value);
     }
 
+    /// <summary>Global, off by default: volume keys turn pages (<see cref="VolumeKeyTurn"/>).</summary>
     public static bool VolumeButtonsTurnPages
     {
-        get => Store.GetBool(VolumeButtonsTurnPagesKey, false);
-        set => Store.SetBool(VolumeButtonsTurnPagesKey, value);
+        get => Store.GetBool(VolumeKeyTurn.SettingKey, false);
+        set => Store.SetBool(VolumeKeyTurn.SettingKey, value);
     }
 
     public static bool PageTurnAnimations

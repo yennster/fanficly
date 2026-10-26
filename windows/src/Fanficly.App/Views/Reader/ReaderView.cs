@@ -1,4 +1,3 @@
-using Fanficly.App.Platform;
 using Fanficly.App.Shell;
 using Fanficly.App.UI;
 using Fanficly.Core;
@@ -46,8 +45,6 @@ internal sealed partial class ReaderView
     private readonly ReaderBrushes _brushes = new();
     private readonly ReaderTextMeasurer _measurer = new();
     private readonly SpeechController _speech;
-    /// <summary>The volume "Volume buttons turn pages" holds while reading (null until known).</summary>
-    private float? _heldVolume;
     private readonly ReaderAnchorSampler _sampler = new();
     private readonly DispatcherQueue _dispatcher;
 
@@ -255,7 +252,6 @@ internal sealed partial class ReaderView
     {
         _visible = true;
         ApplyKeepScreenAwake(ReaderPrefs.KeepScreenAwake);
-        _heldVolume = ReaderPrefs.VolumeButtonsTurnPages ? SystemVolume.Get() : null;
         StartReadingTimer();
         if (MainWindow.Current.IsFullScreen) EnterImmersive();
         ReportCurrentChapter(force: true);
@@ -854,11 +850,12 @@ internal sealed partial class ReaderView
             case VirtualKey.Down when none && !activates && _builtMode == ReadingMode.PageByPage:
                 return Turn(forward: true, arrow: false);
             // "Volume buttons turn pages" (off by default): remotes in their volume
-            // mode send only these. Narration keeps them for its volume.
-            case VolumeUpKey when none && ReaderPrefs.VolumeButtonsTurnPages && !_speech.IsActive:
-                return VolumeTurn(forward: true);
-            case VolumeDownKey when none && ReaderPrefs.VolumeButtonsTurnPages && !_speech.IsActive:
-                return VolumeTurn(forward: false);
+            // mode send only these. Platform.VolumeKeyGate keeps the shell from
+            // also changing the volume. Narration keeps them for its volume.
+            case (VirtualKey)VolumeKeyTurn.VolumeUpKey when none && WantsVolumeKeys:
+            case (VirtualKey)VolumeKeyTurn.VolumeDownKey when none && WantsVolumeKeys:
+                Turn(forward: VolumeKeyTurn.Direction((int)key) == true, arrow: false);
+                return true;
             case VirtualKey.Up when none:
                 return ScrollBy(-48);
             case VirtualKey.Down when none:
@@ -867,26 +864,9 @@ internal sealed partial class ReaderView
         return false;
     }
 
-    private const VirtualKey VolumeDownKey = (VirtualKey)174; // VK_VOLUME_DOWN
-    private const VirtualKey VolumeUpKey = (VirtualKey)175;   // VK_VOLUME_UP
-
-    /// <summary>A volume key with "Volume buttons turn pages" on: turns as Page Down /
-    /// Page Up do, then puts the volume back. The shell changes it on its own
-    /// schedule, so it's set back now and again a moment later.</summary>
-    private bool VolumeTurn(bool forward)
-    {
-        _heldVolume ??= SystemVolume.Get();
-        Turn(forward, arrow: false);
-        if (_heldVolume is { } level) _ = HoldVolumeAsync(level);
-        return true;
-    }
-
-    private static async Task HoldVolumeAsync(float level)
-    {
-        SystemVolume.Set(level);
-        await Task.Delay(200);
-        SystemVolume.Set(level);
-    }
+    /// <summary>Whether volume keys turn pages now: "Volume buttons turn pages" is on
+    /// and narration isn't using them for its volume. They turn as Page Down / Page Up.</summary>
+    public bool WantsVolumeKeys => _bodyBuilt && !_removed && ReaderPrefs.VolumeButtonsTurnPages && !_speech.IsActive;
 
     /// <summary>One "page" forward or back in whatever the mode turns: a page (or a
     /// spread), a chapter in Swipe by chapter for the arrow keys (Page Up / Down and
