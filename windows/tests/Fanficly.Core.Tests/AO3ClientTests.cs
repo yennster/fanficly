@@ -193,6 +193,15 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task Cloudflare403OnTheLoginUrlIsBlockedByProtection()
+    {
+        // Cloudflare can challenge the login page itself: signing in again wouldn't help.
+        _handler.Respond(_ => FakeHandler.Redirect("/users/login?restricted=true"), _ => Forbidden("", cfMitigated: "challenge"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.BlockedByProtection, e.Kind);
+    }
+
+    [Fact]
     public async Task Login403IsUnauthorized()
     {
         _handler.Respond(_ => Forbidden(LoginPageHtml));

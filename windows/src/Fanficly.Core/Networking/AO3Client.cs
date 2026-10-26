@@ -764,13 +764,16 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// two apart: the <c>cf-mitigated</c> header and the challenge page's markup can.</summary>
     internal static AO3Exception ForbiddenError(Response response)
     {
+        // Cloudflare first: it can challenge the login page itself (signing in, or a
+        // stale session's redirect there).
+        if (response.CfMitigated) return AO3Exception.BlockedByProtection();
+        var html = Encoding.UTF8.GetString(response.Body);
+        if (CloudflareMarkers.Any(m => html.Contains(m, StringComparison.OrdinalIgnoreCase)))
+            return AO3Exception.BlockedByProtection();
         var path = response.FinalUri.AbsolutePath;
         if (path.StartsWith("/users/login", StringComparison.Ordinal) || path.StartsWith("/auth_error", StringComparison.Ordinal))
             return AO3Exception.Unauthorized();
-        var html = Encoding.UTF8.GetString(response.Body);
         if (AO3PageCheck.IsLoginPage(HtmlDom.Parse(html))) return AO3Exception.Unauthorized();
-        if (response.CfMitigated || CloudflareMarkers.Any(m => html.Contains(m, StringComparison.OrdinalIgnoreCase)))
-            return AO3Exception.BlockedByProtection();
         return AO3Exception.Forbidden();
     }
 
