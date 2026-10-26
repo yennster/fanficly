@@ -31,6 +31,10 @@ final class ReaderLayoutTests: XCTestCase {
     /// left a 130–300 pt band.
     private let maxBlankBelowText: CGFloat = 75
 
+    /// The page's top and bottom margin (ReaderView.pageVerticalMargin): the
+    /// page's own frame, which clips its text, ends this far above the footer.
+    private let pageMargin: CGFloat = 12
+
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
@@ -144,6 +148,36 @@ final class ReaderLayoutTests: XCTestCase {
         try assertPageLayout(footer, "in a wide window")
         try assertTogglingKeepsThePageStill(footer, "in a wide window",
                                             screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
+    }
+
+    func test_fullWidthMargins_keepEveryLineOnThePage() throws {
+        // 1.12.0: with Page margins at Full (100%), the right page of iPhone
+        // Duo's open book (and, folded, its one page) reaches the toolbar
+        // strip at the side, and in full screen the page's last line was cut
+        // off at its bottom edge. Full margins for one page and two.
+        app.terminate()
+        for device in ["phone", "pad", "mac"] {
+            app.launchArguments += ["-reader.widthPercent.\(device)", "100",
+                                    "-reader.spreadWidthPercent.\(device)", "100"]
+        }
+        app.launch()
+        let footer = openReader()
+        turnToMiddlePage(footer)
+        capture("12-full-margins")
+        try assertPageLayout(footer, "full margins")
+        #if !targetEnvironment(macCatalyst)
+        if !isDuoUnfolded {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            sleep(2)
+            XCTAssertTrue(footer.waitForExistence(timeout: 8))
+            settle()
+            turnToMiddlePage(footer)
+        }
+        #endif
+        capture("13-full-margins-wide")
+        try assertPageLayout(footer, "full margins in a wide window")
+        try assertTogglingKeepsThePageStill(footer, "full margins in a wide window",
+                                            screenshots: ("14-full-margins-full-screen", "15-full-margins-controls-back"))
     }
 
     func test_fullScreen_leavesOnlyThePage() throws {
@@ -330,6 +364,7 @@ final class ReaderLayoutTests: XCTestCase {
                            "\(context): the footer's room changed in full screen", file: file, line: line)
         }
         assertSameText(try storyTexts(above: bar), shown, "\(context): hiding the controls", file: file, line: line)
+        try assertTextStaysOnItsPage("\(context), full screen", file: file, line: line)
         tap(middle)
         XCTAssertTrue(footer.waitForExistence(timeout: 5), "\(context): the controls came back", file: file, line: line)
         settle()
@@ -367,6 +402,7 @@ final class ReaderLayoutTests: XCTestCase {
                                     file: file, line: line)
         assertPagesFull(try storyTexts(above: bar), endingAt: bar.minY, spread: page(footer)?.isSpread == true,
                         across: bar, "\(context) (\(footer.label))", file: file, line: line)
+        try assertTextStaysOnItsPage("\(context) (\(footer.label))", file: file, line: line)
     }
 
     /// Each page on screen ends just above `edge` (the bottom of the page
@@ -381,12 +417,49 @@ final class ReaderLayoutTests: XCTestCase {
                 XCTFail("\(context): no text on the \(which)", file: file, line: line)
                 continue
             }
-            XCTAssertLessThanOrEqual(bottom, edge + 1,
-                                     "\(context): the \(which)'s text runs \(bottom - edge) pt past the page area",
+            // The page clips its text at its own frame, a margin above the edge.
+            XCTAssertLessThanOrEqual(bottom, edge - pageMargin + 1,
+                                     "\(context): the \(which)'s text runs \(bottom - edge + pageMargin) pt past the page, where it's cut off",
                                      file: file, line: line)
             XCTAssertGreaterThanOrEqual(bottom, edge - maxBlankBelowText,
                                         "\(context): \(edge - bottom) pt blank under the \(which)'s text",
                                         file: file, line: line)
+        }
+    }
+
+    /// Every line of text on screen lies inside the page that draws it
+    /// (`reader.page`, ReaderPageCell's scroll view, which clips it there): a
+    /// page holding more than its frame shows cuts its last line off.
+    private func assertTextStaysOnItsPage(_ context: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let app: XCUIApplication = self.app
+        let window = app.windows.firstMatch.frame
+        let found = try MainActor.assumeIsolated {
+            var pages: [(page: CGRect, texts: [(frame: CGRect, text: String)])] = []
+            func texts(in element: any XCUIElementSnapshot) -> [(frame: CGRect, text: String)] {
+                let own: [(frame: CGRect, text: String)] = element.elementType == .staticText && element.frame.height > 0
+                    ? [(element.frame, element.label)] : []
+                return own + element.children.flatMap(texts)
+            }
+            func collect(_ element: any XCUIElementSnapshot) {
+                // The pages either side of the one showing sit off screen.
+                if element.elementType == .scrollView, element.identifier == "reader.page",
+                   element.frame.intersection(window).width > element.frame.width / 2 {
+                    pages.append((element.frame, texts(in: element)))
+                    return
+                }
+                element.children.forEach(collect)
+            }
+            collect(try app.snapshot())
+            return pages
+        }
+        XCTAssertFalse(found.isEmpty, "\(context): no page (reader.page) on screen", file: file, line: line)
+        for (page, texts) in found {
+            for text in texts where text.frame.maxY > page.maxY + 1 || text.frame.minX < page.minX - 1
+                || text.frame.maxX > page.maxX + 1 {
+                XCTFail("\(context): \"\(text.text.suffix(30))\" at \(text.frame) runs out of its page \(page) and is cut off",
+                        file: file, line: line)
+                break
+            }
         }
     }
 
