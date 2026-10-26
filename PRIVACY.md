@@ -54,7 +54,7 @@ We do not set any first-party cookies of our own.
 
 Because Fanficly has no servers and collects no data, there is no copy of your information held by us to provide, correct, or delete. Your data exists exclusively on your device and — if you use iCloud sync — in your own private iCloud account, which only you control.
 
-**To delete all locally stored data:** delete the app. iOS removes all sandboxed app storage, including the Keychain entries created by the app. This is the erasure mechanism. If you enabled iCloud library sync, delete the backup from Fanficly's settings (or manage it in iOS Settings → iCloud storage) before removing the app.
+**To delete all locally stored data:** log out of AO3 in Fanficly, then delete the app. Logging out removes your AO3 session from the Keychain and asks AO3 to end it. Deleting the app removes all sandboxed app storage. iOS can keep an app's Keychain entries after the app is deleted, so if you delete it without logging out, Fanficly erases them the first time it opens after a reinstall. If you enabled iCloud library sync, delete the backup from Fanficly's settings (or manage it in iOS Settings → iCloud storage) before removing the app.
 
 **To export your AO3 account data:** request it directly from AO3 — they are the data controller for your account.
 
