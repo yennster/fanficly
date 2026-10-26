@@ -376,18 +376,21 @@ final class ReaderLayoutTests: XCTestCase {
         // draw its items as buttons.
         let profile = menuItem(labeled: "Profile")
         if !profile.waitForExistence(timeout: 4) {
-            // On iPhone Duo (iOS 27.1, Xcode Cloud) the menu opens and the app
-            // never settles: XCTest waits 60 s for its animations and the
-            // Profile submenu isn't found. Say what's on screen, then open the
-            // menu once more in case the first tap's menu closed again.
+            // On iPhone Duo (iOS 27.1, Xcode Cloud) the tap on Reader
+            // settings in the vertical strip opens no menu at all (no menu,
+            // menu item or popover in the tree) and the app never settles:
+            // XCTest waits 60 s for its animations. XCTest may aim the tap
+            // from the app's frame, which the Duo gets wrong (see `tap`), so
+            // tap the button's centre measured from the window instead.
             let first = menuState()
-            print("Reader settings menu without a Profile item:\n\(app.debugDescription)")
-            if settings.exists && settings.isHittable {
-                settings.tap()
+            let frames = "button \(settings.frame), window \(app.windows.firstMatch.frame), app \(app.frame)"
+            print("Reader settings menu without a Profile item (\(frames)):\n\(app.debugDescription)")
+            if settings.exists {
+                tap(CGPoint(x: settings.frame.midX, y: settings.frame.midY))
                 capture("05-reader-settings-menu-again")
             }
             if !profile.waitForExistence(timeout: 4) {
-                XCTFail("the Profile submenu: first tap \(first); second tap \(menuState())")
+                XCTFail("the Profile submenu: \(frames); first tap \(first); window tap \(menuState())")
             }
         }
         profile.tap()
