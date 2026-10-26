@@ -723,13 +723,9 @@ struct SearchView: View {
 
     private static func message(for error: Error) -> String {
         switch error {
-        case AO3Error.loginFailed(let reason): return reason
-        case AO3Error.http(let status): return "AO3 returned HTTP \(status)."
-        case AO3Error.parseFailed(let reason): return "Couldn't read AO3's response: \(reason)"
-        case AO3Error.network(let underlying): return "Network: \(underlying)"
-        case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
-        case AO3Error.unauthorized: return "AO3 sent its login page instead of results. Sign in again, then try again."
-        default: return error.localizedDescription
+        case AO3Error.unauthorized: "AO3 sent its login page instead of results. Sign in again, then try again."
+        // Every other AO3Error reads as a sentence (AO3Error: LocalizedError).
+        default: error.localizedDescription
         }
     }
 

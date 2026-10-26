@@ -254,7 +254,7 @@ struct CategoryFandomsView: View {
         } catch let AO3Error.http(status) where status == 404 {
             errorMessage = "AO3 didn't recognise that category. Showing popular fandoms only."
         } catch {
-            errorMessage = "Couldn't load full list (\(error)). Showing popular fandoms only."
+            errorMessage = "Couldn't load the full list. \(error.localizedDescription) Showing popular fandoms only."
         }
     }
 }
@@ -320,8 +320,13 @@ struct FandomWorksView: View {
             if isLoading && works.isEmpty {
                 VStack { Spacer(); ProgressView("Loading…"); Spacer() }
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load works", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await reload() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView("No works found", systemImage: "magnifyingglass",
                     description: Text("Try adjusting your filters or search terms."))
@@ -505,7 +510,7 @@ struct FandomWorksView: View {
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "\(error)"
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -522,7 +527,7 @@ struct FandomWorksView: View {
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "\(error)"
+            errorMessage = error.localizedDescription
         }
     }
 }
@@ -572,8 +577,13 @@ struct SeriesView: View {
             if isLoading && info == nil {
                 VStack { Spacer(); ProgressView("Loading…"); Spacer() }
             } else if let errorMessage, info == nil {
-                ContentUnavailableView("Couldn't load series", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load series", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await loadFirst() } }
+                }
             } else {
                 List {
                     if let info { header(info) }
@@ -668,7 +678,7 @@ struct SeriesView: View {
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "\(error)"
+            errorMessage = error.localizedDescription
             return
         }
         isLoading = false
@@ -700,7 +710,7 @@ struct SeriesView: View {
             totalPages = result.totalPages
             loadMoreError = nil
         } catch {
-            loadMoreError = "\(error)"
+            loadMoreError = error.localizedDescription
         }
     }
 }
