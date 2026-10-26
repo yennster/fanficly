@@ -42,14 +42,44 @@ protocol LoginNameStore: AnyObject, Sendable {
     func setUsername(_ username: String?)
 }
 
-final class CredentialStore: LoginNameStore, @unchecked Sendable {
+/// Where AO3's cookies are kept between launches. `CredentialStore` in the app;
+/// tests pass one that keeps them in memory.
+protocol CookieVault: AnyObject, Sendable {
+    func saveCookies(_ cookies: [HTTPCookie])
+    func loadCookies() -> [HTTPCookie]
+    func clearCookies()
+}
+
+final class CredentialStore: LoginNameStore, CookieVault, @unchecked Sendable {
     static let shared = CredentialStore()
 
-    private let keychain = Keychain(service: "io.github.yennster.fanficly")
+    private static let service = "io.github.yennster.fanficly"
+    private let keychain = Keychain(service: CredentialStore.service)
     private let usernameKey = "ao3.username"
     private let cookiesKey = "ao3.cookies"
 
-    private init() {}
+    private init() {
+        let keychain = self.keychain
+        Self.forgetPreviousInstall(defaults: .standard) { try? keychain.removeAll() }
+    }
+
+    /// Set the first time this install opens.
+    static let installedKey = "app.installed"
+
+    /// iOS keeps Keychain items after the app is deleted, so a reinstalled app
+    /// would still be signed in as whoever used it before (#145). Deleting the
+    /// app does erase its UserDefaults, so a first launch with no
+    /// `installedKey` clears the Keychain. An install from before the flag
+    /// existed has answered the age gate, which a fresh one hasn't yet; that
+    /// one keeps its sign-in. Returns whether it cleared.
+    @discardableResult
+    static func forgetPreviousInstall(defaults: UserDefaults, clear: () -> Void) -> Bool {
+        guard !defaults.bool(forKey: installedKey) else { return false }
+        defaults.set(true, forKey: installedKey)
+        guard defaults.object(forKey: ContentControl.ageConfirmedKey) == nil else { return false }
+        clear()
+        return true
+    }
 
     func storedUsername() -> String? {
         try? keychain.get(usernameKey)
@@ -80,6 +110,62 @@ final class CredentialStore: LoginNameStore, @unchecked Sendable {
         }
         return serializable.compactMap { HTTPCookie(properties: $0.properties) }
     }
+
+    func clearCookies() {
+        try? keychain.remove(cookiesKey)
+    }
+}
+
+/// Keeps the vault's copy of AO3's cookies in step with signing in and out
+/// (#145). Saves run in order on one queue, only while signed in, and a save
+/// queued before a sign-out is dropped, so a cookie change that was racing
+/// logout can't write the session back after logout cleared it.
+final class CookiePersistence: @unchecked Sendable {
+    private let vault: any CookieVault
+    private let queue = DispatchQueue(label: "io.github.yennster.fanficly.cookies", qos: .utility)
+    private let lock = NSLock()
+    private var _generation = 0
+    private var _isSignedIn: Bool
+
+    init(vault: any CookieVault, signedIn: Bool) {
+        self.vault = vault
+        _isSignedIn = signedIn
+    }
+
+    /// Goes up at every sign-out. A request that started at an older
+    /// generation was sent with the old session's cookies, so whatever cookies
+    /// it brings back belong to that session.
+    var generation: Int { lock.withLock { _generation } }
+
+    /// Signed in on this device: cookie changes are saved.
+    var isSignedIn: Bool { lock.withLock { _isSignedIn } }
+
+    func cookiesChanged(_ cookies: [HTTPCookie]) {
+        let generation: Int? = lock.withLock { _isSignedIn ? _generation : nil }
+        guard let generation else { return }
+        queue.async { [self] in
+            guard lock.withLock({ _isSignedIn && _generation == generation }) else { return }
+            vault.saveCookies(cookies)
+        }
+    }
+
+    /// A sign-in succeeded: save its cookies, and every change after.
+    func signedIn(with cookies: [HTTPCookie]) {
+        lock.withLock { _isSignedIn = true }
+        cookiesChanged(cookies)
+    }
+
+    /// Stops saving, drops saves still queued, and clears the vault's cookies.
+    func signedOut() {
+        lock.withLock {
+            _isSignedIn = false
+            _generation += 1
+        }
+        queue.async { [vault] in vault.clearCookies() }
+    }
+
+    /// Waits for queued saves and clears (tests).
+    func flush() { queue.sync {} }
 }
 
 /// What an expired AO3 session looks like (#131): signed in on this device, but
@@ -133,7 +219,12 @@ final class AuthState {
         }
     }
 
+    /// Signing out: AO3 is being asked to end the session (#145).
+    var isSigningOut: Bool = false
+
     func logout(using client: any AO3ClientProtocol) async {
+        isSigningOut = true
+        defer { isSigningOut = false }
         await client.logout()
         store.setUsername(nil)
         KudosStore.clear()
