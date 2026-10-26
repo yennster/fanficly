@@ -90,10 +90,11 @@ struct ReaderPageCell: View {
         ScrollView(.vertical, showsIndicators: false) {
             // The page fills exactly the frame ReaderView gives it, the one it
             // was paginated for. Left to itself the scroll view insets its
-            // content by any safe area the page overlaps: at 100% margins the
-            // right page of iPhone Duo's open book touches the toolbar strip,
-            // its text wrapped narrower than measured, and the page's last
-            // line was cut off (1.12.0).
+            // content by any safe area the page overlaps, and the text wraps
+            // narrower than measured and runs a line past the page. At 100%
+            // margins a page reaches the side of the reader (iPhone Duo's
+            // toolbar strip), where a page held in place while the controls
+            // are hidden can overlap it.
             pageContent
                 .ignoresSafeArea(.container)
         }
