@@ -372,18 +372,26 @@ final class ReaderLayoutTests: XCTestCase {
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
         settings.tap()
         capture("05-reader-settings-menu")
-        let profile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Profile")).firstMatch
+        // Any element type: a menu from iPhone Duo's vertical strip may not
+        // draw its items as buttons.
+        let profile = menuItem(labeled: "Profile")
         if !profile.waitForExistence(timeout: 4) {
-            // On iPhone Duo (iOS 27.1) a software keyboard came up as the
-            // menu opened, with no text field on screen, and closed the menu.
-            // Name whatever holds keyboard focus so the failure says why.
-            let focused = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
-            let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
-            XCTFail("the Profile submenu (keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder))")
+            // On iPhone Duo (iOS 27.1, Xcode Cloud) the menu opens and the app
+            // never settles: XCTest waits 60 s for its animations and the
+            // Profile submenu isn't found. Say what's on screen, then open the
+            // menu once more in case the first tap's menu closed again.
+            let first = menuState()
+            print("Reader settings menu without a Profile item:\n\(app.debugDescription)")
+            if settings.exists && settings.isHittable {
+                settings.tap()
+                capture("05-reader-settings-menu-again")
+            }
+            if !profile.waitForExistence(timeout: 4) {
+                XCTFail("the Profile submenu: first tap \(first); second tap \(menuState())")
+            }
         }
         profile.tap()
-        let save = app.buttons["Save Current as New Profile..."].firstMatch
+        let save = menuItem(labeled: "Save Current as New Profile...")
         XCTAssertTrue(save.waitForExistence(timeout: 4), "Save Current as New Profile…")
         save.tap()
         XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 4), "the profile name prompt")
@@ -603,6 +611,29 @@ final class ReaderLayoutTests: XCTestCase {
         let origin = window.frame.origin
         window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: point.x - origin.x, dy: point.y - origin.y)).tap()
+    }
+
+    /// A menu's item by the start of its label, whatever element type it draws as.
+    private func menuItem(labeled prefix: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "label BEGINSWITH %@ AND elementType IN %@", prefix,
+            [XCUIElement.ElementType.button, .menuItem, .cell, .staticText, .other].map(\.rawValue) as NSArray)).firstMatch
+    }
+
+    /// What a menu that didn't show its items left on screen, for a failure
+    /// message: Xcode Cloud's check shows the message, not the result bundle.
+    private func menuState() -> String {
+        let focused = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
+        let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
+        let buttons = app.buttons.allElementsBoundByIndex.prefix(12)
+            .map { $0.identifier.isEmpty ? $0.label : "\($0.label)#\($0.identifier)" }
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let elsewhere = springboard.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Profile'")).firstMatch.exists
+        return "(keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder), "
+            + "menus: \(app.menus.count), menu items: \(app.menuItems.count), popovers: \(app.popovers.count), "
+            + "windows: \(app.windows.count), Profile in SpringBoard: \(elsewhere), buttons: \(buttons))"
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
