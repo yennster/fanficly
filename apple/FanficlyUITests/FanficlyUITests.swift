@@ -84,10 +84,10 @@ final class ReaderLayoutTests: XCTestCase {
         #endif
     }
 
-    func test_togglingTheControls_fillsThePageAndKeepsItInPlace() throws {
+    func test_togglingTheControls_keepsThePageStill() throws {
         let footer = openReader()
         turnToMiddlePage(footer)
-        try assertFullScreenFillsThePage(footer, "one page", screenshots: ("03-full-screen", "04-controls-back"))
+        try assertTogglingKeepsThePageStill(footer, "one page", screenshots: ("03-full-screen", "04-controls-back"))
     }
 
     func test_keyboard_leavesTheFooterAndPagesAlone() throws {
@@ -142,44 +142,47 @@ final class ReaderLayoutTests: XCTestCase {
         turnToMiddlePage(footer)
         capture("07-wide-window")
         try assertPageLayout(footer, "in a wide window")
-        try assertFullScreenFillsThePage(footer, "in a wide window",
-                                         screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
+        try assertTogglingKeepsThePageStill(footer, "in a wide window",
+                                            screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
     }
 
-    func test_fullScreen_keepsABackArrow() throws {
-        // Full screen used to hide the whole toolbar, leaving only an
-        // invisible tap on the page's middle third, which on iPhone Duo could
-        // go nowhere: the reader was a trap. Full screen now hides the
-        // toolbar's items but keeps one back arrow, which brings them back.
+    func test_fullScreen_leavesOnlyThePage() throws {
+        // As in Apple Books, a tap on the page's middle third hides every
+        // control (no back arrow or full screen button stays behind) and
+        // another tap brings them all back. Full screen once hid the whole
+        // bar and on iPhone Duo the tap back could go nowhere, trapping the
+        // reader, so this checks the tap brings the controls back every time.
         let footer = openReader()
         turnToMiddlePage(footer)
         let bar = footer.frame
-        let exit = app.buttons["reader.fullScreenBack"]
+        let middle = CGPoint(x: bar.midX, y: bar.minY - 200)
         let systemBack = app.buttons["BackButton"]
+        let readerItems = readerToolbarItem
         // The work page's own items (WorkDetailView), hidden through
         // ReaderFullScreenKey.
         let hostItems = app.buttons.matching(NSPredicate(
             format: "label IN {'Save to Library', 'Remove from Library'}"))
-        XCTAssertFalse(exit.exists, "the back arrow only shows in full screen")
+        let pageNumber = app.descendants(matching: .any).matching(identifier: "reader.pageNumber").firstMatch
         XCTAssertTrue(systemBack.exists, "the system back button, with the controls up")
-        tap(CGPoint(x: bar.midX, y: bar.minY - 200))
-        XCTAssertTrue(waitForAbsence(footer), "the controls hid")
-        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen keeps the back arrow")
-        settle()
-        capture("10-full-screen-back-arrow")
-        XCTAssertTrue(exit.isHittable, "the back arrow can be tapped")
-        XCTAssertFalse(systemBack.exists, "full screen hides the system back button")
-        XCTAssertFalse(app.buttons["reader.fullScreenToggle"].exists, "full screen hides the reader's items")
-        XCTAssertFalse(app.buttons["BottomOverflowBarButtonItem"].exists, "full screen hides the overflow (More) button")
-        XCTAssertEqual(hostItems.count, 0, "full screen hides the work page's items")
-        exit.tap()
-        XCTAssertTrue(footer.waitForExistence(timeout: 5), "the back arrow brought the controls back")
-        XCTAssertTrue(waitForAbsence(exit), "the back arrow went with full screen")
-        XCTAssertTrue(systemBack.waitForExistence(timeout: 5), "the toolbar came back with its back button")
-        let toggleOrOverflow = app.buttons.matching(NSPredicate(
-            format: "identifier IN {'reader.fullScreenToggle', 'BottomOverflowBarButtonItem'}")).firstMatch
-        XCTAssertTrue(toggleOrOverflow.exists, "the toolbar came back with its items")
-        settle()
+        XCTAssertTrue(readerItems.exists, "the reader's toolbar items, with the controls up")
+        XCTAssertFalse(pageNumber.exists, "the bare page number only shows in full screen")
+        for round in 1...2 {
+            tap(middle)
+            XCTAssertTrue(waitForAbsence(footer), "round \(round): the controls hid")
+            XCTAssertTrue(waitForAbsence(systemBack), "round \(round): full screen hides the system back button")
+            settle()
+            if round == 1 { capture("10-full-screen-only-the-page") }
+            XCTAssertFalse(readerItems.exists, "round \(round): full screen hides the reader's items")
+            XCTAssertEqual(hostItems.count, 0, "round \(round): full screen hides the work page's items")
+            XCTAssertFalse(app.buttons["reader.fullScreenBack"].exists, "round \(round): no back arrow stays behind")
+            XCTAssertTrue(pageNumber.exists, "round \(round): full screen keeps the page number")
+            tap(middle)
+            XCTAssertTrue(footer.waitForExistence(timeout: 5), "round \(round): a tap brought the controls back")
+            XCTAssertTrue(systemBack.waitForExistence(timeout: 5), "round \(round): the toolbar came back with its back button")
+            XCTAssertTrue(readerItems.waitForExistence(timeout: 5), "round \(round): the toolbar came back with its items")
+            XCTAssertTrue(waitForAbsence(pageNumber), "round \(round): the bare page number went with full screen")
+            settle()
+        }
         systemBack.tap()
         XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 8), "Back returned to Search")
     }
@@ -192,19 +195,25 @@ final class ReaderLayoutTests: XCTestCase {
         app.terminate()
         app.launchArguments = app.launchArguments.map { $0 == "pageByPage" ? "continuous" : $0 }
         app.launch()
-        _ = openReader(pageByPage: false)
+        let items = openReader(pageByPage: false)
         // Scroll into the story (past the title page's links) so text fills
         // the screen top to bottom, then tap it for full screen.
         app.swipeUp()
         settle()
         let window = app.windows.firstMatch.frame
+        let screen = CGRect(x: window.minX, y: window.maxY, width: window.width, height: 0)
+        // A paragraph well clear of the bars, to see whether the text moves.
+        let marker = try XCTUnwrap(try storyTexts(above: screen)
+            .filter { $0.frame.minY > window.minY + 150 && $0.text.count > 40 }
+            .min { $0.frame.minY < $1.frame.minY }, "story text on screen")
         tap(CGPoint(x: window.midX, y: window.midY))
-        let exit = app.buttons["reader.fullScreenBack"]
-        XCTAssertTrue(exit.waitForExistence(timeout: 5), "full screen")
+        XCTAssertTrue(waitForAbsence(items), "full screen")
         settle()
         capture("11-continuous-full-screen")
-        exit.tap()
-        XCTAssertTrue(waitForAbsence(exit), "the controls came back")
+        let same = try storyTexts(above: screen).first { $0.text == marker.text }
+        XCTAssertEqual(same?.frame.minY ?? -1, marker.frame.minY, accuracy: 1, "hiding the controls moved the text")
+        tap(CGPoint(x: window.midX, y: window.midY))
+        XCTAssertTrue(items.waitForExistence(timeout: 5), "the controls came back")
     }
 
     // MARK: - Navigation
@@ -230,12 +239,11 @@ final class ReaderLayoutTests: XCTestCase {
         let cell = result.waitForExistence(timeout: 10) ? result : app.cells.firstMatch
         XCTAssertTrue(cell.waitForExistence(timeout: 5), "search results", file: file, line: line)
         cell.tap()
-        // The scrolling modes have no page footer: their full screen button
-        // shows the reader is open.
+        // The scrolling modes have no page footer: the reader's own toolbar
+        // items show the reader is open.
         let footer = pageByPage
             ? app.descendants(matching: .any).matching(identifier: "reader.pageFooter").firstMatch
-            : app.buttons.matching(NSPredicate(
-                format: "identifier IN {'reader.fullScreenToggle', 'BottomOverflowBarButtonItem'}")).firstMatch
+            : readerToolbarItem
         XCTAssertTrue(footer.waitForExistence(timeout: 20), "the reader", file: file, line: line)
         if isDuoUnfolded {
             // Unfolded, the Duo keeps the sidebar beside the reader, which
@@ -298,56 +306,53 @@ final class ReaderLayoutTests: XCTestCase {
 
     // MARK: - Layout checks
 
-    /// Hides the controls (full screen) and shows them again. Hidden, the
-    /// page footer goes too (iPhone Duo included) and the page re-paginates
-    /// to fill the room they left (it used to leave it blank); both ways the
-    /// page keeps its first line.
-    private func assertFullScreenFillsThePage(_ footer: XCUIElement, _ context: String,
-                                              screenshots: (hidden: String, shown: String),
-                                              file: StaticString = #filePath, line: UInt = #line) throws {
+    /// Hides the controls (full screen) and shows them again, as Apple Books
+    /// does: the page doesn't move or re-flow either way. Hidden, the footer
+    /// keeps its room but shows only the page number.
+    private func assertTogglingKeepsThePageStill(_ footer: XCUIElement, _ context: String,
+                                                 screenshots: (hidden: String, shown: String),
+                                                 file: StaticString = #filePath, line: UInt = #line) throws {
         let bar = footer.frame
+        let label = footer.label
         let shown = try storyTexts(above: bar)
-        let firstWords = try XCTUnwrap(openingWords(shown), "\(context): text on the page", file: file, line: line)
+        XCTAssertNotNil(openingWords(shown), "\(context): text on the page", file: file, line: line)
+        let pageNumber = app.descendants(matching: .any).matching(identifier: "reader.pageNumber").firstMatch
         // The middle third of the page shows or hides the controls.
         let middle = CGPoint(x: bar.midX, y: bar.minY - 200)
         tap(middle)
         XCTAssertTrue(waitForAbsence(footer), "\(context): the controls hid", file: file, line: line)
         settle()
         capture(screenshots.hidden)
-        // The footer's bottom edge is the page area's.
-        let hidden = try storyTexts(above: CGRect(x: bar.minX, y: bar.maxY, width: bar.width, height: 0))
-        XCTAssertEqual(openingWords(hidden), firstWords, "\(context): hiding the controls moved the page",
-                       file: file, line: line)
-        // Text on both sides of the middle: a two-page spread.
-        let twoPages = { (texts: [(frame: CGRect, text: String)]) in
-            texts.contains { $0.frame.minX > bar.midX } && texts.contains { $0.frame.maxX < bar.midX }
+        XCTAssertTrue(pageNumber.exists, "\(context): full screen shows the page number", file: file, line: line)
+        if pageNumber.exists {
+            XCTAssertEqual(pageNumber.label, label, "\(context): full screen moved to another page", file: file, line: line)
+            XCTAssertEqual(pageNumber.frame.midY, bar.midY, accuracy: 2,
+                           "\(context): the footer's room changed in full screen", file: file, line: line)
         }
-        XCTAssertEqual(twoPages(hidden), twoPages(shown), "\(context): full screen switched between one page and two",
-                       file: file, line: line)
-        // Full screen's pages run to the bottom of the screen, where the
-        // footer's bottom edge was.
-        assertPagesFull(hidden, endingAt: bar.maxY, spread: twoPages(shown), across: bar,
-                        "\(context), full screen", file: file, line: line)
-        // The room gained: the footer's, plus the nav bar's where the text
-        // moves up into it. Room for a paragraph gap and a line (~45 pt here)
-        // must take more text; less may legitimately not.
-        let top = { (texts: [(frame: CGRect, text: String)]) in texts.map(\.frame.minY).min() ?? 0 }
-        let gained = bar.height + top(shown) - top(hidden)
-        if gained >= 60 {
-            XCTAssertGreaterThan(characters(hidden), characters(shown),
-                                 "\(context): full screen gained \(gained) pt but the page holds no more text: the room stayed blank",
-                                 file: file, line: line)
-        } else {
-            XCTAssertGreaterThanOrEqual(characters(hidden), characters(shown),
-                                        "\(context): full screen lost text", file: file, line: line)
-        }
+        assertSameText(try storyTexts(above: bar), shown, "\(context): hiding the controls", file: file, line: line)
         tap(middle)
         XCTAssertTrue(footer.waitForExistence(timeout: 5), "\(context): the controls came back", file: file, line: line)
         settle()
         capture(screenshots.shown)
-        XCTAssertEqual(openingWords(try storyTexts(above: footer.frame)), firstWords,
-                       "\(context): showing the controls moved the page", file: file, line: line)
+        XCTAssertEqual(footer.label, label, "\(context): showing the controls moved to another page", file: file, line: line)
+        assertSameText(try storyTexts(above: footer.frame), shown, "\(context): showing the controls",
+                       file: file, line: line)
         try assertPageLayout(footer, "\(context), after toggling the controls", file: file, line: line)
+    }
+
+    /// The same paragraphs at the same places (within a point): nothing moved or re-flowed.
+    private func assertSameText(_ texts: [(frame: CGRect, text: String)], _ before: [(frame: CGRect, text: String)],
+                                _ context: String, file: StaticString = #filePath, line: UInt = #line) {
+        let order = { (texts: [(frame: CGRect, text: String)]) in
+            texts.sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
+        }
+        let now = order(texts), then = order(before)
+        XCTAssertEqual(now.map(\.text), then.map(\.text), "\(context) re-flowed the page", file: file, line: line)
+        for (a, b) in zip(now, then) where abs(a.frame.minX - b.frame.minX) > 1 || abs(a.frame.minY - b.frame.minY) > 1
+            || abs(a.frame.width - b.frame.width) > 1 || abs(a.frame.height - b.frame.height) > 1 {
+            XCTFail("\(context) moved \"\(a.text.prefix(30))\" from \(b.frame) to \(a.frame)", file: file, line: line)
+            break
+        }
     }
 
     /// The footer sits on the bottom edge, and each page on screen is full:
@@ -420,10 +425,6 @@ final class ReaderLayoutTests: XCTestCase {
             .map { String($0.text.prefix(40)) }
     }
 
-    private func characters(_ texts: [(frame: CGRect, text: String)]) -> Int {
-        texts.reduce(0) { $0 + $1.text.count }
-    }
-
     /// The bottom of the reader's nav bar (the top of its page area).
     private func readerTopEdge(above bar: CGRect) -> CGFloat {
         let bars = app.navigationBars.allElementsBoundByIndex.map { $0.frame }
@@ -446,6 +447,13 @@ final class ReaderLayoutTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// The reader's own toolbar item: its Aa menu, or the system overflow
+    /// a narrow bar (and iPhone Duo's vertical strip) folds it into.
+    private var readerToolbarItem: XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "identifier IN {'reader_settings_button', 'BottomOverflowBarButtonItem'}")).firstMatch
+    }
 
     /// iPhone Duo unfolded: phone idiom, but no other iPhone is 600 pt across.
     private var isDuoUnfolded: Bool {
@@ -554,7 +562,9 @@ final class NonReaderAccessibilityTests: XCTestCase {
             audit("settings-\(page)")
         }
         let reader = app.buttons["Theme & typography"].firstMatch
-        for _ in 0..<4 where !reader.exists { app.swipeDown() }
+        // Back up the list until the row shows (the audit swiped down it,
+        // further on a short screen or a longer list).
+        for _ in 0..<8 where !reader.exists || !reader.isHittable { app.swipeDown() }
         if reader.waitForExistence(timeout: 3) {
             reader.tap()
             usleep(1_000_000)

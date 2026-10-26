@@ -117,11 +117,15 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/tests/Fanficly.UITests/ScreenshotTests.cs`.
 
 ### RM-120 — A visible way out of full screen
-- **Status:** open · **Size:** S · **Validation:** windows
-- **Why:** The Apple app's reader no longer hides its whole toolbar in full screen. The bar's background and items go, and so does the system back button, but one back arrow stays, labeled Exit full screen, in every reading mode (`ReaderView.swift`). Tapping it leaves full screen and brings the toolbar back. On iPhone Duo the invisible middle-of-the-page tap had been the only way out and could fail, trapping the reader. Here full screen and hidden controls also leave only invisible ways back (Esc, F11, the middle third, the story's context menu; the title-bar back button only in immersive), so a tablet with no keyboard depends on the middle tap alone.
-- **Scope:** While `_isUIMinimized`, show one standard back-arrow button (the title bar's back button or the reader header's `_fullScreenButton`, on a transparent background), labeled Exit full screen, in every reading mode, one page or two. It leaves full screen and brings the controls back, and the narrator announces the change. No custom-drawn controls.
-- **Done when:** a reader UI test hides the controls, finds only the back arrow, and taps it to bring the controls back.
-- **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.Chrome.cs`, `ReaderView.cs`, `windows/tests/Fanficly.UITests/`.
+- **Status:** dropped · **Size:** S · **Validation:** windows
+- ~~Show one back arrow in full screen.~~ Dropped before it was built: the Apple app's reader went back to leaving nothing on screen in full screen, like Apple Books (#296). Its Windows port is RM-123.
+
+### RM-123 — Show and hide the reader's controls like Apple Books
+- **Status:** open · **Size:** M · **Validation:** windows
+- **Why:** The Apple app's reader now shows and hides its controls the way Apple Books does, at the maintainer's request (`ReaderView.swift`, `HoldStillWhileHidden.swift`). A tap on the page's middle third hides every control at once (the toolbar's items and back button, the status bar, the chapter indicator, the page footer's details) and leaves nothing on screen but the page; another tap brings them all back. Hiding is instant and showing is a short fade. The page never moves or re-flows: the footer keeps its room in full screen and shows only the page number, the chapter indicator fades instead of collapsing, and the reader's area is held where it was while the controls are hidden. There's no full screen button any more. This replaces RM-120 (a back arrow left in full screen), which the Apple app dropped again.
+- **Scope:** In `SetMinimized`, hide the reader's top bar items and back button but keep the bar's height, fade the chapter indicator instead of collapsing it, and keep the page footer's height with only the page number in it (`reader.pageNumber`, named like `reader.pageFooter`), so `PageAreaTracker` sees no change and nothing re-paginates. Hide instantly; show with a short fade unless Windows' animation setting is off. The window's F11 full screen and Esc stay as they are, since a keyboard is the Windows way out; keep the narrator's Show/Hide reader controls action and announcement.
+- **Done when:** a reader UI test hides the controls, finds no toolbar button and the page number, checks the page's text kept its place, and taps the middle third to bring the controls back.
+- **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.Chrome.cs`, `ReaderView.cs`, `ReaderView.Pages.cs`, `windows/tests/Fanficly.UITests/`.
 
 ## Next
 

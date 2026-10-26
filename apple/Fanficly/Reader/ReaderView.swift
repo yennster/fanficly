@@ -88,6 +88,9 @@ struct ReaderView: View {
     /// True while page-by-page shows an open-book spread on iPhone Duo
     /// (bookTopShift): the pages sit at a fixed spot under a transparent top bar.
     @State private var duoBookLayout = false
+    /// bookTopShift as it was with the controls up, kept while they're
+    /// hidden for as long as the page area keeps its size.
+    @State private var heldTopShift: HeldTopShift?
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -378,13 +381,19 @@ struct ReaderView: View {
             case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
+        // Hiding or showing the controls never moves the page: while they're
+        // hidden it keeps the place it had with them up, whatever the status
+        // bar and the toolbar strip do to the space around it.
+        // The narration bar coming or going changes the area for real.
+        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive)))
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             if speech.isActive {
                 narrationBar(fg: fg, bg: bg)
-            } else if mode == .pageByPage && !isUIMinimized {
-                // Full screen (the controls hidden) drops the page footer
-                // too, on iPhone Duo as everywhere: the pages take its room.
+            } else if mode == .pageByPage {
+                // Kept in full screen too, showing only the page number (as
+                // Apple Books does), so its room never changes and the pages
+                // never re-flow when the controls toggle.
                 pageFooterBar(fg: fg, bg: bg)
             }
         }
@@ -403,45 +412,25 @@ struct ReaderView: View {
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
         .toolbarBackground(bg, for: .navigationBar)
-        // Full screen hides the toolbar's items and background but keeps one
-        // back arrow, a native Liquid Glass button (on iPhone Duo, in the
-        // vertical strip on the side), which leaves full screen and brings
-        // the toolbar back. Hiding the whole bar left nothing but an
-        // invisible tap to get out, and on the Duo that tap could fail,
-        // trapping the reader until the app was force-quit. Before iOS 26 the
-        // bar has no glass, so it keeps its background there and text never
-        // scrolls under a bare icon. The hosting screen drops its own items
-        // via ReaderFullScreenKey.
+        // Full screen works as Apple Books does: one tap on the page's middle
+        // shows or hides every control at once (the toolbar's items, the
+        // system back button, the status bar, the page footer's details), and
+        // with them hidden nothing is left on screen. The bar itself stays,
+        // empty, so the page under it never moves (see HoldStillWhileHidden).
+        // Before iOS 26 the bar has no glass, so it keeps its background there.
+        // The hosting screen drops its own items via ReaderFullScreenKey.
         .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
                            for: .navigationBar)
         .navigationBarBackButtonHidden(isUIMinimized)
         .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
+        .statusBarHidden(isUIMinimized)
         .preference(key: ReaderFullScreenKey.self, value: isUIMinimized)
         .toolbar {
-            if isUIMinimized {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        toggleChromeAccessibly()
-                    } label: {
-                        Label("Exit full screen", systemImage: "chevron.backward")
-                    }
-                    .accessibilityIdentifier("reader.fullScreenBack")
-                    .accessibilityHint("Shows the reader's toolbar again.")
-                }
-            } else {
+            if !isUIMinimized {
                 if chapters.count > 1 {
                     ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
                 }
                 ToolbarItem(placement: .topBarTrailing) { typographyMenu }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        toggleChromeAccessibly()
-                    } label: {
-                        Label("Full screen", systemImage: "arrow.up.left.and.arrow.down.right")
-                    }
-                    .accessibilityIdentifier("reader.fullScreenToggle")
-                    .accessibilityHint("Hides the toolbar. The back arrow brings it back.")
-                }
             }
         }
         // Chapters can arrive after narration started; the chapter-end
@@ -489,7 +478,12 @@ struct ReaderView: View {
         .modifier(ReaderKeyPressModifier(
             mode: mode,
             isReaderFocused: $isReaderFocused,
-            perform: { performKeyAction($0) }
+            perform: { performKeyAction($0) },
+            showControls: {
+                guard isUIMinimized else { return false }
+                toggleChromeAccessibly()
+                return true
+            }
         ))
     }
 
@@ -792,17 +786,20 @@ struct ReaderView: View {
                 .foregroundStyle(fg)
                 .simultaneousGesture(
                     TapGesture().onEnded {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isUIMinimized.toggle()
-                        }
+                        toggleChrome()
                     }
                 )
                 .accessibilityAction(named: chromeAccessibilityActionName()) {
                     toggleChromeAccessibly()
                 }
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    if chapters.count > 1 && !isUIMinimized {
+                    if chapters.count > 1 {
+                        // Hidden, not removed, in full screen, so the text
+                        // doesn't jump by its height when the controls toggle.
                         chapterIndicatorBar(fg: fg, bg: bg)
+                            .opacity(isUIMinimized ? 0 : 1)
+                            .accessibilityHidden(isUIMinimized)
+                            .allowsHitTesting(!isUIMinimized)
                     }
                 }
                 .onChange(of: selectedChapterIndex) { _, newIndex in
@@ -1070,9 +1067,7 @@ struct ReaderView: View {
             // swallow them). Disabled for single-chapter works (nothing to turn).
             .simultaneousGesture(
                 TapGesture().onEnded {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isUIMinimized.toggle()
-                    }
+                    toggleChrome()
                 }
             )
             .accessibilityAction(named: "Next chapter") { accessibilityTurnChapter(forward: true) }
@@ -1275,7 +1270,10 @@ struct ReaderView: View {
 
     private func pageByPageBody(fg: Color, bg: Color) -> some View {
         GeometryReader { geo in
-            let topShift = bookTopShift(geo)
+            // Held while the controls are hidden, like the frame around it
+            // (HoldStillWhileHidden): the status bar going can move the top inset.
+            let liveTopShift = bookTopShift(geo)
+            let topShift = isUIMinimized ? (heldTopShift?.shift(for: geo.size) ?? liveTopShift) : liveTopShift
             let area = geo.size.height + topShift
             let areaSample = PageAreaSample(width: geo.size.width, height: area, controlsUp: !isUIMinimized)
             let readingHeight = pageArea.pageHeight > 0 ? pageArea.pageHeight : area
@@ -1345,9 +1343,7 @@ struct ReaderView: View {
                             } else if x > w * 2 / 3 {
                                 turnPageByPage(forward: true)
                             } else {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isUIMinimized.toggle()
-                                }
+                                toggleChrome()
                             }
                         }
                     )
@@ -1372,6 +1368,12 @@ struct ReaderView: View {
                 .onChange(of: isDuoBook(geo), initial: true) { _, book in
                     duoBookLayout = book
                 }
+                .onChange(of: HeldTopShift(shift: liveTopShift, size: geo.size), initial: true) { _, held in
+                    if !isUIMinimized { heldTopShift = held }
+                }
+                .onChange(of: isUIMinimized) { _, hidden in
+                    if !hidden { heldTopShift = HeldTopShift(shift: liveTopShift, size: geo.size) }
+                }
                 .onChange(of: geo.size, initial: true) { _, newSize in
                     // Pages are measured for the page area on screen, with
                     // the controls (nav bar, page footer, narration bar) up or
@@ -1383,7 +1385,7 @@ struct ReaderView: View {
                     // pins a picture-in-picture video above the app) — starts
                     // the measurement over.
                     let immersive = immersiveReadingHeight(fallback: newSize.height)
-                    let area = newSize.height + bookTopShift(geo)
+                    let area = newSize.height + topShift
                     let widthChanged = abs(stableWidth - newSize.width) > 1
                     let windowHeightChanged = abs(stableHeight - immersive) > 1
                     if widthChanged || windowHeightChanged || stableWidth == 0 {
@@ -1451,6 +1453,17 @@ struct ReaderView: View {
     private func bookTopShift(_ geo: GeometryProxy) -> CGFloat {
         guard isDuoBook(geo) else { return 0 }
         return geo.safeAreaInsets.top - Self.duoTopMargin
+    }
+
+    /// bookTopShift with the controls up, and the page area it was for: a
+    /// new size (a fold, a rotation) lets it go.
+    struct HeldTopShift: Equatable {
+        let shift: CGFloat
+        let size: CGSize
+
+        func shift(for area: CGSize) -> CGFloat? {
+            abs(area.width - size.width) < 1 && abs(area.height - size.height) < 1 ? shift : nil
+        }
     }
 
     /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
@@ -1750,10 +1763,19 @@ struct ReaderView: View {
     // custom accessibility actions on the reader body (SwiftUI propagates them
     // to every focused element inside).
 
+    /// Shows or hides the controls as Apple Books does: they go at once and
+    /// come back with a short fade (none with Reduce Motion).
+    private func toggleChrome() {
+        let hiding = !isUIMinimized
+        withTransaction(Transaction(animation: hiding || reduceMotion ? nil : .easeOut(duration: 0.2))) {
+            isUIMinimized.toggle()
+        }
+    }
+
     private func toggleChromeAccessibly() {
-        withAnimation(.easeInOut(duration: 0.2)) { isUIMinimized.toggle() }
+        toggleChrome()
         UIAccessibility.post(notification: .announcement,
-                             argument: isUIMinimized ? "Full screen" : "Reader controls shown")
+                             argument: isUIMinimized ? "Reader controls hidden" : "Reader controls shown")
     }
 
     private func accessibilityTurnChapter(forward: Bool) {
@@ -1775,7 +1797,7 @@ struct ReaderView: View {
 
     /// The chrome toggle, as a custom action whose name tracks the state.
     private func chromeAccessibilityActionName() -> String {
-        isUIMinimized ? "Exit full screen" : "Full screen"
+        isUIMinimized ? "Show reader controls" : "Hide reader controls"
     }
 
     /// Where `page`'s text begins (nil for the work's title page).
@@ -1872,7 +1894,10 @@ struct ReaderView: View {
                 ? "Chapter \(currentPage.chapterIndex) · \(chapter!.title)"
                 : "Chapter \(currentPage.chapterIndex) of \(chapters.count)"
                 
-            HStack {
+            // The page number alone, for full screen: "3", or "3–4" in a spread.
+            let pageNumber = onScreen?.right.map { "\(firstNum)–\($0.pageIndex + 1)" } ?? "\(firstNum)"
+
+            let row = HStack {
                 Text(label)
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
@@ -1884,17 +1909,35 @@ struct ReaderView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 7)
-            .background(bg)
-            .overlay(alignment: .top) {
-                Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+
+            if isUIMinimized {
+                // Full screen: the bar keeps its height (the row, hidden) and
+                // shows only the page number, as Apple Books does.
+                row.hidden()
+                    .background(bg)
+                    .overlay {
+                        Text(pageNumber)
+                            .font(.caption2.weight(.medium))
+                            .monospacedDigit()
+                            .foregroundStyle(fg.opacity(0.5))
+                            .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                            .accessibilityIdentifier("reader.pageNumber")
+                    }
+            } else {
+                row
+                    .background(bg)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                    // ReaderLayoutTests finds the footer (and reads the page
+                    // number) by this. The content shape keeps its frame to the
+                    // bar itself; without it the frame takes in the background
+                    // under the home indicator.
+                    .accessibilityIdentifier("reader.pageFooter")
+                    .contentShape(Rectangle())
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(label), \(pageLabel.lowercased())")
-            // ReaderLayoutTests finds the footer (and reads the page number) by
-            // this. The content shape keeps its frame to the bar itself; without
-            // it the frame takes in the background under the home indicator.
-            .accessibilityIdentifier("reader.pageFooter")
-            .contentShape(Rectangle())
         }
     }
 

@@ -143,6 +143,9 @@ struct ReaderKeyPressModifier: ViewModifier {
     let mode: ReadingMode
     @FocusState.Binding var isReaderFocused: Bool
     let perform: (ReaderKeyAction) -> Void
+    /// Esc: brings hidden controls back (false when they're already up), as
+    /// on Windows, so a keyboard is never left with only a tap to get out.
+    let showControls: () -> Bool
 
     func body(content: Content) -> some View {
         content
@@ -160,6 +163,10 @@ struct ReaderKeyPressModifier: ViewModifier {
                         mode: mode)
                 else { return .ignored }
                 perform(action)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                guard isReaderFocused, showControls() else { return .ignored }
                 return .handled
             }
             .onAppear {
