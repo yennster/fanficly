@@ -1345,9 +1345,6 @@ struct ReaderView: View {
                             .tabViewStyle(.page(indexDisplayMode: .never))
                         }
                     }
-                    // The pages run under the Duo's column with the frame
-                    // around them, not inset from it inside.
-                    .ignoresSafeArea(.container, edges: sideColumnEdges)
                     .simultaneousGesture(
                         SpatialTapGesture().onEnded { value in
                             let x = value.location.x

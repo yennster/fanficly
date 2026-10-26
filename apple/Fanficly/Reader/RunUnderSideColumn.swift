@@ -19,8 +19,9 @@ struct RunUnderSideColumn: ViewModifier {
     /// for one layout pass on showing them the page would narrow.
     let controlsHidden: Bool
     /// The sides run under. Views inside that lay out their own content by
-    /// the safe area (the paging TabView's pages, the bottom bars) ignore
-    /// them too, or they'd keep the column clear inside the wider frame.
+    /// the safe area (the bottom bars) ignore them too, or they'd keep the
+    /// column clear inside the wider frame. The pages need nothing more: they
+    /// ignore the safe area already (see makeSpreadCell).
     @Binding var edges: Edge.Set
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass

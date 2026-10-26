@@ -479,7 +479,8 @@ final class ReaderLayoutTests: XCTestCase {
                 // Where the text is instead, for the failure.
                 let anywhere = (try? storyTexts(above: CGRect(x: -10_000, y: bar.minY, width: 20_000, height: 1))) ?? []
                 let seen = anywhere.prefix(3).map { "\(Int($0.frame.minX))–\(Int($0.frame.maxX))" }
-                XCTFail("\(context): no text on the \(which) (\(Int(minX))–\(Int(maxX)) across; text at \(seen))",
+                XCTFail("\(context): no text on the \(which) (\(Int(minX))–\(Int(maxX)) across; text at \(seen); pages \(pageFrames()); "
+                        + "paging view \(app.collectionViews.firstMatch.frame); window \(app.windows.firstMatch.frame))",
                         file: file, line: line)
                 continue
             }
