@@ -20,8 +20,8 @@ struct RunUnderSideColumn: ViewModifier {
     let controlsHidden: Bool
     /// The sides run under. Views inside that lay out their own content by
     /// the safe area (the bottom bars) ignore them too, or they'd keep the
-    /// column clear inside the wider frame. The pages need nothing more: they
-    /// ignore the safe area already (see makeSpreadCell).
+    /// column clear inside the wider frame. The pages' paging scroll view is
+    /// UIKit and needs PagingInsetsOff.
     @Binding var edges: Edge.Set
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -58,5 +58,51 @@ struct RunUnderSideColumn: ViewModifier {
             edges.insert(.trailing)
         }
         return edges
+    }
+}
+
+/// Turns off the safe-area content inset of the paging scroll view a page
+/// sits in, while the reader runs under the Duo's column. The page TabView is
+/// UIKit underneath and takes its insets from where it is on screen, not from
+/// SwiftUI: under the column it scrolled each page to end at the column's
+/// edge, leaving the page a column's width to the left (text from -42 pt).
+/// Placed in a page's background, it finds that scroll view among the page's
+/// superviews and snaps the scroll back to the page.
+struct PagingInsetsOff: UIViewRepresentable {
+    let active: Bool
+
+    func makeUIView(context: Context) -> FinderView {
+        let view = FinderView()
+        view.isUserInteractionEnabled = false
+        view.active = active
+        return view
+    }
+
+    func updateUIView(_ uiView: FinderView, context: Context) {
+        uiView.active = active
+        uiView.apply()
+    }
+
+    final class FinderView: UIView {
+        var active = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            apply()
+        }
+
+        func apply() {
+            guard active, window != nil else { return }
+            var view = superview
+            while let current = view {
+                if let scroll = current as? UIScrollView, scroll.isPagingEnabled { break }
+                view = current.superview
+            }
+            guard let scroll = view as? UIScrollView, scroll.contentInsetAdjustmentBehavior != .never else { return }
+            scroll.contentInsetAdjustmentBehavior = .never
+            let width = scroll.bounds.width
+            guard width > 0 else { return }
+            scroll.contentOffset.x = (scroll.contentOffset.x / width).rounded() * width
+        }
     }
 }

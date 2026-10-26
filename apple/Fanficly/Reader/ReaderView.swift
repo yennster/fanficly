@@ -1444,6 +1444,7 @@ struct ReaderView: View {
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
         pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
             .ignoresSafeArea(.container)  // see makeSpreadCell
+            .background(PagingInsetsOff(active: !sideColumnEdges.isEmpty))
             .contentShape(Rectangle())
             .tag(page.id)
     }
@@ -1553,6 +1554,7 @@ struct ReaderView: View {
         // under the bar) that pushed the text down and ran the last line ~29 pt
         // past the page, where it was cut off (1.12.0, seen at 100% margins).
         .ignoresSafeArea(.container)
+        .background(PagingInsetsOff(active: !sideColumnEdges.isEmpty))
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())
