@@ -483,7 +483,7 @@ final class ReaderLayoutTests: XCTestCase {
     private func pageFrames() -> [CGRect] {
         let window = app.windows.firstMatch.frame
         return app.scrollViews.matching(identifier: "reader.page").allElementsBoundByIndex
-            .map(\.frame).filter { $0.intersection(window).width > $0.width / 2 }
+            .map { $0.frame }.filter { $0.intersection(window).width > $0.width / 2 }
     }
 
     /// Every line of text on screen lies inside the page that draws it
