@@ -560,11 +560,19 @@ public sealed class AO3ClientTests : IDisposable
         <div id="greeting"><a href="/users/reader">reader</a></div></body></html>
         """;
 
+    private void SignedInVault()
+    {
+        _vault.SetUsername("reader");
+        _vault.SaveCookies([
+            new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true),
+            new SerializableCookie("remember_user_token", "remember", "archiveofourown.org", "/", null, true, true),
+        ]);
+    }
+
     [Fact]
     public async Task LogoutEndsTheSessionOnAO3OnceThenForgetsIt()
     {
-        _vault.SetUsername("reader");
-        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        SignedInVault();
         _handler.Respond(
             _ => FakeHandler.Html(WorkHtml),
             _ => FakeHandler.Html(SignedInHtml),
@@ -577,7 +585,7 @@ public sealed class AO3ClientTests : IDisposable
 
         Assert.Equal(["GET /works/1", "GET /", "POST /users/logout", "GET /works/1"],
             _handler.Requests.Select(r => $"{r.Method} {r.Uri.AbsolutePath}"));
-        Assert.Equal("_otwarchive_session=saved", _handler.Requests[1].Header("Cookie"));
+        Assert.Contains("remember_user_token=remember", _handler.Requests[1].Header("Cookie"));
         Assert.Equal("_method=delete&authenticity_token=LOGOUT_TOK", _handler.Requests[2].Body);
         Assert.Null(_handler.Requests[3].Header("Cookie"));
         Assert.Empty(_vault.LoadCookies());
@@ -587,8 +595,7 @@ public sealed class AO3ClientTests : IDisposable
     [Fact]
     public async Task LogoutWhenAO3CantBeReachedStillForgetsTheSessionAndDoesNotRetry()
     {
-        _vault.SetUsername("reader");
-        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        SignedInVault();
         _handler.Respond(
             _ => FakeHandler.Html(WorkHtml),
             _ => throw new HttpRequestException("offline", new SocketException((int)SocketError.TimedOut)),
@@ -611,7 +618,12 @@ public sealed class AO3ClientTests : IDisposable
         using var release = new ManualResetEventSlim();
         _handler.Respond(
             _ => FakeHandler.Html(LoginFormHtml),
-            _ => FakeHandler.Html(SignedInHtml, "_otwarchive_session=signed_in; path=/; secure"),
+            _ =>
+            {
+                var r = FakeHandler.Html(SignedInHtml, "_otwarchive_session=signed_in; path=/; secure");
+                r.Headers.Add("Set-Cookie", "remember_user_token=remember; path=/; secure");
+                return r;
+            },
             // The poller's request, still waiting on AO3 when the reader signs out.
             _ =>
             {
@@ -626,7 +638,7 @@ public sealed class AO3ClientTests : IDisposable
         var auth = new AuthState(_vault);
         await auth.LoginAsync(client, "reader", "pw");
         Assert.Equal("reader", auth.Username);
-        Assert.Equal(["signed_in"], _vault.LoadCookies().Select(c => c.Value));
+        Assert.Equal(["remember", "signed_in"], _vault.LoadCookies().Select(c => c.Value).Order());
 
         var running = Task.Run(() => client.FetchWorkMetadataAsync(1));
         Assert.True(await started.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -638,6 +650,84 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Null(_handler.Requests[^1].Header("Cookie"));
         Assert.Empty(_vault.LoadCookies());
         Assert.Null(_vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task ARequestSentWhileLogoutWaitsOnAO3DoesNotBringItsCookieBack()
+    {
+        SignedInVault();
+        using var logoutPageAsked = new SemaphoreSlim(0);
+        using var answerLogoutPage = new ManualResetEventSlim();
+        using var pollSent = new SemaphoreSlim(0);
+        using var answerPoll = new ManualResetEventSlim();
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            // AO3 is slow to answer logout's page...
+            _ =>
+            {
+                logoutPageAsked.Release();
+                answerLogoutPage.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html("<html><body>no token</body></html>");
+            },
+            // ...the poller sends a request meanwhile, with the old cookies, and its
+            // answer only arrives once logout is done.
+            _ =>
+            {
+                pollSent.Release();
+                answerPoll.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html(WorkHtml, "_otwarchive_session=late; path=/; secure");
+            },
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient();
+        await client.FetchWorkMetadataAsync(1);
+        var logout = Task.Run(client.LogoutAsync);
+        Assert.True(await logoutPageAsked.WaitAsync(TimeSpan.FromSeconds(10)));
+        var poll = Task.Run(() => client.FetchWorkMetadataAsync(1));
+        Assert.True(await pollSent.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains("remember_user_token=remember", _handler.Requests[2].Header("Cookie"));
+        answerLogoutPage.Set();
+        await logout;
+        answerPoll.Set();
+        await poll;
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Null(_handler.Requests[^1].Header("Cookie"));
+        Assert.Empty(_vault.LoadCookies());
+    }
+
+    [Fact]
+    public async Task ASecondLogoutWaitsForTheFirstAndASignInWaitsForBoth()
+    {
+        SignedInVault();
+        using var logoutPageAsked = new SemaphoreSlim(0);
+        using var answerLogoutPage = new ManualResetEventSlim();
+        _handler.Respond(
+            _ =>
+            {
+                logoutPageAsked.Release();
+                answerLogoutPage.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html("<html><body>no token</body></html>");
+            },
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => FakeHandler.Html(SignedInHtml, "remember_user_token=fresh; path=/; secure"));
+        var client = MakeClient();
+        var auth = new AuthState(_vault);
+        var first = Task.Run(() => auth.LogoutAsync(client));
+        Assert.True(await logoutPageAsked.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.True(auth.IsSigningOut);
+        var second = auth.LogoutAsync(client);
+        var login = auth.LoginAsync(client, "reader", "pw");
+        Assert.False(second.IsCompleted);
+        Assert.False(login.IsCompleted);
+        answerLogoutPage.Set();
+        await Task.WhenAll(first, second, login);
+
+        Assert.Equal(["GET /", "GET /users/login", "POST /users/login"],
+            _handler.Requests.Select(r => $"{r.Method} {r.Uri.AbsolutePath}"));
+        Assert.Equal("reader", auth.Username);
+        Assert.Equal("reader", _vault.StoredUsername());
+        Assert.Equal(["fresh"], _vault.LoadCookies().Select(c => c.Value));
+        Assert.False(auth.IsSigningOut);
     }
 
     [Fact]

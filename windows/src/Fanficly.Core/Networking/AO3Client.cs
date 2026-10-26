@@ -150,8 +150,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
         // Still on the login form → credentials rejected.
         if (LoginParser.HasLoginForm(respHtml)) throw AO3Exception.LoginFailed("Incorrect username or password.");
         // Unexpected response — assume the session cookie was set anyway.
-        if (SiteCookies().Any(c => c.Name.Contains("user_credentials", StringComparison.Ordinal)
-                                   || c.Name.Contains("remember_user_token", StringComparison.Ordinal)))
+        if (SiteCookies().Any(IsAccountCookie))
         {
             // The typed text may be an email address, which no /users/ page
             // takes, so ask AO3 for the login name.
@@ -173,7 +172,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// asks AO3 to end the session so <c>remember_user_token</c> stops working there
     /// too (once, never retried; skipped when AO3 can't be reached), then forgets
     /// AO3's cookies here. Requests still running when it starts can't bring their
-    /// cookies back: their Set-Cookie headers are ignored.</summary>
+    /// cookies back: their Set-Cookie headers are ignored. The generation goes up
+    /// again at the end, so a request that started (or retried) while this waited
+    /// on AO3, carrying the old cookies, counts as late too. Swift's
+    /// <c>AO3Client.logout</c>.</summary>
     public async Task LogoutAsync()
     {
         EnsureCookiesLoaded();
@@ -184,15 +186,20 @@ public sealed class AO3Client : IAO3Client, IDisposable
             {
                 _signedIn = false;
                 _cookieGeneration++;
-                hadSession = SiteCookiesLocked().Count > 0;
+                hadSession = SiteCookiesLocked().Any(IsAccountCookie);
                 _lastSavedCookies = SerializableCookie.ToJson([]);
             }
-            try { _vault.SaveCookies([]); }
+            // The username too, right away (with the saved cookies; the jar still
+            // has them for AO3's logout): close the app while AO3 is being asked,
+            // or let the background task's client save cookies meanwhile, and the
+            // next launch still starts signed out.
+            try { _vault.SetUsername(null); }
             catch (Exception) { /* AuthState clears the vault again. */ }
         }
         if (hadSession) await EndAO3SessionAsync().ConfigureAwait(false);
         lock (_cookieGate)
         {
+            _cookieGeneration++;
             var keep = new CookieContainer();
             foreach (var c in _cookies.GetAllCookies().Where(c => !IsSiteCookie(c))) keep.Add(c);
             _cookies = keep;
@@ -201,6 +208,11 @@ public sealed class AO3Client : IAO3Client, IDisposable
     }
 
     private static readonly TimeSpan LogoutTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>The cookies that keep an AO3 account signed in.</summary>
+    private static bool IsAccountCookie(Cookie c) =>
+        c.Name.Contains("user_credentials", StringComparison.Ordinal)
+        || c.Name.Contains("remember_user_token", StringComparison.Ordinal);
 
     /// <summary>AO3's own Log Out: a DELETE to <c>/users/logout</c> (Rails'
     /// <c>_method</c> form field) with the CSRF token from any page. Best effort
@@ -1139,13 +1151,19 @@ public sealed class AO3Client : IAO3Client, IDisposable
         lock (_vaultGate)
         {
             List<SerializableCookie> snapshot;
+            string json;
             lock (_cookieGate)
             {
                 if (!_signedIn) return;
                 snapshot = SiteCookiesLocked().Select(SerializableCookie.FromCookie).ToList();
-                var json = SerializableCookie.ToJson(snapshot);
+                json = SerializableCookie.ToJson(snapshot);
                 if (json == _lastSavedCookies) return;
-                if (!signingIn && StoredUsername() is null) return;
+            }
+            // Outside the cookie lock: a file read and a DPAPI decrypt.
+            if (!signingIn && StoredUsername() is null) return;
+            lock (_cookieGate)
+            {
+                // Logout can't run meanwhile (it takes _vaultGate first).
                 _lastSavedCookies = json;
             }
             try { _vault.SaveCookies(snapshot); }
