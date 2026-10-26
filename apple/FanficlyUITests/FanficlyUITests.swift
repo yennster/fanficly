@@ -390,7 +390,15 @@ final class ReaderLayoutTests: XCTestCase {
                 capture("05-reader-settings-menu-again")
             }
             if !profile.waitForExistence(timeout: 4) {
-                XCTFail("the Profile submenu: \(frames); first tap \(first); window tap \(menuState())")
+                // Does any menu open from the strip? Chapters and the work
+                // page's options are menus there too; a long press is the
+                // other way into one.
+                let others = [
+                    probe("Chapters") { self.app.buttons["Chapters"].firstMatch.tap() },
+                    probe("Work options") { self.app.buttons["Work options"].firstMatch.tap() },
+                    probe("Reader settings, long press") { settings.press(forDuration: 1) },
+                ].joined(separator: "; ")
+                XCTFail("the Profile submenu: \(frames); first tap \(first); window tap \(menuState()); \(others)")
             }
         }
         profile.tap()
@@ -637,6 +645,20 @@ final class ReaderLayoutTests: XCTestCase {
         return "(keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder), "
             + "menus: \(app.menus.count), menu items: \(app.menuItems.count), popovers: \(app.popovers.count), "
             + "windows: \(app.windows.count), Profile in SpringBoard: \(elsewhere), buttons: \(buttons))"
+    }
+
+    /// Opens something and says what changed on screen, then taps the
+    /// window's top corner to close whatever opened. For a failure message.
+    private func probe(_ name: String, _ open: () -> Void) -> String {
+        let before = app.descendants(matching: .any).count
+        open()
+        sleep(2)
+        let after = app.descendants(matching: .any).count
+        let state = "\(name): elements \(before) → \(after), menus \(app.menus.count), "
+            + "menu items \(app.menuItems.count), popovers \(app.popovers.count), windows \(app.windows.count)"
+        tap(CGPoint(x: app.windows.firstMatch.frame.minX + 8, y: app.windows.firstMatch.frame.minY + 8))
+        sleep(1)
+        return state
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
