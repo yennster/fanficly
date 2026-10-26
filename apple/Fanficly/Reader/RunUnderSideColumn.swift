@@ -17,8 +17,10 @@ struct RunUnderSideColumn: ViewModifier {
     /// inset away, so the page keeps running under it until they're back, or
     /// for one layout pass on showing them the page would narrow.
     let controlsHidden: Bool
-
-    @State private var edges: Edge.Set = []
+    /// The sides run under. Views inside that lay out their own content by
+    /// the safe area (the paging TabView's pages, the bottom bars) ignore
+    /// them too, or they'd keep the column clear inside the wider frame.
+    @Binding var edges: Edge.Set
 
     /// Wider than this, a side inset isn't the Duo's column.
     nonisolated static let maxColumnWidth: CGFloat = 100

@@ -388,7 +388,11 @@ final class ReaderLayoutTests: XCTestCase {
         for (index, (minX, maxX)) in pages.enumerated() {
             let which = pages.count > 1 ? (index == 0 ? "left page" : "right page") : "page"
             guard let bottom = texts.filter({ $0.frame.midX >= minX && $0.frame.midX < maxX }).map(\.frame.maxY).max() else {
-                XCTFail("\(context): no text on the \(which)", file: file, line: line)
+                // Where the text is instead, for the failure.
+                let anywhere = (try? storyTexts(above: CGRect(x: -10_000, y: bar.minY, width: 20_000, height: 1))) ?? []
+                let seen = anywhere.prefix(3).map { "\(Int($0.frame.minX))–\(Int($0.frame.maxX))" }
+                XCTFail("\(context): no text on the \(which) (\(Int(minX))–\(Int(maxX)) across; text at \(seen))",
+                        file: file, line: line)
                 continue
             }
             XCTAssertLessThanOrEqual(bottom, edge + 1,

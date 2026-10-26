@@ -91,6 +91,8 @@ struct ReaderView: View {
     /// bookTopShift as it was with the controls up, kept while they're
     /// hidden for as long as the page area keeps its size.
     @State private var heldTopShift: HeldTopShift?
+    /// The sides the page runs under: iPhone Duo's column (RunUnderSideColumn).
+    @State private var sideColumnEdges: Edge.Set = []
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -388,14 +390,17 @@ struct ReaderView: View {
         .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive)))
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
-            if speech.isActive {
-                narrationBar(fg: fg, bg: bg)
-            } else if mode == .pageByPage {
-                // Kept in full screen too, showing only the page number (as
-                // Apple Books does), so its room never changes and the pages
-                // never re-flow when the controls toggle.
-                pageFooterBar(fg: fg, bg: bg)
+            Group {
+                if speech.isActive {
+                    narrationBar(fg: fg, bg: bg)
+                } else if mode == .pageByPage {
+                    // Kept in full screen too, showing only the page number (as
+                    // Apple Books does), so its room never changes and the pages
+                    // never re-flow when the controls toggle.
+                    pageFooterBar(fg: fg, bg: bg)
+                }
             }
+            .ignoresSafeArea(.container, edges: sideColumnEdges)
         }
         // The reader has no text input, so it must never reserve room for the
         // keyboard. Without this, focus landing on the page (it's
@@ -410,7 +415,7 @@ struct ReaderView: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // On iPhone Duo the page runs under the side column of status bar
         // and toolbar strip, which floats over it, as in Apple Books.
-        .modifier(RunUnderSideColumn(controlsHidden: isUIMinimized))
+        .modifier(RunUnderSideColumn(controlsHidden: isUIMinimized, edges: $sideColumnEdges))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
@@ -1337,6 +1342,9 @@ struct ReaderView: View {
                             .tabViewStyle(.page(indexDisplayMode: .never))
                         }
                     }
+                    // The pages run under the Duo's column with the frame
+                    // around them, not inset from it inside.
+                    .ignoresSafeArea(.container, edges: sideColumnEdges)
                     .simultaneousGesture(
                         SpatialTapGesture().onEnded { value in
                             let x = value.location.x
