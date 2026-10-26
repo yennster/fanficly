@@ -1435,6 +1435,7 @@ struct ReaderView: View {
 
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
         pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
+            .ignoresSafeArea(.container)  // see makeSpreadCell
             .contentShape(Rectangle())
             .tag(page.id)
     }
@@ -1537,6 +1538,13 @@ struct ReaderView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The pages fill the TabView page they sit in, the area they were
+        // paginated for, whatever safe area it overlaps. The TabView is
+        // UIKit-hosted, so each page takes its safe area from where it really
+        // is on screen, and on iPhone Duo's open book (bookTopShift moves it up
+        // under the bar) that pushed the text down and ran the last line ~29 pt
+        // past the page, where it was cut off (1.12.0, seen at 100% margins).
+        .ignoresSafeArea(.container)
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())

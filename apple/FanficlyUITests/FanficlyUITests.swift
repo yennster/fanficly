@@ -464,18 +464,26 @@ final class ReaderLayoutTests: XCTestCase {
         let pages = spread ? [(bar.minX, bar.midX), (bar.midX, bar.maxX)] : [(bar.minX, bar.maxX)]
         for (index, (minX, maxX)) in pages.enumerated() {
             let which = pages.count > 1 ? (index == 0 ? "left page" : "right page") : "page"
-            guard let bottom = texts.filter({ $0.frame.midX >= minX && $0.frame.midX < maxX }).map(\.frame.maxY).max() else {
+            let onPage = texts.filter { $0.frame.midX >= minX && $0.frame.midX < maxX }
+            guard let bottom = onPage.map(\.frame.maxY).max(), let top = onPage.map(\.frame.minY).min() else {
                 XCTFail("\(context): no text on the \(which)", file: file, line: line)
                 continue
             }
             // The page clips its text at its own frame, a margin above the edge.
             XCTAssertLessThanOrEqual(bottom, edge - pageMargin + 1,
-                                     "\(context): the \(which)'s text runs \(bottom - edge + pageMargin) pt past the page, where it's cut off",
+                                     "\(context): the \(which)'s text runs \(bottom - edge + pageMargin) pt past the page, where it's cut off (text \(top)–\(bottom), pages \(pageFrames()), window \(app.windows.firstMatch.frame))",
                                      file: file, line: line)
             XCTAssertGreaterThanOrEqual(bottom, edge - maxBlankBelowText,
                                         "\(context): \(edge - bottom) pt blank under the \(which)'s text",
                                         file: file, line: line)
         }
+    }
+
+    /// The frames of the pages (`reader.page`) on screen, for failure messages.
+    private func pageFrames() -> [CGRect] {
+        let window = app.windows.firstMatch.frame
+        return app.scrollViews.matching(identifier: "reader.page").allElementsBoundByIndex
+            .map(\.frame).filter { $0.intersection(window).width > $0.width / 2 }
     }
 
     /// Every line of text on screen lies inside the page that draws it
