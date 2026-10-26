@@ -98,9 +98,10 @@ final class ReaderSpreadTests: XCTestCase {
 
 /// Which side insets the reader runs under (`RunUnderSideColumn`).
 final class ReaderSideColumnTests: XCTestCase {
-    private func edges(leading: CGFloat, trailing: CGFloat, isPhone: Bool = true) -> Edge.Set {
+    private func edges(leading: CGFloat, trailing: CGFloat, isPhone: Bool = true,
+                       compactHeight: Bool = false) -> Edge.Set {
         RunUnderSideColumn.columnEdges(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: trailing),
-                                        isPhone: isPhone)
+                                        isPhone: isPhone, compactHeight: compactHeight)
     }
 
     func test_duoColumn_isRunUnder() {
@@ -114,6 +115,9 @@ final class ReaderSideColumnTests: XCTestCase {
 
     func test_landscapeNotch_isKept() {
         XCTAssertEqual(edges(leading: 62, trailing: 62), [])
+        // An iPhone in landscape, whichever side its sensor housing is on.
+        XCTAssertEqual(edges(leading: 62, trailing: 0, compactHeight: true), [])
+        XCTAssertEqual(edges(leading: 0, trailing: 62, compactHeight: true), [])
     }
 
     func test_noInsets_orASidebarAlone_changeNothing() {

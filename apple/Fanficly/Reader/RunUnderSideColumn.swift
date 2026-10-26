@@ -8,10 +8,11 @@ import UIKit
 /// since the page holds still); Books runs its text under it and lets the
 /// controls float over the page.
 ///
-/// Only on the phone idiom (the Duo is one on both displays), and only a
-/// side whose inset the other side doesn't match: a notched iPhone in
-/// landscape has the same inset on both sides and keeps them. A sidebar's
-/// inset is wider than any strip and is kept too.
+/// Only on the phone idiom (the Duo is one on both displays) at a regular
+/// height, and only a side whose inset the other side doesn't match. An
+/// iPhone in landscape (a compact height) keeps the insets around its sensor
+/// housing, which needn't match on both sides. A sidebar's inset is wider
+/// than any strip and is kept too.
 struct RunUnderSideColumn: ViewModifier {
     /// The controls are hidden: hiding the status bar may take the column's
     /// inset away, so the page keeps running under it until they're back, or
@@ -21,6 +22,8 @@ struct RunUnderSideColumn: ViewModifier {
     /// the safe area (the paging TabView's pages, the bottom bars) ignore
     /// them too, or they'd keep the column clear inside the wider frame.
     @Binding var edges: Edge.Set
+
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     /// Wider than this, a side inset isn't the Duo's column.
     nonisolated static let maxColumnWidth: CGFloat = 100
@@ -32,8 +35,10 @@ struct RunUnderSideColumn: ViewModifier {
             // whether or not it runs into them.
             .background {
                 GeometryReader { geo in
+                    let column = Self.columnEdges(geo.safeAreaInsets, isPhone: Self.isPhone,
+                                                  compactHeight: verticalSizeClass == .compact)
                     Color.clear
-                        .onChange(of: Self.columnEdges(geo.safeAreaInsets, isPhone: Self.isPhone), initial: true) { _, value in
+                        .onChange(of: column, initial: true) { _, value in
                             if !(controlsHidden && value.isEmpty) { edges = value }
                         }
                 }
@@ -42,8 +47,8 @@ struct RunUnderSideColumn: ViewModifier {
 
     private static var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 
-    nonisolated static func columnEdges(_ insets: EdgeInsets, isPhone: Bool) -> Edge.Set {
-        guard isPhone, abs(insets.leading - insets.trailing) >= 1 else { return [] }
+    nonisolated static func columnEdges(_ insets: EdgeInsets, isPhone: Bool, compactHeight: Bool) -> Edge.Set {
+        guard isPhone, !compactHeight, abs(insets.leading - insets.trailing) >= 1 else { return [] }
         var edges: Edge.Set = []
         if insets.leading >= 1, insets.leading <= maxColumnWidth, insets.leading < insets.trailing || insets.trailing < 1 {
             edges.insert(.leading)
