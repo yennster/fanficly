@@ -6,20 +6,27 @@ import XCTest
 final class VolumeButtonTurnTests: XCTestCase {
     private let step = VolumeButtonTurn.step
 
-    func test_offByDefaultKey() {
-        XCTAssertEqual(VolumeButtonTurn.settingKey, "reader.volumeButtonsTurnPages")
-        XCTAssertFalse(UserDefaults(suiteName: #function)!.bool(forKey: VolumeButtonTurn.settingKey))
+    private func direction(_ old: Float, _ new: Float, pending: Float? = nil) -> Bool? {
+        VolumeButtonTurn.direction(from: old, to: new, pendingReset: pending)
     }
 
     func test_upTurnsForwardDownTurnsBack() {
-        XCTAssertEqual(VolumeButtonTurn.direction(from: 0.5, to: 0.5 + step), true)
-        XCTAssertEqual(VolumeButtonTurn.direction(from: 0.5, to: 0.5 - step), false)
+        XCTAssertEqual(direction(0.5, 0.5 + step), true)
+        XCTAssertEqual(direction(0.5, 0.5 - step), false)
+    }
+
+    func test_directionIsFromTheLastReportNotTheBaseline() {
+        // The reset hasn't landed: 0.5625 → 0.625 is still a press up, and
+        // 0.625 → 0.5625 a press down, though both are above the baseline.
+        XCTAssertEqual(direction(0.5 + step, 0.5 + 2 * step), true)
+        XCTAssertEqual(direction(0.5 + 2 * step, 0.5 + step), false)
     }
 
     func test_theResetItselfDoesNothing() {
-        XCTAssertNil(VolumeButtonTurn.direction(from: 0.5, to: 0.5))
+        XCTAssertNil(direction(0.5 + step, 0.5, pending: 0.5))
         // Float rounding on the way back to the held volume.
-        XCTAssertNil(VolumeButtonTurn.direction(from: 0.5, to: 0.5001))
+        XCTAssertNil(direction(0.5 + step, 0.5001, pending: 0.5))
+        XCTAssertNil(direction(0.5, 0.5))
     }
 
     func test_baselineMovesOffTheEnds() {

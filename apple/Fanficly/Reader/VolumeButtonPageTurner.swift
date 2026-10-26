@@ -22,13 +22,18 @@ enum VolumeButtonTurn {
         min(max(volume, step), 1 - step)
     }
 
-    /// Which way a volume change turns: forward when it went up, back when it
-    /// went down, nil when it's (within rounding) the volume being held, as
-    /// when the reset itself is reported.
-    static func direction(from baseline: Float, to volume: Float) -> Bool? {
-        let delta = volume - baseline
-        guard abs(delta) > step / 4 else { return nil }
-        return delta > 0
+    /// Whether two volumes are the same, give or take rounding.
+    static func same(_ a: Float, _ b: Float) -> Bool {
+        abs(a - b) <= step / 4
+    }
+
+    /// Which way a reported volume change turns: forward when it went up,
+    /// back when it went down. Nil when it didn't move, or when it's the
+    /// turner's own reset arriving (`pendingReset`, the volume it just set).
+    static func direction(from old: Float, to new: Float, pendingReset: Float?) -> Bool? {
+        if let pendingReset, same(new, pendingReset) { return nil }
+        guard !same(old, new) else { return nil }
+        return new > old
     }
 }
 
@@ -38,44 +43,94 @@ enum VolumeButtonTurn {
 /// public way to set the volume back.
 @MainActor final class VolumeButtonPageTurner {
     private var observation: NSKeyValueObservation?
+    private var routeObserver: NSObjectProtocol?
     private var baseline: Float = 0.5
-    private weak var slider: UISlider?
+    /// The volume before start() moved it off an end, put back by stop().
+    private var original: Float?
+    /// The value setVolume asked for, until its report comes back.
+    private var pendingReset: Float?
+    private weak var catcher: MPVolumeView?
     var onTurn: ((Bool) -> Void)?
 
-    func attach(_ slider: UISlider?) {
-        self.slider = slider
+    private var slider: UISlider? {
+        catcher?.subviews.compactMap { $0 as? UISlider }.first
+    }
+
+    func attach(_ catcher: MPVolumeView) {
+        self.catcher = catcher
     }
 
     func start() {
         guard observation == nil else { return }
         let session = AVAudioSession.sharedInstance()
-        // Mix with whatever's playing (music keeps going) instead of the
-        // default category, which would stop it. Narration, which sets its own
+        // Ambient mixes with whatever's playing, so music keeps going (the
+        // default category would stop it). Narration, which sets its own
         // .playback, never runs at the same time (see the modifier below).
-        try? session.setCategory(.ambient, options: [.mixWithOthers])
+        try? session.setCategory(.ambient)
         try? session.setActive(true)
-        baseline = VolumeButtonTurn.baseline(for: session.outputVolume)
-        if baseline != session.outputVolume { setVolume(baseline) }
+        holdCurrentVolume()
         // KVO reports on whatever queue the change came from.
-        observation = session.observe(\.outputVolume, options: [.new]) { @Sendable [weak self] _, change in
-            guard let self, let volume = change.newValue else { return }
-            Task { @MainActor in self.volumeChanged(to: volume) }
+        observation = session.observe(\.outputVolume, options: [.old, .new]) { @Sendable [weak self] _, change in
+            guard let self, let old = change.oldValue, let new = change.newValue else { return }
+            Task { @MainActor in self.volumeChanged(from: old, to: new) }
+        }
+        // Headphones or a speaker coming or going swaps in that device's own
+        // volume: hold the new one rather than read it as a press.
+        routeObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.holdCurrentVolume() }
         }
     }
 
     func stop() {
+        guard observation != nil else { return }
         observation?.invalidate()
         observation = nil
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+        routeObserver = nil
+        // Leave the volume where the reader found it, unless it's been
+        // changed some other way since (Control Center, another app).
+        if let original, VolumeButtonTurn.same(AVAudioSession.sharedInstance().outputVolume, baseline) {
+            // Now, not deferred: the catcher leaves the window with this update.
+            slider?.setValue(original, animated: false)
+            slider?.sendActions(for: .valueChanged)
+        }
+        original = nil
+        pendingReset = nil
     }
 
-    private func volumeChanged(to volume: Float) {
-        guard observation != nil,
-              let forward = VolumeButtonTurn.direction(from: baseline, to: volume) else { return }
+    private func holdCurrentVolume() {
+        let volume = AVAudioSession.sharedInstance().outputVolume
+        baseline = VolumeButtonTurn.baseline(for: volume)
+        pendingReset = nil
+        if !VolumeButtonTurn.same(baseline, volume) {
+            original = original ?? volume
+            setVolume(baseline)
+        }
+    }
+
+    private func volumeChanged(from old: Float, to new: Float) {
+        guard observation != nil else { return }
+        let forward = VolumeButtonTurn.direction(from: old, to: new, pendingReset: pendingReset)
+        if let pendingReset, VolumeButtonTurn.same(new, pendingReset) { self.pendingReset = nil }
+        guard let forward else { return }
         setVolume(baseline)
+        // A sheet or alert over the reader (Comments, Bookmark, Report) hides
+        // the page: hold the volume, but don't turn pages nobody can see.
+        if isCovered { return }
         onTurn?(forward)
     }
 
+    /// Whether something is presented over the reader.
+    private var isCovered: Bool {
+        guard let catcher, var top = catcher.window?.rootViewController else { return false }
+        while let presented = top.presentedViewController, !presented.isBeingDismissed { top = presented }
+        return !catcher.isDescendant(of: top.view)
+    }
+
     private func setVolume(_ volume: Float) {
+        pendingReset = volume
         // The slider ignores a value set in the same run loop turn as the press.
         Task { @MainActor [weak self] in
             guard let slider = self?.slider else { return }
@@ -95,18 +150,19 @@ struct VolumeButtonCatcher: UIViewRepresentable {
         view.alpha = 0.01
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
-        turner.attach(view.subviews.compactMap { $0 as? UISlider }.first)
+        turner.attach(view)
         return view
     }
 
     func updateUIView(_ uiView: MPVolumeView, context: Context) {
-        turner.attach(uiView.subviews.compactMap { $0 as? UISlider }.first)
+        turner.attach(uiView)
     }
 }
 
 /// Runs the turner while the reader is on screen, the app is active, the
-/// setting is on and narration isn't playing (its volume buttons are for
-/// volume).
+/// setting is on and narration isn't playing. Narration's volume buttons are
+/// for volume, with the system HUD, so the catcher is only in the window
+/// while the turner runs.
 struct VolumeButtonPageTurnModifier: ViewModifier {
     let enabled: Bool
     let speaking: Bool
@@ -120,7 +176,7 @@ struct VolumeButtonPageTurnModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background {
-                if enabled {
+                if shouldRun {
                     VolumeButtonCatcher(turner: turner)
                         .frame(width: 1, height: 1)
                         .accessibilityHidden(true)
