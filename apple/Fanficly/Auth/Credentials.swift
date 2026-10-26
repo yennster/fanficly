@@ -225,8 +225,10 @@ final class AuthState {
     func logout(using client: any AO3ClientProtocol) async {
         isSigningOut = true
         defer { isSigningOut = false }
-        await client.logout()
+        // Forget the name first: quit while AO3 is being asked, and the next
+        // launch starts signed out.
         store.setUsername(nil)
+        await client.logout()
         KudosStore.clear()
         username = nil
         isSessionExpired = false

@@ -46,7 +46,8 @@ final class SignOutStubProtocol: URLProtocol {
 
     override func startLoading() {
         Self.requests.append(request)
-        guard let url = request.url, let answer = Self.answers["\(request.httpMethod ?? "GET") \(url.path)"] else {
+        guard let url = request.url,
+              let answer = Self.answers["\(request.httpMethod ?? "GET") \(url.path.isEmpty ? "/" : url.path)"] else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
@@ -94,6 +95,8 @@ final class SignOutTests: XCTestCase {
     </ul></div><div id="main">Welcome</div></body></html>
     """
 
+    private static let signedInCookies = "_otwarchive_session=SIGNED_IN; path=/; secure, remember_user_token=REMEMBER; path=/; secure"
+
     private var jar: HTTPCookieStorage!
 
     override func setUp() {
@@ -131,7 +134,7 @@ final class SignOutTests: XCTestCase {
     func test_responseArrivingAfterLogout_doesNotKeepOrSaveItsCookie() async throws {
         SignOutStubProtocol.answers = [
             "GET /users/login": .init(html: Self.loginForm),
-            "POST /users/login": .init(html: Self.signedInPage, setCookie: "_otwarchive_session=SIGNED_IN; path=/; secure"),
+            "POST /users/login": .init(html: Self.signedInPage, setCookie: Self.signedInCookies),
             "GET /": .init(html: Self.signedInPage),
             "POST /users/logout": .init(html: "<html><body>Signed out</body></html>",
                                    setCookie: "_otwarchive_session=GUEST; path=/; secure"),
@@ -144,7 +147,7 @@ final class SignOutTests: XCTestCase {
         let auth = AuthState(store: names)
         await auth.login(using: client, username: "reader", password: "pw")
         XCTAssertEqual(auth.username, "reader")
-        XCTAssertEqual(siteCookieValues, ["SIGNED_IN"])
+        XCTAssertEqual(siteCookieValues.sorted(), ["REMEMBER", "SIGNED_IN"])
 
         // A request (the poller, a search) is still waiting on AO3 when the
         // reader signs out.
@@ -160,6 +163,7 @@ final class SignOutTests: XCTestCase {
         XCTAssertEqual(siteCookieValues, [], "the late session cookie stayed in the jar")
         XCTAssertFalse(vault.savedValues.contains("LATE"), "the late session cookie was saved")
         XCTAssertFalse(vault.savedValues.contains("GUEST"))
+        XCTAssertTrue(SignOutStubProtocol.requests.contains { $0.url?.path == "/users/logout" }, "AO3 wasn't asked to end the session")
         XCTAssertTrue(vault.cookies.isEmpty)
         XCTAssertNil(names.username)
     }
@@ -167,7 +171,7 @@ final class SignOutTests: XCTestCase {
     func test_logout_endsTheSessionOnAO3_once() async throws {
         SignOutStubProtocol.answers = [
             "GET /users/login": .init(html: Self.loginForm),
-            "POST /users/login": .init(html: Self.signedInPage, setCookie: "_otwarchive_session=SIGNED_IN; path=/; secure"),
+            "POST /users/login": .init(html: Self.signedInPage, setCookie: Self.signedInCookies),
             "GET /": .init(html: Self.signedInPage),
             "POST /users/logout": .init(html: "<html><body>Signed out</body></html>"),
         ]
@@ -178,7 +182,10 @@ final class SignOutTests: XCTestCase {
 
         await client.logout()
 
-        let sent = SignOutStubProtocol.requests.map { "\($0.httpMethod ?? "") \($0.url?.path ?? "")" }
+        let sent = SignOutStubProtocol.requests.map { request -> String in
+            let path = request.url?.path ?? ""
+            return "\(request.httpMethod ?? "") \(path.isEmpty ? "/" : path)"
+        }
         XCTAssertEqual(sent, ["GET /", "POST /users/logout"])
         let post = try XCTUnwrap(SignOutStubProtocol.requests.last)
         let body = String(data: post.httpBody ?? post.bodyStreamData ?? Data(), encoding: .utf8) ?? ""
@@ -190,7 +197,7 @@ final class SignOutTests: XCTestCase {
     func test_logoutWhenAO3CantBeReached_stillSignsOutHere() async throws {
         SignOutStubProtocol.answers = [
             "GET /users/login": .init(html: Self.loginForm),
-            "POST /users/login": .init(html: Self.signedInPage, setCookie: "_otwarchive_session=SIGNED_IN; path=/; secure"),
+            "POST /users/login": .init(html: Self.signedInPage, setCookie: Self.signedInCookies),
             "GET /": .init(html: Self.signedInPage),
         ]
         let vault = MemoryCookieVault()

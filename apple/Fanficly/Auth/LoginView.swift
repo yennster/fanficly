@@ -66,7 +66,7 @@ struct LoginView: View {
                             Text("Log in").frame(maxWidth: .infinity)
                         }
                     }
-                    .disabled(auth.isAuthenticating || username.isEmpty || password.isEmpty)
+                    .disabled(auth.isAuthenticating || auth.isSigningOut || username.isEmpty || password.isEmpty)
                 }
 
                 // An expired session can still be removed from this device.

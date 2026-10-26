@@ -373,11 +373,12 @@ public actor AO3Client: AO3ClientProtocol {
     private var cachedUsername: String?
     /// The session's cookie jar: the shared one in the app, a test's own with
     /// an ephemeral session.
-    private nonisolated(unsafe) let cookieStorage: HTTPCookieStorage
+    private let cookieStorage: HTTPCookieStorage
     private let persistence: CookiePersistence
     private let vault: any CookieVault
     /// Logging out, while its own requests to AO3 still need the session.
     private var isSigningOut = false
+    private nonisolated(unsafe) var cookieObserver: (any NSObjectProtocol)?
 
     /// Keeps the session's cookies in `vault` while `loginNames` has a
     /// signed-in name; the public init uses the Keychain for both.
@@ -403,7 +404,7 @@ public actor AO3Client: AO3ClientProtocol {
             resolved = URLSession(configuration: cfg)
         }
         self.session = resolved
-        nonisolated(unsafe) let storage = resolved.configuration.httpCookieStorage ?? .shared
+        let storage = resolved.configuration.httpCookieStorage ?? .shared
         let persistence = CookiePersistence(vault: vault, signedIn: loginNames.storedUsername() != nil)
         cookieStorage = storage
         self.vault = vault
@@ -411,7 +412,7 @@ public actor AO3Client: AO3ClientProtocol {
 
         // Save cookie changes to the vault (while signed in; see CookiePersistence).
         let site = baseURL
-        NotificationCenter.default.addObserver(
+        cookieObserver = NotificationCenter.default.addObserver(
             forName: .NSHTTPCookieManagerCookiesChanged,
             object: storage,
             queue: nil
@@ -422,6 +423,10 @@ public actor AO3Client: AO3ClientProtocol {
 
     public init(session: URLSession? = nil) {
         self.init(session: session, vault: CredentialStore.shared, loginNames: CredentialStore.shared)
+    }
+
+    deinit {
+        if let cookieObserver { NotificationCenter.default.removeObserver(cookieObserver) }
     }
 
     public static var userAgent: String {
@@ -481,8 +486,7 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.loginFailed(reason: "Incorrect username or password.")
         }
         // Unexpected response — assume the session cookie was set anyway.
-        if let cookies = cookieStorage.cookies(for: baseURL),
-           cookies.contains(where: { $0.name.contains("user_credentials") || $0.name.contains("remember_user_token") }) {
+        if let cookies = cookieStorage.cookies(for: baseURL), cookies.contains(where: Self.isAccountCookie) {
             // The typed text may be an email address, which no /users/ page
             // takes, so ask AO3 for the login name.
             if let name = await fetchLoggedInName() {
@@ -505,16 +509,24 @@ public actor AO3Client: AO3ClientProtocol {
     /// asks AO3 to end the session so `remember_user_token` stops working
     /// there too (once, never retried; skipped when it can't be reached), then
     /// deletes AO3's cookies here. A request still running brings its cookies
-    /// back afterwards; `performRequest` deletes those.
+    /// back afterwards; `performRequest` deletes those. The generation goes
+    /// up again at the end, so a request that started (or retried) while
+    /// this waited on AO3, carrying the old cookies, counts as late too.
     public func logout() async {
         persistence.signedOut()
         isSigningOut = true
-        defer { isSigningOut = false }
-        if !(cookieStorage.cookies(for: baseURL) ?? []).isEmpty {
+        if (cookieStorage.cookies(for: baseURL) ?? []).contains(where: Self.isAccountCookie) {
             await endAO3Session()
         }
         deleteSiteCookies()
+        persistence.signedOut()
+        isSigningOut = false
         cachedUsername = nil
+    }
+
+    /// The cookies that keep an AO3 account signed in.
+    private static func isAccountCookie(_ cookie: HTTPCookie) -> Bool {
+        cookie.name.contains("user_credentials") || cookie.name.contains("remember_user_token")
     }
 
     /// AO3's own Log Out: a DELETE to `/users/logout` (Rails' `_method`
@@ -1065,11 +1077,13 @@ public actor AO3Client: AO3ClientProtocol {
     private var cookiesLoaded = false
 
     /// Puts the saved session back in the cookie jar at the first request,
-    /// when signed in.
+    /// when signed in. Signed out, it empties the jar instead: the shared jar
+    /// keeps persistent cookies on disk itself, and the app may have been
+    /// quit in the middle of a logout.
     private func ensureCookiesLoaded() {
         guard !cookiesLoaded else { return }
         cookiesLoaded = true
-        guard persistence.isSignedIn else { return }
+        guard persistence.isSignedIn else { return deleteSiteCookies() }
         for cookie in vault.loadCookies() {
             cookieStorage.setCookie(cookie)
         }
