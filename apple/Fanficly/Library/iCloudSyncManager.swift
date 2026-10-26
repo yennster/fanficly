@@ -210,9 +210,7 @@ final class iCloudSyncManager {
                 )
             }
             
-            let searchBackups = searches.map {
-                SearchBackup(name: $0.name, prompt: $0.prompt, sortColumn: $0.sortColumn, sortDirection: $0.sortDirection, savedAt: $0.savedAt)
-            }
+            let searchBackups = searches.map { SearchBackup(search: $0) }
             
             let progressBackups = progress.map {
                 ProgressBackup(ao3Id: $0.ao3Id, chapterIndex: $0.chapterIndex, paragraphIndex: $0.paragraphIndex, title: $0.title, author: $0.author, updatedAt: $0.updatedAt)
@@ -770,7 +768,9 @@ final class iCloudSyncManager {
         }
 
         var searchesByName = Dictionary(cloud.searches.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        for s in local.searches { searchesByName[s.name] = s }
+        for s in local.searches {
+            searchesByName[s.name] = searchesByName[s.name].map { mergedSearch(local: s, other: $0) } ?? s
+        }
 
         var progressById = Dictionary(cloud.progress.map { ($0.ao3Id, $0) }, uniquingKeysWith: { a, _ in a })
         for p in local.progress {
@@ -983,6 +983,54 @@ final class iCloudSyncManager {
             lastSeenChapterCount: higher(local.lastSeenChapterCount, other.lastSeenChapterCount),
             lastCheckedAt: later(local.lastCheckedAt, other.lastCheckedAt)
         )
+    }
+
+    /// A saved search merges forward-only too (#309). Its definition (prompt
+    /// and sort) comes from the side saved last and its alert switch from the
+    /// side switched last (ties keep local), so editing a search or switching
+    /// its alerts off reaches every device. What its alerts have seen belongs
+    /// to one prompt and one switch-on: when both sides share them, the seen
+    /// ids union and the checks keep the later date, so a restore can't make
+    /// alerts fire again for works another device already alerted for.
+    /// Otherwise the seen ids come from the side whose prompt (then switch)
+    /// is current, since switching alerts on or editing the search starts a
+    /// fresh baseline.
+    nonisolated static func mergedSearch(local: SearchBackup, other: SearchBackup) -> SearchBackup {
+        let definition = other.savedAt > local.savedAt ? other : local
+        let switched = (other.alertsChangedAt ?? .distantPast) > (local.alertsChangedAt ?? .distantPast) ? other : local
+        var known = definition.alertKnownWorkIds
+        var baselineAt = definition.alertsBaselineAt
+        var lastCheckedAt = definition.alertsLastCheckedAt
+        if local.prompt == other.prompt {
+            if local.alertsChangedAt == other.alertsChangedAt {
+                let union = SavedSearchAlerts.baseline(local.alertKnownWorkIds ?? [], adding: other.alertKnownWorkIds ?? [])
+                known = union.isEmpty ? nil : union
+                baselineAt = earlier(local.alertsBaselineAt, other.alertsBaselineAt)
+                lastCheckedAt = later(local.alertsLastCheckedAt, other.alertsLastCheckedAt)
+            } else {
+                known = switched.alertKnownWorkIds
+                baselineAt = switched.alertsBaselineAt
+                lastCheckedAt = switched.alertsLastCheckedAt
+            }
+        }
+        return SearchBackup(
+            name: local.name,
+            prompt: definition.prompt,
+            sortColumn: definition.sortColumn,
+            sortDirection: definition.sortDirection,
+            savedAt: definition.savedAt,
+            alertsEnabled: switched.alertsEnabled,
+            alertsChangedAt: switched.alertsChangedAt,
+            alertKnownWorkIds: known,
+            alertsBaselineAt: baselineAt,
+            alertsLastCheckedAt: lastCheckedAt
+        )
+    }
+
+    private nonisolated static func earlier(_ a: Date?, _ b: Date?) -> Date? {
+        guard let a else { return b }
+        guard let b else { return a }
+        return min(a, b)
     }
 
     private nonisolated static func higher(_ a: Int?, _ b: Int?) -> Int? {
@@ -1305,12 +1353,13 @@ final class iCloudSyncManager {
                 let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == s.name })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
-                    existing.prompt = s.prompt
-                    existing.sortColumn = s.sortColumn
-                    existing.sortDirection = s.sortDirection
-                    existing.savedAt = s.savedAt
+                    let merged = mergedSearch(local: SearchBackup(search: existing), other: s)
+                    if merged.prompt != existing.prompt { existing.alertNewWorkIds = [] }
+                    merged.apply(to: existing)
                 } else {
-                    context.insert(SavedSearch(name: s.name, prompt: s.prompt, sortColumn: s.sortColumn, sortDirection: s.sortDirection, savedAt: s.savedAt))
+                    let search = SavedSearch(name: s.name, prompt: s.prompt, sortColumn: s.sortColumn, sortDirection: s.sortDirection, savedAt: s.savedAt)
+                    s.apply(to: search)
+                    context.insert(search)
                 }
             }
             
@@ -1913,6 +1962,41 @@ struct SearchBackup: Codable {
     let sortColumn: String
     let sortDirection: String
     let savedAt: Date
+    // New-fic alerts (#309). Optional so older backups (and the Windows
+    // app's, before it had alerts) still decode; merged by `mergedSearch`.
+    var alertsEnabled: Bool? = nil
+    var alertsChangedAt: Date? = nil
+    var alertKnownWorkIds: [Int]? = nil
+    var alertsBaselineAt: Date? = nil
+    var alertsLastCheckedAt: Date? = nil
+}
+
+extension SearchBackup {
+    @MainActor
+    init(search: SavedSearch) {
+        self.init(
+            name: search.name, prompt: search.prompt, sortColumn: search.sortColumn,
+            sortDirection: search.sortDirection, savedAt: search.savedAt,
+            alertsEnabled: search.alertsEnabled ? true : nil,
+            alertsChangedAt: search.alertsChangedAt,
+            alertKnownWorkIds: search.alertKnownWorkIds.isEmpty ? nil : search.alertKnownWorkIds,
+            alertsBaselineAt: search.alertsBaselineAt,
+            alertsLastCheckedAt: search.alertsLastCheckedAt
+        )
+    }
+
+    @MainActor
+    func apply(to search: SavedSearch) {
+        search.prompt = prompt
+        search.sortColumn = sortColumn
+        search.sortDirection = sortDirection
+        search.savedAt = savedAt
+        search.alertsEnabled = alertsEnabled ?? false
+        search.alertsChangedAt = alertsChangedAt
+        search.alertKnownWorkIds = alertKnownWorkIds ?? []
+        search.alertsBaselineAt = alertsBaselineAt
+        search.alertsLastCheckedAt = alertsLastCheckedAt
+    }
 }
 
 struct ProgressBackup: Codable {

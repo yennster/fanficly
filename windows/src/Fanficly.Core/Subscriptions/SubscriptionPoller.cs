@@ -26,6 +26,8 @@ public interface INotificationRoutePayloads
     IReadOnlyDictionary<string, string> NewChapters(int workId);
     IReadOnlyDictionary<string, string> NewWork(int workId);
     IReadOnlyDictionary<string, string> NewWorks(string authorUsername, string authorName);
+    IReadOnlyDictionary<string, string> SearchMatch(int workId);
+    IReadOnlyDictionary<string, string> SavedSearch(string name, string prompt);
 }
 
 /// <summary>The default payloads: the Swift <c>NotificationRoute.userInfo</c> keys.</summary>
@@ -49,11 +51,25 @@ public sealed class DefaultNotificationRoutePayloads : INotificationRoutePayload
         ["authorUsername"] = authorUsername,
         ["authorName"] = authorName,
     };
+
+    public IReadOnlyDictionary<string, string> SearchMatch(int workId) => new Dictionary<string, string>
+    {
+        ["kind"] = "searchMatch",
+        ["workId"] = workId.ToString(CultureInfo.InvariantCulture),
+    };
+
+    public IReadOnlyDictionary<string, string> SavedSearch(string name, string prompt) => new Dictionary<string, string>
+    {
+        ["kind"] = "savedSearch",
+        ["searchName"] = name,
+        ["searchPrompt"] = prompt,
+    };
 }
 
 /// <summary>Checks AO3 for news on everything the user follows: account
-/// subscriptions (when logged in), locally-followed works (new chapters) and
-/// locally-followed authors (new works), posting a local notification for each.</summary>
+/// subscriptions (when logged in), locally-followed works (new chapters),
+/// locally-followed authors (new works) and saved searches with alerts on (new
+/// matching works, #309), posting a local notification for each.</summary>
 public sealed class SubscriptionPoller
 {
     private readonly IAO3Client _client;
@@ -150,7 +166,20 @@ public sealed class SubscriptionPoller
         return notifyCount;
     }
 
-    /// <summary>The full background poll. Interleaves all three record kinds
+    /// <summary>Check saved searches with alerts on (#309) for newly posted works.</summary>
+    public async Task<int> CheckSavedSearchAlertsAsync(CancellationToken ct = default)
+    {
+        var notifyCount = 0;
+        foreach (var search in AlertingSearches())
+        {
+            if (ct.IsCancellationRequested) break;
+            notifyCount += await CheckSavedSearchAsync(search, ct).ConfigureAwait(false);
+            _store.TrySave();
+        }
+        return notifyCount;
+    }
+
+    /// <summary>The full background poll. Interleaves all four record kinds
     /// oldest-check-first rather than a fixed subs → works → authors order: every
     /// check costs one throttled (1 req/s) request and a background run gets
     /// limited time, so a fixed order would permanently starve the last
@@ -173,6 +202,7 @@ public sealed class SubscriptionPoller
             targets.AddRange(WorkSubscriptionRecords().Select(r => (r.LastCheckedAt, (Func<Task<int>>)(() => CheckWorkSubscriptionAsync(r, ct)))));
         targets.AddRange(FollowedWorks().Select(w => (w.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedWorkAsync(w, ct)))));
         targets.AddRange(FollowedAuthors().Select(a => (a.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedAuthorAsync(a, ct)))));
+        targets.AddRange(AlertingSearches().Select(s => (s.AlertsLastCheckedAt, (Func<Task<int>>)(() => CheckSavedSearchAsync(s, ct)))));
         var ordered = targets.OrderBy(t => t.LastCheckedAt ?? DateTimeOffset.MinValue).ToList();
 
         var total = 0;
@@ -288,6 +318,49 @@ public sealed class SubscriptionPoller
         }
     }
 
+    /// <summary>Run a saved search with alerts on, newest posted first (one
+    /// throttled request), and alert for works posted since its baseline. The
+    /// first check after alerts go on only takes the baseline.</summary>
+    public async Task<int> CheckSavedSearchAsync(SavedSearch search, CancellationToken ct = default)
+    {
+        var checkedBefore = search.AlertsLastCheckedAt;
+        var prompt = search.Prompt;
+        var filters = SavedSearchAlerts.Filters(prompt);
+        try
+        {
+            var result = await _client.SearchAsync(filters, 1, ct).ConfigureAwait(false);
+            // An AO3 search can take half a minute: if the search was edited or
+            // its alerts switched off meanwhile, these results are stale.
+            if (!search.AlertsEnabled || search.Prompt != prompt) return 0;
+            if (Username is not null && result.ServedAsGuest) SessionExpired = true;
+            var fresh = SavedSearchAlerts.NewMatches(result.Works, search.AlertKnownWorkIds.ToHashSet(),
+                                                     search.AlertsBaselineAt is not null, checkedBefore);
+            search.AlertsBaselineAt ??= DateTimeOffset.Now;
+            search.AlertKnownWorkIds = SavedSearchAlerts.Baseline(search.AlertKnownWorkIds, result.Works.Select(w => w.Id));
+            // The same rules as the results list: hidden works, blocked tags and
+            // authors (except ones the search names) and, when that setting is on,
+            // Mature and Explicit works never alert.
+            var shown = ContentFilter.Apply(fresh, HiddenWorkStore.Ids(_store),
+                KeyValueStores.Default.GetBool(ContentControl.FilterMatureKey, true),
+                Blocklist.From(_store).Lifting(filters));
+            if (shown.Count == 0) return 0;
+            var alreadyNew = search.AlertNewWorkIds.ToHashSet();
+            search.AlertNewWorkIds = search.AlertNewWorkIds.Concat(shown.Select(w => w.Id).Where(id => !alreadyNew.Contains(id))).ToList();
+            await PostAsync(SavedSearchContent(search.Name, prompt, shown)).ConfigureAwait(false);
+            return shown.Count;
+        }
+        catch (Exception e)
+        {
+            FailedChecks++;
+            LibraryHooks.Log?.Invoke($"Skipping saved search {search.Name}: {e.Message}");
+            return 0;
+        }
+        finally
+        {
+            search.AlertsLastCheckedAt = DateTimeOffset.Now;
+        }
+    }
+
     // MARK: - Record fetches
 
     private IReadOnlyList<SubscriptionRecord> WorkSubscriptionRecords() => _store.Where<SubscriptionRecord>(s => s.Kind == "work");
@@ -295,6 +368,8 @@ public sealed class SubscriptionPoller
     private IReadOnlyList<Work> FollowedWorks() => _store.FollowedWorks();
 
     private IReadOnlyList<FollowedAuthor> FollowedAuthors() => _store.Where<FollowedAuthor>(a => a.Username.Length > 0);
+
+    private IReadOnlyList<SavedSearch> AlertingSearches() => _store.Where<SavedSearch>(s => s.AlertsEnabled);
 
     private async Task PostAsync(LocalNotification notification)
     {
@@ -342,6 +417,20 @@ public sealed class SubscriptionPoller
         }
         return new LocalNotification(identifier, authorName, $"{newWorks.Count} new works posted",
                                      RoutePayloads.NewWorks(authorUsername, authorName));
+    }
+
+    /// <summary>New fics for a saved search. One opens that work; several open
+    /// the search's results, newest posted first.</summary>
+    public static LocalNotification SavedSearchContent(string searchName, string prompt, IReadOnlyList<AO3WorkSummary> newWorks)
+    {
+        var identifier = $"search-{searchName}-new-{(newWorks.Count > 0 ? newWorks.Max(w => w.Id) : 0)}";
+        if (newWorks.Count == 1)
+        {
+            var work = newWorks[0];
+            return new LocalNotification(identifier, searchName, $"New fic: {work.Title}", RoutePayloads.SearchMatch(work.Id));
+        }
+        return new LocalNotification(identifier, searchName, $"{newWorks.Count} new fics match this search",
+                                     RoutePayloads.SavedSearch(searchName, prompt));
     }
 
     /// <summary>New chapters on a followed or subscribed work; opens the work.</summary>

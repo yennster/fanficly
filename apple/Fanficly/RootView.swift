@@ -130,6 +130,12 @@ struct RootView: View {
                             WorkDetailView(workId: workId)
                         case .newWorks(let author):
                             AuthorWorksView(author: author)
+                        case .searchMatch(let workId):
+                            WorkDetailView(workId: workId)
+                                .onAppear { SavedSearchAlerts.markWorkSeen(workId, context: context) }
+                        case .savedSearch(let name, let prompt):
+                            FandomWorksView(filters: SavedSearchAlerts.filters(prompt: prompt), title: name)
+                                .onAppear { SavedSearchAlerts.markSeen(named: name, context: context) }
                         }
                     }
                     // A tap can replace one route with another in the same slot;

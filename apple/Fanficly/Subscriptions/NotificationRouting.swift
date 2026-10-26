@@ -12,16 +12,23 @@ enum NotificationRoute: Hashable, Sendable {
     case newWork(workId: Int)
     /// A followed author posted several new works at once.
     case newWorks(author: AuthorRef)
+    /// One new fic matches a saved search with alerts on (#309).
+    case searchMatch(workId: Int)
+    /// Several new fics match a saved search: opens its results, newest
+    /// posted first. Carries the prompt so the tap needs no lookup.
+    case savedSearch(name: String, prompt: String)
 
     private enum Key {
         static let kind = "kind"
         static let workId = "workId"
         static let authorUsername = "authorUsername"
         static let authorName = "authorName"
+        static let searchName = "searchName"
+        static let searchPrompt = "searchPrompt"
     }
 
     private enum Kind: String {
-        case newChapters, newWork, newWorks
+        case newChapters, newWork, newWorks, searchMatch, savedSearch
     }
 
     /// Property-list values only — the system stores `userInfo` as a plist.
@@ -35,6 +42,10 @@ enum NotificationRoute: Hashable, Sendable {
             [Key.kind: Kind.newWorks.rawValue,
              Key.authorUsername: author.username,
              Key.authorName: author.displayName]
+        case .searchMatch(let workId):
+            [Key.kind: Kind.searchMatch.rawValue, Key.workId: workId]
+        case .savedSearch(let name, let prompt):
+            [Key.kind: Kind.savedSearch.rawValue, Key.searchName: name, Key.searchPrompt: prompt]
         }
     }
 
@@ -48,6 +59,13 @@ enum NotificationRoute: Hashable, Sendable {
         case .newWork:
             guard let workId else { return nil }
             self = .newWork(workId: workId)
+        case .searchMatch:
+            guard let workId else { return nil }
+            self = .searchMatch(workId: workId)
+        case .savedSearch:
+            guard let name = userInfo[Key.searchName] as? String,
+                  let prompt = userInfo[Key.searchPrompt] as? String, !prompt.isEmpty else { return nil }
+            self = .savedSearch(name: name, prompt: prompt)
         case .newChapters, nil:
             // No kind: posted before taps were routed, when chapter alerts and
             // single new works both carried just the work id.
@@ -58,19 +76,21 @@ enum NotificationRoute: Hashable, Sendable {
 
     var workId: Int? {
         switch self {
-        case .newChapters(let workId), .newWork(let workId): workId
-        case .newWorks: nil
+        case .newChapters(let workId), .newWork(let workId), .searchMatch(let workId): workId
+        case .newWorks, .savedSearch: nil
         }
     }
 
     /// The tab to open beneath the screen when no tab is showing yet (the
     /// iPhone sidebar menu, e.g. after a cold launch), so Back lands somewhere
     /// related: chapter alerts for a saved work in the Library, for a work only
-    /// subscribed to on AO3 in Subscriptions; author news in Followed Authors.
+    /// subscribed to on AO3 in Subscriptions; author news in Followed Authors;
+    /// saved search news in Search.
     func landingTab(workIsSaved: Bool) -> SidebarItem {
         switch self {
         case .newChapters: workIsSaved ? .library : .subscriptions
         case .newWork, .newWorks: .authors
+        case .searchMatch, .savedSearch: .search
         }
     }
 }

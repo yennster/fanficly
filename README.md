@@ -13,7 +13,7 @@ Fanficly is a free, ad-free app for reading fanfiction from [Archive of Our Own 
 - **Search that does what you typed.** Keywords go to AO3's own search, and live tag suggestions turn words into exact filters with one tap. `teen wolf` means Teen Wolf.
 - **A reader made for long stories.** Scroll, swipe by chapter or turn pages like a book, with two-page spreads on wide screens, themes, fonts and named typography profiles.
 - **Your library, offline.** Save stories, read them without a connection, sort them into folders, and pick up at the exact paragraph you left.
-- **New chapter alerts.** Follow works and authors without an account and get a notification when something new is posted.
+- **New chapter alerts.** Follow works and authors without an account and get a notification when something new is posted. Turn on alerts for a saved search to hear about new fics that match it.
 - **Listen.** Stories read aloud with the device's own voices, nothing sent anywhere.
 - **Stats and a yearly wrap.** Stories finished, time and words read, your streak and your top fandoms, all computed on your device.
 - **Optional AO3 account.** Sign in for your AO3 subscriptions, bookmarks, comments and kudos. Your password is never stored.
@@ -148,7 +148,7 @@ Yes. Download a work and its chapters are saved on your device. You can also exp
 
 ### Will Fanficly tell me when a story updates?
 
-Yes. Follow a work or an author and Fanficly checks in the background, then sends a notification when a new chapter or a new work is posted. This needs no account.
+Yes. Follow a work or an author and Fanficly checks in the background, then sends a notification when a new chapter or a new work is posted. Turn on alerts for a saved search and it tells you when a new fic matching it is posted. This needs no account.
 
 ### Does Fanficly collect my data?
 

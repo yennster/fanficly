@@ -417,6 +417,59 @@ public sealed class LibraryStoreTests : IDisposable
             Assert.Equal("now", Assert.Single(store.All<Work>()).Note);
     }
 
+    /// <summary>A saved search's new-fic alert state (#309) survives reopening,
+    /// and a library from before alerts (schema version 3) gains the columns with
+    /// alerts off.</summary>
+    [Fact]
+    public void SavedSearchAlertsSurviveReopeningAndMigrate()
+    {
+        var at = new DateTimeOffset(2026, 10, 1, 2, 3, 4, TimeSpan.Zero);
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new SavedSearch("Alerting", "angst")
+            {
+                AlertsEnabled = true, AlertsChangedAt = at, AlertKnownWorkIds = [3, 2], AlertsBaselineAt = at,
+                AlertsLastCheckedAt = at, AlertNewWorkIds = [3],
+            });
+            store.Insert(new SavedSearch("Quiet", "fluff"));
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var alerting = store.GetSavedSearch("Alerting")!;
+            Assert.True(alerting.AlertsEnabled);
+            Assert.Equal(at, alerting.AlertsChangedAt);
+            Assert.Equal([3, 2], alerting.AlertKnownWorkIds);
+            Assert.Equal(at, alerting.AlertsBaselineAt);
+            Assert.Equal(at, alerting.AlertsLastCheckedAt);
+            Assert.Equal([3], alerting.AlertNewWorkIds);
+            Assert.False(store.GetSavedSearch("Quiet")!.AlertsEnabled);
+        }
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath};Pooling=False"))
+        {
+            conn.Open();
+            foreach (var column in new[] { "alerts_enabled", "alerts_changed_at", "alert_known_work_ids", "alerts_baseline_at",
+                                           "alerts_last_checked_at", "alert_new_work_ids" })
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = $"ALTER TABLE saved_searches DROP COLUMN {column}";
+                cmd.ExecuteNonQuery();
+            }
+            using var version = conn.CreateCommand();
+            version.CommandText = "PRAGMA user_version = 3";
+            version.ExecuteNonQuery();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            Assert.Equal(LibrarySchema.CurrentVersion, store.SchemaVersion);
+            var migrated = store.GetSavedSearch("Alerting")!;
+            Assert.Equal("angst", migrated.Prompt);
+            Assert.False(migrated.AlertsEnabled);
+            Assert.Empty(migrated.AlertKnownWorkIds);
+            Assert.Null(migrated.AlertsBaselineAt);
+        }
+    }
+
     [Fact]
     public void SchemaIsVersionedAndMigrationsAreAdditive()
     {

@@ -555,7 +555,7 @@ public sealed class LibrarySyncManager
             Bookmarks: store.All<BookmarkRecord>().Select(b => new BookmarkBackup(b.Ao3Id, b.WorkAo3Id, b.Notes, b.Tags, b.SavedAt)).ToList(),
             Subscriptions: store.All<SubscriptionRecord>().Select(s => new SubscriptionBackup(
                 s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt)).ToList(),
-            Searches: store.All<SavedSearch>().Select(s => new SearchBackup(s.Name, s.Prompt, s.SortColumn, s.SortDirection, s.SavedAt)).ToList(),
+            Searches: store.All<SavedSearch>().Select(SearchBackupOf).ToList(),
             Progress: store.All<ReadingProgress>().Select(p => new ProgressBackup(
                 p.Ao3Id, p.ChapterIndex, p.ParagraphIndex, p.Title, p.Author, p.UpdatedAt)).ToList(),
             Filters: store.All<SavedFilter>().Select(f => new FilterBackup(f.Name, f.FiltersJson, f.SavedAt)).ToList(),
@@ -659,7 +659,8 @@ public sealed class LibrarySyncManager
             subscriptionsByKey[s.Key] = subscriptionsByKey.TryGetValue(s.Key, out var cloudSub) ? MergedSubscription(s, cloudSub) : s;
 
         var searchesByName = FirstByKey(cloud.Searches, s => s.Name);
-        foreach (var s in local.Searches) searchesByName[s.Name] = s;
+        foreach (var s in local.Searches)
+            searchesByName[s.Name] = searchesByName.TryGetValue(s.Name, out var cloudSearch) ? MergedSearch(s, cloudSearch) : s;
 
         var progressById = FirstByKey(cloud.Progress, p => p.Ao3Id);
         foreach (var p in local.Progress)
@@ -795,6 +796,62 @@ public sealed class LibrarySyncManager
             LastSeenChapterCount = Higher(local.LastSeenChapterCount, other.LastSeenChapterCount),
             LastCheckedAt = Later(local.LastCheckedAt, other.LastCheckedAt),
         };
+
+    /// <summary>A saved search's two copies merged forward-only (#309; Swift's
+    /// <c>mergedSearch</c>). Its definition (prompt and sort) comes from the copy
+    /// saved last and its alert switch from the copy switched last (ties keep
+    /// local), so editing a search or switching its alerts off reaches every
+    /// device. What its alerts have seen belongs to one prompt and one switch-on:
+    /// when both copies share them, the seen ids union and the checks keep the
+    /// later date, so a restore can't make alerts fire again for works another
+    /// device already alerted for. Otherwise the seen ids come from the copy whose
+    /// prompt (then switch) is current, since switching alerts on or editing the
+    /// search starts a fresh baseline.</summary>
+    public static SearchBackup MergedSearch(SearchBackup local, SearchBackup other)
+    {
+        var definition = other.SavedAt > local.SavedAt ? other : local;
+        var switched = (other.AlertsChangedAt ?? DateTimeOffset.MinValue) > (local.AlertsChangedAt ?? DateTimeOffset.MinValue) ? other : local;
+        var known = definition.AlertKnownWorkIds;
+        var baselineAt = definition.AlertsBaselineAt;
+        var lastCheckedAt = definition.AlertsLastCheckedAt;
+        if (local.Prompt == other.Prompt)
+        {
+            if (local.AlertsChangedAt == other.AlertsChangedAt)
+            {
+                var union = SavedSearchAlerts.Baseline(local.AlertKnownWorkIds ?? [], other.AlertKnownWorkIds ?? []);
+                known = union.Count == 0 ? null : union;
+                baselineAt = Earlier(local.AlertsBaselineAt, other.AlertsBaselineAt);
+                lastCheckedAt = Later(local.AlertsLastCheckedAt, other.AlertsLastCheckedAt);
+            }
+            else
+            {
+                known = switched.AlertKnownWorkIds;
+                baselineAt = switched.AlertsBaselineAt;
+                lastCheckedAt = switched.AlertsLastCheckedAt;
+            }
+        }
+        return definition with
+        {
+            Name = local.Name,
+            AlertsEnabled = switched.AlertsEnabled,
+            AlertsChangedAt = switched.AlertsChangedAt,
+            AlertKnownWorkIds = known,
+            AlertsBaselineAt = baselineAt,
+            AlertsLastCheckedAt = lastCheckedAt,
+        };
+    }
+
+    /// <summary>A saved search as the backup holds it. Alerts that are off and
+    /// an empty baseline are left out, so a search that never had alerts writes
+    /// the same record as before.</summary>
+    internal static SearchBackup SearchBackupOf(SavedSearch s) =>
+        new(s.Name, s.Prompt, s.SortColumn, s.SortDirection, s.SavedAt,
+            s.AlertsEnabled ? true : null, s.AlertsChangedAt,
+            s.AlertKnownWorkIds.Count == 0 ? null : s.AlertKnownWorkIds,
+            s.AlertsBaselineAt, s.AlertsLastCheckedAt);
+
+    private static DateTimeOffset? Earlier(DateTimeOffset? a, DateTimeOffset? b) =>
+        a is null ? b : b is null ? a : a < b ? a : b;
 
     private static int? Higher(int? a, int? b) =>
         a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
@@ -1122,14 +1179,30 @@ public sealed class LibrarySyncManager
             if (tombstones.Removes(DeletionKind.Search, search.Name, search.SavedAt)) continue;
             if (store.GetSavedSearch(search.Name) is { } existing)
             {
-                existing.Prompt = search.Prompt;
-                existing.SortColumn = search.SortColumn;
-                existing.SortDirection = search.SortDirection;
-                existing.SavedAt = search.SavedAt;
+                // Forward-only, like the backup merge: an older copy can't undo an
+                // edit or an alert switch, or make alerts fire again (#309).
+                var m = MergedSearch(SearchBackupOf(existing), search);
+                if (m.Prompt != existing.Prompt) existing.AlertNewWorkIds = [];
+                ApplySearch(m, existing);
             }
             else
             {
-                store.Insert(new SavedSearch(search.Name, search.Prompt, search.SortColumn, search.SortDirection, search.SavedAt));
+                var created = new SavedSearch(search.Name, search.Prompt, search.SortColumn, search.SortDirection, search.SavedAt);
+                ApplySearch(search, created);
+                store.Insert(created);
+            }
+
+            static void ApplySearch(SearchBackup from, SavedSearch to)
+            {
+                to.Prompt = from.Prompt;
+                to.SortColumn = from.SortColumn;
+                to.SortDirection = from.SortDirection;
+                to.SavedAt = from.SavedAt;
+                to.AlertsEnabled = from.AlertsEnabled ?? false;
+                to.AlertsChangedAt = from.AlertsChangedAt;
+                to.AlertKnownWorkIds = from.AlertKnownWorkIds ?? [];
+                to.AlertsBaselineAt = from.AlertsBaselineAt;
+                to.AlertsLastCheckedAt = from.AlertsLastCheckedAt;
             }
         }
 

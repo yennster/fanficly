@@ -89,7 +89,14 @@ enum DemoSeed {
         // Saved searches (Search toolbar menu).
         // In the search box's own syntax (`SearchSyntax`), so loading one
         // shows exact tag chips, as a saved search made in the app would.
-        context.insert(SavedSearch(name: "Slow burn, complete", prompt: #"tag:"Slow Burn" complete:yes"#))
+        // One has new-fic alerts on (#309) with two alerted fics unseen, so
+        // the screenshots show the "2 new" line. Demo mode never runs checks.
+        let alerting = SavedSearch(name: "Slow burn, complete", prompt: #"tag:"Slow Burn" complete:yes"#)
+        alerting.alertsEnabled = true
+        alerting.alertsChangedAt = .now
+        alerting.alertsBaselineAt = .now
+        alerting.alertNewWorkIds = [90001, 90002]
+        context.insert(alerting)
         context.insert(SavedSearch(name: "Found family", prompt: #"tag:"Found Family" tag:Hurt/Comfort"#))
         context.insert(SavedSearch(name: "Coffee shop AUs", prompt: #"coffee shop tag:Fluff rating:teen"#))
 

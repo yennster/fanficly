@@ -27,17 +27,28 @@ public abstract record NotificationRoute
     /// <summary>A followed author posted several new works at once.</summary>
     public sealed record NewWorks(AuthorRef Author) : NotificationRoute;
 
+    /// <summary>One new fic matches a saved search with alerts on (#309).</summary>
+    public sealed record SearchMatch(int WorkId) : NotificationRoute;
+
+    /// <summary>Several new fics match a saved search: opens its results, newest
+    /// posted first. Carries the prompt so the tap needs no lookup.</summary>
+    public sealed record SavedSearchMatches(string Name, string Prompt) : NotificationRoute;
+
     internal static class Key
     {
         public const string Kind = "kind";
         public const string WorkId = "workId";
         public const string AuthorUsername = "authorUsername";
         public const string AuthorName = "authorName";
+        public const string SearchName = "searchName";
+        public const string SearchPrompt = "searchPrompt";
     }
 
     private const string KindNewChapters = "newChapters";
     private const string KindNewWork = "newWork";
     private const string KindNewWorks = "newWorks";
+    private const string KindSearchMatch = "searchMatch";
+    private const string KindSavedSearch = "savedSearch";
 
     /// <summary>The toast arguments (Swift's <c>userInfo</c>, as strings).</summary>
     public IReadOnlyDictionary<string, string> ToArguments() => this switch
@@ -49,6 +60,13 @@ public abstract record NotificationRoute
             [Key.Kind] = KindNewWorks,
             [Key.AuthorUsername] = r.Author.Username,
             [Key.AuthorName] = r.Author.DisplayName,
+        },
+        SearchMatch r => new Dictionary<string, string> { [Key.Kind] = KindSearchMatch, [Key.WorkId] = Format(r.WorkId) },
+        SavedSearchMatches r => new Dictionary<string, string>
+        {
+            [Key.Kind] = KindSavedSearch,
+            [Key.SearchName] = r.Name,
+            [Key.SearchPrompt] = r.Prompt,
         },
         _ => throw new InvalidOperationException(),
     };
@@ -67,6 +85,12 @@ public abstract record NotificationRoute
                 return new NewWorks(new AuthorRef(username, name ?? username));
             case KindNewWork:
                 return workId is { } id ? new NewWork(id) : null;
+            case KindSearchMatch:
+                return workId is { } matchId ? new SearchMatch(matchId) : null;
+            case KindSavedSearch:
+                if (!arguments.TryGetValue(Key.SearchName, out var searchName)
+                    || !arguments.TryGetValue(Key.SearchPrompt, out var prompt) || prompt.Length == 0) return null;
+                return new SavedSearchMatches(searchName, prompt);
             default:
                 // newChapters — or no (or an unknown) kind: posted before taps were
                 // routed, when chapter alerts and single new works both carried
@@ -102,16 +126,18 @@ public abstract record NotificationRoute
     {
         NewChapters r => r.WorkId,
         NewWork r => r.WorkId,
+        SearchMatch r => r.WorkId,
         _ => null,
     };
 
     /// <summary>The tab to open beneath the screen when no tab is showing yet
     /// (e.g. a cold launch), so Back lands somewhere related: chapter alerts for a
     /// saved work in the Library, for a work only subscribed to on AO3 in
-    /// Subscriptions; author news in Followed Authors.</summary>
+    /// Subscriptions; author news in Followed Authors; saved search news in Search.</summary>
     public SidebarItem LandingTab(bool workIsSaved) => this switch
     {
         NewChapters => workIsSaved ? SidebarItem.Library : SidebarItem.Subscriptions,
+        SearchMatch or SavedSearchMatches => SidebarItem.Search,
         _ => SidebarItem.Authors,
     };
 

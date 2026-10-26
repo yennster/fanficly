@@ -221,6 +221,16 @@ internal static class LibrarySchema
             AddColumnIfMissing(conn, "works", "personal_tags", "TEXT NOT NULL DEFAULT '[]'");
             AddColumnIfMissing(conn, "works", "notes_updated_at", "INTEGER");
         },
+        // Version 4: new-fic alerts on saved searches (#309).
+        conn =>
+        {
+            AddColumnIfMissing(conn, "saved_searches", "alerts_enabled", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_changed_at", "INTEGER");
+            AddColumnIfMissing(conn, "saved_searches", "alert_known_work_ids", "TEXT NOT NULL DEFAULT '[]'");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_baseline_at", "INTEGER");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_last_checked_at", "INTEGER");
+            AddColumnIfMissing(conn, "saved_searches", "alert_new_work_ids", "TEXT NOT NULL DEFAULT '[]'");
+        },
     ];
 
     internal static int CurrentVersion => Migrations.Length;
