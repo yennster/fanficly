@@ -376,6 +376,7 @@ public actor AO3Client: AO3ClientProtocol {
     private let cookieStorage: HTTPCookieStorage
     private let persistence: CookiePersistence
     private let vault: any CookieVault
+    private let loginNames: any LoginNameStore
     /// Logging out, while its own requests to AO3 still need the session.
     private var isSigningOut = false
     private nonisolated(unsafe) var cookieObserver: (any NSObjectProtocol)?
@@ -408,6 +409,7 @@ public actor AO3Client: AO3ClientProtocol {
         let persistence = CookiePersistence(vault: vault, signedIn: loginNames.storedUsername() != nil)
         cookieStorage = storage
         self.vault = vault
+        self.loginNames = loginNames
         self.persistence = persistence
 
         // Save cookie changes to the vault (while signed in; see CookiePersistence).
@@ -513,7 +515,12 @@ public actor AO3Client: AO3ClientProtocol {
     /// up again at the end, so a request that started (or retried) while
     /// this waited on AO3, carrying the old cookies, counts as late too.
     public func logout() async {
+        // The saved session, for AO3's logout, even when this is the first request.
+        ensureCookiesLoaded()
         persistence.signedOut()
+        // The name too, right away: quit while AO3 is being asked and the next
+        // launch starts signed out.
+        loginNames.setUsername(nil)
         isSigningOut = true
         if (cookieStorage.cookies(for: baseURL) ?? []).contains(where: Self.isAccountCookie) {
             await endAO3Session()
