@@ -896,6 +896,12 @@ public sealed class AO3Client : IAO3Client, IDisposable
     private static bool CanResendOverHttp2(HttpMethod method, HttpRequestException e) =>
         method == HttpMethod.Get || e.HttpRequestError is HttpRequestError.VersionNegotiationError;
 
+    /// <summary>The QUIC connect ran past <see cref="Http3ConnectTimeout"/>: UDP
+    /// silently dropped. SocketsHttpHandler reports that as a cancellation wrapping
+    /// a <see cref="TimeoutException"/>, not an <see cref="HttpRequestException"/>.
+    /// No connection existed, so nothing went out and even a POST can go again.</summary>
+    private static bool IsConnectTimeout(OperationCanceledException e) => e.InnerException is TimeoutException;
+
     /// <summary>Logs once what AO3 advertised on the first answer that wasn't
     /// HTTP/3, since .NET only tries HTTP/3 after an Alt-Svc offering h3.</summary>
     private void NoteAltSvc(Uri uri, HttpResponseMessage response)
@@ -975,6 +981,16 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 useHttp2 = true;
                 hop--;
                 // The resend is a request of its own, so it takes its own slot.
+                await _throttle.WaitAsync(ct).ConfigureAwait(false);
+                continue;
+            }
+            catch (OperationCanceledException e) when (http3Only && !ct.IsCancellationRequested
+                                                       && !timeoutCts.IsCancellationRequested && IsConnectTimeout(e))
+            {
+                TurnHttp3Off();
+                Log?.Invoke($"HTTP/3 to {uri.Host} couldn't connect in {Elapsed(started)}, so HTTP/2 for the next 10 minutes");
+                useHttp2 = true;
+                hop--;
                 await _throttle.WaitAsync(ct).ConfigureAwait(false);
                 continue;
             }

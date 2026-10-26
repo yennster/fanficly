@@ -107,6 +107,32 @@ public sealed class AO3ClientTests : IDisposable
                                     && l.Contains("QUIC handshake failed", StringComparison.Ordinal));
     }
 
+    /// <summary>Where UDP is silently dropped the QUIC connect times out, which
+    /// SocketsHttpHandler reports as a cancellation wrapping a TimeoutException.
+    /// Nothing went out, so the request (even a POST) goes again over HTTP/2, and
+    /// later requests skip HTTP/3.</summary>
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    public async Task FallsBackToHttp2WhenTheHttp3ConnectTimesOut(string method)
+    {
+        _handler.Respond(req => req.Version.Major == 3
+            ? throw new TaskCanceledException("connect timed out", new TimeoutException("connect timed out"))
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(WorkHtml) });
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+        var spec = new AO3Client.RequestSpec(new HttpMethod(method), new Uri("https://archiveofourown.org/works/7"),
+            "text/html", [], method == "POST" ? "a=1" : null, TimeSpan.FromSeconds(30));
+
+        Assert.Equal(200, (await client.PerformRequestAsync(spec)).Status);
+        await client.FetchWorkMetadataAsync(8);
+
+        Assert.Equal(
+            new[] { HttpVersion.Version30, HttpVersion.Version20, HttpVersion.Version20 },
+            _handler.Requests.Select(r => r.Version));
+        Assert.Empty(_sleeps);
+    }
+
     /// <summary>A slow but working HTTP/3 answer (AO3 search often takes 20–30 s to
     /// start) is waited for, not cut off and sent again over HTTP/2 (#147).</summary>
     [Fact]
