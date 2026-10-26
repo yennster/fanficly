@@ -151,10 +151,10 @@ final class ReaderLayoutTests: XCTestCase {
     }
 
     func test_fullWidthMargins_keepEveryLineOnThePage() throws {
-        // 1.12.0: with Page margins at Full (100%), the right page of iPhone
-        // Duo's open book (and, folded, its one page) reaches the toolbar
-        // strip at the side, and in full screen the page's last line was cut
-        // off at its bottom edge. Full margins for one page and two.
+        // 1.12.0: with Page margins at Full (100%), the last line of iPhone
+        // Duo's open book was cut off at the bottom of the page in full
+        // screen. At 100% a page reaches the side of the reader (the Duo's
+        // toolbar strip). One page at full margins, then a wide window.
         app.terminate()
         for device in ["phone", "pad", "mac"] {
             app.launchArguments += ["-reader.widthPercent.\(device)", "100",
@@ -454,6 +454,8 @@ final class ReaderLayoutTests: XCTestCase {
         }
         XCTAssertFalse(found.isEmpty, "\(context): no page (reader.page) on screen", file: file, line: line)
         for (page, texts) in found {
+            // Text the snapshot didn't nest under its page would pass unchecked.
+            XCTAssertFalse(texts.isEmpty, "\(context): no text inside the page at \(page)", file: file, line: line)
             for text in texts where text.frame.maxY > page.maxY + 1 || text.frame.minX < page.minX - 1
                 || text.frame.maxX > page.maxX + 1 {
                 XCTFail("\(context): \"\(text.text.suffix(30))\" at \(text.frame) runs out of its page \(page) and is cut off",
