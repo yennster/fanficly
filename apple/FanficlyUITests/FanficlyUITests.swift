@@ -58,8 +58,18 @@ final class ReaderLayoutTests: XCTestCase {
     override func tearDownWithError() throws {
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .portrait
+        // A test that unfolded iPhone Duo closes it again, so the tests
+        // after it run in the pose the simulator booted in.
+        if let pose = poseToRestore {
+            app.terminate()
+            _ = DuoHinge.set(pose)
+            sleep(3)
+        }
         #endif
     }
+
+    /// The hinge angle to put back after the test (see DuoHinge).
+    private var poseToRestore: Double?
 
     // MARK: - Tests
 
@@ -156,14 +166,54 @@ final class ReaderLayoutTests: XCTestCase {
         // screen. At 100% a page reaches the side of the reader (the Duo's
         // toolbar strip). One page at full margins, then a wide window.
         app.terminate()
+        launchWithFullWidthMargins()
+        try assertFullWidthMarginsKeepEveryLineOnThePage(shots: "")
+    }
+
+    func test_unfoldedDuo_fullWidthMargins_keepEveryLineOnThePage() throws {
+        // The same on iPhone Duo's open book, which is where 1.12.0 cut the
+        // line off. Xcode Cloud's Duo boots folded and Device Hub's pose
+        // control can't be scripted, so the test unfolds it itself.
+        #if targetEnvironment(macCatalyst)
+        throw XCTSkip("Not an iPhone Duo.")
+        #else
+        // Only a foldable reports a hinge angle.
+        guard UIDevice.current.userInterfaceIdiom == .phone, let before = DuoHinge.angle() else {
+            throw XCTSkip("Not an iPhone Duo (no hinge to read).")
+        }
+        app.terminate()
+        if before < 170 {
+            XCTAssertTrue(DuoHinge.set(180), "the hinge opened to 180° (it was \(before)°)")
+            poseToRestore = before
+            sleep(3)  // the app moves to the inner display 1–2.5 s after the hinge
+        }
+        launchWithFullWidthMargins()
+        let unfolded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.isDuoUnfolded }, object: nil)
+        if XCTWaiter.wait(for: [unfolded], timeout: 20) != .completed {
+            capture("16-unfold-failed")
+            XCTFail("iPhone Duo didn't unfold: the window is \(app.windows.firstMatch.frame), hinge \(DuoHinge.angle().map { "\($0)°" } ?? "unreadable")")
+            return
+        }
+        try assertFullWidthMarginsKeepEveryLineOnThePage(shots: "unfolded-")
+        #endif
+    }
+
+    /// Launches with Margins and Page margins at Full (100%).
+    private func launchWithFullWidthMargins() {
         for device in ["phone", "pad", "mac"] {
             app.launchArguments += ["-reader.widthPercent.\(device)", "100",
                                     "-reader.spreadWidthPercent.\(device)", "100"]
         }
         app.launch()
+    }
+
+    /// Opens the reader (launched at full margins) and checks every line
+    /// stays on its page: one page (where the window is narrow), then a wide
+    /// window with the controls up and hidden.
+    private func assertFullWidthMarginsKeepEveryLineOnThePage(shots: String) throws {
         let footer = openReader()
         turnToMiddlePage(footer)
-        capture("12-full-margins")
+        capture("\(shots)12-full-margins")
         try assertPageLayout(footer, "full margins")
         #if !targetEnvironment(macCatalyst)
         if !isDuoUnfolded {
@@ -174,10 +224,11 @@ final class ReaderLayoutTests: XCTestCase {
             turnToMiddlePage(footer)
         }
         #endif
-        capture("13-full-margins-wide")
+        capture("\(shots)13-full-margins-wide")
         try assertPageLayout(footer, "full margins in a wide window")
         try assertTogglingKeepsThePageStill(footer, "full margins in a wide window",
-                                            screenshots: ("14-full-margins-full-screen", "15-full-margins-controls-back"))
+                                            screenshots: ("\(shots)14-full-margins-full-screen",
+                                                          "\(shots)15-full-margins-controls-back"))
     }
 
     func test_fullScreen_leavesOnlyThePage() throws {
@@ -700,3 +751,89 @@ final class NonReaderAccessibilityTests: XCTestCase {
         }
     }
 }
+
+#if !targetEnvironment(macCatalyst)
+/// Opens and closes iPhone Duo's hinge in the simulator from a UI test. Xcode
+/// has no API for it (XCUIDevice and simctl have no pose; Device Hub's control
+/// can't be scripted), so this sends the vendor-defined HID event Device Hub's
+/// hinge slider sends, through the simulator's private IOHIDEventSystem, and
+/// reads the angle back from CoreMotion's private CMAngleManager, which UIKit's
+/// UIHinge reads. The protocol is the one artemnovichkov/hinge (MIT) found,
+/// verified with Xcode 27.1 and 27.2 on the iOS 27.1 runtime; a later Xcode
+/// may change it, and then `angle()` returns nil and the test skips.
+enum DuoHinge {
+    private typealias CreateVendorEvent = @convention(c) (CFAllocator?, UInt64, UInt32, UInt32, UInt32,
+                                                          UnsafePointer<UInt8>?, CFIndex, UInt32) -> OpaquePointer?
+    private typealias CreateClient = @convention(c) (CFAllocator?, Int32, CFDictionary?) -> OpaquePointer?
+    private typealias Dispatch = @convention(c) (OpaquePointer, OpaquePointer) -> Void
+    private typealias Serialize = @convention(c) (CFTypeRef, CFOptionFlags) -> Unmanaged<CFData>?
+
+    private static func symbol<T>(_ name: String, as type: T.Type) -> T? {
+        guard let iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
+              let pointer = dlsym(iokit, name) else { return nil }
+        return unsafeBitCast(pointer, to: type)
+    }
+
+    /// Sends the hinge to `degrees` (0 closed, 180 flat) and waits up to
+    /// `timeout` for CoreMotion to report it.
+    static func set(_ degrees: Double, timeout: TimeInterval = 5) -> Bool {
+        guard let createEvent = symbol("IOHIDEventCreateVendorDefinedEvent", as: CreateVendorEvent.self),
+              let createClient = symbol("IOHIDEventSystemClientCreateWithType", as: CreateClient.self),
+              let dispatch = symbol("IOHIDEventSystemClientDispatchEvent", as: Dispatch.self),
+              let serialize = symbol("IOCFSerialize", as: Serialize.self),
+              let client = createClient(nil, 4, nil) else { return false }  // 4: a simple client
+        let target = min(180, max(0, degrees))
+        let payload: NSDictionary = ["provider": "com.apple.Virtualization.VirtualMachines",
+                                     "source": "hinge-slider-control", "type": "range", "value": target]
+        guard let data = serialize(payload, 1)?.takeRetainedValue() else { return false }  // 1: binary
+        let length = CFDataGetLength(data)
+        guard let event = createEvent(nil, mach_absolute_time(), 0xFF61, 0x5B, 0,
+                                      CFDataGetBytePtr(data), length, 0) else { return false }
+        dispatch(client, event)
+        Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(event)).release()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let angle = angle(), abs(angle - target) <= 0.5 { return true }
+            usleep(200_000)
+        }
+        return false
+    }
+
+    /// The hinge angle in degrees, or nil when this simulator reports none.
+    static func angle() -> Double? {
+        let isAvailable = NSSelectorFromString("isAvailable")
+        typealias Flag = @convention(c) (AnyClass, Selector) -> Bool
+        guard dlopen("/System/Library/Frameworks/CoreMotion.framework/CoreMotion", RTLD_NOW) != nil,
+              let managerClass = NSClassFromString("CMAngleManager") as? NSObject.Type,
+              managerClass.responds(to: isAvailable),
+              unsafeBitCast(managerClass.method(for: isAvailable), to: Flag.self)(managerClass, isAvailable)
+        else { return nil }
+        let manager = managerClass.init()
+        let start = NSSelectorFromString("startAngleUpdatesToQueue:handler:")
+        guard manager.responds(to: start) else { return nil }
+        let reading = AngleReading()
+        let handler: @convention(block) (NSObject) -> Void = { angle in
+            let value = (angle.value(forKey: "angleDegrees") as? NSNumber)?.doubleValue
+            reading.store(value)
+        }
+        typealias StartUpdates = @convention(c) (NSObject, Selector, OperationQueue, AnyObject) -> Void
+        let startUpdates = unsafeBitCast(manager.method(for: start), to: StartUpdates.self)
+        startUpdates(manager, start, OperationQueue(), handler as AnyObject)
+        defer { _ = manager.perform(NSSelectorFromString("stopAngleUpdates")) }
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if let value = reading.value { return value }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return nil
+    }
+
+    /// The latest angle, written from CoreMotion's queue.
+    private final class AngleReading: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Double?
+        var value: Double? { lock.withLock { stored } }
+        func store(_ value: Double?) { lock.withLock { if let value { stored = value } } }
+    }
+}
+#endif
