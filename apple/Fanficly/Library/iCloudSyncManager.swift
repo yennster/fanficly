@@ -1353,7 +1353,7 @@ final class iCloudSyncManager {
                 let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == s.name })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
-                    let merged = mergedSearch(local: SearchBackup(search: existing), other: s)
+                    let merged = Self.mergedSearch(local: SearchBackup(search: existing), other: s)
                     if merged.prompt != existing.prompt { existing.alertNewWorkIds = [] }
                     merged.apply(to: existing)
                 } else {
