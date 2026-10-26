@@ -28,6 +28,7 @@ public sealed class LoginScreen : Screen
     private Button? _submit;
     private StackPanel? _errorSlot;
     private bool _isVisible;
+    private bool _loggingOut;
 
     public LoginScreen()
     {
@@ -86,7 +87,7 @@ public sealed class LoginScreen : Screen
                     UI.UI.SettingsRow("Logged in as", UI.UI.Secondary(current, Theme.Style.Body).Also(t => t.IsTextSelectionEnabled = true)),
                     logout,
                 ],
-                footer: "Logging out clears the session cookie Windows keeps protected for Fanficly on this PC. Your offline library stays on the device."));
+                footer: "Logging out signs you out on AO3 and clears the session cookie Windows keeps protected for Fanficly on this PC. Your offline library stays on the device."));
         }
         else
         {
@@ -221,7 +222,18 @@ public sealed class LoginScreen : Screen
 
     private async Task LogOutAsync()
     {
-        await AppHost.Auth.LogoutAsync(AppHost.Client);
+        // Logout waits for AO3 to end the session (#145), so a second click mustn't start another.
+        if (_loggingOut) return;
+        _loggingOut = true;
+        MainWindow.Current.Announce("Logging out");
+        try
+        {
+            await AppHost.Auth.LogoutAsync(AppHost.Client);
+        }
+        finally
+        {
+            _loggingOut = false;
+        }
         Render();
         MainWindow.Current.Announce("Logged out");
     }

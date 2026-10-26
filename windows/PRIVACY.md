@@ -14,7 +14,7 @@ Fanficly has no servers. It has no analytics, crash reporting, telemetry or adve
 
 Everything below lives in Fanficly's own app storage: the package's local data folder when installed from the Microsoft Store, or `%LOCALAPPDATA%\Fanficly` when run from a developer build.
 
-- **Your AO3 session.** If you sign in, your AO3 username and AO3's session cookies are stored encrypted with Windows Data Protection (DPAPI) for your Windows account only. Another Windows user on the same PC can't read them. Your password is sent once to AO3 when you sign in and is never stored. Signing out deletes the cookies and username.
+- **Your AO3 session.** If you sign in, your AO3 username and AO3's session cookies are stored encrypted with Windows Data Protection (DPAPI) for your Windows account only. Another Windows user on the same PC can't read them. Your password is sent once to AO3 when you sign in and is never stored. Signing out asks AO3 to end the session, then deletes the cookies and username.
 - **Your library.** In a database file (`library.sqlite`) on your PC:
   - works you've saved, and their chapter text if you downloaded it
   - folders, stars and pins, and your own notes and tags on saved works

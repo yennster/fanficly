@@ -539,6 +539,7 @@ public sealed class AO3ClientTests : IDisposable
     [Fact]
     public async Task SavedCookiesAreLoadedBeforeTheFirstRequest()
     {
+        _vault.SetUsername("reader");
         _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
         await MakeClient().FetchWorkMetadataAsync(1);
@@ -546,18 +547,114 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task LogoutForgetsAndPersistsTheEmptySession()
+    public async Task SavedCookiesAreNotLoadedWhenSignedOut()
     {
-        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        _vault.SaveCookies([new SerializableCookie("remember_user_token", "stale", "archiveofourown.org", "/", null, true, true)]);
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
+        await MakeClient().FetchWorkMetadataAsync(1);
+        Assert.Null(_handler.Requests[0].Header("Cookie"));
+    }
+
+    private const string SignedInHtml = """
+        <html><head><meta name="csrf-token" content="LOGOUT_TOK"></head><body>
+        <div id="greeting"><a href="/users/reader">reader</a></div></body></html>
+        """;
+
+    [Fact]
+    public async Task LogoutEndsTheSessionOnAO3OnceThenForgetsIt()
+    {
+        _vault.SetUsername("reader");
+        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            _ => FakeHandler.Html(SignedInHtml),
+            _ => FakeHandler.Html("<html><body>Signed out</body></html>", "_otwarchive_session=guest; path=/; secure"),
+            _ => FakeHandler.Html(WorkHtml));
         var client = MakeClient();
         await client.FetchWorkMetadataAsync(1);
         await client.LogoutAsync();
         await client.FetchWorkMetadataAsync(1);
 
-        Assert.Null(_handler.Requests[1].Header("Cookie"));
+        Assert.Equal(["GET /works/1", "GET /", "POST /users/logout", "GET /works/1"],
+            _handler.Requests.Select(r => $"{r.Method} {r.Uri.AbsolutePath}"));
+        Assert.Equal("_otwarchive_session=saved", _handler.Requests[1].Header("Cookie"));
+        Assert.Equal("_method=delete&authenticity_token=LOGOUT_TOK", _handler.Requests[2].Body);
+        Assert.Null(_handler.Requests[3].Header("Cookie"));
         Assert.Empty(_vault.LoadCookies());
         Assert.Null(await client.CurrentUsernameAsync());
+    }
+
+    [Fact]
+    public async Task LogoutWhenAO3CantBeReachedStillForgetsTheSessionAndDoesNotRetry()
+    {
+        _vault.SetUsername("reader");
+        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            _ => throw new HttpRequestException("offline", new SocketException((int)SocketError.TimedOut)),
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient();
+        await client.FetchWorkMetadataAsync(1);
+        await client.LogoutAsync();
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Equal(["GET /works/1", "GET /", "GET /works/1"],
+            _handler.Requests.Select(r => $"{r.Method} {r.Uri.AbsolutePath}"));
+        Assert.Null(_handler.Requests[2].Header("Cookie"));
+        Assert.Empty(_vault.LoadCookies());
+    }
+
+    [Fact]
+    public async Task AResponseArrivingAfterLogoutDoesNotBringItsCookieBack()
+    {
+        using var started = new SemaphoreSlim(0);
+        using var release = new ManualResetEventSlim();
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => FakeHandler.Html(SignedInHtml, "_otwarchive_session=signed_in; path=/; secure"),
+            // The poller's request, still waiting on AO3 when the reader signs out.
+            _ =>
+            {
+                started.Release();
+                release.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html(WorkHtml, "_otwarchive_session=late; path=/; secure");
+            },
+            _ => FakeHandler.Html(SignedInHtml),
+            _ => FakeHandler.Html("<html><body>Signed out</body></html>"),
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient();
+        var auth = new AuthState(_vault);
+        await auth.LoginAsync(client, "reader", "pw");
+        Assert.Equal("reader", auth.Username);
+        Assert.Equal(["signed_in"], _vault.LoadCookies().Select(c => c.Value));
+
+        var running = Task.Run(() => client.FetchWorkMetadataAsync(1));
+        Assert.True(await started.WaitAsync(TimeSpan.FromSeconds(10)));
+        await auth.LogoutAsync(client);
+        release.Set();
+        await running;
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Null(_handler.Requests[^1].Header("Cookie"));
+        Assert.Empty(_vault.LoadCookies());
+        Assert.Null(_vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task CookiesAreNotSavedAfterTheAppSignedOutElsewhere()
+    {
+        // The background task's client keeps polling while the app signs out.
+        _vault.SetUsername("reader");
+        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            _ => FakeHandler.Html(WorkHtml, "_otwarchive_session=renewed; path=/; secure"));
+        var client = MakeClient();
+        await client.FetchWorkMetadataAsync(1);
+        _vault.SetUsername(null);
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Empty(_vault.LoadCookies());
     }
 
     // MARK: - Endpoint flows
