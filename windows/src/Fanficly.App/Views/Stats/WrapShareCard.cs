@@ -58,9 +58,11 @@ public static class WrapShareCard
         root.Children.Add(header.Row(0));
 
         var stats = UI.UI.Grid("*,*,*", columnSpacing: 14);
-        stats.Children.Add(BigStat(summary.StoriesRead.ToString(CultureInfo.CurrentCulture), summary.StoriesRead == 1 ? "story" : "stories").Col(0));
+        // Stories counts finished works only; the lists below count every work
+        // opened, so each number says which it is.
+        stats.Children.Add(BigStat(summary.StoriesRead.ToString(CultureInfo.CurrentCulture), summary.StoriesRead == 1 ? "story finished" : "stories finished").Col(0));
         stats.Children.Add(BigStat(StatsFormat.FormatDuration(summary.TotalSeconds), "read").Col(1));
-        stats.Children.Add(BigStat(StatsFormat.FormatWords(summary.TotalWords), "words").Col(2));
+        stats.Children.Add(BigStat(StatsFormat.FormatWords(summary.TotalWords), "words read").Col(2));
         root.Children.Add(stats.Row(1));
 
         // The goal row and the two lists share rows 2–3 in one stack, so an
@@ -125,8 +127,10 @@ public static class WrapShareCard
 
     private static FrameworkElement ListBlock(string title, IEnumerable<ReadingTagCount> items)
     {
-        var stack = UI.UI.VStack(6,
-            new TextBlock { Text = title.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeights.Bold, Foreground = White(0x99), CharacterSpacing = 40, FontFamily = Theme.UIFont });
+        var header = UI.UI.Grid("*,Auto", columnSpacing: 8);
+        header.Children.Add(HeaderText(title.ToUpperInvariant()).Col(0));
+        header.Children.Add(HeaderText("STORIES OPENED").Col(1));
+        var stack = UI.UI.VStack(6, header);
         foreach (var item in items)
         {
             var row = UI.UI.Grid("*,Auto", columnSpacing: 8);
@@ -151,4 +155,7 @@ public static class WrapShareCard
         }
         return stack;
     }
+
+    private static TextBlock HeaderText(string text) =>
+        new() { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = White(0x99), CharacterSpacing = 40, FontFamily = Theme.UIFont };
 }
