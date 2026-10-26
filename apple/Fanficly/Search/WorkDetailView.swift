@@ -232,6 +232,8 @@ final class KudosGiver {
             result = (title: "Couldn't leave kudos", message: message)
         } catch AO3Error.rateLimited {
             result = (title: "Couldn't leave kudos", message: "AO3 is asking us to slow down. Try again in a few minutes.")
+        } catch AO3Error.http(let status) where !(500...599).contains(status) {
+            result = (title: "Couldn't leave kudos", message: "AO3 returned an error (HTTP \(status)). Try again later.")
         } catch AO3Error.network(let underlying) {
             result = (title: "Couldn't leave kudos", message: "Couldn't reach AO3: \(underlying) If the request reached AO3, the kudos may have landed; trying again is safe.")
         } catch {

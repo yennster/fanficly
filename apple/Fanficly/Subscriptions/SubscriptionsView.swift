@@ -150,8 +150,6 @@ struct SubscriptionsView: View {
             // Fetch the subscription list first — this is fast and updates
             // the UI immediately.
             _ = try await poller.syncSubscriptionList()
-        } catch let AO3Error.parseFailed(reason) {
-            lastError = "Couldn't parse AO3's response: \(reason)"
         } catch AO3Error.unauthorized {
             // Signed in here, so AO3 dropped the session (#131).
             auth.markSessionExpired()
