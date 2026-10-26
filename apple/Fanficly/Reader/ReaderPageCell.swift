@@ -91,6 +91,8 @@ struct ReaderPageCell: View {
             pageContent
         }
         .scrollBounceBehavior(.basedOnSize)
+        // ReaderLayoutTests check every line of text lies inside this frame.
+        .accessibilityIdentifier("reader.page")
     }
     
     /// The page as laid out inside its scroll view. Internal so
