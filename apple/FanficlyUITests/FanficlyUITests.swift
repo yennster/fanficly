@@ -386,6 +386,7 @@ final class ReaderLayoutTests: XCTestCase {
             // from the app's frame, which the Duo gets wrong (see `tap`), so
             // tap the button's centre measured from the window instead.
             let first = menuState()
+            logScreenshot("05-reader-settings-menu")
             // Where the strip's items say they are: the window tap at Aa's
             // frame opened Work options' menu instead.
             let strip = ["Remove from Library", "Work options", "Chapters", "Reader settings"].map { name in
@@ -397,6 +398,7 @@ final class ReaderLayoutTests: XCTestCase {
             if settings.exists {
                 tap(CGPoint(x: settings.frame.midX, y: settings.frame.midY))
                 capture("05-reader-settings-menu-again")
+                logScreenshot("05-reader-settings-menu-again")
             }
             if !profile.waitForExistence(timeout: 4) {
                 // Does any menu open from the strip? Chapters and the work
@@ -666,11 +668,21 @@ final class ReaderLayoutTests: XCTestCase {
         let time = Int(Date().timeIntervalSince(start))
         sleep(2)
         let after = app.descendants(matching: .any).count
+        logScreenshot("05-probe-\(name)")
         let state = "\(name) (\(time) s): elements \(before) → \(after), menus \(app.menus.count), "
             + "menu items \(app.menuItems.count), popovers \(app.popovers.count), windows \(app.windows.count)"
         let dismiss = app.otherElements["PopoverDismissRegion"].firstMatch
         if dismiss.exists { dismiss.tap(); sleep(1) }
         return state
+    }
+
+    /// Prints a screenshot to the test log as base64 JPEG: on iPhone Duo in
+    /// Xcode Cloud the test run's result bundle (where `capture` attaches
+    /// its screenshots) never comes back, but the log does.
+    private func logScreenshot(_ name: String) {
+        let shot = XCUIScreen.main.screenshot()
+        guard let jpeg = shot.image.jpegData(compressionQuality: 0.5) else { return }
+        print("SCREENSHOT-BEGIN \(name)\n\(jpeg.base64EncodedString(options: .lineLength76Characters))\nSCREENSHOT-END \(name)")
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
