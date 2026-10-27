@@ -394,9 +394,9 @@ final class ReaderLayoutTests: XCTestCase {
                 // page's options are menus there too; a long press is the
                 // other way into one.
                 let others = [
-                    probe("Chapters") { self.app.buttons["Chapters"].firstMatch.tap() },
-                    probe("Work options") { self.app.buttons["Work options"].firstMatch.tap() },
-                    probe("Reader settings, long press") { settings.press(forDuration: 1) },
+                    probe("Reader settings, long press", settings) { $0.press(forDuration: 1) },
+                    probe("Chapters", app.buttons["Chapters"].firstMatch) { $0.tap() },
+                    probe("Work options", app.buttons["Work options"].firstMatch) { $0.tap() },
                 ].joined(separator: "; ")
                 XCTFail("the Profile submenu: \(frames); first tap \(first); window tap \(menuState()); \(others)")
             }
@@ -647,17 +647,18 @@ final class ReaderLayoutTests: XCTestCase {
             + "windows: \(app.windows.count), Profile in SpringBoard: \(elsewhere), buttons: \(buttons))"
     }
 
-    /// Opens something and says what changed on screen, then taps the
-    /// window's top corner to close whatever opened. For a failure message.
-    private func probe(_ name: String, _ open: () -> Void) -> String {
+    /// Opens a menu button and says what changed on screen, then closes
+    /// whatever opened. For a failure message, so it never fails itself.
+    private func probe(_ name: String, _ button: XCUIElement, _ open: (XCUIElement) -> Void) -> String {
+        guard button.exists else { return "\(name): no such button" }
         let before = app.descendants(matching: .any).count
-        open()
+        open(button)
         sleep(2)
         let after = app.descendants(matching: .any).count
         let state = "\(name): elements \(before) → \(after), menus \(app.menus.count), "
             + "menu items \(app.menuItems.count), popovers \(app.popovers.count), windows \(app.windows.count)"
-        tap(CGPoint(x: app.windows.firstMatch.frame.minX + 8, y: app.windows.firstMatch.frame.minY + 8))
-        sleep(1)
+        let dismiss = app.otherElements["PopoverDismissRegion"].firstMatch
+        if dismiss.exists { dismiss.tap(); sleep(1) }
         return state
     }
 
