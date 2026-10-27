@@ -16,6 +16,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// Scripted work page for `fetchWorkMetadata`, run through the real
     /// parser (SubscriptionPoller tests); nil returns a one-chapter work.
     var workMetadataHTML: String?
+    /// The work ids `fetchWorkMetadata` was asked for, in order.
+    private(set) var workMetadataCalls: [Int] = []
     /// Scripted export failure (WorkExporter tests).
     var exportError: Error?
     /// Scripted kudos answer, and the works kudos were sent for (KudosGiver tests).
@@ -53,6 +55,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkPayload(summary: .stub(id: id, title: "x"), chapters: [])
     }
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
+        workMetadataCalls.append(id)
         if let workMetadataHTML { return try WorkMetadataParser.parse(html: workMetadataHTML, workId: id) }
         return AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }

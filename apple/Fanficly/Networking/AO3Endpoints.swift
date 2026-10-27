@@ -20,8 +20,10 @@ enum AO3Endpoints {
         return url
     }
 
-    /// The work's own page without `view_full_work`: enough for the bookmark
-    /// form, without downloading every chapter of a long work.
+    /// The work's own page without `view_full_work`: one chapter at most, but
+    /// the same `dl.stats` block, CSRF token and bookmark form. The poller,
+    /// subscribing and the bookmark form use it, so they don't download every
+    /// chapter of a long work, AO3's heaviest page (#148).
     static func workPage(id: Int, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]

@@ -2701,6 +2701,38 @@ final class PersistenceTests: XCTestCase {
 
         XCTAssertEqual(followed.lastSeenChapterCount, 7)
     }
+
+    // A work that's both AO3-subscribed and followed is fetched once a poll,
+    // and both records take the new baseline (#148).
+    func test_fullPoll_fetchesEachWorkOnce() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let both = Work(ao3Id: 1, title: "Fic One", authorName: "A")
+        both.isFollowed = true
+        ctx.insert(both)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.subscriptionsResponse = [
+            AO3Subscription(kind: .work, resourceId: "1", title: "Fic One", author: "A"),
+            AO3Subscription(kind: .series, resourceId: "9", title: "Saga", author: "A"),
+        ]
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">5/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let alerts = await poller.runFullPoll()
+
+        XCTAssertEqual(alerts, 0)
+        XCTAssertEqual(client.workMetadataCalls.sorted(), [1, 2])
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 5)
+        XCTAssertNotNil(rec?.lastCheckedAt)
+        XCTAssertEqual(both.lastSeenChapterCount, 5)
+        XCTAssertNotNil(both.lastCheckedAt)
+        XCTAssertEqual(followed.lastSeenChapterCount, 5)
+    }
 }
 
 /// RM-003: the reading-time estimate's pace (fallback and clamping) and its

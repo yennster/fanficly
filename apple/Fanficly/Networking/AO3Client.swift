@@ -676,7 +676,7 @@ public actor AO3Client: AO3ClientProtocol {
 
     public func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         await throttle.wait()
-        let url = try AO3Endpoints.work(id: id, base: baseURL)
+        let url = try AO3Endpoints.workPage(id: id, base: baseURL)
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Work response not UTF-8")
@@ -941,7 +941,7 @@ public actor AO3Client: AO3ClientProtocol {
 
     public func subscribeToWork(workId: Int) async throws {
         await throttle.wait()
-        let pageURL = try AO3Endpoints.work(id: workId, base: baseURL)
+        let pageURL = try AO3Endpoints.workPage(id: workId, base: baseURL)
         let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
         guard let pageHTML = String(data: pageData, encoding: .utf8),
               let token = try LoginParser.authenticityToken(html: pageHTML) else {
