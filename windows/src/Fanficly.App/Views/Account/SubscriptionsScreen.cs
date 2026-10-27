@@ -209,8 +209,7 @@ public sealed class SubscriptionsScreen : Screen
         var newWorks = 0;
         try
         {
-            if (Username is not null) chapters += await poller.CheckForNewChaptersAsync(ct);
-            chapters += await poller.CheckFollowedWorksAsync(ct);
+            chapters += await poller.CheckWorksForNewChaptersAsync(ct);
             newWorks += await poller.CheckFollowedAuthorsAsync(ct);
         }
         catch (Exception) when (ct.IsCancellationRequested) { return; }
