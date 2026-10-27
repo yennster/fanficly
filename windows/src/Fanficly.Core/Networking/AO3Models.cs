@@ -156,6 +156,13 @@ public sealed record AO3Subscription(AO3SubscriptionKind Kind, string ResourceId
     public string Id => Key;
 }
 
+/// <summary>The account's whole subscriptions list, as far as
+/// <c>FetchSubscriptionsAsync</c> walked it (Swift's <c>AO3SubscriptionList</c>).
+/// <see cref="IsComplete"/> is false when the list ran past the page ceiling: the
+/// entries are real, but a missing one may still be subscribed, so the caller
+/// must not treat it as unsubscribed.</summary>
+public sealed record AO3SubscriptionList(IReadOnlyList<AO3Subscription> Subscriptions, bool IsComplete = true);
+
 /// <summary>One page of the subscriptions index plus its pagination.</summary>
 public sealed record AO3SubscriptionsPage(IReadOnlyList<AO3Subscription> Subscriptions, int CurrentPage, int TotalPages);
 

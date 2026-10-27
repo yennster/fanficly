@@ -8,6 +8,9 @@ internal sealed class PollerFakeClient : IAO3Client
 {
     public IReadOnlyList<AO3Subscription> SubscriptionsResponse { get; set; } = [];
     public Exception? SubscriptionsError { get; set; }
+    /// <summary>False scripts a list that ran past the client's page ceiling.</summary>
+    public bool SubscriptionsComplete { get; set; } = true;
+    public int SubscriptionsFetchCount { get; private set; }
     /// <summary>Chapter counts by work id; a missing id fails the fetch.</summary>
     public Dictionary<int, int> ChapterCounts { get; } = new();
     /// <summary>Works pages by author username; a missing author fails the fetch.</summary>
@@ -29,8 +32,13 @@ internal sealed class PollerFakeClient : IAO3Client
         OnRequest?.Invoke(request);
     }
 
-    public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
-        SubscriptionsError is { } e ? Task.FromException<IReadOnlyList<AO3Subscription>>(e) : Task.FromResult(SubscriptionsResponse);
+    public Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default)
+    {
+        SubscriptionsFetchCount++;
+        return SubscriptionsError is { } e
+            ? Task.FromException<AO3SubscriptionList>(e)
+            : Task.FromResult(new AO3SubscriptionList(SubscriptionsResponse, SubscriptionsComplete));
+    }
 
     public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default)
     {
