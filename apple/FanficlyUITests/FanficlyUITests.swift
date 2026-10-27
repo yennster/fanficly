@@ -386,7 +386,13 @@ final class ReaderLayoutTests: XCTestCase {
             // from the app's frame, which the Duo gets wrong (see `tap`), so
             // tap the button's centre measured from the window instead.
             let first = menuState()
-            let frames = "button \(settings.frame), window \(app.windows.firstMatch.frame), app \(app.frame)"
+            // Where the strip's items say they are: the window tap at Aa's
+            // frame opened Work options' menu instead.
+            let strip = ["Remove from Library", "Work options", "Chapters", "Reader settings"].map { name in
+                let item = app.buttons[name].firstMatch
+                return item.exists ? "\(name) \(item.frame) hittable \(item.isHittable)" : "\(name) missing"
+            }
+            let frames = "window \(app.windows.firstMatch.frame), app \(app.frame), strip \(strip)"
             print("Reader settings menu without a Profile item (\(frames)):\n\(app.debugDescription)")
             if settings.exists {
                 tap(CGPoint(x: settings.frame.midX, y: settings.frame.midY))
