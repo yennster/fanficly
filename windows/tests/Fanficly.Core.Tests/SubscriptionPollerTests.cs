@@ -94,6 +94,26 @@ public sealed class SubscriptionPollerTests
     }
 
     [Fact]
+    public async Task ManualCheckFetchesAWorkThatsSubscribedAndFollowedOnce()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:10", "work", "Sub name") { LastSeenChapterCount = 2 });
+        store.Insert(new Work(10, "Both", "A") { IsFollowed = true, LastSeenChapterCount = 2 });
+        store.Save();
+        var client = new PollerFakeClient();
+        client.ChapterCounts[10] = 5;
+        var notifier = new RecordingNotifier();
+
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier).CheckWorksForNewChaptersAsync();
+
+        Assert.Equal(["work:10"], client.Requests);
+        Assert.Equal(1, posted);
+        Assert.Equal("3 new chapters posted (5 total)", Assert.Single(notifier.Posted).Body);
+        Assert.Equal(5, store.GetSubscription("work:10")!.LastSeenChapterCount);
+        Assert.Equal(5, store.GetWork(10)!.LastSeenChapterCount);
+    }
+
+    [Fact]
     public async Task FullPoll_LoggedOutSkipsAccountSubscriptions()
     {
         using var store = LibraryStore.OpenInMemory();

@@ -140,6 +140,21 @@ public sealed class SubscriptionPoller
         return notifyCount;
     }
 
+    /// <summary>Check AO3 work subscriptions (when logged in) and followed works for
+    /// new chapters together: one request per work id, so a work that's both
+    /// subscribed and followed is fetched once and notifies once (#148).</summary>
+    public async Task<int> CheckWorksForNewChaptersAsync(CancellationToken ct = default)
+    {
+        var notifyCount = 0;
+        foreach (var t in WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks()))
+        {
+            if (ct.IsCancellationRequested) break;
+            notifyCount += await CheckWorkAsync(t.Id, t.Subscription, t.Followed, ct).ConfigureAwait(false);
+        }
+        _store.TrySave();
+        return notifyCount;
+    }
+
     /// <summary>Poll locally-followed authors (no AO3 login required) for newly
     /// published works, notifying once per new work.</summary>
     public async Task<int> CheckFollowedAuthorsAsync(CancellationToken ct = default)
