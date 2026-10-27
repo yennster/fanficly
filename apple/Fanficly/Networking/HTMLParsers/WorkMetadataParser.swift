@@ -6,6 +6,9 @@ public struct AO3WorkMetadata: Sendable, Equatable {
     public let chapterCount: Int
     public let totalChapters: Int?
     public let updatedAt: Date?
+    /// The day the work was first posted (`dd.published`). The poller asks for
+    /// it when it has no baseline to tell a new work from an updated one.
+    public var publishedAt: Date? = nil
     /// "Part N of <series>" for each series the work is in (see `SeriesParser.parts`).
     public var series: [AO3SeriesPart] = []
 }
@@ -28,12 +31,14 @@ enum WorkMetadataParser {
 
         let statusText = try stats.select("dd.status").first()?.text() ?? ""
         let updatedAt = parseAO3Date(statusText)
+        let publishedAt = parseAO3Date(try stats.select("dd.published").first()?.text() ?? "")
 
         return AO3WorkMetadata(
             id: workId,
             chapterCount: chapters.current,
             totalChapters: chapters.total,
             updatedAt: updatedAt,
+            publishedAt: publishedAt,
             series: SeriesParser.parts(in: doc)
         )
     }

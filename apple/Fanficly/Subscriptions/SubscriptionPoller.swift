@@ -201,7 +201,9 @@ struct SubscriptionPoller {
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
             var notifyCount = 0
-            let newWorks = Self.newlyPostedWorks(in: result.works, known: known)
+            let newWorks = try await known.isEmpty
+                ? worksPostedSinceFollow(result.works, followedAt: author.followedAt)
+                : Self.newlyPostedWorks(in: result.works, known: known)
             if !newWorks.isEmpty {
                 await postNewWorkNotification(
                     author: author,
@@ -215,6 +217,34 @@ struct SubscriptionPoller {
             logger.warning("Skipping author \(author.username, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return 0
         }
+    }
+
+    /// No baseline: Follow was tapped before the author's list loaded (or
+    /// they had no public works yet), so nothing on page 1 is known. A work
+    /// last updated before the day of the follow was already there. A later
+    /// one may be new or an old work that got a chapter, so its work page's
+    /// published date decides: one request for each, on this first poll only.
+    /// AO3 dates are days, so a work posted earlier on the follow day counts as
+    /// new. A work whose page won't load is left out rather than guessed at;
+    /// it joins the baseline with the rest.
+    private func worksPostedSinceFollow(_ works: [AO3WorkSummary], followedAt: Date) async throws -> [AO3WorkSummary] {
+        let followDay = Calendar.current.startOfDay(for: followedAt)
+        var posted: [AO3WorkSummary] = []
+        for work in works {
+            guard let updatedAt = work.updatedAt, updatedAt >= followDay else { continue }
+            // Cut off mid-way: write no baseline, so the next poll asks again.
+            try Task.checkCancellation()
+            do {
+                let meta = try await client.fetchWorkMetadata(id: work.id)
+                if let publishedAt = meta.publishedAt, publishedAt >= followDay {
+                    posted.append(work)
+                }
+            } catch {
+                logger.warning("Couldn't date work \(work.id): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        try Task.checkCancellation()
+        return posted
     }
 
     // MARK: - Record fetches
@@ -269,9 +299,9 @@ struct SubscriptionPoller {
     /// one (AO3 work ids only grow) or has a single chapter, which an update
     /// can't leave it with — that still catches a new work with a lower id: a
     /// gift revealed from an anonymous collection, a long-held draft, or a
-    /// restricted work a guest page left out. Empty with no baseline yet — a
-    /// freshly-followed author is seeded at follow time, but a first poll must
-    /// never alert for the whole back catalogue. Internal for tests.
+    /// restricted work a guest page left out. Empty with no baseline: the
+    /// poller dates those works instead (`worksPostedSinceFollow`), so a first
+    /// poll never alerts for the whole back catalogue. Internal for tests.
     nonisolated static func newlyPostedWorks(in works: [AO3WorkSummary], known: Set<Int>) -> [AO3WorkSummary] {
         guard let newestKnown = known.max() else { return [] }
         return works.filter { !known.contains($0.id) && ($0.id > newestKnown || $0.chapterCount == 1) }

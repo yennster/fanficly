@@ -2651,13 +2651,68 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
     }
 
-    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1) -> AO3WorkSummary {
+    // Follow tapped before the author's list loaded: no baseline. The first
+    // poll must neither alert for the back catalogue nor swallow a work
+    // posted after the follow. Works last updated since the follow day are
+    // dated from their work page; an old one that got a chapter stays quiet.
+    func test_followedAuthor_followedBeforeListLoaded_alertsOnlyForWorksPostedSince() async throws {
+        let ctx = try makeContext()
+        let followedAt = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -3, to: .now))
+        let followDay = Calendar.current.startOfDay(for: followedAt)
+        func day(_ offset: Int) -> Date { Calendar.current.date(byAdding: .day, value: offset, to: followDay)! }
+        let author = FollowedAuthor(username: "prolific", displayName: "Prolific", followedAt: followedAt)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(90, "Brand New", chapters: 3, updated: day(2)),
+                    authorWork(10, "Old, Just Updated", chapters: 7, updated: day(1)),
+                    authorWork(80, "Back Catalogue", chapters: 2, updated: day(-5)),
+                    authorWork(70, updated: day(-40))],
+            totalPages: 1, currentPage: 1)
+        client.workPublishedAt = [90: day(2), 10: day(-400)]
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 1)
+        // Only the works updated since the follow were looked up.
+        XCTAssertEqual(client.workMetadataCalls, [90, 10])
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 70, 80, 90])
+
+        // With a baseline the usual rule applies, with no extra requests.
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(95, "Next"), authorWork(10, chapters: 8, updated: .now)],
+            totalPages: 1, currentPage: 1)
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
+        XCTAssertEqual(client.workMetadataCalls, [90, 10])
+    }
+
+    // A new work whose page won't load isn't guessed at: no alert, and it
+    // joins the baseline like the rest.
+    func test_followedAuthor_noBaseline_undatableWorkStaysQuiet() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "quiet", displayName: "Quiet", followedAt: .now)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body>Retry later</body></html>"
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(5, updated: .now)], totalPages: 1, currentPage: 1)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(author.knownWorkIds, [5])
+    }
+
+    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1, updated: Date? = nil) -> AO3WorkSummary {
         AO3WorkSummary(
             id: id, title: title, author: "", summary: "", rating: "",
             warnings: [], categories: [], fandoms: [], characters: [],
             relationships: [], freeforms: [], wordCount: 0, chapterCount: chapters,
             totalChapters: nil, language: "", kudos: 0, hits: 0,
-            isComplete: false, updatedAt: nil
+            isComplete: false, updatedAt: updated
         )
     }
 

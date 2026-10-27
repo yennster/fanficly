@@ -266,7 +266,9 @@ public sealed class SubscriptionPoller
             var latestIds = result.Works.Select(w => w.Id);
             var known = author.KnownWorkIds.ToHashSet();
             var notifyCount = 0;
-            var newWorks = NewlyPostedWorks(result.Works, known);
+            var newWorks = known.Count == 0
+                ? await WorksPostedSinceFollowAsync(result.Works, author.FollowedAt, ct).ConfigureAwait(false)
+                : NewlyPostedWorks(result.Works, known);
             if (newWorks.Count > 0)
             {
                 await PostAsync(NewWorkContent(author.Username, author.DisplayName, newWorks)).ConfigureAwait(false);
@@ -286,6 +288,38 @@ public sealed class SubscriptionPoller
         {
             author.LastCheckedAt = DateTimeOffset.Now;
         }
+    }
+
+    /// <summary>No baseline: Follow was tapped before the author's list loaded (or
+    /// they had no public works yet), so nothing on page 1 is known. A work last
+    /// updated before the day of the follow was already there. A later one may be
+    /// new or an old work that got a chapter, so its work page's published date
+    /// decides: one request for each, on this first poll only. AO3 dates are days,
+    /// so a work posted earlier on the follow day counts as new. A work whose page
+    /// won't load is left out rather than guessed at; it joins the baseline with
+    /// the rest.</summary>
+    private async Task<IReadOnlyList<AO3WorkSummary>> WorksPostedSinceFollowAsync(
+        IReadOnlyList<AO3WorkSummary> works, DateTimeOffset followedAt, CancellationToken ct)
+    {
+        var followDay = followedAt.ToLocalTime().Date;
+        var posted = new List<AO3WorkSummary>();
+        foreach (var work in works)
+        {
+            if (work.UpdatedAt is not { } updatedAt || updatedAt.ToLocalTime().Date < followDay) continue;
+            // Cut off mid-way: write no baseline, so the next poll asks again.
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var meta = await _client.FetchWorkMetadataAsync(work.Id, ct).ConfigureAwait(false);
+                if (meta.PublishedAt is { } publishedAt && publishedAt.ToLocalTime().Date >= followDay) posted.Add(work);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                LibraryHooks.Log?.Invoke($"Couldn't date work {work.Id}: {e.Message}");
+            }
+        }
+        ct.ThrowIfCancellationRequested();
+        return posted;
     }
 
     // MARK: - Record fetches
@@ -318,8 +352,9 @@ public sealed class SubscriptionPoller
     /// chapter, which an update can't leave it with — that still catches a new
     /// work with a lower id: a gift revealed from an anonymous collection, a
     /// long-held draft, or a restricted work a guest page left out. Empty with
-    /// no baseline yet — a freshly-followed author is seeded at follow time, but
-    /// a first poll must never alert for the whole back catalogue.</summary>
+    /// no baseline: the poller dates those works instead
+    /// (<see cref="WorksPostedSinceFollowAsync"/>), so a first poll never alerts
+    /// for the whole back catalogue.</summary>
     internal static IReadOnlyList<AO3WorkSummary> NewlyPostedWorks(IReadOnlyList<AO3WorkSummary> works, IReadOnlySet<int> known)
     {
         if (known.Count == 0) return [];
