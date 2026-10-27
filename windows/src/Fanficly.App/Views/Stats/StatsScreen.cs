@@ -437,7 +437,8 @@ public sealed class StatsScreen : Screen
     {
         if (_rendering || _snapshots.Count == 0) return null;
         _rendering = true;
-        var card = WrapShareCard.Build(ScopeTitle, _summary, ShowsGoal ? GoalProgress() : null, CurrentYear);
+        var icon = await WrapShareCard.LoadAppIconAsync();
+        var card = WrapShareCard.Build(ScopeTitle, _summary, ShowsGoal ? GoalProgress() : null, CurrentYear, icon);
         _renderHost.Children.Add(card);
         try
         {
