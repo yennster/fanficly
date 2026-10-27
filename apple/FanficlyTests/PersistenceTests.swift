@@ -2651,13 +2651,75 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
     }
 
-    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1) -> AO3WorkSummary {
+    // Follow tapped before the author's list loaded: no baseline. The first
+    // poll must neither alert for the back catalogue nor swallow a work
+    // posted after the follow. Works last updated since the day before the
+    // follow (AO3's UTC days) are dated from their work page; an old one that
+    // got a chapter stays quiet.
+    func test_followedAuthor_followedBeforeListLoaded_alertsOnlyForWorksPostedSince() async throws {
+        let ctx = try makeContext()
+        let followedAt = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -3, to: .now))
+        let followDay = Calendar.current.startOfDay(for: followedAt)
+        func day(_ offset: Int) -> Date { Calendar.current.date(byAdding: .day, value: offset, to: followDay)! }
+        let author = FollowedAuthor(username: "prolific", displayName: "Prolific", followedAt: followedAt)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(90, "Brand New", chapters: 3, updated: day(2)),
+                    authorWork(10, "Old, Just Updated", chapters: 7, updated: day(1)),
+                    authorWork(85, "Posted After A Follow East Of UTC", chapters: 2, updated: day(-1)),
+                    authorWork(80, "Back Catalogue", chapters: 2, updated: day(-5)),
+                    authorWork(70, updated: day(-40))],
+            totalPages: 1, currentPage: 1)
+        client.workPublishedAt = [90: day(2), 10: day(-400), 85: day(-1)]
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 2)
+        // Only the works updated since the day before the follow were looked up.
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 70, 80, 85, 90])
+
+        // With a baseline the usual rule applies, with no extra requests.
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(95, "Next"), authorWork(10, chapters: 8, updated: .now)],
+            totalPages: 1, currentPage: 1)
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
+    }
+
+    // A new work whose page won't load isn't guessed at, and isn't lost: it
+    // stays out of the baseline, so the next poll dates it again.
+    func test_followedAuthor_noBaseline_undatableWorkIsDatedAgainNextPoll() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "quiet", displayName: "Quiet", followedAt: .now)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body>Retry later</body></html>"
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(5, updated: .now)], totalPages: 1, currentPage: 1)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(author.knownWorkIds, [])
+
+        client.workPublishedAt = [5: .now]
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
+        XCTAssertEqual(author.knownWorkIds, [5])
+    }
+
+    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1, updated: Date? = nil) -> AO3WorkSummary {
         AO3WorkSummary(
             id: id, title: title, author: "", summary: "", rating: "",
             warnings: [], categories: [], fandoms: [], characters: [],
             relationships: [], freeforms: [], wordCount: 0, chapterCount: chapters,
             totalChapters: nil, language: "", kudos: 0, hits: 0,
-            isComplete: false, updatedAt: nil
+            isComplete: false, updatedAt: updated
         )
     }
 
@@ -2700,6 +2762,40 @@ final class PersistenceTests: XCTestCase {
         _ = await poller.checkFollowedWorks()
 
         XCTAssertEqual(followed.lastSeenChapterCount, 7)
+    }
+
+    // A work that's both AO3-subscribed and followed is fetched once a poll,
+    // alerts once, and both records take the new baseline (#148).
+    func test_fullPoll_fetchesEachWorkOnce() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let both = Work(ao3Id: 1, title: "Fic One", authorName: "A")
+        both.isFollowed = true
+        both.lastSeenChapterCount = 4
+        ctx.insert(both)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.subscriptionsResponse = [
+            AO3Subscription(kind: .work, resourceId: "1", title: "Fic One", author: "A"),
+            AO3Subscription(kind: .series, resourceId: "9", title: "Saga", author: "A"),
+        ]
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">6/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let alerts = await poller.runFullPoll()
+
+        // Work 1 alerts once (baselines 5 and 4); work 2 has no baseline yet.
+        XCTAssertEqual(alerts, 1)
+        XCTAssertEqual(client.workMetadataCalls.sorted(), [1, 2])
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 6)
+        XCTAssertNotNil(rec?.lastCheckedAt)
+        XCTAssertEqual(both.lastSeenChapterCount, 6)
+        XCTAssertNotNil(both.lastCheckedAt)
+        XCTAssertEqual(followed.lastSeenChapterCount, 6)
     }
 }
 

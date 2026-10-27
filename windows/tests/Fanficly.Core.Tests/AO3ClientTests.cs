@@ -46,7 +46,8 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal(3, meta.ChapterCount);
         var req = Assert.Single(_handler.Requests);
         Assert.Equal("GET", req.Method);
-        Assert.Equal("https://archiveofourown.org/works/7?view_full_work=true&view_adult=true", req.Uri.AbsoluteUri);
+        // The light page, not view_full_work (#148).
+        Assert.Equal("https://archiveofourown.org/works/7?view_adult=true", req.Uri.AbsoluteUri);
         Assert.Equal("Fanficly/9.9.9 (Windows; https://github.com/yennster/fanficly)", req.Header("User-Agent"));
         Assert.Equal("text/html,application/xhtml+xml", req.Header("Accept"));
         Assert.Equal("en-US,en;q=0.9", req.Header("Accept-Language"));
@@ -333,6 +334,17 @@ public sealed class AO3ClientTests : IDisposable
             new SocketException((int)SocketError.NetworkUnreachable)));
         await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
         Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SubscribeTakesItsTokenFromTheLightPage()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T"/></head></html>"""),
+            _ => FakeHandler.Html("<html></html>"));
+        await MakeClient().SubscribeToWorkAsync(5);
+        Assert.Equal(["https://archiveofourown.org/works/5?view_adult=true", "https://archiveofourown.org/works/5/subscriptions"],
+                     _handler.Requests.Select(r => r.Uri.AbsoluteUri));
     }
 
     [Fact]
