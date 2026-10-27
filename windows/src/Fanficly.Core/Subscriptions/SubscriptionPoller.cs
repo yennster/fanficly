@@ -305,12 +305,16 @@ public sealed class SubscriptionPoller
             var known = author.KnownWorkIds.ToHashSet();
             var notifyCount = 0;
             var newWorks = NewlyPostedWorks(result.Works, known);
+            IReadOnlySet<int> undated = new HashSet<int>();
+            if (known.Count == 0)
+                (newWorks, undated) = await WorksPostedSinceFollowAsync(result.Works, author.FollowedAt, ct).ConfigureAwait(false);
             if (newWorks.Count > 0)
             {
                 await PostAsync(NewWorkContent(author.Username, author.DisplayName, newWorks)).ConfigureAwait(false);
                 notifyCount = newWorks.Count;
             }
             known.UnionWith(latestIds);
+            known.ExceptWith(undated);
             author.KnownWorkIds = known.ToList();
             return notifyCount;
         }
@@ -324,6 +328,49 @@ public sealed class SubscriptionPoller
         {
             author.LastCheckedAt = DateTimeOffset.Now;
         }
+    }
+
+    /// <summary>No baseline: Follow was tapped before the author's list loaded (or
+    /// they had no public works yet), so nothing on page 1 is known. A work last
+    /// updated well before the follow was already there. A later one may be new or
+    /// an old work that got a chapter, so its work page's published date decides:
+    /// one request for each. AO3 dates are days, shown to guests in UTC, so "later"
+    /// starts the day before the follow day: a work posted just after a follow east
+    /// of UTC can carry the previous date. The cost is at worst an alert for a work
+    /// posted shortly before the follow.
+    ///
+    /// Works that couldn't be dated (an error page, or the poll was cancelled) come
+    /// back in <c>Undated</c> and stay out of the baseline. Once the rest is the
+    /// baseline, the next poll judges them by the id rule in
+    /// <see cref="NewlyPostedWorks"/>; with nothing dated, the next poll dates them
+    /// again.</summary>
+    private async Task<(IReadOnlyList<AO3WorkSummary> Posted, IReadOnlySet<int> Undated)> WorksPostedSinceFollowAsync(
+        IReadOnlyList<AO3WorkSummary> works, DateTimeOffset followedAt, CancellationToken ct)
+    {
+        var since = followedAt.ToLocalTime().Date.AddDays(-1);
+        var posted = new List<AO3WorkSummary>();
+        var undated = new HashSet<int>();
+        foreach (var work in works)
+        {
+            if (work.UpdatedAt is not { } updatedAt || updatedAt.ToLocalTime().Date < since) continue;
+            if (ct.IsCancellationRequested)
+            {
+                undated.Add(work.Id);
+                continue;
+            }
+            try
+            {
+                var meta = await _client.FetchWorkMetadataAsync(work.Id, ct).ConfigureAwait(false);
+                if (meta.PublishedAt is not { } publishedAt) undated.Add(work.Id);
+                else if (publishedAt.ToLocalTime().Date >= since) posted.Add(work);
+            }
+            catch (Exception e)
+            {
+                if (e is not OperationCanceledException) LibraryHooks.Log?.Invoke($"Couldn't date work {work.Id}: {e.Message}");
+                undated.Add(work.Id);
+            }
+        }
+        return (posted, undated);
     }
 
     // MARK: - Record fetches
@@ -356,8 +403,9 @@ public sealed class SubscriptionPoller
     /// chapter, which an update can't leave it with — that still catches a new
     /// work with a lower id: a gift revealed from an anonymous collection, a
     /// long-held draft, or a restricted work a guest page left out. Empty with
-    /// no baseline yet — a freshly-followed author is seeded at follow time, but
-    /// a first poll must never alert for the whole back catalogue.</summary>
+    /// no baseline: the poller dates those works instead
+    /// (<see cref="WorksPostedSinceFollowAsync"/>), so a first poll never alerts
+    /// for the whole back catalogue.</summary>
     internal static IReadOnlyList<AO3WorkSummary> NewlyPostedWorks(IReadOnlyList<AO3WorkSummary> works, IReadOnlySet<int> known)
     {
         if (known.Count == 0) return [];

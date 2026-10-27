@@ -201,7 +201,11 @@ struct SubscriptionPoller {
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
             var notifyCount = 0
-            let newWorks = Self.newlyPostedWorks(in: result.works, known: known)
+            var newWorks = Self.newlyPostedWorks(in: result.works, known: known)
+            var undated: Set<Int> = []
+            if known.isEmpty {
+                (newWorks, undated) = await worksPostedSinceFollow(result.works, followedAt: author.followedAt)
+            }
             if !newWorks.isEmpty {
                 await postNewWorkNotification(
                     author: author,
@@ -209,12 +213,55 @@ struct SubscriptionPoller {
                 )
                 notifyCount = newWorks.count
             }
-            author.knownWorkIds = Array(known.union(latestIds))
+            author.knownWorkIds = Array(known.union(latestIds).subtracting(undated))
             return notifyCount
         } catch {
             logger.warning("Skipping author \(author.username, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return 0
         }
+    }
+
+    /// No baseline: Follow was tapped before the author's list loaded (or
+    /// they had no public works yet), so nothing on page 1 is known. A work
+    /// last updated well before the follow was already there. A later one may
+    /// be new or an old work that got a chapter, so its work page's published
+    /// date decides: one request for each. AO3 dates are days, shown to guests
+    /// in UTC, so "later" starts the day before the follow day: a work posted
+    /// just after a follow east of UTC can carry the previous date. The cost is
+    /// at worst an alert for a work posted shortly before the follow.
+    ///
+    /// Works that couldn't be dated (an error page, or the poll ran out of
+    /// time) come back in `undated` and stay out of the baseline. Once the
+    /// rest is the baseline, the next poll judges them by the id rule in
+    /// `newlyPostedWorks`; with nothing dated, the next poll dates them again.
+    private func worksPostedSinceFollow(
+        _ works: [AO3WorkSummary],
+        followedAt: Date
+    ) async -> (posted: [AO3WorkSummary], undated: Set<Int>) {
+        let calendar = Calendar.current
+        let followDay = calendar.startOfDay(for: followedAt)
+        let since = calendar.date(byAdding: .day, value: -1, to: followDay) ?? followDay
+        var posted: [AO3WorkSummary] = []
+        var undated: Set<Int> = []
+        for work in works {
+            guard let updatedAt = work.updatedAt, updatedAt >= since else { continue }
+            if Task.isCancelled {
+                undated.insert(work.id)
+                continue
+            }
+            do {
+                let meta = try await client.fetchWorkMetadata(id: work.id)
+                if let publishedAt = meta.publishedAt {
+                    if publishedAt >= since { posted.append(work) }
+                } else {
+                    undated.insert(work.id)
+                }
+            } catch {
+                logger.warning("Couldn't date work \(work.id): \(error.localizedDescription, privacy: .public)")
+                undated.insert(work.id)
+            }
+        }
+        return (posted, undated)
     }
 
     // MARK: - Record fetches
@@ -269,9 +316,9 @@ struct SubscriptionPoller {
     /// one (AO3 work ids only grow) or has a single chapter, which an update
     /// can't leave it with — that still catches a new work with a lower id: a
     /// gift revealed from an anonymous collection, a long-held draft, or a
-    /// restricted work a guest page left out. Empty with no baseline yet — a
-    /// freshly-followed author is seeded at follow time, but a first poll must
-    /// never alert for the whole back catalogue. Internal for tests.
+    /// restricted work a guest page left out. Empty with no baseline: the
+    /// poller dates those works instead (`worksPostedSinceFollow`), so a first
+    /// poll never alerts for the whole back catalogue. Internal for tests.
     nonisolated static func newlyPostedWorks(in works: [AO3WorkSummary], known: Set<Int>) -> [AO3WorkSummary] {
         guard let newestKnown = known.max() else { return [] }
         return works.filter { !known.contains($0.id) && ($0.id > newestKnown || $0.chapterCount == 1) }
