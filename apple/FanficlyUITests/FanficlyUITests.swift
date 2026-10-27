@@ -386,7 +386,15 @@ final class ReaderLayoutTests: XCTestCase {
             // menu in the same strip opens; by hand Aa's menu opens there, on
             // the simulator and the device. This test is about the keyboard,
             // so it opens the prompt with demo mode's stand-in button instead.
-            print("Reader settings opened no menu \(menuState()):\n\(app.debugDescription)")
+            // Only there: anywhere else a menu that won't open is a real bug.
+            // The strip stacks the items, so Chapters sits right above Aa.
+            let chapters = app.buttons["Chapters"].firstMatch
+            guard chapters.exists, abs(chapters.frame.midX - settings.frame.midX) < 1,
+                  chapters.frame.midY < settings.frame.midY else {
+                XCTFail("the Profile submenu \(menuState())")
+                return
+            }
+            print("Reader settings opened no menu in the vertical strip \(menuState())")
             let button = app.buttons["reader.newProfileTestButton"].firstMatch
             XCTAssertTrue(button.waitForExistence(timeout: 4), "the reader's New Profile test button")
             button.tap()
@@ -623,19 +631,17 @@ final class ReaderLayoutTests: XCTestCase {
             [XCUIElement.ElementType.button, .menuItem, .cell, .staticText, .other].map(\.rawValue) as NSArray)).firstMatch
     }
 
-    /// What a menu that didn't show its items left on screen, for the test log.
+    /// What a menu that didn't show its items left on screen, for a failure
+    /// message: Xcode Cloud's check shows the message, not the result bundle.
     private func menuState() -> String {
         let focused = app.descendants(matching: .any)
             .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
         let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
         let buttons = app.buttons.allElementsBoundByIndex.prefix(12)
             .map { $0.identifier.isEmpty ? $0.label : "\($0.label)#\($0.identifier)" }
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let elsewhere = springboard.descendants(matching: .any)
-            .matching(NSPredicate(format: "label BEGINSWITH 'Profile'")).firstMatch.exists
         return "(keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder), "
             + "menus: \(app.menus.count), menu items: \(app.menuItems.count), popovers: \(app.popovers.count), "
-            + "windows: \(app.windows.count), Profile in SpringBoard: \(elsewhere), buttons: \(buttons))"
+            + "windows: \(app.windows.count), buttons: \(buttons))"
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
