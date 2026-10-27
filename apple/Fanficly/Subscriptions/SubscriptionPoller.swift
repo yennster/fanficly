@@ -142,7 +142,12 @@ struct SubscriptionPoller {
         var recs: [Int: SubscriptionRecord] = [:]
         var works: [Int: Work] = [:]
         for rec in subscriptions {
-            guard let id = Self.workId(subscriptionKey: rec.key), recs[id] == nil else { continue }
+            guard let id = Self.workId(subscriptionKey: rec.key) else {
+                // A key that names no work can't be checked; stamp it like a failed check.
+                rec.lastCheckedAt = .now
+                continue
+            }
+            guard recs[id] == nil else { continue }
             recs[id] = rec
             ids.append(id)
         }
