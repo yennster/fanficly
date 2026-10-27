@@ -5,8 +5,10 @@ import UIKit
 /// There the status bar and the toolbar strip sit in a column on one side of
 /// the screen, which comes in as a safe-area inset on that side only. Kept
 /// clear, it was blank beside the page (and stayed blank in full screen,
-/// since the page holds still); Books runs its text under it and lets the
-/// controls float over the page.
+/// since the page holds still); Books runs its page under it and lets the
+/// controls float over the page's margin. The text itself stays clear of
+/// the column (`SideColumn`'s widths, see ReaderMetrics.textColumnPlacement):
+/// run under it, the clock and the strip covered the ends of lines.
 ///
 /// Only on the phone idiom (the Duo is one on both displays) at a regular
 /// height, and only a side whose inset the other side doesn't match. An
@@ -22,11 +24,12 @@ struct RunUnderSideColumn: ViewModifier {
     /// inset away, so the page keeps running under it until they're back, or
     /// for one layout pass on showing them the page would narrow.
     let controlsHidden: Bool
-    /// The sides run under. Views inside that lay out their own content by
-    /// the safe area (the bottom bars) ignore them too, or they'd keep the
-    /// column clear inside the wider frame. The pages' paging scroll view is
-    /// UIKit and needs PagingInsetsOff.
-    @Binding var edges: Edge.Set
+    /// The sides run under, and how wide the column is there. Views inside
+    /// that lay out their own content by the safe area (the bottom bars)
+    /// ignore those sides too, or they'd keep the column clear inside the
+    /// wider frame. The pages' paging scroll view is UIKit and needs
+    /// PagingInsetsOff.
+    @Binding var column: SideColumn
 
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
@@ -35,18 +38,22 @@ struct RunUnderSideColumn: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .ignoresSafeArea(.container, edges: edges)
+            .ignoresSafeArea(.container, edges: column.edges)
             // Measured around the content, which reports its insets the same
             // whether or not it runs into them.
             .background {
                 GeometryReader { geo in
-                    let column = enabled
-                        ? Self.columnEdges(geo.safeAreaInsets, isPhone: Self.isPhone,
+                    let insets = geo.safeAreaInsets
+                    let edges = enabled
+                        ? Self.columnEdges(insets, isPhone: Self.isPhone,
                                            compactHeight: verticalSizeClass == .compact)
                         : []
+                    let measured = SideColumn(edges: edges,
+                                              leading: edges.contains(.leading) ? ceil(insets.leading) : 0,
+                                              trailing: edges.contains(.trailing) ? ceil(insets.trailing) : 0)
                     Color.clear
-                        .onChange(of: column, initial: true) { _, value in
-                            if !(enabled && controlsHidden && value.isEmpty) { edges = value }
+                        .onChange(of: measured, initial: true) { _, value in
+                            if !(enabled && controlsHidden && value.edges.isEmpty) { column = value }
                         }
                 }
             }
@@ -65,6 +72,16 @@ struct RunUnderSideColumn: ViewModifier {
         }
         return edges
     }
+}
+
+/// The sides the reader runs under iPhone Duo's side column on, and the
+/// column's width on each (0 on a side it doesn't run under).
+struct SideColumn: Equatable {
+    var edges: Edge.Set = []
+    var leading: CGFloat = 0
+    var trailing: CGFloat = 0
+
+    static let empty = SideColumn()
 }
 
 /// Turns off the safe-area content inset of the paging scroll view a page
@@ -130,5 +147,15 @@ struct PagingInsetsOff: UIViewRepresentable {
             let snapped = (scroll.contentOffset.x / width).rounded() * width
             if abs(snapped - scroll.contentOffset.x) >= 0.5 { scroll.contentOffset.x = snapped }
         }
+    }
+}
+
+extension View {
+    /// Sets the reader's text at `placement` (ReaderMetrics.textColumnPlacement)
+    /// in a page `containerWidth` wide.
+    func textColumn(_ placement: (leading: CGFloat, width: CGFloat), in containerWidth: CGFloat) -> some View {
+        frame(maxWidth: placement.width, alignment: .leading)
+            .padding(.leading, placement.leading)
+            .padding(.trailing, max(0, containerWidth - placement.leading - placement.width))
     }
 }

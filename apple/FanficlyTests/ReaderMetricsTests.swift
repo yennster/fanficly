@@ -18,7 +18,45 @@ final class ReaderMetricsTests: XCTestCase {
 
     func test_capScalesWithTextSize() {
         let big = ReaderMetrics.textColumnWidth(containerWidth: 951, widthPercent: 100, fontSize: 24, limitLineLength: true)
-        XCTAssertEqual(big, min(951, 24 * ReaderMetrics.maxLineLengthEm))
+        XCTAssertEqual(big, min(951 - 2 * ReaderMetrics.minimumGutter, 24 * ReaderMetrics.maxLineLengthEm))
+    }
+
+    func test_fullMargins_keepAGutter() {
+        let w = ReaderMetrics.textColumnWidth(containerWidth: 402, widthPercent: 100, fontSize: 18, limitLineLength: true)
+        XCTAssertEqual(w, 402 - 2 * ReaderMetrics.minimumGutter)
+    }
+
+    /// iPhone Duo's outer display: 466 pt wide, its side column 42 pt.
+    func test_duoColumn_floatsOverTheMargin() {
+        let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 70, fontSize: 18,
+                                                  limitLineLength: true, reservedTrailing: 42)
+        XCTAssertEqual(p.width, 326, "the setting's share of the whole page")
+        XCTAssertEqual(p.leading, 70, "centred on the page, its margin wide enough for the column")
+    }
+
+    func test_duoColumn_pushesWideTextAway() {
+        let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 80, fontSize: 18,
+                                                  limitLineLength: true, reservedTrailing: 42)
+        XCTAssertEqual(p.width, 372)
+        XCTAssertEqual(p.leading + p.width, 466 - 42 - ReaderMetrics.minimumGutter, accuracy: 0.5,
+                       "moved left, clear of the column")
+    }
+
+    func test_duoColumn_fullMarginsNarrow() {
+        for (leading, trailing) in [(CGFloat(0), CGFloat(42)), (42, 0)] {
+            let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 100, fontSize: 18,
+                                                      limitLineLength: true, reservedLeading: leading,
+                                                      reservedTrailing: trailing)
+            XCTAssertEqual(p.width, 466 - 42 - 2 * ReaderMetrics.minimumGutter)
+            XCTAssertEqual(p.leading, leading + ReaderMetrics.minimumGutter)
+        }
+    }
+
+    func test_noColumn_centres() {
+        let p = ReaderMetrics.textColumnPlacement(containerWidth: 402, widthPercent: 90, fontSize: 18,
+                                                  limitLineLength: true)
+        XCTAssertEqual(p.width, 361)
+        XCTAssertEqual(p.leading, 20.5)
     }
 
     func test_ipadAndMac_keepThePercentage() {

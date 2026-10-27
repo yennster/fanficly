@@ -45,11 +45,14 @@ struct RootView: View {
     @State private var pendingNotificationRoute: NotificationRoute?
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
+    /// Set by the reader for its full screen (see StatusBarVisibility).
+    @State private var statusBar = StatusBarVisibility()
 
     var body: some View {
         let scale = CGFloat(UIZoom.clamped(zoomScale))
         GeometryReader { geo in
             innerBody
+                .environment(statusBar)
                 .frame(width: geo.size.width / scale, height: geo.size.height / scale)
                 .scaleEffect(scale, anchor: .topLeading)
         }
@@ -68,6 +71,7 @@ struct RootView: View {
             .opacity(0)
             .accessibilityHidden(true)
         }
+        .statusBarHidden(statusBar.hidden)
     }
 
     @ViewBuilder

@@ -64,6 +64,7 @@ struct ReaderView: View {
     // Text-to-speech ("Listen") narration of the current chapter.
     @State private var speech = SpeechController()
     @State private var isUIMinimized: Bool = false
+    @Environment(StatusBarVisibility.self) private var statusBar: StatusBarVisibility?
     @State private var listeningChapter: Int?
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
@@ -91,8 +92,9 @@ struct ReaderView: View {
     /// bookTopShift as it was with the controls up, kept while they're
     /// hidden for as long as the page area keeps its size.
     @State private var heldTopShift: HeldTopShift?
-    /// The sides the page runs under: iPhone Duo's column (RunUnderSideColumn).
-    @State private var sideColumnEdges: Edge.Set = []
+    /// The sides the page runs under iPhone Duo's column, and its width there
+    /// (RunUnderSideColumn); the text keeps clear of it.
+    @State private var sideColumn = SideColumn.empty
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -400,7 +402,7 @@ struct ReaderView: View {
                     pageFooterBar(fg: fg, bg: bg)
                 }
             }
-            .ignoresSafeArea(.container, edges: sideColumnEdges)
+            .ignoresSafeArea(.container, edges: sideColumn.edges)
         }
         // The reader has no text input, so it must never reserve room for the
         // keyboard. Without this, focus landing on the page (it's
@@ -417,7 +419,7 @@ struct ReaderView: View {
         // and toolbar strip, which floats over it, as in Apple Books (one page
         // on screen: see RunUnderSideColumn).
         .modifier(RunUnderSideColumn(enabled: mode != .pageByPage || spreadLayout == nil,
-                                     controlsHidden: isUIMinimized, edges: $sideColumnEdges))
+                                     controlsHidden: isUIMinimized, column: $sideColumn))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
@@ -434,6 +436,9 @@ struct ReaderView: View {
         .navigationBarBackButtonHidden(isUIMinimized)
         .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
         .statusBarHidden(isUIMinimized)
+        .onChange(of: isUIMinimized, initial: true) { _, hidden in statusBar?.hidden = hidden }
+        .onAppear { statusBar?.hidden = isUIMinimized }
+        .onDisappear { statusBar?.hidden = false }
         .preference(key: ReaderFullScreenKey.self, value: isUIMinimized)
         .toolbar {
             if !isUIMinimized {
@@ -735,8 +740,7 @@ struct ReaderView: View {
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
                         }
                     }
-                    .frame(maxWidth: columnWidth(geo.size.width), alignment: .leading)
-                    .padding(.horizontal, (geo.size.width - columnWidth(geo.size.width)) / 2)
+                    .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.vertical, Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .background(ReaderScrollViewFinder(views: keyScrollViews, id: ReaderScrollViews.continuous))
@@ -1140,8 +1144,7 @@ struct ReaderView: View {
                         }
                         chapterBlock(chapter, fg: fg)
                     }
-                    .frame(maxWidth: columnWidth(geo.size.width), alignment: .leading)
-                    .padding(.horizontal, (geo.size.width - columnWidth(geo.size.width)) / 2)
+                    .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.top, Spacing.lg)
                     .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -1244,12 +1247,17 @@ struct ReaderView: View {
     /// bars. Pagination subtracts exactly this, so measured pages match drawn ones.
     static let pageVerticalMargin: CGFloat = 12
 
-    private func columnWidth(_ containerWidth: CGFloat, widthPercent percent: Double? = nil) -> CGFloat {
+    /// The text column in a page `containerWidth` wide, clear of the Duo's
+    /// side column (`column`; the reader's own unless given).
+    private func placement(_ containerWidth: CGFloat, widthPercent percent: Double? = nil,
+                           column: SideColumn? = nil) -> (leading: CGFloat, width: CGFloat) {
         // The zoomed size, as performPagination caps the column with: the
         // unzoomed one drew a capped column narrower than it was paginated
         // at whenever the zoom was below 1, and pages ran a line past the end.
-        ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
-                                      fontSize: Double(fontSize), limitLineLength: Self.limitsLineLength)
+        let column = column ?? sideColumn
+        return ReaderMetrics.textColumnPlacement(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
+                                                 fontSize: Double(fontSize), limitLineLength: Self.limitsLineLength,
+                                                 reservedLeading: column.leading, reservedTrailing: column.trailing)
     }
 
     /// Scrolls the paragraph that was on top back to the top once a resize
@@ -1315,7 +1323,8 @@ struct ReaderView: View {
                     // bar (bottom insets) are already out of it. A change
                     // re-paginates, keeping the page on screen in place.
                     height: readingHeight
-                )
+                ),
+                sideColumn: spread == nil ? sideColumn : .empty
             )
             
             let content = Group {
@@ -1444,9 +1453,9 @@ struct ReaderView: View {
     }
 
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
-        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
+        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: sideColumn)
             .ignoresSafeArea(.container)  // see makeSpreadCell
-            .background(PagingInsetsOff(active: !sideColumnEdges.isEmpty))
+            .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
             .contentShape(Rectangle())
             .tag(page.id)
     }
@@ -1533,14 +1542,14 @@ struct ReaderView: View {
         let percent = spreadWidthPercent
         return HStack(spacing: 0) {
             Color.clear.frame(width: max(0, layout.leftX))
-            pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent)
+            pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty)
                 .frame(width: layout.pageWidth)
             // The gutter: blank space on the fold. No drawn crease — the
             // hardware fold is the only seam, even lying flat.
             Color.clear.frame(width: layout.gutter.upperBound - layout.gutter.lowerBound)
             Group {
                 if let right = spread.right {
-                    pageCellContent(page: right, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent)
+                    pageCellContent(page: right, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty)
                 } else {
                     Color.clear
                 }
@@ -1571,7 +1580,8 @@ struct ReaderView: View {
     }
 
     @ViewBuilder
-    private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent requested: Double) -> some View {
+    private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent requested: Double,
+                                 column: SideColumn) -> some View {
         // The title page holds only the work header (no story text, so nothing
         // is paginated against its width): keep it at least the standard width
         // so narrow margins don't crush its metadata row.
@@ -1596,8 +1606,7 @@ struct ReaderView: View {
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
-            .frame(maxWidth: columnWidth(containerWidth, widthPercent: percent), alignment: .leading)
-            .padding(.horizontal, (containerWidth - columnWidth(containerWidth, widthPercent: percent)) / 2)
+            .textColumn(placement(containerWidth, widthPercent: percent, column: column), in: containerWidth)
             .padding(.vertical, Self.pageVerticalMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
@@ -1988,10 +1997,12 @@ struct ReaderView: View {
     private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult {
         // Must match `makePageCell`'s column, or pages are measured at one
         // width and drawn at another.
-        let w = ReaderMetrics.textColumnWidth(containerWidth: trigger.size.width,
-                                              widthPercent: trigger.widthPercent,
-                                              fontSize: trigger.fontSize,
-                                              limitLineLength: Self.limitsLineLength)
+        let w = ReaderMetrics.textColumnPlacement(containerWidth: trigger.size.width,
+                                                  widthPercent: trigger.widthPercent,
+                                                  fontSize: trigger.fontSize,
+                                                  limitLineLength: Self.limitsLineLength,
+                                                  reservedLeading: trigger.sideColumn.leading,
+                                                  reservedTrailing: trigger.sideColumn.trailing).width
         let h = trigger.size.height - 2 * Self.pageVerticalMargin
         
         guard w > 50 && h > 100 else {
@@ -2306,6 +2317,8 @@ struct PaginationTrigger: Equatable {
     let boldText: Bool
     let showImages: Bool
     let size: CGSize
+    /// The Duo's side column the text keeps clear of (none on a spread).
+    let sideColumn: SideColumn
 }
 
 /// What page-by-page's settle task waits on: any change restarts the wait.

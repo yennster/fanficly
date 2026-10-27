@@ -60,11 +60,38 @@ enum ReaderMetrics {
     /// page-by-page measures it at the width given, and at a fractional width
     /// the two broke lines differently when a word only just fit, so pages
     /// were cut a line early and left up to two lines blank.
+    /// However wide the Margins setting, `minimumGutter` stays clear on each
+    /// side: at Full (100%) the text touched the screen's edges.
     static func textColumnWidth(containerWidth: CGFloat, widthPercent: Double,
                                 fontSize: Double, limitLineLength: Bool) -> CGFloat {
-        let column = containerWidth * CGFloat(widthPercent / 100.0)
+        let room = max(0, containerWidth - 2 * minimumGutter)
+        let column = min(containerWidth * CGFloat(widthPercent / 100.0), room)
         guard limitLineLength else { return floor(column) }
         return floor(min(column, CGFloat(fontSize * maxLineLengthEm)))
+    }
+
+    /// The least room between the text and the screen's edge, or the side
+    /// column of status bar and toolbar strip on iPhone Duo.
+    static let minimumGutter: CGFloat = 16
+
+    /// Where the text column sits in a page `containerWidth` wide whose
+    /// sides are covered by `reservedLeading` / `reservedTrailing` points of
+    /// iPhone Duo's side column (the page runs under it, see
+    /// RunUnderSideColumn; the text must not). The column is the width the
+    /// Margins setting gives the whole page, centred on it, so the column
+    /// floats over the margin; when the two would meet, it moves away from
+    /// the column and then narrows, keeping `minimumGutter` clear of it.
+    /// `leading` is the space before the text.
+    static func textColumnPlacement(containerWidth: CGFloat, widthPercent: Double, fontSize: Double,
+                                    limitLineLength: Bool, reservedLeading: CGFloat = 0,
+                                    reservedTrailing: CGFloat = 0) -> (leading: CGFloat, width: CGFloat) {
+        let first = reservedLeading + minimumGutter
+        let last = containerWidth - reservedTrailing - minimumGutter
+        let wanted = textColumnWidth(containerWidth: containerWidth, widthPercent: widthPercent,
+                                     fontSize: fontSize, limitLineLength: limitLineLength)
+        let width = max(0, min(wanted, floor(last - first)))
+        let centred = (containerWidth - width) / 2
+        return (max(first, min(centred, last - width)), width)
     }
 
     static let maxLineLengthEm: Double = 40
