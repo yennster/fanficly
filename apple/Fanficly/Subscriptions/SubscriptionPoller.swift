@@ -201,9 +201,11 @@ struct SubscriptionPoller {
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
             var notifyCount = 0
-            let newWorks = try await known.isEmpty
-                ? worksPostedSinceFollow(result.works, followedAt: author.followedAt)
-                : Self.newlyPostedWorks(in: result.works, known: known)
+            var newWorks = Self.newlyPostedWorks(in: result.works, known: known)
+            var undated: Set<Int> = []
+            if known.isEmpty {
+                (newWorks, undated) = await worksPostedSinceFollow(result.works, followedAt: author.followedAt)
+            }
             if !newWorks.isEmpty {
                 await postNewWorkNotification(
                     author: author,
@@ -211,7 +213,7 @@ struct SubscriptionPoller {
                 )
                 notifyCount = newWorks.count
             }
-            author.knownWorkIds = Array(known.union(latestIds))
+            author.knownWorkIds = Array(known.union(latestIds).subtracting(undated))
             return notifyCount
         } catch {
             logger.warning("Skipping author \(author.username, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -221,30 +223,45 @@ struct SubscriptionPoller {
 
     /// No baseline: Follow was tapped before the author's list loaded (or
     /// they had no public works yet), so nothing on page 1 is known. A work
-    /// last updated before the day of the follow was already there. A later
-    /// one may be new or an old work that got a chapter, so its work page's
-    /// published date decides: one request for each, on this first poll only.
-    /// AO3 dates are days, so a work posted earlier on the follow day counts as
-    /// new. A work whose page won't load is left out rather than guessed at;
-    /// it joins the baseline with the rest.
-    private func worksPostedSinceFollow(_ works: [AO3WorkSummary], followedAt: Date) async throws -> [AO3WorkSummary] {
-        let followDay = Calendar.current.startOfDay(for: followedAt)
+    /// last updated well before the follow was already there. A later one may
+    /// be new or an old work that got a chapter, so its work page's published
+    /// date decides: one request for each. AO3 dates are days, shown to guests
+    /// in UTC, so "later" starts the day before the follow day: a work posted
+    /// just after a follow east of UTC can carry the previous date. The cost is
+    /// at worst an alert for a work posted shortly before the follow.
+    ///
+    /// Works that couldn't be dated (an error page, or the poll ran out of
+    /// time) come back in `undated` and stay out of the baseline. Once the
+    /// rest is the baseline, the next poll judges them by the id rule in
+    /// `newlyPostedWorks`; with nothing dated, the next poll dates them again.
+    private func worksPostedSinceFollow(
+        _ works: [AO3WorkSummary],
+        followedAt: Date
+    ) async -> (posted: [AO3WorkSummary], undated: Set<Int>) {
+        let calendar = Calendar.current
+        let followDay = calendar.startOfDay(for: followedAt)
+        let since = calendar.date(byAdding: .day, value: -1, to: followDay) ?? followDay
         var posted: [AO3WorkSummary] = []
+        var undated: Set<Int> = []
         for work in works {
-            guard let updatedAt = work.updatedAt, updatedAt >= followDay else { continue }
-            // Cut off mid-way: write no baseline, so the next poll asks again.
-            try Task.checkCancellation()
+            guard let updatedAt = work.updatedAt, updatedAt >= since else { continue }
+            if Task.isCancelled {
+                undated.insert(work.id)
+                continue
+            }
             do {
                 let meta = try await client.fetchWorkMetadata(id: work.id)
-                if let publishedAt = meta.publishedAt, publishedAt >= followDay {
-                    posted.append(work)
+                if let publishedAt = meta.publishedAt {
+                    if publishedAt >= since { posted.append(work) }
+                } else {
+                    undated.insert(work.id)
                 }
             } catch {
                 logger.warning("Couldn't date work \(work.id): \(error.localizedDescription, privacy: .public)")
+                undated.insert(work.id)
             }
         }
-        try Task.checkCancellation()
-        return posted
+        return (posted, undated)
     }
 
     // MARK: - Record fetches

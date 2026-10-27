@@ -266,15 +266,17 @@ public sealed class SubscriptionPoller
             var latestIds = result.Works.Select(w => w.Id);
             var known = author.KnownWorkIds.ToHashSet();
             var notifyCount = 0;
-            var newWorks = known.Count == 0
-                ? await WorksPostedSinceFollowAsync(result.Works, author.FollowedAt, ct).ConfigureAwait(false)
-                : NewlyPostedWorks(result.Works, known);
+            var newWorks = NewlyPostedWorks(result.Works, known);
+            IReadOnlySet<int> undated = new HashSet<int>();
+            if (known.Count == 0)
+                (newWorks, undated) = await WorksPostedSinceFollowAsync(result.Works, author.FollowedAt, ct).ConfigureAwait(false);
             if (newWorks.Count > 0)
             {
                 await PostAsync(NewWorkContent(author.Username, author.DisplayName, newWorks)).ConfigureAwait(false);
                 notifyCount = newWorks.Count;
             }
             known.UnionWith(latestIds);
+            known.ExceptWith(undated);
             author.KnownWorkIds = known.ToList();
             return notifyCount;
         }
@@ -292,34 +294,45 @@ public sealed class SubscriptionPoller
 
     /// <summary>No baseline: Follow was tapped before the author's list loaded (or
     /// they had no public works yet), so nothing on page 1 is known. A work last
-    /// updated before the day of the follow was already there. A later one may be
-    /// new or an old work that got a chapter, so its work page's published date
-    /// decides: one request for each, on this first poll only. AO3 dates are days,
-    /// so a work posted earlier on the follow day counts as new. A work whose page
-    /// won't load is left out rather than guessed at; it joins the baseline with
-    /// the rest.</summary>
-    private async Task<IReadOnlyList<AO3WorkSummary>> WorksPostedSinceFollowAsync(
+    /// updated well before the follow was already there. A later one may be new or
+    /// an old work that got a chapter, so its work page's published date decides:
+    /// one request for each. AO3 dates are days, shown to guests in UTC, so "later"
+    /// starts the day before the follow day: a work posted just after a follow east
+    /// of UTC can carry the previous date. The cost is at worst an alert for a work
+    /// posted shortly before the follow.
+    ///
+    /// Works that couldn't be dated (an error page, or the poll was cancelled) come
+    /// back in <c>Undated</c> and stay out of the baseline. Once the rest is the
+    /// baseline, the next poll judges them by the id rule in
+    /// <see cref="NewlyPostedWorks"/>; with nothing dated, the next poll dates them
+    /// again.</summary>
+    private async Task<(IReadOnlyList<AO3WorkSummary> Posted, IReadOnlySet<int> Undated)> WorksPostedSinceFollowAsync(
         IReadOnlyList<AO3WorkSummary> works, DateTimeOffset followedAt, CancellationToken ct)
     {
-        var followDay = followedAt.ToLocalTime().Date;
+        var since = followedAt.ToLocalTime().Date.AddDays(-1);
         var posted = new List<AO3WorkSummary>();
+        var undated = new HashSet<int>();
         foreach (var work in works)
         {
-            if (work.UpdatedAt is not { } updatedAt || updatedAt.ToLocalTime().Date < followDay) continue;
-            // Cut off mid-way: write no baseline, so the next poll asks again.
-            ct.ThrowIfCancellationRequested();
+            if (work.UpdatedAt is not { } updatedAt || updatedAt.ToLocalTime().Date < since) continue;
+            if (ct.IsCancellationRequested)
+            {
+                undated.Add(work.Id);
+                continue;
+            }
             try
             {
                 var meta = await _client.FetchWorkMetadataAsync(work.Id, ct).ConfigureAwait(false);
-                if (meta.PublishedAt is { } publishedAt && publishedAt.ToLocalTime().Date >= followDay) posted.Add(work);
+                if (meta.PublishedAt is not { } publishedAt) undated.Add(work.Id);
+                else if (publishedAt.ToLocalTime().Date >= since) posted.Add(work);
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            catch (Exception e)
             {
-                LibraryHooks.Log?.Invoke($"Couldn't date work {work.Id}: {e.Message}");
+                if (e is not OperationCanceledException) LibraryHooks.Log?.Invoke($"Couldn't date work {work.Id}: {e.Message}");
+                undated.Add(work.Id);
             }
         }
-        ct.ThrowIfCancellationRequested();
-        return posted;
+        return (posted, undated);
     }
 
     // MARK: - Record fetches

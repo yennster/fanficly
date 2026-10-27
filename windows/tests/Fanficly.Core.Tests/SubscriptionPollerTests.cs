@@ -172,8 +172,9 @@ public sealed class SubscriptionPollerTests
 
     /// <summary>Follow tapped before the author's list loaded: no baseline. The
     /// first poll must neither alert for the back catalogue nor swallow a work
-    /// posted after the follow (#151). Works last updated since the follow day
-    /// are dated from their work page; an old one that got a chapter stays quiet.</summary>
+    /// posted after the follow (#151). Works last updated since the day before the
+    /// follow (AO3's UTC days) are dated from their work page; an old one that got a
+    /// chapter stays quiet.</summary>
     [Fact]
     public async Task FollowedBeforeTheListLoadedAlertsOnlyForWorksPostedSince()
     {
@@ -187,6 +188,7 @@ public sealed class SubscriptionPollerTests
         [
             Summary(90, "Brand New") with { ChapterCount = 3, UpdatedAt = Day(2) },
             Summary(10, "Old, Just Updated") with { ChapterCount = 7, UpdatedAt = Day(1) },
+            Summary(85, "Posted After A Follow East Of UTC") with { ChapterCount = 2, UpdatedAt = Day(-1) },
             Summary(80, "Back Catalogue") with { ChapterCount = 2, UpdatedAt = Day(-5) },
             Summary(70) with { UpdatedAt = Day(-40) },
         ];
@@ -194,26 +196,28 @@ public sealed class SubscriptionPollerTests
         client.PublishedDates[90] = Day(2);
         client.ChapterCounts[10] = 7;
         client.PublishedDates[10] = Day(-400);
+        client.ChapterCounts[85] = 2;
+        client.PublishedDates[85] = Day(-1);
         var notifier = new RecordingNotifier();
         var poller = new SubscriptionPoller(client, store, null, notifier);
 
-        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
-        Assert.Equal("New work: Brand New", Assert.Single(notifier.Posted).Body);
-        // Only the works updated since the follow were looked up.
-        Assert.Equal(["author:prolific", "work:90", "work:10"], client.Requests);
-        Assert.Equal([10, 70, 80, 90], store.GetFollowedAuthor("prolific")!.KnownWorkIds.Order());
+        Assert.Equal(2, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal("2 new works posted", Assert.Single(notifier.Posted).Body);
+        // Only the works updated since the day before the follow were looked up.
+        Assert.Equal(["author:prolific", "work:90", "work:10", "work:85"], client.Requests);
+        Assert.Equal([10, 70, 80, 85, 90], store.GetFollowedAuthor("prolific")!.KnownWorkIds.Order());
 
         // With a baseline the usual rule applies, with no extra requests.
         client.AuthorWorks["prolific"] = [Summary(95, "Next"), Summary(10) with { ChapterCount = 8, UpdatedAt = DateTimeOffset.Now }];
         Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
         Assert.Equal("New work: Next", notifier.Posted[^1].Body);
-        Assert.Equal(["author:prolific", "work:90", "work:10", "author:prolific"], client.Requests);
+        Assert.Equal(["author:prolific", "work:90", "work:10", "work:85", "author:prolific"], client.Requests);
     }
 
-    /// <summary>A new work whose page won't load isn't guessed at: no alert, and
-    /// it joins the baseline like the rest.</summary>
+    /// <summary>A new work whose page won't load isn't guessed at, and isn't lost:
+    /// it stays out of the baseline, so the next poll dates it again.</summary>
     [Fact]
-    public async Task WithNoBaselineAnUndatableWorkStaysQuiet()
+    public async Task WithNoBaselineAnUndatableWorkIsDatedAgainNextPoll()
     {
         using var store = LibraryStore.OpenInMemory();
         store.Insert(new FollowedAuthor("quiet", "Quiet"));
@@ -225,8 +229,13 @@ public sealed class SubscriptionPollerTests
 
         Assert.Equal(0, await poller.CheckFollowedAuthorsAsync());
         Assert.Empty(notifier.Posted);
-        Assert.Equal([5], store.GetFollowedAuthor("quiet")!.KnownWorkIds);
+        Assert.Empty(store.GetFollowedAuthor("quiet")!.KnownWorkIds);
         Assert.Equal(0, poller.FailedChecks);
+
+        client.ChapterCounts[5] = 1;
+        client.PublishedDates[5] = DateTimeOffset.Now;
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal([5], store.GetFollowedAuthor("quiet")!.KnownWorkIds);
     }
 
     /// <summary>Signed in, a guest page means the session expired (#131): the

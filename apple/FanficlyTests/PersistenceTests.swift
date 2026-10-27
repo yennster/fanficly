@@ -2653,8 +2653,9 @@ final class PersistenceTests: XCTestCase {
 
     // Follow tapped before the author's list loaded: no baseline. The first
     // poll must neither alert for the back catalogue nor swallow a work
-    // posted after the follow. Works last updated since the follow day are
-    // dated from their work page; an old one that got a chapter stays quiet.
+    // posted after the follow. Works last updated since the day before the
+    // follow (AO3's UTC days) are dated from their work page; an old one that
+    // got a chapter stays quiet.
     func test_followedAuthor_followedBeforeListLoaded_alertsOnlyForWorksPostedSince() async throws {
         let ctx = try makeContext()
         let followedAt = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -3, to: .now))
@@ -2667,17 +2668,18 @@ final class PersistenceTests: XCTestCase {
         client.authorWorksResponse = AO3SearchResults(
             works: [authorWork(90, "Brand New", chapters: 3, updated: day(2)),
                     authorWork(10, "Old, Just Updated", chapters: 7, updated: day(1)),
+                    authorWork(85, "Posted After A Follow East Of UTC", chapters: 2, updated: day(-1)),
                     authorWork(80, "Back Catalogue", chapters: 2, updated: day(-5)),
                     authorWork(70, updated: day(-40))],
             totalPages: 1, currentPage: 1)
-        client.workPublishedAt = [90: day(2), 10: day(-400)]
+        client.workPublishedAt = [90: day(2), 10: day(-400), 85: day(-1)]
 
         let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
         let notified = await poller.checkFollowedAuthors()
-        XCTAssertEqual(notified, 1)
-        // Only the works updated since the follow were looked up.
-        XCTAssertEqual(client.workMetadataCalls, [90, 10])
-        XCTAssertEqual(Set(author.knownWorkIds), [10, 70, 80, 90])
+        XCTAssertEqual(notified, 2)
+        // Only the works updated since the day before the follow were looked up.
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 70, 80, 85, 90])
 
         // With a baseline the usual rule applies, with no extra requests.
         client.authorWorksResponse = AO3SearchResults(
@@ -2685,12 +2687,12 @@ final class PersistenceTests: XCTestCase {
             totalPages: 1, currentPage: 1)
         let again = await poller.checkFollowedAuthors()
         XCTAssertEqual(again, 1)
-        XCTAssertEqual(client.workMetadataCalls, [90, 10])
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
     }
 
-    // A new work whose page won't load isn't guessed at: no alert, and it
-    // joins the baseline like the rest.
-    func test_followedAuthor_noBaseline_undatableWorkStaysQuiet() async throws {
+    // A new work whose page won't load isn't guessed at, and isn't lost: it
+    // stays out of the baseline, so the next poll dates it again.
+    func test_followedAuthor_noBaseline_undatableWorkIsDatedAgainNextPoll() async throws {
         let ctx = try makeContext()
         let author = FollowedAuthor(username: "quiet", displayName: "Quiet", followedAt: .now)
         ctx.insert(author)
@@ -2703,6 +2705,11 @@ final class PersistenceTests: XCTestCase {
         let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
         let notified = await poller.checkFollowedAuthors()
         XCTAssertEqual(notified, 0)
+        XCTAssertEqual(author.knownWorkIds, [])
+
+        client.workPublishedAt = [5: .now]
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
         XCTAssertEqual(author.knownWorkIds, [5])
     }
 
