@@ -21,9 +21,9 @@ enum AO3Endpoints {
     }
 
     /// The work's own page without `view_full_work`: one chapter at most, but
-    /// the same `dl.stats` block, CSRF token and bookmark form. The poller,
-    /// subscribing and the bookmark form use it, so they don't download every
-    /// chapter of a long work, AO3's heaviest page (#148).
+    /// the same `dl.stats` block, CSRF token, kudos and bookmark forms. The
+    /// poller, subscribing, kudos and the bookmark form use it, so they don't
+    /// download every chapter of a long work, AO3's heaviest page (#148).
     static func workPage(id: Int, base: URL) throws -> URL {
         var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]
@@ -96,15 +96,6 @@ enum AO3Endpoints {
 
     static func login(base: URL) throws -> URL {
         base.appending(path: "/users/login")
-    }
-
-    /// A work's first page (its first chapter, for a chaptered work), without
-    /// `view_full_work`: enough for the kudos form and the navbar.
-    static func workFirstPage(id: Int, base: URL) throws -> URL {
-        var components = URLComponents(url: base.appending(path: "/works/\(id)"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [URLQueryItem(name: "view_adult", value: "true")]
-        guard let url = components?.url else { throw AO3Error.parseFailed(reason: "Bad work URL") }
-        return url
     }
 
     /// `page` is the comment page (AO3 shows a chapter's threads a page at a

@@ -975,7 +975,7 @@ public actor AO3Client: AO3ClientProtocol {
         // session is still logged in. AO3 takes guest kudos too, so posting
         // with an expired cookie would silently leave one as a guest.
         await throttle.wait()
-        let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
+        let pageURL = try AO3Endpoints.workPage(id: workId, base: baseURL)
         let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
         guard let pageHTML = String(data: pageData, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Work page not UTF-8")
