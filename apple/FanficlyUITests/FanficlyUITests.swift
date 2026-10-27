@@ -388,7 +388,7 @@ final class ReaderLayoutTests: XCTestCase {
            chapters.frame.midY < settings.frame.midY {
             let button = app.buttons["reader.newProfileTestButton"].firstMatch
             XCTAssertTrue(button.waitForExistence(timeout: 4), "the reader's New Profile test button")
-            button.tap()
+            tap(CGPoint(x: button.frame.midX, y: button.frame.midY))
             XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 8),
                           "the profile name prompt \(menuState())")
             return

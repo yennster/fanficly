@@ -305,14 +305,18 @@ struct ReaderView: View {
             && ProcessInfo.processInfo.arguments.contains("-demoNewProfileButton")
         func body(content: Content) -> some View {
             content
-                .overlay(alignment: .topLeading) {
+                // In the middle of the page, clear of the status bar's corner.
+                .overlay {
                     if Self.testButton {
-                        Button("New Profile (test)") {
+                        Button {
                             newProfileName = ""
                             showingNewProfile = true
+                        } label: {
+                            Color.clear
+                                .frame(width: 60, height: 60)
+                                .contentShape(Rectangle())
                         }
-                        .frame(width: 44, height: 44)
-                        .opacity(0.02)
+                        .accessibilityLabel("New Profile (test)")
                         .accessibilityIdentifier("reader.newProfileTestButton")
                     }
                 }
