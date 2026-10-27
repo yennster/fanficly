@@ -2566,7 +2566,7 @@ final class PersistenceTests: XCTestCase {
         let client = StubAO3Client()
         client.subscriptionsResponse = []
 
-        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
         _ = try await poller.syncSubscriptionList()
 
         let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
@@ -2585,11 +2585,84 @@ final class PersistenceTests: XCTestCase {
             AO3Subscription(kind: .user, resourceId: "carol", title: "carol", author: nil),
         ]
 
-        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
         _ = try await poller.syncSubscriptionList()
 
         let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
         XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "user:carol"])
+    }
+
+    private func scratchDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "test.subscriptionPoller.\(UUID().uuidString)")!
+    }
+
+    // A list that ran past the 50-page ceiling is missing real subscriptions
+    // (#150): it adds and updates what it read, but deletes nothing.
+    func test_syncSubscriptionList_incompleteListPrunesNothing() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let client = StubAO3Client()
+        client.subscriptionsResponse = [
+            AO3Subscription(kind: .work, resourceId: "1", title: "Fic One (renamed)", author: "alice"),
+            AO3Subscription(kind: .user, resourceId: "carol", title: "carol", author: nil),
+        ]
+        client.subscriptionsComplete = false
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+        _ = try await poller.syncSubscriptionList()
+
+        let remaining = try ctx.fetch(FetchDescriptor<SubscriptionRecord>())
+        XCTAssertEqual(Set(remaining.map(\.key)), ["work:1", "series:9", "user:carol"])
+        let work = remaining.first(where: { $0.key == "work:1" })
+        XCTAssertEqual(work?.displayName, "Fic One (renamed)")
+        XCTAssertEqual(work?.lastSeenChapterCount, 5)
+    }
+
+    // A background run with a list synced in the last day goes straight to
+    // the chapter checks (#150).
+    func test_runFullPoll_freshListSyncSkipsTheListWalk() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let client = StubAO3Client()
+        let defaults = scratchDefaults()
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: defaults)
+        _ = try await poller.syncSubscriptionList()
+        XCTAssertEqual(client.subscriptionsFetchCount, 1)
+        XCTAssertFalse(poller.listSyncIsDue())
+
+        _ = await poller.runFullPoll()
+
+        XCTAssertEqual(client.subscriptionsFetchCount, 1)
+        let work = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertNotNil(work?.lastCheckedAt, "the work subscription is still checked")
+    }
+
+    // With no sync yet, or the last one a day old, the run syncs the list
+    // once and stamps it, so the next run skips it.
+    func test_runFullPoll_syncsTheListOnceADay() async throws {
+        let ctx = try makeContext()
+        let client = StubAO3Client()
+        client.subscriptionsResponse = [AO3Subscription(kind: .work, resourceId: "7", title: "New Sub", author: "dana")]
+        let defaults = scratchDefaults()
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: defaults)
+        XCTAssertTrue(poller.listSyncIsDue())
+
+        _ = await poller.runFullPoll()
+        XCTAssertEqual(client.subscriptionsFetchCount, 1)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).map(\.key), ["work:7"])
+
+        _ = await poller.runFullPoll()
+        XCTAssertEqual(client.subscriptionsFetchCount, 1)
+
+        let dayLater = Date.now.addingTimeInterval(SubscriptionPoller.listSyncInterval + 60)
+        XCTAssertTrue(poller.listSyncIsDue(now: dayLater))
+    }
+
+    // Signed out there's no list to sync.
+    func test_listSyncIsDue_falseWhenSignedOut() throws {
+        let poller = SubscriptionPoller(client: StubAO3Client(), context: try makeContext(), username: nil,
+                                        defaults: scratchDefaults())
+        XCTAssertFalse(poller.listSyncIsDue())
     }
 
     // Signed in, a guest page means the session expired (#131): its public
