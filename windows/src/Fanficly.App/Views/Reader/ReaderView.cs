@@ -849,6 +849,13 @@ internal sealed partial class ReaderView
                 return Turn(forward: false, arrow: false);
             case VirtualKey.Down when none && !activates && _builtMode == ReadingMode.PageByPage:
                 return Turn(forward: true, arrow: false);
+            // "Volume buttons turn pages" (off by default): remotes in their volume
+            // mode send only these. Platform.VolumeKeyGate keeps the shell from
+            // also changing the volume. Narration keeps them for its volume.
+            case (VirtualKey)VolumeKeyTurn.VolumeUpKey when none && WantsVolumeKeys:
+            case (VirtualKey)VolumeKeyTurn.VolumeDownKey when none && WantsVolumeKeys:
+                Turn(forward: VolumeKeyTurn.Direction((int)key) == true, arrow: false);
+                return true;
             case VirtualKey.Up when none:
                 return ScrollBy(-48);
             case VirtualKey.Down when none:
@@ -856,6 +863,10 @@ internal sealed partial class ReaderView
         }
         return false;
     }
+
+    /// <summary>Whether volume keys turn pages now: "Volume buttons turn pages" is on
+    /// and narration isn't using them for its volume. They turn as Page Down / Page Up.</summary>
+    public bool WantsVolumeKeys => _bodyBuilt && !_removed && ReaderPrefs.VolumeButtonsTurnPages && !_speech.IsActive;
 
     /// <summary>One "page" forward or back in whatever the mode turns: a page (or a
     /// spread), a chapter in Swipe by chapter for the arrow keys (Page Up / Down and

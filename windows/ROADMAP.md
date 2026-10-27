@@ -127,6 +127,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** a reader UI test hides the controls, finds no toolbar button and the page number, checks the page's text kept its place, and taps the middle third to bring the controls back.
 - **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.Chrome.cs`, `ReaderView.cs`, `ReaderView.Pages.cs`, `windows/tests/Fanficly.UITests/`.
 
+### RM-124 — Volume buttons turn pages
+- **Status:** claimed · **Size:** S · **Validation:** windows
+- **Why:** Ports the Apple app's RM-026 (#304). Many cheap page turners and rings only send volume keys in their camera/volume mode.
+- **Scope:** An opt-in "Volume buttons turn pages" reader setting (off by default, global): volume up and down turn as Page Down / Page Up, and the window keeps the shell from changing the volume (it answers the WM_APPCOMMAND). Listen keeps normal volume keys.
+- **Done when:** `VolumeKeyTurnTests` pass; on Windows, with the setting on, a volume key turns the page and the volume and its overlay don't change.
+- **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.cs`, `ReaderPrefs.cs`, `Platform/VolumeKeyGate.cs`, `Fanficly.Core/Reader/VolumeKeyTurn.cs`, `Views/Settings/ReaderSettingsScreen.cs`.
+
 ## Next
 
 ### RM-105 — Paste or drop an AO3 link to open it
