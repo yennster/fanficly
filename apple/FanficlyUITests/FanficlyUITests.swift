@@ -370,7 +370,10 @@ final class ReaderLayoutTests: XCTestCase {
             }
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
+        let tapStart = Date()
         settings.tap()
+        // XCTest's tap waits (up to 60 s) for the app's animations to end.
+        let tapTime = Int(Date().timeIntervalSince(tapStart))
         capture("05-reader-settings-menu")
         // Any element type: a menu from iPhone Duo's vertical strip may not
         // draw its items as buttons.
@@ -398,7 +401,7 @@ final class ReaderLayoutTests: XCTestCase {
                     probe("Chapters", app.buttons["Chapters"].firstMatch) { $0.tap() },
                     probe("Work options", app.buttons["Work options"].firstMatch) { $0.tap() },
                 ].joined(separator: "; ")
-                XCTFail("the Profile submenu: \(frames); first tap \(first); window tap \(menuState()); \(others)")
+                XCTFail("the Profile submenu: \(frames); first tap (\(tapTime) s) \(first); window tap \(menuState()); \(others)")
             }
         }
         profile.tap()
@@ -652,10 +655,12 @@ final class ReaderLayoutTests: XCTestCase {
     private func probe(_ name: String, _ button: XCUIElement, _ open: (XCUIElement) -> Void) -> String {
         guard button.exists else { return "\(name): no such button" }
         let before = app.descendants(matching: .any).count
+        let start = Date()
         open(button)
+        let time = Int(Date().timeIntervalSince(start))
         sleep(2)
         let after = app.descendants(matching: .any).count
-        let state = "\(name): elements \(before) → \(after), menus \(app.menus.count), "
+        let state = "\(name) (\(time) s): elements \(before) → \(after), menus \(app.menus.count), "
             + "menu items \(app.menuItems.count), popovers \(app.popovers.count), windows \(app.windows.count)"
         let dismiss = app.otherElements["PopoverDismissRegion"].firstMatch
         if dismiss.exists { dismiss.tap(); sleep(1) }

@@ -427,10 +427,13 @@ struct ReaderView: View {
         .preference(key: ReaderFullScreenKey.self, value: isUIMinimized)
         .toolbar {
             if !isUIMinimized {
-                if chapters.count > 1 {
-                    ToolbarItem(placement: .topBarTrailing) { chaptersMenu }
+                // One group, as the hosting screens' items are: on iPhone
+                // Duo's vertical strip, the reader's menus as separate items
+                // opened nothing while the work page's grouped menu opened.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if chapters.count > 1 { chaptersMenu }
+                    typographyMenu
                 }
-                ToolbarItem(placement: .topBarTrailing) { typographyMenu }
             }
         }
         // Chapters can arrive after narration started; the chapter-end
