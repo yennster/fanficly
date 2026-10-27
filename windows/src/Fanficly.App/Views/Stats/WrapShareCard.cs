@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
+using Windows.Graphics.Imaging;
 using Windows.UI;
 
 namespace Fanficly.App.Views.Stats;
@@ -25,17 +26,23 @@ public static class WrapShareCard
     private static SolidColorBrush White(byte alpha) => new(Color.FromArgb(alpha, 0xFF, 0xFF, 0xFF));
 
     /// <summary>The app icon for the footer (the Swift card's `AppIconMark`),
-    /// decoded before the card is built so <c>RenderTargetBitmap</c> never
-    /// captures it half-loaded. Null when it can't be read; the footer then
-    /// shows the text alone.</summary>
+    /// decoded to pixels before the card is built: a <c>BitmapImage</c> decodes
+    /// lazily, when first drawn, so <c>RenderTargetBitmap</c> could capture it
+    /// blank. Null when it can't be read; the footer then shows the text alone.</summary>
     public static async Task<ImageSource?> LoadAppIconAsync()
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "Square44x44Logo.targetsize-96.png");
+            // The full-bleed tile (the 44×44 logos have a transparent margin).
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon-512.png");
             using var file = File.OpenRead(path);
-            var icon = new BitmapImage();
-            await icon.SetSourceAsync(file.AsRandomAccessStream());
+            var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
+            // 18 DIPs at the card's 2×–4× export scale.
+            var transform = new BitmapTransform { ScaledWidth = 72, ScaledHeight = 72, InterpolationMode = BitmapInterpolationMode.Fant };
+            using var pixels = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                transform, ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
+            var icon = new SoftwareBitmapSource();
+            await icon.SetBitmapAsync(pixels);
             return icon;
         }
         catch (Exception e)
