@@ -169,9 +169,10 @@ public sealed class SubscriptionPoller
         }
 
         var targets = new List<(DateTimeOffset? LastCheckedAt, Func<Task<int>> Check)>();
-        if (Username is not null)
-            targets.AddRange(WorkSubscriptionRecords().Select(r => (r.LastCheckedAt, (Func<Task<int>>)(() => CheckWorkSubscriptionAsync(r, ct)))));
-        targets.AddRange(FollowedWorks().Select(w => (w.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedWorkAsync(w, ct)))));
+        // One target per work id: a work that's both AO3-subscribed and followed
+        // is fetched once (#148), queued by the staler of its two records.
+        targets.AddRange(WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks())
+            .Select(t => (Stalest(t.Subscription, t.Followed), (Func<Task<int>>)(() => CheckWorkAsync(t.Id, t.Subscription, t.Followed, ct)))));
         targets.AddRange(FollowedAuthors().Select(a => (a.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedAuthorAsync(a, ct)))));
         var ordered = targets.OrderBy(t => t.LastCheckedAt ?? DateTimeOffset.MinValue).ToList();
 
@@ -192,65 +193,87 @@ public sealed class SubscriptionPoller
 
     // MARK: - Per-record checks
 
-    /// <summary>Check one AO3 work subscription for a new chapter (one throttled
-    /// request). Returns the number of notifications posted. The attempt is
-    /// stamped whatever happens: a permanently-failing record (deleted work,
-    /// parse drift) must not stay "oldest" forever and hog the queue head.</summary>
-    private async Task<int> CheckWorkSubscriptionAsync(SubscriptionRecord rec, CancellationToken ct)
+    /// <summary>The work targets of a poll, one per AO3 work id: a subscription
+    /// and a follow of the same work share a target, so the work is fetched once.</summary>
+    private static List<(int Id, SubscriptionRecord? Subscription, Work? Followed)> WorkTargets(
+        IReadOnlyList<SubscriptionRecord> subscriptions, IReadOnlyList<Work> followed)
     {
-        try
+        var ids = new List<int>();
+        var recs = new Dictionary<int, SubscriptionRecord>();
+        var works = new Dictionary<int, Work>();
+        foreach (var rec in subscriptions)
         {
-            var parts = rec.Key.Split(':');
-            if (parts.Length != 2 || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var workId))
-                return 0;
-            try
+            if (WorkId(rec) is { } id)
             {
-                var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
-                var notifyCount = 0;
-                if (rec.LastSeenChapterCount is { } lastSeen && meta.ChapterCount > lastSeen)
-                {
-                    await PostAsync(NewChapterContent(rec.DisplayName, lastSeen, meta.ChapterCount, workId)).ConfigureAwait(false);
-                    notifyCount = 1;
-                }
-                rec.LastSeenChapterCount = meta.ChapterCount;
-                return notifyCount;
+                if (recs.TryAdd(id, rec)) ids.Add(id);
             }
-            catch (Exception e)
-            {
-                FailedChecks++;
-                LibraryHooks.Log?.Invoke($"Skipping work {workId}: {e.Message}");
-                return 0;
-            }
+            // A key that names no work can't be checked; stamp it like a failed check.
+            else rec.LastCheckedAt = DateTimeOffset.Now;
         }
-        finally
-        {
-            rec.LastCheckedAt = DateTimeOffset.Now;
-        }
+        foreach (var work in followed)
+            if (works.TryAdd(work.Ao3Id, work) && !recs.ContainsKey(work.Ao3Id)) ids.Add(work.Ao3Id);
+        return ids.Select(id => (id, recs.GetValueOrDefault(id), works.GetValueOrDefault(id))).ToList();
     }
 
-    private async Task<int> CheckFollowedWorkAsync(Work work, CancellationToken ct)
+    /// <summary>The staler of a target's records; a record never checked goes first.</summary>
+    private static DateTimeOffset? Stalest(SubscriptionRecord? rec, Work? work) =>
+        new[] { rec is null ? (DateTimeOffset?)null : rec.LastCheckedAt ?? DateTimeOffset.MinValue,
+                work is null ? null : work.LastCheckedAt ?? DateTimeOffset.MinValue }.Min();
+
+    /// <summary>The work id in a work subscription's key (<c>work:&lt;id&gt;</c>).</summary>
+    private static int? WorkId(SubscriptionRecord rec)
+    {
+        var parts = rec.Key.Split(':');
+        return parts.Length == 2 && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : null;
+    }
+
+    /// <summary>Check one AO3 work subscription for a new chapter (one throttled
+    /// request). Returns the number of notifications posted.</summary>
+    private async Task<int> CheckWorkSubscriptionAsync(SubscriptionRecord rec, CancellationToken ct)
+    {
+        if (WorkId(rec) is not { } workId)
+        {
+            rec.LastCheckedAt = DateTimeOffset.Now;
+            return 0;
+        }
+        return await CheckWorkAsync(workId, rec, null, ct).ConfigureAwait(false);
+    }
+
+    private Task<int> CheckFollowedWorkAsync(Work work, CancellationToken ct) => CheckWorkAsync(work.Ao3Id, null, work, ct);
+
+    /// <summary>Check a work for new chapters with one throttled request of its
+    /// light page, for its subscription, its follow or both, and post at most one
+    /// notification. The attempt is stamped whatever happens: a permanently-failing
+    /// record (deleted work, parse drift) must not stay "oldest" forever and hog
+    /// the queue head.</summary>
+    private async Task<int> CheckWorkAsync(int workId, SubscriptionRecord? rec, Work? work, CancellationToken ct)
     {
         try
         {
-            var meta = await _client.FetchWorkMetadataAsync(work.Ao3Id, ct).ConfigureAwait(false);
+            var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
             var notifyCount = 0;
-            if (work.LastSeenChapterCount is { } lastSeen && meta.ChapterCount > lastSeen)
+            // Against the higher baseline: chapters either record already counted
+            // were notified (or seen) then, and mustn't notify again.
+            var lastSeen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
+            if (lastSeen is { } seen && meta.ChapterCount > seen)
             {
-                await PostAsync(NewChapterContent(work.Title, lastSeen, meta.ChapterCount, work.Ao3Id)).ConfigureAwait(false);
+                await PostAsync(NewChapterContent(work?.Title ?? rec?.DisplayName ?? "", seen, meta.ChapterCount, workId)).ConfigureAwait(false);
                 notifyCount = 1;
             }
-            work.LastSeenChapterCount = meta.ChapterCount;
+            if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
+            if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
             return notifyCount;
         }
         catch (Exception e)
         {
             FailedChecks++;
-            LibraryHooks.Log?.Invoke($"Skipping followed work {work.Ao3Id}: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Skipping work {workId}: {e.Message}");
             return 0;
         }
         finally
         {
-            work.LastCheckedAt = DateTimeOffset.Now;
+            if (rec is not null) rec.LastCheckedAt = DateTimeOffset.Now;
+            if (work is not null) work.LastCheckedAt = DateTimeOffset.Now;
         }
     }
 

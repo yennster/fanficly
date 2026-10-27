@@ -62,6 +62,38 @@ public sealed class SubscriptionPollerTests
     }
 
     [Fact]
+    public async Task FullPoll_FetchesAWorkThatsSubscribedAndFollowedOnce()
+    {
+        // #148: one request per work id per run, one notification, and both
+        // records take the new baseline and stamp.
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:10", "work", "Sub name") { LastSeenChapterCount = 2, LastCheckedAt = T0 });
+        store.Insert(new Work(10, "Both", "A") { IsFollowed = true, LastSeenChapterCount = 4, LastCheckedAt = T0.AddHours(-2) });
+        store.Insert(new Work(20, "Followed", "A") { IsFollowed = true, LastSeenChapterCount = 1, LastCheckedAt = T0.AddHours(-1) });
+        store.Save();
+        var client = new PollerFakeClient
+        {
+            SubscriptionsResponse = [new AO3Subscription(AO3SubscriptionKind.Work, "10", "Sub name", "x")],
+        };
+        client.ChapterCounts[10] = 5;
+        client.ChapterCounts[20] = 1;
+        var notifier = new RecordingNotifier();
+
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier).RunFullPollAsync();
+
+        // Work 10 is queued by its staler record, the follow.
+        Assert.Equal(["work:10", "work:20"], client.Requests);
+        Assert.Equal(1, posted);
+        var note = Assert.Single(notifier.Posted);
+        // Against the higher baseline: the follow had already seen chapter 4.
+        Assert.Equal(("Both", "1 new chapter posted (5 total)"), (note.Title, note.Body));
+        Assert.Equal(5, store.GetSubscription("work:10")!.LastSeenChapterCount);
+        Assert.Equal(5, store.GetWork(10)!.LastSeenChapterCount);
+        Assert.True(store.GetSubscription("work:10")!.LastCheckedAt > T0);
+        Assert.True(store.GetWork(10)!.LastCheckedAt > T0);
+    }
+
+    [Fact]
     public async Task FullPoll_LoggedOutSkipsAccountSubscriptions()
     {
         using var store = LibraryStore.OpenInMemory();
