@@ -48,6 +48,10 @@ final class ReaderLayoutTests: XCTestCase {
                           "-reader.lineSpacingPt.\(device)", "6",
                           "-reader.paragraphSpacingPt.\(device)", "16"]
         }
+        // The keyboard test's way to the New Profile prompt where the Aa menu
+        // won't open (see openNewProfilePrompt). Only there: full screen
+        // checks no button is left.
+        if name.contains("test_keyboard") { arguments.append("-demoNewProfileButton") }
         app.launchArguments = arguments
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .portrait
@@ -370,47 +374,24 @@ final class ReaderLayoutTests: XCTestCase {
             }
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
-        let tapStart = Date()
         settings.tap()
-        // XCTest's tap waits (up to 60 s) for the app's animations to end.
-        let tapTime = Int(Date().timeIntervalSince(tapStart))
         capture("05-reader-settings-menu")
         // Any element type: a menu from iPhone Duo's vertical strip may not
         // draw its items as buttons.
         let profile = menuItem(labeled: "Profile")
-        if !profile.waitForExistence(timeout: 4) {
-            // On iPhone Duo (iOS 27.1, Xcode Cloud) the tap on Reader
-            // settings in the vertical strip opens no menu at all (no menu,
-            // menu item or popover in the tree) and the app never settles:
-            // XCTest waits 60 s for its animations. XCTest may aim the tap
-            // from the app's frame, which the Duo gets wrong (see `tap`), so
-            // tap the button's centre measured from the window instead.
-            let first = menuState()
-            logScreenshot("05-reader-settings-menu")
-            // Where the strip's items say they are: the window tap at Aa's
-            // frame opened Work options' menu instead.
-            let strip = ["Remove from Library", "Work options", "Chapters", "Reader settings"].map { name in
-                let item = app.buttons[name].firstMatch
-                return item.exists ? "\(name) \(item.frame) hittable \(item.isHittable)" : "\(name) missing"
-            }
-            let frames = "window \(app.windows.firstMatch.frame), app \(app.frame), strip \(strip)"
-            print("Reader settings menu without a Profile item (\(frames)):\n\(app.debugDescription)")
-            if settings.exists {
-                tap(CGPoint(x: settings.frame.midX, y: settings.frame.midY))
-                capture("05-reader-settings-menu-again")
-                logScreenshot("05-reader-settings-menu-again")
-            }
-            if !profile.waitForExistence(timeout: 4) {
-                // Does any menu open from the strip? Chapters and the work
-                // page's options are menus there too; a long press is the
-                // other way into one.
-                let others = [
-                    probe("Reader settings, long press", settings) { $0.press(forDuration: 1) },
-                    probe("Chapters", app.buttons["Chapters"].firstMatch) { $0.tap() },
-                    probe("Work options", app.buttons["Work options"].firstMatch) { $0.tap() },
-                ].joined(separator: "; ")
-                XCTFail("the Profile submenu: \(frames); first tap (\(tapTime) s) \(first); window tap \(menuState()); \(others)")
-            }
+        guard profile.waitForExistence(timeout: 4) else {
+            // On Xcode Cloud's folded iPhone Duo (iOS 27.1) XCTest's taps on
+            // the reader's strip menus (Aa, Chapters) open nothing, by tap,
+            // long press or a tap aimed from the window, while the work's own
+            // menu in the same strip opens; by hand Aa's menu opens there, on
+            // the simulator and the device. This test is about the keyboard,
+            // so it opens the prompt with demo mode's stand-in button instead.
+            print("Reader settings opened no menu \(menuState()):\n\(app.debugDescription)")
+            let button = app.buttons["reader.newProfileTestButton"].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 4), "the reader's New Profile test button")
+            button.tap()
+            XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 4), "the profile name prompt")
+            return
         }
         profile.tap()
         let save = menuItem(labeled: "Save Current as New Profile...")
@@ -642,8 +623,7 @@ final class ReaderLayoutTests: XCTestCase {
             [XCUIElement.ElementType.button, .menuItem, .cell, .staticText, .other].map(\.rawValue) as NSArray)).firstMatch
     }
 
-    /// What a menu that didn't show its items left on screen, for a failure
-    /// message: Xcode Cloud's check shows the message, not the result bundle.
+    /// What a menu that didn't show its items left on screen, for the test log.
     private func menuState() -> String {
         let focused = app.descendants(matching: .any)
             .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
@@ -656,33 +636,6 @@ final class ReaderLayoutTests: XCTestCase {
         return "(keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder), "
             + "menus: \(app.menus.count), menu items: \(app.menuItems.count), popovers: \(app.popovers.count), "
             + "windows: \(app.windows.count), Profile in SpringBoard: \(elsewhere), buttons: \(buttons))"
-    }
-
-    /// Opens a menu button and says what changed on screen, then closes
-    /// whatever opened. For a failure message, so it never fails itself.
-    private func probe(_ name: String, _ button: XCUIElement, _ open: (XCUIElement) -> Void) -> String {
-        guard button.exists else { return "\(name): no such button" }
-        let before = app.descendants(matching: .any).count
-        let start = Date()
-        open(button)
-        let time = Int(Date().timeIntervalSince(start))
-        sleep(2)
-        let after = app.descendants(matching: .any).count
-        logScreenshot("05-probe-\(name)")
-        let state = "\(name) (\(time) s): elements \(before) → \(after), menus \(app.menus.count), "
-            + "menu items \(app.menuItems.count), popovers \(app.popovers.count), windows \(app.windows.count)"
-        let dismiss = app.otherElements["PopoverDismissRegion"].firstMatch
-        if dismiss.exists { dismiss.tap(); sleep(1) }
-        return state
-    }
-
-    /// Prints a screenshot to the test log as base64 JPEG: on iPhone Duo in
-    /// Xcode Cloud the test run's result bundle (where `capture` attaches
-    /// its screenshots) never comes back, but the log does.
-    private func logScreenshot(_ name: String) {
-        let shot = XCUIScreen.main.screenshot()
-        guard let jpeg = shot.image.jpegData(compressionQuality: 0.5) else { return }
-        print("SCREENSHOT-BEGIN \(name)\n\(jpeg.base64EncodedString(options: .lineLength76Characters))\nSCREENSHOT-END \(name)")
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
