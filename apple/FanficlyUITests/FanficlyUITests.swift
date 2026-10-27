@@ -374,33 +374,31 @@ final class ReaderLayoutTests: XCTestCase {
             }
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
+        // On Xcode Cloud's folded iPhone Duo (iOS 27.1) XCTest's taps on the
+        // reader's strip menus (Aa, Chapters) open nothing, by tap, long
+        // press or a tap aimed from the window, while the work's own menu in
+        // the same strip opens; by hand Aa's menu opens there, on the
+        // simulator and the device. The tap also leaves the app busy for a
+        // minute, and an alert asked for then never shows. This test is about
+        // the keyboard, so in the strip it opens the prompt with demo mode's
+        // stand-in button and leaves Aa alone. The strip stacks the items,
+        // so Chapters sits right above Aa.
+        let chapters = app.buttons["Chapters"].firstMatch
+        if chapters.exists, abs(chapters.frame.midX - settings.frame.midX) < 1,
+           chapters.frame.midY < settings.frame.midY {
+            let button = app.buttons["reader.newProfileTestButton"].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 4), "the reader's New Profile test button")
+            button.tap()
+            XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 8),
+                          "the profile name prompt \(menuState())")
+            return
+        }
         settings.tap()
         capture("05-reader-settings-menu")
         // Any element type: a menu from iPhone Duo's vertical strip may not
         // draw its items as buttons.
         let profile = menuItem(labeled: "Profile")
-        guard profile.waitForExistence(timeout: 4) else {
-            // On Xcode Cloud's folded iPhone Duo (iOS 27.1) XCTest's taps on
-            // the reader's strip menus (Aa, Chapters) open nothing, by tap,
-            // long press or a tap aimed from the window, while the work's own
-            // menu in the same strip opens; by hand Aa's menu opens there, on
-            // the simulator and the device. This test is about the keyboard,
-            // so it opens the prompt with demo mode's stand-in button instead.
-            // Only there: anywhere else a menu that won't open is a real bug.
-            // The strip stacks the items, so Chapters sits right above Aa.
-            let chapters = app.buttons["Chapters"].firstMatch
-            guard chapters.exists, abs(chapters.frame.midX - settings.frame.midX) < 1,
-                  chapters.frame.midY < settings.frame.midY else {
-                XCTFail("the Profile submenu \(menuState())")
-                return
-            }
-            print("Reader settings opened no menu in the vertical strip \(menuState())")
-            let button = app.buttons["reader.newProfileTestButton"].firstMatch
-            XCTAssertTrue(button.waitForExistence(timeout: 4), "the reader's New Profile test button")
-            button.tap()
-            XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 4), "the profile name prompt")
-            return
-        }
+        XCTAssertTrue(profile.waitForExistence(timeout: 4), "the Profile submenu \(menuState())")
         profile.tap()
         let save = menuItem(labeled: "Save Current as New Profile...")
         XCTAssertTrue(save.waitForExistence(timeout: 4), "Save Current as New Profile…")
