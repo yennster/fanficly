@@ -170,6 +170,74 @@ public sealed class SubscriptionPollerTests
         Assert.Equal("New work: Revealed Gift", notifier.Posted[^1].Body);
     }
 
+    /// <summary>Follow tapped before the author's list loaded: no baseline. The
+    /// first poll must neither alert for the back catalogue nor swallow a work
+    /// posted after the follow (#151). Works last updated since the day before the
+    /// follow (AO3's UTC days) are dated from their work page; an old one that got a
+    /// chapter stays quiet.</summary>
+    [Fact]
+    public async Task FollowedBeforeTheListLoadedAlertsOnlyForWorksPostedSince()
+    {
+        var followDay = new DateTimeOffset(DateTime.Today.AddDays(-3));
+        DateTimeOffset Day(int offset) => followDay.AddDays(offset);
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new FollowedAuthor("prolific", "Prolific", followedAt: followDay.AddHours(15)));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.AuthorWorks["prolific"] =
+        [
+            Summary(90, "Brand New") with { ChapterCount = 3, UpdatedAt = Day(2) },
+            Summary(10, "Old, Just Updated") with { ChapterCount = 7, UpdatedAt = Day(1) },
+            Summary(85, "Posted After A Follow East Of UTC") with { ChapterCount = 2, UpdatedAt = Day(-1) },
+            Summary(80, "Back Catalogue") with { ChapterCount = 2, UpdatedAt = Day(-5) },
+            Summary(70) with { UpdatedAt = Day(-40) },
+        ];
+        client.ChapterCounts[90] = 3;
+        client.PublishedDates[90] = Day(2);
+        client.ChapterCounts[10] = 7;
+        client.PublishedDates[10] = Day(-400);
+        client.ChapterCounts[85] = 2;
+        client.PublishedDates[85] = Day(-1);
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, null, notifier);
+
+        Assert.Equal(2, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal("2 new works posted", Assert.Single(notifier.Posted).Body);
+        // Only the works updated since the day before the follow were looked up.
+        Assert.Equal(["author:prolific", "work:90", "work:10", "work:85"], client.Requests);
+        Assert.Equal([10, 70, 80, 85, 90], store.GetFollowedAuthor("prolific")!.KnownWorkIds.Order());
+
+        // With a baseline the usual rule applies, with no extra requests.
+        client.AuthorWorks["prolific"] = [Summary(95, "Next"), Summary(10) with { ChapterCount = 8, UpdatedAt = DateTimeOffset.Now }];
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal("New work: Next", notifier.Posted[^1].Body);
+        Assert.Equal(["author:prolific", "work:90", "work:10", "work:85", "author:prolific"], client.Requests);
+    }
+
+    /// <summary>A new work whose page won't load isn't guessed at, and isn't lost:
+    /// it stays out of the baseline, so the next poll dates it again.</summary>
+    [Fact]
+    public async Task WithNoBaselineAnUndatableWorkIsDatedAgainNextPoll()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new FollowedAuthor("quiet", "Quiet"));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.AuthorWorks["quiet"] = [Summary(5) with { UpdatedAt = DateTimeOffset.Now }]; // no metadata: 404
+        var notifier = new RecordingNotifier();
+        var poller = new SubscriptionPoller(client, store, null, notifier);
+
+        Assert.Equal(0, await poller.CheckFollowedAuthorsAsync());
+        Assert.Empty(notifier.Posted);
+        Assert.Empty(store.GetFollowedAuthor("quiet")!.KnownWorkIds);
+        Assert.Equal(0, poller.FailedChecks);
+
+        client.ChapterCounts[5] = 1;
+        client.PublishedDates[5] = DateTimeOffset.Now;
+        Assert.Equal(1, await poller.CheckFollowedAuthorsAsync());
+        Assert.Equal([5], store.GetFollowedAuthor("quiet")!.KnownWorkIds);
+    }
+
     /// <summary>Signed in, a guest page means the session expired (#131): the
     /// public works still alert, and the poller says so.</summary>
     [Fact]
