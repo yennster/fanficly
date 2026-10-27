@@ -542,7 +542,18 @@ struct WrapShareCard: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
-                Image(systemName: "book.pages")
+                // The app icon itself (AppIconMark, written by bin/make-icon.swift),
+                // in the home-screen icon's continuous corners.
+                Image("AppIconMark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+                    .clipShape(RoundedRectangle(cornerRadius: 18 * 0.2237, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18 * 0.2237, style: .continuous)
+                            .strokeBorder(.white.opacity(0.35), lineWidth: 0.5)
+                    )
+                    .accessibilityHidden(true)
                 Text("Made with Fanficly")
             }
             .font(.footnote.weight(.semibold))
