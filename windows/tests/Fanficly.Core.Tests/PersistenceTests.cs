@@ -2137,7 +2137,7 @@ public sealed class PersistenceTests : IDisposable
         SeedSubscriptionRecords(ctx);
         var client = new PollerFakeClient { SubscriptionsResponse = [] };
 
-        var poller = new SubscriptionPoller(client, ctx, "reader");
+        var poller = new SubscriptionPoller(client, ctx, "reader", syncStamps: new InMemoryKeyValueStore());
         await poller.SyncSubscriptionListAsync();
 
         var remaining = ctx.All<SubscriptionRecord>();
@@ -2161,7 +2161,7 @@ public sealed class PersistenceTests : IDisposable
             ],
         };
 
-        var poller = new SubscriptionPoller(client, ctx, "reader");
+        var poller = new SubscriptionPoller(client, ctx, "reader", syncStamps: new InMemoryKeyValueStore());
         await poller.SyncSubscriptionListAsync();
 
         Assert.Equal(new HashSet<string> { "work:1", "user:carol" }, ctx.All<SubscriptionRecord>().Select(r => r.Key).ToHashSet());

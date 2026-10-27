@@ -32,7 +32,7 @@ public sealed class SubscriptionPollerTests
         client.AuthorWorks["never-checked"] = [Summary(1), Summary(2, "Brand New")];
         var notifier = new RecordingNotifier();
 
-        var posted = await new SubscriptionPoller(client, store, "reader", notifier).RunFullPollAsync();
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier, new InMemoryKeyValueStore()).RunFullPollAsync();
 
         // Never checked first, then the oldest stamp.
         Assert.Equal(["author:never-checked", "work:20", "work:10"], client.Requests);
@@ -87,7 +87,7 @@ public sealed class SubscriptionPollerTests
         store.Save();
         var client = new PollerFakeClient { SubscriptionsError = AO3Exception.Unauthorized() };
 
-        Assert.Equal(0, await new SubscriptionPoller(client, store, "reader").RunFullPollAsync());
+        Assert.Equal(0, await new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore()).RunFullPollAsync());
         Assert.NotNull(store.GetWork(404)!.LastCheckedAt);
         Assert.NotNull(store.GetSubscription("work:bad")!.LastCheckedAt);
         Assert.Equal(1, store.GetWork(404)!.LastSeenChapterCount);
