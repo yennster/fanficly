@@ -414,8 +414,10 @@ struct ReaderView: View {
         // The home-indicator inset is unaffected.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // On iPhone Duo the page runs under the side column of status bar
-        // and toolbar strip, which floats over it, as in Apple Books.
-        .modifier(RunUnderSideColumn(controlsHidden: isUIMinimized, edges: $sideColumnEdges))
+        // and toolbar strip, which floats over it, as in Apple Books (one page
+        // on screen: see RunUnderSideColumn).
+        .modifier(RunUnderSideColumn(enabled: mode != .pageByPage || spreadLayout == nil,
+                                     controlsHidden: isUIMinimized, edges: $sideColumnEdges))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
@@ -1554,7 +1556,6 @@ struct ReaderView: View {
         // under the bar) that pushed the text down and ran the last line ~29 pt
         // past the page, where it was cut off (1.12.0, seen at 100% margins).
         .ignoresSafeArea(.container)
-        .background(PagingInsetsOff(active: !sideColumnEdges.isEmpty))
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())

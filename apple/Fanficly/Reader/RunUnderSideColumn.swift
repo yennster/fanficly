@@ -12,8 +12,12 @@ import UIKit
 /// height, and only a side whose inset the other side doesn't match. An
 /// iPhone in landscape (a compact height) keeps the insets around its sensor
 /// housing, which needn't match on both sides. A sidebar's inset is wider
-/// than any strip and is kept too.
+/// than any strip and is kept too. Not while an open book (a two-page
+/// spread, the Duo unfolded) shows: its pages are placed from the fold, and
+/// run under the column the spread came out a column's width to the left.
 struct RunUnderSideColumn: ViewModifier {
+    /// False keeps every inset (a two-page spread is showing).
+    let enabled: Bool
     /// The controls are hidden: hiding the status bar may take the column's
     /// inset away, so the page keeps running under it until they're back, or
     /// for one layout pass on showing them the page would narrow.
@@ -36,11 +40,13 @@ struct RunUnderSideColumn: ViewModifier {
             // whether or not it runs into them.
             .background {
                 GeometryReader { geo in
-                    let column = Self.columnEdges(geo.safeAreaInsets, isPhone: Self.isPhone,
-                                                  compactHeight: verticalSizeClass == .compact)
+                    let column = enabled
+                        ? Self.columnEdges(geo.safeAreaInsets, isPhone: Self.isPhone,
+                                           compactHeight: verticalSizeClass == .compact)
+                        : []
                     Color.clear
                         .onChange(of: column, initial: true) { _, value in
-                            if !(controlsHidden && value.isEmpty) { edges = value }
+                            if !(enabled && controlsHidden && value.isEmpty) { edges = value }
                         }
                 }
             }
