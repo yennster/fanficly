@@ -208,7 +208,7 @@ struct SavedWorkReader: View {
                 _ = WorkPersistence.upsert(payload: fetched, into: context)
                 iCloudSyncManager.shared.queueBackup(context: context)
             } catch {
-                saveError = "Couldn't get the story's text from AO3, so nothing was saved: \(error)"
+                saveError = "Couldn't get the story's text from AO3, so nothing was saved: \(error.localizedDescription)"
                 return
             }
         }
@@ -216,7 +216,7 @@ struct SavedWorkReader: View {
             _ = try await client.downloadEPUB(workId: work.ao3Id)
             isDownloaded = true
         } catch {
-            saveError = "The text is saved for offline reading, but the EPUB download failed: \(error)"
+            saveError = "The text is saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }
     }
 }

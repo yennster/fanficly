@@ -150,14 +150,10 @@ struct SubscriptionsView: View {
             // Fetch the subscription list first — this is fast and updates
             // the UI immediately.
             _ = try await poller.syncSubscriptionList()
-        } catch let AO3Error.parseFailed(reason) {
-            lastError = "Couldn't parse AO3's response: \(reason)"
         } catch AO3Error.unauthorized {
             // Signed in here, so AO3 dropped the session (#131).
             auth.markSessionExpired()
             lastError = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
-        } catch let AO3Error.network(underlying) {
-            lastError = "Network: \(underlying)"
         } catch {
             lastError = error.localizedDescription
         }
@@ -267,8 +263,13 @@ struct BookmarksView: View {
             } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
                 SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load bookmarks", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load bookmarks", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await refresh() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView("No bookmarks yet", systemImage: "bookmark",
                     description: Text("Works you bookmark on AO3 will appear here."))
@@ -339,7 +340,7 @@ struct BookmarksView: View {
             // `.task` re-runs when the view re-appears. Only real errors show.
             guard !Task.isCancelled else { return }
             sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
+            errorMessage = sessionExpired ? AuthState.message(for: error) : error.localizedDescription
         }
     }
 
@@ -367,7 +368,7 @@ struct BookmarksView: View {
             guard !Task.isCancelled, paging.isCurrent(generation) else { return }
             // The bookmarks so far stay; the footer says why and offers Try Again (#154).
             sessionExpired = auth.explains(error)
-            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more bookmarks: \(error)"
+            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more bookmarks: \(error.localizedDescription)"
             paging.fail(message, generation: generation)
             UIAccessibility.post(notification: .announcement, argument: message)
         }
@@ -487,8 +488,13 @@ struct ReadingListView: View {
             } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
                 SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load \(list.title)", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load \(list.title)", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await refresh() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView(list.emptyTitle, systemImage: list.systemImage,
                     description: Text(list.emptyDescription))
@@ -592,8 +598,7 @@ struct ReadingListView: View {
         switch error {
         case AO3Error.unauthorized: "Your AO3 login has expired. Sign in again."
         case AO3Error.parseFailed(let reason): reason
-        case AO3Error.rateLimited: "AO3 is asking us to slow down. Try again in a minute."
-        default: "\(error)"
+        default: error.localizedDescription
         }
     }
 }

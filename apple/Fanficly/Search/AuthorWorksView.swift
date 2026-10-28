@@ -47,8 +47,13 @@ struct AuthorWorksView: View {
             } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
                 SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load works", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await loadFirst() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView("No works to show", systemImage: "person.slash",
                     description: Text("This author has no works published."))
@@ -122,7 +127,7 @@ struct AuthorWorksView: View {
             totalPages = result.totalPages
         } catch {
             sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
+            errorMessage = sessionExpired ? AuthState.message(for: error) : error.localizedDescription
         }
     }
 
@@ -139,7 +144,7 @@ struct AuthorWorksView: View {
             totalPages = result.totalPages
         } catch {
             sessionExpired = auth.explains(error)
-            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more works: \(error)"
+            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more works: \(error.localizedDescription)"
             if paging.fail(message, generation: generation) {
                 UIAccessibility.post(notification: .announcement, argument: message)
             }

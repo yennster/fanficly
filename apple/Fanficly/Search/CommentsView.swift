@@ -178,7 +178,7 @@ struct CommentsView: View {
             currentPage = page.currentPage
             totalPages = page.totalPages
         } catch {
-            errorMessage = "\(error)"
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -226,7 +226,7 @@ struct CommentsView: View {
         } catch AO3Error.commentRejected(let message) {
             postError = message
         } catch {
-            postError = "Couldn't post: \(error.localizedDescription). Your comment may be awaiting moderation, or try again."
+            postError = "Couldn't post. \(error.localizedDescription) Your comment may be awaiting moderation, or try again."
         }
     }
 }

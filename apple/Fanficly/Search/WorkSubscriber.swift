@@ -51,9 +51,9 @@ final class WorkSubscriber {
         } catch AO3Error.http(let status) {
             result = (title: "Couldn't subscribe", message: "AO3 returned HTTP \(status). Try again later.")
         } catch AO3Error.network(let underlying) {
-            result = (title: "Couldn't subscribe", message: "Network: \(underlying). If the request reached AO3, you may already be subscribed; check your Subscriptions page before trying again.")
+            result = (title: "Couldn't subscribe", message: "\(AO3Error.network(underlying: underlying).localizedDescription) If the request reached AO3, you may already be subscribed; check your Subscriptions page before trying again.")
         } catch {
-            result = (title: "Couldn't subscribe", message: "\(error)")
+            result = (title: "Couldn't subscribe", message: error.localizedDescription)
         }
     }
 

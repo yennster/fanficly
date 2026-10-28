@@ -365,6 +365,39 @@ public enum AO3Error: Error, Sendable, Equatable {
     case commentRejected(message: String)
     /// AO3 didn't confirm a subscription, with its own reason when it gave one.
     case subscribeRejected(message: String)
+    /// A 403 that isn't AO3's login page: AO3 refused the request itself, so
+    /// signing in again wouldn't help.
+    case forbidden
+    /// A 403 from Cloudflare's bot protection in front of AO3 (a challenge or
+    /// a block page), which answers signed-out readers too.
+    case blockedByProtection
+}
+
+extension AO3Error: LocalizedError {
+    /// The sentence a screen shows for this error, so no view prints the enum.
+    public var errorDescription: String? { message }
+
+    private var message: String {
+        switch self {
+        case .loginFailed(let reason): reason
+        case .rateLimited: "AO3 is asking us to slow down. Try again in a minute."
+        // Not "sign in again": a guest opening a restricted work gets this too.
+        case .unauthorized: "AO3 asked for a sign-in first. Sign in, then try again."
+        // Some reasons are already a sentence for the reader ("Your AO3 reading
+        // history is turned off…"); the rest name what didn't parse.
+        case .parseFailed(let reason) where reason.hasSuffix(".") || reason.hasSuffix("!") || reason.hasSuffix("?"):
+            reason
+        case .parseFailed(let reason): "Couldn't read AO3's response: \(reason)."
+        case .http(let status) where (500...599).contains(status):
+            "AO3 isn't responding right now (HTTP \(status)). This is on AO3's side; try again in a minute."
+        case .http(let status): "AO3 returned an error (HTTP \(status))."
+        case .network(let underlying):
+            "Couldn't reach AO3: \(underlying)" + (underlying.hasSuffix(".") ? "" : ".")
+        case .kudosRejected(let message), .commentRejected(let message), .subscribeRejected(let message): message
+        case .forbidden: "AO3 refused this request. Try again later, or open the page on the AO3 website."
+        case .blockedByProtection: "AO3's protection blocked the request. Wait a few minutes, then try again."
+        }
+    }
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -1138,7 +1171,8 @@ public actor AO3Client: AO3ClientProtocol {
             if passing.contains(http.statusCode) { return (data, http) }
             switch http.statusCode {
             case 200..<300, 302: return (data, http)
-            case 401, 403:        throw AO3Error.unauthorized
+            case 401:             throw AO3Error.unauthorized
+            case 403:             throw Self.forbiddenError(data: data, response: http)
             case 429:
                 // Rate-limited. Only retry when AO3's own Retry-After header
                 // says the window is short enough to politely wait out;
@@ -1169,6 +1203,36 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.network(underlying: error.localizedDescription)
         }
     }
+
+    /// What a 403 means. Only AO3's login page (or a redirect that ended there)
+    /// is a sign-in problem. Cloudflare's bot challenge and block pages answer
+    /// 403 to signed-out readers too, and AO3's own "forbidden" pages don't
+    /// change with a new session, so telling the reader to sign in again (or
+    /// marking their session expired) would just fail the same way. AO3 is
+    /// always served through Cloudflare, so `Server: cloudflare` alone can't
+    /// tell the two apart: the `cf-mitigated` header and the challenge page's
+    /// markup can.
+    static func forbiddenError(data: Data, response: HTTPURLResponse) -> AO3Error {
+        // Cloudflare first: it can challenge the login page itself (signing in,
+        // or a stale session's redirect there).
+        if response.value(forHTTPHeaderField: "cf-mitigated") != nil { return .blockedByProtection }
+        let html = String(decoding: data, as: UTF8.self)
+        if cloudflareMarkers.contains(where: { html.localizedCaseInsensitiveContains($0) }) {
+            return .blockedByProtection
+        }
+        let path = response.url?.path ?? ""
+        if path.hasPrefix("/users/login") || path.hasPrefix("/auth_error") { return .unauthorized }
+        if AO3PageCheck.isLoginPage(html: html) { return .unauthorized }
+        return .forbidden
+    }
+
+    /// Markup only Cloudflare's challenge ("Just a moment…") and block
+    /// ("Attention Required!", error 1020) pages carry. Not
+    /// `/cdn-cgi/challenge-platform/`: Cloudflare injects that script into
+    /// ordinary pages too.
+    private static let cloudflareMarkers = [
+        "_cf_chl_opt", "cf-error-details", "<title>Just a moment", "Attention Required! | Cloudflare",
+    ]
 
     /// Exponential backoff before a retry: ~0.5s, then ~1s.
     private static func backoffNanos(_ attempt: Int) -> UInt64 {

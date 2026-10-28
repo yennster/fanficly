@@ -69,8 +69,13 @@ struct WorkDetailView: View {
                         AO3BookmarkSheet(workId: workId, workTitle: payload.summary.title)
                     }
             } else if let errorMessage {
-                ContentUnavailableView("Couldn't load work", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load work", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { retry() }
+                }
             } else {
                 ProgressView("Loading…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -155,6 +160,12 @@ struct WorkDetailView: View {
 
     // MARK: - Actions
 
+    /// Clears the error first: the error state shows until `errorMessage` is nil.
+    private func retry() {
+        errorMessage = nil
+        Task { await load() }
+    }
+
     private func load() async {
         epubURL = WorkPersistence.epubURL(workId: workId)
         followed = WorkPersistence.isFollowed(workId: workId, in: context)
@@ -164,7 +175,7 @@ struct WorkDetailView: View {
             payload = fetched
             WorkPersistence.recordView(summary: fetched.summary, into: context)
         } catch {
-            errorMessage = "\(error)"
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -177,7 +188,7 @@ struct WorkDetailView: View {
             let url = try await client.downloadEPUB(workId: payload.summary.id)
             epubURL = url
         } catch {
-            saveError = "The text is saved for offline reading, but the EPUB download failed: \(error)"
+            saveError = "The text is saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }
     }
 
@@ -225,12 +236,12 @@ final class KudosGiver {
             result = (title: "Couldn't leave kudos", message: message)
         } catch AO3Error.rateLimited {
             result = (title: "Couldn't leave kudos", message: "AO3 is asking us to slow down. Try again in a few minutes.")
-        } catch AO3Error.http(let status) {
-            result = (title: "Couldn't leave kudos", message: "AO3 returned HTTP \(status). Try again later.")
+        } catch AO3Error.http(let status) where !(500...599).contains(status) {
+            result = (title: "Couldn't leave kudos", message: "AO3 returned an error (HTTP \(status)). Try again later.")
         } catch AO3Error.network(let underlying) {
-            result = (title: "Couldn't leave kudos", message: "Network: \(underlying). If the request reached AO3, the kudos may have landed; trying again is safe.")
+            result = (title: "Couldn't leave kudos", message: "Couldn't reach AO3: \(underlying) If the request reached AO3, the kudos may have landed; trying again is safe.")
         } catch {
-            result = (title: "Couldn't leave kudos", message: "\(error)")
+            result = (title: "Couldn't leave kudos", message: error.localizedDescription)
         }
     }
 }
