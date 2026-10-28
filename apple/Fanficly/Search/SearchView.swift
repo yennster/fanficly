@@ -48,6 +48,7 @@ struct SearchView: View {
     @State private var showingHelp = false
     @State private var showingSaveDialog = false
     @State private var saveName = ""
+    @State private var showingAlertLimit = false
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -68,6 +69,19 @@ struct SearchView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Saves the keywords, filters and sort so you can re-run it later.")
+        }
+        .alert("Too many alerts", isPresented: $showingAlertLimit) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You can have new-fic alerts on for up to \(SavedSearchAlerts.maxAlertingSearches) saved searches. Turn one off to add another.")
+        }
+        // Saved searches with alerts on are checked here too: the background
+        // refresh rarely has time for an AO3 search (see
+        // `SubscriptionPoller.checkStaleSavedSearches`).
+        .task {
+            guard !FanficlyApp.isDemoMode else { return }
+            let poller = SubscriptionPoller(client: client, context: context, username: auth.username)
+            _ = await poller.checkStaleSavedSearches()
         }
         .sheet(isPresented: $showingFilters) {
             WorkFilterSheet(filters: $active) {
@@ -472,13 +486,36 @@ struct SearchView: View {
                                         Text("Sort: \(col.displayName) \(saved.sortDirection == "asc" ? "↑" : "↓")")
                                             .font(.caption2).foregroundStyle(.tertiary)
                                     }
+                                    if saved.alertsEnabled {
+                                        alertStatus(saved)
+                                    }
                                 }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    toggleAlerts(saved)
+                                } label: {
+                                    Label(saved.alertsEnabled ? "Alerts Off" : "Alerts On",
+                                          systemImage: saved.alertsEnabled ? "bell.slash" : "bell")
+                                }
+                                .tint(.indigo)
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
-                                    iCloudSyncManager.recordDeletion(.search, key: saved.name)
-                                    context.delete(saved)
-                                    try? context.save()
+                                    delete(saved)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .contextMenu {
+                                Button {
+                                    toggleAlerts(saved)
+                                } label: {
+                                    Label(saved.alertsEnabled ? "Turn Off New-Fic Alerts" : "Alert Me About New Fics",
+                                          systemImage: saved.alertsEnabled ? "bell.slash" : "bell")
+                                }
+                                Button(role: .destructive) {
+                                    delete(saved)
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -490,6 +527,15 @@ struct SearchView: View {
             .listStyle(.plain)
             .scrollDismissesKeyboard(.immediately)
         }
+    }
+
+    /// "Alerts on", or how many alerted fics haven't been looked at yet.
+    private func alertStatus(_ saved: SavedSearch) -> some View {
+        let newCount = saved.alertNewWorkIds.count
+        return Label(newCount > 0 ? "\(newCount) new" : "Alerts on",
+                     systemImage: newCount > 0 ? "bell.badge.fill" : "bell.fill")
+            .font(.caption.weight(newCount > 0 ? .semibold : .regular))
+            .foregroundStyle(newCount > 0 ? Color.accentColor : Color.secondary)
     }
 
     // MARK: - Suggestions
@@ -777,6 +823,7 @@ struct SearchView: View {
     }
 
     private func load(_ saved: SavedSearch) {
+        SavedSearchAlerts.markSeen(saved, context: context)
         userPickedSort = true
         load(prompt: saved.prompt,
              sortColumn: AO3SearchFilters.SortColumn(rawValue: saved.sortColumn) ?? .bestMatch,
@@ -811,10 +858,15 @@ struct SearchView: View {
         let prompt = currentFilters.promptText()
         let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == name })
         if let existing = (try? context.fetch(descriptor))?.first {
+            // Alerts for an edited search start over: what the old search
+            // saw says nothing about the new one.
+            let edited = existing.prompt != prompt
+            if edited { SavedSearchAlerts.resetBaseline(of: existing) }
             existing.prompt = prompt
             existing.sortColumn = active.sortColumn.rawValue
             existing.sortDirection = active.sortDirection.rawValue
             existing.savedAt = .now
+            if edited && existing.alertsEnabled { Task { await takeAlertBaseline(existing) } }
         } else {
             context.insert(SavedSearch(
                 name: name,
@@ -823,6 +875,35 @@ struct SearchView: View {
                 sortDirection: active.sortDirection.rawValue
             ))
         }
+        try? context.save()
+    }
+
+    private func delete(_ saved: SavedSearch) {
+        iCloudSyncManager.recordDeletion(.search, key: saved.name)
+        context.delete(saved)
+        try? context.save()
+    }
+
+    /// Switches a saved search's new-fic alerts (#309) on or off, up to
+    /// `SavedSearchAlerts.maxAlertingSearches` at once.
+    private func toggleAlerts(_ saved: SavedSearch) {
+        let on = !saved.alertsEnabled
+        if on && !SavedSearchAlerts.canEnableMore(in: context) {
+            showingAlertLimit = true
+            return
+        }
+        SavedSearchAlerts.setAlerts(on, for: saved, context: context)
+        UIAccessibility.post(notification: .announcement,
+                             argument: on ? "New-fic alerts on for \(saved.name)" : "New-fic alerts off for \(saved.name)")
+        if on { Task { await takeAlertBaseline(saved) } }
+    }
+
+    /// Records what the search finds now, so only fics posted after this
+    /// alert. If it fails, the next check takes the baseline instead.
+    private func takeAlertBaseline(_ saved: SavedSearch) async {
+        guard !FanficlyApp.isDemoMode else { return }
+        let poller = SubscriptionPoller(client: client, context: context, username: auth.username)
+        _ = await poller.checkSavedSearch(saved)
         try? context.save()
     }
 }

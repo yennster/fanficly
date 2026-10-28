@@ -73,7 +73,22 @@ internal sealed class PollerFakeClient : IAO3Client
     public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => throw new NotSupportedException();
     public Task LogoutAsync() => throw new NotSupportedException();
     public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
-    public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => throw new NotSupportedException();
+    /// <summary>The results every search returns (saved search alert tests);
+    /// null fails the search.</summary>
+    public IReadOnlyList<AO3WorkSummary>? SearchResults { get; set; }
+    /// <summary>Searches come back as a guest page (an expired session).</summary>
+    public bool SearchServedAsGuest { get; set; }
+    /// <summary>The filters each search ran with.</summary>
+    public List<AO3SearchFilters> SearchFilters { get; } = [];
+
+    public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default)
+    {
+        Log("search");
+        lock (SearchFilters) SearchFilters.Add(filters);
+        return SearchResults is { } works
+            ? Task.FromResult(new AO3SearchResults(works, 1, 1, ServedAsGuest: SearchServedAsGuest))
+            : Task.FromException<AO3SearchResults>(AO3Exception.Http(500));
+    }
     public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => throw new NotSupportedException();
     public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default)
     {

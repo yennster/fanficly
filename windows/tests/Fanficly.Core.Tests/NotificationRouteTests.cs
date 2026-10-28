@@ -32,6 +32,9 @@ public class NotificationRouteTests
             new NotificationRoute.NewWorks(Author),
             // Pseuds can hold anything, including the launch string's separators.
             new NotificationRoute.NewWorks(new AuthorRef("odd_login", "A;B=C %41 ünïcode")),
+            new NotificationRoute.SearchMatch(13579),
+            // Saved search names and prompts hold quotes, colons and separators.
+            new NotificationRoute.SavedSearchMatches("Slow; burn", "tag:\"Slow Burn\" words:<10000 a=b"),
         ];
         foreach (var route in routes)
         {
@@ -102,4 +105,28 @@ public class NotificationRouteTests
     // MARK: - What the poller actually posts
     // The three "…Notification_opens…" cases live in CrossAreaTests (they
     // exercise SubscriptionPoller.NewChapterContent/NewWorkContent).
+
+    [Fact]
+    public void SavedSearchRoutes_LandInSearch_AndNeedAPrompt()
+    {
+        Assert.Equal(SidebarItem.Search, new NotificationRoute.SearchMatch(1).LandingTab(workIsSaved: true));
+        Assert.Equal(SidebarItem.Search, new NotificationRoute.SavedSearchMatches("x", "x").LandingTab(workIsSaved: false));
+        Assert.Equal(1, new NotificationRoute.SearchMatch(1).TargetWorkId);
+        Assert.Null(Route(("kind", "searchMatch")));
+        Assert.Null(Route(("kind", "savedSearch"), ("searchName", "Empty"), ("searchPrompt", "")));
+    }
+
+    [Fact]
+    public void SavedSearchNotifications_OpenTheWorkOrTheSearch()
+    {
+        var one = SubscriptionPoller.SavedSearchContent("Slow burn", "tag:\"Slow Burn\"", [new AO3WorkSummary { Id = 24680, Title = "Finally" }]);
+        Assert.Equal(("Slow burn", "New fic: Finally"), (one.Title, one.Body));
+        Assert.Equal(new NotificationRoute.SearchMatch(24680), Delivered(one.Payload));
+
+        var several = SubscriptionPoller.SavedSearchContent("Slow burn", "tag:\"Slow Burn\"",
+            [new AO3WorkSummary { Id = 1 }, new AO3WorkSummary { Id = 3 }, new AO3WorkSummary { Id = 2 }]);
+        Assert.Equal("3 new fics match this search", several.Body);
+        Assert.Equal("search-Slow burn-new-3", several.Identifier);
+        Assert.Equal(new NotificationRoute.SavedSearchMatches("Slow burn", "tag:\"Slow Burn\""), Delivered(several.Payload));
+    }
 }
