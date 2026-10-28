@@ -1936,6 +1936,37 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(center.proposedIds, [987654342])
     }
 
+    /// A restore run AO3 stops (429) keeps the stories it didn't reach
+    /// pending on this device, so the next restore offers them again, even
+    /// after a relaunch (a new center on the same defaults).
+    func test_stoppedRestoreRunKeepsTheRestPending() async throws {
+        let suite = "test.redownload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let ctx = try makeContext()
+        for id in [987654361, 987654362, 987654363] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: ctx)
+        }
+        try ctx.save()
+
+        let center = RestoreDownloadCenter(defaults: defaults)
+        center.noteRestoredText(workIds: [987654361, 987654362, 987654363])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654361, 987654362, 987654363])
+        let client = StubAO3Client()
+        client.downloadEPUBErrors[987654362] = AO3Error.rateLimited
+        center.startDownloads(client: client, signedIn: true)
+        for _ in 0..<100 where center.progress?.finished != true {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(center.progress?.stopped, .rateLimited)
+
+        let relaunched = RestoreDownloadCenter(defaults: defaults)
+        relaunched.proposeRedownload(context: ctx)
+        XCTAssertEqual(relaunched.proposedIds, [987654362, 987654363])
+        center.cancel()
+    }
+
     /// A launch sync that brings no new chapter text doesn't bring the
     /// prompt back: only the first restore, which added the text, offers it.
     func test_restoreOffersRedownloadOnlyWhenTextIsAdded() async throws {
@@ -1946,8 +1977,10 @@ final class PersistenceTests: XCTestCase {
             iCloudSyncManager.overrideBackupURL = nil
             try? FileManager.default.removeItem(at: url)
             center.dismissProposal()
+            UserDefaults.standard.removeObject(forKey: RestoreDownloadCenter.pendingKey)
         }
         center.dismissProposal()
+        UserDefaults.standard.removeObject(forKey: RestoreDownloadCenter.pendingKey)
 
         let phone = try makeContext()
         _ = WorkPersistence.upsert(payload: payload(id: 987654351, chapters: 2), into: phone)

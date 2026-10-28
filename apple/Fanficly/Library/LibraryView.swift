@@ -373,6 +373,7 @@ private struct LibraryFilterBar: View {
 
 #Preview {
     NavigationStack { LibraryView() }
+        .environment(AuthState())
 }
 
 struct FolderDetailView: View {

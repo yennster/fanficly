@@ -20,6 +20,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// ids it was asked for (SubscriptionPoller tests).
     var workPublishedAt: [Int: Date] = [:]
     private(set) var workMetadataCalls: [Int] = []
+    /// Scripted EPUB download failures by work id (RestoreDownloadCenter tests).
+    var downloadEPUBErrors: [Int: Error] = [:]
     /// Scripted export failure (WorkExporter tests).
     var exportError: Error?
     /// Scripted kudos answer, and the works kudos were sent for (KudosGiver tests).
@@ -77,7 +79,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         PopularSnapshot(fandoms: [], ships: [], characters: [])
     }
     func downloadEPUB(workId: Int) async throws -> URL {
-        URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
+        if let error = downloadEPUBErrors[workId] { throw error }
+        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
         if let exportError { throw exportError }
