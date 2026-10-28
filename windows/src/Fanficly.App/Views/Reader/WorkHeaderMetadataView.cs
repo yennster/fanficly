@@ -33,6 +33,7 @@ internal static class WorkHeaderMetadataView
         foreach (var category in summary.Categories) top.Children.Add(Chip(category, ChipKind.Category, brushes));
         root.Children.Add(top);
         root.Children.Add(StatsRow(summary, brushes));
+        foreach (var part in summary.Series) root.Children.Add(SeriesRow(part, brushes));
 
         var hasDetails = summary.Fandoms.Count > 0 || summary.Relationships.Count > 0
                          || summary.Characters.Count > 0 || summary.Freeforms.Count > 0;
@@ -72,6 +73,77 @@ internal static class WorkHeaderMetadataView
         root.Children.Add(toggle);
         root.Children.Add(details);
         return root;
+    }
+
+    /// <summary>"Part 2 of &lt;series&gt; ›", which opens the series, and "Next in
+    /// series →" when AO3 links a next work (SeriesPartRow).</summary>
+    private static FrameworkElement SeriesRow(AO3SeriesPart part, ReaderBrushes brushes)
+    {
+        var row = UI.UI.Flow(14, 4);
+        var label = $"Part {part.Position.ToString(CultureInfo.CurrentCulture)} of {part.Title}";
+        var books = Symbols.Icon("books.vertical", 11).A11yHidden();
+        books.Foreground = brushes.Accent;
+        books.VerticalAlignment = VerticalAlignment.Center;
+        var chevron = Symbols.Icon("chevron.right", 9).A11yHidden();
+        chevron.Foreground = brushes.Accent;
+        chevron.VerticalAlignment = VerticalAlignment.Center;
+        // A grid, not a horizontal stack, so a long series title wraps.
+        var text = LinkText(label, brushes, maxLines: 2);
+        var content = new Grid { ColumnSpacing = 4 };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(text, 1);
+        Grid.SetColumn(chevron, 2);
+        content.Children.Add(books);
+        content.Children.Add(text);
+        content.Children.Add(chevron);
+        var open = FlatLink(content, brushes);
+        AutomationProperties.SetAutomationId(open, $"work.series.{part.SeriesId}");
+        AutomationProperties.SetName(open, label);
+        AutomationProperties.SetHelpText(open, "Shows every work in this series.");
+        ToolTipService.SetToolTip(open, label);
+        open.Click += (_, _) => Routes.OpenSeries(part.SeriesId, part.Title);
+        row.Children.Add(open);
+
+        if (part.NextWorkId is { } next)
+        {
+            var nextButton = FlatLink(LinkText("Next in series →", brushes), brushes);
+            AutomationProperties.SetAutomationId(nextButton, $"work.series.{part.SeriesId}.next");
+            AutomationProperties.SetName(nextButton, $"Next in {part.Title}");
+            AutomationProperties.SetHelpText(nextButton,
+                $"Opens part {(part.Position + 1).ToString(CultureInfo.CurrentCulture)} of this series.");
+            ToolTipService.SetToolTip(nextButton, $"Next in {part.Title}");
+            nextButton.Click += (_, _) => Routes.OpenWork(next);
+            row.Children.Add(nextButton);
+        }
+        return row;
+    }
+
+    private static TextBlock LinkText(string text, ReaderBrushes brushes, int maxLines = 1) => new()
+    {
+        Text = text,
+        FontSize = 12,
+        FontWeight = FontWeights.Medium,
+        Foreground = brushes.Accent,
+        MaxLines = UI.UI.LineLimit(maxLines),
+        TextWrapping = TextWrapping.Wrap,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static Button FlatLink(UIElement content, ReaderBrushes brushes)
+    {
+        var button = new Button
+        {
+            Content = content,
+            Padding = new Thickness(0, 2, 4, 2),
+            MinHeight = 0,
+            MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        brushes.StyleFlat(button);
+        return button;
     }
 
     private static FrameworkElement MetadataRow(string label, IReadOnlyList<string> values, ChipKind kind, ReaderBrushes brushes)

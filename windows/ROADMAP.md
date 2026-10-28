@@ -229,6 +229,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** parser and client tests cover a new and an existing bookmark, the posted fields, a login redirect, AO3's error list, and a create that stays on the form; every `IAO3Client` implementation has the two methods.
 - **Touches:** `windows/src/Fanficly.Core/Networking/*`, `Parsing/WorkPageParser.cs`, `Demo/DemoAO3Client.cs`, `windows/src/Fanficly.App/Views/Account/`, `Views/Reader/{WorkDetailScreen,SavedWorkReaderScreen}.cs`, `Views/Routes.cs`, `windows/tests/Fanficly.Core.Tests/`.
 
+### RM-122 — Series page and "next in series"
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** The Windows port of the Apple app's RM-007 (#79: `SeriesParser`, `AO3Client.fetchSeries`, `SeriesView`), so a work in a series shows where it sits and opens the rest.
+- **Scope:** `SeriesParser.Parts` reads a work page's "Part N of <series>" spans into `AO3WorkSummary.Series` and `AO3WorkMetadata.Series`; `SeriesParser.Parse` reads `/series/<id>` (title, creators, description, work count, complete, works in order, pagination; unrevealed "Mystery Work" entries dropped; fails closed). `FetchSeriesAsync` on `IAO3Client` through the throttle. The reader's work header shows "Part N of <series> ›", which opens `SeriesScreen` (`Routes.OpenSeries`), and "Next in series →" when AO3 links a next work.
+- **Done when:** `SeriesParserTests` (one work, several in order, a mystery entry, co-creators, a work in one and in two series, the end-of-work module not duplicating, no series), endpoint, client and demo tests; a smoke step opening the series from demo work 90003; the PR lists what to check on Windows.
+- **Touches:** `windows/src/Fanficly.Core/Networking/`, `Parsing/{SeriesParser,WorkMetadataParser,WorkPageParser}.cs`, `Demo/DemoAO3Client.cs`, `windows/src/Fanficly.App/Views/{Routes.cs,Authors/SeriesScreen.cs,Authors/AuthorsModule.cs,Account/PagedWorksList.cs,Reader/WorkHeaderMetadataView.cs}`, `windows/tests/Fanficly.Core.Tests/`, `windows/tests/Fanficly.UITests/SmokeTests.cs`.
+
 ## Later (needs design, or a person on Windows)
 
 ### RM-108 — Find library works from Windows Search
@@ -305,7 +312,7 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 
 ## Ideas from the Apple roadmap
 
-The Apple app's roadmap on `main` has features that apply here too once they ship there: series pages (kudos is RM-115, creating AO3 bookmarks RM-119, bulk download for a folder RM-116, notes and personal tags the RM-009 port). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+The Apple app's roadmap on `main` has features that apply here too once they ship there (kudos is RM-115, creating AO3 bookmarks RM-119, bulk download for a folder RM-116, notes and personal tags the RM-009 port, series pages RM-122). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
 ## Engineering health (any release)
 

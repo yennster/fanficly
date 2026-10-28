@@ -32,6 +32,10 @@ public interface IAO3Client
     async Task<AO3WorkChapterPage> FetchWorkChapterAsync(int id, int chapter = 1, CancellationToken ct = default) =>
         new(await FetchWorkAsync(id, ct).ConfigureAwait(false), [], IsWholeWork: true);
     Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default);
+    /// <summary>One page of a series: its header and works in series order. The
+    /// default throws, as <see cref="FetchMarkedForLaterAsync"/> does.</summary>
+    Task<AO3Series> FetchSeriesAsync(int id, int page, CancellationToken ct = default) =>
+        throw new NotSupportedException(nameof(FetchSeriesAsync));
     Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
     /// <summary>Comments for a specific chapter (AO3 threads comments per chapter).
     /// <paramref name="chapterId"/> null fetches the work-level page (the first
