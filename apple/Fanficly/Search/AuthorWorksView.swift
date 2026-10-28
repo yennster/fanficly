@@ -55,7 +55,8 @@ struct AuthorWorksView: View {
             } else if visibleWorks.isEmpty {
                 FilteredOutView(message: "Every work by this author so far is filtered out by your content settings.",
                                 canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
-                                loadMoreError: paging.error, loadMore: loadMore)
+                                loadMoreError: paging.error,
+                                sessionExpired: sessionExpired && !auth.hasSession, loadMore: loadMore)
             } else {
                 List {
                     ForEach(visibleWorks) { work in

@@ -340,7 +340,8 @@ struct SearchView: View {
         } else if visibleResults.isEmpty {
             FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
                             canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
-                            loadMoreError: paging.error, loadMore: loadMore)
+                            loadMoreError: paging.error,
+                            sessionExpired: sessionExpired && !auth.hasSession, loadMore: loadMore)
         } else {
             resultsList
         }

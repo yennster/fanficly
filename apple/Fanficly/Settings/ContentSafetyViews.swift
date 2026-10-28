@@ -268,9 +268,19 @@ struct FilteredOutView: View {
     let isLoadingMore: Bool
     /// Why the last next-page load failed, shown under the message (#154).
     var loadMoreError: String? = nil
+    /// That failure was an expired AO3 session and no one has signed in since.
+    var sessionExpired = false
     let loadMore: @MainActor () async -> Void
 
     var body: some View {
+        if let loadMoreError, sessionExpired {
+            SessionExpiredView(message: loadMoreError)
+        } else {
+            nothingToShow
+        }
+    }
+
+    private var nothingToShow: some View {
         ContentUnavailableView {
             Label("Nothing to show", systemImage: "eye.slash")
         } description: {

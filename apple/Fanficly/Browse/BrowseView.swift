@@ -332,14 +332,21 @@ struct FandomWorksView: View {
                 ContentUnavailableView("No works found", systemImage: "magnifyingglass",
                     description: Text("Try adjusting your filters or search terms."))
             } else if visibleWorks.isEmpty {
-                FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
-                                canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
-                                loadMoreError: paging.error, loadMore: loadMore)
+                VStack(spacing: 0) {
+                    // Only a re-filter fails with works loaded.
+                    if let errorMessage {
+                        refilterFailedBanner(errorMessage)
+                            .padding()
+                    }
+                    FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
+                                    canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                                    loadMoreError: paging.error, loadMore: loadMore)
+                }
             } else {
                 List {
                     // Only a re-filter fails with works showing.
                     if let errorMessage {
-                        refilterFailedBanner(errorMessage)
+                        Section { refilterFailedBanner(errorMessage) }
                     }
                     Section {
                         ForEach(visibleWorks) { work in
@@ -389,6 +396,9 @@ struct FandomWorksView: View {
                           ? "line.3.horizontal.decrease.circle.fill"
                           : "line.3.horizontal.decrease.circle")
                 }
+                // One re-filter at a time: a second one's result could be
+                // undone by the first one failing.
+                .disabled(isLoading)
                 .accessibilityLabel("Filters")
                 .accessibilityValue(activeFilterCount > 0 ? "\(activeFilterCount) active" : "None")
             }
@@ -404,23 +414,24 @@ struct FandomWorksView: View {
     /// A re-filter failed: the list and its chips are still the previous
     /// filters', so say so, and offer the new filters again (#154).
     private func refilterFailedBanner(_ message: String) -> some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Couldn't apply your filters. Showing results for the previous ones.",
-                      systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Try Again") {
-                    if let failedFilters { filters = failedFilters }
-                    Task { await reload() }
-                }
-                .buttonStyle(.borderless)
+        VStack(alignment: .leading, spacing: 6) {
+            Label(failedFilters != nil
+                  ? "Couldn't apply your filters. Showing results for the previous ones."
+                  : "Couldn't refresh these results.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Try Again") {
+                if let failedFilters { filters = failedFilters }
+                Task { await reload() }
             }
-            .padding(.vertical, 4)
+            .buttonStyle(.borderless)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -454,6 +465,7 @@ struct FandomWorksView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Active filters: \(filterChips.joined(separator: ", "))")
             .accessibilityHint("Opens filter options.")
+            .disabled(isLoading)
         }
     }
 
@@ -549,7 +561,7 @@ struct FandomWorksView: View {
     private func loadMore() async {
         // Re-entrancy / bounds guard: onAppear can fire repeatedly, and there's
         // no page beyond totalPages.
-        guard !isLoadingMore, !isLoading, currentPage < totalPages, let loadedFilters else { return }
+        guard !isLoadingMore, currentPage < totalPages, let loadedFilters else { return }
         let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
