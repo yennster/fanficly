@@ -94,7 +94,15 @@ public static class DemoSeed
 
         // Saved searches, in the search box's own syntax (SearchSyntax), so
         // loading one shows exact tag chips as a saved search made in the app would.
-        store.Insert(new SavedSearch("Slow burn, complete", """tag:"Slow Burn" complete:yes"""));
+        // One has new-fic alerts on (#309) with two alerted fics unseen, so the
+        // screenshots show the "2 new" line. Demo mode never runs checks.
+        store.Insert(new SavedSearch("Slow burn, complete", """tag:"Slow Burn" complete:yes""")
+        {
+            AlertsEnabled = true,
+            AlertsChangedAt = DateTimeOffset.Now,
+            AlertsBaselineAt = DateTimeOffset.Now,
+            AlertNewWorkIds = [90001, 90002],
+        });
         store.Insert(new SavedSearch("Found family", """tag:"Found Family" tag:Hurt/Comfort"""));
         store.Insert(new SavedSearch("Coffee shop AUs", "coffee shop tag:Fluff rating:teen"));
 

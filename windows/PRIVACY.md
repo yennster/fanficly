@@ -60,10 +60,10 @@ Fanficly makes requests directly to `archiveofourown.org` on your behalf, the wa
 - **Search, Browse and Popular:** the app fetches AO3's search, fandom and tag pages. While you type in the search box, the last few words you typed are sent to AO3's tag autocomplete to suggest exact tags. AO3's own search form does the same lookup. Popular refreshes at most once a day.
 - **Signing in:** the app sends your username and password to AO3's login form and keeps the session cookie AO3 returns.
 - **Your account pages:** the app fetches your bookmarks, Marked for Later, reading history and subscriptions pages, but only while you're signed in and only when you open them or the app checks for updates.
-- **New-chapter checks:** the app fetches the pages of works and authors you follow, and your subscriptions list if you're signed in, so it can tell you about new chapters and works. This happens while Fanficly is open, about every four hours. When installed from the Store it also happens from a Windows background task with the same interval, which needs an internet connection and skips its run while Fanficly is open.
+- **New-chapter checks:** the app fetches the pages of works and authors you follow, your subscriptions list if you're signed in, and AO3's search results for saved searches you've turned alerts on for, so it can tell you about new chapters and works. This happens while Fanficly is open, about every four hours. When installed from the Store it also happens from a Windows background task with the same interval, which needs an internet connection and skips its run while Fanficly is open.
 - **Comments, kudos, bookmarks and subscribing:** if you're signed in and choose to post a comment, leave kudos, save an AO3 bookmark or subscribe to a work, the app sends that action to AO3. Comment text and bookmark notes and tags go only to AO3, which hosts them and moderates comments.
 
-Notifications about new chapters are created on your PC and shown by Windows. Nothing passes through a notification server of ours.
+Notifications about new chapters and new fics are created on your PC and shown by Windows. Nothing passes through a notification server of ours.
 
 ## Microsoft and Windows
 

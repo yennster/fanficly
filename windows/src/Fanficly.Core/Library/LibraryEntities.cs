@@ -823,9 +823,17 @@ public sealed class RecentlyViewed : LibraryEntity
 
 public sealed class SavedSearch : LibraryEntity
 {
-    internal static readonly string[] Columns = ["name", "prompt", "sort_column", "sort_direction", "saved_at"];
+    internal static readonly string[] Columns =
+    [
+        "name", "prompt", "sort_column", "sort_direction", "saved_at",
+        "alerts_enabled", "alerts_changed_at", "alert_known_work_ids", "alerts_baseline_at",
+        "alerts_last_checked_at", "alert_new_work_ids", "alerts_attempted_at",
+    ];
     private string _prompt, _sortColumn, _sortDirection;
     private DateTimeOffset _savedAt;
+    private bool _alertsEnabled;
+    private DateTimeOffset? _alertsChangedAt, _alertsBaselineAt, _alertsLastCheckedAt, _alertsAttemptedAt;
+    private IReadOnlyList<int> _alertKnownWorkIds = [], _alertNewWorkIds = [];
 
     public SavedSearch(string name, string prompt, string sortColumn = "_score", string sortDirection = "desc", DateTimeOffset? savedAt = null)
     {
@@ -846,9 +854,46 @@ public sealed class SavedSearch : LibraryEntity
     public string SortDirection { get => _sortDirection; set => Set(ref _sortDirection, value); }
     public DateTimeOffset SavedAt { get => _savedAt; set => Set(ref _savedAt, value); }
 
-    internal override object?[] ToRow() => [Name, Prompt, SortColumn, SortDirection, Db.D(SavedAt)];
+    // New-fic alerts (#309, SavedSearchAlerts), as in the Swift model.
+    /// <summary>The poller checks this search for newly posted works.</summary>
+    public bool AlertsEnabled { get => _alertsEnabled; set => Set(ref _alertsEnabled, value); }
+    /// <summary>When alerts were last switched on or off; the newer switch wins a
+    /// backup merge, so turning alerts off reaches every device.</summary>
+    public DateTimeOffset? AlertsChangedAt { get => _alertsChangedAt; set => Set(ref _alertsChangedAt, value); }
+    /// <summary>Work ids already seen in this search's newest results, so only
+    /// works posted after them alert. Like <see cref="FollowedAuthor.KnownWorkIds"/>.</summary>
+    public IReadOnlyList<int> AlertKnownWorkIds { get => _alertKnownWorkIds; set => Set(ref _alertKnownWorkIds, value); }
+    /// <summary>When the baseline was first taken. Null until then: the first
+    /// check only records what's there, so it never alerts for the back catalogue.</summary>
+    public DateTimeOffset? AlertsBaselineAt { get => _alertsBaselineAt; set => Set(ref _alertsBaselineAt, value); }
+    /// <summary>When a check last read this search's results. A check that was cut
+    /// off, failed or got a guest page doesn't count.</summary>
+    public DateTimeOffset? AlertsLastCheckedAt { get => _alertsLastCheckedAt; set => Set(ref _alertsLastCheckedAt, value); }
+    /// <summary>When a check last started, whatever came of it: the full poll's
+    /// rotation, so a search that keeps failing can't hold the front of the
+    /// queue. This PC only; not synced.</summary>
+    public DateTimeOffset? AlertsAttemptedAt { get => _alertsAttemptedAt; set => Set(ref _alertsAttemptedAt, value); }
+    /// <summary>Works that alerted and haven't been looked at yet (the "New"
+    /// count). This PC only; not synced.</summary>
+    public IReadOnlyList<int> AlertNewWorkIds { get => _alertNewWorkIds; set => Set(ref _alertNewWorkIds, value); }
+
+    internal override object?[] ToRow() =>
+    [
+        Name, Prompt, SortColumn, SortDirection, Db.D(SavedAt),
+        Db.B(AlertsEnabled), Db.D(AlertsChangedAt), LibraryJson.Ints(AlertKnownWorkIds), Db.D(AlertsBaselineAt),
+        Db.D(AlertsLastCheckedAt), LibraryJson.Ints(AlertNewWorkIds), Db.D(AlertsAttemptedAt),
+    ];
     internal static SavedSearch Read(SqliteDataReader r) =>
-        new(Db.Str(r, 1), Db.Str(r, 2), Db.Str(r, 3), Db.Str(r, 4), Db.Date(r, 5));
+        new(Db.Str(r, 1), Db.Str(r, 2), Db.Str(r, 3), Db.Str(r, 4), Db.Date(r, 5))
+        {
+            _alertsEnabled = Db.Bool(r, 6),
+            _alertsChangedAt = Db.DateN(r, 7),
+            _alertKnownWorkIds = LibraryJson.ParseInts(Db.StrN(r, 8)),
+            _alertsBaselineAt = Db.DateN(r, 9),
+            _alertsLastCheckedAt = Db.DateN(r, 10),
+            _alertNewWorkIds = LibraryJson.ParseInts(Db.StrN(r, 11)),
+            _alertsAttemptedAt = Db.DateN(r, 12),
+        };
 }
 
 /// <summary>A work the user has hidden ("block objectionable content" — App

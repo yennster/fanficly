@@ -781,12 +781,12 @@
         }
       }
     },
-    "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled." : {
+    "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled."
+            "value" : "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled."
           }
         }
       }

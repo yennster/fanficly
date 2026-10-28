@@ -144,12 +144,17 @@ public static partial class AppHost
             NotificationRoute.NewChapters c => Routes.WorkDetail?.Invoke(c.WorkId, null),
             NotificationRoute.NewWork w => Routes.WorkDetail?.Invoke(w.WorkId, null),
             NotificationRoute.NewWorks a => Routes.AuthorWorks?.Invoke(a.Author),
+            NotificationRoute.SearchMatch m => Routes.WorkDetail?.Invoke(m.WorkId, null),
+            NotificationRoute.SavedSearchMatches s => Routes.FilteredWorks?.Invoke(SavedSearchAlerts.Filters(s.Prompt), s.Name),
             _ => null,
         };
         // Work routes always open the live page: a downloaded copy doesn't
         // have the new chapter (reading position is keyed by work id, so it
         // still resumes).
         if (screen is not null) window.Navigator.ReplacePath(screen);
+        // The alert has been seen: take it off the saved search's "New" count.
+        if (route is NotificationRoute.SearchMatch match) SavedSearchAlerts.MarkWorkSeen(match.WorkId, AppHost.Library);
+        if (route is NotificationRoute.SavedSearchMatches matches) SavedSearchAlerts.MarkSeen(matches.Name, AppHost.Library);
     }
 
     static partial void OnWindowCreatedServices(MainWindow window)

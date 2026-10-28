@@ -1,5 +1,7 @@
 import SwiftUI
 import StoreKit
+import AppIntents
+import CoreSpotlight
 import SwiftData
 import UniformTypeIdentifiers
 import UIKit // UIAccessibility announcements (ImportOverlay)
@@ -130,6 +132,12 @@ struct RootView: View {
                             WorkDetailView(workId: workId)
                         case .newWorks(let author):
                             AuthorWorksView(author: author)
+                        case .searchMatch(let workId):
+                            WorkDetailView(workId: workId)
+                                .onAppear { SavedSearchAlerts.markWorkSeen(workId, context: context) }
+                        case .savedSearch(let name, let prompt):
+                            FandomWorksView(filters: SavedSearchAlerts.filters(prompt: prompt), title: name)
+                                .onAppear { SavedSearchAlerts.markSeen(named: name, context: context) }
                         }
                     }
                     // A tap can replace one route with another in the same slot;
@@ -196,6 +204,20 @@ struct RootView: View {
             }
             .onOpenURL { url in
                 handleIncomingURL(url)
+            }
+            // A tapped Spotlight result (`work-<id>`, from
+            // `WorkPersistence.indexWork`) opens the work like a widget tap.
+            .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                      let workId = WorkPersistence.workId(fromSpotlightIdentifier: identifier) else { return }
+                openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil))
+            }
+            // The "Continue Reading" App Shortcut. `initial: true` catches a run
+            // that launched the app before this view existed.
+            .onChange(of: ContinueReadingRouter.shared.pendingRequest, initial: true) { _, pending in
+                guard pending else { return }
+                ContinueReadingRouter.shared.pendingRequest = false
+                openContinueReading()
             }
             // `initial: true` catches a tap that cold-launched the app and
             // landed before this view existed.
@@ -337,6 +359,24 @@ struct RootView: View {
             // drop the push.
             detailPath = NavigationPath([route])
         }
+    }
+
+    /// Opens the story read most recently, here or (through the widget store's
+    /// iCloud mirror) on another device; Library when nothing has been read.
+    private func openContinueReading() {
+        var descriptor = FetchDescriptor<ReadingProgress>(
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
+        descriptor.fetchLimit = 1
+        let latestLocal = (try? context.fetch(descriptor))?.first
+        guard let workId = ContinueReadingPolicy.workId(
+            widgetProgress: WidgetProgressStore.load(),
+            latestLocalId: latestLocal?.ao3Id,
+            latestLocalUpdatedAt: latestLocal?.updatedAt
+        ) else {
+            select(.library)
+            return
+        }
+        openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil))
     }
 
     /// Opens what a tapped notification is about.
@@ -535,6 +575,62 @@ enum ResumeProgressPolicy {
         // install — navigate and let the local progress win.
         guard let widgetFreshness, widgetFreshness > existingUpdatedAt else { return nil }
         return widgetAnchor
+    }
+}
+
+/// Picks the work "Continue Reading" opens: whichever of the widget store's
+/// last-read entry (which iCloud KVS mirrors from the user's other devices) and
+/// this device's newest `ReadingProgress` was saved later. A local save stamps
+/// both with the same date, so a tie is the same work.
+enum ContinueReadingPolicy {
+    static func workId(
+        widgetProgress: WidgetStoryProgress?,
+        latestLocalId: Int?,
+        latestLocalUpdatedAt: Date?
+    ) -> Int? {
+        guard let widgetProgress else { return latestLocalId }
+        guard let latestLocalId, let latestLocalUpdatedAt else { return widgetProgress.id }
+        return widgetProgress.freshnessDate >= latestLocalUpdatedAt ? widgetProgress.id : latestLocalId
+    }
+}
+
+/// Hands a "Continue Reading" run from the App Intent to `RootView`. The intent
+/// can run before RootView exists (it launches the app), so the request waits
+/// here until RootView takes it.
+@MainActor @Observable
+final class ContinueReadingRouter {
+    static let shared = ContinueReadingRouter()
+    var pendingRequest = false
+}
+
+/// Opens the app on the story read most recently (Siri, Spotlight, the
+/// Shortcuts app, the Action button). Runs on-device; it reads only local
+/// reading progress.
+struct ContinueReadingIntent: AppIntent {
+    static var title: LocalizedStringResource { "Continue Reading" }
+    static var description: IntentDescription {
+        IntentDescription("Opens Fanficly on the story you read most recently.")
+    }
+    static var openAppWhenRun: Bool { true }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        ContinueReadingRouter.shared.pendingRequest = true
+        return .result()
+    }
+}
+
+struct FanficlyAppShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: ContinueReadingIntent(),
+            phrases: [
+                "Continue reading in \(.applicationName)",
+                "Resume my story in \(.applicationName)",
+            ],
+            shortTitle: "Continue Reading",
+            systemImageName: "book"
+        )
     }
 }
 
