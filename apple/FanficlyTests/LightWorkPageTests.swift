@@ -29,15 +29,26 @@ final class LightWorkPageTests: XCTestCase {
     }
 
     func test_subscribe_takesItsTokenFromTheLightPage() async throws {
+        let page = Data(AO3PageFixtures.signedInPage(mainClass: "works-show", body: """
+        <meta name="csrf-token" content="TOK">
+        <ul class="work navigation actions"><li class="subscribe">
+          <form action="/users/reader/subscriptions" method="post">
+            <input type="hidden" name="subscription[subscribable_id]" value="77">
+            <input type="hidden" name="subscription[subscribable_type]" value="Work">
+            <input type="submit" value="Subscribe">
+          </form>
+        </li></ul>
+        """).utf8)
+        let followed = Data(#"<div id="main"><div class="flash notice">You are now following Work 77.</div></div>"#.utf8)
         let sent = SentRequests()
         StubURLProtocol.responder = { request in
             sent.append(request)
-            return (request.url!, Self.workPage)
+            return (request.url!, request.httpMethod == "POST" ? followed : page)
         }
 
         try await client().subscribeToWork(workId: 77)
 
-        XCTAssertEqual(sent.urls, [Self.lightPage, "https://archiveofourown.org/works/77/subscriptions"])
+        XCTAssertEqual(sent.urls, [Self.lightPage, "https://archiveofourown.org/users/reader/subscriptions"])
         XCTAssertEqual(sent.requests.last?.value(forHTTPHeaderField: "X-CSRF-Token"), "TOK")
     }
 
