@@ -68,6 +68,7 @@ public static class Symbols
         ["square.2.layers.3d"] = "",
         ["circle.lefthalf.striped.horizontal"] = "", // Contrast
         ["sun.max"] = "",              // Brightness
+        ["speaker.wave.2"] = "",       // Volume
         ["paintpalette"] = "",         // Color
         ["photo"] = "",                // Picture
         ["arrow.up.left.and.arrow.down.right"] = "", // FullScreen

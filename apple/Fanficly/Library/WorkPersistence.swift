@@ -129,32 +129,17 @@ enum WorkPersistence {
         return work.isFollowed
     }
 
-    /// Record (or bump to "now") a work in the recently-viewed history.
+    /// Record (or bump to "now") a work in the recently-viewed history,
+    /// keeping its details for the row.
     @MainActor
     static func recordView(summary: AO3WorkSummary, into context: ModelContext, limit: Int = 50) {
-        recordView(ao3Id: summary.id, title: summary.title, author: summary.author,
-                   fandom: summary.fandoms.first ?? "", into: context, limit: limit)
-    }
-
-    /// Overload for Library reads, which carry a `Work` rather than a summary.
-    @MainActor
-    static func recordView(work: Work, into context: ModelContext, limit: Int = 50) {
-        recordView(ao3Id: work.ao3Id, title: work.title, author: work.authorName,
-                   fandom: work.fandoms.first ?? "", into: context, limit: limit)
-    }
-
-    /// Upsert a recently-viewed entry, then trim the list to the newest `limit`.
-    @MainActor
-    static func recordView(ao3Id: Int, title: String, author: String, fandom: String,
-                           into context: ModelContext, limit: Int = 50) {
+        let ao3Id = summary.id
         let descriptor = FetchDescriptor<RecentlyViewed>(predicate: #Predicate { $0.ao3Id == ao3Id })
         if let existing = (try? context.fetch(descriptor))?.first {
             existing.viewedAt = .now
-            existing.title = title
-            existing.author = author
-            existing.fandom = fandom
+            existing.update(from: summary)
         } else {
-            context.insert(RecentlyViewed(ao3Id: ao3Id, title: title, author: author, fandom: fandom))
+            context.insert(RecentlyViewed(summary: summary))
         }
 
         let all = (try? context.fetch(FetchDescriptor<RecentlyViewed>(
@@ -163,6 +148,12 @@ enum WorkPersistence {
             for stale in all[limit...] { context.delete(stale) }
         }
         try? context.save()
+    }
+
+    /// Overload for Library reads, which carry a `Work` rather than a summary.
+    @MainActor
+    static func recordView(work: Work, into context: ModelContext, limit: Int = 50) {
+        recordView(summary: work.workSummary, into: context, limit: limit)
     }
 
     // MARK: - Followed authors

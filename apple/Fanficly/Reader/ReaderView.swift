@@ -20,6 +20,8 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
+    // Global, not in reading profiles: it's about the reader's remote.
+    @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     // Page-by-page shows two pages side by side on a wide window (iPhone Duo
@@ -241,28 +243,7 @@ struct ReaderView: View {
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
             .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
-        self.summary = AO3WorkSummary(
-            id: work.ao3Id,
-            title: work.title,
-            author: work.authorName,
-            authorUsername: work.authorUsername,
-            summary: work.summary,
-            rating: work.rating,
-            warnings: work.warnings,
-            categories: work.categories,
-            fandoms: work.fandoms,
-            characters: work.characters,
-            relationships: work.relationships,
-            freeforms: work.freeforms,
-            wordCount: work.wordCount,
-            chapterCount: work.chapterCount,
-            totalChapters: work.totalChapters,
-            language: work.language,
-            kudos: work.kudos,
-            hits: work.hits,
-            isComplete: work.isComplete,
-            updatedAt: work.updatedAt
-        )
+        self.summary = work.workSummary
     }
 
     init(payload: AO3WorkPayload, currentChapter: Binding<Int>? = nil) {
@@ -296,8 +277,28 @@ struct ReaderView: View {
         @Binding var showingError: Bool
         let errorMessage: String
         let save: (String) -> Void
+        /// ReaderLayoutTests' way to the prompt where the Aa menu won't open
+        /// under XCUITest (Xcode Cloud's folded iPhone Duo, though it opens
+        /// there by hand): demo mode with -demoNewProfileButton only.
+        private static let testButton = FanficlyApp.isDemoMode
+            && ProcessInfo.processInfo.arguments.contains("-demoNewProfileButton")
         func body(content: Content) -> some View {
             content
+                // In the middle of the page, clear of the status bar's corner.
+                .overlay {
+                    if Self.testButton {
+                        Button {
+                            newProfileName = ""
+                            showingNewProfile = true
+                        } label: {
+                            Color.clear
+                                .frame(width: 60, height: 60)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("New Profile (test)")
+                        .accessibilityIdentifier("reader.newProfileTestButton")
+                    }
+                }
                 .alert("New Profile", isPresented: $showingNewProfile) {
                     TextField("Profile Name", text: $newProfileName)
                     Button("Cancel", role: .cancel) { }
@@ -485,6 +486,24 @@ struct ReaderView: View {
                 return true
             }
         ))
+        #if !targetEnvironment(macCatalyst)
+        .modifier(VolumeButtonPageTurnModifier(
+            enabled: volumeButtonsTurnPages,
+            speaking: speech.isActive,
+            scenePhase: scenePhase,
+            turn: { performVolumeTurn(forward: $0) }
+        ))
+        #endif
+    }
+
+    /// A volume button press with "Volume buttons turn pages" on: forward or
+    /// back as Page Down / Page Up would (a page, a chapter's screenful, or a
+    /// screen of continuous scroll).
+    private func performVolumeTurn(forward: Bool) {
+        guard let action = ReaderKeyAction.action(for: forward ? .pageDown : .pageUp,
+                                                  shift: false, otherModifiers: false, mode: mode)
+        else { return }
+        performKeyAction(action)
     }
 
     /// A turn or scroll key from a keyboard or a Bluetooth page turner.

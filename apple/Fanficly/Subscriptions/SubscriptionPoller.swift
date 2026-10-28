@@ -113,17 +113,19 @@ struct SubscriptionPoller {
         return notifyCount
     }
 
-    /// One unit of poll work — any of the three followable record kinds,
-    /// ordered by how stale its last check is.
+    /// One unit of poll work, ordered by how stale its last check is. A work
+    /// that's both AO3-subscribed and locally followed is one target, so a
+    /// poll fetches each work once (#148).
     private enum PollTarget {
-        case workSubscription(SubscriptionRecord)
-        case followedWork(Work)
+        case work(id: Int, subscription: SubscriptionRecord?, followed: Work?)
         case followedAuthor(FollowedAuthor)
 
         var lastCheckedAt: Date? {
             switch self {
-            case .workSubscription(let rec): rec.lastCheckedAt
-            case .followedWork(let work): work.lastCheckedAt
+            case .work(_, let rec, let work):
+                // The staler of the two; a record never checked goes first.
+                [rec.map { $0.lastCheckedAt ?? .distantPast },
+                 work.map { $0.lastCheckedAt ?? .distantPast }].compactMap { $0 }.min()
             case .followedAuthor(let author): author.lastCheckedAt
             }
         }
@@ -148,11 +150,8 @@ struct SubscriptionPoller {
         // order permanently starves the last category once the earlier ones
         // outgrow the budget; oldest-first means whatever was cut off last
         // time is exactly what runs first this time.
-        var targets: [PollTarget] = []
-        if username != nil {
-            targets += workSubscriptionRecords().map(PollTarget.workSubscription)
-        }
-        targets += followedWorks().map(PollTarget.followedWork)
+        var targets = workTargets(subscriptions: username != nil ? workSubscriptionRecords() : [],
+                                  followed: followedWorks())
         targets += followedAuthors().map(PollTarget.followedAuthor)
         targets.sort { ($0.lastCheckedAt ?? .distantPast) < ($1.lastCheckedAt ?? .distantPast) }
 
@@ -162,8 +161,8 @@ struct SubscriptionPoller {
             // the progress saved so far.
             if Task.isCancelled { break }
             switch target {
-            case .workSubscription(let rec): total += await checkWorkSubscription(rec)
-            case .followedWork(let work): total += await checkFollowedWork(work)
+            case .work(let id, let rec, let work):
+                total += await checkWork(id: id, subscription: rec, followed: work)
             case .followedAuthor(let author): total += await checkFollowedAuthor(author)
             }
             // Save after every record so an expiring BG task keeps its
@@ -176,54 +175,81 @@ struct SubscriptionPoller {
 
     // MARK: - Per-record checks
 
+    /// The work targets of a poll, one per AO3 work id: a subscription and a
+    /// follow of the same work share a target, so the work is fetched once.
+    private func workTargets(subscriptions: [SubscriptionRecord], followed: [Work]) -> [PollTarget] {
+        var ids: [Int] = []
+        var recs: [Int: SubscriptionRecord] = [:]
+        var works: [Int: Work] = [:]
+        for rec in subscriptions {
+            guard let id = Self.workId(subscriptionKey: rec.key) else {
+                // A key that names no work can't be checked; stamp it like a failed check.
+                rec.lastCheckedAt = .now
+                continue
+            }
+            guard recs[id] == nil else { continue }
+            recs[id] = rec
+            ids.append(id)
+        }
+        for work in followed where works[work.ao3Id] == nil {
+            works[work.ao3Id] = work
+            if recs[work.ao3Id] == nil { ids.append(work.ao3Id) }
+        }
+        return ids.map { PollTarget.work(id: $0, subscription: recs[$0], followed: works[$0]) }
+    }
+
+    /// The work id in a work subscription's key (`work:<id>`).
+    private static func workId(subscriptionKey key: String) -> Int? {
+        let parts = key.split(separator: ":")
+        guard parts.count == 2 else { return nil }
+        return Int(parts[1])
+    }
+
     /// Check one AO3 work subscription for a new chapter (one throttled
     /// request). Returns the number of notifications posted.
     private func checkWorkSubscription(_ rec: SubscriptionRecord) async -> Int {
+        guard let workId = Self.workId(subscriptionKey: rec.key) else {
+            rec.lastCheckedAt = .now
+            return 0
+        }
+        return await checkWork(id: workId, subscription: rec, followed: nil)
+    }
+
+    private func checkFollowedWork(_ work: Work) async -> Int {
+        await checkWork(id: work.ao3Id, subscription: nil, followed: work)
+    }
+
+    /// Check a work for new chapters with one throttled request of its light
+    /// page, for its subscription, its follow or both, and post at most one
+    /// alert. Returns the number of notifications posted.
+    private func checkWork(id workId: Int, subscription rec: SubscriptionRecord?, followed work: Work?) async -> Int {
         // Stamp the attempt up front: a permanently-failing record (deleted
         // work, parse drift) must not stay "oldest" forever and hog the head
         // of the round-robin queue.
-        defer { rec.lastCheckedAt = .now }
-        let parts = rec.key.split(separator: ":")
-        guard parts.count == 2, let workId = Int(parts[1]) else { return 0 }
+        defer {
+            rec?.lastCheckedAt = .now
+            work?.lastCheckedAt = .now
+        }
         do {
             let meta = try await client.fetchWorkMetadata(id: workId)
             var notifyCount = 0
-            if let lastSeen = rec.lastSeenChapterCount,
-               meta.chapterCount > lastSeen {
+            // Against the higher baseline: chapters either record already
+            // counted were alerted (or seen) then, and mustn't alert again.
+            let lastSeen = [rec?.lastSeenChapterCount, work?.lastSeenChapterCount].compactMap { $0 }.max()
+            if let lastSeen, meta.chapterCount > lastSeen {
                 await postNewChapterNotification(
-                    title: rec.displayName,
+                    title: work?.title ?? rec?.displayName ?? "",
                     oldCount: lastSeen,
                     newCount: meta.chapterCount,
                     workId: workId
                 )
                 notifyCount = 1
             }
-            rec.lastSeenChapterCount = meta.chapterCount
+            rec?.lastSeenChapterCount = meta.chapterCount
+            work?.lastSeenChapterCount = meta.chapterCount
             return notifyCount
         } catch {
             logger.warning("Skipping work \(workId): \(error.localizedDescription, privacy: .public)")
-            return 0
-        }
-    }
-
-    private func checkFollowedWork(_ work: Work) async -> Int {
-        defer { work.lastCheckedAt = .now }
-        do {
-            let meta = try await client.fetchWorkMetadata(id: work.ao3Id)
-            var notifyCount = 0
-            if let lastSeen = work.lastSeenChapterCount, meta.chapterCount > lastSeen {
-                await postNewChapterNotification(
-                    title: work.title,
-                    oldCount: lastSeen,
-                    newCount: meta.chapterCount,
-                    workId: work.ao3Id
-                )
-                notifyCount = 1
-            }
-            work.lastSeenChapterCount = meta.chapterCount
-            return notifyCount
-        } catch {
-            logger.warning("Skipping followed work \(work.ao3Id): \(error.localizedDescription, privacy: .public)")
             return 0
         }
     }
@@ -241,7 +267,11 @@ struct SubscriptionPoller {
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
             var notifyCount = 0
-            let newWorks = Self.newlyPostedWorks(in: result.works, known: known)
+            var newWorks = Self.newlyPostedWorks(in: result.works, known: known)
+            var undated: Set<Int> = []
+            if known.isEmpty {
+                (newWorks, undated) = await worksPostedSinceFollow(result.works, followedAt: author.followedAt)
+            }
             if !newWorks.isEmpty {
                 await postNewWorkNotification(
                     author: author,
@@ -249,12 +279,55 @@ struct SubscriptionPoller {
                 )
                 notifyCount = newWorks.count
             }
-            author.knownWorkIds = Array(known.union(latestIds))
+            author.knownWorkIds = Array(known.union(latestIds).subtracting(undated))
             return notifyCount
         } catch {
             logger.warning("Skipping author \(author.username, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return 0
         }
+    }
+
+    /// No baseline: Follow was tapped before the author's list loaded (or
+    /// they had no public works yet), so nothing on page 1 is known. A work
+    /// last updated well before the follow was already there. A later one may
+    /// be new or an old work that got a chapter, so its work page's published
+    /// date decides: one request for each. AO3 dates are days, shown to guests
+    /// in UTC, so "later" starts the day before the follow day: a work posted
+    /// just after a follow east of UTC can carry the previous date. The cost is
+    /// at worst an alert for a work posted shortly before the follow.
+    ///
+    /// Works that couldn't be dated (an error page, or the poll ran out of
+    /// time) come back in `undated` and stay out of the baseline. Once the
+    /// rest is the baseline, the next poll judges them by the id rule in
+    /// `newlyPostedWorks`; with nothing dated, the next poll dates them again.
+    private func worksPostedSinceFollow(
+        _ works: [AO3WorkSummary],
+        followedAt: Date
+    ) async -> (posted: [AO3WorkSummary], undated: Set<Int>) {
+        let calendar = Calendar.current
+        let followDay = calendar.startOfDay(for: followedAt)
+        let since = calendar.date(byAdding: .day, value: -1, to: followDay) ?? followDay
+        var posted: [AO3WorkSummary] = []
+        var undated: Set<Int> = []
+        for work in works {
+            guard let updatedAt = work.updatedAt, updatedAt >= since else { continue }
+            if Task.isCancelled {
+                undated.insert(work.id)
+                continue
+            }
+            do {
+                let meta = try await client.fetchWorkMetadata(id: work.id)
+                if let publishedAt = meta.publishedAt {
+                    if publishedAt >= since { posted.append(work) }
+                } else {
+                    undated.insert(work.id)
+                }
+            } catch {
+                logger.warning("Couldn't date work \(work.id): \(error.localizedDescription, privacy: .public)")
+                undated.insert(work.id)
+            }
+        }
+        return (posted, undated)
     }
 
     // MARK: - Record fetches
@@ -309,9 +382,9 @@ struct SubscriptionPoller {
     /// one (AO3 work ids only grow) or has a single chapter, which an update
     /// can't leave it with — that still catches a new work with a lower id: a
     /// gift revealed from an anonymous collection, a long-held draft, or a
-    /// restricted work a guest page left out. Empty with no baseline yet — a
-    /// freshly-followed author is seeded at follow time, but a first poll must
-    /// never alert for the whole back catalogue. Internal for tests.
+    /// restricted work a guest page left out. Empty with no baseline: the
+    /// poller dates those works instead (`worksPostedSinceFollow`), so a first
+    /// poll never alerts for the whole back catalogue. Internal for tests.
     nonisolated static func newlyPostedWorks(in works: [AO3WorkSummary], known: Set<Int>) -> [AO3WorkSummary] {
         guard let newestKnown = known.max() else { return [] }
         return works.filter { !known.contains($0.id) && ($0.id > newestKnown || $0.chapterCount == 1) }

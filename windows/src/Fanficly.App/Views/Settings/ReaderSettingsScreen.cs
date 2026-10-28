@@ -438,7 +438,10 @@ public sealed class ReaderSettingsScreen : Screen
             SettingsKit.ToggleRow("Keep screen awake while reading", Store.GetBool(KeepAwakeKey, true), on => Store.SetBool(KeepAwakeKey, on),
                 "sun.max", tooltip: "Stop the display from dimming or sleeping while a story is open, like a video player.",
                 automationId: "settings.reader.keepAwake"),
-        ], footer: "Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you turn with the arrow keys, a click or tap at the page's edge, a swipe, or a controller's triggers; with “Pages on screen” set to two, a wide window — maximized, full screen, or a tablet in landscape — shows two pages side by side like an open book, with its own text width (“Two-page margins”). “Page-turn animation” slides pages as they turn. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.");
+            SettingsKit.ToggleRow("Volume buttons turn pages", Store.GetBool(VolumeKeyTurn.SettingKey, false), on => Store.SetBool(VolumeKeyTurn.SettingKey, on),
+                "speaker.wave.2", tooltip: "Volume up turns forward and volume down turns back while a story is open, instead of changing the volume.",
+                automationId: "settings.reader.volumeTurns"),
+        ], footer: "Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you turn with the arrow keys, a click or tap at the page's edge, a swipe, or a controller's triggers; with “Pages on screen” set to two, a wide window — maximized, full screen, or a tablet in landscape — shows two pages side by side like an open book, with its own text width (“Two-page margins”). “Page-turn animation” slides pages as they turn. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader. “Volume buttons turn pages” is for page turners and rings in their volume mode; volume up turns forward, volume down back, and the volume doesn't change. While Listen is on they change the volume as usual.");
     }
 
     private void UpdateModeExtras()

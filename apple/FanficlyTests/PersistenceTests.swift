@@ -188,6 +188,21 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).count, 3)
     }
 
+    func test_recordViewKeepsStoryDetailsForTheRow() throws {
+        let ctx = try makeContext()
+        let summary = payload(id: 7, chapters: 3).summary
+        WorkPersistence.recordView(summary: summary, into: ctx)
+        let entry = try XCTUnwrap(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).first)
+        XCTAssertTrue(entry.hasDetails)
+        XCTAssertEqual(entry.workSummary, summary)
+
+        // An entry recorded before details were kept shows what it has.
+        let legacy = RecentlyViewed(ao3Id: 8, title: "Old", author: "A", fandom: "F")
+        XCTAssertFalse(legacy.hasDetails)
+        XCTAssertEqual(legacy.workSummary.fandoms, ["F"])
+        XCTAssertEqual(legacy.workSummary.wordCount, 0)
+    }
+
     func test_readingProgressRoundTrips() throws {
         let ctx = try makeContext()
         XCTAssertNil(ReadingProgressStore.load(ao3Id: 42, in: ctx))
@@ -1877,6 +1892,115 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx), [987654321])
     }
 
+    /// The prompt's candidates narrow to the works a restore gave text, and
+    /// leave out the ones the reader turned down (#152).
+    func test_redownloadCandidatesKeepRestoredDropDeclined() throws {
+        let ctx = try makeContext()
+        for id in [987654331, 987654332, 987654333] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: ctx)
+        }
+        try ctx.save()
+        XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(
+            in: ctx, restored: [987654331, 987654332], declined: [987654332]), [987654331])
+        XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx, restored: []), [])
+    }
+
+    /// Not Now is remembered: noting the same works again (the next launch
+    /// sync) offers nothing, while a newly restored work is still offered.
+    func test_redownloadPromptRemembersNotNow() throws {
+        let suite = "test.redownload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let ctx = try makeContext()
+        for id in [987654341, 987654342] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 2), into: ctx)
+        }
+        try ctx.save()
+
+        let center = RestoreDownloadCenter(defaults: defaults)
+        center.noteRestoredText(workIds: [987654341])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654341])
+        center.declineProposal()
+        XCTAssertNil(center.proposedIds)
+
+        center.noteRestoredText(workIds: [987654341])
+        center.proposeRedownload(context: ctx)
+        XCTAssertNil(center.proposedIds, "a declined work isn't offered again")
+
+        center.proposeRedownload(context: ctx)
+        XCTAssertNil(center.proposedIds, "nothing restored, nothing offered")
+
+        center.noteRestoredText(workIds: [987654341, 987654342])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654342])
+    }
+
+    /// A restore run AO3 stops (429) keeps the stories it didn't reach
+    /// pending on this device, so the next restore offers them again, even
+    /// after a relaunch (a new center on the same defaults).
+    func test_stoppedRestoreRunKeepsTheRestPending() async throws {
+        let suite = "test.redownload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let ctx = try makeContext()
+        for id in [987654361, 987654362, 987654363] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: ctx)
+        }
+        try ctx.save()
+
+        let center = RestoreDownloadCenter(defaults: defaults)
+        center.noteRestoredText(workIds: [987654361, 987654362, 987654363])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654361, 987654362, 987654363])
+        let client = StubAO3Client()
+        client.downloadEPUBErrors[987654362] = AO3Error.rateLimited
+        center.startDownloads(client: client, signedIn: true)
+        for _ in 0..<100 where center.progress?.finished != true {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(center.progress?.stopped, .rateLimited)
+
+        let relaunched = RestoreDownloadCenter(defaults: defaults)
+        relaunched.proposeRedownload(context: ctx)
+        XCTAssertEqual(relaunched.proposedIds, [987654362, 987654363])
+        center.cancel()
+    }
+
+    /// A launch sync that brings no new chapter text doesn't bring the
+    /// prompt back: only the first restore, which added the text, offers it.
+    func test_restoreOffersRedownloadOnlyWhenTextIsAdded() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        let center = RestoreDownloadCenter.shared
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            center.dismissProposal()
+            UserDefaults.standard.removeObject(forKey: RestoreDownloadCenter.pendingKey)
+        }
+        center.dismissProposal()
+        UserDefaults.standard.removeObject(forKey: RestoreDownloadCenter.pendingKey)
+
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 987654351, chapters: 2), into: phone)
+        phone.insert(Work(ao3Id: 987654352, title: "Metadata only", authorName: "A"))
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let pad = try makeContext()
+        let restored = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(restored)
+        center.proposeRedownload(context: pad)
+        XCTAssertEqual(center.proposedIds, [987654351])
+        center.dismissProposal()
+
+        let again = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(again)
+        center.proposeRedownload(context: pad)
+        XCTAssertNil(center.proposedIds, "the second restore added no text")
+    }
+
     /// A folder's "Download All" queues the stories without an EPUB, in the
     /// folder's on-screen order, each once.
     func test_folderDownloadCandidatesSkipDownloadedKeepOrder() {
@@ -1903,7 +2027,7 @@ final class PersistenceTests: XCTestCase {
     /// A failed story is counted and skipped; the rest still download.
     func test_downloadQueueSkipsFailures() async {
         let rec = QueueRecorder()
-        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: true, download: { id in
             rec.attempted.append(id)
             if id == 2 { throw URLError(.badServerResponse) }
             rec.downloaded.append(id)
@@ -1914,12 +2038,47 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
     }
 
+    /// A rate limit or a sign-in wall ends the run: the stories after it
+    /// aren't tried, and the tally says why it stopped (#152).
+    func test_downloadQueueStopsWhenAO3Refuses() async {
+        let cases: [(AO3Error, RestoreDownloadCenter.StopReason)] = [
+            (.rateLimited, .rateLimited), (.unauthorized, .signInNeeded),
+        ]
+        for (error, reason) in cases {
+            let rec = QueueRecorder()
+            let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3, 4], signedIn: true, download: { id in
+                rec.attempted.append(id)
+                if id == 2 { throw error }
+                rec.downloaded.append(id)
+            }, report: { rec.reports.append($0) })
+            XCTAssertEqual(rec.attempted, [1, 2])
+            XCTAssertEqual(rec.downloaded, [1])
+            XCTAssertEqual(result, .init(done: 1, failed: 1, total: 4, finished: true, stopped: reason))
+            XCTAssertEqual(result?.untried, 3)
+            XCTAssertNotNil(result?.stoppedDetail)
+        }
+    }
+
+    /// Signed out, `.unauthorized` is a restricted work: it fails alone and
+    /// the public stories after it still download.
+    func test_downloadQueueSkipsRestrictedWorkWhenSignedOut() async {
+        let rec = QueueRecorder()
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: false, download: { id in
+            rec.attempted.append(id)
+            if id == 2 { throw AO3Error.unauthorized }
+            rec.downloaded.append(id)
+        }, report: { rec.reports.append($0) })
+        XCTAssertEqual(rec.downloaded, [1, 3])
+        XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
+        XCTAssertEqual(result?.untried, 0)
+    }
+
     /// Cancelling mid-run stops before the next story and undoes nothing:
     /// the stories that finished stay downloaded.
     func test_downloadQueueCancelKeepsFinished() async {
         let rec = QueueRecorder()
         let task = Task { @MainActor in
-            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: true, download: { id in
                 rec.attempted.append(id)
                 rec.downloaded.append(id)
                 if id == 2 { withUnsafeCurrentTask { $0?.cancel() } }
@@ -2677,7 +2836,7 @@ final class PersistenceTests: XCTestCase {
         client.authorWorksResponse = AO3SearchResults(works: [.stub(id: 1, title: ""), .stub(id: 2, title: "")],
                                                       totalPages: 1, currentPage: 1, servedAsGuest: true)
 
-        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
         let notified = await poller.checkFollowedAuthors()
         XCTAssertEqual(notified, 0)
         XCTAssertEqual(Set(author.knownWorkIds), [1, 2])
@@ -2724,13 +2883,75 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
     }
 
-    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1) -> AO3WorkSummary {
+    // Follow tapped before the author's list loaded: no baseline. The first
+    // poll must neither alert for the back catalogue nor swallow a work
+    // posted after the follow. Works last updated since the day before the
+    // follow (AO3's UTC days) are dated from their work page; an old one that
+    // got a chapter stays quiet.
+    func test_followedAuthor_followedBeforeListLoaded_alertsOnlyForWorksPostedSince() async throws {
+        let ctx = try makeContext()
+        let followedAt = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -3, to: .now))
+        let followDay = Calendar.current.startOfDay(for: followedAt)
+        func day(_ offset: Int) -> Date { Calendar.current.date(byAdding: .day, value: offset, to: followDay)! }
+        let author = FollowedAuthor(username: "prolific", displayName: "Prolific", followedAt: followedAt)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(90, "Brand New", chapters: 3, updated: day(2)),
+                    authorWork(10, "Old, Just Updated", chapters: 7, updated: day(1)),
+                    authorWork(85, "Posted After A Follow East Of UTC", chapters: 2, updated: day(-1)),
+                    authorWork(80, "Back Catalogue", chapters: 2, updated: day(-5)),
+                    authorWork(70, updated: day(-40))],
+            totalPages: 1, currentPage: 1)
+        client.workPublishedAt = [90: day(2), 10: day(-400), 85: day(-1)]
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 2)
+        // Only the works updated since the day before the follow were looked up.
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 70, 80, 85, 90])
+
+        // With a baseline the usual rule applies, with no extra requests.
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(95, "Next"), authorWork(10, chapters: 8, updated: .now)],
+            totalPages: 1, currentPage: 1)
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
+    }
+
+    // A new work whose page won't load isn't guessed at, and isn't lost: it
+    // stays out of the baseline, so the next poll dates it again.
+    func test_followedAuthor_noBaseline_undatableWorkIsDatedAgainNextPoll() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "quiet", displayName: "Quiet", followedAt: .now)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body>Retry later</body></html>"
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(5, updated: .now)], totalPages: 1, currentPage: 1)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(author.knownWorkIds, [])
+
+        client.workPublishedAt = [5: .now]
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
+        XCTAssertEqual(author.knownWorkIds, [5])
+    }
+
+    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1, updated: Date? = nil) -> AO3WorkSummary {
         AO3WorkSummary(
             id: id, title: title, author: "", summary: "", rating: "",
             warnings: [], categories: [], fandoms: [], characters: [],
             relationships: [], freeforms: [], wordCount: 0, chapterCount: chapters,
             totalChapters: nil, language: "", kudos: 0, hits: 0,
-            isComplete: false, updatedAt: nil
+            isComplete: false, updatedAt: updated
         )
     }
 
@@ -2748,7 +2969,7 @@ final class PersistenceTests: XCTestCase {
         let client = StubAO3Client()
         client.workMetadataHTML = "<html><body><h1>Retry later</h1></body></html>"
 
-        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
         let subAlerts = await poller.checkForNewChapters()
         let workAlerts = await poller.checkFollowedWorks()
 
@@ -2773,6 +2994,40 @@ final class PersistenceTests: XCTestCase {
         _ = await poller.checkFollowedWorks()
 
         XCTAssertEqual(followed.lastSeenChapterCount, 7)
+    }
+
+    // A work that's both AO3-subscribed and followed is fetched once a poll,
+    // alerts once, and both records take the new baseline (#148).
+    func test_fullPoll_fetchesEachWorkOnce() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let both = Work(ao3Id: 1, title: "Fic One", authorName: "A")
+        both.isFollowed = true
+        both.lastSeenChapterCount = 4
+        ctx.insert(both)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.subscriptionsResponse = [
+            AO3Subscription(kind: .work, resourceId: "1", title: "Fic One", author: "A"),
+            AO3Subscription(kind: .series, resourceId: "9", title: "Saga", author: "A"),
+        ]
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">6/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+        let alerts = await poller.runFullPoll()
+
+        // Work 1 alerts once (baselines 5 and 4); work 2 has no baseline yet.
+        XCTAssertEqual(alerts, 1)
+        XCTAssertEqual(client.workMetadataCalls.sorted(), [1, 2])
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 6)
+        XCTAssertNotNil(rec?.lastCheckedAt)
+        XCTAssertEqual(both.lastSeenChapterCount, 6)
+        XCTAssertNotNil(both.lastCheckedAt)
+        XCTAssertEqual(followed.lastSeenChapterCount, 6)
     }
 }
 

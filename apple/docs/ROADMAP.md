@@ -207,6 +207,15 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** a pure rate-limit/accumulator function with tests; the PR says how to try it with a mouse on an iPad or Mac.
 - **Touches:** `Reader/ReaderView.swift`, `Reader/ReaderKeyCommands.swift`.
 
+### RM-026 — Volume buttons turn pages (iPhone, iPad)
+- **Status:** claimed · **Size:** S · **Validation:** mac
+- **Why:** Many cheap page turners and rings only send volume presses (their camera/volume mode), and their touch modes fake taps at fixed points, which miss the unfolded iPhone Duo screen entirely. Volume presses work on every screen.
+- **Scope:** An opt-in "Volume buttons turn pages" reader setting (off by default): volume up turns forward and volume down back, as Page Down / Page Up do in each mode, and the volume is put back after each press. Paused while Listen is on.
+- **Done when:** pure direction/baseline helpers with tests (`VolumeButtonTurnTests`); a person tries it on a device with a remote in volume mode.
+- **Touches:** `Reader/VolumeButtonPageTurner.swift`, `Reader/ReaderView.swift`, `Settings/ReaderSettingsView.swift`.
+- **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no volume buttons for a remote to press, so the setting is hidden there.
+- **Windows counterpart:** RM-124 (#305).
+
 ## Engineering health (any release)
 
 Not features, but worth doing; add as items when started.

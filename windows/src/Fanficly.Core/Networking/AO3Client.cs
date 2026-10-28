@@ -357,7 +357,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     public async Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
-        var response = await PerformRequestAsync(Get(AO3Endpoints.Work(id, _baseUri)), ct: ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.WorkPage(id, _baseUri)), ct: ct).ConfigureAwait(false);
         if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
         return WorkMetadataParser.TryParse(Decode(response.Body, "Work response"), id)
             ?? throw AO3Exception.ParseFailed("no chapter count on the work page");
@@ -637,7 +637,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     public async Task SubscribeToWorkAsync(int workId, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
-        var pageUri = AO3Endpoints.Work(workId, _baseUri);
+        var pageUri = AO3Endpoints.WorkPage(workId, _baseUri);
         var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
         var token = (TryDecode(page.Body) is { } pageHtml ? LoginParser.AuthenticityToken(pageHtml) : null)
             ?? throw AO3Exception.ParseFailed("authenticity_token not found on work page");
