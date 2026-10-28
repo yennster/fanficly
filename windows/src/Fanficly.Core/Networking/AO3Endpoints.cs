@@ -71,8 +71,6 @@ public static class AO3Endpoints
     private static IReadOnlyList<KeyValuePair<string, string>> CommentsQuery(int page) =>
         [new("view_adult", "true"), new("show_comments", "true"), .. PageItems(page)];
 
-    public static Uri WorkSubscriptions(int id, Uri baseUri) => Build(baseUri, $"/works/{id}/subscriptions");
-
     /// <summary>The kudos POST, at the <c>.js</c> format AO3's own kudos button uses.</summary>
     public static Uri Kudos(Uri baseUri) => Build(baseUri, "/kudos.js");
 

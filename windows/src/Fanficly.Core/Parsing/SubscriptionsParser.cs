@@ -117,3 +117,57 @@ public static class SubscriptionsParser
         };
     }
 }
+
+/// <summary>A work page's Subscribe button and AO3's answer to it (Swift's
+/// <c>SubscribeParser</c>). The button is <c>li.subscribe form</c>, posting to
+/// <c>/users/&lt;login&gt;/subscriptions</c>: AO3 has no subscriptions route under
+/// <c>/works</c>. Once subscribed, the same form deletes and reads "Unsubscribe".</summary>
+public static class SubscribeParser
+{
+    /// <param name="Fields">The form's hidden inputs (its own token included).</param>
+    /// <param name="IsSubscribed">The button reads "Unsubscribe": the work is already subscribed.</param>
+    public sealed record Form(Uri Action, IReadOnlyDictionary<string, string> Fields, bool IsSubscribed);
+
+    public static Form? FormOn(string html, Uri baseUri)
+    {
+        if (HtmlDom.Parse(html).SelectFirst("li.subscribe form") is not { } form) return null;
+        var actionText = form.Attr("action");
+        if (actionText.Length == 0 || !Uri.TryCreate(baseUri, actionText, out var action)) return null;
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var input in form.Select("input[type='hidden']"))
+        {
+            var name = input.Attr("name");
+            if (name.Length == 0) continue;
+            fields[name] = input.Attr("value");
+        }
+        var isSubscribed = (fields.TryGetValue("_method", out var method) && method.Equals("delete", StringComparison.OrdinalIgnoreCase))
+            || HasUnsubscribeButton(form);
+        if (!isSubscribed) fields.Remove("_method");
+        return new Form(action, fields, isSubscribed);
+    }
+
+    /// <summary>Throws unless AO3's answer to the POST confirms the subscription.
+    /// Every redirect has been followed, so this reads where it ended.</summary>
+    public static void CheckOutcome(string html, Uri? finalUri)
+    {
+        var path = finalUri?.AbsolutePath ?? "";
+        var doc = HtmlDom.Parse(html);
+        // /auth_error is where AO3 sends a refused (stale) token.
+        if (path.StartsWith("/users/login", StringComparison.Ordinal) || path.StartsWith("/auth_error", StringComparison.Ordinal)
+            || AO3PageCheck.IsLoginPage(doc))
+            throw AO3Exception.Unauthorized();
+        var errors = Texts(doc, "div.flash.error, div#error li").Distinct().ToList();
+        if (errors.Count > 0) throw AO3Exception.Rejected(string.Join(" ", errors));
+        if (Texts(doc, "div.flash.notice").Any(t => t.Contains("now following", StringComparison.OrdinalIgnoreCase))) return;
+        if (doc.SelectFirst("li.subscribe form") is { } form && HasUnsubscribeButton(form)) return;
+        throw AO3Exception.Rejected("AO3 didn't confirm the subscription. Check your Subscriptions page before trying again.");
+    }
+
+    private static bool HasUnsubscribeButton(IElement form) =>
+        form.Select("input[type='submit'], button").Any(control =>
+            (control.HasAttribute("value") ? control.Attr("value") : control.Text())
+                .TrimSwiftWhitespaces().Equals("Unsubscribe", StringComparison.OrdinalIgnoreCase));
+
+    private static IEnumerable<string> Texts(IDocument doc, string selector) =>
+        doc.Select(selector).Select(e => e.Text().TrimSwiftWhitespaces()).Where(t => t.Length > 0);
+}

@@ -128,12 +128,6 @@ public class AO3EndpointsTests
             AO3Endpoints.UserReadingHistory("reader", 4, _base).AbsoluteUri);
     }
 
-    [Fact]
-    public void WorkSubscriptionsURL()
-    {
-        Assert.Equal("https://archiveofourown.org/works/42/subscriptions", AO3Endpoints.WorkSubscriptions(42, _base).AbsoluteUri);
-    }
-
     // Windows-only checks on the hand-written encoders.
 
     [Fact]
