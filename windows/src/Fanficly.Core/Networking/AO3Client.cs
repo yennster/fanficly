@@ -35,6 +35,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private readonly HttpClient _http;
+    /// <summary>The HTTP/3 lane: its own pool, so connecting over QUIC can be capped
+    /// at <see cref="Http3ConnectTimeout"/> without shortening HTTP/2's connects. The
+    /// same client as <see cref="_http"/> when a test injects a handler.</summary>
+    private readonly HttpClient _http3;
     private readonly Uri _baseUri;
     private readonly string _origin;
     private readonly ICookieVault _vault;
@@ -83,9 +87,11 @@ public sealed class AO3Client : IAO3Client, IDisposable
         _realTransport = handler is null;
         PreferHttp3 = _realTransport;
         _http = handler is null
-            ? new HttpClient(CreateDefaultHandler(), disposeHandler: true)
+            ? new HttpClient(CreateDefaultHandler(DefaultRequestTimeout), disposeHandler: true)
             : new HttpClient(handler, disposeHandler: false);
+        _http3 = handler is null ? new HttpClient(CreateDefaultHandler(Http3ConnectTimeout), disposeHandler: true) : _http;
         _http.Timeout = Timeout.InfiniteTimeSpan; // timeouts are per attempt, below
+        _http3.Timeout = Timeout.InfiniteTimeSpan;
     }
 
     public string UserAgent { get; }
@@ -107,16 +113,20 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     internal string ExportsDirectory { get; set; } = Path.Combine(Path.GetTempPath(), "Fanficly", "Exports");
 
-    private static SocketsHttpHandler CreateDefaultHandler() => new()
+    private static SocketsHttpHandler CreateDefaultHandler(TimeSpan connectTimeout) => new()
     {
         UseCookies = false,
         AllowAutoRedirect = false,
         AutomaticDecompression = DecompressionMethods.All,
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        ConnectTimeout = DefaultRequestTimeout,
+        ConnectTimeout = connectTimeout,
     };
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        _http.Dispose();
+        if (!ReferenceEquals(_http3, _http)) _http3.Dispose();
+    }
 
     // MARK: - Session
 
@@ -357,7 +367,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     public async Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
-        var response = await PerformRequestAsync(Get(AO3Endpoints.Work(id, _baseUri)), ct: ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.WorkPage(id, _baseUri)), ct: ct).ConfigureAwait(false);
         if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
         return WorkMetadataParser.TryParse(Decode(response.Body, "Work response"), id)
             ?? throw AO3Exception.ParseFailed("no chapter count on the work page");
@@ -639,7 +649,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     public async Task SubscribeToWorkAsync(int workId, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
-        var pageUri = AO3Endpoints.Work(workId, _baseUri);
+        var pageUri = AO3Endpoints.WorkPage(workId, _baseUri);
         var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
         var token = (TryDecode(page.Body) is { } pageHtml ? LoginParser.AuthenticityToken(pageHtml) : null)
             ?? throw AO3Exception.ParseFailed("authenticity_token not found on work page");
@@ -924,8 +934,6 @@ public sealed class AO3Client : IAO3Client, IDisposable
     private int _transportLogged;
     private int _altSvcLogged;
     private long _http3OffUntil;
-    private int _http3Confirmed;
-    private int _http3Misses;
 
     /// <summary>Ask for HTTP/3 from the first request instead of waiting for AO3's
     /// Alt-Svc: AO3's edge answers HTTP/2 slowly or with 503/525s, so even the one
@@ -955,10 +963,12 @@ public sealed class AO3Client : IAO3Client, IDisposable
         log($"Connecting to {uri.Host} {proxy}; QUIC (HTTP/3) {(quic ? "available" : "not available")}");
     }
 
-    /// <summary>Until HTTP/3 has answered once, a GET waits this long for it, so a
-    /// network that silently drops UDP costs seconds rather than the full timeout.</summary>
-    private static readonly TimeSpan Http3FirstAnswerCap = TimeSpan.FromSeconds(5);
-    private const int Http3MissesBeforeGivingUp = 2;
+    /// <summary>How long connecting over QUIC may take, so a network that silently
+    /// drops UDP costs seconds rather than the full timeout. Only the connect: once
+    /// connected, a request waits its own timeout, since AO3 search often takes
+    /// 20–30 s to start answering and cutting it off would make AO3 render it twice
+    /// (#147).</summary>
+    private static readonly TimeSpan Http3ConnectTimeout = TimeSpan.FromSeconds(5);
 
     /// <summary>How long HTTP/2 is used after HTTP/3 fails, before HTTP/3 is tried
     /// again: the failure may have been the network dropping, not UDP being blocked.</summary>
@@ -966,18 +976,27 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     private bool Http3Off => Environment.TickCount64 < Volatile.Read(ref _http3OffUntil);
 
-    private void TurnHttp3Off()
-    {
+    private void TurnHttp3Off() =>
         Volatile.Write(ref _http3OffUntil, Environment.TickCount64 + (long)Http3RetryAfter.TotalMilliseconds);
-        Volatile.Write(ref _http3Misses, 0);
-    }
 
-    /// <summary>HTTP/3 couldn't even start: QUIC missing or blocked, a proxy, or
-    /// HTTP/3 off in the runtime. No request went out, so even a POST can go
-    /// again over HTTP/2.</summary>
+    /// <summary>HTTP/3 couldn't connect: QUIC missing or blocked, a proxy, or HTTP/3
+    /// off in the runtime.</summary>
     private static bool IsHttp3ConnectFailure(HttpRequestException e) =>
         e.HttpRequestError is HttpRequestError.ConnectionError or HttpRequestError.SecureConnectionError
             or HttpRequestError.VersionNegotiationError;
+
+    /// <summary>Whether the request that failed over HTTP/3 may go again over HTTP/2.
+    /// A GET may. A POST only when HTTP/3 was never on offer (version negotiation):
+    /// a QUIC connection lost after the stream went out can surface as a connection
+    /// error too, and sending a comment or a login again could post it twice.</summary>
+    private static bool CanResendOverHttp2(HttpMethod method, HttpRequestException e) =>
+        method == HttpMethod.Get || e.HttpRequestError is HttpRequestError.VersionNegotiationError;
+
+    /// <summary>The QUIC connect ran past <see cref="Http3ConnectTimeout"/>: UDP
+    /// silently dropped. SocketsHttpHandler reports that as a cancellation wrapping
+    /// a <see cref="TimeoutException"/>, not an <see cref="HttpRequestException"/>.
+    /// No connection existed, so nothing went out and even a POST can go again.</summary>
+    private static bool IsConnectTimeout(OperationCanceledException e) => e.InnerException is TimeoutException;
 
     /// <summary>Logs once what AO3 advertised on the first answer that wasn't
     /// HTTP/3, since .NET only tries HTTP/3 after an Alt-Svc offering h3.</summary>
@@ -1013,8 +1032,8 @@ public sealed class AO3Client : IAO3Client, IDisposable
             // HTTP/1.1 and HTTP/2 clients far slower, or with 503/525s, while HTTP/3
             // got the same pages in under a second. With PreferHttp3 it's asked for
             // outright from the first request; where it can't connect (Windows 10,
-            // a proxy, UDP blocked) the request goes again over HTTP/2, and so do
-            // the next 10 minutes of requests.
+            // a proxy, UDP blocked) a GET goes again over HTTP/2 in its own throttle
+            // slot, and so do the next 10 minutes of requests.
             using var request = new HttpRequestMessage(method, uri)
             {
                 Version = HttpVersion.Version30,
@@ -1033,7 +1052,6 @@ public sealed class AO3Client : IAO3Client, IDisposable
             }
 
             var http3Only = PreferHttp3 && !useHttp2 && !Http3Off;
-            var capped = http3Only && method == HttpMethod.Get && Volatile.Read(ref _http3Confirmed) == 0;
             if (http3Only)
             {
                 request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
@@ -1044,28 +1062,34 @@ public sealed class AO3Client : IAO3Client, IDisposable
             }
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(resourceCts.Token);
-            timeoutCts.CancelAfter(capped ? Http3FirstAnswerCap : spec.Timeout);
+            timeoutCts.CancelAfter(spec.Timeout);
             HttpResponseMessage response;
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
-                response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
+                response = await (http3Only ? _http3 : _http).SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
             }
             catch (HttpRequestException e) when (http3Only && !ct.IsCancellationRequested && IsHttp3ConnectFailure(e))
             {
                 TurnHttp3Off();
-                Log?.Invoke($"HTTP/3 to {uri.Host} failed after {Elapsed(started)}, so HTTP/2 for the next 10 minutes: {ExceptionChain(e)}");
+                var resend = CanResendOverHttp2(method, e);
+                Log?.Invoke($"HTTP/3 to {uri.Host} failed after {Elapsed(started)}, so HTTP/2 for the next 10 minutes"
+                            + $"{(resend ? "" : $"; the {method} isn't sent again")}: {ExceptionChain(e)}");
+                if (!resend) throw;
                 useHttp2 = true;
                 hop--;
+                // The resend is a request of its own, so it takes its own slot.
+                await _throttle.WaitAsync(ct).ConfigureAwait(false);
                 continue;
             }
-            catch (OperationCanceledException) when (capped && !ct.IsCancellationRequested && !resourceCts.IsCancellationRequested)
+            catch (OperationCanceledException e) when (http3Only && !ct.IsCancellationRequested
+                                                       && !timeoutCts.IsCancellationRequested && IsConnectTimeout(e))
             {
-                var givingUp = Interlocked.Increment(ref _http3Misses) >= Http3MissesBeforeGivingUp;
-                if (givingUp) TurnHttp3Off();
-                Log?.Invoke($"HTTP/3 to {uri.Host} didn't answer in {Elapsed(started)}; sending it over HTTP/2{(givingUp ? " for the next 10 minutes" : "")}");
+                TurnHttp3Off();
+                Log?.Invoke($"HTTP/3 to {uri.Host} couldn't connect in {Elapsed(started)}, so HTTP/2 for the next 10 minutes: {ExceptionChain(e)}");
                 useHttp2 = true;
                 hop--;
+                await _throttle.WaitAsync(ct).ConfigureAwait(false);
                 continue;
             }
             catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
@@ -1081,7 +1105,6 @@ public sealed class AO3Client : IAO3Client, IDisposable
             // Path only: queries can hold search terms, and nothing here is a secret.
             Log?.Invoke($"{method} {uri.AbsolutePath} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
             NoteAltSvc(uri, response);
-            if (response.Version.Major >= 3) Volatile.Write(ref _http3Confirmed, 1);
 
             using (response)
             {

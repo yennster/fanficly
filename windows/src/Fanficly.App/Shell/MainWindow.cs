@@ -208,6 +208,7 @@ public sealed partial class MainWindow : Window
 
         Navigator.Changed += OnNavigatorChanged;
         InstallKeyboard();
+        Platform.VolumeKeyGate.Install(WinRT.Interop.WindowNative.GetWindowHandle(this));
         RootElement.PointerPressed += (_, e) =>
         {
             // Mouse "back" button.

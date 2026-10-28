@@ -2,11 +2,13 @@ using System.Runtime.CompilerServices;
 using Fanficly.App.Shell;
 using Fanficly.App.UI;
 using Fanficly.App.Views.Browse;
+using Fanficly.App.Views.Shared;
 using Fanficly.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.System;
 
 namespace Fanficly.App.Views.History;
@@ -20,7 +22,8 @@ internal static class HistoryRegistration
 
 /// <summary>
 /// The Recently Viewed tab (RecentlyViewedView): fics the user has opened,
-/// newest first (entries are written when a work page opens). Click a row to
+/// newest first (entries are written when a work page opens), in result rows
+/// like AO3 History's. Click a row to
 /// open the work; remove one with Delete or its context menu (the Mac's swipe
 /// action); <b>Edit</b> switches to multi-select to remove several at once
 /// (the Mac's EditButton); <b>Clear</b> empties the history after a
@@ -59,7 +62,8 @@ internal sealed class RecentlyViewedScreen : Screen
             if (e.Key != VirtualKey.Delete) return;
             e.Handled = true;
             if (_editing) RemoveSelected();
-            else if (FocusManager.GetFocusedElement(_list.XamlRoot) is ListViewItem container && Entry(container) is { } item)
+            // The focus can be on the row's bookmark button, inside the item.
+            else if (ContainerOf(FocusManager.GetFocusedElement(_list.XamlRoot) as DependencyObject) is { } container && Entry(container) is { } item)
                 Remove([item]);
         };
 
@@ -143,30 +147,32 @@ internal sealed class RecentlyViewedScreen : Screen
         InvalidateChrome();
     }
 
+    /// <summary>A result row (WorkRow's content), like AO3 History's: reading
+    /// badge, rating, words, reading time, chapters, kudos, summary and the
+    /// bookmark button. A saved story's Library copy wins over the entry's
+    /// snapshot, which can be older (the bookmark writes the row's summary
+    /// over the saved Work). An entry recorded before the history kept
+    /// details, with no Library copy, shows title and author with no bookmark
+    /// button, since saving it would put an empty record in the Library.</summary>
     private ListViewItem Row(RecentlyViewed item)
     {
-        var text = UI.UI.VStack(4, UI.UI.Text(item.Title, Theme.Style.Headline));
-        if (item.Author.Length > 0) text.Children.Add(UI.UI.Secondary($"by {item.Author}"));
-        if (item.FandomShort.Length > 0)
-        {
-            var fandom = UI.UI.HStack(4,
-                UI.UI.Icon(FandomCatalog.Symbol(item.Fandom), 11, Theme.TextSecondary).Also(i => i.VerticalAlignment = VerticalAlignment.Center),
-                UI.UI.Text(item.FandomShort, Theme.Style.Caption, Theme.TextSecondary, wrap: false, maxLines: 1));
-            text.Children.Add(fandom);
-        }
-        text.Padding = new Thickness(0, 8, 0, 8);
-        text.Tag = item;
+        var saved = AppHost.Library.GetWork(item.Ao3Id);
+        var summary = saved?.ToSummary() ?? item.ToSummary();
+        ListViewItem? container = null;
+        var (view, refresh) = WorkRow.Parts(summary,
+            name => { if (container is not null) AutomationProperties.SetName(container, name); },
+            showsBookmark: item.HasDetails || saved is not null);
+        view.Margin = new Thickness(0, 8, 0, 8);
+        view.Tag = item;
 
-        var container = new ListViewItem
+        container = new ListViewItem
         {
-            Content = text,
+            Content = view,
             Tag = item,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
-        var name = item.Title;
-        if (item.Author.Length > 0) name += $", by {item.Author}";
-        if (item.FandomShort.Length > 0) name += $", {item.FandomShort}";
-        AutomationProperties.SetName(container, name);
+        refresh();
+        container.Loaded += (_, _) => refresh(); // follow state and reading may change elsewhere
         AutomationProperties.SetAutomationId(container, $"history.{item.Ao3Id}");
         AutomationProperties.SetHelpText(container, "Press Delete to remove it from Recently Viewed.");
         container.ContextFlyout = UI.UI.Menu(
@@ -174,6 +180,12 @@ internal sealed class RecentlyViewedScreen : Screen
             new MenuFlyoutSeparator(),
             UI.UI.MenuItem("Remove", () => Remove([item]), "trash", isDestructive: true));
         return container;
+    }
+
+    private static ListViewItem? ContainerOf(DependencyObject? element)
+    {
+        while (element is not null and not ListViewItem) element = VisualTreeHelper.GetParent(element);
+        return element as ListViewItem;
     }
 
     private static RecentlyViewed? Entry(object? element) => element switch

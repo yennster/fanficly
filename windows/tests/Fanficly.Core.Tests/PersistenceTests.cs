@@ -283,6 +283,23 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public void RecordViewKeepsStoryDetailsForTheRow()
+    {
+        using var ctx = MakeContext();
+        var summary = Payload(7, 3).Summary;
+        WorkPersistence.RecordView(summary, ctx);
+        var entry = Assert.Single(ctx.All<RecentlyViewed>());
+        Assert.True(entry.HasDetails);
+        Assert.Equal(summary, entry.ToSummary());
+
+        // An entry recorded before details were kept shows what it has.
+        var legacy = new RecentlyViewed(8, "Old", "A", "F");
+        Assert.False(legacy.HasDetails);
+        Assert.Equal(["F"], legacy.ToSummary().Fandoms);
+        Assert.Equal(0, legacy.ToSummary().WordCount);
+    }
+
+    [Fact]
     public void ReadingProgressRoundTrips()
     {
         using var ctx = MakeContext();

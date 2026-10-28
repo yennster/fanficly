@@ -5,7 +5,9 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Foundation;
+using Windows.Graphics.Imaging;
 using Windows.UI;
 
 namespace Fanficly.App.Views.Stats;
@@ -23,10 +25,38 @@ public static class WrapShareCard
 
     private static SolidColorBrush White(byte alpha) => new(Color.FromArgb(alpha, 0xFF, 0xFF, 0xFF));
 
+    /// <summary>The app icon for the footer (the Swift card's `AppIconMark`),
+    /// decoded to pixels before the card is built: a <c>BitmapImage</c> decodes
+    /// lazily, when first drawn, so <c>RenderTargetBitmap</c> could capture it
+    /// blank. Null when it can't be read; the footer then shows the text alone.</summary>
+    public static async Task<ImageSource?> LoadAppIconAsync()
+    {
+        try
+        {
+            // The full-bleed tile (the 44×44 logos have a transparent margin).
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon-512.png");
+            using var file = File.OpenRead(path);
+            var decoder = await BitmapDecoder.CreateAsync(file.AsRandomAccessStream());
+            // 18 DIPs at the card's 2×–4× export scale.
+            var transform = new BitmapTransform { ScaledWidth = 72, ScaledHeight = 72, InterpolationMode = BitmapInterpolationMode.Fant };
+            using var pixels = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                transform, ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
+            var icon = new SoftwareBitmapSource();
+            await icon.SetBitmapAsync(pixels);
+            return icon;
+        }
+        catch (Exception e)
+        {
+            AppHost.Log($"Loading the wrap-up card's icon failed: {e.Message}");
+            return null;
+        }
+    }
+
     /// <param name="goal">This year's goal, shown as a ring row when set and the
     /// card covers this year.</param>
     /// <param name="year">The goal's year, named on the card since the All Time card shows it too.</param>
-    public static FrameworkElement Build(string scopeTitle, ReadingStatsSummary summary, ReadingGoalProgress? goal = null, int year = 0)
+    /// <param name="appIcon">The app icon from <see cref="LoadAppIconAsync"/>.</param>
+    public static FrameworkElement Build(string scopeTitle, ReadingStatsSummary summary, ReadingGoalProgress? goal = null, int year = 0, ImageSource? appIcon = null)
     {
         var brand = Theme.BrandLight; // #3B2E8C, the App Store canvas indigo
         var background = new LinearGradientBrush
@@ -58,9 +88,11 @@ public static class WrapShareCard
         root.Children.Add(header.Row(0));
 
         var stats = UI.UI.Grid("*,*,*", columnSpacing: 14);
-        stats.Children.Add(BigStat(summary.StoriesRead.ToString(CultureInfo.CurrentCulture), summary.StoriesRead == 1 ? "story" : "stories").Col(0));
+        // Stories counts finished works only; the lists below count every work
+        // opened, so each number says which it is.
+        stats.Children.Add(BigStat(summary.StoriesRead.ToString(CultureInfo.CurrentCulture), summary.StoriesRead == 1 ? "story finished" : "stories finished").Col(0));
         stats.Children.Add(BigStat(StatsFormat.FormatDuration(summary.TotalSeconds), "read").Col(1));
-        stats.Children.Add(BigStat(StatsFormat.FormatWords(summary.TotalWords), "words").Col(2));
+        stats.Children.Add(BigStat(StatsFormat.FormatWords(summary.TotalWords), "words read").Col(2));
         root.Children.Add(stats.Row(1));
 
         // The goal row and the two lists share rows 2–3 in one stack, so an
@@ -73,8 +105,19 @@ public static class WrapShareCard
         root.Children.Add(blocks.Row(2));
         Grid.SetRowSpan(blocks, 2);
 
+        // The app icon itself, in its tile's rounded corners with a faint edge
+        // so it doesn't melt into the indigo canvas.
         var footer = UI.UI.HStack(6,
-            Symbols.Icon("book.pages", 12).Also(i => { i.Foreground = White(0xD9); i.VerticalAlignment = VerticalAlignment.Center; }),
+            appIcon is null ? null : new Border
+            {
+                Width = 18,
+                Height = 18,
+                CornerRadius = new CornerRadius(4),
+                BorderBrush = White(0x59),
+                BorderThickness = new Thickness(0.5),
+                VerticalAlignment = VerticalAlignment.Center,
+                Background = new ImageBrush { ImageSource = appIcon, Stretch = Stretch.UniformToFill },
+            }.A11yHidden(),
             new TextBlock { Text = "Made with Fanficly", FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = White(0xD9), FontFamily = Theme.UIFont });
         root.Children.Add(footer.Row(5));
 
@@ -125,8 +168,10 @@ public static class WrapShareCard
 
     private static FrameworkElement ListBlock(string title, IEnumerable<ReadingTagCount> items)
     {
-        var stack = UI.UI.VStack(6,
-            new TextBlock { Text = title.ToUpperInvariant(), FontSize = 11, FontWeight = FontWeights.Bold, Foreground = White(0x99), CharacterSpacing = 40, FontFamily = Theme.UIFont });
+        var header = UI.UI.Grid("*,Auto", columnSpacing: 8);
+        header.Children.Add(HeaderText(title.ToUpperInvariant()).Col(0));
+        header.Children.Add(HeaderText("STORIES OPENED").Col(1));
+        var stack = UI.UI.VStack(6, header);
         foreach (var item in items)
         {
             var row = UI.UI.Grid("*,Auto", columnSpacing: 8);
@@ -151,4 +196,7 @@ public static class WrapShareCard
         }
         return stack;
     }
+
+    private static TextBlock HeaderText(string text) =>
+        new() { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, Foreground = White(0x99), CharacterSpacing = 40, FontFamily = Theme.UIFont };
 }
