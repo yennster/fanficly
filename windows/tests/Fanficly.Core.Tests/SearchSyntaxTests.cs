@@ -27,7 +27,8 @@ public class SearchSyntaxTests
     {
         foreach (var prompt in new[] { "supernatural creatures", "wednesday addams", "french kiss", "korean idol au",
                      "the other side", "soft family drama", "mature themes", "general hospital",
-                     "harry potter", "popular kid", "recent graduate", "finished line", "multi chapter" })
+                     "harry potter", "popular kid", "recent graduate", "finished line", "multi chapter",
+                     "explicit consent", "femslash february", "explicit", "femslash" })
         {
             var f = Parse(prompt);
             Assert.Equal(prompt, f.Query);
@@ -81,7 +82,8 @@ public class SearchSyntaxTests
     [Fact]
     public void Ratings_OnlyUnambiguousForms()
     {
-        AssertSet([Rating.Explicit], Parse("smut explicit").Ratings);
+        AssertSet([Rating.Explicit], Parse("smut rated explicit").Ratings);
+        AssertSet([Rating.Explicit], Parse("e-rated").Ratings);
         AssertSet([Rating.Mature, Rating.Explicit], Parse("nsfw").Ratings);
         AssertSet([Rating.General, Rating.Teen], Parse("sfw").Ratings);
         AssertSet([Rating.Mature], Parse("rated mature").Ratings);
@@ -95,7 +97,7 @@ public class SearchSyntaxTests
     public void Categories()
     {
         AssertSet([WorkCategory.MM], Parse("coffee shop au m/m").Categories);
-        AssertSet([WorkCategory.FF], Parse("f/f femslash").Categories);
+        AssertSet([WorkCategory.FF], Parse("f/f fluff").Categories);
         Assert.Empty(Parse("gen").Categories);
     }
 

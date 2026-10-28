@@ -12,10 +12,13 @@ import Foundation
 ///    `title:…`, `by:…`, …). Nobody types those by accident, and `render`
 ///    emits them, so saved searches round-trip exactly.
 /// 2. A short list of phrases that only ever mean a filter: "complete",
-///    "wip", "one shot", "explicit", "nsfw", "m/m", "under 10k", "in
+///    "wip", "one shot", "rated explicit", "nsfw", "m/m", "under 10k", "in
 ///    spanish", "no crossovers", "no mcd". These have to be filters because
 ///    AO3 requires every keyword to match: "complete" left as a word would
-///    hide every story that doesn't literally contain it.
+///    hide every story that doesn't literally contain it. A word that is
+///    also part of everyday tags stays a word: bare "explicit" ("Explicit
+///    Consent") and "femslash" ("Femslash February") are keywords, and the
+///    suggestion row offers their rating and category instead.
 ///
 /// Fandoms, characters, ships and tropes are never guessed from words; the
 /// suggestion row offers their exact AO3 tags instead (`SearchSuggestions`).
@@ -155,12 +158,10 @@ enum SearchSyntax {
         phrase(#"\bteen\s+and\s+up(?:\s+audiences)?\b"#) { _, _, f in f.ratings.insert(.teen); return true },
         phrase(#"\bgeneral\s+audiences\b"#) { _, _, f in f.ratings.insert(.general); return true },
         phrase(#"\b(?:not\s+rated|unrated)\b"#) { _, _, f in f.ratings.insert(.notRated); return true },
-        phrase(#"\bexplicit\b"#) { _, _, f in f.ratings.insert(.explicit); return true },
         phrase(#"(?<![\w/])(m/m|f/f|f/m)(?![\w/])"#) { m, ns, f in
             guard let c = category(named: ns.substring(with: m.range(at: 1))) else { return false }
             f.categories.insert(c); return true
         },
-        phrase(#"\bfemslash\b"#) { _, _, f in f.categories.insert(.ff); return true },
         phrase(#"\bno\s+(?:archive\s+)?warnings(?:\s+apply)?\b"#) { _, _, f in
             f.warnings.insert(.noWarningsApply); return true
         },
