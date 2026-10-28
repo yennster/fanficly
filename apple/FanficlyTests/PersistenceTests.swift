@@ -1,5 +1,6 @@
 import XCTest
 import SwiftData
+import CoreSpotlight
 @testable import Fanficly
 
 @MainActor
@@ -60,6 +61,45 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(w2.chapters.count, 2)
         let all = try ctx.fetch(FetchDescriptor<Work>())
         XCTAssertEqual(all.count, 1)
+    }
+
+    // MARK: - Spotlight
+
+    func test_spotlightIdentifier_roundTrips() {
+        XCTAssertEqual(WorkPersistence.spotlightIdentifier(ao3Id: 4242), "work-4242")
+        XCTAssertEqual(WorkPersistence.workId(fromSpotlightIdentifier: "work-4242"), 4242)
+    }
+
+    func test_spotlightIdentifier_rejectsOtherIdentifiers() {
+        XCTAssertNil(WorkPersistence.workId(fromSpotlightIdentifier: ""))
+        XCTAssertNil(WorkPersistence.workId(fromSpotlightIdentifier: "work-"))
+        XCTAssertNil(WorkPersistence.workId(fromSpotlightIdentifier: "work-abc"))
+        XCTAssertNil(WorkPersistence.workId(fromSpotlightIdentifier: "work-0"))
+        XCTAssertNil(WorkPersistence.workId(fromSpotlightIdentifier: "work--5"))
+        XCTAssertNil(WorkPersistence.workId(fromSpotlightIdentifier: "author-12"))
+        XCTAssertNil(WorkPersistence.workId(fromSpotlightIdentifier: "4242"))
+    }
+
+    // A saved work is findable whether or not it's followed: the entry comes
+    // from the library row alone, with tags as keywords.
+    func test_spotlightEntry_coversSavedWorkWithItsTags() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.upsert(payload: payload(id: 7, chapters: 1), into: ctx)
+        XCTAssertFalse(work.isFollowed)
+
+        let entry = WorkPersistence.spotlightEntry(for: work)
+        XCTAssertEqual(entry, WorkPersistence.SpotlightEntry(
+            ao3Id: 7, title: "Test Work 7", author: "tester", summary: "A summary",
+            keywords: ["Harry Potter - J. K. Rowling", "Harry/Draco", "Harry Potter"]
+        ))
+
+        let item = WorkPersistence.searchableItem(for: entry)
+        XCTAssertEqual(item.uniqueIdentifier, "work-7")
+        XCTAssertEqual(item.domainIdentifier, WorkPersistence.spotlightDomain)
+        XCTAssertEqual(item.attributeSet.title, "Test Work 7")
+        XCTAssertEqual(item.attributeSet.artist, "tester")
+        XCTAssertEqual(item.attributeSet.contentDescription, "A summary")
+        XCTAssertEqual(item.attributeSet.keywords, entry.keywords)
     }
 
     func test_toggleFollowAuthor() throws {

@@ -1418,6 +1418,8 @@ final class iCloudSyncManager {
 
             try context.save()
             RestoreDownloadCenter.shared.noteRestoredText(workIds: textRestored)
+            // Restored works skip upsertMetadata, so they reach Spotlight here.
+            WorkPersistence.indexLibrary(context: context)
         }
     }
     
