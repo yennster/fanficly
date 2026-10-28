@@ -84,8 +84,9 @@ public static class RestoreBanner
             };
             AutomationProperties.SetAutomationId(dialog, "restore.prompt");
             var result = await Dialogs.ShowAsync(dialog);
-            if (result == ContentDialogResult.Primary) _ = Center.StartDownloads(AppHost.Client);
-            else Center.DismissProposal();
+            if (result == ContentDialogResult.Primary) _ = Center.StartDownloads(AppHost.Client, AppHost.Auth.IsLoggedIn);
+            // Not Now (or Esc): this PC doesn't offer these works again (#152).
+            else Center.DeclineProposal();
         }
         finally
         {
@@ -119,7 +120,9 @@ public static class RestoreBanner
         var title = UI.UI.Text("", Theme.Style.Footnote, maxLines: UI.UI.LineLimit(1));
         title.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, MinHeight = 4 };
-        var group = new AccessibleGroup("", UI.UI.VStack(4, title, bar));
+        // A stopped run's reason, in place of the bar.
+        var detail = UI.UI.Text("", Theme.Style.Caption, Theme.TextSecondary);
+        var group = new AccessibleGroup("", UI.UI.VStack(4, title, bar, detail));
         var cancel = UI.UI.Button("Cancel", () => Center.Cancel());
         cancel.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         AutomationProperties.SetAutomationId(cancel, "restore.cancel");
@@ -146,13 +149,14 @@ public static class RestoreBanner
             doneIcon.Visibility = p.Finished ? Visibility.Visible : Visibility.Collapsed;
             doneIcon.Glyph = Symbols.Glyph(p.Failed == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill");
             doneIcon.Foreground = p.Failed == 0 ? Theme.Success : Theme.Warning;
-            title.Text = p.Finished
-                ? (p.Failed == 0 ? $"Downloaded {p.Done} stories" : $"Downloaded {p.Done} of {p.Total} stories")
-                : $"Downloading stories… {p.Done} of {p.Total}";
+            title.Text = p.Finished ? p.FinishedTitle : $"Downloading stories… {p.Done} of {p.Total}";
             bar.Maximum = Math.Max(p.Total, 1);
             bar.Value = p.Done + p.Failed;
+            detail.Text = p.StoppedDetail ?? "";
+            detail.Visibility = p.StoppedDetail is null ? Visibility.Collapsed : Visibility.Visible;
+            bar.Visibility = p.StoppedDetail is null ? Visibility.Visible : Visibility.Collapsed;
             group.AccessibleName = p.Finished
-                ? $"Downloaded {p.Done} of {p.Total} stories"
+                ? (p.StoppedDetail is { } why ? $"{p.FinishedTitle}. {why}" : $"Downloaded {p.Done} of {p.Total} stories")
                 : $"Downloading stories, {p.Done} of {p.Total} done";
             cancel.Visibility = p.Finished ? Visibility.Collapsed : Visibility.Visible;
             AutomationProperties.SetHelpText(cancel, Center.Kind == RestoreDownloadCenter.DownloadKind.Restore

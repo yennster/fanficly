@@ -1,7 +1,7 @@
 namespace Fanficly.Core;
 
-/// <summary>Reads just the chapter count and last-update date from a work page —
-/// what the subscription poller needs to spot new chapters.</summary>
+/// <summary>Reads just the chapter count and the update and published dates from a
+/// work page — what the subscription poller needs to spot new chapters and works.</summary>
 public static class WorkMetadataParser
 {
     /// <summary>Null when the page has no chapter count: a login, error or
@@ -16,6 +16,7 @@ public static class WorkMetadataParser
         var stats = doc.SelectFirst("dl.stats");
         var (current, total) = HtmlDom.ParseChapterFraction(stats?.SelectFirst("dd.chapters")?.Text() ?? "1/1");
         var updatedAt = HtmlDom.ParseDate(stats?.SelectFirst("dd.status")?.Text() ?? "", "yyyy-MM-dd");
-        return new AO3WorkMetadata(workId, current, total, updatedAt);
+        var publishedAt = HtmlDom.ParseDate(stats?.SelectFirst("dd.published")?.Text() ?? "", "yyyy-MM-dd");
+        return new AO3WorkMetadata(workId, current, total, updatedAt, publishedAt) { Series = SeriesParser.Parts(doc) };
     }
 }

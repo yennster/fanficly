@@ -16,8 +16,10 @@ public static class AO3Endpoints
     public static Uri Work(int id, Uri baseUri) =>
         Build(baseUri, $"/works/{id}", [new("view_full_work", "true"), new("view_adult", "true")]);
 
-    /// <summary>The work's own page without <c>view_full_work</c>: enough for the
-    /// bookmark form, without downloading every chapter of a long work.</summary>
+    /// <summary>The work's own page without <c>view_full_work</c>: one chapter at
+    /// most, but the same <c>dl.stats</c> block, CSRF token and bookmark form. The
+    /// poller, subscribing and the bookmark form use it, so they don't download
+    /// every chapter of a long work, AO3's heaviest page (#148).</summary>
     public static Uri WorkPage(int id, Uri baseUri) => Build(baseUri, $"/works/{id}", [new("view_adult", "true")]);
 
     /// <summary>A work one chapter to a page: its first chapter, or the chapter with
@@ -33,6 +35,10 @@ public static class AO3Endpoints
 
     public static Uri AuthorWorks(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/works", PageItems(page));
+
+    /// <summary>A series page; page 1 sends no <c>page=</c>.</summary>
+    public static Uri Series(int id, int page, Uri baseUri) =>
+        Build(baseUri, $"/series/{id}", PageItems(page));
 
     public static Uri UserBookmarks(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/bookmarks", PageItems(page));

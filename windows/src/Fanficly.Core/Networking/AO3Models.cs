@@ -38,6 +38,9 @@ public sealed record AO3WorkSummary
     public int Hits { get; init; }
     public bool IsComplete { get; init; }
     public DateTimeOffset? UpdatedAt { get; init; }
+    /// <summary>Each series the work is part of, as its work page lists them.
+    /// Empty from listings, whose blurbs don't say which part a work is.</summary>
+    public IReadOnlyList<AO3SeriesPart> Series { get; init; } = [];
 
     public bool Equals(AO3WorkSummary? other) =>
         other is not null &&
@@ -49,9 +52,41 @@ public sealed record AO3WorkSummary
         Freeforms.SequenceEqual(other.Freeforms) && WordCount == other.WordCount &&
         ChapterCount == other.ChapterCount && TotalChapters == other.TotalChapters &&
         Language == other.Language && Kudos == other.Kudos && Hits == other.Hits &&
-        IsComplete == other.IsComplete && UpdatedAt == other.UpdatedAt;
+        IsComplete == other.IsComplete && UpdatedAt == other.UpdatedAt &&
+        Series.SequenceEqual(other.Series);
 
     public override int GetHashCode() => HashCode.Combine(Id, Title, Author, WordCount, ChapterCount, UpdatedAt);
+}
+
+/// <summary>"Part 2 of &lt;series&gt;" on a work page: which series, where the work
+/// sits in it, and the works either side (null at an end, or when AO3 shows no link).</summary>
+public sealed record AO3SeriesPart(int SeriesId, string Title, int Position, int? PreviousWorkId = null, int? NextWorkId = null);
+
+/// <summary>One page of a series (<c>/series/&lt;id&gt;</c>): its header and its works in
+/// series order.</summary>
+public sealed record AO3Series
+{
+    public required int Id { get; init; }
+    public string Title { get; init; } = "";
+    public string Creator { get; init; } = "";
+    /// <summary>The first creator's AO3 login, to open their works; "" when anonymous.</summary>
+    public string CreatorUsername { get; init; } = "";
+    public string DescriptionHtml { get; init; } = "";
+    /// <summary>The Stats line's work count; null when the page doesn't show it.</summary>
+    public int? WorkCount { get; init; }
+    public bool IsComplete { get; init; }
+    public IReadOnlyList<AO3WorkSummary> Works { get; init; } = [];
+    public int CurrentPage { get; init; } = 1;
+    public int TotalPages { get; init; } = 1;
+
+    public bool Equals(AO3Series? other) =>
+        other is not null &&
+        Id == other.Id && Title == other.Title && Creator == other.Creator &&
+        CreatorUsername == other.CreatorUsername && DescriptionHtml == other.DescriptionHtml &&
+        WorkCount == other.WorkCount && IsComplete == other.IsComplete &&
+        Works.SequenceEqual(other.Works) && CurrentPage == other.CurrentPage && TotalPages == other.TotalPages;
+
+    public override int GetHashCode() => HashCode.Combine(Id, Title, CurrentPage, Works.Count);
 }
 
 /// <summary>A work page: its metadata plus every chapter's HTML.</summary>
@@ -138,7 +173,21 @@ public sealed record AO3CommentsPage(IReadOnlyList<AO3Comment> Comments, int Cur
     public bool HasMore => CurrentPage < TotalPages;
 }
 
-public sealed record AO3WorkMetadata(int Id, int ChapterCount, int? TotalChapters, DateTimeOffset? UpdatedAt);
+/// <param name="PublishedAt">The day the work was first posted (<c>dd.published</c>). The
+/// poller asks for it when it has no baseline to tell a new work from an updated one.</param>
+public sealed record AO3WorkMetadata(int Id, int ChapterCount, int? TotalChapters, DateTimeOffset? UpdatedAt,
+                                     DateTimeOffset? PublishedAt = null)
+{
+    /// <summary>The series the work is part of (see <see cref="AO3WorkSummary.Series"/>).</summary>
+    public IReadOnlyList<AO3SeriesPart> Series { get; init; } = [];
+
+    public bool Equals(AO3WorkMetadata? other) =>
+        other is not null && Id == other.Id && ChapterCount == other.ChapterCount &&
+        TotalChapters == other.TotalChapters && UpdatedAt == other.UpdatedAt && PublishedAt == other.PublishedAt &&
+        Series.SequenceEqual(other.Series);
+
+    public override int GetHashCode() => HashCode.Combine(Id, ChapterCount, TotalChapters, UpdatedAt, PublishedAt);
+}
 
 public enum AO3SubscriptionKind { Work, Series, User }
 
@@ -155,6 +204,13 @@ public sealed record AO3Subscription(AO3SubscriptionKind Kind, string ResourceId
     public string Key => $"{KindRaw(Kind)}:{ResourceId}";
     public string Id => Key;
 }
+
+/// <summary>The account's whole subscriptions list, as far as
+/// <c>FetchSubscriptionsAsync</c> walked it (Swift's <c>AO3SubscriptionList</c>).
+/// <see cref="IsComplete"/> is false when the list ran past the page ceiling: the
+/// entries are real, but a missing one may still be subscribed, so the caller
+/// must not treat it as unsubscribed.</summary>
+public sealed record AO3SubscriptionList(IReadOnlyList<AO3Subscription> Subscriptions, bool IsComplete = true);
 
 /// <summary>One page of the subscriptions index plus its pagination.</summary>
 public sealed record AO3SubscriptionsPage(IReadOnlyList<AO3Subscription> Subscriptions, int CurrentPage, int TotalPages);

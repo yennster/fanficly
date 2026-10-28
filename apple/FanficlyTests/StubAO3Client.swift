@@ -11,11 +11,20 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     private(set) var autocompleteCalls: [String] = []
     /// Scripted subscriptions-list response (SubscriptionPoller tests).
     var subscriptionsResponse: [AO3Subscription] = []
+    /// False scripts a list that ran past `fetchSubscriptions`' page ceiling.
+    var subscriptionsComplete = true
+    private(set) var subscriptionsFetchCount = 0
     /// Scripted author works page (SubscriptionPoller tests); empty when nil.
     var authorWorksResponse: AO3SearchResults?
     /// Scripted work page for `fetchWorkMetadata`, run through the real
     /// parser (SubscriptionPoller tests); nil returns a one-chapter work.
     var workMetadataHTML: String?
+    /// Scripted published days by work id for `fetchWorkMetadata`, and the
+    /// ids it was asked for (SubscriptionPoller tests).
+    var workPublishedAt: [Int: Date] = [:]
+    private(set) var workMetadataCalls: [Int] = []
+    /// Scripted EPUB download failures by work id (RestoreDownloadCenter tests).
+    var downloadEPUBErrors: [Int: Error] = [:]
     /// Scripted export failure (WorkExporter tests).
     var exportError: Error?
     /// Scripted kudos answer, and the works kudos were sent for (KudosGiver tests).
@@ -53,13 +62,20 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         AO3WorkPayload(summary: .stub(id: id, title: "x"), chapters: [])
     }
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
+        workMetadataCalls.append(id)
+        if let publishedAt = workPublishedAt[id] {
+            return AO3WorkMetadata(id: id, chapterCount: 2, totalChapters: nil, updatedAt: nil, publishedAt: publishedAt)
+        }
         if let workMetadataHTML { return try WorkMetadataParser.parse(html: workMetadataHTML, workId: id) }
         return AO3WorkMetadata(id: id, chapterCount: 1, totalChapters: 1, updatedAt: nil)
     }
     func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
         AO3Series(id: id, title: "x", creator: "x", works: [], currentPage: page)
     }
-    func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
+    func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList {
+        subscriptionsFetchCount += 1
+        return AO3SubscriptionList(subscriptions: subscriptionsResponse, isComplete: subscriptionsComplete)
+    }
     func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
         AO3CommentsPage(comments: [], currentPage: page)
     }
@@ -69,7 +85,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         PopularSnapshot(fandoms: [], ships: [], characters: [])
     }
     func downloadEPUB(workId: Int) async throws -> URL {
-        URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
+        if let error = downloadEPUBErrors[workId] { throw error }
+        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(workId).epub")
     }
     func exportWork(workId: Int, format: WorkExportFormat, filename: String) async throws -> URL {
         if let exportError { throw exportError }

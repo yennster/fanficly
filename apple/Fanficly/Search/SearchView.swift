@@ -33,6 +33,8 @@ struct SearchView: View {
     @State private var hasSearched = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// A failed next page: shown under the results, which stay (#154).
+    @State private var paging = LoadMoreState()
     /// The error is an expired AO3 session (#131): offer Sign In Again.
     @State private var sessionExpired = false
     @State private var searchTask: Task<Void, Never>?
@@ -338,7 +340,8 @@ struct SearchView: View {
         } else if visibleResults.isEmpty {
             FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
                             canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
-                            loadMore: loadMore)
+                            loadMoreError: paging.error,
+                            sessionExpired: sessionExpired && !auth.hasSession, loadMore: loadMore)
         } else {
             resultsList
         }
@@ -398,22 +401,16 @@ struct SearchView: View {
                             }
                         }
                 }
-                // Infinite scroll: pull the next page as the last row appears.
+                // Infinite scroll: pull the next page as the last row appears
+                // (after a failure, the footer's Try Again does).
                 .onAppear {
-                    if work.id == visibleResults.last?.id {
+                    if work.id == visibleResults.last?.id, paging.error == nil {
                         Task { await loadMore() }
                     }
                 }
             }
-            if isLoadingMore {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-                .padding(.vertical, 8)
-                .listRowSeparator(.hidden)
-            }
+            LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
+                           sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
@@ -702,6 +699,9 @@ struct SearchView: View {
             let result = try await client.search(filters: filters, page: 1)
             guard !Task.isCancelled else { return }
             _ = try auth.check(result)
+            // Restarting only now, not when the search starts, lets a next
+            // page already in flight still land if this search is cancelled.
+            paging.restart()
             results = result.works
             totalFound = result.totalFound
             totalPages = result.totalPages
@@ -714,6 +714,7 @@ struct SearchView: View {
             } ?? "Search finished. \(results.count) works on this page.")
         } catch {
             guard !Task.isCancelled else { return }
+            paging.restart()
             sessionExpired = auth.explains(error)
             errorMessage = sessionExpired ? AuthState.message(for: error) : Self.message(for: error)
         }
@@ -736,19 +737,26 @@ struct SearchView: View {
     private func loadMore() async {
         // onAppear can fire repeatedly, and there's no page past totalPages.
         guard !isLoadingMore, !isSearching, currentPage < totalPages, let searched else { return }
+        let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try await client.search(filters: searched, page: currentPage + 1)
-            guard searched == self.searched else { return }  // a new search started meanwhile
+            guard paging.isCurrent(generation) else { return }  // a new search started meanwhile
             _ = try auth.check(result)
             let existing = Set(results.map(\.id))
             results.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : "Couldn't load more: \(Self.message(for: error))"
+            guard paging.isCurrent(generation), !Task.isCancelled else { return }
+            // The results so far stay; the footer says why and offers Try
+            // Again, which picks up at the page that failed (#154).
+            let expired = auth.explains(error)
+            sessionExpired = expired
+            let message = expired ? AuthState.message(for: error) : "Couldn't load more: \(Self.message(for: error))"
+            paging.fail(message, generation: generation)
+            UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
 

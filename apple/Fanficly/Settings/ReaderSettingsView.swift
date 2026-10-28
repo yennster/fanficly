@@ -20,6 +20,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
+    @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     // Global (not per-device / not part of reader profiles): a content &
     // privacy choice, not typography. Matches ReaderView's key.
     @AppStorage("reader.showImages") private var showImages: Bool = false
@@ -130,6 +131,15 @@ struct ReaderSettingsView: View {
         let lang = Locale.current.language.languageCode?.identifier ?? "en"
         let matching = all.filter { $0.language.hasPrefix(lang) }
         return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
+    }
+
+    /// The footer's line about volume buttons; there are none on the Mac.
+    private var volumeFooter: String {
+        #if targetEnvironment(macCatalyst)
+        ""
+        #else
+        " “Volume buttons turn pages” is for page turners and rings in their volume or camera mode (they work on both screens of an iPhone Duo); volume up turns forward, volume down back, and the volume stays put. It pauses while Listen is on."
+        #endif
     }
 
     var body: some View {
@@ -261,10 +271,17 @@ struct ReaderSettingsView: View {
                     Label("Keep screen awake while reading", systemImage: "sun.max")
                 }
                 .help("Stop the display from dimming or locking while a story is open, like a video player.")
+
+                #if !targetEnvironment(macCatalyst)
+                Toggle(isOn: $volumeButtonsTurnPages) {
+                    Label("Volume buttons turn pages", systemImage: "speaker.wave.2")
+                }
+                .help("Volume up turns forward and volume down turns back while a story is open; the volume stays where it was.")
+                #endif
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.\(volumeFooter)")
             }
 
             Section {
