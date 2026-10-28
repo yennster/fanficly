@@ -266,6 +266,9 @@ public static partial class AppHost
         public IReadOnlyDictionary<string, string> NewWork(int workId) => new NotificationRoute.NewWork(workId).ToArguments();
         public IReadOnlyDictionary<string, string> NewWorks(string authorUsername, string authorName) =>
             new NotificationRoute.NewWorks(new AuthorRef(authorUsername, authorName)).ToArguments();
+        public IReadOnlyDictionary<string, string> SearchMatch(int workId) => new NotificationRoute.SearchMatch(workId).ToArguments();
+        public IReadOnlyDictionary<string, string> SavedSearch(string name, string prompt) =>
+            new NotificationRoute.SavedSearchMatches(name, prompt).ToArguments();
     }
 
     /// <summary>The poller's notifications as Windows toasts.</summary>

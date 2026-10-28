@@ -240,6 +240,17 @@ internal static class LibrarySchema
             AddColumnIfMissing(conn, "recently_viewed", "is_complete", "INTEGER NOT NULL DEFAULT 0");
             AddColumnIfMissing(conn, "recently_viewed", "updated_at", "INTEGER");
         },
+        // Version 5: new-fic alerts on saved searches (#309).
+        conn =>
+        {
+            AddColumnIfMissing(conn, "saved_searches", "alerts_enabled", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_changed_at", "INTEGER");
+            AddColumnIfMissing(conn, "saved_searches", "alert_known_work_ids", "TEXT NOT NULL DEFAULT '[]'");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_baseline_at", "INTEGER");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_last_checked_at", "INTEGER");
+            AddColumnIfMissing(conn, "saved_searches", "alert_new_work_ids", "TEXT NOT NULL DEFAULT '[]'");
+            AddColumnIfMissing(conn, "saved_searches", "alerts_attempted_at", "INTEGER");
+        },
     ];
 
     internal static int CurrentVersion => Migrations.Length;

@@ -20,6 +20,8 @@ final class NotificationRouteTests: XCTestCase {
             .newChapters(workId: 12345),
             .newWork(workId: 67890),
             .newWorks(author: author),
+            .searchMatch(workId: 13579),
+            .savedSearch(name: "Slow burn", prompt: #"tag:"Slow Burn" complete:yes"#),
         ]
         for route in routes {
             XCTAssertEqual(try delivered(route.userInfo), route)
@@ -44,6 +46,8 @@ final class NotificationRouteTests: XCTestCase {
         XCTAssertNil(NotificationRoute(userInfo: ["kind": "newWork"]))
         XCTAssertNil(NotificationRoute(userInfo: ["kind": "newWorks"]))
         XCTAssertNil(NotificationRoute(userInfo: ["kind": "newWorks", "authorUsername": ""]))
+        XCTAssertNil(NotificationRoute(userInfo: ["kind": "searchMatch"]))
+        XCTAssertNil(NotificationRoute(userInfo: ["kind": "savedSearch", "searchName": "Empty", "searchPrompt": ""]))
     }
 
     func test_newWorksWithoutDisplayName_fallsBackToUsername() {
@@ -58,6 +62,8 @@ final class NotificationRouteTests: XCTestCase {
         XCTAssertEqual(NotificationRoute.newChapters(workId: 1).landingTab(workIsSaved: false), .subscriptions)
         XCTAssertEqual(NotificationRoute.newWork(workId: 1).landingTab(workIsSaved: false), .authors)
         XCTAssertEqual(NotificationRoute.newWorks(author: author).landingTab(workIsSaved: false), .authors)
+        XCTAssertEqual(NotificationRoute.searchMatch(workId: 1).landingTab(workIsSaved: true), .search)
+        XCTAssertEqual(NotificationRoute.savedSearch(name: "x", prompt: "x").landingTab(workIsSaved: false), .search)
     }
 
     // MARK: - What the poller actually posts
@@ -85,5 +91,24 @@ final class NotificationRouteTests: XCTestCase {
         XCTAssertEqual(content.title, "Some Pseud")
         XCTAssertEqual(content.body, "2 new works posted")
         XCTAssertEqual(try delivered(content.userInfo), .newWorks(author: author))
+    }
+
+    func test_singleSavedSearchMatch_opensTheWork() throws {
+        let content = SubscriptionPoller.savedSearchContent(
+            searchName: "Slow burn", prompt: "tag:\"Slow Burn\"",
+            newWorks: [.stub(id: 24680, title: "Finally")]
+        )
+        XCTAssertEqual(content.title, "Slow burn")
+        XCTAssertEqual(content.body, "New fic: Finally")
+        XCTAssertEqual(try delivered(content.userInfo), .searchMatch(workId: 24680))
+    }
+
+    func test_severalSavedSearchMatches_openTheSearch() throws {
+        let content = SubscriptionPoller.savedSearchContent(
+            searchName: "Slow burn", prompt: "tag:\"Slow Burn\"",
+            newWorks: [.stub(id: 1, title: "One"), .stub(id: 2, title: "Two"), .stub(id: 3, title: "Three")]
+        )
+        XCTAssertEqual(content.body, "3 new fics match this search")
+        XCTAssertEqual(try delivered(content.userInfo), .savedSearch(name: "Slow burn", prompt: "tag:\"Slow Burn\""))
     }
 }

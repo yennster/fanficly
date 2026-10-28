@@ -119,7 +119,16 @@ public sealed record BookmarkBackup(int Ao3Id, int WorkAo3Id, string Notes, IRea
 public sealed record SubscriptionBackup(
     string Key, string Kind, string DisplayName, string AuthorName, int? LastSeenChapterCount, DateTimeOffset? LastCheckedAt);
 
-public sealed record SearchBackup(string Name, string Prompt, string SortColumn, string SortDirection, DateTimeOffset SavedAt);
+/// <summary>A saved search. The alert fields (#309) are optional so backups
+/// written before alerts still decode; <see cref="LibrarySyncManager.MergedSearch"/>
+/// merges them.</summary>
+public sealed record SearchBackup(
+    string Name, string Prompt, string SortColumn, string SortDirection, DateTimeOffset SavedAt,
+    bool? AlertsEnabled = null,
+    DateTimeOffset? AlertsChangedAt = null,
+    IReadOnlyList<int>? AlertKnownWorkIds = null,
+    DateTimeOffset? AlertsBaselineAt = null,
+    DateTimeOffset? AlertsLastCheckedAt = null);
 
 public sealed record ProgressBackup(int Ao3Id, int ChapterIndex, int ParagraphIndex, string Title, string Author, DateTimeOffset UpdatedAt);
 
@@ -323,6 +332,16 @@ public static class LibraryBackupJson
                 w.WriteString("sortColumn", x.SortColumn);
                 w.WriteString("sortDirection", x.SortDirection);
                 WriteDate(w, "savedAt", x.SavedAt);
+                if (x.AlertsEnabled is { } alerts) w.WriteBoolean("alertsEnabled", alerts);
+                WriteDate(w, "alertsChangedAt", x.AlertsChangedAt);
+                if (x.AlertKnownWorkIds is { } known)
+                {
+                    w.WriteStartArray("alertKnownWorkIds");
+                    foreach (var id in known) w.WriteNumberValue(id);
+                    w.WriteEndArray();
+                }
+                WriteDate(w, "alertsBaselineAt", x.AlertsBaselineAt);
+                WriteDate(w, "alertsLastCheckedAt", x.AlertsLastCheckedAt);
             });
             WriteArray(w, "progress", b.Progress, (w, x) =>
             {
@@ -527,7 +546,12 @@ public static class LibraryBackupJson
                 Str(x, "key"), Str(x, "kind"), Str(x, "displayName"), Str(x, "authorName"),
                 IntN(x, "lastSeenChapterCount"), DateN(x, "lastCheckedAt"))),
             Searches: Array(o, "searches", x => new SearchBackup(
-                Str(x, "name"), Str(x, "prompt"), Str(x, "sortColumn"), Str(x, "sortDirection"), Date(x, "savedAt"))),
+                Str(x, "name"), Str(x, "prompt"), Str(x, "sortColumn"), Str(x, "sortDirection"), Date(x, "savedAt"),
+                BoolN(x, "alertsEnabled"), DateN(x, "alertsChangedAt"),
+                Present(x, "alertKnownWorkIds", out var known) && known.ValueKind == JsonValueKind.Array
+                    ? known.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Number).Select(e => e.GetInt32()).ToList()
+                    : null,
+                DateN(x, "alertsBaselineAt"), DateN(x, "alertsLastCheckedAt"))),
             Progress: Array(o, "progress", x => new ProgressBackup(
                 Int(x, "ao3Id"), Int(x, "chapterIndex"), Int(x, "paragraphIndex"), Str(x, "title"), Str(x, "author"),
                 Date(x, "updatedAt"))),

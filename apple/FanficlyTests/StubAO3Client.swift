@@ -16,6 +16,14 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     private(set) var subscriptionsFetchCount = 0
     /// Scripted author works page (SubscriptionPoller tests); empty when nil.
     var authorWorksResponse: AO3SearchResults?
+    /// Scripted search results (saved search alert tests); empty when nil.
+    var searchResponse: AO3SearchResults?
+    /// Scripted search failure.
+    var searchError: Error?
+    /// Runs while a search is "on the wire", to change things mid-check.
+    var onSearch: (@MainActor () -> Void)?
+    /// The filters each search ran with.
+    private(set) var searchCalls: [AO3SearchFilters] = []
     /// Scripted work page for `fetchWorkMetadata`, run through the real
     /// parser (SubscriptionPoller tests); nil returns a one-chapter work.
     var workMetadataHTML: String?
@@ -47,7 +55,10 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func logout() async {}
     func currentUsername() async -> String? { nil }
     func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
-        AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+        searchCalls.append(filters)
+        if let onSearch { await onSearch() }
+        if let searchError { throw searchError }
+        return searchResponse ?? AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
         authorWorksResponse ?? AO3SearchResults(works: [], totalPages: 0, currentPage: page)

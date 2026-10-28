@@ -331,6 +331,29 @@ final class SavedSearch {
     var sortColumn: String
     var sortDirection: String
     var savedAt: Date
+    // New-fic alerts (#309, `SavedSearchAlerts`). All additive with defaults,
+    // so existing stores migrate with alerts off.
+    /// The poller checks this search for newly posted works.
+    var alertsEnabled: Bool = false
+    /// When alerts were last switched on or off; the newer switch wins a
+    /// backup merge, so turning alerts off reaches every device.
+    var alertsChangedAt: Date?
+    /// Work ids already seen in this search's newest results, so only works
+    /// posted after them alert. Like `FollowedAuthor.knownWorkIds`.
+    var alertKnownWorkIds: [Int] = []
+    /// When the baseline was first taken. Nil until then: the first check
+    /// only records what's there, so it never alerts for the back catalogue.
+    var alertsBaselineAt: Date?
+    /// When a check last read this search's results. A check that was cut
+    /// off, failed or got a guest page doesn't count.
+    var alertsLastCheckedAt: Date?
+    /// When a check last started, whatever came of it: the full poll's
+    /// rotation, so a search that keeps failing can't hold the front of the
+    /// queue. This device only; not backed up.
+    var alertsAttemptedAt: Date?
+    /// Works that alerted and haven't been looked at yet (the "New" count).
+    /// This device only; not backed up.
+    var alertNewWorkIds: [Int] = []
 
     init(name: String, prompt: String, sortColumn: String = "_score", sortDirection: String = "desc", savedAt: Date = .now) {
         self.name = name
