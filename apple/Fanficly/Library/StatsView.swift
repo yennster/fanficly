@@ -284,8 +284,15 @@ struct StatsView: View {
         if !items.isEmpty {
             let maxCount = items.map(\.count).max() ?? 1
             VStack(alignment: .leading, spacing: Spacing.sm) {
-                Label(title, systemImage: systemImage)
-                    .font(.headline)
+                // Counts every work opened, finished or not, unlike Stories Finished.
+                HStack(alignment: .firstTextBaseline) {
+                    Label(title, systemImage: systemImage)
+                        .font(.headline)
+                    Spacer(minLength: Spacing.sm)
+                    Text("Stories Opened")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(items) { item in
                     StatBarRow(name: item.name, count: item.count, fraction: Double(item.count) / Double(maxCount))
                 }
@@ -478,7 +485,7 @@ private struct StatBarRow: View {
             .accessibilityHidden(true)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(name), \(count) \(count == 1 ? "story" : "stories")")
+        .accessibilityLabel("\(name), \(count) \(count == 1 ? "story" : "stories") opened")
     }
 }
 
@@ -513,9 +520,11 @@ struct WrapShareCard: View {
             }
 
             HStack(spacing: 14) {
-                bigStat("\(summary.storiesRead)", summary.storiesRead == 1 ? "story" : "stories")
+                // Stories counts finished works only; the lists below count every
+                // work opened, so each number says which it is.
+                bigStat("\(summary.storiesRead)", summary.storiesRead == 1 ? "story finished" : "stories finished")
                 bigStat(StatsView.formatDuration(summary.totalSeconds), "read")
-                bigStat(StatsView.formatWords(summary.totalWords), "words")
+                bigStat(StatsView.formatWords(summary.totalWords), "words read")
             }
 
             if let goal {
@@ -533,7 +542,18 @@ struct WrapShareCard: View {
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
-                Image(systemName: "book.pages")
+                // The app icon itself (AppIconMark, written by bin/make-icon.swift),
+                // in the home-screen icon's continuous corners.
+                Image("AppIconMark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+                    .clipShape(RoundedRectangle(cornerRadius: 18 * 0.2237, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18 * 0.2237, style: .continuous)
+                            .strokeBorder(.white.opacity(0.35), lineWidth: 0.5)
+                    )
+                    .accessibilityHidden(true)
                 Text("Made with Fanficly")
             }
             .font(.footnote.weight(.semibold))
@@ -579,9 +599,13 @@ struct WrapShareCard: View {
 
     private func listBlock(_ title: String, items: ArraySlice<ReadingTagCount>) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.white.opacity(0.6))
+            HStack {
+                Text(title.uppercased())
+                Spacer()
+                Text("STORIES OPENED")
+            }
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white.opacity(0.6))
             ForEach(Array(items)) { item in
                 HStack {
                     Text(item.name)

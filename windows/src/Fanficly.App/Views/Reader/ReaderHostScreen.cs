@@ -183,5 +183,7 @@ internal abstract class ReaderHostScreen : Screen
     public override bool HandleKey(VirtualKey key, VirtualKeyModifiers modifiers) =>
         Reader?.HandleKey(key, modifiers) ?? false;
 
+    public override bool WantsVolumeKeys => Reader?.WantsVolumeKeys ?? false;
+
     protected bool IsRemoved => _removed;
 }

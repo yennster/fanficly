@@ -29,8 +29,10 @@ permissions:
   contents: read
 
 # One run per commit, in case Xcode Cloud posts more than one "Duo tests" check.
+# Every other check that completes starts a run too, which skips its job; it
+# gets a group of its own, so it can't cancel a Duo run waiting for approval.
 concurrency:
-  group: xcode-cloud-duo-${{ github.event.check_run.head_sha || github.run_id }}
+  group: xcode-cloud-duo-${{ contains(github.event.check_run.name, 'Duo tests') && github.event.check_run.head_sha || github.run_id }}
   cancel-in-progress: true
 
 defaults:

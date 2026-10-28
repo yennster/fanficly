@@ -31,6 +31,10 @@ final class ReaderLayoutTests: XCTestCase {
     /// left a 130–300 pt band.
     private let maxBlankBelowText: CGFloat = 75
 
+    /// The page's top and bottom margin (ReaderView.pageVerticalMargin): the
+    /// page's own frame, which clips its text, ends this far above the footer.
+    private let pageMargin: CGFloat = 12
+
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
@@ -44,6 +48,10 @@ final class ReaderLayoutTests: XCTestCase {
                           "-reader.lineSpacingPt.\(device)", "6",
                           "-reader.paragraphSpacingPt.\(device)", "16"]
         }
+        // The keyboard test's way to the New Profile prompt where the Aa menu
+        // won't open (see openNewProfilePrompt). Only there: full screen
+        // checks no button is left.
+        if name.contains("test_keyboard") { arguments.append("-demoNewProfileButton") }
         app.launchArguments = arguments
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .portrait
@@ -54,8 +62,18 @@ final class ReaderLayoutTests: XCTestCase {
     override func tearDownWithError() throws {
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .portrait
+        // A test that unfolded iPhone Duo closes it again, so the tests
+        // after it run in the pose the simulator booted in.
+        if let pose = poseToRestore {
+            app.terminate()
+            _ = DuoHinge.set(pose)
+            sleep(3)
+        }
         #endif
     }
+
+    /// The hinge angle to put back after the test (see DuoHinge).
+    private var poseToRestore: Double?
 
     // MARK: - Tests
 
@@ -144,6 +162,77 @@ final class ReaderLayoutTests: XCTestCase {
         try assertPageLayout(footer, "in a wide window")
         try assertTogglingKeepsThePageStill(footer, "in a wide window",
                                             screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
+    }
+
+    func test_fullWidthMargins_keepEveryLineOnThePage() throws {
+        // 1.12.0: with Page margins at Full (100%), the last line of iPhone
+        // Duo's open book was cut off at the bottom of the page in full
+        // screen. At 100% a page reaches the side of the reader (the Duo's
+        // toolbar strip). One page at full margins, then a wide window.
+        app.terminate()
+        launchWithFullWidthMargins()
+        try assertFullWidthMarginsKeepEveryLineOnThePage(shots: "")
+    }
+
+    func test_unfoldedDuo_fullWidthMargins_keepEveryLineOnThePage() throws {
+        // The same on iPhone Duo's open book, which is where 1.12.0 cut the
+        // line off. Xcode Cloud's Duo boots folded and Device Hub's pose
+        // control can't be scripted, so the test unfolds it itself.
+        #if targetEnvironment(macCatalyst)
+        throw XCTSkip("Not an iPhone Duo.")
+        #else
+        // Only a foldable reports a hinge angle.
+        guard UIDevice.current.userInterfaceIdiom == .phone, let before = DuoHinge.angle() else {
+            throw XCTSkip("Not an iPhone Duo (no hinge to read).")
+        }
+        app.terminate()
+        if before < 170 {
+            poseToRestore = before  // before the assert, which ends the test if it fails
+            XCTAssertTrue(DuoHinge.set(180), "the hinge opened to 180° (it was \(before)°)")
+            sleep(3)  // the app moves to the inner display 1–2.5 s after the hinge
+        }
+        launchWithFullWidthMargins()
+        let unfolded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.isDuoUnfolded }, object: nil)
+        if XCTWaiter.wait(for: [unfolded], timeout: 20) != .completed {
+            capture("16-unfold-failed")
+            XCTFail("iPhone Duo didn't unfold: the window is \(app.windows.firstMatch.frame), hinge \(DuoHinge.angle().map { "\($0)°" } ?? "unreadable")")
+            return
+        }
+        try assertFullWidthMarginsKeepEveryLineOnThePage(shots: "unfolded-")
+        #endif
+    }
+
+    /// Launches with Margins and Page margins at Full (100%).
+    private func launchWithFullWidthMargins() {
+        for device in ["phone", "pad", "mac"] {
+            app.launchArguments += ["-reader.widthPercent.\(device)", "100",
+                                    "-reader.spreadWidthPercent.\(device)", "100"]
+        }
+        app.launch()
+    }
+
+    /// Opens the reader (launched at full margins) and checks every line
+    /// stays on its page: one page (where the window is narrow), then a wide
+    /// window with the controls up and hidden.
+    private func assertFullWidthMarginsKeepEveryLineOnThePage(shots: String) throws {
+        let footer = openReader()
+        turnToMiddlePage(footer)
+        capture("\(shots)12-full-margins")
+        try assertPageLayout(footer, "full margins")
+        #if !targetEnvironment(macCatalyst)
+        if !isDuoUnfolded {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            sleep(2)
+            XCTAssertTrue(footer.waitForExistence(timeout: 8))
+            settle()
+            turnToMiddlePage(footer)
+        }
+        #endif
+        capture("\(shots)13-full-margins-wide")
+        try assertPageLayout(footer, "full margins in a wide window")
+        try assertTogglingKeepsThePageStill(footer, "full margins in a wide window",
+                                            screenshots: ("\(shots)14-full-margins-full-screen",
+                                                          "\(shots)15-full-margins-controls-back"))
     }
 
     func test_fullScreen_leavesOnlyThePage() throws {
@@ -285,20 +374,33 @@ final class ReaderLayoutTests: XCTestCase {
             }
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
+        // On Xcode Cloud's folded iPhone Duo (iOS 27.1) XCTest's taps on the
+        // reader's strip menus (Aa, Chapters) open nothing, by tap, long
+        // press or a tap aimed from the window, while the work's own menu in
+        // the same strip opens; by hand Aa's menu opens there, on the
+        // simulator and the device. The tap also leaves the app busy for a
+        // minute, and an alert asked for then never shows. This test is about
+        // the keyboard, so in the strip it opens the prompt with demo mode's
+        // stand-in button and leaves Aa alone. The strip stacks the items,
+        // so Chapters sits right above Aa.
+        let chapters = app.buttons["Chapters"].firstMatch
+        if chapters.exists, abs(chapters.frame.midX - settings.frame.midX) < 1,
+           chapters.frame.midY < settings.frame.midY {
+            let button = app.buttons["reader.newProfileTestButton"].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 4), "the reader's New Profile test button")
+            tap(CGPoint(x: button.frame.midX, y: button.frame.midY))
+            XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 8),
+                          "the profile name prompt \(menuState())")
+            return
+        }
         settings.tap()
         capture("05-reader-settings-menu")
-        let profile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Profile")).firstMatch
-        if !profile.waitForExistence(timeout: 4) {
-            // On iPhone Duo (iOS 27.1) a software keyboard came up as the
-            // menu opened, with no text field on screen, and closed the menu.
-            // Name whatever holds keyboard focus so the failure says why.
-            let focused = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
-            let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
-            XCTFail("the Profile submenu (keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder))")
-        }
+        // Any element type: a menu from iPhone Duo's vertical strip may not
+        // draw its items as buttons.
+        let profile = menuItem(labeled: "Profile")
+        XCTAssertTrue(profile.waitForExistence(timeout: 4), "the Profile submenu \(menuState())")
         profile.tap()
-        let save = app.buttons["Save Current as New Profile..."].firstMatch
+        let save = menuItem(labeled: "Save Current as New Profile...")
         XCTAssertTrue(save.waitForExistence(timeout: 4), "Save Current as New Profile…")
         save.tap()
         XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 4), "the profile name prompt")
@@ -330,6 +432,7 @@ final class ReaderLayoutTests: XCTestCase {
                            "\(context): the footer's room changed in full screen", file: file, line: line)
         }
         assertSameText(try storyTexts(above: bar), shown, "\(context): hiding the controls", file: file, line: line)
+        try assertTextStaysOnItsPage("\(context), full screen", file: file, line: line)
         tap(middle)
         XCTAssertTrue(footer.waitForExistence(timeout: 5), "\(context): the controls came back", file: file, line: line)
         settle()
@@ -367,6 +470,7 @@ final class ReaderLayoutTests: XCTestCase {
                                     file: file, line: line)
         assertPagesFull(try storyTexts(above: bar), endingAt: bar.minY, spread: page(footer)?.isSpread == true,
                         across: bar, "\(context) (\(footer.label))", file: file, line: line)
+        try assertTextStaysOnItsPage("\(context) (\(footer.label))", file: file, line: line)
     }
 
     /// Each page on screen ends just above `edge` (the bottom of the page
@@ -377,16 +481,63 @@ final class ReaderLayoutTests: XCTestCase {
         let pages = spread ? [(bar.minX, bar.midX), (bar.midX, bar.maxX)] : [(bar.minX, bar.maxX)]
         for (index, (minX, maxX)) in pages.enumerated() {
             let which = pages.count > 1 ? (index == 0 ? "left page" : "right page") : "page"
-            guard let bottom = texts.filter({ $0.frame.midX >= minX && $0.frame.midX < maxX }).map(\.frame.maxY).max() else {
+            let onPage = texts.filter { $0.frame.midX >= minX && $0.frame.midX < maxX }
+            guard let bottom = onPage.map(\.frame.maxY).max(), let top = onPage.map(\.frame.minY).min() else {
                 XCTFail("\(context): no text on the \(which)", file: file, line: line)
                 continue
             }
-            XCTAssertLessThanOrEqual(bottom, edge + 1,
-                                     "\(context): the \(which)'s text runs \(bottom - edge) pt past the page area",
+            // The page clips its text at its own frame, a margin above the edge.
+            XCTAssertLessThanOrEqual(bottom, edge - pageMargin + 1,
+                                     "\(context): the \(which)'s text runs \(bottom - edge + pageMargin) pt past the page, where it's cut off (text \(top)–\(bottom), pages \(pageFrames()), window \(app.windows.firstMatch.frame))",
                                      file: file, line: line)
             XCTAssertGreaterThanOrEqual(bottom, edge - maxBlankBelowText,
                                         "\(context): \(edge - bottom) pt blank under the \(which)'s text",
                                         file: file, line: line)
+        }
+    }
+
+    /// The frames of the pages (`reader.page`) on screen, for failure messages.
+    private func pageFrames() -> [CGRect] {
+        let window = app.windows.firstMatch.frame
+        return app.scrollViews.matching(identifier: "reader.page").allElementsBoundByIndex
+            .map { $0.frame }.filter { $0.intersection(window).width > $0.width / 2 }
+    }
+
+    /// Every line of text on screen lies inside the page that draws it
+    /// (`reader.page`, ReaderPageCell's scroll view, which clips it there): a
+    /// page holding more than its frame shows cuts its last line off.
+    private func assertTextStaysOnItsPage(_ context: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let app: XCUIApplication = self.app
+        let window = app.windows.firstMatch.frame
+        let found = try MainActor.assumeIsolated {
+            var pages: [(page: CGRect, texts: [(frame: CGRect, text: String)])] = []
+            func texts(in element: any XCUIElementSnapshot) -> [(frame: CGRect, text: String)] {
+                let own: [(frame: CGRect, text: String)] = element.elementType == .staticText && element.frame.height > 0
+                    ? [(element.frame, element.label)] : []
+                return own + element.children.flatMap(texts)
+            }
+            func collect(_ element: any XCUIElementSnapshot) {
+                // The pages either side of the one showing sit off screen.
+                if element.elementType == .scrollView, element.identifier == "reader.page",
+                   element.frame.intersection(window).width > element.frame.width / 2 {
+                    pages.append((element.frame, texts(in: element)))
+                    return
+                }
+                element.children.forEach(collect)
+            }
+            collect(try app.snapshot())
+            return pages
+        }
+        XCTAssertFalse(found.isEmpty, "\(context): no page (reader.page) on screen", file: file, line: line)
+        for (page, texts) in found {
+            // Text the snapshot didn't nest under its page would pass unchecked.
+            XCTAssertFalse(texts.isEmpty, "\(context): no text inside the page at \(page)", file: file, line: line)
+            for text in texts where text.frame.maxY > page.maxY + 1 || text.frame.minX < page.minX - 1
+                || text.frame.maxX > page.maxX + 1 {
+                XCTFail("\(context): \"\(text.text.suffix(30))\" at \(text.frame) runs out of its page \(page) and is cut off",
+                        file: file, line: line)
+                break
+            }
         }
     }
 
@@ -469,6 +620,26 @@ final class ReaderLayoutTests: XCTestCase {
         let origin = window.frame.origin
         window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: point.x - origin.x, dy: point.y - origin.y)).tap()
+    }
+
+    /// A menu's item by the start of its label, whatever element type it draws as.
+    private func menuItem(labeled prefix: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "label BEGINSWITH %@ AND elementType IN %@", prefix,
+            [XCUIElement.ElementType.button, .menuItem, .cell, .staticText, .other].map(\.rawValue) as NSArray)).firstMatch
+    }
+
+    /// What a menu that didn't show its items left on screen, for a failure
+    /// message: Xcode Cloud's check shows the message, not the result bundle.
+    private func menuState() -> String {
+        let focused = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
+        let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
+        let buttons = app.buttons.allElementsBoundByIndex.prefix(12)
+            .map { $0.identifier.isEmpty ? $0.label : "\($0.label)#\($0.identifier)" }
+        return "(keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder), "
+            + "menus: \(app.menus.count), menu items: \(app.menuItems.count), popovers: \(app.popovers.count), "
+            + "windows: \(app.windows.count), buttons: \(buttons))"
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
@@ -625,3 +796,90 @@ final class NonReaderAccessibilityTests: XCTestCase {
         }
     }
 }
+
+#if !targetEnvironment(macCatalyst)
+/// Opens and closes iPhone Duo's hinge in the simulator from a UI test. Xcode
+/// has no API for it (XCUIDevice and simctl have no pose; Device Hub's control
+/// can't be scripted), so this sends the vendor-defined HID event Device Hub's
+/// hinge slider sends, through the simulator's private IOHIDEventSystem, and
+/// reads the angle back from CoreMotion's private CMAngleManager, which UIKit's
+/// UIHinge reads. The protocol is the one artemnovichkov/hinge (MIT) found,
+/// verified with Xcode 27.1 and 27.2 on the iOS 27.1 runtime. A later Xcode
+/// may change it: then the test skips (no angle to read) or fails saying the
+/// Duo didn't unfold.
+enum DuoHinge {
+    private typealias CreateVendorEvent = @convention(c) (CFAllocator?, UInt64, UInt32, UInt32, UInt32,
+                                                          UnsafePointer<UInt8>?, CFIndex, UInt32) -> OpaquePointer?
+    private typealias CreateClient = @convention(c) (CFAllocator?, Int32, CFDictionary?) -> OpaquePointer?
+    private typealias Dispatch = @convention(c) (OpaquePointer, OpaquePointer) -> Void
+    private typealias Serialize = @convention(c) (CFTypeRef, CFOptionFlags) -> Unmanaged<CFData>?
+
+    private static func symbol<T>(_ name: String, as type: T.Type) -> T? {
+        guard let iokit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
+              let pointer = dlsym(iokit, name) else { return nil }
+        return unsafeBitCast(pointer, to: type)
+    }
+
+    /// Sends the hinge to `degrees` (0 closed, 180 flat) and waits up to
+    /// `timeout` for CoreMotion to report it.
+    static func set(_ degrees: Double, timeout: TimeInterval = 5) -> Bool {
+        guard let createEvent = symbol("IOHIDEventCreateVendorDefinedEvent", as: CreateVendorEvent.self),
+              let createClient = symbol("IOHIDEventSystemClientCreateWithType", as: CreateClient.self),
+              let dispatch = symbol("IOHIDEventSystemClientDispatchEvent", as: Dispatch.self),
+              let serialize = symbol("IOCFSerialize", as: Serialize.self),
+              let client = createClient(nil, 4, nil) else { return false }  // 4: a simple client
+        let target = min(180, max(0, degrees))
+        let payload: NSDictionary = ["provider": "com.apple.Virtualization.VirtualMachines",
+                                     "source": "hinge-slider-control", "type": "range", "value": target]
+        guard let data = serialize(payload, 1)?.takeRetainedValue() else { return false }  // 1: binary
+        let length = CFDataGetLength(data)
+        guard let event = createEvent(nil, mach_absolute_time(), 0xFF61, 0x5B, 0,
+                                      CFDataGetBytePtr(data), length, 0) else { return false }
+        dispatch(client, event)
+        Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(event)).release()
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let angle = angle(), abs(angle - target) <= 0.5 { return true }
+            usleep(200_000)
+        }
+        return false
+    }
+
+    /// The hinge angle in degrees, or nil when this simulator reports none.
+    static func angle() -> Double? {
+        let isAvailable = NSSelectorFromString("isAvailable")
+        typealias Flag = @convention(c) (AnyClass, Selector) -> Bool
+        guard dlopen("/System/Library/Frameworks/CoreMotion.framework/CoreMotion", RTLD_NOW) != nil,
+              let managerClass = NSClassFromString("CMAngleManager") as? NSObject.Type,
+              managerClass.responds(to: isAvailable),
+              unsafeBitCast(managerClass.method(for: isAvailable), to: Flag.self)(managerClass, isAvailable)
+        else { return nil }
+        let manager = managerClass.init()
+        let start = NSSelectorFromString("startAngleUpdatesToQueue:handler:")
+        guard manager.responds(to: start) else { return nil }
+        let reading = AngleReading()
+        let handler: @convention(block) (NSObject) -> Void = { angle in
+            let value = (angle.value(forKey: "angleDegrees") as? NSNumber)?.doubleValue
+            reading.store(value)
+        }
+        typealias StartUpdates = @convention(c) (NSObject, Selector, OperationQueue, AnyObject) -> Void
+        let startUpdates = unsafeBitCast(manager.method(for: start), to: StartUpdates.self)
+        startUpdates(manager, start, OperationQueue(), handler as AnyObject)
+        defer { _ = manager.perform(NSSelectorFromString("stopAngleUpdates")) }
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if let value = reading.value { return value }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return nil
+    }
+
+    /// The latest angle, written from CoreMotion's queue.
+    private final class AngleReading: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Double?
+        var value: Double? { lock.withLock { stored } }
+        func store(_ value: Double?) { lock.withLock { if let value { stored = value } } }
+    }
+}
+#endif

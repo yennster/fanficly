@@ -20,6 +20,8 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
+    // Global, not in reading profiles: it's about the reader's remote.
+    @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     // Page-by-page shows two pages side by side on a wide window (iPhone Duo
@@ -275,8 +277,28 @@ struct ReaderView: View {
         @Binding var showingError: Bool
         let errorMessage: String
         let save: (String) -> Void
+        /// ReaderLayoutTests' way to the prompt where the Aa menu won't open
+        /// under XCUITest (Xcode Cloud's folded iPhone Duo, though it opens
+        /// there by hand): demo mode with -demoNewProfileButton only.
+        private static let testButton = FanficlyApp.isDemoMode
+            && ProcessInfo.processInfo.arguments.contains("-demoNewProfileButton")
         func body(content: Content) -> some View {
             content
+                // In the middle of the page, clear of the status bar's corner.
+                .overlay {
+                    if Self.testButton {
+                        Button {
+                            newProfileName = ""
+                            showingNewProfile = true
+                        } label: {
+                            Color.clear
+                                .frame(width: 60, height: 60)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("New Profile (test)")
+                        .accessibilityIdentifier("reader.newProfileTestButton")
+                    }
+                }
                 .alert("New Profile", isPresented: $showingNewProfile) {
                     TextField("Profile Name", text: $newProfileName)
                     Button("Cancel", role: .cancel) { }
@@ -464,6 +486,24 @@ struct ReaderView: View {
                 return true
             }
         ))
+        #if !targetEnvironment(macCatalyst)
+        .modifier(VolumeButtonPageTurnModifier(
+            enabled: volumeButtonsTurnPages,
+            speaking: speech.isActive,
+            scenePhase: scenePhase,
+            turn: { performVolumeTurn(forward: $0) }
+        ))
+        #endif
+    }
+
+    /// A volume button press with "Volume buttons turn pages" on: forward or
+    /// back as Page Down / Page Up would (a page, a chapter's screenful, or a
+    /// screen of continuous scroll).
+    private func performVolumeTurn(forward: Bool) {
+        guard let action = ReaderKeyAction.action(for: forward ? .pageDown : .pageUp,
+                                                  shift: false, otherModifiers: false, mode: mode)
+        else { return }
+        performKeyAction(action)
     }
 
     /// A turn or scroll key from a keyboard or a Bluetooth page turner.
@@ -1214,8 +1254,11 @@ struct ReaderView: View {
     static let pageVerticalMargin: CGFloat = 12
 
     private func columnWidth(_ containerWidth: CGFloat, widthPercent percent: Double? = nil) -> CGFloat {
+        // The zoomed size, as performPagination caps the column with: the
+        // unzoomed one drew a capped column narrower than it was paginated
+        // at whenever the zoom was below 1, and pages ran a line past the end.
         ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
-                                      fontSize: fontSizePt, limitLineLength: Self.limitsLineLength)
+                                      fontSize: Double(fontSize), limitLineLength: Self.limitsLineLength)
     }
 
     /// Scrolls the paragraph that was on top back to the top once a resize
@@ -1411,6 +1454,7 @@ struct ReaderView: View {
 
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
         pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
+            .ignoresSafeArea(.container)  // see makeSpreadCell
             .contentShape(Rectangle())
             .tag(page.id)
     }
@@ -1513,6 +1557,13 @@ struct ReaderView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The pages fill the TabView page they sit in, the area they were
+        // paginated for, whatever safe area it overlaps. The TabView is
+        // UIKit-hosted, so each page takes its safe area from where it really
+        // is on screen, and on iPhone Duo's open book (bookTopShift moves it up
+        // under the bar) that pushed the text down and ran the last line ~29 pt
+        // past the page, where it was cut off (1.12.0, seen at 100% margins).
+        .ignoresSafeArea(.container)
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())
