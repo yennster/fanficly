@@ -366,15 +366,16 @@ public sealed class SubscriptionPollerTests
         store.Insert(new Work(987650004, "Metadata only", "A"));
         store.Save();
 
-        var center = new RestoreDownloadCenter { FinishedBannerDuration = TimeSpan.Zero };
+        var center = new RestoreDownloadCenter(new InMemoryKeyValueStore()) { FinishedBannerDuration = TimeSpan.Zero };
         var announcements = new List<string>();
         center.Announcement += announcements.Add;
+        center.NoteRestoredText([987650001, 987650002, 987650003, 987650004]);
         center.ProposeRedownload(store);
         Assert.Equal([987650002, 987650001, 987650003], center.ProposedIds!); // by title, case-insensitive
 
         var client = new PollerFakeClient();
         client.FailingDownloads.Add(987650001);
-        await center.StartDownloads(client);
+        await center.StartDownloads(client, signedIn: true);
 
         Assert.Equal(["epub:987650002", "epub:987650001", "epub:987650003"], client.Requests);
         Assert.Null(center.ProposedIds);
@@ -393,12 +394,13 @@ public sealed class SubscriptionPollerTests
             new Chapter(work, 1, "Ch", "<p>x</p>");
         }
         store.Save();
-        var center = new RestoreDownloadCenter();
+        var center = new RestoreDownloadCenter(new InMemoryKeyValueStore());
+        center.NoteRestoredText([987660001, 987660002, 987660003]);
         center.ProposeRedownload(store);
         var client = new PollerFakeClient();
         client.OnRequest = _ => center.Cancel();
 
-        await center.StartDownloads(client);
+        await center.StartDownloads(client, signedIn: true);
 
         Assert.Single(client.Requests);
         Assert.Null(center.Progress);
@@ -461,6 +463,110 @@ public sealed class SubscriptionPollerTests
         Assert.Equal([new RestoreDownloadCenter.DownloadProgress(1, 0, 3, false)], reports);
     }
 
+    /// <summary>The prompt offers only works a restore gave text, and Not Now
+    /// is remembered: the same works noted again (the next launch sync) aren't
+    /// offered, while a newly restored one is (#152).</summary>
+    [Fact]
+    public void RedownloadPromptOffersRestoredTextAndRemembersNotNow()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        foreach (var id in new[] { 987690001, 987690002, 987690003 })
+        {
+            var work = new Work(id, $"W{id}", "A");
+            store.Insert(work);
+            new Chapter(work, 1, "Ch", "<p>x</p>");
+        }
+        store.Save();
+        var settings = new InMemoryKeyValueStore();
+        var center = new RestoreDownloadCenter(settings);
+
+        center.ProposeRedownload(store);
+        Assert.Null(center.ProposedIds); // nothing restored, nothing offered
+
+        center.NoteRestoredText([987690001]);
+        center.ProposeRedownload(store);
+        Assert.Equal([987690001], center.ProposedIds!);
+        center.DeclineProposal();
+        Assert.Null(center.ProposedIds);
+        Assert.Equal("987690001", settings.GetString(RestoreDownloadCenter.DeclinedKey));
+
+        center.NoteRestoredText([987690001]);
+        center.ProposeRedownload(store);
+        Assert.Null(center.ProposedIds); // declined
+
+        center.NoteRestoredText([987690001, 987690002]);
+        center.ProposeRedownload(store);
+        Assert.Equal([987690002], center.ProposedIds!);
+    }
+
+    /// <summary>A rate limit or a sign-in wall ends the run: the stories after
+    /// it aren't tried, and the tally says why (#152).</summary>
+    [Theory]
+    [InlineData(AO3ErrorKind.RateLimited, RestoreDownloadCenter.StopReason.RateLimited)]
+    [InlineData(AO3ErrorKind.Unauthorized, RestoreDownloadCenter.StopReason.SignInNeeded)]
+    public async Task RunQueueStopsWhenAO3Refuses(AO3ErrorKind kind, RestoreDownloadCenter.StopReason reason)
+    {
+        var attempted = new List<int>();
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3, 4], (id, _) =>
+        {
+            attempted.Add(id);
+            return id == 2 ? throw new AO3Exception(kind) : Task.CompletedTask;
+        }, _ => { }, CancellationToken.None);
+
+        Assert.Equal([1, 2], attempted);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(1, 1, 4, true, reason), result);
+        Assert.Equal(3, result!.Value.Untried);
+        Assert.NotNull(result.Value.StoppedDetail);
+        Assert.StartsWith("Downloads stopped.", result.Value.Announcement);
+    }
+
+    /// <summary>Signed out, Unauthorized is a restricted work: it fails alone
+    /// and the public stories after it still download.</summary>
+    [Fact]
+    public async Task RunQueueSkipsRestrictedWorkWhenSignedOut()
+    {
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3], (id, _) =>
+            id == 2 ? throw new AO3Exception(AO3ErrorKind.Unauthorized) : Task.CompletedTask,
+            _ => { }, CancellationToken.None, signedIn: false);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(2, 1, 3, true), result);
+    }
+
+    /// <summary>A stopped restore run puts the stories it didn't reach back in
+    /// the pending list, so the next restore offers them again.</summary>
+    [Fact]
+    public async Task StoppedRestoreRunOffersTheRestAgain()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        foreach (var id in new[] { 987691001, 987691002, 987691003 })
+        {
+            var work = new Work(id, $"W{id}", "A");
+            store.Insert(work);
+            new Chapter(work, 1, "Ch", "<p>x</p>");
+        }
+        store.Save();
+        var center = new RestoreDownloadCenter(new InMemoryKeyValueStore()) { FinishedBannerDuration = TimeSpan.Zero };
+        center.NoteRestoredText([987691001, 987691002, 987691003]);
+        center.ProposeRedownload(store);
+        var client = new PollerFakeClient();
+        client.DownloadErrors[987691002] = new AO3Exception(AO3ErrorKind.RateLimited);
+        await center.StartDownloads(client, signedIn: true);
+
+        Assert.Equal(["epub:987691001", "epub:987691002"], client.Requests);
+        center.ProposeRedownload(store);
+        Assert.Equal([987691002, 987691003], center.ProposedIds!);
+    }
+
+    /// <summary>Other failures (a deleted work, a server error) are still
+    /// counted and skipped.</summary>
+    [Fact]
+    public async Task RunQueueSkipsOtherAO3Errors()
+    {
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3], (id, _) =>
+            id == 2 ? throw new AO3Exception(AO3ErrorKind.Http, status: 404) : Task.CompletedTask,
+            _ => { }, CancellationToken.None);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(2, 1, 3, true), result);
+    }
+
     [Fact]
     public async Task FolderDownloadSavesTextWhenMissingThenEpub()
     {
@@ -476,7 +582,7 @@ public sealed class SubscriptionPollerTests
             new AO3WorkSummary { Id = 987670002, Title = "Metadata only", Author = "A", ChapterCount = 2 },
             [new AO3ChapterPayload(1, "One", "<p>1</p>"), new AO3ChapterPayload(2, "Two", "<p>2</p>")]);
         var center = new RestoreDownloadCenter { FinishedBannerDuration = TimeSpan.Zero };
-        await center.StartFolderDownload(client, store, [987670001, 987670002]);
+        await center.StartFolderDownload(client, store, [987670001, 987670002], signedIn: true);
 
         // Stored text isn't fetched again; the metadata-only work gets its chapters first.
         Assert.Equal(["epub:987670001", "fetch:987670002", "epub:987670002"], client.Requests);

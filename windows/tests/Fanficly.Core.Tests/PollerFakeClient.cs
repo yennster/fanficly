@@ -20,6 +20,8 @@ internal sealed class PollerFakeClient : IAO3Client
     public HashSet<string> GuestAuthorPages { get; } = [];
     /// <summary>Work ids whose EPUB download fails.</summary>
     public HashSet<int> FailingDownloads { get; } = [];
+    /// <summary>Work ids whose EPUB download throws the given error.</summary>
+    public Dictionary<int, Exception> DownloadErrors { get; } = new();
     /// <summary>Every metadata/author/fetch/download request, in order ("work:1", "author:x", "fetch:2", "epub:3").</summary>
     public List<string> Requests { get; } = [];
     /// <summary>Called after each request is logged (tests use it to cancel mid-run).</summary>
@@ -56,6 +58,7 @@ internal sealed class PollerFakeClient : IAO3Client
         await Task.Yield();
         ct.ThrowIfCancellationRequested();
         if (FailingDownloads.Contains(workId)) throw AO3Exception.Http(404);
+        if (DownloadErrors.TryGetValue(workId, out var error)) throw error;
         return $"/library/{workId}.epub";
     }
 
