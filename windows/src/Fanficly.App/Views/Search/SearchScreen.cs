@@ -48,6 +48,9 @@ public sealed class SearchScreen : Screen
     /// <summary>A failed next page: shown under the results, which stay, with
     /// Try Again for that page (#154).</summary>
     private string? _loadMoreError;
+    /// <summary>That page failed because the AO3 session expired: offer Sign In
+    /// Again, not a Try Again that would fail the same way.</summary>
+    private bool _loadMoreSessionExpired;
     /// <summary>The error is an expired AO3 session (#131): offer Sign In Again.</summary>
     private bool _sessionExpired;
     private CancellationTokenSource? _searchCts;
@@ -579,14 +582,24 @@ public sealed class SearchScreen : Screen
         else if (_list.Items.Count == 0)
         {
             // Rows are what ask for the next page, so offer it here.
-            view = _currentPage < _totalPages && !_isLoadingMore
-                ? UI.UI.EmptyState("eye.slash", "Nothing to show",
-                    _loadMoreError is { } failed
-                        ? $"Every match so far is hidden or filtered out by your content settings. {failed}"
-                        : "Every match so far is hidden or filtered out by your content settings.",
-                    _loadMoreError is null ? "Load more results" : "Try Again", () => _ = LoadMoreAsync())
-                : UI.UI.EmptyState("eye.slash", "Nothing to show",
+            const string soFar = "Every match so far is hidden or filtered out by your content settings.";
+            if (_isLoadingMore)
+                view = UI.UI.VStack(12,
+                        UI.UI.EmptyState("eye.slash", "Nothing to show", soFar),
+                        new ProgressRing { IsActive = true, Width = 24, Height = 24 }.A11y("Loading more results"))
+                    .Also(p => p.VerticalAlignment = VerticalAlignment.Center);
+            else if (_currentPage >= _totalPages)
+                view = UI.UI.EmptyState("eye.slash", "Nothing to show",
                     "Every match is hidden or filtered out by your content settings.");
+            else if (_loadMoreError is { } failed && LoadMoreNeedsSignIn)
+                view = UI.UI.EmptyState("eye.slash", "Nothing to show", $"{soFar} {failed}",
+                    SessionExpiry.ActionTitle, Routes.OpenLogin);
+            else if (_loadMoreError is { } failedPage)
+                view = UI.UI.EmptyState("eye.slash", "Nothing to show", $"{soFar} {failedPage}",
+                    "Try Again", () => _ = LoadMoreAsync());
+            else
+                view = UI.UI.EmptyState("eye.slash", "Nothing to show", soFar,
+                    "Load more results", () => _ = LoadMoreAsync());
         }
         else
         {
@@ -599,13 +612,15 @@ public sealed class SearchScreen : Screen
     /// <summary>Under the results: a spinner while the next page loads, or why it
     /// failed with Try Again (Sign In Again for an expired session), like
     /// <c>PagedWorksList</c>. The list's own infinite scroll stays off until then.</summary>
+    private bool LoadMoreNeedsSignIn => _loadMoreSessionExpired && !AppHost.Auth.HasSession;
+
     private UIElement? LoadMoreFooter()
     {
         if (_isLoadingMore)
             return new ProgressRing { IsActive = true, Width = 24, Height = 24, Margin = new Thickness(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Center }
                 .A11y("Loading more results");
         if (_loadMoreError is not { } error) return null;
-        var button = _sessionExpired && !AppHost.Auth.HasSession
+        var button = LoadMoreNeedsSignIn
             ? UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent)
             : UI.UI.Button("Try Again", () => _ = LoadMoreAsync());
         button.HorizontalAlignment = HorizontalAlignment.Center;
@@ -1107,8 +1122,8 @@ public sealed class SearchScreen : Screen
         {
             // The results so far stay, with the sort bar; the footer says why
             // and Try Again picks up at the page that failed (#154).
-            _sessionExpired = SessionExpiry.Explains(e);
-            _loadMoreError = _sessionExpired ? SessionExpiry.MessageFor(e) : $"Couldn't load more: {Message(e)}";
+            _loadMoreSessionExpired = SessionExpiry.Explains(e);
+            _loadMoreError = _loadMoreSessionExpired ? SessionExpiry.MessageFor(e) : $"Couldn't load more: {Message(e)}";
             _list.HasMore = false;
             MainWindow.Current.Announce(_loadMoreError);
             AppHost.Log($"Search: next page failed: {e.Message}");
