@@ -27,6 +27,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private int _currentChapter = 1;
     private readonly WorkExporter _exporter = new();
     private readonly WorkKudos _kudos;
+    private readonly WorkSubscribe _subscribe;
     private Button? _commentsButton;
     private Button? _moreButton;
 
@@ -37,6 +38,8 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         _exporter.Changed += UpdateMoreButton;
         _kudos = new WorkKudos(work.Ao3Id);
         _kudos.Changed += UpdateMoreButton;
+        _subscribe = new WorkSubscribe(work.Ao3Id);
+        _subscribe.Changed += UpdateMoreButton;
     }
 
     /// <summary>The saved reader for a Library work, or the live work page when it
@@ -183,7 +186,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private void UpdateMoreButton()
     {
         if (_moreButton is null) return;
-        _moreButton.Content = _isSavingOffline || _exporter.IsExporting || _kudos.IsSending
+        _moreButton.Content = _isSavingOffline || _exporter.IsExporting || _kudos.IsSending || _subscribe.IsSending
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
             : Symbols.Icon("book.circle", 16).A11yHidden();
     }
@@ -205,6 +208,8 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         save.IsEnabled = !_isSavingOffline && !_isDownloaded;
         AutomationProperties.SetAutomationId(save, "work.options.download");
         menu.Items.Add(save);
+        // A saved copy can be behind AO3, so only a live payload sets the baseline.
+        menu.Items.Add(_subscribe.MenuItem(() => new(title, _work.AuthorName, _payload?.Summary.ChapterCount)));
     }
 
     private async Task SaveOfflineAsync()
