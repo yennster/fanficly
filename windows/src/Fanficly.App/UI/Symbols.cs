@@ -41,6 +41,8 @@ public static class Symbols
         ["heart.fill"] = "",
         ["flag"] = "",
         ["tag.fill"] = "",
+        ["tag"] = "",               // a personal tag (RM-009)
+        ["note.text"] = "",         // a work's note (RM-009)
 
         // Books, reading
         ["book"] = "",                 // ReadingMode
@@ -66,6 +68,7 @@ public static class Symbols
         ["square.2.layers.3d"] = "",
         ["circle.lefthalf.striped.horizontal"] = "", // Contrast
         ["sun.max"] = "",              // Brightness
+        ["speaker.wave.2"] = "",       // Volume
         ["paintpalette"] = "",         // Color
         ["photo"] = "",                // Picture
         ["arrow.up.left.and.arrow.down.right"] = "", // FullScreen

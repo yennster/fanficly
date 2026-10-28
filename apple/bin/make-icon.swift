@@ -7,13 +7,16 @@
 // Usage:
 //   bin/make-icon.swift            -> writes all three into the asset catalog,
 //                                     then refreshes the widget copies
-//   bin/make-icon.swift --widget   -> only refreshes the widget copies from the
-//                                     app icon PNGs already in the catalog
+//   bin/make-icon.swift --widget   -> only refreshes the widget and share card
+//                                     copies from the app icon PNGs already in
+//                                     the catalog
 //   bin/make-icon.swift <out.png>  -> writes only the light variant
 //
-// The widgets show the app icon itself, so FanficlyWidget/Assets.xcassets
-// holds small copies of these PNGs (AppIconMark / AppIconMarkTinted). Re-run
-// this after any icon change so the two can never drift apart.
+// The widgets and the Stats share card show the app icon itself, so
+// FanficlyWidget/Assets.xcassets (AppIconMark / AppIconMarkTinted) and
+// Fanficly/Assets.xcassets (AppIconMark, light only: the card's colours are
+// fixed) hold small copies of these PNGs. Re-run this after any icon change so
+// they can never drift apart.
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -226,13 +229,16 @@ func downscale(_ src: String, to dst: String, pixels: Int) {
 
 let assetDir = "Fanficly/Assets.xcassets/AppIcon.appiconset"
 let widgetAssetDir = "FanficlyWidget/Assets.xcassets"
+let appMarkDir = "Fanficly/Assets.xcassets/AppIconMark.imageset"
 
-/// Copies the app icon PNGs into the widget catalog at 192px (64pt @3x).
+/// Copies the app icon PNGs into the widget catalog, and the light one into
+/// the app's catalog for the share card, at 192px (64pt @3x).
 func writeWidgetCopies() {
     let px = 192
     downscale("\(assetDir)/icon-1024.png", to: "\(widgetAssetDir)/AppIconMark.imageset/app-icon.png", pixels: px)
     downscale("\(assetDir)/icon-1024-dark.png", to: "\(widgetAssetDir)/AppIconMark.imageset/app-icon-dark.png", pixels: px)
     downscale("\(assetDir)/icon-1024-tinted.png", to: "\(widgetAssetDir)/AppIconMarkTinted.imageset/app-icon-tinted.png", pixels: px)
+    downscale("\(assetDir)/icon-1024.png", to: "\(appMarkDir)/app-icon.png", pixels: px)
 }
 
 if CommandLine.arguments.count > 1 && CommandLine.arguments[1] == "--widget" {

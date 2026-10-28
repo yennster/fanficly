@@ -11,6 +11,7 @@ public class WorkMetadataParserTests
         <html><body>
         <dl class="stats">
           <dt class="chapters">Chapters:</dt><dd class="chapters">12/20</dd>
+          <dt class="published">Published:</dt><dd class="published">2023-11-02</dd>
           <dt class="status">Updated:</dt><dd class="status">2024-03-12</dd>
         </dl>
         </body></html>
@@ -20,6 +21,7 @@ public class WorkMetadataParserTests
         Assert.Equal(12, meta.ChapterCount);
         Assert.Equal(20, meta.TotalChapters);
         Assert.NotNull(meta.UpdatedAt);
+        Assert.Equal(new DateTime(2023, 11, 2), meta.PublishedAt?.Date);
     }
 
     [Fact]
@@ -33,6 +35,7 @@ public class WorkMetadataParserTests
         var meta = WorkMetadataParser.Parse(html, workId: 1);
         Assert.Equal(3, meta.ChapterCount);
         Assert.Null(meta.TotalChapters);
+        Assert.Null(meta.PublishedAt);
     }
 
     [Fact]

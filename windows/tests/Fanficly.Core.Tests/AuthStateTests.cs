@@ -162,6 +162,9 @@ public class AuthStateTests
     {
         var auth = SignedIn();
         Assert.False(auth.NoteFailure(AO3Exception.RateLimited()));
+        // A Cloudflare or AO3 403 isn't the session ending (#146).
+        Assert.False(auth.NoteFailure(AO3Exception.BlockedByProtection()));
+        Assert.False(auth.NoteFailure(AO3Exception.Forbidden()));
         Assert.False(auth.IsSessionExpired);
         Assert.True(auth.NoteFailure(AO3Exception.Unauthorized()));
         Assert.True(auth.IsSessionExpired);

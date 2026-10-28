@@ -14,9 +14,11 @@ namespace Fanficly.Core;
 ///    <c>title:…</c>, <c>by:…</c>, …). Nobody types those by accident, and Render
 ///    emits them, so saved searches round-trip exactly.
 /// 2. A short list of phrases that only ever mean a filter: "complete", "wip",
-///    "one shot", "explicit", "nsfw", "m/m", "under 10k", "in spanish", "no
+///    "one shot", "rated explicit", "nsfw", "m/m", "under 10k", "in spanish", "no
 ///    crossovers", "no mcd". These have to be filters because AO3 requires every
-///    keyword to match.
+///    keyword to match. A word that is also part of everyday tags stays a word:
+///    bare "explicit" ("Explicit Consent") and "femslash" ("Femslash February")
+///    are keywords, and the suggestion row offers their rating and category instead.
 ///
 /// Fandoms, characters, ships and tropes are never guessed from words; the
 /// suggestion row offers their exact AO3 tags instead.
@@ -144,13 +146,11 @@ public static class SearchSyntax
         P(@"\bteen\s+and\s+up(?:\s+audiences)?\b", (_, f) => { f.Ratings.Add(Rating.Teen); return true; }),
         P(@"\bgeneral\s+audiences\b", (_, f) => { f.Ratings.Add(Rating.General); return true; }),
         P(@"\b(?:not\s+rated|unrated)\b", (_, f) => { f.Ratings.Add(Rating.NotRated); return true; }),
-        P(@"\bexplicit\b", (_, f) => { f.Ratings.Add(Rating.Explicit); return true; }),
         P(@"(?<![\w/])(m/m|f/f|f/m)(?![\w/])", (m, f) =>
         {
             if (CategoryNamed(m.Groups[1].Value) is not { } c) return false;
             f.Categories.Add(c); return true;
         }),
-        P(@"\bfemslash\b", (_, f) => { f.Categories.Add(WorkCategory.FF); return true; }),
         P(@"\bno\s+(?:archive\s+)?warnings(?:\s+apply)?\b", (_, f) => { f.Warnings.Add(ArchiveWarning.NoWarningsApply); return true; }),
         P(@"\bno\s+(?:mcd|major\s+character\s+death)\b", (_, f) => { AppendUnique("Major Character Death", f.ExcludedTagNames); return true; }),
         P(@"\bbetween\s+(\d+)\s*(k|,000)?\s*(?:words?\s+)?and\s+(\d+)\s*(k|,000)?\s*(words?)?\b", (m, f) =>

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     private enum SettingsRoute: Hashable {
@@ -29,6 +30,9 @@ struct SettingsView: View {
     @State private var syncResultIsWarning = false
     @State private var showingClearConfirmation = false
     @State private var clearResult: ClearResultAlert? = nil
+    @State private var exportItem: ShareItem? = nil
+    @State private var showingImporter = false
+    @State private var fileAlert: LibraryFileAlert? = nil
     private let syncManager = iCloudSyncManager.shared
 
     /// Pre-filled feedback email (subject percent-encoded so it survives the mailto).
@@ -216,6 +220,24 @@ struct SettingsView: View {
                 }
             }
             Section {
+                Button("Export Library File…") {
+                    do {
+                        exportItem = ShareItem(url: try syncManager.exportLibraryFile(context: context))
+                    } catch {
+                        fileAlert = .exportFailed
+                    }
+                }
+                .disabled(isRestoring || isSyncing)
+                Button("Import Library File…") {
+                    showingImporter = true
+                }
+                .disabled(isRestoring || isSyncing)
+            } header: {
+                Text("Library File")
+            } footer: {
+                Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards.")
+            }
+            Section {
                 Toggle("Filter mature & explicit works", isOn: $filterMature)
                 NavigationLink("Hidden works", value: SettingsRoute.hiddenWorks)
                 NavigationLink("Blocked tags & authors", value: SettingsRoute.blockedTerms)
@@ -275,6 +297,26 @@ struct SettingsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Could not restore backup from iCloud. Please make sure you are logged into iCloud and try again.")
+        }
+        .sheet(item: $exportItem) { ShareSheet(items: [$0.url]) }
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.json]) { result in
+            guard case .success(let url) = result else { return }
+            do {
+                try syncManager.importLibraryFile(at: url, context: context)
+                fileAlert = .imported
+                RestoreDownloadCenter.shared.proposeRedownload(context: context)
+            } catch {
+                fileAlert = .importFailed
+            }
+        }
+        .alert(
+            fileAlert?.title ?? "",
+            isPresented: Binding(get: { fileAlert != nil }, set: { if !$0 { fileAlert = nil } }),
+            presenting: fileAlert
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { alert in
+            Text(alert.message)
         }
         .alert(clearResult?.title ?? "", isPresented: Binding(
             get: { clearResult != nil },
@@ -352,6 +394,29 @@ struct ClearResultAlert {
         case .failed(let reason):
             title = String(localized: "Couldn't Clear iCloud Data")
             message = reason
+        }
+    }
+}
+
+/// The outcome alerts for exporting and importing a library file.
+private enum LibraryFileAlert: String, Identifiable {
+    case imported, importFailed, exportFailed
+
+    var id: String { rawValue }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .imported: "Library Imported"
+        case .importFailed: "Import Failed"
+        case .exportFailed: "Export Failed"
+        }
+    }
+
+    var message: LocalizedStringKey {
+        switch self {
+        case .imported: "The file's works, reading progress and stats have been added to your library."
+        case .importFailed: "That file couldn't be imported. Make sure it's a Fanficly library file and try again."
+        case .exportFailed: "Your library couldn't be written to a file. Please try again."
         }
     }
 }

@@ -173,6 +173,12 @@ final class iCloudSyncManager {
             return nil
         }
 
+        return PendingBackup(url: url, backup: makeLocalBackup(context: context), deviceSuffix: Self.backupDeviceSuffix)
+    }
+
+    /// This device's whole library as a backup: what an iCloud backup merges
+    /// into the cloud file, and what a library file export writes.
+    func makeLocalBackup(context: ModelContext) -> LibraryBackup {
         do {
             // 1. Fetch all records from SwiftData
             let works = (try? context.fetch(FetchDescriptor<Work>())) ?? []
@@ -315,7 +321,7 @@ final class iCloudSyncManager {
                 deleted: localDeletions.isEmpty ? nil : localDeletions,
                 timestamp: .now
             )
-            return PendingBackup(url: url, backup: backup, deviceSuffix: Self.backupDeviceSuffix)
+            return backup
         }
     }
 
@@ -1116,10 +1122,27 @@ final class iCloudSyncManager {
             backup = read
         }
 
+        do {
+            try applyBackup(backup, context: context)
+            markCloudBackupApplied(date: readDate)
+            return true
+        } catch {
+            print("Failed to restore from iCloud: \(error)")
+            return false
+        }
+    }
+
+    /// Merges a backup into the library and saves: the restore's
+    /// forward-only rules, shared by the iCloud restore and a library file
+    /// import. Throws when the save fails.
+    func applyBackup(_ backup: LibraryBackup, context: ModelContext) throws {
         // Deletion markers: the file's (every device's) and this device's
         // own, which the file may not hold yet. A record they cover isn't
         // restored, and this device's copy of it is deleted below (#135).
         let tombstones = DeletionIndex(Self.prunedDeletions((backup.deleted ?? []) + Self.localDeletions(), now: .now))
+        // Works this restore gives chapter text: the only ones the
+        // re-download prompt may offer afterwards (#152).
+        var textRestored: [Int] = []
 
         do {
             // 0. Restore settings and themes. Restore only fills in what this
@@ -1229,6 +1252,7 @@ final class iCloudSyncManager {
                 // the Downloaded badge keys off the epub file, so deleting
                 // here would silently strand it.
                 if w.chapters.count > work.chapters.count {
+                    textRestored.append(w.ao3Id)
                     // Clear existing chapters first to prevent duplicates
                     for ch in work.chapters { context.delete(ch) }
                     work.chapters.removeAll()
@@ -1393,13 +1417,9 @@ final class iCloudSyncManager {
             Self.applyDeletions(tombstones, backup: backup, context: context)
 
             try context.save()
-            markCloudBackupApplied(date: readDate)
+            RestoreDownloadCenter.shared.noteRestoredText(workIds: textRestored)
             // Restored works skip upsertMetadata, so they reach Spotlight here.
             WorkPersistence.indexLibrary(context: context)
-            return true
-        } catch {
-            print("Failed to restore from iCloud: \(error)")
-            return false
         }
     }
     
@@ -1473,6 +1493,65 @@ final class iCloudSyncManager {
         }
     }
 
+
+    // MARK: - Library file export and import
+
+    /// The backup file's encoding: property names as keys, ISO 8601 dates.
+    nonisolated static func encodeBackup(_ backup: LibraryBackup) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(backup)
+    }
+
+    nonisolated static func decodeBackup(_ data: Data) throws -> LibraryBackup {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(LibraryBackup.self, from: data)
+    }
+
+    /// The exported file's name, e.g. "Fanficly Library 2026-10-18.json".
+    nonisolated static func exportFileName(on date: Date = .now) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return "Fanficly Library \(formatter.string(from: date)).json"
+    }
+
+    /// Writes the library as a backup file (the same JSON as the iCloud
+    /// backup) into a temporary folder and returns its URL for the share
+    /// sheet. Works whether or not iCloud sync is on.
+    func exportLibraryFile(context: ModelContext) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LibraryExport", isDirectory: true)
+        // Each export holds every saved chapter's text, so replace the last
+        // one rather than letting copies pile up in tmp.
+        try? FileManager.default.removeItem(at: folder)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(Self.exportFileName())
+        try Self.encodeBackup(makeLocalBackup(context: context)).write(to: url, options: .atomic)
+        return url
+    }
+
+    /// Merges a library file (exported here, by another device, or by the
+    /// Windows app) into the library through the same forward-only rules as
+    /// an iCloud restore. Throws when the file can't be read or isn't a
+    /// library file; nothing is changed then.
+    func importLibraryFile(at url: URL, context: ModelContext) throws {
+        // Files picked from outside the sandbox need security-scoped access.
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        let backup = try Self.decodeBackup(Data(contentsOf: url))
+        do {
+            try applyBackup(backup, context: context)
+        } catch {
+            context.rollback()
+            throw error
+        }
+        // Refresh widgets, and carry the imported records into the iCloud
+        // backup when sync is on.
+        queueBackup(context: context)
+    }
 }
 
 // MARK: - Outcomes
