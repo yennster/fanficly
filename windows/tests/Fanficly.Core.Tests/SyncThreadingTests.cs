@@ -3,12 +3,13 @@ using Fanficly.Core;
 
 namespace Fanficly.Core.Tests;
 
-/// <summary>Backup and restore read and change library records only on the
-/// thread the UI uses them on, and do the merge and file IO elsewhere (#139).</summary>
+/// <summary>Backup, restore and the subscription poller read and change
+/// library records only on the thread the UI uses them on, and do the merge,
+/// network and file IO elsewhere (#139).</summary>
 public sealed class SyncThreadingTests : IDisposable
 {
     private readonly List<string> _tempFiles = [];
-    private readonly RecordsThread _ui = new();
+    private readonly UiThread _ui = new();
 
     public void Dispose()
     {
@@ -44,7 +45,7 @@ public sealed class SyncThreadingTests : IDisposable
         _ui.Run(() => new LibrarySyncManager(settings) { BackupPathOverride = path, RecordsContext = _ui });
 
     [Fact]
-    public async Task RestoreChangesTheLibraryOnTheRecordsThread()
+    public async Task RestoreChangesTheLibraryOnTheUiThread()
     {
         var path = MakeTempBackupPath();
         using (var other = LibraryStore.OpenInMemory())
@@ -68,7 +69,7 @@ public sealed class SyncThreadingTests : IDisposable
     }
 
     [Fact]
-    public async Task QueuedBackupSnapshotsOnTheRecordsThread()
+    public async Task QueuedBackupSnapshotsOnTheUiThread()
     {
         var path = MakeTempBackupPath();
         var settings = new InMemoryKeyValueStore();
@@ -94,7 +95,7 @@ public sealed class SyncThreadingTests : IDisposable
     /// backup takes its snapshot there and then, rather than waiting on a
     /// post it would itself have to run.</summary>
     [Fact]
-    public async Task BackupOnTheRecordsThreadDoesntWaitForItself()
+    public async Task BackupOnTheUiThreadDoesntWaitForItself()
     {
         var path = MakeTempBackupPath();
         var sync = await MakeSync(path, new InMemoryKeyValueStore());
@@ -151,14 +152,51 @@ public sealed class SyncThreadingTests : IDisposable
         Assert.Empty(LibraryBackupJson.Decode(File.ReadAllBytes(path)).Works.Single().Chapters);
     }
 
+    [Fact]
+    public async Task PollerChangesRecordsOnTheRecordsThread()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:10", "work", "Sub") { LastSeenChapterCount = 2 });
+        store.Insert(new Work(20, "Followed", "A") { IsFollowed = true, LastSeenChapterCount = 4 });
+        store.Insert(new FollowedAuthor("writer", "Writer", knownWorkIds: [1]));
+        store.Save();
+        var savedOn = new ConcurrentBag<int>();
+        store.Changed += _ => savedOn.Add(Environment.CurrentManagedThreadId);
+        var changedOn = new ConcurrentBag<int>();
+        foreach (LibraryEntity record in new LibraryEntity[]
+                 { store.GetSubscription("work:10")!, store.GetWork(20)!, store.GetFollowedAuthor("writer")! })
+            record.PropertyChanged += (_, _) => changedOn.Add(Environment.CurrentManagedThreadId);
+        var client = new PollerFakeClient
+        {
+            SubscriptionsResponse = [new AO3Subscription(AO3SubscriptionKind.Work, "10", "Sub", "x")],
+        };
+        client.ChapterCounts[10] = 3;
+        client.ChapterCounts[20] = 6;
+        client.AuthorWorks["writer"] = [new AO3WorkSummary { Id = 1 }, new AO3WorkSummary { Id = 2, Title = "New" }];
+        var records = await _ui.Run(() => new RecordsThread(_ui));
+
+        var notifier = new RecordingNotifier();
+        var posted = await Task.Run(() => new SubscriptionPoller(client, store, "reader", notifier) { Records = records }.RunFullPollAsync());
+
+        Assert.Equal(3, posted);
+        Assert.Equal(3, notifier.Posted.Count);
+        Assert.Equal(6, store.GetWork(20)!.LastSeenChapterCount);
+        Assert.Equal(3, store.GetSubscription("work:10")!.LastSeenChapterCount);
+        Assert.Equal([1, 2], store.GetFollowedAuthor("writer")!.KnownWorkIds.Order());
+        Assert.NotEmpty(savedOn);
+        Assert.All(savedOn, id => Assert.Equal(_ui.ThreadId, id));
+        Assert.NotEmpty(changedOn);
+        Assert.All(changedOn, id => Assert.Equal(_ui.ThreadId, id));
+    }
+
     /// <summary>A single-threaded context standing in for the UI thread.</summary>
-    private sealed class RecordsThread : SynchronizationContext, IDisposable
+    private sealed class UiThread : SynchronizationContext, IDisposable
     {
         private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = new();
         private readonly Thread _thread;
         private int _posts;
 
-        public RecordsThread()
+        public UiThread()
         {
             _thread = new Thread(() =>
             {

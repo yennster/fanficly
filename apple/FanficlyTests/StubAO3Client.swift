@@ -11,6 +11,9 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     private(set) var autocompleteCalls: [String] = []
     /// Scripted subscriptions-list response (SubscriptionPoller tests).
     var subscriptionsResponse: [AO3Subscription] = []
+    /// False scripts a list that ran past `fetchSubscriptions`' page ceiling.
+    var subscriptionsComplete = true
+    private(set) var subscriptionsFetchCount = 0
     /// Scripted author works page (SubscriptionPoller tests); empty when nil.
     var authorWorksResponse: AO3SearchResults?
     /// Scripted search results (saved search alert tests); empty when nil.
@@ -80,7 +83,10 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
         AO3Series(id: id, title: "x", creator: "x", works: [], currentPage: page)
     }
-    func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { subscriptionsResponse }
+    func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList {
+        subscriptionsFetchCount += 1
+        return AO3SubscriptionList(subscriptions: subscriptionsResponse, isComplete: subscriptionsComplete)
+    }
     func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
         AO3CommentsPage(comments: [], currentPage: page)
     }

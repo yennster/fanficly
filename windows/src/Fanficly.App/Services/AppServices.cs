@@ -56,13 +56,15 @@ public static partial class AppHost
             Auth = new AuthState(CredentialStore.Shared);
         }
 
+        // This runs on the UI thread (OnLaunched): backups, restores and the
+        // subscription poller read and change the library there, where the
+        // screens use it (#139).
+        RecordsThread.Main = SynchronizationContext.Current is { } ui ? new RecordsThread(ui) : null;
         Sync = new LibrarySyncManager(KeyValueStores.Default)
         {
             SyncFolder = KeyValueStores.Default.GetString(SyncFolderKey),
             MergeReaderProfiles = (local, incoming) => ReaderProfile.MergedProfiles(local, incoming),
             PublishReaderProfiles = ReaderProfileSyncStore.PublishLocalProfiles,
-            // This runs on the UI thread (OnLaunched): backups snapshot and
-            // restores apply the library here, where the screens use it.
             RecordsContext = SynchronizationContext.Current,
         };
         // Without the real library, a backup or restore would stamp the sync

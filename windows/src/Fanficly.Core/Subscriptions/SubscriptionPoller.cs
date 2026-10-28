@@ -75,6 +75,7 @@ public sealed class SubscriptionPoller
     private readonly IAO3Client _client;
     private readonly LibraryStore _store;
     private readonly ILocalNotifier? _notifier;
+    private readonly IKeyValueStore? _syncStamps;
 
     /// <summary>Route payload builder for notifications; the app replaces it with
     /// one backed by <c>NotificationRoute</c>.</summary>
@@ -82,15 +83,56 @@ public sealed class SubscriptionPoller
 
     /// <param name="username">AO3 username for syncing account subscriptions;
     /// null when logged out (locally-followed works are still polled).</param>
-    public SubscriptionPoller(IAO3Client client, LibraryStore store, string? username, ILocalNotifier? notifier = null)
+    /// <param name="syncStamps">Where the last list sync is stamped; defaults to
+    /// the widgets' shared store, which the app and the background task both
+    /// write, else <see cref="KeyValueStores.Default"/>.</param>
+    public SubscriptionPoller(IAO3Client client, LibraryStore store, string? username, ILocalNotifier? notifier = null,
+                              IKeyValueStore? syncStamps = null)
     {
         _client = client;
         _store = store;
         Username = username;
         _notifier = notifier;
+        _syncStamps = syncStamps;
     }
 
     public string? Username { get; }
+
+    /// <summary>Where the poller reads and changes library records (the UI
+    /// thread in the app); the AO3 requests and notifications run off it, so
+    /// a poll never changes a record while a screen is using it (#139).</summary>
+    public RecordsThread? Records { get; init; } = RecordsThread.Main;
+
+    private Task<T> OnRecords<T>(Func<T> body) => RecordsThread.RunAsync(Records, body);
+
+    private Task OnRecords(Action body) => RecordsThread.RunAsync(Records, body);
+
+    /// <summary>How often <see cref="RunFullPollAsync"/> re-reads the subscriptions
+    /// list. The walk costs one throttled request per 20 subscriptions (up to 50),
+    /// which on a big list is the background task's whole ~30 s, and the list
+    /// rarely changes; the Subscriptions tab syncs it whenever it refreshes (#150).</summary>
+    public static readonly TimeSpan ListSyncInterval = TimeSpan.FromHours(24);
+
+    private IKeyValueStore SyncStamps => _syncStamps ?? AppGroupStore.Shared ?? KeyValueStores.Default;
+
+    private string? ListSyncKey => Username is { } u ? $"subscriptions.listSyncedAt.{u}" : null;
+
+    /// <summary>Whether <see cref="RunFullPollAsync"/> should re-read the
+    /// subscriptions list: signed in, and no sync (or attempt) for this account
+    /// in <see cref="ListSyncInterval"/>.</summary>
+    public bool ListSyncIsDue(DateTimeOffset? now = null)
+    {
+        if (ListSyncKey is not { } key) return false;
+        if (SyncStamps.GetDate(key) is not { } last) return true;
+        var at = now ?? DateTimeOffset.Now;
+        // A clock set back leaves a future stamp; don't let it block syncs.
+        return last > at || at - last >= ListSyncInterval;
+    }
+
+    private void StampListSync()
+    {
+        if (ListSyncKey is { } key) SyncStamps.SetDate(key, DateTimeOffset.Now);
+    }
 
     /// <summary>Mirrors the account's AO3 subscription list into
     /// <see cref="SubscriptionRecord"/>s. Fails closed on pruning: an empty fetch
@@ -100,7 +142,15 @@ public sealed class SubscriptionPoller
     public async Task<IReadOnlyList<AO3Subscription>> SyncSubscriptionListAsync(CancellationToken ct = default)
     {
         if (Username is not { } username) return [];
-        var fresh = await _client.FetchSubscriptionsAsync(username, ct).ConfigureAwait(false);
+        var list = await _client.FetchSubscriptionsAsync(username, ct).ConfigureAwait(false);
+        StampListSync();
+        await OnRecords(() => MergeSubscriptionList(list)).ConfigureAwait(false);
+        return list.Subscriptions;
+    }
+
+    private void MergeSubscriptionList(AO3SubscriptionList list)
+    {
+        var fresh = list.Subscriptions;
         var freshKeys = fresh.Select(s => s.Key).ToHashSet();
 
         var existing = _store.All<SubscriptionRecord>();
@@ -122,11 +172,14 @@ public sealed class SubscriptionPoller
             }
         }
         // (The parser already throws on a login page; this guards the rest.)
-        if (fresh.Count > 0)
+        // A list cut off at the page ceiling is missing real subscriptions, so
+        // it prunes nothing either.
+        if (fresh.Count > 0 && list.IsComplete)
             foreach (var rec in existing)
                 if (!freshKeys.Contains(rec.Key)) _store.Delete(rec);
+        if (!list.IsComplete)
+            LibraryHooks.Log?.Invoke("Subscriptions list ran past the page ceiling; kept the records it didn't reach");
         _store.TrySave();
-        return fresh;
     }
 
     /// <summary>How many per-record checks failed (AO3 down, signed out, a page
@@ -142,8 +195,9 @@ public sealed class SubscriptionPoller
     public async Task<int> CheckForNewChaptersAsync(CancellationToken ct = default)
     {
         var notifyCount = 0;
-        foreach (var rec in WorkSubscriptionRecords()) notifyCount += await CheckWorkSubscriptionAsync(rec, ct).ConfigureAwait(false);
-        _store.TrySave();
+        foreach (var rec in await OnRecords(WorkSubscriptionRecords).ConfigureAwait(false))
+            notifyCount += await CheckWorkSubscriptionAsync(rec, ct).ConfigureAwait(false);
+        await OnRecords(() => _store.TrySave()).ConfigureAwait(false);
         return notifyCount;
     }
 
@@ -151,8 +205,9 @@ public sealed class SubscriptionPoller
     public async Task<int> CheckFollowedWorksAsync(CancellationToken ct = default)
     {
         var notifyCount = 0;
-        foreach (var work in FollowedWorks()) notifyCount += await CheckFollowedWorkAsync(work, ct).ConfigureAwait(false);
-        _store.TrySave();
+        foreach (var work in await OnRecords(FollowedWorks).ConfigureAwait(false))
+            notifyCount += await CheckFollowedWorkAsync(work, ct).ConfigureAwait(false);
+        await OnRecords(() => _store.TrySave()).ConfigureAwait(false);
         return notifyCount;
     }
 
@@ -162,12 +217,14 @@ public sealed class SubscriptionPoller
     public async Task<int> CheckWorksForNewChaptersAsync(CancellationToken ct = default)
     {
         var notifyCount = 0;
-        foreach (var t in WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks()))
+        var targets = await OnRecords(() => WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks()))
+            .ConfigureAwait(false);
+        foreach (var t in targets)
         {
             if (ct.IsCancellationRequested) break;
             notifyCount += await CheckWorkAsync(t.Id, t.Subscription, t.Followed, ct).ConfigureAwait(false);
         }
-        _store.TrySave();
+        await OnRecords(() => _store.TrySave()).ConfigureAwait(false);
         return notifyCount;
     }
 
@@ -176,8 +233,9 @@ public sealed class SubscriptionPoller
     public async Task<int> CheckFollowedAuthorsAsync(CancellationToken ct = default)
     {
         var notifyCount = 0;
-        foreach (var author in FollowedAuthors()) notifyCount += await CheckFollowedAuthorAsync(author, ct).ConfigureAwait(false);
-        _store.TrySave();
+        foreach (var author in await OnRecords(FollowedAuthors).ConfigureAwait(false))
+            notifyCount += await CheckFollowedAuthorAsync(author, ct).ConfigureAwait(false);
+        await OnRecords(() => _store.TrySave()).ConfigureAwait(false);
         return notifyCount;
     }
 
@@ -185,16 +243,16 @@ public sealed class SubscriptionPoller
     public async Task<int> CheckSavedSearchAlertsAsync(CancellationToken ct = default)
     {
         var notifyCount = 0;
-        foreach (var search in AlertingSearches())
+        foreach (var search in await OnRecords(AlertingSearches).ConfigureAwait(false))
         {
             if (ct.IsCancellationRequested) break;
             notifyCount += await CheckSavedSearchAsync(search, ct).ConfigureAwait(false);
-            _store.TrySave();
+            await OnRecords(() => _store.TrySave()).ConfigureAwait(false);
         }
         return notifyCount;
     }
 
-    /// <summary>The full background poll. Interleaves all four record kinds
+    /// <summary>The full background poll. Interleaves every record kind
     /// oldest-check-first rather than a fixed subs → works → authors order: every
     /// check costs one throttled (1 req/s) request and a background run gets
     /// limited time, so a fixed order would permanently starve the last
@@ -203,23 +261,33 @@ public sealed class SubscriptionPoller
     /// Returns the number of notifications posted.</summary>
     public async Task<int> RunFullPollAsync(CancellationToken ct = default)
     {
-        try
+        // At most once a day, so the run goes to the checks below (#150).
+        // Stamped before the walk: a list too long to finish in one background
+        // run would otherwise be retried, and cut off, every time.
+        if (ListSyncIsDue())
         {
-            await SyncSubscriptionListAsync(ct).ConfigureAwait(false);
-        }
-        catch (Exception e)
-        {
-            LibraryHooks.Log?.Invoke($"Subscriptions list fetch failed: {e.Message}");
+            StampListSync();
+            try
+            {
+                await SyncSubscriptionListAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                LibraryHooks.Log?.Invoke($"Subscriptions list fetch failed: {e.Message}");
+            }
         }
 
-        var targets = new List<(DateTimeOffset? LastCheckedAt, Func<Task<int>> Check)>();
-        // One target per work id: a work that's both AO3-subscribed and followed
-        // is fetched once (#148), queued by the staler of its two records.
-        targets.AddRange(WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks())
-            .Select(t => (Stalest(t.Subscription, t.Followed), (Func<Task<int>>)(() => CheckWorkAsync(t.Id, t.Subscription, t.Followed, ct)))));
-        targets.AddRange(FollowedAuthors().Select(a => (a.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedAuthorAsync(a, ct)))));
-        targets.AddRange(AlertingSearches().Select(s => (s.AlertsAttemptedAt ?? s.AlertsLastCheckedAt, (Func<Task<int>>)(() => CheckSavedSearchAsync(s, ct)))));
-        var ordered = targets.OrderBy(t => t.LastCheckedAt ?? DateTimeOffset.MinValue).ToList();
+        var ordered = await OnRecords(() =>
+        {
+            var targets = new List<(DateTimeOffset? LastCheckedAt, Func<Task<int>> Check)>();
+            // One target per work id: a work that's both AO3-subscribed and followed
+            // is fetched once (#148), queued by the staler of its two records.
+            targets.AddRange(WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks())
+                .Select(t => (Stalest(t.Subscription, t.Followed), (Func<Task<int>>)(() => CheckWorkAsync(t.Id, t.Subscription, t.Followed, ct)))));
+            targets.AddRange(FollowedAuthors().Select(a => (a.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedAuthorAsync(a, ct)))));
+            targets.AddRange(AlertingSearches().Select(s => (s.AlertsAttemptedAt ?? s.AlertsLastCheckedAt, (Func<Task<int>>)(() => CheckSavedSearchAsync(s, ct)))));
+            return targets.OrderBy(t => t.LastCheckedAt ?? DateTimeOffset.MinValue).ToList();
+        }).ConfigureAwait(false);
 
         var total = 0;
         foreach (var target in ordered)
@@ -230,9 +298,9 @@ public sealed class SubscriptionPoller
             total += await target.Check().ConfigureAwait(false);
             // Save after every record so an expiring run keeps its
             // LastCheckedAt stamps — they drive the rotation.
-            _store.TrySave();
+            await OnRecords(() => _store.TrySave()).ConfigureAwait(false);
         }
-        LibraryHooks.UpdateWidgetData?.Invoke(_store);
+        await OnRecords(() => LibraryHooks.UpdateWidgetData?.Invoke(_store)).ConfigureAwait(false);
         return total;
     }
 
@@ -276,9 +344,10 @@ public sealed class SubscriptionPoller
     /// request). Returns the number of notifications posted.</summary>
     private async Task<int> CheckWorkSubscriptionAsync(SubscriptionRecord rec, CancellationToken ct)
     {
+        // A record's key and id never change, so they're read here.
         if (WorkId(rec) is not { } workId)
         {
-            rec.LastCheckedAt = DateTimeOffset.Now;
+            await OnRecords(() => rec.LastCheckedAt = DateTimeOffset.Now).ConfigureAwait(false);
             return 0;
         }
         return await CheckWorkAsync(workId, rec, null, ct).ConfigureAwait(false);
@@ -296,18 +365,18 @@ public sealed class SubscriptionPoller
         try
         {
             var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
-            var notifyCount = 0;
-            // Against the higher baseline: chapters either record already counted
-            // were notified (or seen) then, and mustn't notify again.
-            var lastSeen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
-            if (lastSeen is { } seen && meta.ChapterCount > seen)
+            var (lastSeen, title) = await OnRecords(() =>
             {
-                await PostAsync(NewChapterContent(work?.Title ?? rec?.DisplayName ?? "", seen, meta.ChapterCount, workId)).ConfigureAwait(false);
-                notifyCount = 1;
-            }
-            if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
-            if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
-            return notifyCount;
+                // Against the higher baseline: chapters either record already counted
+                // were notified (or seen) then, and mustn't notify again.
+                var seen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
+                if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
+                if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
+                return (seen, work?.Title ?? rec?.DisplayName ?? "");
+            }).ConfigureAwait(false);
+            if (lastSeen is not { } seenCount || meta.ChapterCount <= seenCount) return 0;
+            await PostAsync(NewChapterContent(title, seenCount, meta.ChapterCount, workId)).ConfigureAwait(false);
+            return 1;
         }
         catch (Exception e)
         {
@@ -317,46 +386,48 @@ public sealed class SubscriptionPoller
         }
         finally
         {
-            if (rec is not null) rec.LastCheckedAt = DateTimeOffset.Now;
-            if (work is not null) work.LastCheckedAt = DateTimeOffset.Now;
+            await OnRecords(() =>
+            {
+                if (rec is not null) rec.LastCheckedAt = DateTimeOffset.Now;
+                if (work is not null) work.LastCheckedAt = DateTimeOffset.Now;
+            }).ConfigureAwait(false);
         }
     }
 
     private async Task<int> CheckFollowedAuthorAsync(FollowedAuthor author, CancellationToken ct)
     {
+        // A followed author's username never changes, so it's read here.
+        var username = author.Username;
         try
         {
-            var result = await _client.FetchAuthorWorksAsync(author.Username, 1, ct).ConfigureAwait(false);
+            var result = await _client.FetchAuthorWorksAsync(username, 1, ct).ConfigureAwait(false);
             // Signed in but served the guest page: the session expired. The
             // public works still alert; restricted ones aren't in the baseline
             // yet, so they alert once a signed-in poll sees them.
             if (Username is not null && result.ServedAsGuest) SessionExpired = true;
             var latestIds = result.Works.Select(w => w.Id);
-            var known = author.KnownWorkIds.ToHashSet();
-            var notifyCount = 0;
+            var (known, followedAt, displayName) = await OnRecords(() =>
+                (author.KnownWorkIds.ToHashSet(), author.FollowedAt, author.DisplayName)).ConfigureAwait(false);
             var newWorks = NewlyPostedWorks(result.Works, known);
             IReadOnlySet<int> undated = new HashSet<int>();
             if (known.Count == 0)
-                (newWorks, undated) = await WorksPostedSinceFollowAsync(result.Works, author.FollowedAt, ct).ConfigureAwait(false);
-            if (newWorks.Count > 0)
-            {
-                await PostAsync(NewWorkContent(author.Username, author.DisplayName, newWorks)).ConfigureAwait(false);
-                notifyCount = newWorks.Count;
-            }
+                (newWorks, undated) = await WorksPostedSinceFollowAsync(result.Works, followedAt, ct).ConfigureAwait(false);
             known.UnionWith(latestIds);
             known.ExceptWith(undated);
-            author.KnownWorkIds = known.ToList();
-            return notifyCount;
+            await OnRecords(() => author.KnownWorkIds = known.ToList()).ConfigureAwait(false);
+            if (newWorks.Count == 0) return 0;
+            await PostAsync(NewWorkContent(username, displayName, newWorks)).ConfigureAwait(false);
+            return newWorks.Count;
         }
         catch (Exception e)
         {
             FailedChecks++;
-            LibraryHooks.Log?.Invoke($"Skipping author {author.Username}: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Skipping author {username}: {e.Message}");
             return 0;
         }
         finally
         {
-            author.LastCheckedAt = DateTimeOffset.Now;
+            await OnRecords(() => author.LastCheckedAt = DateTimeOffset.Now).ConfigureAwait(false);
         }
     }
 
@@ -411,11 +482,14 @@ public sealed class SubscriptionPoller
     /// baseline and the last check alone.</summary>
     public async Task<int> CheckSavedSearchAsync(SavedSearch search, CancellationToken ct = default)
     {
-        var checkedBefore = search.AlertsLastCheckedAt;
-        var prompt = search.Prompt;
-        var changedAt = search.AlertsChangedAt;
+        // A saved search's name never changes, so it's read here.
+        var name = search.Name;
+        var (prompt, changedAt, checkedBefore) = await OnRecords(() =>
+        {
+            search.AlertsAttemptedAt = DateTimeOffset.Now;
+            return (search.Prompt, search.AlertsChangedAt, search.AlertsLastCheckedAt);
+        }).ConfigureAwait(false);
         var filters = SavedSearchAlerts.Filters(prompt);
-        search.AlertsAttemptedAt = DateTimeOffset.Now;
         AO3SearchResults result;
         try
         {
@@ -424,14 +498,9 @@ public sealed class SubscriptionPoller
         catch (Exception e)
         {
             if (e is not OperationCanceledException) FailedChecks++;
-            LibraryHooks.Log?.Invoke($"Skipping saved search {search.Name}: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Skipping saved search {name}: {e.Message}");
             return 0;
         }
-        // An AO3 search can take half a minute: if the search was deleted, edited
-        // or its alerts switched (off, or off and on again) meanwhile, these
-        // results are stale.
-        if (!ReferenceEquals(_store.GetSavedSearch(search.Name), search) || !search.AlertsEnabled
-            || search.Prompt != prompt || search.AlertsChangedAt != changedAt) return 0;
         // Signed in but served the guest page: the session expired, and the
         // results leave out restricted works. Recording them would mark the
         // public ones seen ahead of the restricted ones, which then never alert.
@@ -440,22 +509,31 @@ public sealed class SubscriptionPoller
             SessionExpired = true;
             return 0;
         }
-        var fresh = SavedSearchAlerts.NewMatches(result.Works, search.AlertKnownWorkIds.ToHashSet(),
-                                                 search.AlertsBaselineAt is not null, checkedBefore);
-        search.AlertsBaselineAt ??= DateTimeOffset.Now;
-        search.AlertKnownWorkIds = SavedSearchAlerts.Baseline(search.AlertKnownWorkIds, result.Works.Select(w => w.Id));
-        search.AlertsLastCheckedAt = DateTimeOffset.Now;
-        if (fresh.Count == 0) return 0;
-        // The same rules as the results list: hidden works, blocked tags and
-        // authors (except ones the search names) and, when that setting is on,
-        // Mature and Explicit works never alert.
-        var shown = ContentFilter.Apply(fresh, HiddenWorkStore.Ids(_store),
-            KeyValueStores.Default.GetBool(ContentControl.FilterMatureKey, true),
-            Blocklist.From(_store).Lifting(filters));
+        var filterMature = KeyValueStores.Default.GetBool(ContentControl.FilterMatureKey, true);
+        var shown = await OnRecords<IReadOnlyList<AO3WorkSummary>>(() =>
+        {
+            // An AO3 search can take half a minute: if the search was deleted,
+            // edited or its alerts switched (off, or off and on again) meanwhile,
+            // these results are stale.
+            if (!ReferenceEquals(_store.GetSavedSearch(name), search) || !search.AlertsEnabled
+                || search.Prompt != prompt || search.AlertsChangedAt != changedAt) return [];
+            var fresh = SavedSearchAlerts.NewMatches(result.Works, search.AlertKnownWorkIds.ToHashSet(),
+                                                     search.AlertsBaselineAt is not null, checkedBefore);
+            search.AlertsBaselineAt ??= DateTimeOffset.Now;
+            search.AlertKnownWorkIds = SavedSearchAlerts.Baseline(search.AlertKnownWorkIds, result.Works.Select(w => w.Id));
+            search.AlertsLastCheckedAt = DateTimeOffset.Now;
+            if (fresh.Count == 0) return fresh;
+            // The same rules as the results list: hidden works, blocked tags and
+            // authors (except ones the search names) and, when that setting is on,
+            // Mature and Explicit works never alert.
+            var visible = ContentFilter.Apply(fresh, HiddenWorkStore.Ids(_store), filterMature,
+                                              Blocklist.From(_store).Lifting(filters));
+            var alreadyNew = search.AlertNewWorkIds.ToHashSet();
+            search.AlertNewWorkIds = search.AlertNewWorkIds.Concat(visible.Select(w => w.Id).Where(id => !alreadyNew.Contains(id))).ToList();
+            return visible;
+        }).ConfigureAwait(false);
         if (shown.Count == 0) return 0;
-        var alreadyNew = search.AlertNewWorkIds.ToHashSet();
-        search.AlertNewWorkIds = search.AlertNewWorkIds.Concat(shown.Select(w => w.Id).Where(id => !alreadyNew.Contains(id))).ToList();
-        await PostAsync(SavedSearchContent(search.Name, prompt, shown)).ConfigureAwait(false);
+        await PostAsync(SavedSearchContent(name, prompt, shown)).ConfigureAwait(false);
         return shown.Count;
     }
 
