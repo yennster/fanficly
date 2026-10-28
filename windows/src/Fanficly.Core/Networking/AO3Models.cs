@@ -138,7 +138,10 @@ public sealed record AO3CommentsPage(IReadOnlyList<AO3Comment> Comments, int Cur
     public bool HasMore => CurrentPage < TotalPages;
 }
 
-public sealed record AO3WorkMetadata(int Id, int ChapterCount, int? TotalChapters, DateTimeOffset? UpdatedAt);
+/// <param name="PublishedAt">The day the work was first posted (<c>dd.published</c>). The
+/// poller asks for it when it has no baseline to tell a new work from an updated one.</param>
+public sealed record AO3WorkMetadata(int Id, int ChapterCount, int? TotalChapters, DateTimeOffset? UpdatedAt,
+                                     DateTimeOffset? PublishedAt = null);
 
 public enum AO3SubscriptionKind { Work, Series, User }
 

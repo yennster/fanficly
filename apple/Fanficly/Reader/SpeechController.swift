@@ -205,6 +205,10 @@ final class SpeechController: NSObject {
     /// Tears everything down — used when the reader closes, or when playback
     /// ends with no further chapter.
     func stop() {
+        // Only hand the audio session back if narration took it: the reader
+        // calls stop() on every close, and another reader's volume page
+        // turning (VolumeButtonPageTurner) may be holding it.
+        let hadSession = isActive
         synthesizer.stopSpeaking(at: .immediate)
         indexOf.removeAll()
         paragraphs = []
@@ -223,7 +227,7 @@ final class SpeechController: NSObject {
         }
         unwireRemoteCommands()
         clearNowPlaying()
-        deactivateSession()
+        if hadSession { deactivateSession() }
     }
 
     // MARK: - Internals

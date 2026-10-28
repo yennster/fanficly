@@ -221,7 +221,26 @@ internal static class LibrarySchema
             AddColumnIfMissing(conn, "works", "personal_tags", "TEXT NOT NULL DEFAULT '[]'");
             AddColumnIfMissing(conn, "works", "notes_updated_at", "INTEGER");
         },
-        // Version 4: new-fic alerts on saved searches (#309).
+        // Version 4: the story's details on a Recently Viewed entry, so its
+        // row shows what an AO3 History row shows.
+        conn =>
+        {
+            AddColumnIfMissing(conn, "recently_viewed", "has_details", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "recently_viewed", "author_username", "TEXT NOT NULL DEFAULT ''");
+            AddColumnIfMissing(conn, "recently_viewed", "summary", "TEXT NOT NULL DEFAULT ''");
+            AddColumnIfMissing(conn, "recently_viewed", "rating", "TEXT NOT NULL DEFAULT ''");
+            foreach (var list in new[] { "warnings", "categories", "fandoms", "characters", "relationships", "freeforms" })
+                AddColumnIfMissing(conn, "recently_viewed", list, "TEXT NOT NULL DEFAULT '[]'");
+            AddColumnIfMissing(conn, "recently_viewed", "language", "TEXT NOT NULL DEFAULT ''");
+            AddColumnIfMissing(conn, "recently_viewed", "word_count", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "recently_viewed", "chapter_count", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "recently_viewed", "total_chapters", "INTEGER");
+            AddColumnIfMissing(conn, "recently_viewed", "kudos", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "recently_viewed", "hits", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "recently_viewed", "is_complete", "INTEGER NOT NULL DEFAULT 0");
+            AddColumnIfMissing(conn, "recently_viewed", "updated_at", "INTEGER");
+        },
+        // Version 5: new-fic alerts on saved searches (#309).
         conn =>
         {
             AddColumnIfMissing(conn, "saved_searches", "alerts_enabled", "INTEGER NOT NULL DEFAULT 0");

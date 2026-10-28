@@ -53,8 +53,7 @@ enum DemoSeed {
         for (id, daysAgo) in recents {
             let s = DemoCatalog.summary(for: id)
             let viewed = Calendar.current.date(byAdding: .hour, value: -daysAgo * 8, to: seedDate) ?? seedDate
-            context.insert(RecentlyViewed(ao3Id: id, title: s.title, author: s.author,
-                                          fandom: s.fandoms.first ?? "", viewedAt: viewed))
+            context.insert(RecentlyViewed(summary: s, viewedAt: viewed))
         }
 
         // Reading stats (Stats tab). Spread active reading time across several

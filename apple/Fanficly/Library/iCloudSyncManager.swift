@@ -1188,6 +1188,9 @@ final class iCloudSyncManager {
         // own, which the file may not hold yet. A record they cover isn't
         // restored, and this device's copy of it is deleted below (#135).
         let tombstones = DeletionIndex(Self.prunedDeletions((backup.deleted ?? []) + Self.localDeletions(), now: .now))
+        // Works this restore gives chapter text: the only ones the
+        // re-download prompt may offer afterwards (#152).
+        var textRestored: [Int] = []
 
         do {
             // 0. Restore settings and themes. Restore only fills in what this
@@ -1297,6 +1300,7 @@ final class iCloudSyncManager {
                 // the Downloaded badge keys off the epub file, so deleting
                 // here would silently strand it.
                 if w.chapters.count > work.chapters.count {
+                    textRestored.append(w.ao3Id)
                     // Clear existing chapters first to prevent duplicates
                     for ch in work.chapters { context.delete(ch) }
                     work.chapters.removeAll()
@@ -1466,6 +1470,7 @@ final class iCloudSyncManager {
             Self.applyDeletions(tombstones, backup: backup, context: context)
 
             try context.save()
+            RestoreDownloadCenter.shared.noteRestoredText(workIds: textRestored)
         }
     }
     

@@ -48,6 +48,10 @@ final class ReaderLayoutTests: XCTestCase {
                           "-reader.lineSpacingPt.\(device)", "6",
                           "-reader.paragraphSpacingPt.\(device)", "16"]
         }
+        // The keyboard test's way to the New Profile prompt where the Aa menu
+        // won't open (see openNewProfilePrompt). Only there: full screen
+        // checks no button is left.
+        if name.contains("test_keyboard") { arguments.append("-demoNewProfileButton") }
         app.launchArguments = arguments
         #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.orientation = .portrait
@@ -370,20 +374,33 @@ final class ReaderLayoutTests: XCTestCase {
             }
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
+        // On Xcode Cloud's folded iPhone Duo (iOS 27.1) XCTest's taps on the
+        // reader's strip menus (Aa, Chapters) open nothing, by tap, long
+        // press or a tap aimed from the window, while the work's own menu in
+        // the same strip opens; by hand Aa's menu opens there, on the
+        // simulator and the device. The tap also leaves the app busy for a
+        // minute, and an alert asked for then never shows. This test is about
+        // the keyboard, so in the strip it opens the prompt with demo mode's
+        // stand-in button and leaves Aa alone. The strip stacks the items,
+        // so Chapters sits right above Aa.
+        let chapters = app.buttons["Chapters"].firstMatch
+        if chapters.exists, abs(chapters.frame.midX - settings.frame.midX) < 1,
+           chapters.frame.midY < settings.frame.midY {
+            let button = app.buttons["reader.newProfileTestButton"].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 4), "the reader's New Profile test button")
+            tap(CGPoint(x: button.frame.midX, y: button.frame.midY))
+            XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 8),
+                          "the profile name prompt \(menuState())")
+            return
+        }
         settings.tap()
         capture("05-reader-settings-menu")
-        let profile = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Profile")).firstMatch
-        if !profile.waitForExistence(timeout: 4) {
-            // On iPhone Duo (iOS 27.1) a software keyboard came up as the
-            // menu opened, with no text field on screen, and closed the menu.
-            // Name whatever holds keyboard focus so the failure says why.
-            let focused = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
-            let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
-            XCTFail("the Profile submenu (keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder))")
-        }
+        // Any element type: a menu from iPhone Duo's vertical strip may not
+        // draw its items as buttons.
+        let profile = menuItem(labeled: "Profile")
+        XCTAssertTrue(profile.waitForExistence(timeout: 4), "the Profile submenu \(menuState())")
         profile.tap()
-        let save = app.buttons["Save Current as New Profile..."].firstMatch
+        let save = menuItem(labeled: "Save Current as New Profile...")
         XCTAssertTrue(save.waitForExistence(timeout: 4), "Save Current as New Profile…")
         save.tap()
         XCTAssertTrue(app.alerts.textFields.firstMatch.waitForExistence(timeout: 4), "the profile name prompt")
@@ -603,6 +620,26 @@ final class ReaderLayoutTests: XCTestCase {
         let origin = window.frame.origin
         window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: point.x - origin.x, dy: point.y - origin.y)).tap()
+    }
+
+    /// A menu's item by the start of its label, whatever element type it draws as.
+    private func menuItem(labeled prefix: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "label BEGINSWITH %@ AND elementType IN %@", prefix,
+            [XCUIElement.ElementType.button, .menuItem, .cell, .staticText, .other].map(\.rawValue) as NSArray)).firstMatch
+    }
+
+    /// What a menu that didn't show its items left on screen, for a failure
+    /// message: Xcode Cloud's check shows the message, not the result bundle.
+    private func menuState() -> String {
+        let focused = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "hasKeyboardFocus == true")).firstMatch
+        let holder = focused.exists ? "\(focused.elementType.rawValue) '\(focused.identifier)' '\(focused.label)'" : "nothing"
+        let buttons = app.buttons.allElementsBoundByIndex.prefix(12)
+            .map { $0.identifier.isEmpty ? $0.label : "\($0.label)#\($0.identifier)" }
+        return "(keyboard up: \(app.keyboards.firstMatch.exists), keyboard focus: \(holder), "
+            + "menus: \(app.menus.count), menu items: \(app.menuItems.count), popovers: \(app.popovers.count), "
+            + "windows: \(app.windows.count), buttons: \(buttons))"
     }
 
     private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {

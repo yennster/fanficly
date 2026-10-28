@@ -7,6 +7,7 @@ final class WorkMetadataParserTests: XCTestCase {
         <html><body>
         <dl class="stats">
           <dt class="chapters">Chapters:</dt><dd class="chapters">12/20</dd>
+          <dt class="published">Published:</dt><dd class="published">2023-11-02</dd>
           <dt class="status">Updated:</dt><dd class="status">2024-03-12</dd>
         </dl>
         </body></html>
@@ -16,6 +17,8 @@ final class WorkMetadataParserTests: XCTestCase {
         XCTAssertEqual(meta.chapterCount, 12)
         XCTAssertEqual(meta.totalChapters, 20)
         XCTAssertNotNil(meta.updatedAt)
+        let day = Calendar.current.dateComponents([.year, .month, .day], from: try XCTUnwrap(meta.publishedAt))
+        XCTAssertEqual([day.year, day.month, day.day], [2023, 11, 2])
     }
 
     func test_wipWithUnknownTotal() throws {
@@ -27,6 +30,7 @@ final class WorkMetadataParserTests: XCTestCase {
         let meta = try WorkMetadataParser.parse(html: html, workId: 1)
         XCTAssertEqual(meta.chapterCount, 3)
         XCTAssertNil(meta.totalChapters)
+        XCTAssertNil(meta.publishedAt)
     }
 
     /// A page with no chapter count (Cloudflare, "Retry later", an error

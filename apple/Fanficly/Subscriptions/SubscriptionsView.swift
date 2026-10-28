@@ -241,6 +241,8 @@ struct BookmarksView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// A failed next page: shown under the works, which stay (#154).
+    @State private var paging = LoadMoreState()
     /// The last load failed because the AO3 session expired (#131).
     @State private var sessionExpired = false
 
@@ -277,17 +279,15 @@ struct BookmarksView: View {
                 List {
                     ForEach(visibleWorks) { work in
                         NavigationLink(value: work) { WorkRow(work: work, badge: badges[work.id]) }
+                            // After a failure, the footer's Try Again loads on.
                             .onAppear {
-                                if work.id == visibleWorks.last?.id {
+                                if work.id == visibleWorks.last?.id, paging.error == nil {
                                     Task { await loadMore() }
                                 }
                             }
                     }
-                    if isLoadingMore {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                            .padding(.vertical, 8)
-                            .listRowSeparator(.hidden)
-                    }
+                    LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
+                                   sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
                 }
                 .listStyle(.plain)
                 .resultBadges(for: visibleWorks, into: $badges)
@@ -324,6 +324,8 @@ struct BookmarksView: View {
         isLoading = true
         errorMessage = nil
         sessionExpired = false
+        // A next page of the list being replaced must not land in this one.
+        paging.restart()
         defer { isLoading = false }
         do {
             let result = try auth.check(await client.fetchBookmarks(username: username, page: 1))
@@ -349,19 +351,25 @@ struct BookmarksView: View {
     }
 
     private func loadMore() async {
-        guard let username = auth.username, !isLoadingMore, currentPage < totalPages else { return }
+        guard let username = auth.username, !isLoadingMore, !isLoading, currentPage < totalPages else { return }
+        let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try auth.check(await client.fetchBookmarks(username: username, page: currentPage + 1))
+            guard paging.isCurrent(generation) else { return }  // refreshed meanwhile
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            guard !Task.isCancelled else { return }   // benign cancellation — see loadFirst
+            // Benign cancellation — see loadFirst.
+            guard !Task.isCancelled, paging.isCurrent(generation) else { return }
+            // The bookmarks so far stay; the footer says why and offers Try Again (#154).
             sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
+            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more bookmarks: \(error)"
+            paging.fail(message, generation: generation)
+            UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
 }
@@ -453,6 +461,8 @@ struct ReadingListView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// A failed next page: shown under the works, which stay (#154).
+    @State private var paging = LoadMoreState()
     /// The last load failed because the AO3 session expired (#131).
     @State private var sessionExpired = false
 
@@ -489,17 +499,15 @@ struct ReadingListView: View {
                 List {
                     ForEach(visibleWorks) { work in
                         NavigationLink(value: work) { WorkRow(work: work, badge: badges[work.id]) }
+                            // After a failure, the footer's Try Again loads on.
                             .onAppear {
-                                if work.id == visibleWorks.last?.id {
+                                if work.id == visibleWorks.last?.id, paging.error == nil {
                                     Task { await loadMore() }
                                 }
                             }
                     }
-                    if isLoadingMore {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                            .padding(.vertical, 8)
-                            .listRowSeparator(.hidden)
-                    }
+                    LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
+                                   sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
                 }
                 .listStyle(.plain)
                 .resultBadges(for: visibleWorks, into: $badges)
@@ -536,6 +544,8 @@ struct ReadingListView: View {
         isLoading = true
         errorMessage = nil
         sessionExpired = false
+        // A next page of the list being replaced must not land in this one.
+        paging.restart()
         defer { isLoading = false }
         do {
             let result = try await list.fetch(client, username: username, page: 1)
@@ -557,19 +567,24 @@ struct ReadingListView: View {
     }
 
     private func loadMore() async {
-        guard let username = auth.username, !isLoadingMore, currentPage < totalPages else { return }
+        guard let username = auth.username, !isLoadingMore, !isLoading, currentPage < totalPages else { return }
+        let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try await list.fetch(client, username: username, page: currentPage + 1)
+            guard paging.isCurrent(generation) else { return }  // refreshed meanwhile
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, paging.isCurrent(generation) else { return }
+            // The works so far stay; the footer says why and offers Try Again (#154).
             sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : Self.message(for: error)
+            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more: \(Self.message(for: error))"
+            paging.fail(message, generation: generation)
+            UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
 

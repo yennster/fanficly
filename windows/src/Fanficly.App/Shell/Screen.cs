@@ -63,6 +63,10 @@ public abstract class Screen
     /// </summary>
     public virtual bool HandleKey(VirtualKey key, VirtualKeyModifiers modifiers) => false;
 
+    /// <summary>True while volume keys should turn pages rather than change the
+    /// volume ("Volume buttons turn pages"; see <c>Platform.VolumeKeyGate</c>).</summary>
+    public virtual bool WantsVolumeKeys => false;
+
     /// <summary>Back was requested (Esc, Alt+←, mouse back, gamepad B). Return
     /// true to consume it, e.g. to close an inline panel first.</summary>
     public virtual bool HandleBack() => false;

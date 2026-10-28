@@ -14,7 +14,7 @@
 - Three reading modes: continuous scroll, chapter by chapter, and page by page, with a two-page spread on wide screens. Themes, fonts, text size, spacing and margins, saved as typography profiles.
 - Reading position saved to the paragraph; the library shows progress and a Finished badge.
 - Read aloud with the device's own voices, entirely on-device.
-- Works with Bluetooth page turners and scroll remotes (keyboard or touch mode) as well as hardware keyboards.
+- Works with Bluetooth page turners and scroll remotes (keyboard or touch mode, or volume mode with the opt-in "Volume buttons turn pages" setting) as well as hardware keyboards.
 - Library with folders, stars, pins, sorting and search; download works for offline reading; export as EPUB, MOBI, AZW3, PDF or HTML.
 - Follow works and authors without an account and get notifications for new chapters and new works; turn on alerts for a saved search to hear about new fics that match it.
 - Reading stats (stories finished, time and words read, streak, top fandoms, ships and authors) with a yearly wrap-up card.
