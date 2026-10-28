@@ -27,6 +27,8 @@ struct AuthorWorksView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
+    /// A failed next page: shown under the works, which stay (#154).
+    @State private var paging = LoadMoreState()
     /// The last load failed because the AO3 session expired (#131).
     @State private var sessionExpired = false
     @State private var isFollowingAuthor = false
@@ -53,26 +55,22 @@ struct AuthorWorksView: View {
             } else if visibleWorks.isEmpty {
                 FilteredOutView(message: "Every work by this author so far is filtered out by your content settings.",
                                 canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
-                                loadMore: loadMore)
+                                loadMoreError: paging.error,
+                                sessionExpired: sessionExpired && !auth.hasSession, loadMore: loadMore)
             } else {
                 List {
                     ForEach(visibleWorks) { work in
                         NavigationLink(value: work) { WorkRow(work: work, badge: badges[work.id]) }
-                            // Infinite scroll: pull the next page as the last row appears.
+                            // Infinite scroll: pull the next page as the last row
+                            // appears (after a failure, the footer's Try Again does).
                             .onAppear {
-                                if work.id == visibleWorks.last?.id {
+                                if work.id == visibleWorks.last?.id, paging.error == nil {
                                     Task { await loadMore() }
                                 }
                             }
                     }
-                    if isLoadingMore {
-                        HStack { Spacer(); ProgressView(); Spacer() }
-                            .padding(.vertical, 8)
-                            .listRowSeparator(.hidden)
-                    } else if let errorMessage, sessionExpired, !auth.hasSession {
-                        SessionExpiredView(message: errorMessage)
-                            .listRowSeparator(.hidden)
-                    }
+                    LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
+                                   sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
                 }
                 .listStyle(.plain)
                 .resultBadges(for: visibleWorks, into: $badges)
@@ -130,6 +128,7 @@ struct AuthorWorksView: View {
 
     private func loadMore() async {
         guard !isLoadingMore, currentPage < totalPages else { return }
+        let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
@@ -140,7 +139,10 @@ struct AuthorWorksView: View {
             totalPages = result.totalPages
         } catch {
             sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
+            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more works: \(error)"
+            if paging.fail(message, generation: generation) {
+                UIAccessibility.post(notification: .announcement, argument: message)
+            }
         }
     }
 }
