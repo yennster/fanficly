@@ -26,29 +26,31 @@ final class ReaderMetricsTests: XCTestCase {
         XCTAssertEqual(w, 402 - 2 * ReaderMetrics.minimumGutter)
     }
 
-    /// iPhone Duo's outer display: 466 pt wide, its side column 42 pt.
-    func test_duoColumn_floatsOverTheMargin() {
+    /// iPhone Duo's outer display: 466 pt wide, its side column 84 pt in
+    /// the scrolling modes.
+    func test_duoColumn_marginsShareTheRoomBesideIt() {
         let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 70, fontSize: 18,
-                                                  limitLineLength: true, reservedTrailing: 42)
-        XCTAssertEqual(p.width, 326, "the setting's share of the whole page")
-        XCTAssertEqual(p.leading, 70, "centred on the page, its margin wide enough for the column")
+                                                  limitLineLength: true, reservedTrailing: 84)
+        XCTAssertEqual(p.width, 267, "70% of the 382 pt beside the column")
+        XCTAssertEqual(p.leading, 57.5, "centred beside the column")
+        XCTAssertLessThanOrEqual(p.leading + p.width, 466 - 84 - ReaderMetrics.minimumGutter)
     }
 
-    func test_duoColumn_widensBothMarginsAlike() {
-        let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 90, fontSize: 18,
-                                                  limitLineLength: true, reservedTrailing: 42)
-        let clear = 42 + ReaderMetrics.minimumGutter
-        XCTAssertEqual(p.width, 466 - 2 * clear)
-        XCTAssertEqual(p.leading, clear, "centred on the screen, not pushed to the left")
+    func test_duoColumn_everyMarginsSettingChangesTheText() {
+        let widths = [60.0, 70, 80, 90, 100].map {
+            ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: $0, fontSize: 18,
+                                              limitLineLength: true, reservedTrailing: 84).width
+        }
+        XCTAssertEqual(Set(widths).count, widths.count, "\(widths)")
     }
 
-    func test_duoColumn_fullMarginsNarrow() {
-        for (leading, trailing) in [(CGFloat(0), CGFloat(42)), (42, 0)] {
+    func test_duoColumn_fullMarginsKeepTheGutter() {
+        for (leading, trailing) in [(CGFloat(0), CGFloat(84)), (84, 0)] {
             let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 100, fontSize: 18,
                                                       limitLineLength: true, reservedLeading: leading,
                                                       reservedTrailing: trailing)
-            XCTAssertEqual(p.width, 466 - 2 * (42 + ReaderMetrics.minimumGutter))
-            XCTAssertEqual(p.leading, 42 + ReaderMetrics.minimumGutter)
+            XCTAssertEqual(p.width, 466 - 84 - 2 * ReaderMetrics.minimumGutter)
+            XCTAssertEqual(p.leading, leading + ReaderMetrics.minimumGutter)
         }
     }
 

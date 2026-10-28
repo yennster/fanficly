@@ -77,23 +77,19 @@ enum ReaderMetrics {
     /// Where the text column sits in a page `containerWidth` wide whose
     /// sides are covered by `reservedLeading` / `reservedTrailing` points of
     /// iPhone Duo's side column (the page runs under it, see
-    /// RunUnderSideColumn; the text must not). The column is the width the
-    /// Margins setting gives the whole page, centred on it, so the side
-    /// column floats over the margin. Where that margin is too narrow to
-    /// keep `minimumGutter` clear of the side column, both margins widen
-    /// alike, so the text stays centred on the screen (pushed to one side,
-    /// it left 16 pt on the left and 58 pt on the right).
+    /// RunUnderSideColumn; the text must not). The text gets the Margins
+    /// share of the page beside the column, centred there, so every Margins
+    /// setting still changes it. Centred on the whole screen instead, both
+    /// margins had to clear the 84 pt column: 100 pt each side, the same
+    /// width for every setting from 60% up.
     /// `leading` is the space before the text.
     static func textColumnPlacement(containerWidth: CGFloat, widthPercent: Double, fontSize: Double,
                                     limitLineLength: Bool, reservedLeading: CGFloat = 0,
                                     reservedTrailing: CGFloat = 0) -> (leading: CGFloat, width: CGFloat) {
-        let wanted = textColumnWidth(containerWidth: containerWidth, widthPercent: widthPercent,
-                                     fontSize: fontSize, limitLineLength: limitLineLength)
-        let needed = max(reservedLeading, reservedTrailing) + minimumGutter
-        let width = (containerWidth - wanted) / 2 >= needed
-            ? wanted
-            : max(0, floor(containerWidth - 2 * needed))
-        return ((containerWidth - width) / 2, width)
+        let free = max(0, containerWidth - reservedLeading - reservedTrailing)
+        let width = textColumnWidth(containerWidth: free, widthPercent: widthPercent,
+                                    fontSize: fontSize, limitLineLength: limitLineLength)
+        return (reservedLeading + (free - width) / 2, width)
     }
 
     static let maxLineLengthEm: Double = 40
