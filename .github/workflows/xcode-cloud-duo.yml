@@ -100,7 +100,12 @@ jobs:
           mkdir -p build/duo-attachments
           [ -d build/xcode-cloud ] || exit 0
           cd build/xcode-cloud
-          for z in *.zip; do [ -f "$z" ] && ditto -x -k "$z" .; done
+          # One bad download (Xcode Cloud's crash log bundle can come back as
+          # something that isn't a zip) mustn't lose the other bundles.
+          for z in *.zip; do
+            [ -f "$z" ] || continue
+            ditto -x -k "$z" . || echo "::warning::Couldn't unpack $z"
+          done
           n=0
           while read -r b; do
             n=$((n + 1))
