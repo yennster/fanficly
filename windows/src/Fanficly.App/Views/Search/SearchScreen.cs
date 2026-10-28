@@ -45,6 +45,9 @@ public sealed class SearchScreen : Screen
     private bool _hasSearched;
     private bool _isLoadingMore;
     private string? _errorMessage;
+    /// <summary>A failed next page: shown under the results, which stay, with
+    /// Try Again for that page (#154).</summary>
+    private string? _loadMoreError;
     /// <summary>The error is an expired AO3 session (#131): offer Sign In Again.</summary>
     private bool _sessionExpired;
     private CancellationTokenSource? _searchCts;
@@ -578,8 +581,10 @@ public sealed class SearchScreen : Screen
             // Rows are what ask for the next page, so offer it here.
             view = _currentPage < _totalPages && !_isLoadingMore
                 ? UI.UI.EmptyState("eye.slash", "Nothing to show",
-                    "Every match so far is hidden or filtered out by your content settings.",
-                    "Load more results", () => _ = LoadMoreAsync())
+                    _loadMoreError is { } failed
+                        ? $"Every match so far is hidden or filtered out by your content settings. {failed}"
+                        : "Every match so far is hidden or filtered out by your content settings.",
+                    _loadMoreError is null ? "Load more results" : "Try Again", () => _ = LoadMoreAsync())
                 : UI.UI.EmptyState("eye.slash", "Nothing to show",
                     "Every match is hidden or filtered out by your content settings.");
         }
@@ -588,10 +593,28 @@ public sealed class SearchScreen : Screen
             view = _list.Element;
         }
         if (!ReferenceEquals(_content.Content, view)) _content.Content = view;
-        _list.Footer = _isLoadingMore
-            ? new ProgressRing { IsActive = true, Width = 24, Height = 24, Margin = new Thickness(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Center }
-                .A11y("Loading more results")
-            : null;
+        _list.Footer = LoadMoreFooter();
+    }
+
+    /// <summary>Under the results: a spinner while the next page loads, or why it
+    /// failed with Try Again (Sign In Again for an expired session), like
+    /// <c>PagedWorksList</c>. The list's own infinite scroll stays off until then.</summary>
+    private UIElement? LoadMoreFooter()
+    {
+        if (_isLoadingMore)
+            return new ProgressRing { IsActive = true, Width = 24, Height = 24, Margin = new Thickness(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Center }
+                .A11y("Loading more results");
+        if (_loadMoreError is not { } error) return null;
+        var button = _sessionExpired && !AppHost.Auth.HasSession
+            ? UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent)
+            : UI.UI.Button("Try Again", () => _ = LoadMoreAsync());
+        button.HorizontalAlignment = HorizontalAlignment.Center;
+        var footer = UI.UI.VStack(6,
+            UI.UI.Secondary(error, Theme.Style.Footnote).Also(t => t.TextAlignment = TextAlignment.Center),
+            button);
+        footer.HorizontalAlignment = HorizontalAlignment.Center;
+        footer.Margin = new Thickness(0, 8, 0, 8);
+        return footer;
     }
 
     private FrameworkElement SearchingView()
@@ -767,7 +790,7 @@ public sealed class SearchScreen : Screen
     {
         if (!_built) return;
         _list.Reset(Visible(_results));
-        _list.HasMore = _currentPage < _totalPages;
+        _list.HasMore = _currentPage < _totalPages && _loadMoreError is null;
     }
 
     /// <summary>Re-applies the content filter after a setting or a hidden work
@@ -996,6 +1019,7 @@ public sealed class SearchScreen : Screen
             var result = await Client.SearchAsync(filters, 1, ct);
             if (generation != _searchGeneration) return;
             SessionExpiry.Check(result);
+            _loadMoreError = null;
             _results = result.Works.ToList();
             _totalFound = result.TotalFound;
             _totalPages = result.TotalPages;
@@ -1053,6 +1077,7 @@ public sealed class SearchScreen : Screen
         var generation = _searchGeneration;
         var ct = _searchCts?.Token ?? CancellationToken.None;
         _isLoadingMore = true;
+        _loadMoreError = null;
         RenderContent();
         try
         {
@@ -1080,9 +1105,13 @@ public sealed class SearchScreen : Screen
         }
         catch (Exception e)
         {
+            // The results so far stay, with the sort bar; the footer says why
+            // and Try Again picks up at the page that failed (#154).
             _sessionExpired = SessionExpiry.Explains(e);
-            _errorMessage = _sessionExpired ? SessionExpiry.MessageFor(e) : $"Couldn't load more: {Message(e)}";
-            RenderHeader();
+            _loadMoreError = _sessionExpired ? SessionExpiry.MessageFor(e) : $"Couldn't load more: {Message(e)}";
+            _list.HasMore = false;
+            MainWindow.Current.Announce(_loadMoreError);
+            AppHost.Log($"Search: next page failed: {e.Message}");
         }
         finally
         {
