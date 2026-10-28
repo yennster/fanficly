@@ -14,6 +14,20 @@ public struct AO3Subscription: Sendable, Equatable, Hashable, Identifiable {
     public var key: String { id }
 }
 
+/// The account's whole subscriptions list, as far as `fetchSubscriptions`
+/// walked it. `isComplete` is false when the list ran past the page ceiling,
+/// so the entries it holds are real but anything missing may still be
+/// subscribed: the caller must not treat a missing entry as unsubscribed.
+public struct AO3SubscriptionList: Sendable, Equatable {
+    public let subscriptions: [AO3Subscription]
+    public let isComplete: Bool
+
+    public init(subscriptions: [AO3Subscription], isComplete: Bool = true) {
+        self.subscriptions = subscriptions
+        self.isComplete = isComplete
+    }
+}
+
 /// One page of the subscriptions index: its entries plus the pagination
 /// numbers needed to walk the remaining pages.
 struct AO3SubscriptionsPage: Sendable {

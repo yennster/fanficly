@@ -1834,6 +1834,38 @@ public sealed class PersistenceTests : IDisposable
         Assert.DoesNotContain(1, RestoreDownloadCenter.RedownloadCandidates(pc));
     }
 
+    /// <summary>A launch sync that brings no new chapter text doesn't bring the
+    /// re-download prompt back: only the restore that added the text offers it (#152).</summary>
+    [Fact]
+    public async Task RestoreOffersRedownloadOnlyWhenTextIsAdded()
+    {
+        var path = MakeTempBackupPath();
+        var center = RestoreDownloadCenter.Shared;
+        center.DismissProposal();
+        using var phone = MakeContext();
+        WorkPersistence.Upsert(Payload(731_152, 2), phone);
+        phone.Insert(new Work(731_153, "Metadata only", "A"));
+        phone.Save();
+        MakeSync(path).Backup(phone);
+
+        using var pc = MakeContext();
+        try
+        {
+            Assert.True(await MakeSync(path).RestoreAsync(pc));
+            center.ProposeRedownload(pc);
+            Assert.Equal([731_152], center.ProposedIds!);
+            center.DismissProposal();
+
+            Assert.True(await MakeSync(path).RestoreAsync(pc));
+            center.ProposeRedownload(pc);
+            Assert.Null(center.ProposedIds); // the second restore added no text
+        }
+        finally
+        {
+            center.DismissProposal();
+        }
+    }
+
     /// <summary>Removing a download marks it on this device; saving the work
     /// offline again clears the mark.</summary>
     [Fact]
@@ -2154,7 +2186,7 @@ public sealed class PersistenceTests : IDisposable
         SeedSubscriptionRecords(ctx);
         var client = new PollerFakeClient { SubscriptionsResponse = [] };
 
-        var poller = new SubscriptionPoller(client, ctx, "reader");
+        var poller = new SubscriptionPoller(client, ctx, "reader", syncStamps: new InMemoryKeyValueStore());
         await poller.SyncSubscriptionListAsync();
 
         var remaining = ctx.All<SubscriptionRecord>();
@@ -2178,7 +2210,7 @@ public sealed class PersistenceTests : IDisposable
             ],
         };
 
-        var poller = new SubscriptionPoller(client, ctx, "reader");
+        var poller = new SubscriptionPoller(client, ctx, "reader", syncStamps: new InMemoryKeyValueStore());
         await poller.SyncSubscriptionListAsync();
 
         Assert.Equal(new HashSet<string> { "work:1", "user:carol" }, ctx.All<SubscriptionRecord>().Select(r => r.Key).ToHashSet());

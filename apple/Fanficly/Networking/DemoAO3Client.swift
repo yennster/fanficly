@@ -99,8 +99,8 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
                          workCount: works.count, isComplete: true, works: works, currentPage: page)
     }
 
-    public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] {
-        DemoCatalog.subscriptions
+    public func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList {
+        AO3SubscriptionList(subscriptions: DemoCatalog.subscriptions)
     }
 
     public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {

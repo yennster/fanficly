@@ -130,6 +130,16 @@ from) and publishes the GitHub release, listing `build` as the build numbers.
 gh workflow run release.yml -f lane=tag_only -f sha=<commit> -f build="219 for iOS, 220 for Mac"
 ```
 
+When a platform's App Store version couldn't be made with the others (its
+previous version was still in review, say), lane `attach_build` makes it later
+from the build already uploaded, without archiving again: it creates the
+version for `platform`, attaches `build`, sets `notes` as What's New, and
+uploads the screenshots from Store assets run `art_run` when given. Submitting
+for review stays in App Store Connect.
+```bash
+gh workflow run release.yml -f lane=attach_build -f platform=mac -f build=220 -f art_run=<run id> -f notes="$(cat notes.txt)"
+```
+
 ## Regenerating the store art
 
 Run **Store assets**:

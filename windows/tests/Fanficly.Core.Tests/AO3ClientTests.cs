@@ -54,6 +54,24 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchSeriesRequestsTheSeriesPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="main" class="series-show region"><h2 class="heading">Shore</h2>
+            <dl class="series meta group"><dt>Creator:</dt><dd><a rel="author" href="/users/ana/pseuds/ana">ana</a></dd></dl>
+            <ul class="series work index group"><li id="work_11" class="work blurb group"><h4 class="heading"><a href="/works/11">One</a></h4></li></ul>
+            </div></body></html>
+            """));
+        var series = await MakeClient().FetchSeriesAsync(9, 2);
+
+        Assert.Equal("Shore", series.Title);
+        Assert.Equal([11], series.Works.Select(w => w.Id));
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal("GET", req.Method);
+        Assert.Equal("https://archiveofourown.org/series/9?page=2", req.Uri.AbsoluteUri);
+    }
+
+    [Fact]
     public async Task AsksForHttp3WithFallback()
     {
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
@@ -993,7 +1011,8 @@ public sealed class AO3ClientTests : IDisposable
             _ => FakeHandler.Html(SubscriptionsPage(3, 3, 4)));
         var subs = await MakeClient().FetchSubscriptionsAsync("reader");
 
-        Assert.Equal(["1", "2", "3", "4"], subs.Select(s => s.ResourceId));
+        Assert.Equal(["1", "2", "3", "4"], subs.Subscriptions.Select(s => s.ResourceId));
+        Assert.True(subs.IsComplete);
         Assert.Equal(
             ["https://archiveofourown.org/users/reader/subscriptions",
              "https://archiveofourown.org/users/reader/subscriptions?page=2",
@@ -1016,8 +1035,10 @@ public sealed class AO3ClientTests : IDisposable
     public async Task FetchSubscriptionsStopsAtFiftyPages()
     {
         _handler.Respond(_ => FakeHandler.Html(SubscriptionsPage(1, 999, 1)));
-        await MakeClient().FetchSubscriptionsAsync("reader");
+        var subs = await MakeClient().FetchSubscriptionsAsync("reader");
         Assert.Equal(50, _handler.Requests.Count);
+        // Cut short, so the poller won't prune what it didn't reach (#150).
+        Assert.False(subs.IsComplete);
     }
 
     [Fact]

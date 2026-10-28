@@ -373,13 +373,21 @@ public sealed class AO3Client : IAO3Client, IDisposable
             ?? throw AO3Exception.ParseFailed("no chapter count on the work page");
     }
 
+    public async Task<AO3Series> FetchSeriesAsync(int id, int page, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.Series(id, page, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        return SeriesParser.Parse(Decode(response.Body, "Series response"), id);
+    }
+
     /// <summary>Every subscription across all pages. AO3 paginates the index at 20
     /// per page — walk every page (each fetch throttled) or anything past the
     /// first 20 is invisible and its records get treated as stale. Any page
     /// failing throws the whole call, so a partial list can never reach the
     /// caller's delete pass. The 50-page ceiling only guards against a
     /// pagination-parse glitch turning one sync into an unbounded crawl.</summary>
-    public async Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default)
+    public async Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default)
     {
         const int maxPages = 50;
         var all = new List<AO3Subscription>();
@@ -397,7 +405,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
             totalPages = parsed.TotalPages;
             page++;
         }
-        return all;
+        // Past the ceiling (over 1,000 subscriptions) the list is cut short, so
+        // it says so: the poller then keeps the records it didn't reach.
+        return new AO3SubscriptionList(all, IsComplete: totalPages <= maxPages);
     }
 
     // MARK: - Comments
