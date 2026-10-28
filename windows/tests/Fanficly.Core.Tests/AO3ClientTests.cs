@@ -46,7 +46,8 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal(3, meta.ChapterCount);
         var req = Assert.Single(_handler.Requests);
         Assert.Equal("GET", req.Method);
-        Assert.Equal("https://archiveofourown.org/works/7?view_full_work=true&view_adult=true", req.Uri.AbsoluteUri);
+        // The light page, not view_full_work (#148).
+        Assert.Equal("https://archiveofourown.org/works/7?view_adult=true", req.Uri.AbsoluteUri);
         Assert.Equal("Fanficly/9.9.9 (Windows; https://github.com/yennster/fanficly)", req.Header("User-Agent"));
         Assert.Equal("text/html,application/xhtml+xml", req.Header("Accept"));
         Assert.Equal("en-US,en;q=0.9", req.Header("Accept-Language"));
@@ -123,7 +124,7 @@ public sealed class AO3ClientTests : IDisposable
 
     [Theory]
     [InlineData(401, AO3ErrorKind.Unauthorized)]
-    [InlineData(403, AO3ErrorKind.Unauthorized)]
+    [InlineData(403, AO3ErrorKind.Forbidden)]
     [InlineData(404, AO3ErrorKind.Http)]
     [InlineData(500, AO3ErrorKind.Http)]
     public async Task MapsErrorStatusesWithoutRetrying(int status, AO3ErrorKind kind)
@@ -134,6 +135,88 @@ public sealed class AO3ClientTests : IDisposable
         if (kind == AO3ErrorKind.Http) Assert.Equal(status, e.Status);
         Assert.Single(_handler.Requests);
         Assert.Empty(_sleeps);
+    }
+
+    // A 403 is a sign-in problem only when it's AO3's login page (#146): Cloudflare's
+    // bot challenge and block pages, and AO3's own forbidden pages, answer 403 to
+    // signed-out readers too.
+
+    /// <summary>Cloudflare's managed challenge ("Just a moment..."), trimmed.</summary>
+    private const string ChallengeHtml = """
+        <!DOCTYPE html><html lang="en-US"><head><title>Just a moment...</title></head><body>
+        <h2 class="h2" id="challenge-running">Checking if the site connection is secure</h2>
+        <script>(function(){window._cf_chl_opt={cvId: '3',cZone: "archiveofourown.org",cType: 'managed'};}());</script>
+        </body></html>
+        """;
+
+    /// <summary>Cloudflare's firewall block page (error 1020), trimmed.</summary>
+    private const string BlockHtml = """
+        <!DOCTYPE html><html lang="en-US"><head><title>Attention Required! | Cloudflare</title></head><body>
+        <div id="cf-error-details"><h1>Sorry, you have been blocked</h1></div></body></html>
+        """;
+
+    /// <summary>An AO3 page that isn't the login page, with the bot-detection script
+    /// Cloudflare injects into ordinary pages.</summary>
+    private const string AO3ForbiddenHtml = """
+        <html><body><div id="main" class="errors-forbidden region"><h2 class="heading">Error 403</h2>
+        <p>Sorry, you don't have permission to access the page you were trying to reach.</p></div>
+        <script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></body></html>
+        """;
+
+    private const string LoginPageHtml = """
+        <html><body><div id="main" class="sessions-new system session region">
+        <p>This work is only available to registered users of the Archive.</p>
+        <div id="loginform"><form id="new_user" action="/users/login" method="post"><input name="user[login]"/></form></div>
+        </div></body></html>
+        """;
+
+    private static HttpResponseMessage Forbidden(string html, string? cfMitigated = null)
+    {
+        var r = new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent(html, Encoding.UTF8, "text/html") };
+        r.Headers.Add("Server", "cloudflare");
+        if (cfMitigated is not null) r.Headers.Add("cf-mitigated", cfMitigated);
+        return r;
+    }
+
+    [Fact]
+    public async Task Cloudflare403IsBlockedByProtection_ByHeaderOrPage()
+    {
+        _handler.Respond(_ => Forbidden("", cfMitigated: "challenge"), _ => Forbidden(ChallengeHtml), _ => Forbidden(BlockHtml));
+        var client = MakeClient();
+        for (var i = 0; i < 3; i++)
+        {
+            var e = await Assert.ThrowsAsync<AO3Exception>(() => client.FetchWorkMetadataAsync(1));
+            Assert.Equal(AO3ErrorKind.BlockedByProtection, e.Kind);
+            Assert.Equal("AO3's protection blocked the request. Wait a few minutes, then try again.", e.Message);
+        }
+        Assert.Equal(3, _handler.Requests.Count);
+        Assert.Empty(_sleeps);
+    }
+
+    [Fact]
+    public async Task Cloudflare403OnTheLoginUrlIsBlockedByProtection()
+    {
+        // Cloudflare can challenge the login page itself: signing in again wouldn't help.
+        _handler.Respond(_ => FakeHandler.Redirect("/users/login?restricted=true"), _ => Forbidden("", cfMitigated: "challenge"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.BlockedByProtection, e.Kind);
+    }
+
+    [Fact]
+    public async Task Login403IsUnauthorized()
+    {
+        _handler.Respond(_ => Forbidden(LoginPageHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task AO3sOwn403IsForbidden_EvenWithCloudflaresInjectedScript()
+    {
+        _handler.Respond(_ => Forbidden(AO3ForbiddenHtml));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
+        Assert.Equal(AO3ErrorKind.Forbidden, e.Kind);
+        Assert.Equal("AO3 refused this request. Try again later, or open the page on the AO3 website.", e.Message);
     }
 
     [Fact]
@@ -251,6 +334,17 @@ public sealed class AO3ClientTests : IDisposable
             new SocketException((int)SocketError.NetworkUnreachable)));
         await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchWorkMetadataAsync(1));
         Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task SubscribeTakesItsTokenFromTheLightPage()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T"/></head></html>"""),
+            _ => FakeHandler.Html("<html></html>"));
+        await MakeClient().SubscribeToWorkAsync(5);
+        Assert.Equal(["https://archiveofourown.org/works/5?view_adult=true", "https://archiveofourown.org/works/5/subscriptions"],
+                     _handler.Requests.Select(r => r.Uri.AbsoluteUri));
     }
 
     [Fact]
@@ -539,6 +633,7 @@ public sealed class AO3ClientTests : IDisposable
     [Fact]
     public async Task SavedCookiesAreLoadedBeforeTheFirstRequest()
     {
+        _vault.SetUsername("reader");
         _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
         await MakeClient().FetchWorkMetadataAsync(1);
@@ -546,18 +641,204 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task LogoutForgetsAndPersistsTheEmptySession()
+    public async Task SavedCookiesAreNotLoadedWhenSignedOut()
     {
-        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        _vault.SaveCookies([new SerializableCookie("remember_user_token", "stale", "archiveofourown.org", "/", null, true, true)]);
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
+        await MakeClient().FetchWorkMetadataAsync(1);
+        Assert.Null(_handler.Requests[0].Header("Cookie"));
+    }
+
+    private const string SignedInHtml = """
+        <html><head><meta name="csrf-token" content="LOGOUT_TOK"></head><body>
+        <div id="greeting"><a href="/users/reader">reader</a></div></body></html>
+        """;
+
+    private void SignedInVault()
+    {
+        _vault.SetUsername("reader");
+        _vault.SaveCookies([
+            new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true),
+            new SerializableCookie("remember_user_token", "remember", "archiveofourown.org", "/", null, true, true),
+        ]);
+    }
+
+    [Fact]
+    public async Task LogoutEndsTheSessionOnAO3OnceThenForgetsIt()
+    {
+        SignedInVault();
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            _ => FakeHandler.Html(SignedInHtml),
+            _ => FakeHandler.Html("<html><body>Signed out</body></html>", "_otwarchive_session=guest; path=/; secure"),
+            _ => FakeHandler.Html(WorkHtml));
         var client = MakeClient();
         await client.FetchWorkMetadataAsync(1);
         await client.LogoutAsync();
         await client.FetchWorkMetadataAsync(1);
 
-        Assert.Null(_handler.Requests[1].Header("Cookie"));
+        Assert.Equal(["GET /works/1", "GET /", "POST /users/logout", "GET /works/1"],
+            _handler.Requests.Select(r => $"{r.Method} {r.Uri.AbsolutePath}"));
+        Assert.Contains("remember_user_token=remember", _handler.Requests[1].Header("Cookie"));
+        Assert.Equal("_method=delete&authenticity_token=LOGOUT_TOK", _handler.Requests[2].Body);
+        Assert.Null(_handler.Requests[3].Header("Cookie"));
         Assert.Empty(_vault.LoadCookies());
         Assert.Null(await client.CurrentUsernameAsync());
+    }
+
+    [Fact]
+    public async Task LogoutWhenAO3CantBeReachedStillForgetsTheSessionAndDoesNotRetry()
+    {
+        SignedInVault();
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            _ => throw new HttpRequestException("offline", new SocketException((int)SocketError.TimedOut)),
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient();
+        await client.FetchWorkMetadataAsync(1);
+        await client.LogoutAsync();
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Equal(["GET /works/1", "GET /", "GET /works/1"],
+            _handler.Requests.Select(r => $"{r.Method} {r.Uri.AbsolutePath}"));
+        Assert.Null(_handler.Requests[2].Header("Cookie"));
+        Assert.Empty(_vault.LoadCookies());
+    }
+
+    [Fact]
+    public async Task AResponseArrivingAfterLogoutDoesNotBringItsCookieBack()
+    {
+        using var started = new SemaphoreSlim(0);
+        using var release = new ManualResetEventSlim();
+        _handler.Respond(
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ =>
+            {
+                var r = FakeHandler.Html(SignedInHtml, "_otwarchive_session=signed_in; path=/; secure");
+                r.Headers.Add("Set-Cookie", "remember_user_token=remember; path=/; secure");
+                return r;
+            },
+            // The poller's request, still waiting on AO3 when the reader signs out.
+            _ =>
+            {
+                started.Release();
+                release.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html(WorkHtml, "_otwarchive_session=late; path=/; secure");
+            },
+            _ => FakeHandler.Html(SignedInHtml),
+            _ => FakeHandler.Html("<html><body>Signed out</body></html>"),
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient();
+        var auth = new AuthState(_vault);
+        await auth.LoginAsync(client, "reader", "pw");
+        Assert.Equal("reader", auth.Username);
+        Assert.Equal(["remember", "signed_in"], _vault.LoadCookies().Select(c => c.Value).Order());
+
+        var running = Task.Run(() => client.FetchWorkMetadataAsync(1));
+        Assert.True(await started.WaitAsync(TimeSpan.FromSeconds(10)));
+        await auth.LogoutAsync(client);
+        release.Set();
+        await running;
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Null(_handler.Requests[^1].Header("Cookie"));
+        Assert.Empty(_vault.LoadCookies());
+        Assert.Null(_vault.StoredUsername());
+    }
+
+    [Fact]
+    public async Task ARequestSentWhileLogoutWaitsOnAO3DoesNotBringItsCookieBack()
+    {
+        SignedInVault();
+        using var logoutPageAsked = new SemaphoreSlim(0);
+        using var answerLogoutPage = new ManualResetEventSlim();
+        using var pollSent = new SemaphoreSlim(0);
+        using var answerPoll = new ManualResetEventSlim();
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            // AO3 is slow to answer logout's page...
+            _ =>
+            {
+                logoutPageAsked.Release();
+                answerLogoutPage.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html("<html><body>no token</body></html>");
+            },
+            // ...the poller sends a request meanwhile, with the old cookies, and its
+            // answer only arrives once logout is done.
+            _ =>
+            {
+                pollSent.Release();
+                answerPoll.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html(WorkHtml, "_otwarchive_session=late; path=/; secure");
+            },
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient();
+        await client.FetchWorkMetadataAsync(1);
+        var logout = Task.Run(client.LogoutAsync);
+        Assert.True(await logoutPageAsked.WaitAsync(TimeSpan.FromSeconds(10)));
+        var poll = Task.Run(() => client.FetchWorkMetadataAsync(1));
+        Assert.True(await pollSent.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains("remember_user_token=remember", _handler.Requests[2].Header("Cookie"));
+        answerLogoutPage.Set();
+        await logout;
+        answerPoll.Set();
+        await poll;
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Null(_handler.Requests[^1].Header("Cookie"));
+        Assert.Empty(_vault.LoadCookies());
+    }
+
+    [Fact]
+    public async Task ASecondLogoutWaitsForTheFirstAndASignInWaitsForBoth()
+    {
+        SignedInVault();
+        using var logoutPageAsked = new SemaphoreSlim(0);
+        using var answerLogoutPage = new ManualResetEventSlim();
+        _handler.Respond(
+            _ =>
+            {
+                logoutPageAsked.Release();
+                answerLogoutPage.Wait(TimeSpan.FromSeconds(10));
+                return FakeHandler.Html("<html><body>no token</body></html>");
+            },
+            _ => FakeHandler.Html(LoginFormHtml),
+            _ => FakeHandler.Html(SignedInHtml, "remember_user_token=fresh; path=/; secure"));
+        var client = MakeClient();
+        var auth = new AuthState(_vault);
+        var first = Task.Run(() => auth.LogoutAsync(client));
+        Assert.True(await logoutPageAsked.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.True(auth.IsSigningOut);
+        var second = auth.LogoutAsync(client);
+        var login = auth.LoginAsync(client, "reader", "pw");
+        Assert.False(second.IsCompleted);
+        Assert.False(login.IsCompleted);
+        answerLogoutPage.Set();
+        await Task.WhenAll(first, second, login);
+
+        Assert.Equal(["GET /", "GET /users/login", "POST /users/login"],
+            _handler.Requests.Select(r => $"{r.Method} {r.Uri.AbsolutePath}"));
+        Assert.Equal("reader", auth.Username);
+        Assert.Equal("reader", _vault.StoredUsername());
+        Assert.Equal(["fresh"], _vault.LoadCookies().Select(c => c.Value));
+        Assert.False(auth.IsSigningOut);
+    }
+
+    [Fact]
+    public async Task CookiesAreNotSavedAfterTheAppSignedOutElsewhere()
+    {
+        // The background task's client keeps polling while the app signs out.
+        _vault.SetUsername("reader");
+        _vault.SaveCookies([new SerializableCookie("_otwarchive_session", "saved", "archiveofourown.org", "/", null, true, true)]);
+        _handler.Respond(
+            _ => FakeHandler.Html(WorkHtml),
+            _ => FakeHandler.Html(WorkHtml, "_otwarchive_session=renewed; path=/; secure"));
+        var client = MakeClient();
+        await client.FetchWorkMetadataAsync(1);
+        _vault.SetUsername(null);
+        await client.FetchWorkMetadataAsync(1);
+
+        Assert.Empty(_vault.LoadCookies());
     }
 
     // MARK: - Endpoint flows

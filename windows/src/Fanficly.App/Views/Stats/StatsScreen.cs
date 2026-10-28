@@ -409,7 +409,11 @@ public sealed class StatsScreen : Screen
     {
         if (items.Count == 0) return;
         var maxCount = Math.Max(1, items.Max(i => i.Count));
-        var stack = UI.UI.VStack(10, UI.UI.Label(symbol, title, Theme.Style.Headline, Theme.TextPrimary).A11yHeading());
+        // Counts every work opened, finished or not, unlike Stories Finished.
+        var header = UI.UI.Grid("*,Auto", columnSpacing: 8);
+        header.Children.Add(UI.UI.Label(symbol, title, Theme.Style.Headline, Theme.TextPrimary).A11yHeading().Col(0));
+        header.Children.Add(UI.UI.Caption("Stories Opened").Also(c => c.VerticalAlignment = VerticalAlignment.Bottom).Col(1));
+        var stack = UI.UI.VStack(10, header);
         foreach (var item in items) stack.Children.Add(BarRow(item, (double)item.Count / maxCount));
         _body.Children.Add(stack);
     }
@@ -420,7 +424,7 @@ public sealed class StatsScreen : Screen
         top.Children.Add(UI.UI.Text(item.Name, Theme.Style.Subheadline, maxLines: UI.UI.LineLimit(1)).Col(0));
         top.Children.Add(UI.UI.Secondary(item.Count.ToString(CultureInfo.CurrentCulture)).Col(1));
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, Value = Math.Max(0.02, fraction), MinHeight = 6, CornerRadius = new CornerRadius(3) };
-        return new AccessibleGroup($"{item.Name}, {item.Count} {(item.Count == 1 ? "story" : "stories")}", UI.UI.VStack(4, top, bar));
+        return new AccessibleGroup($"{item.Name}, {item.Count} {(item.Count == 1 ? "story" : "stories")} opened", UI.UI.VStack(4, top, bar));
     }
 
     // MARK: - Share
@@ -433,7 +437,8 @@ public sealed class StatsScreen : Screen
     {
         if (_rendering || _snapshots.Count == 0) return null;
         _rendering = true;
-        var card = WrapShareCard.Build(ScopeTitle, _summary, ShowsGoal ? GoalProgress() : null, CurrentYear);
+        var icon = await WrapShareCard.LoadAppIconAsync();
+        var card = WrapShareCard.Build(ScopeTitle, _summary, ShowsGoal ? GoalProgress() : null, CurrentYear, icon);
         _renderHost.Children.Add(card);
         try
         {
