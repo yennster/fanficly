@@ -59,7 +59,7 @@ Widgets COM server / background task (separate processes) → same Core stores
 - `RunLaunchTasksAsync` restores from the sync folder when sync is on and the backup changed since this PC last applied or wrote it, proposes EPUB re-downloads, runs `ReadingStatsBackfill`, and refreshes widget data.
 - On close: save the library, back up if sync is on, flush the synced settings and the widget store.
 
-**Concurrency.** `IAO3Client` methods are async and thread-safe; `Throttle` serializes them. `LibraryStore` takes one lock per call so the UI and the poller can share it, but records aren't locked: mutate a given record from one thread at a time. `LibraryStore.Changed` is raised on the saving thread; screens subscribe through `LibraryChanges` (in `Views/Browse/`), which marshals to the UI thread and coalesces bursts. Never touch XAML objects off the UI thread; hop with `DispatcherQueue.TryEnqueue`. `LibrarySyncManager.RecordsContext` is the UI thread's context: a backup takes its snapshot there and a restore applies and saves there, and only the merge, chapter-text reads and file IO run on the pool (#139); keep new sync code that reads or changes records behind it. Keep cancellation tokens flowing, and never retry a POST.
+**Concurrency.** `IAO3Client` methods are async and thread-safe; `Throttle` serializes them. `LibraryStore` takes one lock per call so the UI and the poller can share it, but records aren't locked: mutate a given record from one thread at a time. `LibraryStore.Changed` is raised on the saving thread; screens subscribe through `LibraryChanges` (in `Views/Browse/`), which marshals to the UI thread and coalesces bursts. Never touch XAML objects off the UI thread; hop with `DispatcherQueue.TryEnqueue`. `RecordsThread.Main` (set at launch) is the UI thread: a backup takes its snapshot there, a restore applies and saves there, and the subscription poller reads, changes and saves records there, while the merge, chapter-text reads, AO3 requests, toasts and file IO run on the pool (#139). Code off the UI thread that reads or changes records goes through `RecordsThread.RunAsync`. In the background task's process `Main` is null and everything stays on the calling thread. Keep cancellation tokens flowing, and never retry a POST.
 
 ## Storage map
 
@@ -226,7 +226,7 @@ windows/
                                #   SpeechController (Listen), WorkExporter,
                                #   WorkHeaderMetadataView, ReaderPrefs, ReaderBrushes
   tests/
-    Fanficly.Core.Tests/       # xUnit, 795 cases, fixture-based, no network
+    Fanficly.Core.Tests/       # xUnit, 801 cases, fixture-based, no network
     Fanficly.UITests/          # FlaUI: SmokeTests, ScreenshotTests,
                                #   ReaderLayoutTests (Windows only)
 ```
@@ -257,11 +257,11 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 ## Tests
 
-**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 795 cases in 45 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
+**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 801 cases in 45 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
 - **Parsers:** `SearchResultsParserTests` (incl. the bookmarks page), `WorkPageParserTests` (incl. login, comments and bookmark-form parsing), `KudosParserTests` and `KudosGiverTests` (in `KudosTests.cs`), `SubscriptionsParserTests` (fails closed), `MediaCategoryParserTests`, `WorkMetadataParserTests`, `HtmlDomTests`.
 - **Networking:** `AO3ClientTests` (through a fake `HttpMessageHandler`: retries, cookies, redirects, timeouts, form posts, and what a 403 means: Cloudflare, the login page or AO3's own), `AO3EndpointsTests`, `ThrottleTests` (spacing, and concurrent waiters serialized), `DemoAO3ClientTests`.
 - **Search:** `SearchSyntaxTests`, `SearchSuggestionsTests`, `AO3SearchFiltersTests`, `TagResolverTests` (with `StubAO3Client`), `FandomCatalogTests`, `BrowseModelsTests`, `PopularStoreTests`.
-- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncThreadingTests` (backup and restore touch records only on the UI thread's context), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
+- **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncThreadingTests` (backup, restore and the poller touch records only on the UI thread), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
 - **Reader logic:** `HTMLToAttributedTests`, `ChapterTrackingTests`, `ReaderMetricsTests` (spread rule, page-area tracking, and `ReaderPaginator` across a device matrix with `FakeTextMeasurer`), `ReaderProfileTests` (merge, tombstones, per-device keys).
 - **Routing and widgets:** `DeepLinkTests`, `NotificationRouteTests`, `ResumeProgressPolicyTests`, `WidgetDataStoreTests`, `WidgetProgressStoreTests`.
 - **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`; also the restore and folder download queue), `JsonFileKeyValueStoreTests` (locked and damaged settings files), `AuthStateTests` (incl. the expired session, which a Cloudflare or AO3 403 doesn't cause), `ContentSafetyTests`, `ReviewPromptTests`.
