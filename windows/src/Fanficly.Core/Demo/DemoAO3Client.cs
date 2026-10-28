@@ -92,8 +92,8 @@ public sealed class DemoAO3Client : IAO3Client
         return Task.FromResult(new AO3WorkMetadata(id, w.ChapterCount, w.TotalChapters, w.UpdatedAt));
     }
 
-    public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
-        Task.FromResult(DemoCatalog.Subscriptions);
+    public Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
+        Task.FromResult(new AO3SubscriptionList(DemoCatalog.Subscriptions));
 
     public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) =>
         Task.FromResult(new AO3CommentsPage(

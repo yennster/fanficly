@@ -32,7 +32,7 @@ public sealed class SubscriptionPollerTests
         client.AuthorWorks["never-checked"] = [Summary(1), Summary(2, "Brand New")];
         var notifier = new RecordingNotifier();
 
-        var posted = await new SubscriptionPoller(client, store, "reader", notifier).RunFullPollAsync();
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier, new InMemoryKeyValueStore()).RunFullPollAsync();
 
         // Never checked first, then the oldest stamp.
         Assert.Equal(["author:never-checked", "work:20", "work:10"], client.Requests);
@@ -79,7 +79,7 @@ public sealed class SubscriptionPollerTests
         client.ChapterCounts[20] = 1;
         var notifier = new RecordingNotifier();
 
-        var posted = await new SubscriptionPoller(client, store, "reader", notifier).RunFullPollAsync();
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier, new InMemoryKeyValueStore()).RunFullPollAsync();
 
         // Work 10 is queued by its staler record, the follow.
         Assert.Equal(["work:10", "work:20"], client.Requests);
@@ -139,12 +139,103 @@ public sealed class SubscriptionPollerTests
         store.Save();
         var client = new PollerFakeClient { SubscriptionsError = AO3Exception.Unauthorized() };
 
-        Assert.Equal(0, await new SubscriptionPoller(client, store, "reader").RunFullPollAsync());
+        Assert.Equal(0, await new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore()).RunFullPollAsync());
         Assert.NotNull(store.GetWork(404)!.LastCheckedAt);
         Assert.NotNull(store.GetSubscription("work:bad")!.LastCheckedAt);
         Assert.Equal(1, store.GetWork(404)!.LastSeenChapterCount);
         // A failed subscription-list fetch never prunes.
         Assert.Equal(1, store.Count<SubscriptionRecord>());
+    }
+
+    /// <summary>A run with the list synced in the last day goes straight to the
+    /// checks (#150): with hundreds of subscriptions the list walk was the whole
+    /// background run.</summary>
+    [Fact]
+    public async Task FullPoll_FreshListSyncSkipsTheListWalk()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:10", "work", "Sub") { LastSeenChapterCount = 2 });
+        store.Save();
+        var client = new PollerFakeClient { SubscriptionsResponse = [new AO3Subscription(AO3SubscriptionKind.Work, "10", "Sub", "x")] };
+        client.ChapterCounts[10] = 2;
+        var poller = new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore());
+        await poller.SyncSubscriptionListAsync();
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+        Assert.False(poller.ListSyncIsDue());
+
+        await poller.RunFullPollAsync();
+
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+        Assert.Equal(["work:10"], client.Requests);
+    }
+
+    /// <summary>With no sync yet, or the last one a day old, a run syncs the list
+    /// once and stamps it, so the next run skips it.</summary>
+    [Fact]
+    public async Task FullPoll_SyncsTheListOnceADay()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var client = new PollerFakeClient { SubscriptionsResponse = [new AO3Subscription(AO3SubscriptionKind.Work, "7", "New Sub", "dana")] };
+        client.ChapterCounts[7] = 1;
+        var poller = new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore());
+        Assert.True(poller.ListSyncIsDue());
+
+        await poller.RunFullPollAsync();
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+        Assert.Equal(["work:7"], store.All<SubscriptionRecord>().Select(r => r.Key));
+
+        await poller.RunFullPollAsync();
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+
+        Assert.True(poller.ListSyncIsDue(DateTimeOffset.Now + SubscriptionPoller.ListSyncInterval + TimeSpan.FromMinutes(1)));
+    }
+
+    /// <summary>A failed list walk is stamped too, so a list too long for one
+    /// background run isn't retried, and cut off, every run.</summary>
+    [Fact]
+    public async Task FullPoll_FailedListSyncWaitsADayToo()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var client = new PollerFakeClient { SubscriptionsError = AO3Exception.Network("offline") };
+        var poller = new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore());
+
+        await poller.RunFullPollAsync();
+        await poller.RunFullPollAsync();
+
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+    }
+
+    /// <summary>A list that ran past the 50-page ceiling is missing real
+    /// subscriptions (#150): it adds and updates what it read, but deletes nothing.</summary>
+    [Fact]
+    public async Task IncompleteListPrunesNothing()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:1", "work", "Fic One") { LastSeenChapterCount = 5 });
+        store.Insert(new SubscriptionRecord("series:9", "series", "Saga"));
+        store.Save();
+        var client = new PollerFakeClient
+        {
+            SubscriptionsResponse =
+            [
+                new AO3Subscription(AO3SubscriptionKind.Work, "1", "Fic One (renamed)", "alice"),
+                new AO3Subscription(AO3SubscriptionKind.User, "carol", "carol", null),
+            ],
+            SubscriptionsComplete = false,
+        };
+
+        await new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore()).SyncSubscriptionListAsync();
+
+        Assert.Equal(new HashSet<string> { "work:1", "series:9", "user:carol" }, store.All<SubscriptionRecord>().Select(r => r.Key).ToHashSet());
+        Assert.Equal("Fic One (renamed)", store.GetSubscription("work:1")!.DisplayName);
+        Assert.Equal(5, store.GetSubscription("work:1")!.LastSeenChapterCount);
+    }
+
+    [Fact]
+    public void ListSyncIsNeverDueSignedOut()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        Assert.False(new SubscriptionPoller(new PollerFakeClient(), store, null, syncStamps: new InMemoryKeyValueStore()).ListSyncIsDue());
     }
 
     [Fact]

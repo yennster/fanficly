@@ -59,6 +59,7 @@ public sealed class SubscriptionPoller
     private readonly IAO3Client _client;
     private readonly LibraryStore _store;
     private readonly ILocalNotifier? _notifier;
+    private readonly IKeyValueStore? _syncStamps;
 
     /// <summary>Route payload builder for notifications; the app replaces it with
     /// one backed by <c>NotificationRoute</c>.</summary>
@@ -66,15 +67,47 @@ public sealed class SubscriptionPoller
 
     /// <param name="username">AO3 username for syncing account subscriptions;
     /// null when logged out (locally-followed works are still polled).</param>
-    public SubscriptionPoller(IAO3Client client, LibraryStore store, string? username, ILocalNotifier? notifier = null)
+    /// <param name="syncStamps">Where the last list sync is stamped; defaults to
+    /// the widgets' shared store, which the app and the background task both
+    /// write, else <see cref="KeyValueStores.Default"/>.</param>
+    public SubscriptionPoller(IAO3Client client, LibraryStore store, string? username, ILocalNotifier? notifier = null,
+                              IKeyValueStore? syncStamps = null)
     {
         _client = client;
         _store = store;
         Username = username;
         _notifier = notifier;
+        _syncStamps = syncStamps;
     }
 
     public string? Username { get; }
+
+    /// <summary>How often <see cref="RunFullPollAsync"/> re-reads the subscriptions
+    /// list. The walk costs one throttled request per 20 subscriptions (up to 50),
+    /// which on a big list is the background task's whole ~30 s, and the list
+    /// rarely changes; the Subscriptions tab syncs it whenever it refreshes (#150).</summary>
+    public static readonly TimeSpan ListSyncInterval = TimeSpan.FromHours(24);
+
+    private IKeyValueStore SyncStamps => _syncStamps ?? AppGroupStore.Shared ?? KeyValueStores.Default;
+
+    private string? ListSyncKey => Username is { } u ? $"subscriptions.listSyncedAt.{u}" : null;
+
+    /// <summary>Whether <see cref="RunFullPollAsync"/> should re-read the
+    /// subscriptions list: signed in, and no sync (or attempt) for this account
+    /// in <see cref="ListSyncInterval"/>.</summary>
+    public bool ListSyncIsDue(DateTimeOffset? now = null)
+    {
+        if (ListSyncKey is not { } key) return false;
+        if (SyncStamps.GetDate(key) is not { } last) return true;
+        var at = now ?? DateTimeOffset.Now;
+        // A clock set back leaves a future stamp; don't let it block syncs.
+        return last > at || at - last >= ListSyncInterval;
+    }
+
+    private void StampListSync()
+    {
+        if (ListSyncKey is { } key) SyncStamps.SetDate(key, DateTimeOffset.Now);
+    }
 
     /// <summary>Mirrors the account's AO3 subscription list into
     /// <see cref="SubscriptionRecord"/>s. Fails closed on pruning: an empty fetch
@@ -84,7 +117,9 @@ public sealed class SubscriptionPoller
     public async Task<IReadOnlyList<AO3Subscription>> SyncSubscriptionListAsync(CancellationToken ct = default)
     {
         if (Username is not { } username) return [];
-        var fresh = await _client.FetchSubscriptionsAsync(username, ct).ConfigureAwait(false);
+        var list = await _client.FetchSubscriptionsAsync(username, ct).ConfigureAwait(false);
+        StampListSync();
+        var fresh = list.Subscriptions;
         var freshKeys = fresh.Select(s => s.Key).ToHashSet();
 
         var existing = _store.All<SubscriptionRecord>();
@@ -106,9 +141,13 @@ public sealed class SubscriptionPoller
             }
         }
         // (The parser already throws on a login page; this guards the rest.)
-        if (fresh.Count > 0)
+        // A list cut off at the page ceiling is missing real subscriptions, so
+        // it prunes nothing either.
+        if (fresh.Count > 0 && list.IsComplete)
             foreach (var rec in existing)
                 if (!freshKeys.Contains(rec.Key)) _store.Delete(rec);
+        if (!list.IsComplete)
+            LibraryHooks.Log?.Invoke("Subscriptions list ran past the page ceiling; kept the records it didn't reach");
         _store.TrySave();
         return fresh;
     }
@@ -174,13 +213,20 @@ public sealed class SubscriptionPoller
     /// Returns the number of notifications posted.</summary>
     public async Task<int> RunFullPollAsync(CancellationToken ct = default)
     {
-        try
+        // At most once a day, so the run goes to the checks below (#150).
+        // Stamped before the walk: a list too long to finish in one background
+        // run would otherwise be retried, and cut off, every time.
+        if (ListSyncIsDue())
         {
-            await SyncSubscriptionListAsync(ct).ConfigureAwait(false);
-        }
-        catch (Exception e)
-        {
-            LibraryHooks.Log?.Invoke($"Subscriptions list fetch failed: {e.Message}");
+            StampListSync();
+            try
+            {
+                await SyncSubscriptionListAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                LibraryHooks.Log?.Invoke($"Subscriptions list fetch failed: {e.Message}");
+            }
         }
 
         var targets = new List<(DateTimeOffset? LastCheckedAt, Func<Task<int>> Check)>();
