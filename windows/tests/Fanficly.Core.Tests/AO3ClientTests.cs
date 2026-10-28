@@ -1316,6 +1316,54 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task ALoginRedirectBeforeThePostIsUnauthorized()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Redirect("/users/login?return_to=%2Fworks%2F42"),
+            _ => FakeHandler.Html("<html><body></body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.DoesNotContain(_handler.Requests, r => r.Method == "POST");
+    }
+
+    [Fact]
+    public async Task ALoginRedirectAfterThePostIsUnauthorizedEvenWithAnErrorFlash()
+    {
+        // The login page carries "Sorry, you don't have permission…": that's an
+        // ended session, not AO3 turning the subscription down.
+        _handler.Respond(
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Redirect("/users/login"),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">Sorry, you don't have permission to access the page you were trying to reach. Please log in.</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task TheWorkPageStillOfferingSubscribeIsNotSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Redirect("/works/42"),
+            _ => FakeHandler.Html(SubscribablePage()));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+    }
+
+    [Fact]
+    public void AnUnsubscribeButtonWithoutMethodDeleteReadsAsSubscribed()
+    {
+        var form = SubscribeParser.FormOn("""
+            <ul><li class="subscribe"><form action="/users/reader/subscriptions/77" method="post">
+            <button type="submit">Unsubscribe</button></form></li></ul>
+            """, new Uri("https://archiveofourown.org"));
+        Assert.NotNull(form);
+        Assert.True(form.IsSubscribed);
+        Assert.Equal("https://archiveofourown.org/users/reader/subscriptions/77", form.Action.AbsoluteUri);
+        Assert.False(SubscribeParser.FormOn(SubscribablePage(), new Uri("https://archiveofourown.org"))!.IsSubscribed);
+    }
+
+    [Fact]
     public async Task AnAnswerWithoutAConfirmationIsNotSubscribed()
     {
         // A maintenance page or a proxy isn't AO3 saying yes.
