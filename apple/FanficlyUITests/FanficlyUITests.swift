@@ -93,7 +93,7 @@ final class ReaderLayoutTests: XCTestCase {
             // The text doesn't: it keeps a gutter from the screen's edges, and
             // the controls (the Duo's toolbar strip) float over margin only.
             let texts = try storyTextFrames(above: footer.frame)
-            let buttons = app.navigationBars.buttons.allElementsBoundByIndex.map(\.frame).filter { !$0.isEmpty }
+            let buttons = app.navigationBars.buttons.allElementsBoundByIndex.map { $0.frame }.filter { !$0.isEmpty }
             for text in texts {
                 XCTAssertGreaterThanOrEqual(text.minX, window.minX + 15, "text at \(text) touches the left edge")
                 XCTAssertLessThanOrEqual(text.maxX, window.maxX - 15, "text at \(text) touches the right edge")
