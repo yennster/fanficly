@@ -915,8 +915,9 @@ public sealed class LibrarySyncManager
             await OnRecordsContextAsync(() =>
             {
                 ct.ThrowIfCancellationRequested();
-                Apply(backup, store);
+                var textRestored = Apply(backup, store);
                 store.Save();
+                RestoreDownloadCenter.Shared.NoteRestoredText(textRestored);
                 return true;
             }).ConfigureAwait(false);
             MarkCloudBackupApplied(readDate);
@@ -930,8 +931,12 @@ public sealed class LibrarySyncManager
         }
     }
 
-    private void Apply(LibraryBackup backup, LibraryStore store)
+    /// <summary>Merges <paramref name="backup"/> into the library (unsaved) and
+    /// returns the works it gave chapter text: the only ones the re-download
+    /// prompt may offer afterwards (#152).</summary>
+    private List<int> Apply(LibraryBackup backup, LibraryStore store)
     {
+        var textRestored = new List<int>();
         // Deletion markers: the file's (every device's) and this device's own,
         // which the file may not hold yet. A record they cover isn't restored,
         // and this device's copy of it is deleted at the end (#135).
@@ -1050,6 +1055,7 @@ public sealed class LibrarySyncManager
             // must not wipe a fuller offline download.
             if (w.Chapters.Count > work.Chapters.Count && !removedDownloads.Contains(w.Ao3Id))
             {
+                textRestored.Add(w.Ao3Id);
                 foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
                 foreach (var ch in w.Chapters)
                     store.Insert(new Chapter(work, ch.Index, ch.Title, ch.BodyHtml, ch.AoId));
@@ -1238,6 +1244,7 @@ public sealed class LibrarySyncManager
         // record a marker covers, unless the file holds a newer copy (saved
         // again since), which the steps above applied.
         ApplyDeletions(tombstones, backup, store);
+        return textRestored;
     }
 
     // MARK: - Library file export and import
@@ -1269,8 +1276,9 @@ public sealed class LibrarySyncManager
         var backup = LibraryBackupJson.Decode(data);
         OnRecordsContextAsync(() =>
         {
-            Apply(backup, store);
+            var textRestored = Apply(backup, store);
             store.Save();
+            RestoreDownloadCenter.Shared.NoteRestoredText(textRestored);
             return true;
         }).GetAwaiter().GetResult();
     }

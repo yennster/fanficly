@@ -379,7 +379,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// failing throws the whole call, so a partial list can never reach the
     /// caller's delete pass. The 50-page ceiling only guards against a
     /// pagination-parse glitch turning one sync into an unbounded crawl.</summary>
-    public async Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default)
+    public async Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default)
     {
         const int maxPages = 50;
         var all = new List<AO3Subscription>();
@@ -397,7 +397,9 @@ public sealed class AO3Client : IAO3Client, IDisposable
             totalPages = parsed.TotalPages;
             page++;
         }
-        return all;
+        // Past the ceiling (over 1,000 subscriptions) the list is cut short, so
+        // it says so: the poller then keeps the records it didn't reach.
+        return new AO3SubscriptionList(all, IsComplete: totalPages <= maxPages);
     }
 
     // MARK: - Comments

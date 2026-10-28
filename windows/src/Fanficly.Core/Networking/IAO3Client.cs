@@ -32,7 +32,7 @@ public interface IAO3Client
     async Task<AO3WorkChapterPage> FetchWorkChapterAsync(int id, int chapter = 1, CancellationToken ct = default) =>
         new(await FetchWorkAsync(id, ct).ConfigureAwait(false), [], IsWholeWork: true);
     Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default);
-    Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
+    Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
     /// <summary>Comments for a specific chapter (AO3 threads comments per chapter).
     /// <paramref name="chapterId"/> null fetches the work-level page (the first
     /// chapter's thread), the fallback when the id is unknown. <paramref name="page"/>
