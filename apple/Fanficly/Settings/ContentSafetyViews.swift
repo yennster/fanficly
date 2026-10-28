@@ -266,6 +266,8 @@ struct FilteredOutView: View {
     let message: String
     let canLoadMore: Bool
     let isLoadingMore: Bool
+    /// Why the last next-page load failed, shown under the message (#154).
+    var loadMoreError: String? = nil
     let loadMore: @MainActor () async -> Void
 
     var body: some View {
@@ -273,14 +275,87 @@ struct FilteredOutView: View {
             Label("Nothing to show", systemImage: "eye.slash")
         } description: {
             Text(message)
+            if let loadMoreError {
+                Text(loadMoreError)
+            }
         } actions: {
             if canLoadMore {
                 if isLoadingMore {
                     ProgressView()
+                } else if loadMoreError != nil {
+                    Button("Try Again") { Task { await loadMore() } }
                 } else {
                     Button("Load more results") { Task { await loadMore() } }
                 }
             }
+        }
+    }
+}
+
+/// Next-page bookkeeping for the infinite-scroll lists (#154). A failed page
+/// gets its own error, shown under the rows by `LoadMoreFooter`, so the
+/// loaded rows stay put; and each page-1 load bumps the generation, so a
+/// next page still in flight from the old list is dropped, not appended.
+struct LoadMoreState: Equatable {
+    private(set) var generation = 0
+    private(set) var error: String?
+
+    /// A fresh page-1 load (a new search, new filters, a refresh): forget the
+    /// footer error and make every next-page load in flight stale.
+    mutating func restart() {
+        generation += 1
+        error = nil
+    }
+
+    /// Starts a next-page load; check the response with `isCurrent` against
+    /// the generation this returns.
+    mutating func begin() -> Int {
+        error = nil
+        return generation
+    }
+
+    func isCurrent(_ generation: Int) -> Bool {
+        generation == self.generation
+    }
+
+    /// Records a failed next-page load. Returns false (and records nothing)
+    /// when a page-1 load replaced the list meanwhile.
+    @discardableResult
+    mutating func fail(_ message: String, generation: Int) -> Bool {
+        guard isCurrent(generation) else { return false }
+        error = message
+        return true
+    }
+}
+
+/// The row under an infinite-scroll list: a spinner while the next page
+/// loads, or why it failed with Try Again (Sign In Again for an expired
+/// session). Infinite scroll won't fire again from a row that's already on
+/// screen, so after a failure this button is the way on (#154).
+struct LoadMoreFooter: View {
+    let isLoadingMore: Bool
+    let error: String?
+    /// The failure was an expired AO3 session and no one has signed in since.
+    var sessionExpired = false
+    let retry: @MainActor () async -> Void
+
+    var body: some View {
+        if isLoadingMore {
+            HStack { Spacer(); ProgressView(); Spacer() }
+                .padding(.vertical, 8)
+                .listRowSeparator(.hidden)
+        } else if let error, sessionExpired {
+            SessionExpiredView(message: error)
+                .listRowSeparator(.hidden)
+        } else if let error {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Try Again") { Task { await retry() } }
+                    .buttonStyle(.borderless)
+            }
+            .padding(.vertical, 8)
         }
     }
 }

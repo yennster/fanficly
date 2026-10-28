@@ -272,7 +272,13 @@ struct FandomWorksView: View {
     @State private var isLoading: Bool = false
     @State private var isLoadingMore: Bool = false
     @State private var errorMessage: String?
+    /// A failed next page: shown under the works, which stay (#154).
+    @State private var paging = LoadMoreState()
     @State private var filters: AO3SearchFilters
+    /// The filters `works` came from. After a failed re-filter the header
+    /// rolls back to these, and Try Again re-applies `failedFilters`.
+    @State private var loadedFilters: AO3SearchFilters?
+    @State private var failedFilters: AO3SearchFilters?
     @State private var showingFilters = false
 
     init(filters: AO3SearchFilters, title: String) {
@@ -328,29 +334,26 @@ struct FandomWorksView: View {
             } else if visibleWorks.isEmpty {
                 FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
                                 canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
-                                loadMore: loadMore)
+                                loadMoreError: paging.error, loadMore: loadMore)
             } else {
                 List {
+                    // Only a re-filter fails with works showing.
+                    if let errorMessage {
+                        refilterFailedBanner(errorMessage)
+                    }
                     Section {
                         ForEach(visibleWorks) { work in
                             NavigationLink(value: work) { WorkRow(work: work, badge: badges[work.id]) }
                                 // Infinite scroll: when the last loaded row comes
-                                // into view, pull the next page automatically.
+                                // into view, pull the next page automatically
+                                // (after a failure, the footer's Try Again does).
                                 .onAppear {
-                                    if work.id == visibleWorks.last?.id {
+                                    if work.id == visibleWorks.last?.id, paging.error == nil {
                                         Task { await loadMore() }
                                     }
                                 }
                         }
-                        if isLoadingMore {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                Spacer()
-                            }
-                            .padding(.vertical, 8)
-                            .listRowSeparator(.hidden)
-                        }
+                        LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error, retry: loadMore)
                     } header: {
                         activeFilterSummary
                     }
@@ -396,6 +399,28 @@ struct FandomWorksView: View {
             }
         }
         .task { await loadFirst() }
+    }
+
+    /// A re-filter failed: the list and its chips are still the previous
+    /// filters', so say so, and offer the new filters again (#154).
+    private func refilterFailedBanner(_ message: String) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Couldn't apply your filters. Showing results for the previous ones.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Try Again") {
+                    if let failedFilters { filters = failedFilters }
+                    Task { await reload() }
+                }
+                .buttonStyle(.borderless)
+            }
+            .padding(.vertical, 4)
+        }
     }
 
     @ViewBuilder
@@ -498,31 +523,48 @@ struct FandomWorksView: View {
     private func reload() async {
         isLoading = true
         errorMessage = nil
+        failedFilters = nil
         defer { isLoading = false }
+        let requested = filters
         do {
-            let result = try await client.search(filters: filters, page: 1)
+            let result = try await client.search(filters: requested, page: 1)
+            // A next page of the old list still in flight must not land in
+            // this one. (Restarting only now lets it land if this fails.)
+            paging.restart()
             works = result.works
             currentPage = result.currentPage
             totalPages = result.totalPages
+            loadedFilters = requested
         } catch {
             errorMessage = "\(error)"
+            // Re-filtering with works showing: keep them, put the chips back
+            // to the filters they came from, and say so (#154).
+            if !works.isEmpty, let loadedFilters, loadedFilters != requested {
+                failedFilters = requested
+                filters = loadedFilters
+            }
         }
     }
 
     private func loadMore() async {
         // Re-entrancy / bounds guard: onAppear can fire repeatedly, and there's
         // no page beyond totalPages.
-        guard !isLoadingMore, currentPage < totalPages else { return }
+        guard !isLoadingMore, !isLoading, currentPage < totalPages, let loadedFilters else { return }
+        let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let result = try await client.search(filters: filters, page: currentPage + 1)
+            let result = try await client.search(filters: loadedFilters, page: currentPage + 1)
+            guard paging.isCurrent(generation) else { return }  // re-filtered meanwhile
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "\(error)"
+            let message = "Couldn't load more works: \(error)"
+            if paging.fail(message, generation: generation) {
+                UIAccessibility.post(notification: .announcement, argument: message)
+            }
         }
     }
 }
