@@ -10,11 +10,40 @@ struct SubscriptionPoller {
     /// AO3 username for syncing account subscriptions; nil when logged out
     /// (locally-followed works are still polled).
     let username: String?
+    /// Holds when the account's subscriptions list was last synced (see
+    /// `listSyncIsDue`); tests pass their own suite.
+    var defaults: UserDefaults = .standard
     private let logger = Logger(subsystem: "io.github.yennster.fanficly", category: "SubscriptionPoller")
+
+    /// How often a background poll re-reads the subscriptions list. The walk
+    /// costs one throttled request per 20 subscriptions (up to 50), which on
+    /// a big list is the whole ~30 s `BGAppRefreshTask` window, and the list
+    /// rarely changes; the Subscriptions tab syncs it whenever it refreshes.
+    static let listSyncInterval: TimeInterval = 24 * 60 * 60
+
+    private var listSyncKey: String? {
+        username.map { "subscriptions.listSyncedAt.\($0)" }
+    }
+
+    /// Whether `runFullPoll` should re-read the subscriptions list: signed in,
+    /// and no sync (or attempt) for this account in `listSyncInterval`.
+    func listSyncIsDue(now: Date = .now) -> Bool {
+        guard let listSyncKey else { return false }
+        guard let last = defaults.object(forKey: listSyncKey) as? Date else { return true }
+        // A clock set back leaves a future stamp; don't let it block syncs.
+        return last > now || now.timeIntervalSince(last) >= Self.listSyncInterval
+    }
+
+    private func stampListSync(_ date: Date = .now) {
+        guard let listSyncKey else { return }
+        defaults.set(date, forKey: listSyncKey)
+    }
 
     func syncSubscriptionList() async throws -> [AO3Subscription] {
         guard let username else { return [] }
-        let fresh = try await client.fetchSubscriptions(username: username)
+        let list = try await client.fetchSubscriptions(username: username)
+        stampListSync()
+        let fresh = list.subscriptions
         let freshKeys = Set(fresh.map(\.key))
 
         let descriptor = FetchDescriptor<SubscriptionRecord>()
@@ -40,10 +69,15 @@ struct SubscriptionPoller {
         // unsubscribe, and a wrong delete also destroys the
         // lastSeenChapterCount baselines new-chapter alerts compare against.
         // (The parser already throws on a login page; this guards the rest.)
-        if !fresh.isEmpty {
+        // A list cut off at the page ceiling is missing real subscriptions,
+        // so it prunes nothing either.
+        if !fresh.isEmpty, list.isComplete {
             for rec in existing where !freshKeys.contains(rec.key) {
                 context.delete(rec)
             }
+        }
+        if !list.isComplete {
+            logger.warning("Subscriptions list ran past the page ceiling; kept the records it didn't reach")
         }
         try? context.save()
         return fresh
@@ -98,10 +132,16 @@ struct SubscriptionPoller {
     }
 
     func runFullPoll() async -> Int {
-        do {
-            _ = try await syncSubscriptionList()
-        } catch {
-            logger.warning("Subscriptions list fetch failed: \(error.localizedDescription, privacy: .public)")
+        // At most once a day, so the window goes to the chapter checks below
+        // (#150). Stamped before the walk: a list too long to finish in one
+        // window would otherwise be retried, and cut off, on every run.
+        if listSyncIsDue() {
+            stampListSync()
+            do {
+                _ = try await syncSubscriptionList()
+            } catch {
+                logger.warning("Subscriptions list fetch failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
 
         // Interleave all three record kinds oldest-check-first rather than a

@@ -32,7 +32,7 @@ public sealed class SubscriptionPollerTests
         client.AuthorWorks["never-checked"] = [Summary(1), Summary(2, "Brand New")];
         var notifier = new RecordingNotifier();
 
-        var posted = await new SubscriptionPoller(client, store, "reader", notifier).RunFullPollAsync();
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier, new InMemoryKeyValueStore()).RunFullPollAsync();
 
         // Never checked first, then the oldest stamp.
         Assert.Equal(["author:never-checked", "work:20", "work:10"], client.Requests);
@@ -79,7 +79,7 @@ public sealed class SubscriptionPollerTests
         client.ChapterCounts[20] = 1;
         var notifier = new RecordingNotifier();
 
-        var posted = await new SubscriptionPoller(client, store, "reader", notifier).RunFullPollAsync();
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier, new InMemoryKeyValueStore()).RunFullPollAsync();
 
         // Work 10 is queued by its staler record, the follow.
         Assert.Equal(["work:10", "work:20"], client.Requests);
@@ -139,12 +139,103 @@ public sealed class SubscriptionPollerTests
         store.Save();
         var client = new PollerFakeClient { SubscriptionsError = AO3Exception.Unauthorized() };
 
-        Assert.Equal(0, await new SubscriptionPoller(client, store, "reader").RunFullPollAsync());
+        Assert.Equal(0, await new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore()).RunFullPollAsync());
         Assert.NotNull(store.GetWork(404)!.LastCheckedAt);
         Assert.NotNull(store.GetSubscription("work:bad")!.LastCheckedAt);
         Assert.Equal(1, store.GetWork(404)!.LastSeenChapterCount);
         // A failed subscription-list fetch never prunes.
         Assert.Equal(1, store.Count<SubscriptionRecord>());
+    }
+
+    /// <summary>A run with the list synced in the last day goes straight to the
+    /// checks (#150): with hundreds of subscriptions the list walk was the whole
+    /// background run.</summary>
+    [Fact]
+    public async Task FullPoll_FreshListSyncSkipsTheListWalk()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:10", "work", "Sub") { LastSeenChapterCount = 2 });
+        store.Save();
+        var client = new PollerFakeClient { SubscriptionsResponse = [new AO3Subscription(AO3SubscriptionKind.Work, "10", "Sub", "x")] };
+        client.ChapterCounts[10] = 2;
+        var poller = new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore());
+        await poller.SyncSubscriptionListAsync();
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+        Assert.False(poller.ListSyncIsDue());
+
+        await poller.RunFullPollAsync();
+
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+        Assert.Equal(["work:10"], client.Requests);
+    }
+
+    /// <summary>With no sync yet, or the last one a day old, a run syncs the list
+    /// once and stamps it, so the next run skips it.</summary>
+    [Fact]
+    public async Task FullPoll_SyncsTheListOnceADay()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var client = new PollerFakeClient { SubscriptionsResponse = [new AO3Subscription(AO3SubscriptionKind.Work, "7", "New Sub", "dana")] };
+        client.ChapterCounts[7] = 1;
+        var poller = new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore());
+        Assert.True(poller.ListSyncIsDue());
+
+        await poller.RunFullPollAsync();
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+        Assert.Equal(["work:7"], store.All<SubscriptionRecord>().Select(r => r.Key));
+
+        await poller.RunFullPollAsync();
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+
+        Assert.True(poller.ListSyncIsDue(DateTimeOffset.Now + SubscriptionPoller.ListSyncInterval + TimeSpan.FromMinutes(1)));
+    }
+
+    /// <summary>A failed list walk is stamped too, so a list too long for one
+    /// background run isn't retried, and cut off, every run.</summary>
+    [Fact]
+    public async Task FullPoll_FailedListSyncWaitsADayToo()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var client = new PollerFakeClient { SubscriptionsError = AO3Exception.Network("offline") };
+        var poller = new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore());
+
+        await poller.RunFullPollAsync();
+        await poller.RunFullPollAsync();
+
+        Assert.Equal(1, client.SubscriptionsFetchCount);
+    }
+
+    /// <summary>A list that ran past the 50-page ceiling is missing real
+    /// subscriptions (#150): it adds and updates what it read, but deletes nothing.</summary>
+    [Fact]
+    public async Task IncompleteListPrunesNothing()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:1", "work", "Fic One") { LastSeenChapterCount = 5 });
+        store.Insert(new SubscriptionRecord("series:9", "series", "Saga"));
+        store.Save();
+        var client = new PollerFakeClient
+        {
+            SubscriptionsResponse =
+            [
+                new AO3Subscription(AO3SubscriptionKind.Work, "1", "Fic One (renamed)", "alice"),
+                new AO3Subscription(AO3SubscriptionKind.User, "carol", "carol", null),
+            ],
+            SubscriptionsComplete = false,
+        };
+
+        await new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore()).SyncSubscriptionListAsync();
+
+        Assert.Equal(new HashSet<string> { "work:1", "series:9", "user:carol" }, store.All<SubscriptionRecord>().Select(r => r.Key).ToHashSet());
+        Assert.Equal("Fic One (renamed)", store.GetSubscription("work:1")!.DisplayName);
+        Assert.Equal(5, store.GetSubscription("work:1")!.LastSeenChapterCount);
+    }
+
+    [Fact]
+    public void ListSyncIsNeverDueSignedOut()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        Assert.False(new SubscriptionPoller(new PollerFakeClient(), store, null, syncStamps: new InMemoryKeyValueStore()).ListSyncIsDue());
     }
 
     [Fact]
@@ -366,15 +457,16 @@ public sealed class SubscriptionPollerTests
         store.Insert(new Work(987650004, "Metadata only", "A"));
         store.Save();
 
-        var center = new RestoreDownloadCenter { FinishedBannerDuration = TimeSpan.Zero };
+        var center = new RestoreDownloadCenter(new InMemoryKeyValueStore()) { FinishedBannerDuration = TimeSpan.Zero };
         var announcements = new List<string>();
         center.Announcement += announcements.Add;
+        center.NoteRestoredText([987650001, 987650002, 987650003, 987650004]);
         center.ProposeRedownload(store);
         Assert.Equal([987650002, 987650001, 987650003], center.ProposedIds!); // by title, case-insensitive
 
         var client = new PollerFakeClient();
         client.FailingDownloads.Add(987650001);
-        await center.StartDownloads(client);
+        await center.StartDownloads(client, signedIn: true);
 
         Assert.Equal(["epub:987650002", "epub:987650001", "epub:987650003"], client.Requests);
         Assert.Null(center.ProposedIds);
@@ -393,12 +485,13 @@ public sealed class SubscriptionPollerTests
             new Chapter(work, 1, "Ch", "<p>x</p>");
         }
         store.Save();
-        var center = new RestoreDownloadCenter();
+        var center = new RestoreDownloadCenter(new InMemoryKeyValueStore());
+        center.NoteRestoredText([987660001, 987660002, 987660003]);
         center.ProposeRedownload(store);
         var client = new PollerFakeClient();
         client.OnRequest = _ => center.Cancel();
 
-        await center.StartDownloads(client);
+        await center.StartDownloads(client, signedIn: true);
 
         Assert.Single(client.Requests);
         Assert.Null(center.Progress);
@@ -461,6 +554,110 @@ public sealed class SubscriptionPollerTests
         Assert.Equal([new RestoreDownloadCenter.DownloadProgress(1, 0, 3, false)], reports);
     }
 
+    /// <summary>The prompt offers only works a restore gave text, and Not Now
+    /// is remembered: the same works noted again (the next launch sync) aren't
+    /// offered, while a newly restored one is (#152).</summary>
+    [Fact]
+    public void RedownloadPromptOffersRestoredTextAndRemembersNotNow()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        foreach (var id in new[] { 987690001, 987690002, 987690003 })
+        {
+            var work = new Work(id, $"W{id}", "A");
+            store.Insert(work);
+            new Chapter(work, 1, "Ch", "<p>x</p>");
+        }
+        store.Save();
+        var settings = new InMemoryKeyValueStore();
+        var center = new RestoreDownloadCenter(settings);
+
+        center.ProposeRedownload(store);
+        Assert.Null(center.ProposedIds); // nothing restored, nothing offered
+
+        center.NoteRestoredText([987690001]);
+        center.ProposeRedownload(store);
+        Assert.Equal([987690001], center.ProposedIds!);
+        center.DeclineProposal();
+        Assert.Null(center.ProposedIds);
+        Assert.Equal("987690001", settings.GetString(RestoreDownloadCenter.DeclinedKey));
+
+        center.NoteRestoredText([987690001]);
+        center.ProposeRedownload(store);
+        Assert.Null(center.ProposedIds); // declined
+
+        center.NoteRestoredText([987690001, 987690002]);
+        center.ProposeRedownload(store);
+        Assert.Equal([987690002], center.ProposedIds!);
+    }
+
+    /// <summary>A rate limit or a sign-in wall ends the run: the stories after
+    /// it aren't tried, and the tally says why (#152).</summary>
+    [Theory]
+    [InlineData(AO3ErrorKind.RateLimited, RestoreDownloadCenter.StopReason.RateLimited)]
+    [InlineData(AO3ErrorKind.Unauthorized, RestoreDownloadCenter.StopReason.SignInNeeded)]
+    public async Task RunQueueStopsWhenAO3Refuses(AO3ErrorKind kind, RestoreDownloadCenter.StopReason reason)
+    {
+        var attempted = new List<int>();
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3, 4], (id, _) =>
+        {
+            attempted.Add(id);
+            return id == 2 ? throw new AO3Exception(kind) : Task.CompletedTask;
+        }, _ => { }, CancellationToken.None);
+
+        Assert.Equal([1, 2], attempted);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(1, 1, 4, true, reason), result);
+        Assert.Equal(3, result!.Value.Untried);
+        Assert.NotNull(result.Value.StoppedDetail);
+        Assert.StartsWith("Downloads stopped.", result.Value.Announcement);
+    }
+
+    /// <summary>Signed out, Unauthorized is a restricted work: it fails alone
+    /// and the public stories after it still download.</summary>
+    [Fact]
+    public async Task RunQueueSkipsRestrictedWorkWhenSignedOut()
+    {
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3], (id, _) =>
+            id == 2 ? throw new AO3Exception(AO3ErrorKind.Unauthorized) : Task.CompletedTask,
+            _ => { }, CancellationToken.None, signedIn: false);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(2, 1, 3, true), result);
+    }
+
+    /// <summary>A stopped restore run puts the stories it didn't reach back in
+    /// the pending list, so the next restore offers them again.</summary>
+    [Fact]
+    public async Task StoppedRestoreRunOffersTheRestAgain()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        foreach (var id in new[] { 987691001, 987691002, 987691003 })
+        {
+            var work = new Work(id, $"W{id}", "A");
+            store.Insert(work);
+            new Chapter(work, 1, "Ch", "<p>x</p>");
+        }
+        store.Save();
+        var center = new RestoreDownloadCenter(new InMemoryKeyValueStore()) { FinishedBannerDuration = TimeSpan.Zero };
+        center.NoteRestoredText([987691001, 987691002, 987691003]);
+        center.ProposeRedownload(store);
+        var client = new PollerFakeClient();
+        client.DownloadErrors[987691002] = new AO3Exception(AO3ErrorKind.RateLimited);
+        await center.StartDownloads(client, signedIn: true);
+
+        Assert.Equal(["epub:987691001", "epub:987691002"], client.Requests);
+        center.ProposeRedownload(store);
+        Assert.Equal([987691002, 987691003], center.ProposedIds!);
+    }
+
+    /// <summary>Other failures (a deleted work, a server error) are still
+    /// counted and skipped.</summary>
+    [Fact]
+    public async Task RunQueueSkipsOtherAO3Errors()
+    {
+        var result = await RestoreDownloadCenter.RunQueueAsync([1, 2, 3], (id, _) =>
+            id == 2 ? throw new AO3Exception(AO3ErrorKind.Http, status: 404) : Task.CompletedTask,
+            _ => { }, CancellationToken.None);
+        Assert.Equal(new RestoreDownloadCenter.DownloadProgress(2, 1, 3, true), result);
+    }
+
     [Fact]
     public async Task FolderDownloadSavesTextWhenMissingThenEpub()
     {
@@ -476,7 +673,7 @@ public sealed class SubscriptionPollerTests
             new AO3WorkSummary { Id = 987670002, Title = "Metadata only", Author = "A", ChapterCount = 2 },
             [new AO3ChapterPayload(1, "One", "<p>1</p>"), new AO3ChapterPayload(2, "Two", "<p>2</p>")]);
         var center = new RestoreDownloadCenter { FinishedBannerDuration = TimeSpan.Zero };
-        await center.StartFolderDownload(client, store, [987670001, 987670002]);
+        await center.StartFolderDownload(client, store, [987670001, 987670002], signedIn: true);
 
         // Stored text isn't fetched again; the metadata-only work gets its chapters first.
         Assert.Equal(["epub:987670001", "fetch:987670002", "epub:987670002"], client.Requests);

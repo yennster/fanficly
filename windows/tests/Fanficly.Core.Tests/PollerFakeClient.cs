@@ -8,6 +8,9 @@ internal sealed class PollerFakeClient : IAO3Client
 {
     public IReadOnlyList<AO3Subscription> SubscriptionsResponse { get; set; } = [];
     public Exception? SubscriptionsError { get; set; }
+    /// <summary>False scripts a list that ran past the client's page ceiling.</summary>
+    public bool SubscriptionsComplete { get; set; } = true;
+    public int SubscriptionsFetchCount { get; private set; }
     /// <summary>Chapter counts by work id; a missing id fails the fetch.</summary>
     public Dictionary<int, int> ChapterCounts { get; } = new();
     /// <summary>Published days by work id, returned with the chapter count.</summary>
@@ -20,6 +23,8 @@ internal sealed class PollerFakeClient : IAO3Client
     public HashSet<string> GuestAuthorPages { get; } = [];
     /// <summary>Work ids whose EPUB download fails.</summary>
     public HashSet<int> FailingDownloads { get; } = [];
+    /// <summary>Work ids whose EPUB download throws the given error.</summary>
+    public Dictionary<int, Exception> DownloadErrors { get; } = new();
     /// <summary>Every metadata/author/fetch/download request, in order ("work:1", "author:x", "fetch:2", "epub:3").</summary>
     public List<string> Requests { get; } = [];
     /// <summary>Called after each request is logged (tests use it to cancel mid-run).</summary>
@@ -31,8 +36,13 @@ internal sealed class PollerFakeClient : IAO3Client
         OnRequest?.Invoke(request);
     }
 
-    public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
-        SubscriptionsError is { } e ? Task.FromException<IReadOnlyList<AO3Subscription>>(e) : Task.FromResult(SubscriptionsResponse);
+    public Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default)
+    {
+        SubscriptionsFetchCount++;
+        return SubscriptionsError is { } e
+            ? Task.FromException<AO3SubscriptionList>(e)
+            : Task.FromResult(new AO3SubscriptionList(SubscriptionsResponse, SubscriptionsComplete));
+    }
 
     public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default)
     {
@@ -56,6 +66,7 @@ internal sealed class PollerFakeClient : IAO3Client
         await Task.Yield();
         ct.ThrowIfCancellationRequested();
         if (FailingDownloads.Contains(workId)) throw AO3Exception.Http(404);
+        if (DownloadErrors.TryGetValue(workId, out var error)) throw error;
         return $"/library/{workId}.epub";
     }
 

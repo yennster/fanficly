@@ -23,7 +23,7 @@ public protocol AO3ClientProtocol: Sendable {
     /// One page of a series (`/series/<id>`): its title, creators and works in
     /// series order. AO3 lists 20 works a page.
     func fetchSeries(id: Int, page: Int) async throws -> AO3Series
-    func fetchSubscriptions(username: String) async throws -> [AO3Subscription]
+    func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList
     /// Comments for a specific chapter (AO3 threads comments per chapter). Pass
     /// `chapterId` = the chapter's AO3 id; nil fetches the work-level page (the
     /// first chapter's thread), used as a fallback when the id is unknown.
@@ -728,13 +728,15 @@ public actor AO3Client: AO3ClientProtocol {
         return try SeriesParser.parse(html: html, seriesId: id)
     }
 
-    public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] {
+    public func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList {
         // AO3 paginates the subscriptions index at 20 per page — walk every
         // page (each fetch goes through the 1 req/s throttle) or anything past
         // the first 20 is invisible and its records get treated as stale. Any
         // page failing throws the whole call, so a partial list can never
-        // reach the caller's delete pass. The page ceiling only guards against
-        // a pagination-parse glitch turning one sync into an unbounded crawl.
+        // reach the caller's delete pass. The page ceiling guards against a
+        // pagination-parse glitch turning one sync into an unbounded crawl;
+        // a list that runs past it (over 1,000 subscriptions) comes back
+        // marked incomplete, so the caller keeps the records it didn't reach.
         var all: [AO3Subscription] = []
         var seen = Set<String>()
         var page = 1
@@ -755,7 +757,7 @@ public actor AO3Client: AO3ClientProtocol {
             totalPages = parsed.totalPages
             page += 1
         }
-        return all
+        return AO3SubscriptionList(subscriptions: all, isComplete: totalPages <= maxPages)
     }
 
     public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
@@ -1301,7 +1303,9 @@ public final class MockAO3Client: AO3ClientProtocol, @unchecked Sendable {
     public func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
         AO3Series(id: id, title: "Sample Series", creator: "Anon", works: [], currentPage: page)
     }
-    public func fetchSubscriptions(username: String) async throws -> [AO3Subscription] { [] }
+    public func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList {
+        AO3SubscriptionList(subscriptions: [])
+    }
     public func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
         AO3CommentsPage(comments: [], currentPage: page)
     }

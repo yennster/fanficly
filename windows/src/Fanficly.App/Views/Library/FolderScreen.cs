@@ -179,7 +179,7 @@ public sealed class FolderScreen : Screen
             "Stories download one at a time. You can cancel anytime, and the ones already downloaded stay.",
             "Download");
         if (!ok) return;
-        _ = RestoreDownloadCenter.Shared.StartFolderDownload(AppHost.Client, Store, ids);
+        _ = RestoreDownloadCenter.Shared.StartFolderDownload(AppHost.Client, Store, ids, AppHost.Auth.IsLoggedIn);
     }
 
     private void ToggleSelecting()

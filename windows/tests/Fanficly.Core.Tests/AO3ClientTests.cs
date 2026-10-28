@@ -54,6 +54,24 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task FetchSeriesRequestsTheSeriesPage()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><body><div id="main" class="series-show region"><h2 class="heading">Shore</h2>
+            <dl class="series meta group"><dt>Creator:</dt><dd><a rel="author" href="/users/ana/pseuds/ana">ana</a></dd></dl>
+            <ul class="series work index group"><li id="work_11" class="work blurb group"><h4 class="heading"><a href="/works/11">One</a></h4></li></ul>
+            </div></body></html>
+            """));
+        var series = await MakeClient().FetchSeriesAsync(9, 2);
+
+        Assert.Equal("Shore", series.Title);
+        Assert.Equal([11], series.Works.Select(w => w.Id));
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal("GET", req.Method);
+        Assert.Equal("https://archiveofourown.org/series/9?page=2", req.Uri.AbsoluteUri);
+    }
+
+    [Fact]
     public async Task AsksForHttp3WithFallback()
     {
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
@@ -106,6 +124,114 @@ public sealed class AO3ClientTests : IDisposable
             _handler.Requests.Select(r => (r.Version, r.VersionPolicy)));
         Assert.Contains(lines, l => l.StartsWith("HTTP/3 to archiveofourown.org failed", StringComparison.Ordinal)
                                     && l.Contains("QUIC handshake failed", StringComparison.Ordinal));
+    }
+
+    /// <summary>Where UDP is silently dropped the QUIC connect times out, which
+    /// SocketsHttpHandler reports as a cancellation wrapping a TimeoutException.
+    /// Nothing went out, so the request (even a POST) goes again over HTTP/2, and
+    /// later requests skip HTTP/3.</summary>
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    public async Task FallsBackToHttp2WhenTheHttp3ConnectTimesOut(string method)
+    {
+        _handler.Respond(req => req.Version.Major == 3
+            ? throw new TaskCanceledException("connect timed out", new TimeoutException("connect timed out"))
+            : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(WorkHtml) });
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+        var spec = new AO3Client.RequestSpec(new HttpMethod(method), new Uri("https://archiveofourown.org/works/7"),
+            "text/html", [], method == "POST" ? "a=1" : null, TimeSpan.FromSeconds(30));
+
+        Assert.Equal(200, (await client.PerformRequestAsync(spec)).Status);
+        await client.FetchWorkMetadataAsync(8);
+
+        Assert.Equal(
+            new[] { HttpVersion.Version30, HttpVersion.Version20, HttpVersion.Version20 },
+            _handler.Requests.Select(r => r.Version));
+        Assert.Empty(_sleeps);
+    }
+
+    /// <summary>A slow but working HTTP/3 answer (AO3 search often takes 20–30 s to
+    /// start) is waited for, not cut off and sent again over HTTP/2 (#147).</summary>
+    [Fact]
+    public async Task ASlowHttp3GetIsNotSentAgain()
+    {
+        _handler.RespondAsync(async (req, ct) =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5.5), ct);
+            var r = FakeHandler.Html(WorkHtml);
+            r.Version = req.Version;
+            return r;
+        });
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+
+        Assert.Equal(3, (await client.FetchWorkMetadataAsync(7)).ChapterCount);
+
+        var req = Assert.Single(_handler.Requests);
+        Assert.Equal(HttpVersion.Version30, req.Version);
+        Assert.Empty(_sleeps);
+    }
+
+    /// <summary>The HTTP/2 resend is a request of its own, so it waits for a throttle
+    /// slot instead of going straight out (#147).</summary>
+    [Fact]
+    public async Task AnHttp2ResendWaitsForTheThrottle()
+    {
+        _handler.Respond(
+            _ => throw new HttpRequestException(HttpRequestError.ConnectionError, "QUIC handshake failed"),
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient(new Throttle(TimeSpan.FromSeconds(0.3)));
+        client.PreferHttp3 = true;
+
+        await client.FetchWorkMetadataAsync(7);
+
+        Assert.Equal(2, _handler.Requests.Count);
+        var gap = Stopwatch.GetElapsedTime(_handler.Requests[0].SentAt, _handler.Requests[1].SentAt);
+        Assert.True(gap >= TimeSpan.FromSeconds(0.25), $"the resend went out {gap} after the first try");
+    }
+
+    /// <summary>A QUIC connection lost after a POST went out can surface as a
+    /// connection error, so a POST isn't sent again over HTTP/2: a comment could
+    /// land twice. Later requests still skip HTTP/3 (#147).</summary>
+    [Fact]
+    public async Task APostThatFailsOverHttp3IsNotSentAgain()
+    {
+        _handler.Respond(
+            req => { var r = FakeHandler.Html(KudosPageHtml); r.Version = req.Version; return r; },
+            _ => throw new HttpRequestException(HttpRequestError.ConnectionError, "QUIC connection lost"),
+            _ => FakeHandler.Html(WorkHtml));
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => client.LeaveKudosAsync(42));
+        Assert.Equal(AO3ErrorKind.Network, e.Kind);
+        Assert.Equal(["GET", "POST"], _handler.Requests.Select(r => r.Method));
+
+        await client.FetchWorkMetadataAsync(8);
+        Assert.Equal(HttpVersion.Version20, _handler.Requests[^1].Version);
+    }
+
+    /// <summary>Where HTTP/3 was never on offer (no QUIC, a proxy), nothing went
+    /// out, so even a POST goes again over HTTP/2.</summary>
+    [Fact]
+    public async Task APostGoesAgainOverHttp2WhenHttp3WasNeverOnOffer()
+    {
+        _handler.Respond(
+            req => req.Version.Major == 3
+                ? throw new HttpRequestException(HttpRequestError.VersionNegotiationError, "HTTP/3 unavailable")
+                : new HttpResponseMessage(HttpStatusCode.Created));
+        var client = MakeClient();
+        client.PreferHttp3 = true;
+
+        var response = await client.PerformRequestAsync(new AO3Client.RequestSpec(HttpMethod.Post,
+            new Uri("https://archiveofourown.org/kudos.js"), "*/*", [], "a=1", TimeSpan.FromSeconds(30)));
+
+        Assert.Equal(201, response.Status);
+        Assert.Equal(
+            new (string, Version)[] { ("POST", HttpVersion.Version30), ("POST", HttpVersion.Version20) },
+            _handler.Requests.Select(r => (r.Method, r.Version)));
     }
 
     [Fact]
@@ -885,7 +1011,8 @@ public sealed class AO3ClientTests : IDisposable
             _ => FakeHandler.Html(SubscriptionsPage(3, 3, 4)));
         var subs = await MakeClient().FetchSubscriptionsAsync("reader");
 
-        Assert.Equal(["1", "2", "3", "4"], subs.Select(s => s.ResourceId));
+        Assert.Equal(["1", "2", "3", "4"], subs.Subscriptions.Select(s => s.ResourceId));
+        Assert.True(subs.IsComplete);
         Assert.Equal(
             ["https://archiveofourown.org/users/reader/subscriptions",
              "https://archiveofourown.org/users/reader/subscriptions?page=2",
@@ -908,8 +1035,10 @@ public sealed class AO3ClientTests : IDisposable
     public async Task FetchSubscriptionsStopsAtFiftyPages()
     {
         _handler.Respond(_ => FakeHandler.Html(SubscriptionsPage(1, 999, 1)));
-        await MakeClient().FetchSubscriptionsAsync("reader");
+        var subs = await MakeClient().FetchSubscriptionsAsync("reader");
         Assert.Equal(50, _handler.Requests.Count);
+        // Cut short, so the poller won't prune what it didn't reach (#150).
+        Assert.False(subs.IsComplete);
     }
 
     [Fact]
@@ -1585,21 +1714,26 @@ public sealed class AO3ClientTests : IDisposable
 /// responder (the last one repeats) and is recorded.</summary>
 internal sealed class FakeHandler : HttpMessageHandler
 {
-    private readonly List<Func<HttpRequestMessage, HttpResponseMessage>> _responders = [];
+    private readonly List<Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>> _responders = [];
     private readonly Lock _gate = new();
     private int _next;
 
     public List<RecordedRequest> Requests { get; } = [];
 
-    public void Respond(params Func<HttpRequestMessage, HttpResponseMessage>[] responders) => _responders.AddRange(responders);
+    public void Respond(params Func<HttpRequestMessage, HttpResponseMessage>[] responders) =>
+        _responders.AddRange(responders.Select(r => (Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>)((req, _) => Task.FromResult(r(req)))));
+
+    /// <summary>Responders that take their time, honouring the request's cancellation.</summary>
+    public void RespondAsync(params Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>[] responders) =>
+        _responders.AddRange(responders);
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(ct);
-        Func<HttpRequestMessage, HttpResponseMessage> responder;
+        Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> responder;
         lock (_gate)
         {
-            Requests.Add(new RecordedRequest(request.Method.Method, request.RequestUri!, request.Version, request.VersionPolicy,
+            Requests.Add(new RecordedRequest(Stopwatch.GetTimestamp(), request.Method.Method, request.RequestUri!, request.Version, request.VersionPolicy,
                 // The raw values, as written (reading the parsed ones re-formats them).
                 request.Headers.NonValidated.Select(h => (h.Key, Value: string.Join(", ", h.Value)))
                     .Concat(request.Content is null ? [] : request.Content.Headers.NonValidated.Select(h => (h.Key, Value: string.Join(", ", h.Value))))
@@ -1607,7 +1741,7 @@ internal sealed class FakeHandler : HttpMessageHandler
                 body));
             responder = _responders[Math.Min(_next++, _responders.Count - 1)];
         }
-        return responder(request);
+        return await responder(request, ct);
     }
 
     public static HttpResponseMessage Html(string html, string? setCookie = null)
@@ -1635,7 +1769,7 @@ internal sealed class FakeHandler : HttpMessageHandler
     }
 }
 
-internal sealed record RecordedRequest(string Method, Uri Uri, Version Version, HttpVersionPolicy VersionPolicy, IReadOnlyDictionary<string, string> Headers, string? Body)
+internal sealed record RecordedRequest(long SentAt, string Method, Uri Uri, Version Version, HttpVersionPolicy VersionPolicy, IReadOnlyDictionary<string, string> Headers, string? Body)
 {
     public string? Header(string name) => Headers.TryGetValue(name, out var v) ? v : null;
 }
