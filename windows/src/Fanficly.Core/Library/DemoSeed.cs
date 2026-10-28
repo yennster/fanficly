@@ -62,8 +62,7 @@ public static class DemoSeed
         foreach (var (id, daysAgo) in recents)
         {
             var s = Summary(id);
-            store.Insert(new RecentlyViewed(id, s.Title, s.Author, s.Fandoms.FirstOrDefault() ?? "",
-                                            SeedDate.AddHours(-daysAgo * 8)));
+            store.Insert(new RecentlyViewed(s, SeedDate.AddHours(-daysAgo * 8)));
         }
 
         // Reading stats (Stats tab). Spread active reading time across several
