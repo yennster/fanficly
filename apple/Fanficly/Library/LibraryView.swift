@@ -386,6 +386,7 @@ struct FolderDetailView: View {
     @State private var selectedWorkIds = Set<PersistentIdentifier>()
     @State private var workEditingNotes: Work?
     @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
     @State private var pendingDownloadIds: [Int]?
 
     init(folder: CustomFolder, initialSearchText: String = "") {
@@ -518,7 +519,7 @@ struct FolderDetailView: View {
             Button("Download") {
                 let client = client
                 let context = context
-                RestoreDownloadCenter.shared.startFolderDownload(ids: ids) { id in
+                RestoreDownloadCenter.shared.startFolderDownload(ids: ids, signedIn: auth.isLoggedIn) { id in
                     try await Self.saveOffline(workId: id, client: client, context: context)
                 }
             }

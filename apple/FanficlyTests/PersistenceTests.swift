@@ -1994,7 +1994,7 @@ final class PersistenceTests: XCTestCase {
     /// A failed story is counted and skipped; the rest still download.
     func test_downloadQueueSkipsFailures() async {
         let rec = QueueRecorder()
-        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: true, download: { id in
             rec.attempted.append(id)
             if id == 2 { throw URLError(.badServerResponse) }
             rec.downloaded.append(id)
@@ -2013,7 +2013,7 @@ final class PersistenceTests: XCTestCase {
         ]
         for (error, reason) in cases {
             let rec = QueueRecorder()
-            let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3, 4], download: { id in
+            let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3, 4], signedIn: true, download: { id in
                 rec.attempted.append(id)
                 if id == 2 { throw error }
                 rec.downloaded.append(id)
@@ -2021,8 +2021,23 @@ final class PersistenceTests: XCTestCase {
             XCTAssertEqual(rec.attempted, [1, 2])
             XCTAssertEqual(rec.downloaded, [1])
             XCTAssertEqual(result, .init(done: 1, failed: 1, total: 4, finished: true, stopped: reason))
+            XCTAssertEqual(result?.untried, 3)
             XCTAssertNotNil(result?.stoppedDetail)
         }
+    }
+
+    /// Signed out, `.unauthorized` is a restricted work: it fails alone and
+    /// the public stories after it still download.
+    func test_downloadQueueSkipsRestrictedWorkWhenSignedOut() async {
+        let rec = QueueRecorder()
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: false, download: { id in
+            rec.attempted.append(id)
+            if id == 2 { throw AO3Error.unauthorized }
+            rec.downloaded.append(id)
+        }, report: { rec.reports.append($0) })
+        XCTAssertEqual(rec.downloaded, [1, 3])
+        XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
+        XCTAssertEqual(result?.untried, 0)
     }
 
     /// Cancelling mid-run stops before the next story and undoes nothing:
@@ -2030,7 +2045,7 @@ final class PersistenceTests: XCTestCase {
     func test_downloadQueueCancelKeepsFinished() async {
         let rec = QueueRecorder()
         let task = Task { @MainActor in
-            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: true, download: { id in
                 rec.attempted.append(id)
                 rec.downloaded.append(id)
                 if id == 2 { withUnsafeCurrentTask { $0?.cancel() } }

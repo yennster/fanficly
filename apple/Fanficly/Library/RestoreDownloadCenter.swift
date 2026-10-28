@@ -33,13 +33,15 @@ final class RestoreDownloadCenter {
     enum StopReason: Equatable {
         /// AO3 said slow down (429).
         case rateLimited
-        /// AO3 wants a signed-in reader: signed out, or the session expired.
+        /// AO3 sent a signed-in reader to its login page: the session expired.
         case signInNeeded
 
-        init?(_ error: any Error) {
+        /// Signed out, `.unauthorized` is just a restricted work (it needs an
+        /// account), so it fails alone and the public ones still download.
+        init?(_ error: any Error, signedIn: Bool) {
             switch error as? AO3Error {
             case .rateLimited: self = .rateLimited
-            case .unauthorized: self = .signInNeeded
+            case .unauthorized where signedIn: self = .signInNeeded
             default: return nil
             }
         }
@@ -51,8 +53,6 @@ final class RestoreDownloadCenter {
     private(set) var progress: Progress?
     private var lastProposal: [Int] = []
     private var downloadTask: Task<Void, Never>?
-    /// Works whose chapter text a restore added since the last prompt.
-    private var restoredTextIds: Set<Int> = []
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -78,6 +78,16 @@ final class RestoreDownloadCenter {
     /// gave chapter text, so the next prompt offers just those.
     func noteRestoredText(workIds: some Sequence<Int>) {
         restoredTextIds.formUnion(workIds)
+    }
+
+    /// Works whose chapter text a restore added since the last prompt, plus
+    /// the ones a stopped run didn't get to. Kept on this device, so they
+    /// survive a relaunch until the next restore offers them.
+    static let pendingKey = "restore.pendingRedownloads"
+
+    private var restoredTextIds: Set<Int> {
+        get { Set(defaults.array(forKey: Self.pendingKey) as? [Int] ?? []) }
+        set { defaults.set(newValue.sorted(), forKey: Self.pendingKey) }
     }
 
     /// Shows the prompt for the works the last restore gave text, when any
@@ -117,12 +127,13 @@ final class RestoreDownloadCenter {
     /// anyway). Reads the snapshot taken at proposal time, so it works no
     /// matter whether the alert clears its binding before or after the
     /// button action runs.
-    func startDownloads(client: any AO3ClientProtocol) {
+    /// `signedIn` decides what an `.unauthorized` means (`StopReason`).
+    func startDownloads(client: any AO3ClientProtocol, signedIn: Bool) {
         let ids = lastProposal
         guard !ids.isEmpty, downloadTask == nil else { return }
         proposedIds = nil
         lastProposal = []
-        start(ids: ids, kind: .restore) { id in _ = try await client.downloadEPUB(workId: id) }
+        start(ids: ids, kind: .restore, signedIn: signedIn) { id in _ = try await client.downloadEPUB(workId: id) }
     }
 
     // MARK: - Folder "Download All"
@@ -152,25 +163,31 @@ final class RestoreDownloadCenter {
     /// Downloads a folder's stories one after another. `download` does the
     /// per-work save (offline text if missing, then the EPUB), exactly what
     /// the per-work Save Offline does. Ignored while another run is going.
-    func startFolderDownload(ids: [Int], download: @escaping @MainActor (Int) async throws -> Void) {
+    func startFolderDownload(ids: [Int], signedIn: Bool, download: @escaping @MainActor (Int) async throws -> Void) {
         guard !ids.isEmpty, downloadTask == nil else { return }
-        start(ids: ids, kind: .folder, download: download)
+        start(ids: ids, kind: .folder, signedIn: signedIn, download: download)
     }
 
     // MARK: - The queue
 
-    private func start(ids: [Int], kind: Kind, download: @escaping @MainActor (Int) async throws -> Void) {
+    private func start(ids: [Int], kind: Kind, signedIn: Bool, download: @escaping @MainActor (Int) async throws -> Void) {
         self.kind = kind
         progress = Progress(done: 0, failed: 0, total: ids.count, finished: false)
         UIAccessibility.post(notification: .announcement,
                              argument: "Downloading \(ids.count) stories for offline reading.")
         downloadTask = Task {
-            let tally = await Self.runQueue(ids: ids, download: download) { [weak self] in
+            let tally = await Self.runQueue(ids: ids, signedIn: signedIn, download: download) { [weak self] in
                 self?.progress = $0
             }
             guard let tally, !Task.isCancelled else { return }
             downloadTask = nil
             progress = tally
+            // A stopped restore run offers what it didn't get to after the
+            // next restore, as the banner promises. (A folder keeps its
+            // Download All button for that.)
+            if kind == .restore, tally.stopped != nil {
+                noteRestoredText(workIds: ids.suffix(tally.untried))
+            }
             UIAccessibility.post(notification: .announcement, argument: tally.announcement)
             // A stop asks the reader to do something, so it stays up longer.
             try? await Task.sleep(for: .seconds(tally.stopped == nil ? 4 : 10))
@@ -187,6 +204,7 @@ final class RestoreDownloadCenter {
     /// here undoes them. `report` gets the tally after each work.
     static func runQueue(
         ids: [Int],
+        signedIn: Bool,
         download: @MainActor (Int) async throws -> Void,
         report: @MainActor (Progress) -> Void
     ) async -> Progress? {
@@ -200,7 +218,7 @@ final class RestoreDownloadCenter {
                 return nil
             } catch {
                 tally = tally.recording(succeeded: false)
-                if let reason = StopReason(error) {
+                if let reason = StopReason(error, signedIn: signedIn) {
                     if Task.isCancelled { return nil }
                     return tally.finishing(stopped: reason)
                 }
@@ -248,10 +266,16 @@ extension RestoreDownloadCenter.Progress {
         }
     }
 
+    /// The stories a stopped run didn't download: the one AO3 refused and
+    /// every one after it. Zero for a run that went to the end.
+    var untried: Int {
+        stopped == nil ? 0 : total - done - failed + 1
+    }
+
     /// The finished banner's second line, for a stopped run.
     var stoppedDetail: String? {
         guard let stopped else { return nil }
-        let left = total - done
+        let left = untried
         return switch stopped {
         case .rateLimited: "Downloaded \(done) of \(total). Try the other \(left) again later."
         case .signInNeeded: "Downloaded \(done) of \(total). AO3 wants a signed-in reader for the other \(left)."
@@ -319,6 +343,7 @@ private struct RestoreDownloadBanner: View {
 
 private struct RestoreRedownloadUI: ViewModifier {
     @Environment(\.ao3Client) private var client
+    @Environment(AuthState.self) private var auth
     private var center: RestoreDownloadCenter { .shared }
 
     private var proposedCount: Int {
@@ -330,7 +355,7 @@ private struct RestoreRedownloadUI: ViewModifier {
             .alert("Re-download offline stories?", isPresented: Binding(
                 get: { RestoreDownloadCenter.shared.proposedIds != nil },
                 set: { if !$0 { RestoreDownloadCenter.shared.dismissProposal() } })) {
-                Button("Download") { center.startDownloads(client: client) }
+                Button("Download") { center.startDownloads(client: client, signedIn: auth.isLoggedIn) }
                 Button("Not Now", role: .cancel) { center.declineProposal() }
             } message: {
                 Text("\(proposedCount) \(proposedCount == 1 ? "story" : "stories") in your restored library \(proposedCount == 1 ? "was" : "were") saved for offline reading. Download \(proposedCount == 1 ? "it" : "them") again on this device? Everything else is already restored.")
