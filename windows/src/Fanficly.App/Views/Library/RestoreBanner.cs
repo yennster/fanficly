@@ -122,7 +122,6 @@ public static class RestoreBanner
         var group = new AccessibleGroup("", UI.UI.VStack(4, title, bar));
         var cancel = UI.UI.Button("Cancel", () => Center.Cancel());
         cancel.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-        AutomationProperties.SetHelpText(cancel, "Stops the downloads. Everything else stays restored.");
         AutomationProperties.SetAutomationId(cancel, "restore.cancel");
 
         var grid = UI.UI.Grid("Auto,*,Auto", columnSpacing: 12);
@@ -156,6 +155,9 @@ public static class RestoreBanner
                 ? $"Downloaded {p.Done} of {p.Total} stories"
                 : $"Downloading stories, {p.Done} of {p.Total} done";
             cancel.Visibility = p.Finished ? Visibility.Collapsed : Visibility.Visible;
+            AutomationProperties.SetHelpText(cancel, Center.Kind == RestoreDownloadCenter.DownloadKind.Restore
+                ? "Stops the downloads. Everything else stays restored."
+                : "Stops the downloads. Stories already downloaded stay.");
         }
 
         void OnChanged(object? sender, PropertyChangedEventArgs e)

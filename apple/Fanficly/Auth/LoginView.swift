@@ -15,11 +15,18 @@ struct LoginView: View {
             if let current = auth.username, !auth.isSessionExpired {
                 Section {
                     LabeledContent("Logged in as", value: current)
-                    Button("Log out", role: .destructive) {
+                    Button(role: .destructive) {
                         Task { await auth.logout(using: client) }
+                    } label: {
+                        if auth.isSigningOut {
+                            ProgressView()
+                        } else {
+                            Text("Log out")
+                        }
                     }
+                    .disabled(auth.isSigningOut)
                 } footer: {
-                    Text("Logging out clears the session cookie from your Keychain. Your offline library stays on the device.")
+                    Text("Logging out signs you out on AO3 and clears the session cookie from your Keychain. Your offline library stays on the device.")
                 }
             } else {
                 if auth.isSessionExpired {
@@ -59,7 +66,7 @@ struct LoginView: View {
                             Text("Log in").frame(maxWidth: .infinity)
                         }
                     }
-                    .disabled(auth.isAuthenticating || username.isEmpty || password.isEmpty)
+                    .disabled(auth.isAuthenticating || auth.isSigningOut || username.isEmpty || password.isEmpty)
                 }
 
                 // An expired session can still be removed from this device.
@@ -68,6 +75,7 @@ struct LoginView: View {
                         Button("Log out", role: .destructive) {
                             Task { await auth.logout(using: client) }
                         }
+                        .disabled(auth.isSigningOut)
                     }
                 }
             }

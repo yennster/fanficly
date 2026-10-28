@@ -61,12 +61,12 @@ public sealed class LibraryScreen : Screen
 
         _search = new AutoSuggestBox
         {
-            PlaceholderText = "Search titles, authors, or tags",
+            PlaceholderText = "Search titles, authors, tags, or notes",
             QueryIcon = new SymbolIcon(Symbol.Find),
             Margin = new Thickness(24, 4, 24, 8),
             MaxWidth = 912,
         };
-        AutomationProperties.SetName(_search, "Search titles, authors, or tags");
+        AutomationProperties.SetName(_search, "Search titles, authors, tags, or notes");
         AutomationProperties.SetAutomationId(_search, "library.search");
         _search.TextChanged += (_, _) =>
         {

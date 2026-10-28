@@ -156,6 +156,23 @@ public sealed class SubscriptionPoller
         return notifyCount;
     }
 
+    /// <summary>Check AO3 work subscriptions (when logged in) and followed works for
+    /// new chapters together: one request per work id, so a work that's both
+    /// subscribed and followed is fetched once and notifies once (#148).</summary>
+    public async Task<int> CheckWorksForNewChaptersAsync(CancellationToken ct = default)
+    {
+        var notifyCount = 0;
+        var targets = await OnRecords(() => WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks()))
+            .ConfigureAwait(false);
+        foreach (var t in targets)
+        {
+            if (ct.IsCancellationRequested) break;
+            notifyCount += await CheckWorkAsync(t.Id, t.Subscription, t.Followed, ct).ConfigureAwait(false);
+        }
+        await OnRecords(() => _store.TrySave()).ConfigureAwait(false);
+        return notifyCount;
+    }
+
     /// <summary>Poll locally-followed authors (no AO3 login required) for newly
     /// published works, notifying once per new work.</summary>
     public async Task<int> CheckFollowedAuthorsAsync(CancellationToken ct = default)
@@ -188,9 +205,10 @@ public sealed class SubscriptionPoller
         var ordered = await OnRecords(() =>
         {
             var targets = new List<(DateTimeOffset? LastCheckedAt, Func<Task<int>> Check)>();
-            if (Username is not null)
-                targets.AddRange(WorkSubscriptionRecords().Select(r => (r.LastCheckedAt, (Func<Task<int>>)(() => CheckWorkSubscriptionAsync(r, ct)))));
-            targets.AddRange(FollowedWorks().Select(w => (w.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedWorkAsync(w, ct)))));
+            // One target per work id: a work that's both AO3-subscribed and followed
+            // is fetched once (#148), queued by the staler of its two records.
+            targets.AddRange(WorkTargets(Username is not null ? WorkSubscriptionRecords() : [], FollowedWorks())
+                .Select(t => (Stalest(t.Subscription, t.Followed), (Func<Task<int>>)(() => CheckWorkAsync(t.Id, t.Subscription, t.Followed, ct)))));
             targets.AddRange(FollowedAuthors().Select(a => (a.LastCheckedAt, (Func<Task<int>>)(() => CheckFollowedAuthorAsync(a, ct)))));
             return targets.OrderBy(t => t.LastCheckedAt ?? DateTimeOffset.MinValue).ToList();
         }).ConfigureAwait(false);
@@ -212,55 +230,73 @@ public sealed class SubscriptionPoller
 
     // MARK: - Per-record checks
 
-    /// <summary>Check one AO3 work subscription for a new chapter (one throttled
-    /// request). Returns the number of notifications posted. The attempt is
-    /// stamped whatever happens: a permanently-failing record (deleted work,
-    /// parse drift) must not stay "oldest" forever and hog the queue head.</summary>
-    private async Task<int> CheckWorkSubscriptionAsync(SubscriptionRecord rec, CancellationToken ct)
+    /// <summary>The work targets of a poll, one per AO3 work id: a subscription
+    /// and a follow of the same work share a target, so the work is fetched once.</summary>
+    private static List<(int Id, SubscriptionRecord? Subscription, Work? Followed)> WorkTargets(
+        IReadOnlyList<SubscriptionRecord> subscriptions, IReadOnlyList<Work> followed)
     {
-        try
+        var ids = new List<int>();
+        var recs = new Dictionary<int, SubscriptionRecord>();
+        var works = new Dictionary<int, Work>();
+        foreach (var rec in subscriptions)
         {
-            // A record's key and id never change, so they're read here.
-            var parts = rec.Key.Split(':');
-            if (parts.Length != 2 || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var workId))
-                return 0;
-            try
+            if (WorkId(rec) is { } id)
             {
-                var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
-                var (lastSeen, title) = await OnRecords(() =>
-                {
-                    var seen = rec.LastSeenChapterCount;
-                    rec.LastSeenChapterCount = meta.ChapterCount;
-                    return (seen, rec.DisplayName);
-                }).ConfigureAwait(false);
-                if (lastSeen is not { } seenCount || meta.ChapterCount <= seenCount) return 0;
-                await PostAsync(NewChapterContent(title, seenCount, meta.ChapterCount, workId)).ConfigureAwait(false);
-                return 1;
+                if (recs.TryAdd(id, rec)) ids.Add(id);
             }
-            catch (Exception e)
-            {
-                FailedChecks++;
-                LibraryHooks.Log?.Invoke($"Skipping work {workId}: {e.Message}");
-                return 0;
-            }
+            // A key that names no work can't be checked; stamp it like a failed check.
+            else rec.LastCheckedAt = DateTimeOffset.Now;
         }
-        finally
-        {
-            await OnRecords(() => rec.LastCheckedAt = DateTimeOffset.Now).ConfigureAwait(false);
-        }
+        foreach (var work in followed)
+            if (works.TryAdd(work.Ao3Id, work) && !recs.ContainsKey(work.Ao3Id)) ids.Add(work.Ao3Id);
+        return ids.Select(id => (id, recs.GetValueOrDefault(id), works.GetValueOrDefault(id))).ToList();
     }
 
-    private async Task<int> CheckFollowedWorkAsync(Work work, CancellationToken ct)
+    /// <summary>The staler of a target's records; a record never checked goes first.</summary>
+    private static DateTimeOffset? Stalest(SubscriptionRecord? rec, Work? work) =>
+        new[] { rec is null ? (DateTimeOffset?)null : rec.LastCheckedAt ?? DateTimeOffset.MinValue,
+                work is null ? null : work.LastCheckedAt ?? DateTimeOffset.MinValue }.Min();
+
+    /// <summary>The work id in a work subscription's key (<c>work:&lt;id&gt;</c>).</summary>
+    private static int? WorkId(SubscriptionRecord rec)
     {
-        var workId = work.Ao3Id;
+        var parts = rec.Key.Split(':');
+        return parts.Length == 2 && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : null;
+    }
+
+    /// <summary>Check one AO3 work subscription for a new chapter (one throttled
+    /// request). Returns the number of notifications posted.</summary>
+    private async Task<int> CheckWorkSubscriptionAsync(SubscriptionRecord rec, CancellationToken ct)
+    {
+        // A record's key and id never change, so they're read here.
+        if (WorkId(rec) is not { } workId)
+        {
+            await OnRecords(() => rec.LastCheckedAt = DateTimeOffset.Now).ConfigureAwait(false);
+            return 0;
+        }
+        return await CheckWorkAsync(workId, rec, null, ct).ConfigureAwait(false);
+    }
+
+    private Task<int> CheckFollowedWorkAsync(Work work, CancellationToken ct) => CheckWorkAsync(work.Ao3Id, null, work, ct);
+
+    /// <summary>Check a work for new chapters with one throttled request of its
+    /// light page, for its subscription, its follow or both, and post at most one
+    /// notification. The attempt is stamped whatever happens: a permanently-failing
+    /// record (deleted work, parse drift) must not stay "oldest" forever and hog
+    /// the queue head.</summary>
+    private async Task<int> CheckWorkAsync(int workId, SubscriptionRecord? rec, Work? work, CancellationToken ct)
+    {
         try
         {
             var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
             var (lastSeen, title) = await OnRecords(() =>
             {
-                var seen = work.LastSeenChapterCount;
-                work.LastSeenChapterCount = meta.ChapterCount;
-                return (seen, work.Title);
+                // Against the higher baseline: chapters either record already counted
+                // were notified (or seen) then, and mustn't notify again.
+                var seen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
+                if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
+                if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
+                return (seen, work?.Title ?? rec?.DisplayName ?? "");
             }).ConfigureAwait(false);
             if (lastSeen is not { } seenCount || meta.ChapterCount <= seenCount) return 0;
             await PostAsync(NewChapterContent(title, seenCount, meta.ChapterCount, workId)).ConfigureAwait(false);
@@ -269,17 +305,22 @@ public sealed class SubscriptionPoller
         catch (Exception e)
         {
             FailedChecks++;
-            LibraryHooks.Log?.Invoke($"Skipping followed work {workId}: {e.Message}");
+            LibraryHooks.Log?.Invoke($"Skipping work {workId}: {e.Message}");
             return 0;
         }
         finally
         {
-            await OnRecords(() => work.LastCheckedAt = DateTimeOffset.Now).ConfigureAwait(false);
+            await OnRecords(() =>
+            {
+                if (rec is not null) rec.LastCheckedAt = DateTimeOffset.Now;
+                if (work is not null) work.LastCheckedAt = DateTimeOffset.Now;
+            }).ConfigureAwait(false);
         }
     }
 
     private async Task<int> CheckFollowedAuthorAsync(FollowedAuthor author, CancellationToken ct)
     {
+        // A followed author's username never changes, so it's read here.
         var username = author.Username;
         try
         {
@@ -288,14 +329,16 @@ public sealed class SubscriptionPoller
             // public works still alert; restricted ones aren't in the baseline
             // yet, so they alert once a signed-in poll sees them.
             if (Username is not null && result.ServedAsGuest) SessionExpired = true;
-            var (newWorks, displayName) = await OnRecords(() =>
-            {
-                var known = author.KnownWorkIds.ToHashSet();
-                var posted = NewlyPostedWorks(result.Works, known);
-                known.UnionWith(result.Works.Select(w => w.Id));
-                author.KnownWorkIds = known.ToList();
-                return (posted, author.DisplayName);
-            }).ConfigureAwait(false);
+            var latestIds = result.Works.Select(w => w.Id);
+            var (known, followedAt, displayName) = await OnRecords(() =>
+                (author.KnownWorkIds.ToHashSet(), author.FollowedAt, author.DisplayName)).ConfigureAwait(false);
+            var newWorks = NewlyPostedWorks(result.Works, known);
+            IReadOnlySet<int> undated = new HashSet<int>();
+            if (known.Count == 0)
+                (newWorks, undated) = await WorksPostedSinceFollowAsync(result.Works, followedAt, ct).ConfigureAwait(false);
+            known.UnionWith(latestIds);
+            known.ExceptWith(undated);
+            await OnRecords(() => author.KnownWorkIds = known.ToList()).ConfigureAwait(false);
             if (newWorks.Count == 0) return 0;
             await PostAsync(NewWorkContent(username, displayName, newWorks)).ConfigureAwait(false);
             return newWorks.Count;
@@ -310,6 +353,49 @@ public sealed class SubscriptionPoller
         {
             await OnRecords(() => author.LastCheckedAt = DateTimeOffset.Now).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>No baseline: Follow was tapped before the author's list loaded (or
+    /// they had no public works yet), so nothing on page 1 is known. A work last
+    /// updated well before the follow was already there. A later one may be new or
+    /// an old work that got a chapter, so its work page's published date decides:
+    /// one request for each. AO3 dates are days, shown to guests in UTC, so "later"
+    /// starts the day before the follow day: a work posted just after a follow east
+    /// of UTC can carry the previous date. The cost is at worst an alert for a work
+    /// posted shortly before the follow.
+    ///
+    /// Works that couldn't be dated (an error page, or the poll was cancelled) come
+    /// back in <c>Undated</c> and stay out of the baseline. Once the rest is the
+    /// baseline, the next poll judges them by the id rule in
+    /// <see cref="NewlyPostedWorks"/>; with nothing dated, the next poll dates them
+    /// again.</summary>
+    private async Task<(IReadOnlyList<AO3WorkSummary> Posted, IReadOnlySet<int> Undated)> WorksPostedSinceFollowAsync(
+        IReadOnlyList<AO3WorkSummary> works, DateTimeOffset followedAt, CancellationToken ct)
+    {
+        var since = followedAt.ToLocalTime().Date.AddDays(-1);
+        var posted = new List<AO3WorkSummary>();
+        var undated = new HashSet<int>();
+        foreach (var work in works)
+        {
+            if (work.UpdatedAt is not { } updatedAt || updatedAt.ToLocalTime().Date < since) continue;
+            if (ct.IsCancellationRequested)
+            {
+                undated.Add(work.Id);
+                continue;
+            }
+            try
+            {
+                var meta = await _client.FetchWorkMetadataAsync(work.Id, ct).ConfigureAwait(false);
+                if (meta.PublishedAt is not { } publishedAt) undated.Add(work.Id);
+                else if (publishedAt.ToLocalTime().Date >= since) posted.Add(work);
+            }
+            catch (Exception e)
+            {
+                if (e is not OperationCanceledException) LibraryHooks.Log?.Invoke($"Couldn't date work {work.Id}: {e.Message}");
+                undated.Add(work.Id);
+            }
+        }
+        return (posted, undated);
     }
 
     // MARK: - Record fetches
@@ -342,8 +428,9 @@ public sealed class SubscriptionPoller
     /// chapter, which an update can't leave it with — that still catches a new
     /// work with a lower id: a gift revealed from an anonymous collection, a
     /// long-held draft, or a restricted work a guest page left out. Empty with
-    /// no baseline yet — a freshly-followed author is seeded at follow time, but
-    /// a first poll must never alert for the whole back catalogue.</summary>
+    /// no baseline: the poller dates those works instead
+    /// (<see cref="WorksPostedSinceFollowAsync"/>), so a first poll never alerts
+    /// for the whole back catalogue.</summary>
     internal static IReadOnlyList<AO3WorkSummary> NewlyPostedWorks(IReadOnlyList<AO3WorkSummary> works, IReadOnlySet<int> known)
     {
         if (known.Count == 0) return [];

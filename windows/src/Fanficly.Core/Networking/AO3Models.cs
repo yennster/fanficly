@@ -138,7 +138,10 @@ public sealed record AO3CommentsPage(IReadOnlyList<AO3Comment> Comments, int Cur
     public bool HasMore => CurrentPage < TotalPages;
 }
 
-public sealed record AO3WorkMetadata(int Id, int ChapterCount, int? TotalChapters, DateTimeOffset? UpdatedAt);
+/// <param name="PublishedAt">The day the work was first posted (<c>dd.published</c>). The
+/// poller asks for it when it has no baseline to tell a new work from an updated one.</param>
+public sealed record AO3WorkMetadata(int Id, int ChapterCount, int? TotalChapters, DateTimeOffset? UpdatedAt,
+                                     DateTimeOffset? PublishedAt = null);
 
 public enum AO3SubscriptionKind { Work, Series, User }
 
@@ -216,7 +219,10 @@ public static class WorkExportFormatExtensions
 /// kudos here. :)", which is still a kudo on the work.</summary>
 public enum KudosOutcome { Left, AlreadyLeft }
 
-public enum AO3ErrorKind { LoginFailed, RateLimited, Unauthorized, ParseFailed, Http, Network, Rejected }
+/// <summary>Forbidden is a 403 that isn't AO3's login page (AO3 refused the request
+/// itself); BlockedByProtection is a 403 from Cloudflare's bot protection in front of
+/// AO3, which answers signed-out readers too. Neither is a sign-in problem.</summary>
+public enum AO3ErrorKind { LoginFailed, RateLimited, Unauthorized, ParseFailed, Http, Network, Rejected, Forbidden, BlockedByProtection }
 
 /// <summary>Every failure the AO3 client surfaces (Swift's <c>AO3Error</c>).</summary>
 public sealed class AO3Exception : Exception
@@ -238,6 +244,8 @@ public sealed class AO3Exception : Exception
     public static AO3Exception LoginFailed(string reason) => new(AO3ErrorKind.LoginFailed, reason);
     public static AO3Exception RateLimited() => new(AO3ErrorKind.RateLimited);
     public static AO3Exception Unauthorized() => new(AO3ErrorKind.Unauthorized);
+    public static AO3Exception Forbidden() => new(AO3ErrorKind.Forbidden);
+    public static AO3Exception BlockedByProtection() => new(AO3ErrorKind.BlockedByProtection);
     public static AO3Exception ParseFailed(string reason) => new(AO3ErrorKind.ParseFailed, reason);
     /// <summary>AO3 answered, but turned the action down (its error message, if any).</summary>
     public static AO3Exception Rejected(string reason) => new(AO3ErrorKind.Rejected, reason);
@@ -254,6 +262,8 @@ public sealed class AO3Exception : Exception
         AO3ErrorKind.RateLimited => "AO3 is rate-limiting requests. Try again in a minute.",
         AO3ErrorKind.Unauthorized => "You need to log in to AO3 for this.",
         AO3ErrorKind.ParseFailed => $"Couldn't read AO3's page ({reason}).",
+        AO3ErrorKind.Forbidden => "AO3 refused this request. Try again later, or open the page on the AO3 website.",
+        AO3ErrorKind.BlockedByProtection => "AO3's protection blocked the request. Wait a few minutes, then try again.",
         AO3ErrorKind.Rejected => reason is { Length: > 0 } ? $"AO3 didn't accept it: {reason}" : "AO3 didn't accept it.",
         AO3ErrorKind.Http when status is { } code && IsServerUnavailable(code) =>
             $"AO3 isn't responding right now (HTTP {code}). This is on AO3's side; try again in a minute.",

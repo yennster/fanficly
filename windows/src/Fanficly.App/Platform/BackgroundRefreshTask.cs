@@ -207,7 +207,9 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
 
         using var library = LibraryStore.Open(AppPaths.Database);
         using var client = new AO3Client(AppPaths.Downloads, vault, AppHost.AppVersion);
-        var username = new AuthState(vault).Username;
+        // Repaired first: a stored email address (#144) can't build the
+        // subscriptions URL.
+        var username = await AuthState.RepairedLoginAsync(vault, client, ct);
         try
         {
             var notified = await BackgroundRefresh.RunPollAsync(client, library, username, new AppHost.ToastNotifier(), ct);

@@ -32,7 +32,7 @@ internal static class SearchHelp
             Section("Shortcuts you can type", "bolt.fill", Theme.Warning,
             [
                 ("complete · wip · one shot", "Completion and single-chapter works."),
-                ("explicit · nsfw · sfw", "Ratings (\"teen\" and \"mature\" stay words — use a suggestion or Filters)."),
+                ("rated explicit · nsfw · sfw", "Ratings (\"teen\", \"mature\" and \"explicit\" on their own stay words — use a suggestion or Filters)."),
                 ("m/m · f/f · f/m", "Categories."),
                 ("under 10k · over 50k · between 10k and 50k", "Word count."),
                 ("in spanish · no crossovers · no mcd", "Language, crossovers, and leaving out Major Character Death."),

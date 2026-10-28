@@ -70,6 +70,7 @@ internal static class LibraryActions
                     flyout.Items.Add(Item("Unfollow", "bookmark.slash", () => Unfollow(work)));
                 flyout.Items.Add(Item("Folders...", "folder", () => AfterMenu(() => ShowFolderSheetAsync(work)), automationId: "library.row.folders"));
             }
+            flyout.Items.Add(Item("Note & Tags...", "note.text", () => AfterMenu(() => EditNotesAsync(work)), automationId: "library.row.notes"));
             if (Downloading.Contains(work.Ao3Id))
                 flyout.Items.Add(new MenuFlyoutItem { Text = "Downloading…", IsEnabled = false, Icon = Symbols.Icon("arrow.down.circle") });
             else if (WorkPersistence.EpubPath(work.Ao3Id) is not null)
@@ -116,6 +117,46 @@ internal static class LibraryActions
     {
         var pinned = WorkPersistence.TogglePin(work, Store);
         MainWindow.Current?.Announce(pinned ? $"Pinned {work.Title}" : $"Unpinned {work.Title}");
+    }
+
+    /// <summary>Edits the work's own note and personal tags (Swift's
+    /// <c>WorkNotesSheet</c>, RM-009).</summary>
+    public static async Task EditNotesAsync(Work work)
+    {
+        if (!work.IsInserted) return;
+        var note = new TextBox
+        {
+            Header = "Note",
+            PlaceholderText = "Why you saved it, what to remember…",
+            Text = work.Note ?? "",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            MinHeight = 90 * UI.UI.TextScale,
+            MaxHeight = 220 * UI.UI.TextScale,
+        };
+        AutomationProperties.SetAutomationId(note, "notes.note");
+        var tags = new TextBox
+        {
+            Header = "Your tags",
+            PlaceholderText = "for a bad day, reread at Christmas",
+            Text = string.Join(", ", work.PersonalTags),
+        };
+        AutomationProperties.SetAutomationId(tags, "notes.tags");
+        var dialog = new ContentDialog
+        {
+            Title = work.Title,
+            Content = UI.UI.VStack(12, note, tags,
+                UI.UI.Caption("Separate tags with commas. Library search finds your note and tags. They're saved in your library, and in your sync folder's backup if sync is on.")),
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        dialog.Opened += (_, _) => note.Focus(FocusState.Programmatic);
+        // Esc is an explicit Cancel here, so unlike the Swift sheet (which
+        // blocks swipe-down while there are edits) it simply discards them.
+        if (await Dialogs.ShowAsync(dialog) != ContentDialogResult.Primary || !work.IsInserted) return;
+        WorkPersistence.SetNotes(work, note.Text, tags.Text, Store);
+        MainWindow.Current?.Announce($"Saved note and tags for {work.Title}");
     }
 
     public static void Unfollow(Work work)

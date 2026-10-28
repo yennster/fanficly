@@ -19,7 +19,7 @@ public sealed class PrivacyScreen : Screen
                 "Nothing. No analytics, no crash reports, no device IDs, no telemetry."),
             Block("What's stored on your PC",
                 "• Your AO3 session cookie (encrypted with Windows Data Protection, so only your Windows account can read it), so you stay logged in.\n"
-                + "• Works you've saved offline and your reading position (in app storage).\n"
+                + "• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n"
                 + "• Your preferences (theme, font size).\n"
                 + "• An optional backup of your library and settings in a sync folder you choose (OneDrive, iCloud Drive or similar), if Sync across devices is on. That folder's own service uploads it under your account."),
             Block("What goes off your PC",
