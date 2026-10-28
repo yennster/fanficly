@@ -298,8 +298,28 @@ struct ReaderView: View {
         @Binding var showingError: Bool
         let errorMessage: String
         let save: (String) -> Void
+        /// ReaderLayoutTests' way to the prompt where the Aa menu won't open
+        /// under XCUITest (Xcode Cloud's folded iPhone Duo, though it opens
+        /// there by hand): demo mode with -demoNewProfileButton only.
+        private static let testButton = FanficlyApp.isDemoMode
+            && ProcessInfo.processInfo.arguments.contains("-demoNewProfileButton")
         func body(content: Content) -> some View {
             content
+                // In the middle of the page, clear of the status bar's corner.
+                .overlay {
+                    if Self.testButton {
+                        Button {
+                            newProfileName = ""
+                            showingNewProfile = true
+                        } label: {
+                            Color.clear
+                                .frame(width: 60, height: 60)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("New Profile (test)")
+                        .accessibilityIdentifier("reader.newProfileTestButton")
+                    }
+                }
                 .alert("New Profile", isPresented: $showingNewProfile) {
                     TextField("Profile Name", text: $newProfileName)
                     Button("Cancel", role: .cancel) { }
