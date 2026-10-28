@@ -373,10 +373,22 @@ public actor AO3Client: AO3ClientProtocol {
     private let throttle = ThrottleActor(minimumInterval: 1.0)
     private let logger = Logger(subsystem: "io.github.yennster.fanficly", category: "AO3Client")
     private var cachedUsername: String?
+    /// The session's cookie jar: the shared one in the app, a test's own with
+    /// an ephemeral session.
+    private let cookieStorage: HTTPCookieStorage
+    private let persistence: CookiePersistence
+    private let vault: any CookieVault
+    private let loginNames: any LoginNameStore
+    /// Logging out, while its own requests to AO3 still need the session.
+    private var isSigningOut = false
+    private nonisolated(unsafe) var cookieObserver: (any NSObjectProtocol)?
 
-    public init(session: URLSession? = nil) {
+    /// Keeps the session's cookies in `vault` while `loginNames` has a
+    /// signed-in name; the public init uses the Keychain for both.
+    init(session: URLSession?, vault: any CookieVault, loginNames: any LoginNameStore) {
+        let resolved: URLSession
         if let session {
-            self.session = session
+            resolved = session
         } else {
             let cfg = URLSessionConfiguration.default
             cfg.httpAdditionalHeaders = [
@@ -392,17 +404,33 @@ public actor AO3Client: AO3ClientProtocol {
             cfg.timeoutIntervalForRequest = 30
             // Room for search, which sets its own longer request timeout.
             cfg.timeoutIntervalForResource = 90
-            self.session = URLSession(configuration: cfg)
+            resolved = URLSession(configuration: cfg)
         }
-        
-        // Listen for cookie storage changes to automatically save them to the Keychain
-        NotificationCenter.default.addObserver(
+        self.session = resolved
+        let storage = resolved.configuration.httpCookieStorage ?? .shared
+        let persistence = CookiePersistence(vault: vault, signedIn: loginNames.storedUsername() != nil)
+        cookieStorage = storage
+        self.vault = vault
+        self.loginNames = loginNames
+        self.persistence = persistence
+
+        // Save cookie changes to the vault (while signed in; see CookiePersistence).
+        let site = baseURL
+        cookieObserver = NotificationCenter.default.addObserver(
             forName: .NSHTTPCookieManagerCookiesChanged,
-            object: HTTPCookieStorage.shared,
+            object: storage,
             queue: nil
-        ) { [weak self] _ in
-            self?.saveCookiesToKeychain()
+        ) { _ in
+            persistence.cookiesChanged(storage.cookies(for: site) ?? [])
         }
+    }
+
+    public init(session: URLSession? = nil) {
+        self.init(session: session, vault: CredentialStore.shared, loginNames: CredentialStore.shared)
+    }
+
+    deinit {
+        if let cookieObserver { NotificationCenter.default.removeObserver(cookieObserver) }
     }
 
     public static var userAgent: String {
@@ -451,8 +479,7 @@ public actor AO3Client: AO3ClientProtocol {
         // Success: the response shows the logged-in user navigation (and no
         // login form, whose header links aren't a name).
         if try !LoginParser.hasLoginForm(html: respHTML), let name = try LoginParser.currentUsername(html: respHTML) {
-            cachedUsername = name
-            return name
+            return signedIn(as: name)
         }
         // Explicit AO3 error flash.
         if let err = try LoginParser.detectLoginFailure(html: respHTML) {
@@ -463,27 +490,99 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.loginFailed(reason: "Incorrect username or password.")
         }
         // Unexpected response — assume the session cookie was set anyway.
-        if let cookies = HTTPCookieStorage.shared.cookies(for: baseURL),
-           cookies.contains(where: { $0.name.contains("user_credentials") || $0.name.contains("remember_user_token") }) {
+        if let cookies = cookieStorage.cookies(for: baseURL), cookies.contains(where: Self.isAccountCookie) {
             // The typed text may be an email address, which no /users/ page
             // takes, so ask AO3 for the login name.
             if let name = await fetchLoggedInName() {
-                cachedUsername = name
-                return name
+                return signedIn(as: name)
             }
             if !username.contains("@") {
-                cachedUsername = username
-                return username
+                return signedIn(as: username)
             }
         }
         throw AO3Error.loginFailed(reason: "Couldn't confirm login. Please try again.")
     }
 
+    private func signedIn(as name: String) -> String {
+        cachedUsername = name
+        persistence.signedIn(with: cookieStorage.cookies(for: baseURL) ?? [])
+        return name
+    }
+
+    /// Signs out (#145): stops saving cookies and clears the Keychain copy,
+    /// asks AO3 to end the session so `remember_user_token` stops working
+    /// there too (once, never retried; skipped when it can't be reached), then
+    /// deletes AO3's cookies here. A request still running brings its cookies
+    /// back afterwards; `performRequest` deletes those. The generation goes
+    /// up again at the end, so a request that started (or retried) while
+    /// this waited on AO3, carrying the old cookies, counts as late too.
     public func logout() async {
-        if let cookies = HTTPCookieStorage.shared.cookies(for: baseURL) {
-            for cookie in cookies { HTTPCookieStorage.shared.deleteCookie(cookie) }
+        // The saved session, for AO3's logout, even when this is the first request.
+        ensureCookiesLoaded()
+        persistence.signedOut()
+        // The name too, right away: quit while AO3 is being asked and the next
+        // launch starts signed out.
+        loginNames.setUsername(nil)
+        isSigningOut = true
+        if (cookieStorage.cookies(for: baseURL) ?? []).contains(where: Self.isAccountCookie) {
+            await endAO3Session()
         }
+        deleteSiteCookies()
+        persistence.signedOut()
+        isSigningOut = false
         cachedUsername = nil
+    }
+
+    /// The cookies that keep an AO3 account signed in.
+    private static func isAccountCookie(_ cookie: HTTPCookie) -> Bool {
+        cookie.name.contains("user_credentials") || cookie.name.contains("remember_user_token")
+    }
+
+    /// AO3's own Log Out: a DELETE to `/users/logout` (Rails' `_method`
+    /// form field) with the CSRF token from any page. Best effort with short
+    /// timeouts, so signing out offline doesn't wait out the usual ones.
+    private func endAO3Session() async {
+        await throttle.wait()
+        var page = URLRequest(url: baseURL)
+        page.timeoutInterval = Self.logoutTimeout
+        guard let response = try? await performRequest(page, maxRetries: 0),
+              let html = String(data: response.0, encoding: .utf8),
+              let token = try? LoginParser.authenticityToken(html: html) else { return }
+        await throttle.wait()
+        let logoutURL = baseURL.appending(path: "/users/logout")
+        var post = URLRequest(url: logoutURL)
+        post.httpMethod = "POST"
+        post.timeoutInterval = Self.logoutTimeout
+        post.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        post.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
+        post.setValue(baseURL.absoluteString, forHTTPHeaderField: "Referer")
+        post.httpBody = encodeForm(["_method": "delete", "authenticity_token": token]).data(using: .utf8)
+        _ = try? await performRequest(post)
+    }
+
+    private static let logoutTimeout: TimeInterval = 10
+
+    private func deleteSiteCookies() {
+        for cookie in cookieStorage.cookies(for: baseURL) ?? [] { cookieStorage.deleteCookie(cookie) }
+    }
+
+    /// A response to a request sent before the last sign-out: URLSession has
+    /// already stored the cookies it set, which belong to the old session.
+    /// Signed out, every AO3 cookie goes again; signed back in, only the ones
+    /// this response set, so the new session's stay.
+    private func dropLateCookies(from response: HTTPURLResponse) {
+        guard !isSigningOut else { return } // logout deletes them when it's done
+        guard persistence.isSignedIn else { return deleteSiteCookies() }
+        guard let url = response.url else { return }
+        var fields: [String: String] = [:]
+        for (key, value) in response.allHeaderFields {
+            if let name = key as? String, let value = value as? String { fields[name] = value }
+        }
+        let late = HTTPCookie.cookies(withResponseHeaderFields: fields, for: url)
+        for cookie in cookieStorage.cookies(for: baseURL) ?? []
+        where late.contains(where: { $0.name == cookie.name && $0.value == cookie.value }) {
+            cookieStorage.deleteCookie(cookie)
+        }
     }
 
     public func currentUsername() async -> String? {
@@ -579,7 +678,7 @@ public actor AO3Client: AO3ClientProtocol {
 
     public func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         await throttle.wait()
-        let url = try AO3Endpoints.work(id: id, base: baseURL)
+        let url = try AO3Endpoints.workPage(id: id, base: baseURL)
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Work response not UTF-8")
@@ -846,7 +945,7 @@ public actor AO3Client: AO3ClientProtocol {
         // The first page is enough: it shows whether the session is signed in
         // and carries the work's subscribe form. No view_full_work.
         await throttle.wait()
-        let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
+        let pageURL = try AO3Endpoints.workPage(id: workId, base: baseURL)
         let (pageData, pageResponse) = try await performRequest(URLRequest(url: pageURL))
         if pageResponse.url?.path.hasPrefix("/users/login") == true { throw AO3Error.unauthorized }
         guard let pageHTML = String(data: pageData, encoding: .utf8) else {
@@ -891,7 +990,7 @@ public actor AO3Client: AO3ClientProtocol {
         // session is still logged in. AO3 takes guest kudos too, so posting
         // with an expired cookie would silently leave one as a guest.
         await throttle.wait()
-        let pageURL = try AO3Endpoints.workFirstPage(id: workId, base: baseURL)
+        let pageURL = try AO3Endpoints.workPage(id: workId, base: baseURL)
         let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
         guard let pageHTML = String(data: pageData, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Work page not UTF-8")
@@ -999,19 +1098,16 @@ public actor AO3Client: AO3ClientProtocol {
 
     private var cookiesLoaded = false
 
+    /// Puts the saved session back in the cookie jar at the first request,
+    /// when signed in. Signed out, it empties the jar instead: the shared jar
+    /// keeps persistent cookies on disk itself, and the app may have been
+    /// quit in the middle of a logout.
     private func ensureCookiesLoaded() {
         guard !cookiesLoaded else { return }
-        let cookies = CredentialStore.shared.loadCookies()
-        for cookie in cookies {
-            HTTPCookieStorage.shared.setCookie(cookie)
-        }
         cookiesLoaded = true
-    }
-
-    private nonisolated func saveCookiesToKeychain() {
-        let cookies = HTTPCookieStorage.shared.cookies(for: baseURL) ?? []
-        Task.detached(priority: .utility) {
-            CredentialStore.shared.saveCookies(cookies)
+        guard persistence.isSignedIn else { return deleteSiteCookies() }
+        for cookie in vault.loadCookies() {
+            cookieStorage.setCookie(cookie)
         }
     }
 
@@ -1025,6 +1121,7 @@ public actor AO3Client: AO3ClientProtocol {
                                 maxRetries: Int = AO3Client.maxRetries,
                                 passing: Set<Int> = []) async throws -> (Data, HTTPURLResponse) {
         ensureCookiesLoaded()
+        let generation = persistence.generation
         // Only auto-retry idempotent reads. Replaying a POST (login, comment,
         // subscribe) after a timeout could double-submit — e.g. a comment that
         // actually landed but whose response was lost — so those surface the
@@ -1035,6 +1132,7 @@ public actor AO3Client: AO3ClientProtocol {
             guard let http = response as? HTTPURLResponse else {
                 throw AO3Error.network(underlying: "Non-HTTP response")
             }
+            if persistence.generation != generation { dropLateCookies(from: http) }
             if passing.contains(http.statusCode) { return (data, http) }
             switch http.statusCode {
             case 200..<300, 302: return (data, http)

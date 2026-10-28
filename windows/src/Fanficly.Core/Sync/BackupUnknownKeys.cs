@@ -38,6 +38,7 @@ internal static class BackupUnknownKeys
         "totalChapters", "kudos", "hits", "bookmarksCount", "commentsCount", "isComplete", "publishedAt",
         "updatedAt", "savedAt", "lastReadAt", "lastReadChapter", "lastReadProgress", "isFollowed",
         "followedAt", "lastSeenChapterCount", "isStarred", "isPinned", "chapters", "folderName", "folderNames",
+        "note", "personalTags", "notesUpdatedAt",
     ];
 
     internal static readonly HashSet<string> ChapterKeys = ["index", "title", "bodyHTML", "aoId"];

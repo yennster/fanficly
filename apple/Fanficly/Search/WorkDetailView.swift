@@ -21,7 +21,7 @@ struct WorkDetailView: View {
     @State private var showingComments: Bool = false
     @State private var showingBookmark: Bool = false
     @State private var currentChapterIndex = 1
-    /// The reader is in full screen: its back arrow is the only toolbar item.
+    /// The reader is in full screen: no toolbar items at all.
     @State private var readerFullScreen = false
     @State private var exporter = WorkExporter()
     @State private var kudos = KudosGiver()

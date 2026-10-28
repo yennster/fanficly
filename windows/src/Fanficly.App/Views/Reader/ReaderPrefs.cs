@@ -91,6 +91,13 @@ internal static class ReaderPrefs
         set => Store.SetBool(K(HapticsBase), value);
     }
 
+    /// <summary>Global, off by default: volume keys turn pages (<see cref="VolumeKeyTurn"/>).</summary>
+    public static bool VolumeButtonsTurnPages
+    {
+        get => Store.GetBool(VolumeKeyTurn.SettingKey, false);
+        set => Store.SetBool(VolumeKeyTurn.SettingKey, value);
+    }
+
     public static bool PageTurnAnimations
     {
         get => Store.GetBool(K(AnimationsBase), true);

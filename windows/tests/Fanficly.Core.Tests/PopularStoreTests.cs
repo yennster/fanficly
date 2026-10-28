@@ -15,9 +15,9 @@ public class PopularStoreTests
         }
 
         private readonly StubAO3Client _stub = new();
-        public Task LoginAsync(string username, string password, CancellationToken ct = default) => _stub.LoginAsync(username, password, ct);
+        public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => _stub.LoginAsync(username, password, ct);
         public Task LogoutAsync() => _stub.LogoutAsync();
-        public Task<string?> CurrentUsernameAsync() => _stub.CurrentUsernameAsync();
+        public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => _stub.CurrentUsernameAsync(ct);
         public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => _stub.SearchAsync(filters, page, ct);
         public Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default) => _stub.FetchAuthorWorksAsync(username, page, ct);
         public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => _stub.FetchBookmarksAsync(username, page, ct);

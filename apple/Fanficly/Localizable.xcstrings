@@ -161,6 +161,26 @@
         }
       }
     },
+    "Export Failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Failed"
+          }
+        }
+      }
+    },
+    "Export Library File…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Library File…"
+          }
+        }
+      }
+    },
     "Fanficly has no servers. Everything happens on your phone." : {
       "localizations" : {
         "en" : {
@@ -241,6 +261,26 @@
         }
       }
     },
+    "Import Failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Failed"
+          }
+        }
+      }
+    },
+    "Import Library File…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Library File…"
+          }
+        }
+      }
+    },
     "Last backup didn't run: %@" : {
       "localizations" : {
         "en" : {
@@ -267,6 +307,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Library"
+          }
+        }
+      }
+    },
+    "Library File" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library File"
+          }
+        }
+      }
+    },
+    "Library Imported" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Imported"
           }
         }
       }
@@ -421,6 +481,16 @@
         }
       }
     },
+    "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards."
+          }
+        }
+      }
+    },
     "Send feedback" : {
       "localizations" : {
         "en" : {
@@ -551,6 +621,16 @@
         }
       }
     },
+    "That file couldn't be imported. Make sure it's a Fanficly library file and try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That file couldn't be imported. Make sure it's a Fanficly library file and try again."
+          }
+        }
+      }
+    },
     "The backup in iCloud couldn't be read, so it was left as it is. It may be damaged or from a newer version of Fanficly. Update Fanficly, or use Clear iCloud Data to start a new backup from this device." : {
       "localizations" : {
         "en" : {
@@ -577,6 +657,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The backup in iCloud is still downloading. Fanficly will back up once it's on this device."
+          }
+        }
+      }
+    },
+    "The file's works, reading progress and stats have been added to your library." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file's works, reading progress and stats have been added to your library."
           }
         }
       }
@@ -677,6 +767,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Your library backup was deleted from iCloud."
+          }
+        }
+      }
+    },
+    "Your library couldn't be written to a file. Please try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your library couldn't be written to a file. Please try again."
           }
         }
       }

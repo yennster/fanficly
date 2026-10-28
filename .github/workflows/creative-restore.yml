@@ -32,9 +32,9 @@ jobs:
     permissions:
       contents: write   # only for the creative-originals/ branch push
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload the art
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: creative-originals
           path: apple/fastlane/creative/en-US

@@ -188,6 +188,21 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).count, 3)
     }
 
+    func test_recordViewKeepsStoryDetailsForTheRow() throws {
+        let ctx = try makeContext()
+        let summary = payload(id: 7, chapters: 3).summary
+        WorkPersistence.recordView(summary: summary, into: ctx)
+        let entry = try XCTUnwrap(try ctx.fetch(FetchDescriptor<RecentlyViewed>()).first)
+        XCTAssertTrue(entry.hasDetails)
+        XCTAssertEqual(entry.workSummary, summary)
+
+        // An entry recorded before details were kept shows what it has.
+        let legacy = RecentlyViewed(ao3Id: 8, title: "Old", author: "A", fandom: "F")
+        XCTAssertFalse(legacy.hasDetails)
+        XCTAssertEqual(legacy.workSummary.fandoms, ["F"])
+        XCTAssertEqual(legacy.workSummary.wordCount, 0)
+    }
+
     func test_readingProgressRoundTrips() throws {
         let ctx = try makeContext()
         XCTAssertNil(ReadingProgressStore.load(ao3Id: 42, in: ctx))
@@ -1877,6 +1892,115 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx), [987654321])
     }
 
+    /// The prompt's candidates narrow to the works a restore gave text, and
+    /// leave out the ones the reader turned down (#152).
+    func test_redownloadCandidatesKeepRestoredDropDeclined() throws {
+        let ctx = try makeContext()
+        for id in [987654331, 987654332, 987654333] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: ctx)
+        }
+        try ctx.save()
+        XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(
+            in: ctx, restored: [987654331, 987654332], declined: [987654332]), [987654331])
+        XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx, restored: []), [])
+    }
+
+    /// Not Now is remembered: noting the same works again (the next launch
+    /// sync) offers nothing, while a newly restored work is still offered.
+    func test_redownloadPromptRemembersNotNow() throws {
+        let suite = "test.redownload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let ctx = try makeContext()
+        for id in [987654341, 987654342] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 2), into: ctx)
+        }
+        try ctx.save()
+
+        let center = RestoreDownloadCenter(defaults: defaults)
+        center.noteRestoredText(workIds: [987654341])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654341])
+        center.declineProposal()
+        XCTAssertNil(center.proposedIds)
+
+        center.noteRestoredText(workIds: [987654341])
+        center.proposeRedownload(context: ctx)
+        XCTAssertNil(center.proposedIds, "a declined work isn't offered again")
+
+        center.proposeRedownload(context: ctx)
+        XCTAssertNil(center.proposedIds, "nothing restored, nothing offered")
+
+        center.noteRestoredText(workIds: [987654341, 987654342])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654342])
+    }
+
+    /// A restore run AO3 stops (429) keeps the stories it didn't reach
+    /// pending on this device, so the next restore offers them again, even
+    /// after a relaunch (a new center on the same defaults).
+    func test_stoppedRestoreRunKeepsTheRestPending() async throws {
+        let suite = "test.redownload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let ctx = try makeContext()
+        for id in [987654361, 987654362, 987654363] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: ctx)
+        }
+        try ctx.save()
+
+        let center = RestoreDownloadCenter(defaults: defaults)
+        center.noteRestoredText(workIds: [987654361, 987654362, 987654363])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654361, 987654362, 987654363])
+        let client = StubAO3Client()
+        client.downloadEPUBErrors[987654362] = AO3Error.rateLimited
+        center.startDownloads(client: client, signedIn: true)
+        for _ in 0..<100 where center.progress?.finished != true {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(center.progress?.stopped, .rateLimited)
+
+        let relaunched = RestoreDownloadCenter(defaults: defaults)
+        relaunched.proposeRedownload(context: ctx)
+        XCTAssertEqual(relaunched.proposedIds, [987654362, 987654363])
+        center.cancel()
+    }
+
+    /// A launch sync that brings no new chapter text doesn't bring the
+    /// prompt back: only the first restore, which added the text, offers it.
+    func test_restoreOffersRedownloadOnlyWhenTextIsAdded() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        let center = RestoreDownloadCenter.shared
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            center.dismissProposal()
+            UserDefaults.standard.removeObject(forKey: RestoreDownloadCenter.pendingKey)
+        }
+        center.dismissProposal()
+        UserDefaults.standard.removeObject(forKey: RestoreDownloadCenter.pendingKey)
+
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 987654351, chapters: 2), into: phone)
+        phone.insert(Work(ao3Id: 987654352, title: "Metadata only", authorName: "A"))
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let pad = try makeContext()
+        let restored = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(restored)
+        center.proposeRedownload(context: pad)
+        XCTAssertEqual(center.proposedIds, [987654351])
+        center.dismissProposal()
+
+        let again = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(again)
+        center.proposeRedownload(context: pad)
+        XCTAssertNil(center.proposedIds, "the second restore added no text")
+    }
+
     /// A folder's "Download All" queues the stories without an EPUB, in the
     /// folder's on-screen order, each once.
     func test_folderDownloadCandidatesSkipDownloadedKeepOrder() {
@@ -1903,7 +2027,7 @@ final class PersistenceTests: XCTestCase {
     /// A failed story is counted and skipped; the rest still download.
     func test_downloadQueueSkipsFailures() async {
         let rec = QueueRecorder()
-        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: true, download: { id in
             rec.attempted.append(id)
             if id == 2 { throw URLError(.badServerResponse) }
             rec.downloaded.append(id)
@@ -1914,12 +2038,47 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
     }
 
+    /// A rate limit or a sign-in wall ends the run: the stories after it
+    /// aren't tried, and the tally says why it stopped (#152).
+    func test_downloadQueueStopsWhenAO3Refuses() async {
+        let cases: [(AO3Error, RestoreDownloadCenter.StopReason)] = [
+            (.rateLimited, .rateLimited), (.unauthorized, .signInNeeded),
+        ]
+        for (error, reason) in cases {
+            let rec = QueueRecorder()
+            let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3, 4], signedIn: true, download: { id in
+                rec.attempted.append(id)
+                if id == 2 { throw error }
+                rec.downloaded.append(id)
+            }, report: { rec.reports.append($0) })
+            XCTAssertEqual(rec.attempted, [1, 2])
+            XCTAssertEqual(rec.downloaded, [1])
+            XCTAssertEqual(result, .init(done: 1, failed: 1, total: 4, finished: true, stopped: reason))
+            XCTAssertEqual(result?.untried, 3)
+            XCTAssertNotNil(result?.stoppedDetail)
+        }
+    }
+
+    /// Signed out, `.unauthorized` is a restricted work: it fails alone and
+    /// the public stories after it still download.
+    func test_downloadQueueSkipsRestrictedWorkWhenSignedOut() async {
+        let rec = QueueRecorder()
+        let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: false, download: { id in
+            rec.attempted.append(id)
+            if id == 2 { throw AO3Error.unauthorized }
+            rec.downloaded.append(id)
+        }, report: { rec.reports.append($0) })
+        XCTAssertEqual(rec.downloaded, [1, 3])
+        XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
+        XCTAssertEqual(result?.untried, 0)
+    }
+
     /// Cancelling mid-run stops before the next story and undoes nothing:
     /// the stories that finished stay downloaded.
     func test_downloadQueueCancelKeepsFinished() async {
         let rec = QueueRecorder()
         let task = Task { @MainActor in
-            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], download: { id in
+            await RestoreDownloadCenter.runQueue(ids: [1, 2, 3], signedIn: true, download: { id in
                 rec.attempted.append(id)
                 rec.downloaded.append(id)
                 if id == 2 { withUnsafeCurrentTask { $0?.cancel() } }
@@ -1964,6 +2123,189 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(row.daySeconds["2026-06-02"] ?? 0, 2000, accuracy: 0.001)
         XCTAssertEqual(row.totalSeconds, 3000, accuracy: 0.001,
                        "total must be Σ daySeconds (3000), not max of device totals (2000)")
+    }
+
+    // MARK: - Library file export and import (RM-012)
+
+    /// Exporting a library file and importing it into an empty library brings
+    /// back every work (with its chapters and folders), reading position,
+    /// stat, bookmark, subscription and saved search.
+    func test_libraryFileRoundTripsIntoEmptyContainer() throws {
+        let read = Date(timeIntervalSince1970: 1_790_000_000)
+        let source = try makeContext()
+        let folder = CustomFolder(name: "Faves", createdAt: read)
+        source.insert(folder)
+        _ = WorkPersistence.upsert(payload: payload(id: 1, chapters: 3), into: source)
+        let work = try XCTUnwrap(try source.fetch(FetchDescriptor<Work>()).first)
+        work.isStarred = true
+        work.isFollowed = true
+        work.lastSeenChapterCount = 3
+        work.lastReadAt = read
+        work.lastReadChapter = 2
+        work.lastReadProgress = 0.5
+        work.folders.append(folder)
+        source.insert(Work(ao3Id: 2, title: "Metadata only", authorName: "B"))
+        source.insert(ReadingProgress(ao3Id: 1, chapterIndex: 2, paragraphIndex: 14,
+                                      title: "Test Work 1", author: "tester", updatedAt: read))
+        source.insert(ReadingStat(ao3Id: 1, title: "Test Work 1", author: "tester",
+                                  fandoms: ["Harry Potter - J. K. Rowling"], wordCount: 5000,
+                                  firstReadAt: read, lastReadAt: read,
+                                  totalSeconds: 600, daySeconds: ["2026-09-21": 600],
+                                  maxProgress: 0.5, workIsComplete: true))
+        source.insert(BookmarkRecord(ao3Id: 77, workAo3Id: 1, notes: "reread", tags: ["comfort"], savedAt: read))
+        let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "Test Work 1", authorName: "tester")
+        sub.lastSeenChapterCount = 3
+        source.insert(sub)
+        source.insert(SavedSearch(name: "Slow burn", prompt: "tag:\"Slow Burn\"", savedAt: read))
+        try source.save()
+
+        let url = try iCloudSyncManager.shared.exportLibraryFile(context: source)
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(url.pathExtension, "json")
+        XCTAssertTrue(url.lastPathComponent.hasPrefix("Fanficly Library "))
+
+        let target = try makeContext()
+        try iCloudSyncManager.shared.importLibraryFile(at: url, context: target)
+
+        let works = try target.fetch(FetchDescriptor<Work>()).sorted { $0.ao3Id < $1.ao3Id }
+        XCTAssertEqual(works.map(\.ao3Id), [1, 2])
+        let restored = works[0]
+        XCTAssertEqual(restored.title, "Test Work 1")
+        XCTAssertEqual(restored.chapters.sorted { $0.index < $1.index }.map(\.bodyHTML),
+                       ["<p>Body 1</p>", "<p>Body 2</p>", "<p>Body 3</p>"])
+        XCTAssertTrue(restored.isStarred)
+        XCTAssertTrue(restored.isFollowed)
+        XCTAssertEqual(restored.lastSeenChapterCount, 3)
+        XCTAssertEqual(restored.lastReadAt, read)
+        XCTAssertEqual(restored.lastReadChapter, 2)
+        XCTAssertEqual(restored.folders.map(\.name), ["Faves"])
+        XCTAssertTrue(works[1].chapters.isEmpty)
+
+        let progress = try XCTUnwrap(try target.fetch(FetchDescriptor<ReadingProgress>()).first)
+        XCTAssertEqual(progress.chapterIndex, 2)
+        XCTAssertEqual(progress.paragraphIndex, 14)
+        XCTAssertEqual(progress.updatedAt, read)
+
+        let stat = try XCTUnwrap(try target.fetch(FetchDescriptor<ReadingStat>()).first)
+        XCTAssertEqual(stat.totalSeconds, 600, accuracy: 0.001)
+        XCTAssertEqual(stat.maxProgress, 0.5, accuracy: 0.001)
+        XCTAssertTrue(stat.workIsComplete)
+
+        let bookmark = try XCTUnwrap(try target.fetch(FetchDescriptor<BookmarkRecord>()).first)
+        XCTAssertEqual(bookmark.notes, "reread")
+        XCTAssertEqual(bookmark.tags, ["comfort"])
+        let restoredSub = try XCTUnwrap(try target.fetch(FetchDescriptor<SubscriptionRecord>()).first)
+        XCTAssertEqual(restoredSub.key, "work:1")
+        XCTAssertEqual(restoredSub.lastSeenChapterCount, 3)
+        XCTAssertEqual(try target.fetch(FetchDescriptor<SavedSearch>()).map(\.name), ["Slow burn"])
+    }
+
+    /// Importing a file exported earlier, after reading further, never moves
+    /// progress backwards: the reading position, the work's last-read
+    /// chapter, the stat's furthest progress and a subscription's
+    /// notification baseline all keep the newer values.
+    func test_importingOlderLibraryFileNeverMovesProgressBackwards() throws {
+        let earlier = Date(timeIntervalSince1970: 1_790_000_000)
+        let later = earlier.addingTimeInterval(86_400)
+
+        // The file was exported when the reader was on chapter 2.
+        let old = try makeContext()
+        let oldWork = Work(ao3Id: 1, title: "T", authorName: "A")
+        oldWork.lastReadAt = earlier
+        oldWork.lastReadChapter = 2
+        oldWork.lastReadProgress = 0.2
+        old.insert(oldWork)
+        old.insert(ReadingProgress(ao3Id: 1, chapterIndex: 2, paragraphIndex: 3,
+                                   title: "T", author: "A", updatedAt: earlier))
+        old.insert(ReadingStat(ao3Id: 1, title: "T", author: "A",
+                               firstReadAt: earlier, lastReadAt: earlier,
+                               totalSeconds: 100, daySeconds: ["2026-09-21": 100], maxProgress: 0.2))
+        let oldSub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "T", authorName: "A")
+        oldSub.lastSeenChapterCount = 2
+        oldSub.lastCheckedAt = earlier
+        old.insert(oldSub)
+        try old.save()
+        let url = try iCloudSyncManager.shared.exportLibraryFile(context: old)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Since then this library read on to chapter 7.
+        let device = try makeContext()
+        let work = Work(ao3Id: 1, title: "T", authorName: "A")
+        work.lastReadAt = later
+        work.lastReadChapter = 7
+        work.lastReadProgress = 0.7
+        device.insert(work)
+        device.insert(ReadingProgress(ao3Id: 1, chapterIndex: 7, paragraphIndex: 0,
+                                      title: "T", author: "A", updatedAt: later))
+        device.insert(ReadingStat(ao3Id: 1, title: "T", author: "A",
+                                  firstReadAt: earlier, lastReadAt: later,
+                                  totalSeconds: 900, daySeconds: ["2026-09-21": 100, "2026-09-22": 800],
+                                  maxProgress: 0.7))
+        let sub = SubscriptionRecord(key: "work:1", kind: "work", displayName: "T", authorName: "A")
+        sub.lastSeenChapterCount = 7
+        sub.lastCheckedAt = later
+        device.insert(sub)
+        try device.save()
+
+        try iCloudSyncManager.shared.importLibraryFile(at: url, context: device)
+
+        let progress = try XCTUnwrap(try device.fetch(FetchDescriptor<ReadingProgress>()).first)
+        XCTAssertEqual(progress.chapterIndex, 7)
+        XCTAssertEqual(progress.updatedAt, later)
+        let restored = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(restored.lastReadChapter, 7)
+        XCTAssertEqual(restored.lastReadProgress ?? 0, 0.7, accuracy: 0.001)
+        let stat = try XCTUnwrap(try device.fetch(FetchDescriptor<ReadingStat>()).first)
+        XCTAssertEqual(stat.maxProgress, 0.7, accuracy: 0.001)
+        XCTAssertEqual(stat.totalSeconds, 900, accuracy: 0.001)
+        XCTAssertEqual(stat.lastReadAt, later)
+        let restoredSub = try XCTUnwrap(try device.fetch(FetchDescriptor<SubscriptionRecord>()).first)
+        XCTAssertEqual(restoredSub.lastSeenChapterCount, 7, "an old file must not re-fire chapter alerts")
+        XCTAssertEqual(restoredSub.lastCheckedAt, later)
+    }
+
+    /// A file that isn't a library backup is refused and changes nothing.
+    func test_importingNonLibraryFileThrowsAndChangesNothing() throws {
+        let url = makeTempBackupURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(#"{"hello": "world"}"#.utf8).write(to: url)
+
+        let device = try makeContext()
+        device.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try device.save()
+
+        XCTAssertThrowsError(try iCloudSyncManager.shared.importLibraryFile(at: url, context: device))
+        XCTAssertEqual(try device.fetch(FetchDescriptor<Work>()).map(\.ao3Id), [1])
+    }
+
+    /// The Windows app writes the same file, with an extra `followedAuthors`
+    /// list the Apple backup doesn't carry yet; it must still import.
+    func test_importsWindowsLibraryFile() throws {
+        let url = makeTempBackupURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let json = """
+        {"works":[{"ao3Id":5,"title":"From Windows","authorName":"W","authorUsername":"w",
+        "summary":"","rating":"General Audiences","warnings":[],"categories":[],"fandoms":[],
+        "characters":[],"relationships":[],"freeforms":[],"language":"English","wordCount":10,
+        "chapterCount":1,"kudos":0,"hits":0,"bookmarksCount":0,"commentsCount":0,
+        "isComplete":true,"savedAt":"2026-10-16T09:41:00Z","isFollowed":false,
+        "chapters":[{"index":1,"title":"One","bodyHTML":"<p>Hi</p>","aoId":42}],
+        "folderNames":[]}],
+        "bookmarks":[],"subscriptions":[],"searches":[],
+        "progress":[{"ao3Id":5,"chapterIndex":1,"paragraphIndex":2,"title":"From Windows",
+        "author":"W","updatedAt":"2026-10-16T09:41:00Z"}],
+        "filters":[],"hidden":[],"timestamp":"2026-10-16T09:41:00Z",
+        "followedAuthors":[{"username":"w","displayName":"W","followedAt":"2026-10-16T09:41:00Z","knownWorkIds":[5]}]}
+        """
+        try Data(json.utf8).write(to: url)
+
+        let device = try makeContext()
+        try iCloudSyncManager.shared.importLibraryFile(at: url, context: device)
+
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(work.title, "From Windows")
+        XCTAssertEqual(work.chapters.first?.aoId, 42)
+        XCTAssertEqual(try device.fetch(FetchDescriptor<ReadingProgress>()).first?.paragraphIndex, 2)
     }
 
     func test_profileDeletionTombstonesAndSurvivesMerge() {
@@ -2468,13 +2810,75 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(SubscriptionPoller.newlyPostedWorks(in: works, known: []).isEmpty)
     }
 
-    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1) -> AO3WorkSummary {
+    // Follow tapped before the author's list loaded: no baseline. The first
+    // poll must neither alert for the back catalogue nor swallow a work
+    // posted after the follow. Works last updated since the day before the
+    // follow (AO3's UTC days) are dated from their work page; an old one that
+    // got a chapter stays quiet.
+    func test_followedAuthor_followedBeforeListLoaded_alertsOnlyForWorksPostedSince() async throws {
+        let ctx = try makeContext()
+        let followedAt = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -3, to: .now))
+        let followDay = Calendar.current.startOfDay(for: followedAt)
+        func day(_ offset: Int) -> Date { Calendar.current.date(byAdding: .day, value: offset, to: followDay)! }
+        let author = FollowedAuthor(username: "prolific", displayName: "Prolific", followedAt: followedAt)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(90, "Brand New", chapters: 3, updated: day(2)),
+                    authorWork(10, "Old, Just Updated", chapters: 7, updated: day(1)),
+                    authorWork(85, "Posted After A Follow East Of UTC", chapters: 2, updated: day(-1)),
+                    authorWork(80, "Back Catalogue", chapters: 2, updated: day(-5)),
+                    authorWork(70, updated: day(-40))],
+            totalPages: 1, currentPage: 1)
+        client.workPublishedAt = [90: day(2), 10: day(-400), 85: day(-1)]
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 2)
+        // Only the works updated since the day before the follow were looked up.
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
+        XCTAssertEqual(Set(author.knownWorkIds), [10, 70, 80, 85, 90])
+
+        // With a baseline the usual rule applies, with no extra requests.
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(95, "Next"), authorWork(10, chapters: 8, updated: .now)],
+            totalPages: 1, currentPage: 1)
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
+        XCTAssertEqual(client.workMetadataCalls, [90, 10, 85])
+    }
+
+    // A new work whose page won't load isn't guessed at, and isn't lost: it
+    // stays out of the baseline, so the next poll dates it again.
+    func test_followedAuthor_noBaseline_undatableWorkIsDatedAgainNextPoll() async throws {
+        let ctx = try makeContext()
+        let author = FollowedAuthor(username: "quiet", displayName: "Quiet", followedAt: .now)
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body>Retry later</body></html>"
+        client.authorWorksResponse = AO3SearchResults(
+            works: [authorWork(5, updated: .now)], totalPages: 1, currentPage: 1)
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+        let notified = await poller.checkFollowedAuthors()
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(author.knownWorkIds, [])
+
+        client.workPublishedAt = [5: .now]
+        let again = await poller.checkFollowedAuthors()
+        XCTAssertEqual(again, 1)
+        XCTAssertEqual(author.knownWorkIds, [5])
+    }
+
+    private func authorWork(_ id: Int, _ title: String = "", chapters: Int = 1, updated: Date? = nil) -> AO3WorkSummary {
         AO3WorkSummary(
             id: id, title: title, author: "", summary: "", rating: "",
             warnings: [], categories: [], fandoms: [], characters: [],
             relationships: [], freeforms: [], wordCount: 0, chapterCount: chapters,
             totalChapters: nil, language: "", kudos: 0, hits: 0,
-            isComplete: false, updatedAt: nil
+            isComplete: false, updatedAt: updated
         )
     }
 
@@ -2517,6 +2921,40 @@ final class PersistenceTests: XCTestCase {
         _ = await poller.checkFollowedWorks()
 
         XCTAssertEqual(followed.lastSeenChapterCount, 7)
+    }
+
+    // A work that's both AO3-subscribed and followed is fetched once a poll,
+    // alerts once, and both records take the new baseline (#148).
+    func test_fullPoll_fetchesEachWorkOnce() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let both = Work(ao3Id: 1, title: "Fic One", authorName: "A")
+        both.isFollowed = true
+        both.lastSeenChapterCount = 4
+        ctx.insert(both)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.subscriptionsResponse = [
+            AO3Subscription(kind: .work, resourceId: "1", title: "Fic One", author: "A"),
+            AO3Subscription(kind: .series, resourceId: "9", title: "Saga", author: "A"),
+        ]
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">6/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader")
+        let alerts = await poller.runFullPoll()
+
+        // Work 1 alerts once (baselines 5 and 4); work 2 has no baseline yet.
+        XCTAssertEqual(alerts, 1)
+        XCTAssertEqual(client.workMetadataCalls.sorted(), [1, 2])
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 6)
+        XCTAssertNotNil(rec?.lastCheckedAt)
+        XCTAssertEqual(both.lastSeenChapterCount, 6)
+        XCTAssertNotNil(both.lastCheckedAt)
+        XCTAssertEqual(followed.lastSeenChapterCount, 6)
     }
 }
 

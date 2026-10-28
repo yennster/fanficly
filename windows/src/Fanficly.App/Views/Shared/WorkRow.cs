@@ -18,6 +18,33 @@ public static class WorkRow
 {
     public static FrameworkElement Build(AO3WorkSummary work, Action? onOpen = null)
     {
+        Button? row = null;
+        var (content, refresh) = Parts(work, name => { if (row is not null) AutomationProperties.SetName(row, name); });
+        row = new Button
+        {
+            Content = content,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Background = Theme.Transparent,
+            BorderBrush = Theme.Transparent,
+            Padding = new Thickness(14, 10, 8, 10),
+            CornerRadius = new CornerRadius(6),
+        };
+        refresh();
+        AutomationProperties.SetAutomationId(row, $"work.{work.Id}");
+        row.Click += (_, _) => { if (onOpen is not null) onOpen(); else Views.Routes.OpenWork(work.Id, work); };
+        row.Loaded += (_, _) => refresh(); // follow state and reading may change elsewhere
+        return row;
+    }
+
+    /// <summary>The row's content without its clickable frame, for a list that
+    /// hosts its rows itself (Recently Viewed's ListView, which selects rows in
+    /// Edit). <paramref name="setName"/> receives the row's Narrator name on
+    /// every refresh; call <c>Refresh</c> once the row is built and whenever it
+    /// reappears. <paramref name="showsBookmark"/> false leaves the bookmark
+    /// button out.</summary>
+    public static (FrameworkElement View, Action Refresh) Parts(AO3WorkSummary work, Action<string> setName, bool showsBookmark = true)
+    {
         // Wraps onto a second line in a narrow window instead of clipping.
         var stats = new FlowPanel { Spacing = 8, LineSpacing = 2 };
         void Stat(string text) => stats.Children.Add(UI.UI.Caption(text));
@@ -59,7 +86,6 @@ public static class WorkRow
             VerticalAlignment = VerticalAlignment.Top,
             MinWidth = 0,
         };
-        Button? row = null;
         void Refresh()
         {
             var followed = WorkPersistence.IsFollowed(work.Id, AppHost.Library);
@@ -69,8 +95,7 @@ public static class WorkRow
             // costs the same and stays current on Loaded.
             var badge = WorkPersistence.ResultBadgeFor(work, AppHost.Library);
             badgeHost.Child = badge is { } b ? Badge(b) : null;
-            if (row is not null)
-                AutomationProperties.SetName(row, RowName(work, badge));
+            setName(RowName(work, badge));
             bookmark.Content = UI.UI.Icon(followed ? "bookmark.fill" : "bookmark", 16, followed ? Theme.Accent : Theme.TextSecondary);
             var label = followed ? $"Remove {work.Title} from Library" : $"Save {work.Title} to Library";
             AutomationProperties.SetName(bookmark, label);
@@ -85,23 +110,8 @@ public static class WorkRow
 
         var grid = UI.UI.Grid("*,Auto", columnSpacing: 8);
         grid.Children.Add(text.Col(0));
-        grid.Children.Add(bookmark.Col(1));
-
-        row = new Button
-        {
-            Content = grid,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Background = Theme.Transparent,
-            BorderBrush = Theme.Transparent,
-            Padding = new Thickness(14, 10, 8, 10),
-            CornerRadius = new CornerRadius(6),
-        };
-        Refresh();
-        AutomationProperties.SetAutomationId(row, $"work.{work.Id}");
-        row.Click += (_, _) => { if (onOpen is not null) onOpen(); else Views.Routes.OpenWork(work.Id, work); };
-        row.Loaded += (_, _) => Refresh(); // follow state and reading may change elsewhere
-        return row;
+        if (showsBookmark) grid.Children.Add(bookmark.Col(1));
+        return (grid, Refresh);
     }
 
     private static string RowName(AO3WorkSummary work, ResultBadge? badge) =>

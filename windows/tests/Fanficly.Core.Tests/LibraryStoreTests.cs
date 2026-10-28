@@ -358,6 +358,110 @@ public sealed class LibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void NoteAndPersonalTagsSurviveReopening()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new Work(1, "T", "A")
+            {
+                Note = "Comfort read",
+                PersonalTags = ["for a bad day", "reread at Christmas"],
+                NotesUpdatedAt = new DateTimeOffset(2026, 5, 4, 3, 2, 1, TimeSpan.Zero),
+            });
+            store.Insert(new Work(2, "U", "A"));
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var noted = store.All<Work>().Single(w => w.Ao3Id == 1);
+            Assert.Equal("Comfort read", noted.Note);
+            Assert.Equal(["for a bad day", "reread at Christmas"], noted.PersonalTags);
+            Assert.Equal(new DateTimeOffset(2026, 5, 4, 3, 2, 1, TimeSpan.Zero), noted.NotesUpdatedAt);
+            var plain = store.All<Work>().Single(w => w.Ao3Id == 2);
+            Assert.Null(plain.Note);
+            Assert.Empty(plain.PersonalTags);
+        }
+    }
+
+    /// <summary>A library from before notes (schema version 2) gains the note
+    /// columns on open and keeps its works.</summary>
+    [Fact]
+    public void VersionTwoLibraryMigratesToNotes()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new Work(1, "T", "A"));
+            store.Save();
+        }
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath};Pooling=False"))
+        {
+            conn.Open();
+            foreach (var sql in new[] { "ALTER TABLE works DROP COLUMN note", "ALTER TABLE works DROP COLUMN personal_tags",
+                                       "ALTER TABLE works DROP COLUMN notes_updated_at", "PRAGMA user_version = 2" })
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            Assert.Equal(LibrarySchema.CurrentVersion, store.SchemaVersion);
+            var work = Assert.Single(store.All<Work>());
+            Assert.Null(work.Note);
+            Assert.Empty(work.PersonalTags);
+            work.SetNotes("now", "tagged");
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal("now", Assert.Single(store.All<Work>()).Note);
+    }
+
+    /// <summary>A library from before Recently Viewed kept story details
+    /// (schema version 3) gains the columns on open, keeps its entries, and
+    /// round-trips details recorded afterwards.</summary>
+    [Fact]
+    public void VersionThreeLibraryMigratesToRecentlyViewedDetails()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new RecentlyViewed(1, "T", "A", "F"));
+            store.Save();
+        }
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath};Pooling=False"))
+        {
+            conn.Open();
+            var columns = RecentlyViewed.Columns.Skip(5).Select(c => $"ALTER TABLE recently_viewed DROP COLUMN {c}");
+            foreach (var sql in columns.Append("PRAGMA user_version = 3"))
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+        var summary = new AO3WorkSummary
+        {
+            Id = 1, Title = "T", Author = "A", Rating = "Mature", Fandoms = ["F", "G"], Freeforms = ["Fluff"],
+            WordCount = 1200, ChapterCount = 2, TotalChapters = 3, Kudos = 9, Summary = "S",
+            UpdatedAt = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
+        };
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            Assert.Equal(LibrarySchema.CurrentVersion, store.SchemaVersion);
+            var entry = Assert.Single(store.All<RecentlyViewed>());
+            Assert.False(entry.HasDetails);
+            Assert.Equal("F", entry.Fandom);
+            WorkPersistence.RecordView(summary, store);
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            var entry = Assert.Single(store.All<RecentlyViewed>());
+            Assert.True(entry.HasDetails);
+            Assert.Equal(summary, entry.ToSummary());
+        }
+    }
+
+    [Fact]
     public void SchemaIsVersionedAndMigrationsAreAdditive()
     {
         using (var store = LibraryStore.Open(DbPath))
@@ -401,8 +505,8 @@ public sealed class LibraryStoreTests : IDisposable
     public void RecentlyViewedHelpersRemoveAndClear()
     {
         using var store = LibraryStore.OpenInMemory();
-        WorkPersistence.RecordView(1, "One", "A", "F", store);
-        WorkPersistence.RecordView(2, "Two", "A", "F", store);
+        WorkPersistence.RecordView(new AO3WorkSummary { Id = 1, Title = "One", Author = "A", Fandoms = ["F"] }, store);
+        WorkPersistence.RecordView(new AO3WorkSummary { Id = 2, Title = "Two", Author = "A", Fandoms = ["F"] }, store);
         WorkPersistence.RemoveViews([store.GetRecentlyViewed(1)!], store);
         Assert.Equal([2], store.All<RecentlyViewed>().Select(r => r.Ao3Id));
         WorkPersistence.ClearRecentlyViewed(store);

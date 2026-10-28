@@ -206,6 +206,11 @@ public static partial class AppHost
                 Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 20);
             return;
         }
+        // Older builds stored the email address a reader signed in with; swap
+        // it for the AO3 login name (#144) as soon as possible, alongside the
+        // restore rather than ahead of it. Costs a request only when an email
+        // is stored.
+        var repair = RepairStoredLoginAsync();
         try
         {
             if (Sync.IsSyncEnabled && Sync.IsBackupAvailable && Sync.CloudBackupHasUnappliedChanges)
@@ -219,6 +224,19 @@ public static partial class AppHost
         catch (Exception e)
         {
             Log($"Launch tasks failed: {e}");
+        }
+        await repair;
+    }
+
+    private static async Task RepairStoredLoginAsync()
+    {
+        try
+        {
+            await Auth.RepairStoredLoginAsync(Client);
+        }
+        catch (Exception e)
+        {
+            Log($"Couldn't repair the stored AO3 login: {e.Message}");
         }
     }
 

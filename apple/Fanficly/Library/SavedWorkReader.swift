@@ -12,7 +12,7 @@ struct SavedWorkReader: View {
     let work: Work
 
     @State private var payload: AO3WorkPayload?
-    /// The reader is in full screen: its back arrow is the only toolbar item.
+    /// The reader is in full screen: no toolbar items at all.
     @State private var readerFullScreen = false
     @State private var isLoading = false
     @State private var errorMessage: String?
