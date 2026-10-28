@@ -143,7 +143,7 @@ public sealed class SettingsScreen : Screen
                 ? "Sign in to subscribe to works on AO3, see your AO3 bookmarks and subscriptions, and comment. Credentials go directly to AO3 — Fanficly never stores your password, only the resulting session cookie, encrypted for your Windows account."
                 : expired
                 ? "AO3 signed you out. Sign in again to use your AO3 bookmarks, subscriptions and comments, and to see restricted works in search."
-                : "Signing out clears the session cookie from this PC. Your offline library stays on the device."));
+                : "Signing out signs you out on AO3 and clears the session cookie from this PC. Your offline library stays on the device."));
     }
 
     private async Task SignOutAsync()

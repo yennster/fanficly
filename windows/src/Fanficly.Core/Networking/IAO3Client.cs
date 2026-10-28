@@ -5,9 +5,13 @@ namespace Fanficly.Core;
 /// the offline demo catalogue, and tests use stubs.</summary>
 public interface IAO3Client
 {
-    Task LoginAsync(string username, string password, CancellationToken ct = default);
+    /// <summary>Signs in with an AO3 username or email address and returns the
+    /// account's AO3 login name, which is what <c>/users/&lt;name&gt;</c> pages need (#144).</summary>
+    Task<string> LoginAsync(string username, string password, CancellationToken ct = default);
     Task LogoutAsync();
-    Task<string?> CurrentUsernameAsync();
+    /// <summary>The signed-in AO3 login name, read from AO3's page header when this
+    /// run hasn't signed in yet; null when signed out or unreachable.</summary>
+    Task<string?> CurrentUsernameAsync(CancellationToken ct = default);
     Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default);
     Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default);
@@ -32,7 +36,7 @@ public interface IAO3Client
     /// default throws, as <see cref="FetchMarkedForLaterAsync"/> does.</summary>
     Task<AO3Series> FetchSeriesAsync(int id, int page, CancellationToken ct = default) =>
         throw new NotSupportedException(nameof(FetchSeriesAsync));
-    Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
+    Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default);
     /// <summary>Comments for a specific chapter (AO3 threads comments per chapter).
     /// <paramref name="chapterId"/> null fetches the work-level page (the first
     /// chapter's thread), the fallback when the id is unknown. <paramref name="page"/>

@@ -18,7 +18,8 @@ final class SearchSyntaxTests: XCTestCase {
     func test_everydayWords_neverBecomeFilters() {
         for prompt in ["supernatural creatures", "wednesday addams", "french kiss", "korean idol au",
                        "the other side", "soft family drama", "mature themes", "general hospital",
-                       "harry potter", "popular kid", "recent graduate", "finished line", "multi chapter"] {
+                       "harry potter", "popular kid", "recent graduate", "finished line", "multi chapter",
+                       "explicit consent", "femslash february", "explicit", "femslash"] {
             let f = parse(prompt)
             XCTAssertEqual(f.query, prompt, prompt)
             var bare = f
@@ -60,7 +61,8 @@ final class SearchSyntaxTests: XCTestCase {
     }
 
     func test_ratings_onlyUnambiguousForms() {
-        XCTAssertEqual(parse("smut explicit").ratings, [.explicit])
+        XCTAssertEqual(parse("smut rated explicit").ratings, [.explicit])
+        XCTAssertEqual(parse("e-rated").ratings, [.explicit])
         XCTAssertEqual(parse("nsfw").ratings, [.mature, .explicit])
         XCTAssertEqual(parse("sfw").ratings, [.general, .teen])
         XCTAssertEqual(parse("rated mature").ratings, [.mature])
@@ -72,7 +74,7 @@ final class SearchSyntaxTests: XCTestCase {
 
     func test_categories() {
         XCTAssertEqual(parse("coffee shop au m/m").categories, [.mm])
-        XCTAssertEqual(parse("f/f femslash").categories, [.ff])
+        XCTAssertEqual(parse("f/f fluff").categories, [.ff])
         XCTAssertTrue(parse("gen").categories.isEmpty)
     }
 

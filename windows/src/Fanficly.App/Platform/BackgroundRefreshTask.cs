@@ -65,8 +65,8 @@ public static class InAppPolling
         if (!await Running.WaitAsync(0, ct)) return;
         try
         {
-            // Read on the UI thread; the poll itself runs off it (the store is
-            // thread-safe, and every await inside the poller leaves the UI context).
+            // Read on the UI thread; the poll runs off it, and hops back to
+            // RecordsThread.Main to read and change records (#139).
             var client = AppHost.Client;
             var library = AppHost.Library;
             var username = AppHost.Auth.Username;
@@ -207,7 +207,9 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
 
         using var library = LibraryStore.Open(AppPaths.Database);
         using var client = new AO3Client(AppPaths.Downloads, vault, AppHost.AppVersion);
-        var username = new AuthState(vault).Username;
+        // Repaired first: a stored email address (#144) can't build the
+        // subscriptions URL.
+        var username = await AuthState.RepairedLoginAsync(vault, client, ct);
         try
         {
             var notified = await BackgroundRefresh.RunPollAsync(client, library, username, new AppHost.ToastNotifier(), ct);

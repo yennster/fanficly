@@ -485,3 +485,29 @@ final class ReaderPaginationTests: XCTestCase {
     }
 }
 
+
+/// ⌘+ / ⌘− (Reader → Bigger / Smaller Text) step the reader's text size.
+final class ReaderFontSizeStepTests: XCTestCase {
+    func test_stepsByAPointEachWay() {
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(18, bigger: true), 19)
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(18, bigger: false), 17)
+    }
+
+    func test_staysInsideTheSlidersRange() {
+        let range = ReaderMetrics.fontSizeRange
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(range.upperBound, bigger: true), range.upperBound)
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(range.lowerBound, bigger: false), range.lowerBound)
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(40, bigger: false), range.upperBound)
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(4, bigger: true), range.lowerBound)
+    }
+
+    /// A slider-set size between points lands on the next whole point.
+    func test_fractionalSizeSnapsToTheNextWholePoint() {
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(18.4, bigger: true), 19)
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(18.4, bigger: false), 18)
+    }
+
+    func test_invalidStoredSizeStepsFromTheDefault() {
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(.nan, bigger: true), ReaderMetrics.defaultFontSize + 1)
+    }
+}

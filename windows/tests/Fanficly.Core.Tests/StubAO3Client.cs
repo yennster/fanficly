@@ -35,9 +35,9 @@ public sealed class StubAO3Client : IAO3Client
     }
 
     // Unused protocol stubs.
-    public Task LoginAsync(string username, string password, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => Task.FromResult(username);
     public Task LogoutAsync() => Task.CompletedTask;
-    public Task<string?> CurrentUsernameAsync() => Task.FromResult<string?>(null);
+    public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => Task.FromResult<string?>(null);
     public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) =>
         Task.FromResult(new AO3SearchResults([], 0, page));
     public Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default) =>
@@ -48,8 +48,8 @@ public sealed class StubAO3Client : IAO3Client
         Task.FromResult(new AO3WorkPayload(new AO3WorkSummary { Id = id, Title = "x" }, []));
     public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default) =>
         Task.FromResult(new AO3WorkMetadata(id, 1, 1, null));
-    public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
-        Task.FromResult(SubscriptionsResponse);
+    public Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default) =>
+        Task.FromResult(new AO3SubscriptionList(SubscriptionsResponse));
     public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) =>
         Task.FromResult(new AO3CommentsPage([], page));
     public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => Task.CompletedTask;

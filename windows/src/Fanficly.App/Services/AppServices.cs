@@ -56,13 +56,15 @@ public static partial class AppHost
             Auth = new AuthState(CredentialStore.Shared);
         }
 
+        // This runs on the UI thread (OnLaunched): backups, restores and the
+        // subscription poller read and change the library there, where the
+        // screens use it (#139).
+        RecordsThread.Main = SynchronizationContext.Current is { } ui ? new RecordsThread(ui) : null;
         Sync = new LibrarySyncManager(KeyValueStores.Default)
         {
             SyncFolder = KeyValueStores.Default.GetString(SyncFolderKey),
             MergeReaderProfiles = (local, incoming) => ReaderProfile.MergedProfiles(local, incoming),
             PublishReaderProfiles = ReaderProfileSyncStore.PublishLocalProfiles,
-            // This runs on the UI thread (OnLaunched): backups snapshot and
-            // restores apply the library here, where the screens use it.
             RecordsContext = SynchronizationContext.Current,
         };
         // Without the real library, a backup or restore would stamp the sync
@@ -206,6 +208,11 @@ public static partial class AppHost
                 Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 20);
             return;
         }
+        // Older builds stored the email address a reader signed in with; swap
+        // it for the AO3 login name (#144) as soon as possible, alongside the
+        // restore rather than ahead of it. Costs a request only when an email
+        // is stored.
+        var repair = RepairStoredLoginAsync();
         try
         {
             if (Sync.IsSyncEnabled && Sync.IsBackupAvailable && Sync.CloudBackupHasUnappliedChanges)
@@ -219,6 +226,19 @@ public static partial class AppHost
         catch (Exception e)
         {
             Log($"Launch tasks failed: {e}");
+        }
+        await repair;
+    }
+
+    private static async Task RepairStoredLoginAsync()
+    {
+        try
+        {
+            await Auth.RepairStoredLoginAsync(Client);
+        }
+        catch (Exception e)
+        {
+            Log($"Couldn't repair the stored AO3 login: {e.Message}");
         }
     }
 

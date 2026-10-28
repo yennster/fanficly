@@ -84,18 +84,24 @@ public sealed class AuthState : INotifyPropertyChanged
         return true;
     }
 
+    /// <summary>Signs in with what the reader typed, a username or an email
+    /// address, and keeps the AO3 login name AO3 answers with:
+    /// <c>/users/&lt;name&gt;</c> pages and the subscription poller need the login
+    /// name, never the email (#144).</summary>
     public async Task LoginAsync(IAO3Client client, string username, string password, CancellationToken ct = default)
     {
         IsAuthenticating = true;
         LastError = null;
         try
         {
-            await client.LoginAsync(username, password, ct);
+            // A sign-out still waiting on AO3 would forget this sign-in when it finishes.
+            if (_logout is { } pending) await pending;
+            var login = await client.LoginAsync(username.Trim(), password, ct);
             // Signing in as someone else from the expired-session form skips
             // logout, so drop the previous account's kudos here.
-            if (Username is { } previous && !string.Equals(previous, username, StringComparison.OrdinalIgnoreCase)) KudosStore.Clear();
-            Username = username;
-            _vault.SetUsername(username);
+            if (Username is { } previous && !string.Equals(previous, login, StringComparison.OrdinalIgnoreCase)) KudosStore.Clear();
+            Username = login;
+            _vault.SetUsername(login);
             IsSessionExpired = false;
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.LoginFailed)
@@ -116,13 +122,59 @@ public sealed class AuthState : INotifyPropertyChanged
         }
     }
 
+    /// <summary>Builds before #144 stored whatever was typed at sign-in, so a
+    /// reader who signed in with an email address has it stored in place of the
+    /// login name. Swaps it for the name in AO3's page header. Runs at launch.</summary>
+    public async Task RepairStoredLoginAsync(IAO3Client client, CancellationToken ct = default)
+    {
+        if (await RepairedLoginAsync(_vault, client, ct) is { } login) Username = login;
+    }
+
+    /// <summary>The stored login name, first replacing a stored email address with
+    /// the name AO3 shows the signed-in reader. Leaves an email in place when AO3
+    /// can't say (offline, or the session expired); signing in again fixes it.
+    /// AO3 login names can't contain "@", so only an email costs a request.</summary>
+    public static async Task<string?> RepairedLoginAsync(ICookieVault vault, IAO3Client client, CancellationToken ct = default)
+    {
+        var stored = vault.StoredUsername();
+        if (stored is null || !stored.Contains('@')) return stored;
+        if (await client.CurrentUsernameAsync(ct) is not { } login || login.Contains('@')) return stored;
+        vault.SetUsername(login);
+        return login;
+    }
+
+    private Task? _logout;
+
+    /// <summary>Signing out: AO3 is being asked to end the session (#145).</summary>
+    public bool IsSigningOut => _logout is not null;
+
+    /// <summary>Signs out. A second call while one runs waits for it rather than
+    /// asking AO3 again.</summary>
     public async Task LogoutAsync(IAO3Client client)
     {
-        await client.LogoutAsync();
-        _vault.SetUsername(null);
-        KudosStore.Clear();
-        Username = null;
-        IsSessionExpired = false;
+        if (_logout is { } running)
+        {
+            await running;
+            return;
+        }
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _logout = done.Task;
+        OnPropertyChanged(nameof(IsSigningOut));
+        try
+        {
+            // The client forgets the stored name as soon as it starts (#145).
+            await client.LogoutAsync();
+            _vault.SetUsername(null);
+            KudosStore.Clear();
+            Username = null;
+            IsSessionExpired = false;
+        }
+        finally
+        {
+            _logout = null;
+            OnPropertyChanged(nameof(IsSigningOut));
+            done.SetResult();
+        }
     }
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)

@@ -25,7 +25,7 @@ extension View {
 
 /// Whether the reader is in full screen (its controls hidden), so the
 /// screen hosting it (`WorkDetailView`, `SavedWorkReader`) can drop its own
-/// toolbar items: full screen shows only the back arrow that leaves it.
+/// toolbar items: full screen leaves nothing on screen but the page.
 struct ReaderFullScreenKey: PreferenceKey {
     static var defaultValue: Bool { false }
     static func reduce(value: inout Bool, nextValue: () -> Bool) {

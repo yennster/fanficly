@@ -15,15 +15,15 @@ public class PopularStoreTests
         }
 
         private readonly StubAO3Client _stub = new();
-        public Task LoginAsync(string username, string password, CancellationToken ct = default) => _stub.LoginAsync(username, password, ct);
+        public Task<string> LoginAsync(string username, string password, CancellationToken ct = default) => _stub.LoginAsync(username, password, ct);
         public Task LogoutAsync() => _stub.LogoutAsync();
-        public Task<string?> CurrentUsernameAsync() => _stub.CurrentUsernameAsync();
+        public Task<string?> CurrentUsernameAsync(CancellationToken ct = default) => _stub.CurrentUsernameAsync(ct);
         public Task<AO3SearchResults> SearchAsync(AO3SearchFilters filters, int page, CancellationToken ct = default) => _stub.SearchAsync(filters, page, ct);
         public Task<AO3SearchResults> FetchAuthorWorksAsync(string username, int page, CancellationToken ct = default) => _stub.FetchAuthorWorksAsync(username, page, ct);
         public Task<AO3SearchResults> FetchBookmarksAsync(string username, int page, CancellationToken ct = default) => _stub.FetchBookmarksAsync(username, page, ct);
         public Task<AO3WorkPayload> FetchWorkAsync(int id, CancellationToken ct = default) => _stub.FetchWorkAsync(id, ct);
         public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default) => _stub.FetchWorkMetadataAsync(id, ct);
-        public Task<IReadOnlyList<AO3Subscription>> FetchSubscriptionsAsync(string username, CancellationToken ct = default) => _stub.FetchSubscriptionsAsync(username, ct);
+        public Task<AO3SubscriptionList> FetchSubscriptionsAsync(string username, CancellationToken ct = default) => _stub.FetchSubscriptionsAsync(username, ct);
         public Task<AO3CommentsPage> FetchCommentsAsync(int workId, int? chapterId, int page, CancellationToken ct = default) => _stub.FetchCommentsAsync(workId, chapterId, page, ct);
         public Task PostCommentAsync(int workId, int? chapterId, string text, CancellationToken ct = default) => _stub.PostCommentAsync(workId, chapterId, text, ct);
         public Task<IReadOnlyList<BrowseFandom>> FetchFandomsInCategoryAsync(string categoryName, CancellationToken ct = default) => _stub.FetchFandomsInCategoryAsync(categoryName, ct);
