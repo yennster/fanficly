@@ -186,3 +186,69 @@ enum SubscriptionsParser {
         }
     }
 }
+
+/// A work page's subscribe button and AO3's answer to it, read from
+/// otwarchive's `SubscriptionsController#create` and `subscriptions/_form`.
+/// The button is `li.subscribe form`, posting to `/users/<login>/subscriptions`
+/// (hidden `subscription[subscribable_id]`/`[subscribable_type]`), and reads
+/// "Unsubscribe" (a `_method=delete` form) once subscribed. AO3 redirects
+/// either outcome back to the work with a flash, a stale token to
+/// `/auth_error`, and an ended session to the login page: all 200s once
+/// URLSession follows, so the answer fails closed.
+enum SubscribeParser {
+    struct Form: Equatable {
+        let action: URL
+        /// The form's hidden inputs (its own token included).
+        let fields: [String: String]
+        /// The button reads "Unsubscribe": the work is already subscribed.
+        let isSubscribed: Bool
+    }
+
+    static func form(html: String, base: URL) -> Form? {
+        guard let doc = try? SwiftSoup.parse(html),
+              let form = try? doc.select("li.subscribe form").first() else { return nil }
+        let actionStr = (try? form.attr("action")) ?? ""
+        guard !actionStr.isEmpty, let action = URL(string: actionStr, relativeTo: base)?.absoluteURL else { return nil }
+        var fields: [String: String] = [:]
+        for input in (try? form.select("input[type=hidden]").array()) ?? [] {
+            let name = (try? input.attr("name")) ?? ""
+            guard !name.isEmpty else { continue }
+            fields[name] = (try? input.attr("value")) ?? ""
+        }
+        let isSubscribed = fields["_method"]?.lowercased() == "delete" || hasUnsubscribeButton(form)
+        if !isSubscribed { fields["_method"] = nil }
+        return Form(action: action, fields: fields, isSubscribed: isSubscribed)
+    }
+
+    static func checkOutcome(html: String, finalURL: URL?) throws {
+        let path = finalURL?.path ?? ""
+        if path.hasPrefix("/users/login") || path.hasPrefix("/auth_error") || AO3PageCheck.isLoginPage(html: html) {
+            throw AO3Error.unauthorized
+        }
+        guard let doc = try? SwiftSoup.parse(html) else {
+            throw AO3Error.parseFailed(reason: "Subscribe response not HTML")
+        }
+        let errors = texts(doc, "div.flash.error, div#error li")
+        if !errors.isEmpty {
+            var seen = Set<String>()
+            throw AO3Error.subscribeRejected(message: errors.filter { seen.insert($0).inserted }.joined(separator: " "))
+        }
+        let notices = texts(doc, "div.flash.notice")
+        if notices.contains(where: { $0.range(of: "now following", options: .caseInsensitive) != nil }) { return }
+        if let form = try? doc.select("li.subscribe form").first(), hasUnsubscribeButton(form) { return }
+        throw AO3Error.subscribeRejected(message: "AO3 didn't confirm the subscription. Check your Subscriptions page before trying again.")
+    }
+
+    private static func hasUnsubscribeButton(_ form: Element) -> Bool {
+        let controls = (try? form.select("input[type=submit], button").array()) ?? []
+        return controls.contains { control in
+            let label = control.hasAttr("value") ? ((try? control.attr("value")) ?? "") : ((try? control.text()) ?? "")
+            return label.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Unsubscribe") == .orderedSame
+        }
+    }
+
+    private static func texts(_ doc: Document, _ selector: String) -> [String] {
+        let items = (try? doc.select(selector).array()) ?? []
+        return items.compactMap { try? $0.text().trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+}

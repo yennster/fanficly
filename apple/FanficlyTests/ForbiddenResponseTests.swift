@@ -112,7 +112,8 @@ final class ForbiddenResponseTests: XCTestCase {
             .loginFailed(reason: "Incorrect username or password."), .rateLimited, .unauthorized,
             .parseFailed(reason: "Not a works listing"), .http(status: 404), .http(status: 503),
             .network(underlying: "The request timed out."), .network(underlying: "Non-HTTP response"), .kudosRejected(message: "You can't leave kudos on your own work."),
-            .commentRejected(message: "The comment is empty."), .forbidden, .blockedByProtection,
+            .commentRejected(message: "The comment is empty."), .subscribeRejected(message: "You can't subscribe to that."),
+            .forbidden, .blockedByProtection,
         ]
         for error in errors {
             let text = error.localizedDescription
