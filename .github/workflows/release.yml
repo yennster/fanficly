@@ -35,6 +35,7 @@ on:
           - pull_metadata   # download the live Apple store copy (artifact)
           - signing_setup   # create Apple certificates/profiles in the match repo
           - tag_only        # tag vX.Y.Z on `sha` + GitHub release, no build or store step
+          - attach_build    # an App Store version for a build already uploaded (`build`, `notes`, `art_run`), no archive
       platform:
         description: Platform (all = iPhone, iPad, Mac and Windows)
         type: choice
@@ -49,7 +50,11 @@ on:
         type: string
         required: false
       build:
-        description: "tag_only: the App Store build numbers, for the release notes (e.g. 219 for iOS, 220 for Mac)"
+        description: "tag_only: the App Store build numbers, for the release notes (e.g. 219 for iOS, 220 for Mac); attach_build: the build number to attach"
+        type: string
+        required: false
+      art_run:
+        description: "attach_build: a Store assets run whose screenshots go up with the version (blank = none)"
         type: string
         required: false
 
@@ -135,6 +140,7 @@ jobs:
     environment: app-store
     permissions:
       contents: read
+      actions: read     # attach_build: a Store assets run's store-art artifact
     outputs:
       build: ${{ steps.build.outputs.build }}
     # Secrets are given only to the steps that need them (the fastlane step and
@@ -156,6 +162,34 @@ jobs:
       - name: Use the release notes
         if: needs.notes.result == 'success'
         run: echo "RELEASE_NOTES_FILE=$PWD/build/release/notes.txt" >> "$GITHUB_ENV"
+
+      # attach_build finishes a release whose build is already on App Store
+      # Connect but whose version couldn't be made then (say, the previous Mac
+      # version was still in review): no archive, the notes come from `notes`
+      # (a release's notes.txt), the screenshots from a Store assets run.
+      - name: Take the build to attach
+        if: inputs.lane == 'attach_build'
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          BUILD: ${{ inputs.build }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          case "$PLATFORM" in ios|mac) ;; *) echo "::error::attach_build needs platform ios or mac"; exit 1 ;; esac
+          case "$BUILD" in ''|*[!0-9]*) echo "::error::attach_build needs build, a build number"; exit 1 ;; esac
+          mkdir -p build/release
+          echo "$BUILD" > "build/release/$PLATFORM-build-number.txt"
+          if [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            printf '%s\n' "$NOTES" > build/release/notes.txt
+            echo "RELEASE_NOTES_FILE=$PWD/build/release/notes.txt" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/download-artifact@v7
+        if: inputs.lane == 'attach_build' && inputs.art_run != ''
+        with:
+          name: store-art
+          path: apple
+          run-id: ${{ inputs.art_run }}
+          github-token: ${{ github.token }}
 
       - name: Select newest installed Xcode
         run: |
@@ -238,7 +272,9 @@ jobs:
               extra+=("${q}_build:$(cat "build/release/$q-build-number.txt")")
             fi
           done
-          bundle exec fastlane ios "${{ inputs.lane }}" platform:"$p" "${extra[@]}"
+          lane="${{ inputs.lane }}"
+          [ "$lane" = attach_build ] && lane=release
+          bundle exec fastlane ios "$lane" platform:"$p" "${extra[@]}"
 
       - name: Report the build number
         id: build
