@@ -1892,6 +1892,82 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx), [987654321])
     }
 
+    /// The prompt's candidates narrow to the works a restore gave text, and
+    /// leave out the ones the reader turned down (#152).
+    func test_redownloadCandidatesKeepRestoredDropDeclined() throws {
+        let ctx = try makeContext()
+        for id in [987654331, 987654332, 987654333] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 1), into: ctx)
+        }
+        try ctx.save()
+        XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(
+            in: ctx, restored: [987654331, 987654332], declined: [987654332]), [987654331])
+        XCTAssertEqual(RestoreDownloadCenter.redownloadCandidates(in: ctx, restored: []), [])
+    }
+
+    /// Not Now is remembered: noting the same works again (the next launch
+    /// sync) offers nothing, while a newly restored work is still offered.
+    func test_redownloadPromptRemembersNotNow() throws {
+        let suite = "test.redownload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let ctx = try makeContext()
+        for id in [987654341, 987654342] {
+            _ = WorkPersistence.upsert(payload: payload(id: id, chapters: 2), into: ctx)
+        }
+        try ctx.save()
+
+        let center = RestoreDownloadCenter(defaults: defaults)
+        center.noteRestoredText(workIds: [987654341])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654341])
+        center.declineProposal()
+        XCTAssertNil(center.proposedIds)
+
+        center.noteRestoredText(workIds: [987654341])
+        center.proposeRedownload(context: ctx)
+        XCTAssertNil(center.proposedIds, "a declined work isn't offered again")
+
+        center.proposeRedownload(context: ctx)
+        XCTAssertNil(center.proposedIds, "nothing restored, nothing offered")
+
+        center.noteRestoredText(workIds: [987654341, 987654342])
+        center.proposeRedownload(context: ctx)
+        XCTAssertEqual(center.proposedIds, [987654342])
+    }
+
+    /// A launch sync that brings no new chapter text doesn't bring the
+    /// prompt back: only the first restore, which added the text, offers it.
+    func test_restoreOffersRedownloadOnlyWhenTextIsAdded() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        let center = RestoreDownloadCenter.shared
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+            center.dismissProposal()
+        }
+        center.dismissProposal()
+
+        let phone = try makeContext()
+        _ = WorkPersistence.upsert(payload: payload(id: 987654351, chapters: 2), into: phone)
+        phone.insert(Work(ao3Id: 987654352, title: "Metadata only", authorName: "A"))
+        try phone.save()
+        iCloudSyncManager.shared.backupToiCloud(context: phone)
+
+        let pad = try makeContext()
+        let restored = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(restored)
+        center.proposeRedownload(context: pad)
+        XCTAssertEqual(center.proposedIds, [987654351])
+        center.dismissProposal()
+
+        let again = await iCloudSyncManager.shared.restoreFromiCloud(context: pad)
+        XCTAssertTrue(again)
+        center.proposeRedownload(context: pad)
+        XCTAssertNil(center.proposedIds, "the second restore added no text")
+    }
+
     /// A folder's "Download All" queues the stories without an EPUB, in the
     /// folder's on-screen order, each once.
     func test_folderDownloadCandidatesSkipDownloadedKeepOrder() {
@@ -1927,6 +2003,26 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(rec.downloaded, [1, 3])
         XCTAssertEqual(rec.reports.count, 3)
         XCTAssertEqual(result, .init(done: 2, failed: 1, total: 3, finished: true))
+    }
+
+    /// A rate limit or a sign-in wall ends the run: the stories after it
+    /// aren't tried, and the tally says why it stopped (#152).
+    func test_downloadQueueStopsWhenAO3Refuses() async {
+        let cases: [(AO3Error, RestoreDownloadCenter.StopReason)] = [
+            (.rateLimited, .rateLimited), (.unauthorized, .signInNeeded),
+        ]
+        for (error, reason) in cases {
+            let rec = QueueRecorder()
+            let result = await RestoreDownloadCenter.runQueue(ids: [1, 2, 3, 4], download: { id in
+                rec.attempted.append(id)
+                if id == 2 { throw error }
+                rec.downloaded.append(id)
+            }, report: { rec.reports.append($0) })
+            XCTAssertEqual(rec.attempted, [1, 2])
+            XCTAssertEqual(rec.downloaded, [1])
+            XCTAssertEqual(result, .init(done: 1, failed: 1, total: 4, finished: true, stopped: reason))
+            XCTAssertNotNil(result?.stoppedDetail)
+        }
     }
 
     /// Cancelling mid-run stops before the next story and undoes nothing:
