@@ -78,20 +78,22 @@ enum ReaderMetrics {
     /// sides are covered by `reservedLeading` / `reservedTrailing` points of
     /// iPhone Duo's side column (the page runs under it, see
     /// RunUnderSideColumn; the text must not). The column is the width the
-    /// Margins setting gives the whole page, centred on it, so the column
-    /// floats over the margin; when the two would meet, it moves away from
-    /// the column and then narrows, keeping `minimumGutter` clear of it.
+    /// Margins setting gives the whole page, centred on it, so the side
+    /// column floats over the margin. Where that margin is too narrow to
+    /// keep `minimumGutter` clear of the side column, both margins widen
+    /// alike, so the text stays centred on the screen (pushed to one side,
+    /// it left 16 pt on the left and 58 pt on the right).
     /// `leading` is the space before the text.
     static func textColumnPlacement(containerWidth: CGFloat, widthPercent: Double, fontSize: Double,
                                     limitLineLength: Bool, reservedLeading: CGFloat = 0,
                                     reservedTrailing: CGFloat = 0) -> (leading: CGFloat, width: CGFloat) {
-        let first = reservedLeading + minimumGutter
-        let last = containerWidth - reservedTrailing - minimumGutter
         let wanted = textColumnWidth(containerWidth: containerWidth, widthPercent: widthPercent,
                                      fontSize: fontSize, limitLineLength: limitLineLength)
-        let width = max(0, min(wanted, floor(last - first)))
-        let centred = (containerWidth - width) / 2
-        return (max(first, min(centred, last - width)), width)
+        let needed = max(reservedLeading, reservedTrailing) + minimumGutter
+        let width = (containerWidth - wanted) / 2 >= needed
+            ? wanted
+            : max(0, floor(containerWidth - 2 * needed))
+        return ((containerWidth - width) / 2, width)
     }
 
     static let maxLineLengthEm: Double = 40

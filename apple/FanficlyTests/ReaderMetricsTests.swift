@@ -34,12 +34,12 @@ final class ReaderMetricsTests: XCTestCase {
         XCTAssertEqual(p.leading, 70, "centred on the page, its margin wide enough for the column")
     }
 
-    func test_duoColumn_pushesWideTextAway() {
-        let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 80, fontSize: 18,
+    func test_duoColumn_widensBothMarginsAlike() {
+        let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 90, fontSize: 18,
                                                   limitLineLength: true, reservedTrailing: 42)
-        XCTAssertEqual(p.width, 372)
-        XCTAssertEqual(p.leading + p.width, 466 - 42 - ReaderMetrics.minimumGutter, accuracy: 0.5,
-                       "moved left, clear of the column")
+        let clear = 42 + ReaderMetrics.minimumGutter
+        XCTAssertEqual(p.width, 466 - 2 * clear)
+        XCTAssertEqual(p.leading, clear, "centred on the screen, not pushed to the left")
     }
 
     func test_duoColumn_fullMarginsNarrow() {
@@ -47,8 +47,8 @@ final class ReaderMetricsTests: XCTestCase {
             let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 100, fontSize: 18,
                                                       limitLineLength: true, reservedLeading: leading,
                                                       reservedTrailing: trailing)
-            XCTAssertEqual(p.width, 466 - 42 - 2 * ReaderMetrics.minimumGutter)
-            XCTAssertEqual(p.leading, leading + ReaderMetrics.minimumGutter)
+            XCTAssertEqual(p.width, 466 - 2 * (42 + ReaderMetrics.minimumGutter))
+            XCTAssertEqual(p.leading, 42 + ReaderMetrics.minimumGutter)
         }
     }
 

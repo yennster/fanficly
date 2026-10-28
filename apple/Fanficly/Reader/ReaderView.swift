@@ -1039,7 +1039,11 @@ struct ReaderView: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(fg.opacity(0.5))
         }
-        .padding(.horizontal, 16)
+        // Clear of the Duo's side column, which sits over the top of the
+        // page (its camera hid the chapter count); the bar's background
+        // still runs under it.
+        .padding(.leading, 16 + sideColumn.leading)
+        .padding(.trailing, 16 + sideColumn.trailing)
         .padding(.vertical, 7)
         .background(bg)
         .overlay(alignment: .bottom) {
