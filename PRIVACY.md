@@ -17,6 +17,7 @@ Fanficly has no servers. There is no analytics, no crash reporting, no telemetry
 - **Your preferences** (theme, font size, reader profiles, library sort order, etc.) and which works you've left kudos on (forgotten when you log out), kept in app storage
 - **Your searches** — recent searches stay on this device only (never synced or backed up; clear them from the Search screen); saved searches, and for those with new-fic alerts on the ids of the works the alerts have already seen, are kept in app storage and included in the optional iCloud library backup
 - **Your last-read story and its progress**, kept in a private app-group container shared only between the app and its home-screen widget
+- **The title, author, summary and tags of each work in your Library**, in your device's on-device Spotlight index so you can find them from system search; a work leaves the index when you remove it from your Library
 
 None of this is ever sent to us — there is no Fanficly server. On its own, the only place any of it goes off-device is your own iCloud account, described next. You can also choose to export your library as a file (Settings → Library File); that file goes only where you send or save it, and importing one only reads the file you pick.
 
