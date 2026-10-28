@@ -373,6 +373,14 @@ public sealed class AO3Client : IAO3Client, IDisposable
             ?? throw AO3Exception.ParseFailed("no chapter count on the work page");
     }
 
+    public async Task<AO3Series> FetchSeriesAsync(int id, int page, CancellationToken ct = default)
+    {
+        await _throttle.WaitAsync(ct).ConfigureAwait(false);
+        var response = await PerformRequestAsync(Get(AO3Endpoints.Series(id, page, _baseUri)), ct: ct).ConfigureAwait(false);
+        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
+        return SeriesParser.Parse(Decode(response.Body, "Series response"), id);
+    }
+
     /// <summary>Every subscription across all pages. AO3 paginates the index at 20
     /// per page — walk every page (each fetch throttled) or anything past the
     /// first 20 is invisible and its records get treated as stale. Any page

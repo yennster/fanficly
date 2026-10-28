@@ -52,6 +52,25 @@ public class DemoAO3ClientTests
     }
 
     [Fact]
+    public async Task SeriesListsTheFirstThreeWorksInOrder()
+    {
+        var series = await _client.FetchSeriesAsync(5, 1);
+        Assert.Equal(5, series.Id);
+        Assert.Equal("The Lighthouse Letters", series.Title);
+        Assert.Equal([90001, 90002, 90003], series.Works.Select(w => w.Id));
+        Assert.Equal(3, series.WorkCount);
+        Assert.True(series.IsComplete);
+        // Its third work's page links back to it; listings carry no series.
+        var part = Assert.Single((await _client.FetchWorkAsync(90003)).Summary.Series);
+        Assert.Equal(DemoCatalog.DemoSeriesId, part.SeriesId);
+        Assert.Equal(3, part.Position);
+        Assert.Equal(90002, part.PreviousWorkId);
+        Assert.Null(part.NextWorkId);
+        Assert.Empty((await _client.FetchWorkAsync(90001)).Summary.Series);
+        Assert.All((await _client.SearchAsync(new AO3SearchFilters(), 1)).Works, w => Assert.Empty(w.Series));
+    }
+
+    [Fact]
     public async Task TagAutocompleteDrawsFromTheCatalog()
     {
         var tags = await _client.AutocompleteAsync(AO3AutocompleteField.Tag, "slow");

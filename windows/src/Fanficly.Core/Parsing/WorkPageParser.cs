@@ -109,6 +109,7 @@ public static partial class WorkPageParser
             Hits = hits,
             IsComplete = isComplete,
             UpdatedAt = updatedAt,
+            Series = SeriesParser.Parts(doc),
         };
         return new AO3WorkPayload(summaryRecord, chapters);
     }

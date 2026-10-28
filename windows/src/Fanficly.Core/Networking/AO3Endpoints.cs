@@ -36,6 +36,10 @@ public static class AO3Endpoints
     public static Uri AuthorWorks(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/works", PageItems(page));
 
+    /// <summary>A series page; page 1 sends no <c>page=</c>.</summary>
+    public static Uri Series(int id, int page, Uri baseUri) =>
+        Build(baseUri, $"/series/{id}", PageItems(page));
+
     public static Uri UserBookmarks(string name, int page, Uri baseUri) =>
         Build(baseUri, $"/users/{EscapePathSegment(name)}/bookmarks", PageItems(page));
 
