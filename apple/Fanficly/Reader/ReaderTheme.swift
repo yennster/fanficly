@@ -60,11 +60,36 @@ enum ReaderMetrics {
     /// page-by-page measures it at the width given, and at a fractional width
     /// the two broke lines differently when a word only just fit, so pages
     /// were cut a line early and left up to two lines blank.
+    /// However wide the Margins setting, `minimumGutter` stays clear on each
+    /// side: at Full (100%) the text touched the screen's edges.
     static func textColumnWidth(containerWidth: CGFloat, widthPercent: Double,
                                 fontSize: Double, limitLineLength: Bool) -> CGFloat {
-        let column = containerWidth * CGFloat(widthPercent / 100.0)
+        let room = max(0, containerWidth - 2 * minimumGutter)
+        let column = min(containerWidth * CGFloat(widthPercent / 100.0), room)
         guard limitLineLength else { return floor(column) }
         return floor(min(column, CGFloat(fontSize * maxLineLengthEm)))
+    }
+
+    /// The least room between the text and the screen's edge, or the side
+    /// column of status bar and toolbar strip on iPhone Duo.
+    static let minimumGutter: CGFloat = 16
+
+    /// Where the text column sits in a page `containerWidth` wide whose
+    /// sides are covered by `reservedLeading` / `reservedTrailing` points of
+    /// iPhone Duo's side column (the page runs under it, see
+    /// RunUnderSideColumn; the text must not). The text gets the Margins
+    /// share of the page beside the column, centred there, so every Margins
+    /// setting still changes it. Centred on the whole screen instead, both
+    /// margins had to clear the 84 pt column: 100 pt each side, the same
+    /// width for every setting from 60% up.
+    /// `leading` is the space before the text.
+    static func textColumnPlacement(containerWidth: CGFloat, widthPercent: Double, fontSize: Double,
+                                    limitLineLength: Bool, reservedLeading: CGFloat = 0,
+                                    reservedTrailing: CGFloat = 0) -> (leading: CGFloat, width: CGFloat) {
+        let free = max(0, containerWidth - reservedLeading - reservedTrailing)
+        let width = textColumnWidth(containerWidth: free, widthPercent: widthPercent,
+                                    fontSize: fontSize, limitLineLength: limitLineLength)
+        return (reservedLeading + (free - width) / 2, width)
     }
 
     static let maxLineLengthEm: Double = 40

@@ -458,7 +458,11 @@ enum ReaderPaginator {
         let limit = pageHeight - reserve
         var budget = limit
         var fullest: (atoms: [ParagraphAtom], end: Int, budget: CGFloat)?
+        var fullestDrawn: CGFloat = 0
         var overflowing: CGFloat?
+        // The smallest packing that ran past, to cut short a word at a time
+        // if bisecting the budget leaves the page more than a line short.
+        var shortestOverflow: (atoms: [ParagraphAtom], end: Int, budget: CGFloat)?
         var latest: (atoms: [ParagraphAtom], end: Int) = (unpacked, start)
         for _ in 0..<8 {
             var trial = unpacked
@@ -472,8 +476,9 @@ enum ReaderPaginator {
                 // budget), so that's the bound to go below, not the budget.
                 let packed = packedHeight(trial, start...end, paragraphSpacing: paragraphSpacing, measure: measure)
                 overflowing = min(overflowing ?? budget, min(budget, packed))
+                if budget < (shortestOverflow?.budget ?? .infinity) { shortestOverflow = (trial, end, budget) }
             } else {
-                if budget >= (fullest?.budget ?? -1) { fullest = (trial, end, budget) }
+                if budget >= (fullest?.budget ?? -1) { fullest = (trial, end, budget); fullestDrawn = drawn }
                 // Done when there's nothing left to add or no room for a line.
                 if end + 1 >= trial.count || trial[end + 1].id == stop || limit - drawn < oneLine { break }
             }
@@ -494,9 +499,62 @@ enum ReaderPaginator {
             break
         }
         // Nothing fit (a page of one unbreakable sentence): take the last try.
-        let chosen = fullest.map { (atoms: $0.atoms, end: $0.end) } ?? latest
+        var chosen = fullest.map { (atoms: $0.atoms, end: $0.end) } ?? latest
+        // boundingRect can break a line where SwiftUI doesn't, so every budget
+        // either packs the same page or adds a line that draws as two, and the
+        // page stays more than a line short. Cut that line short instead.
+        if let fit = fullest, let over = shortestOverflow, limit - fullestDrawn >= oneLine,
+           over.end > fit.end || over.atoms.count > fit.atoms.count,
+           let trimmed = trimmedToFit(over.atoms, unpacked: unpacked, from: start, end: over.end,
+                                      limit: limit, above: fullestDrawn, drawnHeight: drawnHeight) {
+            chosen = trimmed
+        }
         atoms = chosen.atoms
         return chosen.end
+    }
+
+    /// The packing `over` (which ran past `limit`) with its last atom cut
+    /// back a word at a time, by SwiftUI's layout, to the longest that fits,
+    /// when that draws taller than `above` (the page as it was). Only for a
+    /// page that ends partway through a sentence it split; nil otherwise.
+    private static func trimmedToFit(_ over: [ParagraphAtom], unpacked: [ParagraphAtom], from start: Int, end: Int,
+                                     limit: CGFloat, above: CGFloat,
+                                     drawnHeight: DrawnHeight) -> (atoms: [ParagraphAtom], end: Int)? {
+        // The page's last atom is the head of a split: its tail follows, and
+        // the whole sentence is still at `end` in the unpacked atoms.
+        guard end > start, end + 1 < over.count, over.count == unpacked.count + 1, end < unpacked.count else { return nil }
+        let head = over[end], tail = over[end + 1], whole = unpacked[end]
+        guard tail.isContinuation, tail.originalParagraphIndex == head.originalParagraphIndex,
+              tail.sentenceIndex == head.sentenceIndex,
+              whole.originalParagraphIndex == head.originalParagraphIndex,
+              whole.sentenceIndex == head.sentenceIndex, whole.sentenceOffset == head.sentenceOffset
+        else { return nil }
+        let chars = Array(whole.text.characters)
+        let headLength = head.text.characters.count
+        // Break points inside the head: just after each of its spaces.
+        let breaks = chars.indices.filter { $0 > 0 && $0 < headLength && chars[$0] == " " }.map { $0 + 1 }
+        func packing(_ k: Int) -> [ParagraphAtom]? {
+            guard let (h, t) = splitAtom(whole, at: k) else { return nil }
+            var atoms = unpacked
+            atoms[end] = h
+            atoms.insert(t, at: end + 1)
+            return atoms
+        }
+        // Longest first: SwiftUI's height only grows with the words added.
+        var lo = 0, hi = breaks.count - 1
+        var best: [ParagraphAtom]?
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            guard let atoms = packing(breaks[mid]) else { break }
+            if drawnHeight(atoms, start..<(end + 1)) <= limit {
+                best = atoms
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        guard let atoms = best, drawnHeight(atoms, start..<(end + 1)) > above else { return nil }
+        return (atoms, end)
     }
 
     /// The height boundingRect measures atoms[range] at, laid out as a page:

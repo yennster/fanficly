@@ -33,6 +33,15 @@ struct ReaderFullScreenKey: PreferenceKey {
     }
 }
 
+/// Whether the status bar is hidden, for the reader's full screen. RootView
+/// hides it: `.statusBarHidden` on the reader did nothing, as it sits in the
+/// NavigationSplitView's detail stack, which doesn't pass it up, and the
+/// clock stayed on screen in full screen (over the text on iPhone Duo).
+@MainActor @Observable
+final class StatusBarVisibility {
+    var hidden = false
+}
+
 /// Reports the top offset of each paragraph (keyed "c<chapter>-p<para>")
 /// so the reader can remember the exact reading position.
 struct ScrollAnchorKey: PreferenceKey {
