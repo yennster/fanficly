@@ -181,10 +181,12 @@ final class WorkFilterSheetTests: XCTestCase {
     }
 
     func test_wordCount_roundTrips() {
-        for wc in ["", ">1000", "<5000", "1000-5000", "5000"] {
+        for wc in ["", ">1000", "<5000", "1000-5000"] {
             let (from, to) = WorkFilterSheet.wordFields(wc)
             XCTAssertEqual(WorkFilterSheet.wordCount(from: from, to: to), wc)
         }
+        // An exact count keeps its value as a one-number range (AO3 reads both alike).
+        XCTAssertEqual(WorkFilterSheet.wordCount(from: "5000", to: "5000"), "5000-5000")
         XCTAssertEqual(WorkFilterSheet.wordCount(from: " 10 ", to: ""), ">10")
     }
 }

@@ -12,6 +12,9 @@ struct WorkFilterSheet: View {
     @Binding var filters: AO3SearchFilters
     let onApply: () -> Void
     @State private var draft: AO3SearchFilters
+    /// The caller's filters as the fields would write them back unchanged
+    /// (an exact "5000" reads back as "5000-5000"), for `hasChanges`.
+    private let original: AO3SearchFilters
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
@@ -28,8 +31,21 @@ struct WorkFilterSheet: View {
 
     init(filters: Binding<AO3SearchFilters>, onApply: @escaping () -> Void) {
         _filters = filters
-        _draft = State(initialValue: filters.wrappedValue)
+        let f = filters.wrappedValue
+        _draft = State(initialValue: f)
         self.onApply = onApply
+        // Seed the text mirrors here, not in onAppear, so the first frame's
+        // `hasChanges` already sees them.
+        _relationshipsText = State(initialValue: f.relationshipNames.joined(separator: ", "))
+        _charactersText = State(initialValue: f.characterNames.joined(separator: ", "))
+        _freeformsText = State(initialValue: f.freeformNames.joined(separator: ", "))
+        _excludeText = State(initialValue: f.excludedFreeforms.joined(separator: ", "))
+        let words = Self.wordFields(f.wordCount)
+        _wordsFrom = State(initialValue: words.from)
+        _wordsTo = State(initialValue: words.to)
+        var normalized = f
+        normalized.wordCount = Self.wordCount(from: words.from, to: words.to)
+        original = normalized
     }
 
     /// The draft as Apply would write it: toggles plus the text fields.
@@ -43,7 +59,7 @@ struct WorkFilterSheet: View {
         return f
     }
 
-    private var hasChanges: Bool { committedDraft != filters }
+    private var hasChanges: Bool { committedDraft != original }
 
     var body: some View {
         NavigationStack {
@@ -80,7 +96,6 @@ struct WorkFilterSheet: View {
                     .bold()
                 }
             }
-            .onAppear(perform: seedText)
             .alert("Save filter", isPresented: $showingSaveDialog) {
                 TextField("Name", text: $saveName)
                 Button("Save") { saveCurrentFilter() }
@@ -299,12 +314,12 @@ struct WorkFilterSheet: View {
         return ("", "")
     }
 
-    /// The inverse of `wordFields`: equal bounds give back an exact count.
+    /// Builds the count from the two fields (an exact count comes back as "n-n").
     nonisolated static func wordCount(from rawFrom: String, to rawTo: String) -> String {
         let from = rawFrom.trimmingCharacters(in: .whitespaces)
         let to = rawTo.trimmingCharacters(in: .whitespaces)
         switch (from.isEmpty, to.isEmpty) {
-        case (false, false): return from == to ? from : "\(from)-\(to)"
+        case (false, false): return "\(from)-\(to)"
         case (false, true):  return ">\(from)"
         case (true, false):  return "<\(to)"
         case (true, true):   return ""
