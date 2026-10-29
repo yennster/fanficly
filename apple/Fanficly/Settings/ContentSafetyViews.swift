@@ -261,7 +261,9 @@ struct BlockedTermsView: View {
 /// "Nothing to show" for a result list whose loaded rows are all filtered out
 /// (hidden, blocked or Mature). Infinite scroll only fires from a visible
 /// row, so when more pages remain this offers them with a button instead of
-/// leaving a dead end.
+/// leaving a dead end. Appearing, it fetches the next page itself (#155):
+/// `loadMore` keeps going through pages the filter hides entirely, up to
+/// `LoadMoreState.hiddenPageLimit` of them, before the button takes over.
 struct FilteredOutView: View {
     let message: String
     let canLoadMore: Bool
@@ -273,10 +275,19 @@ struct FilteredOutView: View {
     let loadMore: @MainActor () async -> Void
 
     var body: some View {
-        if let loadMoreError, sessionExpired {
-            SessionExpiredView(message: loadMoreError)
-        } else {
-            nothingToShow
+        Group {
+            if let loadMoreError, sessionExpired {
+                SessionExpiredView(message: loadMoreError)
+            } else {
+                nothingToShow
+            }
+        }
+        // Unstructured like the rows' infinite scroll, so the request isn't
+        // cancelled when the first visible row replaces this view.
+        .onAppear {
+            if canLoadMore, loadMoreError == nil, !isLoadingMore {
+                Task { await loadMore() }
+            }
         }
     }
 
@@ -306,15 +317,44 @@ struct FilteredOutView: View {
 /// gets its own error, shown under the rows by `LoadMoreFooter`, so the
 /// loaded rows stay put; and each page-1 load bumps the generation, so a
 /// next page still in flight from the old list is dropped, not appended.
+///
+/// A next page the content filter hides entirely adds no row for infinite
+/// scroll to fire on, so the list's `loadMore` fetches the one after it
+/// itself, one page at a time (the throttle holds), and stops after
+/// `hiddenPageLimit` such pages in a row; then the footer's Load More (or
+/// `FilteredOutView`'s button) picks up (#155).
 struct LoadMoreState: Equatable {
+    /// Hidden pages fetched in a row before asking the reader.
+    static let hiddenPageLimit = 3
+
     private(set) var generation = 0
     private(set) var error: String?
+    /// Next pages in a row the content filter hid completely, while more remain.
+    private(set) var hiddenPages = 0
+
+    /// Fetching stopped on hidden pages with more to load: offer Load More.
+    var stoppedOnHiddenPages: Bool { hiddenPages >= Self.hiddenPageLimit }
 
     /// A fresh page-1 load (a new search, new filters, a refresh): forget the
     /// footer error and make every next-page load in flight stale.
     mutating func restart() {
         generation += 1
         error = nil
+        hiddenPages = 0
+    }
+
+    /// A new run of next pages (a row came into view, or Load More): allow
+    /// another `hiddenPageLimit` hidden pages.
+    mutating func resume() {
+        hiddenPages = 0
+    }
+
+    /// Records a next page that landed and how many rows it added after
+    /// filtering. Returns true when the filter hid all of it, more pages
+    /// remain and the limit isn't reached: fetch the next page now.
+    mutating func landed(newRows: Int, hasMore: Bool) -> Bool {
+        hiddenPages = newRows == 0 && hasMore ? hiddenPages + 1 : 0
+        return hiddenPages > 0 && hiddenPages < Self.hiddenPageLimit
     }
 
     /// Starts a next-page load; check the response with `isCurrent` against
@@ -341,12 +381,15 @@ struct LoadMoreState: Equatable {
 /// The row under an infinite-scroll list: a spinner while the next page
 /// loads, or why it failed with Try Again (Sign In Again for an expired
 /// session). Infinite scroll won't fire again from a row that's already on
-/// screen, so after a failure this button is the way on (#154).
+/// screen, so after a failure this button is the way on (#154), and so is
+/// Load More after a run of pages the content filter hid entirely (#155).
 struct LoadMoreFooter: View {
     let isLoadingMore: Bool
     let error: String?
     /// The failure was an expired AO3 session and no one has signed in since.
     var sessionExpired = false
+    /// `LoadMoreState.stoppedOnHiddenPages`.
+    var stoppedOnHiddenPages = false
     let retry: @MainActor () async -> Void
 
     var body: some View {
@@ -363,6 +406,15 @@ struct LoadMoreFooter: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Try Again") { Task { await retry() } }
+                    .buttonStyle(.borderless)
+            }
+            .padding(.vertical, 8)
+        } else if stoppedOnHiddenPages {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("The last few pages are hidden by your content settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Load More") { Task { await retry() } }
                     .buttonStyle(.borderless)
             }
             .padding(.vertical, 8)
