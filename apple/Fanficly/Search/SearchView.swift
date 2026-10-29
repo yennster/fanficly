@@ -424,7 +424,8 @@ struct SearchView: View {
                 }
             }
             LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
-                           sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
+                           sessionExpired: sessionExpired && !auth.hasSession,
+                           stoppedOnHiddenPages: paging.stoppedOnHiddenPages, retry: loadMore)
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.immediately)
@@ -705,22 +706,33 @@ struct SearchView: View {
         }
     }
 
+    /// Loads the next page, and the ones after it while the content filter
+    /// hides them entirely, since those add no row to scroll to (#155).
     private func loadMore() async {
+        guard !isLoadingMore else { return }
+        paging.resume()
+        while await loadNextPage(), !Task.isCancelled {}
+    }
+
+    /// Returns true when the page landed fully hidden and the next one should load.
+    private func loadNextPage() async -> Bool {
         // onAppear can fire repeatedly, and there's no page past totalPages.
-        guard !isLoadingMore, !isSearching, currentPage < totalPages, let searched else { return }
+        guard !isLoadingMore, !isSearching, currentPage < totalPages, let searched else { return false }
         let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try await client.search(filters: searched, page: currentPage + 1)
-            guard paging.isCurrent(generation) else { return }  // a new search started meanwhile
+            guard paging.isCurrent(generation) else { return false }  // a new search started meanwhile
             _ = try auth.check(result)
+            let shown = visibleResults.count
             let existing = Set(results.map(\.id))
             results.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
+            return paging.landed(newRows: visibleResults.count - shown, hasMore: currentPage < totalPages)
         } catch {
-            guard paging.isCurrent(generation), !Task.isCancelled else { return }
+            guard paging.isCurrent(generation), !Task.isCancelled else { return false }
             // The results so far stay; the footer says why and offers Try
             // Again, which picks up at the page that failed (#154).
             let expired = auth.explains(error)
@@ -728,6 +740,7 @@ struct SearchView: View {
             let message = expired ? AuthState.message(for: error) : "Couldn't load more: \(Self.message(for: error))"
             paging.fail(message, generation: generation)
             UIAccessibility.post(notification: .announcement, argument: message)
+            return false
         }
     }
 
