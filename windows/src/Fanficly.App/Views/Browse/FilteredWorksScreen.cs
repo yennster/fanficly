@@ -144,9 +144,16 @@ internal sealed class FilteredWorksScreen : Screen
         else if (!hasWorks)
             view = UI.UI.EmptyState("magnifyingglass", "No works found",
                 "Try adjusting your filters or search terms.", "Filters", () => _ = ShowFiltersAsync());
+        else if (_list.Items.Count == 0 && _isLoadingMore)
+            // Loading on past a page with nothing to show (#155), like Search.
+            view = UI.UI.VStack(12,
+                    UI.UI.EmptyState("eye.slash", "Nothing to show",
+                        "Every match so far is hidden or filtered out by your content settings."),
+                    new ProgressRing { IsActive = true, Width = 24, Height = 24 }.A11y("Loading more works"))
+                .Also(p => p.VerticalAlignment = VerticalAlignment.Center);
         else if (_list.Items.Count == 0)
             // Rows are what ask for the next page, so offer it here.
-            view = _currentPage < _totalPages && !_isLoadingMore
+            view = _currentPage < _totalPages
                 ? UI.UI.EmptyState("eye.slash", "Nothing to show",
                     "Every match so far is hidden or filtered out by your content settings.",
                     "Load more results", () => _ = LoadMoreAsync())
