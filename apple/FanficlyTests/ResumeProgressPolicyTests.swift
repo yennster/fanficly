@@ -107,6 +107,62 @@ final class ResumeProgressPolicyTests: XCTestCase {
     }
 }
 
+/// "Continue Reading" opens whichever story was read last: the widget store's
+/// entry (mirrored from other devices through iCloud KVS) or this device's
+/// newest reading progress.
+final class ContinueReadingPolicyTests: XCTestCase {
+    private let noon = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func widget(id: Int, updatedAt: Date?) -> WidgetStoryProgress {
+        WidgetStoryProgress(id: id, title: "T", author: "A", progress: 0.5,
+                            chapter: 2, paragraph: 0, updatedAt: updatedAt)
+    }
+
+    func test_nothingRead_returnsNil() {
+        XCTAssertNil(ContinueReadingPolicy.workId(
+            widgetProgress: nil, latestLocalId: nil, latestLocalUpdatedAt: nil))
+    }
+
+    func test_onlyLocalProgress_opensIt() {
+        XCTAssertEqual(ContinueReadingPolicy.workId(
+            widgetProgress: nil, latestLocalId: 5, latestLocalUpdatedAt: noon), 5)
+    }
+
+    func test_onlyWidgetProgress_opensIt() {
+        XCTAssertEqual(ContinueReadingPolicy.workId(
+            widgetProgress: widget(id: 9, updatedAt: noon),
+            latestLocalId: nil, latestLocalUpdatedAt: nil), 9)
+    }
+
+    // Read on another device later: its synced entry wins.
+    func test_fresherWidgetEntry_wins() {
+        XCTAssertEqual(ContinueReadingPolicy.workId(
+            widgetProgress: widget(id: 9, updatedAt: noon.addingTimeInterval(60)),
+            latestLocalId: 5, latestLocalUpdatedAt: noon), 9)
+    }
+
+    // A story without a progress fraction was read here since: local wins.
+    func test_fresherLocalProgress_wins() {
+        XCTAssertEqual(ContinueReadingPolicy.workId(
+            widgetProgress: widget(id: 9, updatedAt: noon),
+            latestLocalId: 5, latestLocalUpdatedAt: noon.addingTimeInterval(60)), 5)
+    }
+
+    // A local save stamps both stores with the same date.
+    func test_tie_opensWidgetEntry() {
+        XCTAssertEqual(ContinueReadingPolicy.workId(
+            widgetProgress: widget(id: 5, updatedAt: noon),
+            latestLocalId: 5, latestLocalUpdatedAt: noon), 5)
+    }
+
+    // An old widget payload with no date loses to any local progress.
+    func test_undatedWidgetEntry_losesToLocal() {
+        XCTAssertEqual(ContinueReadingPolicy.workId(
+            widgetProgress: widget(id: 9, updatedAt: nil),
+            latestLocalId: 5, latestLocalUpdatedAt: noon), 5)
+    }
+}
+
 /// The global UI zoom's step and clamp (`UIZoom`, in RootView.swift beside
 /// `ResumeProgressPolicy`): ⌘/⇧⌘ +/− and the View menu all go through it.
 final class UIZoomTests: XCTestCase {

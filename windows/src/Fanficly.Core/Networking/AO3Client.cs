@@ -624,16 +624,6 @@ public sealed class AO3Client : IAO3Client, IDisposable
     private static bool EndedAtLogin(Response response) =>
         response.FinalUri.AbsolutePath.StartsWith("/users/login", StringComparison.Ordinal);
 
-    /// <summary>The page's error message (AO3's error flash or form errors), if any.</summary>
-    private static string? PageError(Response response)
-    {
-        if (TryDecode(response.Body) is not { } html) return null;
-        var doc = HtmlDom.Parse(html);
-        var text = string.Join(" ", doc.Select("#error li, div.flash.error, div.error li")
-            .Select(e => e.Text().TrimSwiftWhitespaces()).Where(t => t.Length > 0).Distinct());
-        return text.Length > 0 ? text : null;
-    }
-
     /// <summary>Replaces characters that can't appear in a file name with "-", keeps
     /// the first 80 characters, and trims spaces.</summary>
     internal static string SanitizeFilename(string name)
@@ -656,26 +646,35 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     public async Task SubscribeToWorkAsync(int workId, CancellationToken ct = default)
     {
+        // The work's own page shows whether the session is signed in and carries
+        // its subscribe form. No view_full_work.
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         var pageUri = AO3Endpoints.WorkPage(workId, _baseUri);
         var page = await PerformRequestAsync(Get(pageUri), ct: ct).ConfigureAwait(false);
-        var token = (TryDecode(page.Body) is { } pageHtml ? LoginParser.AuthenticityToken(pageHtml) : null)
+        if (EndedAtLogin(page)) throw AO3Exception.Unauthorized();
+        var pageHtml = Decode(page.Body, "Work page");
+        // A guest's POST would only bounce to the login page, so don't send one.
+        if (!KudosParser.IsSignedIn(pageHtml)) throw AO3Exception.Unauthorized();
+        var form = SubscribeParser.FormOn(pageHtml, _baseUri)
+            ?? throw AO3Exception.Rejected("AO3 doesn't offer a Subscribe button on this work.");
+        // Already subscribed (on the website, say): AO3 has no uniqueness check,
+        // so posting again would add a second subscription.
+        if (form.IsSubscribed) return;
+        // The page-wide token, as kudos and comments use.
+        var token = LoginParser.AuthenticityToken(pageHtml)
             ?? throw AO3Exception.ParseFailed("authenticity_token not found on work page");
 
+        // The form's own action, /users/<login>/subscriptions. One POST, never retried.
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
-        var request = Post(AO3Endpoints.WorkSubscriptions(workId, _baseUri), [
-            new("authenticity_token", token),
-            new("subscription[subscribable_id]", workId.ToString(CultureInfo.InvariantCulture)),
-            new("subscription[subscribable_type]", "Work"),
-        ], [new("Referer", pageUri.AbsoluteUri), new("Origin", _origin), new("X-CSRF-Token", token)]);
+        var fields = new Dictionary<string, string>(form.Fields, StringComparer.Ordinal) { ["authenticity_token"] = token };
+        fields.TryAdd("subscription[subscribable_id]", workId.ToString(CultureInfo.InvariantCulture));
+        fields.TryAdd("subscription[subscribable_type]", "Work");
+        var request = Post(form.Action, [.. fields],
+            [new("Referer", pageUri.AbsoluteUri), new("Origin", _origin), new("X-CSRF-Token", token)]);
         var response = await PerformRequestAsync(request, ct: ct).ConfigureAwait(false);
         // 422 is Rails refusing the security token: not subscribed.
         if (response.Status >= 400) throw AO3Exception.Http(response.Status);
-        if (EndedAtLogin(response)) throw AO3Exception.Unauthorized();
-        // Both outcomes redirect back to the work; a refusal carries an error
-        // flash. Already subscribed is what we wanted.
-        if (PageError(response) is { } error && !error.Contains("already", StringComparison.OrdinalIgnoreCase))
-            throw AO3Exception.Rejected(error);
+        SubscribeParser.CheckOutcome(TryDecode(response.Body) ?? "", response.FinalUri);
     }
 
     // MARK: - Kudos

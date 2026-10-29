@@ -254,7 +254,7 @@ struct CategoryFandomsView: View {
         } catch let AO3Error.http(status) where status == 404 {
             errorMessage = "AO3 didn't recognise that category. Showing popular fandoms only."
         } catch {
-            errorMessage = "Couldn't load full list (\(error)). Showing popular fandoms only."
+            errorMessage = "Couldn't load the full list. \(error.localizedDescription) Showing popular fandoms only."
         }
     }
 }
@@ -326,8 +326,13 @@ struct FandomWorksView: View {
             if isLoading && works.isEmpty {
                 VStack { Spacer(); ProgressView("Loading…"); Spacer() }
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load works", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await reload() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView("No works found", systemImage: "magnifyingglass",
                     description: Text("Try adjusting your filters or search terms."))
@@ -360,7 +365,8 @@ struct FandomWorksView: View {
                                     }
                                 }
                         }
-                        LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error, retry: loadMore)
+                        LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
+                                       stoppedOnHiddenPages: paging.stoppedOnHiddenPages, retry: loadMore)
                     } header: {
                         activeFilterSummary
                     }
@@ -548,7 +554,7 @@ struct FandomWorksView: View {
             totalPages = result.totalPages
             loadedFilters = requested
         } catch {
-            errorMessage = "\(error)"
+            errorMessage = error.localizedDescription
             // Re-filtering with works showing: keep them, put the chips back
             // to the filters they came from, and say so (#154).
             if !works.isEmpty, let loadedFilters, loadedFilters != requested {
@@ -558,25 +564,37 @@ struct FandomWorksView: View {
         }
     }
 
+    /// Loads the next page, and the ones after it while the content filter
+    /// hides them entirely, since those add no row to scroll to (#155).
     private func loadMore() async {
+        guard !isLoadingMore else { return }
+        paging.resume()
+        while await loadNextPage(), !Task.isCancelled {}
+    }
+
+    /// Returns true when the page landed fully hidden and the next one should load.
+    private func loadNextPage() async -> Bool {
         // Re-entrancy / bounds guard: onAppear can fire repeatedly, and there's
         // no page beyond totalPages.
-        guard !isLoadingMore, currentPage < totalPages, let loadedFilters else { return }
+        guard !isLoadingMore, currentPage < totalPages, let loadedFilters else { return false }
         let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try await client.search(filters: loadedFilters, page: currentPage + 1)
-            guard paging.isCurrent(generation) else { return }  // re-filtered meanwhile
+            guard paging.isCurrent(generation) else { return false }  // re-filtered meanwhile
+            let shown = visibleWorks.count
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
+            return paging.landed(newRows: visibleWorks.count - shown, hasMore: currentPage < totalPages)
         } catch {
-            let message = "Couldn't load more works: \(error)"
+            let message = "Couldn't load more works: \(error.localizedDescription)"
             if paging.fail(message, generation: generation) {
                 UIAccessibility.post(notification: .announcement, argument: message)
             }
+            return false
         }
     }
 }
@@ -610,7 +628,8 @@ struct SeriesView: View {
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var errorMessage: String?
-    @State private var loadMoreError: String?
+    /// A failed next page, and runs of pages the content filter hides (#155).
+    @State private var paging = LoadMoreState()
 
     /// Opening a series is asking for its creators, like an author's page, so
     /// blocking them doesn't empty it; blocked tags still apply.
@@ -626,8 +645,13 @@ struct SeriesView: View {
             if isLoading && info == nil {
                 VStack { Spacer(); ProgressView("Loading…"); Spacer() }
             } else if let errorMessage, info == nil {
-                ContentUnavailableView("Couldn't load series", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load series", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await loadFirst() } }
+                }
             } else {
                 List {
                     if let info { header(info) }
@@ -636,31 +660,27 @@ struct SeriesView: View {
                             Text("This series has no works you can open.")
                                 .foregroundStyle(.secondary)
                         } else if visibleWorks.isEmpty {
-                            Text("Every work in this series is filtered out by your content settings.")
+                            Text(currentPage < totalPages
+                                 ? "Every work loaded so far is filtered out by your content settings."
+                                 : "Every work in this series is filtered out by your content settings.")
                                 .foregroundStyle(.secondary)
+                            // No row to scroll to, and the footer offers nothing
+                            // if the run was cut short (#155).
+                            if currentPage < totalPages, !isLoadingMore, paging.error == nil, !paging.stoppedOnHiddenPages {
+                                Button("Load more works") { Task { await loadMore() } }
+                                    .buttonStyle(.borderless)
+                            }
                         }
                         ForEach(visibleWorks) { work in
                             NavigationLink(value: work) { WorkRow(work: work) }
                                 .onAppear {
-                                    if work.id == visibleWorks.last?.id {
+                                    if work.id == visibleWorks.last?.id, paging.error == nil {
                                         Task { await loadMore() }
                                     }
                                 }
                         }
-                        if isLoadingMore {
-                            HStack { Spacer(); ProgressView(); Spacer() }
-                                .padding(.vertical, 8)
-                                .listRowSeparator(.hidden)
-                        } else if let loadMoreError {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Couldn't load more works: \(loadMoreError)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Button("Try Again") { Task { await loadMore() } }
-                                    .buttonStyle(.borderless)
-                            }
-                            .padding(.vertical, 8)
-                        }
+                        LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
+                                       stoppedOnHiddenPages: paging.stoppedOnHiddenPages, retry: loadMore)
                     } header: {
                         Text("Works in order")
                     }
@@ -722,39 +742,44 @@ struct SeriesView: View {
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            errorMessage = "\(error)"
+            errorMessage = error.localizedDescription
             return
         }
         isLoading = false
-        await loadPastHiddenPages()
+        // Infinite scroll loads from the last visible row, which a page of
+        // only hidden or filtered-out works doesn't have.
+        // Unstructured, so leaving the view doesn't cut the run short.
+        if visibleWorks.isEmpty { Task { await loadMore() } }
     }
 
-    /// Infinite scroll loads from the last visible row, so a page whose works
-    /// are all unrevealed or filtered out would never fetch the next one.
-    /// Keep fetching (throttled, one page at a time) until something shows.
-    private func loadPastHiddenPages() async {
-        while visibleWorks.isEmpty, currentPage < totalPages, loadMoreError == nil, !Task.isCancelled {
-            let before = currentPage
-            await loadMore()
-            if currentPage == before { break }
-        }
-    }
-
+    /// Loads the next page, and the ones after it while the content filter
+    /// hides them entirely, since those add no row to scroll to (#155).
     private func loadMore() async {
-        guard !isLoadingMore, currentPage < totalPages else { return }
+        guard !isLoadingMore else { return }
+        paging.resume()
+        while await loadNextPage(), !Task.isCancelled {}
+    }
+
+    /// Returns true when the page landed fully hidden and the next one should load.
+    private func loadNextPage() async -> Bool {
+        guard !isLoadingMore, currentPage < totalPages else { return false }
+        let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let next = currentPage + 1
             let result = try await client.fetchSeries(id: series.id, page: next)
+            let shown = visibleWorks.count
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             // Never step backwards if AO3's pagination markup didn't parse.
             currentPage = max(result.currentPage, next)
             totalPages = result.totalPages
-            loadMoreError = nil
+            return paging.landed(newRows: visibleWorks.count - shown, hasMore: currentPage < totalPages)
         } catch {
-            loadMoreError = "\(error)"
+            guard !Task.isCancelled else { return false }
+            paging.fail("Couldn't load more works: \(error.localizedDescription)", generation: generation)
+            return false
         }
     }
 }

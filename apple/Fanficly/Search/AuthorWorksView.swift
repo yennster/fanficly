@@ -47,8 +47,13 @@ struct AuthorWorksView: View {
             } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
                 SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load works", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load works", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await loadFirst() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView("No works to show", systemImage: "person.slash",
                     description: Text("This author has no works published."))
@@ -70,7 +75,8 @@ struct AuthorWorksView: View {
                             }
                     }
                     LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
-                                   sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
+                                   sessionExpired: sessionExpired && !auth.hasSession,
+                                   stoppedOnHiddenPages: paging.stoppedOnHiddenPages, retry: loadMore)
                 }
                 .listStyle(.plain)
                 .resultBadges(for: visibleWorks, into: $badges)
@@ -122,27 +128,39 @@ struct AuthorWorksView: View {
             totalPages = result.totalPages
         } catch {
             sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
+            errorMessage = sessionExpired ? AuthState.message(for: error) : error.localizedDescription
         }
     }
 
+    /// Loads the next page, and the ones after it while the content filter
+    /// hides them entirely, since those add no row to scroll to (#155).
     private func loadMore() async {
-        guard !isLoadingMore, currentPage < totalPages else { return }
+        guard !isLoadingMore else { return }
+        paging.resume()
+        while await loadNextPage(), !Task.isCancelled {}
+    }
+
+    /// Returns true when the page landed fully hidden and the next one should load.
+    private func loadNextPage() async -> Bool {
+        guard !isLoadingMore, currentPage < totalPages else { return false }
         let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try auth.check(await client.fetchAuthorWorks(username: author.username, page: currentPage + 1))
+            let shown = visibleWorks.count
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
+            return paging.landed(newRows: visibleWorks.count - shown, hasMore: currentPage < totalPages)
         } catch {
             sessionExpired = auth.explains(error)
-            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more works: \(error)"
+            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more works: \(error.localizedDescription)"
             if paging.fail(message, generation: generation) {
                 UIAccessibility.post(notification: .announcement, argument: message)
             }
+            return false
         }
     }
 }

@@ -113,12 +113,43 @@ struct SubscriptionPoller {
         return notifyCount
     }
 
+    /// Check saved searches with alerts on (#309) for newly posted works.
+    func checkSavedSearchAlerts() async -> Int {
+        var notifyCount = 0
+        for search in alertingSearches() {
+            if Task.isCancelled { break }
+            notifyCount += await checkSavedSearch(search)
+            try? context.save()
+        }
+        return notifyCount
+    }
+
+    /// The Search tab's check: alerting searches not checked for
+    /// `SavedSearchAlerts.foregroundCheckInterval`, oldest first. The
+    /// background refresh gets about 30 seconds, and an AO3 search often takes
+    /// 20–30 seconds to answer, so there a search check is often cut off;
+    /// this makes sure the feed still moves while the app is in use.
+    func checkStaleSavedSearches(now: Date = .now) async -> Int {
+        let stale = alertingSearches()
+            .filter { now.timeIntervalSince($0.alertsLastCheckedAt ?? .distantPast) >= SavedSearchAlerts.foregroundCheckInterval }
+            .filter { now.timeIntervalSince($0.alertsAttemptedAt ?? .distantPast) >= SavedSearchAlerts.foregroundRetryInterval }
+            .sorted { ($0.alertsLastCheckedAt ?? .distantPast) < ($1.alertsLastCheckedAt ?? .distantPast) }
+        var notifyCount = 0
+        for search in stale {
+            if Task.isCancelled { break }
+            notifyCount += await checkSavedSearch(search)
+            try? context.save()
+        }
+        return notifyCount
+    }
+
     /// One unit of poll work, ordered by how stale its last check is. A work
     /// that's both AO3-subscribed and locally followed is one target, so a
     /// poll fetches each work once (#148).
     private enum PollTarget {
         case work(id: Int, subscription: SubscriptionRecord?, followed: Work?)
         case followedAuthor(FollowedAuthor)
+        case savedSearch(SavedSearch)
 
         var lastCheckedAt: Date? {
             switch self {
@@ -127,6 +158,7 @@ struct SubscriptionPoller {
                 [rec.map { $0.lastCheckedAt ?? .distantPast },
                  work.map { $0.lastCheckedAt ?? .distantPast }].compactMap { $0 }.min()
             case .followedAuthor(let author): author.lastCheckedAt
+            case .savedSearch(let search): search.alertsAttemptedAt ?? search.alertsLastCheckedAt
             }
         }
     }
@@ -144,7 +176,7 @@ struct SubscriptionPoller {
             }
         }
 
-        // Interleave all three record kinds oldest-check-first rather than a
+        // Interleave every record kind oldest-check-first rather than a
         // fixed subs → works → authors order. Every check costs one throttled
         // (1 req/s) request and a BGAppRefreshTask only gets ~30s, so a fixed
         // order permanently starves the last category once the earlier ones
@@ -153,6 +185,7 @@ struct SubscriptionPoller {
         var targets = workTargets(subscriptions: username != nil ? workSubscriptionRecords() : [],
                                   followed: followedWorks())
         targets += followedAuthors().map(PollTarget.followedAuthor)
+        targets += alertingSearches().map(PollTarget.savedSearch)
         targets.sort { ($0.lastCheckedAt ?? .distantPast) < ($1.lastCheckedAt ?? .distantPast) }
 
         var total = 0
@@ -164,6 +197,7 @@ struct SubscriptionPoller {
             case .work(let id, let rec, let work):
                 total += await checkWork(id: id, subscription: rec, followed: work)
             case .followedAuthor(let author): total += await checkFollowedAuthor(author)
+            case .savedSearch(let search): total += await checkSavedSearch(search)
             }
             // Save after every record so an expiring BG task keeps its
             // lastCheckedAt stamps — they drive the rotation.
@@ -330,6 +364,90 @@ struct SubscriptionPoller {
         return (posted, undated)
     }
 
+    /// Run a saved search with alerts on, newest posted first (one throttled
+    /// request), and alert for works posted since its baseline. The first
+    /// check after alerts go on only takes the baseline. Only a check that
+    /// reads the results counts as one (`alertsLastCheckedAt`): one that's cut
+    /// off, fails, comes back stale or gets a guest page leaves the baseline
+    /// and the last check alone.
+    func checkSavedSearch(_ search: SavedSearch) async -> Int {
+        let name = search.name
+        let prompt = search.prompt
+        let changedAt = search.alertsChangedAt
+        let checkedBefore = search.alertsLastCheckedAt
+        let filters = SavedSearchAlerts.filters(prompt: prompt)
+        search.alertsAttemptedAt = .now
+        // Saved so the re-read below sees this search even when it was just
+        // inserted and not saved yet.
+        try? context.save()
+        let result: AO3SearchResults
+        do {
+            result = try await client.search(filters: filters, page: 1)
+        } catch {
+            logger.warning("Skipping saved search \(name, privacy: .private): \(error.localizedDescription, privacy: .public)")
+            return 0
+        }
+        // An AO3 search can take half a minute: if the search was deleted,
+        // edited or its alerts switched (off, or off and on again) meanwhile,
+        // these results are stale. The background refresh has its own
+        // context, so the search is read again from the store, where the
+        // Search tab's edits are.
+        guard isCurrent(search, name: name, prompt: prompt, changedAt: changedAt) else { return 0 }
+        // Signed in but served the guest page: the session expired, and the
+        // results leave out restricted works. Recording them would mark the
+        // public ones seen ahead of the restricted ones, which then never alert.
+        if username != nil, result.servedAsGuest {
+            logger.warning("Saved search \(name, privacy: .private) came back as a guest page: the AO3 session expired")
+            return 0
+        }
+        let fresh = SavedSearchAlerts.newMatches(
+            in: result.works,
+            known: Set(search.alertKnownWorkIds),
+            baselined: search.alertsBaselineAt != nil,
+            lastCheckedAt: checkedBefore
+        )
+        if search.alertsBaselineAt == nil { search.alertsBaselineAt = .now }
+        search.alertKnownWorkIds = SavedSearchAlerts.baseline(search.alertKnownWorkIds, adding: result.works.map(\.id))
+        search.alertsLastCheckedAt = .now
+        guard !fresh.isEmpty else { return 0 }
+        // The same rules as the results list: hidden works, blocked tags
+        // and authors (except ones the search names) and, when that setting is
+        // on, Mature and Explicit works never alert.
+        let shown = visible(fresh, searchedWith: filters)
+        guard !shown.isEmpty else { return 0 }
+        let alreadyNew = Set(search.alertNewWorkIds)
+        search.alertNewWorkIds += shown.map(\.id).filter { !alreadyNew.contains($0) }
+        await postSavedSearchNotification(search: search, newWorks: shown)
+        return shown.count
+    }
+
+    /// Whether `search` still exists with the prompt and alert switch a check
+    /// started with, both in this context and in the store.
+    private func isCurrent(_ search: SavedSearch, name: String, prompt: String, changedAt: Date?) -> Bool {
+        guard search.modelContext != nil, !search.isDeleted else { return false }
+        let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == name })
+        guard let stored = (try? ModelContext(context.container).fetch(descriptor))?.first else { return false }
+        return stored.alertsEnabled && stored.prompt == prompt && Self.sameMoment(stored.alertsChangedAt, changedAt)
+            && search.alertsEnabled && search.prompt == prompt && Self.sameMoment(search.alertsChangedAt, changedAt)
+    }
+
+    /// Dates equal to the millisecond, as a store round trip may round them.
+    private static func sameMoment(_ a: Date?, _ b: Date?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): true
+        case let (a?, b?): abs(a.timeIntervalSince(b)) < 0.001
+        default: false
+        }
+    }
+
+    private func visible(_ works: [AO3WorkSummary], searchedWith filters: AO3SearchFilters) -> [AO3WorkSummary] {
+        let hidden = (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
+        let blocked = (try? context.fetch(FetchDescriptor<BlockedTerm>())) ?? []
+        let filterMature = UserDefaults.standard.object(forKey: ContentControl.filterMatureKey) as? Bool ?? true
+        return ContentFilter.apply(works, hiddenIds: HiddenWorkStore.ids(hidden), filterMature: filterMature,
+                                   blocklist: Blocklist(blocked).lifting(filters))
+    }
+
     // MARK: - Record fetches
 
     private func workSubscriptionRecords() -> [SubscriptionRecord] {
@@ -347,6 +465,27 @@ struct SubscriptionPoller {
     private func followedAuthors() -> [FollowedAuthor] {
         let descriptor = FetchDescriptor<FollowedAuthor>()
         return ((try? context.fetch(descriptor)) ?? []).filter { !$0.username.isEmpty }
+    }
+
+    /// At most `SavedSearchAlerts.maxAlertingSearches`, the most recently
+    /// switched on first: a backup merge can bring in more than this device
+    /// lets the reader switch on, and each one costs an AO3 search per poll.
+    private func alertingSearches() -> [SavedSearch] {
+        let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.alertsEnabled == true })
+        let searches = (try? context.fetch(descriptor)) ?? []
+        return Array(searches
+            .sorted { ($0.alertsChangedAt ?? .distantPast) > ($1.alertsChangedAt ?? .distantPast) }
+            .prefix(SavedSearchAlerts.maxAlertingSearches))
+    }
+
+    private func postSavedSearchNotification(search: SavedSearch, newWorks: [AO3WorkSummary]) async {
+        let content = Self.savedSearchContent(searchName: search.name, prompt: search.prompt, newWorks: newWorks)
+        let request = UNNotificationRequest(
+            identifier: "search-\(search.name)-new-\(newWorks.map(\.id).max() ?? 0)",
+            content: content,
+            trigger: nil
+        )
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     private func postNewWorkNotification(author: FollowedAuthor, newWorks: [AO3WorkSummary]) async {
@@ -409,6 +548,26 @@ struct SubscriptionPoller {
             content.userInfo = NotificationRoute.newWorks(
                 author: AuthorRef(username: authorUsername, displayName: authorName)
             ).userInfo
+        }
+        content.sound = .default
+        return content
+    }
+
+    /// New fics for a saved search. One opens that work; several open the
+    /// search's results, newest posted first. Internal for tests.
+    nonisolated static func savedSearchContent(
+        searchName: String,
+        prompt: String,
+        newWorks: [AO3WorkSummary]
+    ) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = searchName
+        if newWorks.count == 1, let work = newWorks.first {
+            content.body = "New fic: \(work.title)"
+            content.userInfo = NotificationRoute.searchMatch(workId: work.id).userInfo
+        } else {
+            content.body = "\(newWorks.count) new fics match this search"
+            content.userInfo = NotificationRoute.savedSearch(name: searchName, prompt: prompt).userInfo
         }
         content.sound = .default
         return content

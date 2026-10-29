@@ -25,10 +25,10 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
     private string? _epubPath;
     private bool _followed;
     private bool _isSavingOffline;
-    private bool _isSubscribing;
     private int _currentChapter = 1;
     private readonly WorkExporter _exporter = new();
     private readonly WorkKudos _kudos;
+    private readonly WorkSubscribe _subscribe;
     private Button? _saveButton;
     private Button? _optionsButton;
 
@@ -39,6 +39,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         _exporter.Changed += UpdateOptionsButton;
         _kudos = new WorkKudos(workId);
         _kudos.Changed += UpdateOptionsButton;
+        _subscribe = new WorkSubscribe(workId);
+        _subscribe.Changed += UpdateOptionsButton;
     }
 
     protected override void Start() => _ = LoadAsync();
@@ -137,7 +139,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
     private void UpdateOptionsButton()
     {
         if (_optionsButton is null) return;
-        var busy = _exporter.IsExporting || _isSavingOffline || _isSubscribing || _kudos.IsSending;
+        var busy = _exporter.IsExporting || _isSavingOffline || _subscribe.IsSending || _kudos.IsSending;
         _optionsButton.Content = busy
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
             : Symbols.Icon("book.circle", 16).A11yHidden();
@@ -174,24 +176,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         AutomationProperties.SetAutomationId(download, "work.options.download");
         menu.Items.Add(download);
 
-        var subscribed = AppHost.Library.GetSubscription($"work:{_workId}") is not null;
-        MenuFlyoutItem subscribe;
-        if (subscribed)
-        {
-            subscribe = UI.UI.MenuItem("Subscribed on AO3", () => { }, "bell.fill");
-            subscribe.IsEnabled = false;
-        }
-        else if (!AppHost.Auth.IsLoggedIn)
-        {
-            subscribe = UI.UI.MenuItem("Subscribe on AO3 (sign in)…", Routes.OpenLogin, "bell");
-        }
-        else
-        {
-            subscribe = UI.UI.MenuItem(_isSubscribing ? "Subscribing…" : "Subscribe on AO3", () => Later(SubscribeAsync), "bell");
-            subscribe.IsEnabled = !_isSubscribing;
-        }
-        AutomationProperties.SetAutomationId(subscribe, "work.options.subscribe");
-        menu.Items.Add(subscribe);
+        menu.Items.Add(_subscribe.MenuItem(() =>
+            _payload is { } payload ? new(payload.Summary.Title, payload.Summary.Author, payload.Summary.ChapterCount) : null));
         menu.Items.Add(new MenuFlyoutSeparator());
 
         var report = UI.UI.MenuItem("Report this work", () => Later(ReportAsync), "flag");
@@ -241,45 +227,6 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         finally
         {
             _isSavingOffline = false;
-            UpdateOptionsButton();
-        }
-    }
-
-    /// <summary>Subscribes on AO3 (needs a session) and mirrors it into the local
-    /// subscription list, so the poller's baseline starts at today's chapters.</summary>
-    private async Task SubscribeAsync()
-    {
-        if (_payload is not { } payload || _isSubscribing) return;
-        _isSubscribing = true;
-        UpdateOptionsButton();
-        try
-        {
-            await AppHost.Client.SubscribeToWorkAsync(_workId);
-            var key = $"work:{_workId}";
-            if (AppHost.Library.GetSubscription(key) is null)
-            {
-                AppHost.Library.Insert(new SubscriptionRecord(key, "work", payload.Summary.Title, payload.Summary.Author)
-                {
-                    LastSeenChapterCount = payload.Summary.ChapterCount,
-                });
-                AppHost.Library.TrySave();
-            }
-            MainWindow.Current.ShowMessage("Subscribed on AO3", "AO3 will email you when this work updates.");
-        }
-        catch (AO3Exception e) when (e.Kind == AO3ErrorKind.Unauthorized)
-        {
-            Account.SessionExpiry.Explains(e);
-            if (await Dialogs.ConfirmAsync("Sign in to AO3", "Your AO3 session has expired. Sign in again to subscribe.", Account.SessionExpiry.ActionTitle))
-                Routes.OpenLogin();
-        }
-        catch (Exception e)
-        {
-            AppHost.Log($"Subscribe failed: {e}");
-            await Dialogs.AlertAsync("Couldn't subscribe", e.Message);
-        }
-        finally
-        {
-            _isSubscribing = false;
             UpdateOptionsButton();
         }
     }

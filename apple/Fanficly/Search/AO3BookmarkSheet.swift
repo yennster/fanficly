@@ -150,9 +150,6 @@ struct AO3BookmarkSheet: View {
         switch error {
         case AO3Error.unauthorized: return "Your AO3 session has expired. Log in again in Settings."
         case AO3Error.parseFailed(let reason): return reason
-        case AO3Error.http(let status): return "AO3 returned HTTP \(status)."
-        case AO3Error.network(let underlying): return "Network: \(underlying)"
-        case AO3Error.rateLimited: return "AO3 is asking us to slow down. Try again in a minute."
         default: return error.localizedDescription
         }
     }

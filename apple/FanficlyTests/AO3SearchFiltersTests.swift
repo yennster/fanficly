@@ -159,3 +159,34 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertEqual(AO3SearchFilters.SortColumn.kudosCount.displayName, "Kudos")
     }
 }
+
+/// The Filters sheet's word-count fields ⇄ `AO3SearchFilters.wordCount` (#156).
+final class WorkFilterSheetTests: XCTestCase {
+    func test_wordFields_parseEachForm() {
+        XCTAssertTrue(WorkFilterSheet.wordFields("1000-5000") == ("1000", "5000"))
+        XCTAssertTrue(WorkFilterSheet.wordFields(">1000") == ("1000", ""))
+        XCTAssertTrue(WorkFilterSheet.wordFields("<5000") == ("", "5000"))
+        XCTAssertTrue(WorkFilterSheet.wordFields("5000") == ("5000", "5000"))
+        XCTAssertTrue(WorkFilterSheet.wordFields("") == ("", ""))
+    }
+
+    /// Seeding from a one-bound or empty count clears the other field, so a
+    /// saved ">1000" over a current "<5000" doesn't become "1000-5000".
+    func test_wordFields_neverKeepTheOtherBound() {
+        let saved = WorkFilterSheet.wordFields(">1000")
+        XCTAssertEqual(saved.to, "")
+        XCTAssertEqual(WorkFilterSheet.wordCount(from: saved.from, to: saved.to), ">1000")
+        let none = WorkFilterSheet.wordFields("")
+        XCTAssertEqual(WorkFilterSheet.wordCount(from: none.from, to: none.to), "")
+    }
+
+    func test_wordCount_roundTrips() {
+        for wc in ["", ">1000", "<5000", "1000-5000"] {
+            let (from, to) = WorkFilterSheet.wordFields(wc)
+            XCTAssertEqual(WorkFilterSheet.wordCount(from: from, to: to), wc)
+        }
+        // An exact count keeps its value as a one-number range (AO3 reads both alike).
+        XCTAssertEqual(WorkFilterSheet.wordCount(from: "5000", to: "5000"), "5000-5000")
+        XCTAssertEqual(WorkFilterSheet.wordCount(from: " 10 ", to: ""), ">10")
+    }
+}

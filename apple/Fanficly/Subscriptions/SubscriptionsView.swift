@@ -150,14 +150,10 @@ struct SubscriptionsView: View {
             // Fetch the subscription list first — this is fast and updates
             // the UI immediately.
             _ = try await poller.syncSubscriptionList()
-        } catch let AO3Error.parseFailed(reason) {
-            lastError = "Couldn't parse AO3's response: \(reason)"
         } catch AO3Error.unauthorized {
             // Signed in here, so AO3 dropped the session (#131).
             auth.markSessionExpired()
             lastError = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
-        } catch let AO3Error.network(underlying) {
-            lastError = "Network: \(underlying)"
         } catch {
             lastError = error.localizedDescription
         }
@@ -267,14 +263,21 @@ struct BookmarksView: View {
             } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
                 SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load bookmarks", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load bookmarks", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await refresh() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView("No bookmarks yet", systemImage: "bookmark",
                     description: Text("Works you bookmark on AO3 will appear here."))
             } else if visibleWorks.isEmpty {
-                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                    description: Text("Every bookmark is hidden or filtered out by your content settings."))
+                FilteredOutView(message: "Every bookmark so far is hidden or filtered out by your content settings.",
+                                canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                                loadMoreError: paging.error,
+                                sessionExpired: sessionExpired && !auth.hasSession, loadMore: loadMore)
             } else {
                 List {
                     ForEach(visibleWorks) { work in
@@ -287,7 +290,8 @@ struct BookmarksView: View {
                             }
                     }
                     LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
-                                   sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
+                                   sessionExpired: sessionExpired && !auth.hasSession,
+                                   stoppedOnHiddenPages: paging.stoppedOnHiddenPages, retry: loadMore)
                 }
                 .listStyle(.plain)
                 .resultBadges(for: visibleWorks, into: $badges)
@@ -339,7 +343,7 @@ struct BookmarksView: View {
             // `.task` re-runs when the view re-appears. Only real errors show.
             guard !Task.isCancelled else { return }
             sessionExpired = auth.explains(error)
-            errorMessage = sessionExpired ? AuthState.message(for: error) : "\(error)"
+            errorMessage = sessionExpired ? AuthState.message(for: error) : error.localizedDescription
         }
     }
 
@@ -350,26 +354,38 @@ struct BookmarksView: View {
         await loadFirst()
     }
 
+    /// Loads the next page, and the ones after it while the content filter
+    /// hides them entirely, since those add no row to scroll to (#155).
     private func loadMore() async {
-        guard let username = auth.username, !isLoadingMore, !isLoading, currentPage < totalPages else { return }
+        guard !isLoadingMore else { return }
+        paging.resume()
+        while await loadNextPage(), !Task.isCancelled {}
+    }
+
+    /// Returns true when the page landed fully hidden and the next one should load.
+    private func loadNextPage() async -> Bool {
+        guard let username = auth.username, !isLoadingMore, !isLoading, currentPage < totalPages else { return false }
         let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try auth.check(await client.fetchBookmarks(username: username, page: currentPage + 1))
-            guard paging.isCurrent(generation) else { return }  // refreshed meanwhile
+            guard paging.isCurrent(generation) else { return false }  // refreshed meanwhile
+            let shown = visibleWorks.count
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
+            return paging.landed(newRows: visibleWorks.count - shown, hasMore: currentPage < totalPages)
         } catch {
             // Benign cancellation — see loadFirst.
-            guard !Task.isCancelled, paging.isCurrent(generation) else { return }
+            guard !Task.isCancelled, paging.isCurrent(generation) else { return false }
             // The bookmarks so far stay; the footer says why and offers Try Again (#154).
             sessionExpired = auth.explains(error)
-            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more bookmarks: \(error)"
+            let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more bookmarks: \(error.localizedDescription)"
             paging.fail(message, generation: generation)
             UIAccessibility.post(notification: .announcement, argument: message)
+            return false
         }
     }
 }
@@ -487,14 +503,21 @@ struct ReadingListView: View {
             } else if let errorMessage, works.isEmpty, sessionExpired, !auth.hasSession {
                 SessionExpiredView(message: errorMessage)
             } else if let errorMessage, works.isEmpty {
-                ContentUnavailableView("Couldn't load \(list.title)", systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Couldn't load \(list.title)", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try Again") { Task { await refresh() } }
+                }
             } else if works.isEmpty {
                 ContentUnavailableView(list.emptyTitle, systemImage: list.systemImage,
                     description: Text(list.emptyDescription))
             } else if visibleWorks.isEmpty {
-                ContentUnavailableView("Nothing to show", systemImage: "eye.slash",
-                    description: Text("Every work here is hidden or filtered out by your content settings."))
+                FilteredOutView(message: "Every work here so far is hidden or filtered out by your content settings.",
+                                canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
+                                loadMoreError: paging.error,
+                                sessionExpired: sessionExpired && !auth.hasSession, loadMore: loadMore)
             } else {
                 List {
                     ForEach(visibleWorks) { work in
@@ -507,7 +530,8 @@ struct ReadingListView: View {
                             }
                     }
                     LoadMoreFooter(isLoadingMore: isLoadingMore, error: paging.error,
-                                   sessionExpired: sessionExpired && !auth.hasSession, retry: loadMore)
+                                   sessionExpired: sessionExpired && !auth.hasSession,
+                                   stoppedOnHiddenPages: paging.stoppedOnHiddenPages, retry: loadMore)
                 }
                 .listStyle(.plain)
                 .resultBadges(for: visibleWorks, into: $badges)
@@ -566,25 +590,37 @@ struct ReadingListView: View {
         await loadFirst()
     }
 
+    /// Loads the next page, and the ones after it while the content filter
+    /// hides them entirely, since those add no row to scroll to (#155).
     private func loadMore() async {
-        guard let username = auth.username, !isLoadingMore, !isLoading, currentPage < totalPages else { return }
+        guard !isLoadingMore else { return }
+        paging.resume()
+        while await loadNextPage(), !Task.isCancelled {}
+    }
+
+    /// Returns true when the page landed fully hidden and the next one should load.
+    private func loadNextPage() async -> Bool {
+        guard let username = auth.username, !isLoadingMore, !isLoading, currentPage < totalPages else { return false }
         let generation = paging.begin()
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
             let result = try await list.fetch(client, username: username, page: currentPage + 1)
-            guard paging.isCurrent(generation) else { return }  // refreshed meanwhile
+            guard paging.isCurrent(generation) else { return false }  // refreshed meanwhile
+            let shown = visibleWorks.count
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
             currentPage = result.currentPage
             totalPages = result.totalPages
+            return paging.landed(newRows: visibleWorks.count - shown, hasMore: currentPage < totalPages)
         } catch {
-            guard !Task.isCancelled, paging.isCurrent(generation) else { return }
+            guard !Task.isCancelled, paging.isCurrent(generation) else { return false }
             // The works so far stay; the footer says why and offers Try Again (#154).
             sessionExpired = auth.explains(error)
             let message = sessionExpired ? AuthState.message(for: error) : "Couldn't load more: \(Self.message(for: error))"
             paging.fail(message, generation: generation)
             UIAccessibility.post(notification: .announcement, argument: message)
+            return false
         }
     }
 
@@ -592,8 +628,7 @@ struct ReadingListView: View {
         switch error {
         case AO3Error.unauthorized: "Your AO3 login has expired. Sign in again."
         case AO3Error.parseFailed(let reason): reason
-        case AO3Error.rateLimited: "AO3 is asking us to slow down. Try again in a minute."
-        default: "\(error)"
+        default: error.localizedDescription
         }
     }
 }

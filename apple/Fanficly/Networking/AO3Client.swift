@@ -363,6 +363,41 @@ public enum AO3Error: Error, Sendable, Equatable {
     case kudosRejected(message: String)
     /// AO3 didn't post a comment, with its own reason when it gave one.
     case commentRejected(message: String)
+    /// AO3 didn't confirm a subscription, with its own reason when it gave one.
+    case subscribeRejected(message: String)
+    /// A 403 that isn't AO3's login page: AO3 refused the request itself, so
+    /// signing in again wouldn't help.
+    case forbidden
+    /// A 403 from Cloudflare's bot protection in front of AO3 (a challenge or
+    /// a block page), which answers signed-out readers too.
+    case blockedByProtection
+}
+
+extension AO3Error: LocalizedError {
+    /// The sentence a screen shows for this error, so no view prints the enum.
+    public var errorDescription: String? { message }
+
+    private var message: String {
+        switch self {
+        case .loginFailed(let reason): reason
+        case .rateLimited: "AO3 is asking us to slow down. Try again in a minute."
+        // Not "sign in again": a guest opening a restricted work gets this too.
+        case .unauthorized: "AO3 asked for a sign-in first. Sign in, then try again."
+        // Some reasons are already a sentence for the reader ("Your AO3 reading
+        // history is turned off…"); the rest name what didn't parse.
+        case .parseFailed(let reason) where reason.hasSuffix(".") || reason.hasSuffix("!") || reason.hasSuffix("?"):
+            reason
+        case .parseFailed(let reason): "Couldn't read AO3's response: \(reason)."
+        case .http(let status) where (500...599).contains(status):
+            "AO3 isn't responding right now (HTTP \(status)). This is on AO3's side; try again in a minute."
+        case .http(let status): "AO3 returned an error (HTTP \(status))."
+        case .network(let underlying):
+            "Couldn't reach AO3: \(underlying)" + (underlying.hasSuffix(".") ? "" : ".")
+        case .kudosRejected(let message), .commentRejected(let message), .subscribeRejected(let message): message
+        case .forbidden: "AO3 refused this request. Try again later, or open the page on the AO3 website."
+        case .blockedByProtection: "AO3's protection blocked the request. Wait a few minutes, then try again."
+        }
+    }
 }
 
 public actor AO3Client: AO3ClientProtocol {
@@ -942,33 +977,46 @@ public actor AO3Client: AO3ClientProtocol {
     }
 
     public func subscribeToWork(workId: Int) async throws {
+        // The first page is enough: it shows whether the session is signed in
+        // and carries the work's subscribe form. No view_full_work.
         await throttle.wait()
         let pageURL = try AO3Endpoints.workPage(id: workId, base: baseURL)
-        let (pageData, _) = try await performRequest(URLRequest(url: pageURL))
-        guard let pageHTML = String(data: pageData, encoding: .utf8),
-              let token = try LoginParser.authenticityToken(html: pageHTML) else {
+        let (pageData, pageResponse) = try await performRequest(URLRequest(url: pageURL))
+        if pageResponse.url?.path.hasPrefix("/users/login") == true { throw AO3Error.unauthorized }
+        guard let pageHTML = String(data: pageData, encoding: .utf8) else {
+            throw AO3Error.parseFailed(reason: "Work page not UTF-8")
+        }
+        // A guest's POST would only bounce to the login page, so don't send one.
+        guard KudosParser.isSignedIn(html: pageHTML) else { throw AO3Error.unauthorized }
+        guard let form = SubscribeParser.form(html: pageHTML, base: baseURL) else {
+            throw AO3Error.subscribeRejected(message: "AO3 doesn't offer a Subscribe button on this work.")
+        }
+        // Already subscribed (on the website, say): AO3 has no uniqueness
+        // check, so posting again would add a second subscription.
+        if form.isSubscribed { return }
+        // The page-wide token, as kudos and comments use.
+        guard let token = try? LoginParser.authenticityToken(html: pageHTML) else {
             throw AO3Error.parseFailed(reason: "authenticity_token not found on work page")
         }
 
+        // The form's own action, `/users/<login>/subscriptions`: AO3 has no
+        // subscriptions route under `/works`. One POST, never retried
+        // (`performRequest` only retries GETs).
         await throttle.wait()
-        let subsURL = try AO3Endpoints.workSubscriptions(id: workId, base: baseURL)
-        var request = URLRequest(url: subsURL)
+        var request = URLRequest(url: form.action)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer")
         request.setValue(baseURL.absoluteString, forHTTPHeaderField: "Origin")
         request.setValue(token, forHTTPHeaderField: "X-CSRF-Token")
-        let body = encodeForm([
-            "authenticity_token": token,
-            "subscription[subscribable_id]": String(workId),
-            "subscription[subscribable_type]": "Work",
-        ])
-        request.httpBody = body.data(using: .utf8)
+        var fields = form.fields
+        fields["authenticity_token"] = token
+        fields["subscription[subscribable_id]"] = fields["subscription[subscribable_id]"] ?? String(workId)
+        fields["subscription[subscribable_type]"] = fields["subscription[subscribable_type]"] ?? "Work"
+        request.httpBody = encodeForm(fields).data(using: .utf8)
 
-        let (_, response) = try await performRequest(request)
-        if response.statusCode >= 400 && response.statusCode != 422 {
-            throw AO3Error.http(status: response.statusCode)
-        }
+        let (data, response) = try await performRequest(request)
+        try SubscribeParser.checkOutcome(html: String(data: data, encoding: .utf8) ?? "", finalURL: response.url)
     }
 
     public func leaveKudos(workId: Int) async throws -> KudosOutcome {
@@ -1123,7 +1171,8 @@ public actor AO3Client: AO3ClientProtocol {
             if passing.contains(http.statusCode) { return (data, http) }
             switch http.statusCode {
             case 200..<300, 302: return (data, http)
-            case 401, 403:        throw AO3Error.unauthorized
+            case 401:             throw AO3Error.unauthorized
+            case 403:             throw Self.forbiddenError(data: data, response: http)
             case 429:
                 // Rate-limited. Only retry when AO3's own Retry-After header
                 // says the window is short enough to politely wait out;
@@ -1154,6 +1203,36 @@ public actor AO3Client: AO3ClientProtocol {
             throw AO3Error.network(underlying: error.localizedDescription)
         }
     }
+
+    /// What a 403 means. Only AO3's login page (or a redirect that ended there)
+    /// is a sign-in problem. Cloudflare's bot challenge and block pages answer
+    /// 403 to signed-out readers too, and AO3's own "forbidden" pages don't
+    /// change with a new session, so telling the reader to sign in again (or
+    /// marking their session expired) would just fail the same way. AO3 is
+    /// always served through Cloudflare, so `Server: cloudflare` alone can't
+    /// tell the two apart: the `cf-mitigated` header and the challenge page's
+    /// markup can.
+    static func forbiddenError(data: Data, response: HTTPURLResponse) -> AO3Error {
+        // Cloudflare first: it can challenge the login page itself (signing in,
+        // or a stale session's redirect there).
+        if response.value(forHTTPHeaderField: "cf-mitigated") != nil { return .blockedByProtection }
+        let html = String(decoding: data, as: UTF8.self)
+        if cloudflareMarkers.contains(where: { html.localizedCaseInsensitiveContains($0) }) {
+            return .blockedByProtection
+        }
+        let path = response.url?.path ?? ""
+        if path.hasPrefix("/users/login") || path.hasPrefix("/auth_error") { return .unauthorized }
+        if AO3PageCheck.isLoginPage(html: html) { return .unauthorized }
+        return .forbidden
+    }
+
+    /// Markup only Cloudflare's challenge ("Just a moment…") and block
+    /// ("Attention Required!", error 1020) pages carry. Not
+    /// `/cdn-cgi/challenge-platform/`: Cloudflare injects that script into
+    /// ordinary pages too.
+    private static let cloudflareMarkers = [
+        "_cf_chl_opt", "cf-error-details", "<title>Just a moment", "Attention Required! | Cloudflare",
+    ]
 
     /// Exponential backoff before a retry: ~0.5s, then ~1s.
     private static func backoffNanos(_ attempt: Int) -> UInt64 {

@@ -51,6 +51,9 @@ public sealed class SearchScreen : Screen
     /// <summary>That page failed because the AO3 session expired: offer Sign In
     /// Again, not a Try Again that would fail the same way.</summary>
     private bool _loadMoreSessionExpired;
+    /// <summary>The last next-page run stopped on pages the content filter hid
+    /// entirely, with more to load: the footer offers Load More (#155).</summary>
+    private bool _stoppedOnHiddenPages;
     /// <summary>The error is an expired AO3 session (#131): offer Sign In Again.</summary>
     private bool _sessionExpired;
     private CancellationTokenSource? _searchCts;
@@ -619,13 +622,31 @@ public sealed class SearchScreen : Screen
         if (_isLoadingMore)
             return new ProgressRing { IsActive = true, Width = 24, Height = 24, Margin = new Thickness(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Center }
                 .A11y("Loading more results");
-        if (_loadMoreError is not { } error) return null;
+        if (_loadMoreError is not { } error)
+            return _stoppedOnHiddenPages && _currentPage < _totalPages && _list.Items.Count > 0
+                ? HiddenPagesFooter()
+                : null;
         var button = LoadMoreNeedsSignIn
             ? UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent)
             : UI.UI.Button("Try Again", () => _ = LoadMoreAsync());
         button.HorizontalAlignment = HorizontalAlignment.Center;
         var footer = UI.UI.VStack(6,
             UI.UI.Secondary(error, Theme.Style.Footnote).Also(t => t.TextAlignment = TextAlignment.Center),
+            button);
+        footer.HorizontalAlignment = HorizontalAlignment.Center;
+        footer.Margin = new Thickness(0, 8, 0, 8);
+        return footer;
+    }
+
+    /// <summary>After a run of hidden pages: nothing new scrolled into view, so
+    /// the next page waits for a press (#155).</summary>
+    private UIElement HiddenPagesFooter()
+    {
+        var button = UI.UI.Button("Load More", () => _ = LoadMoreAsync());
+        button.HorizontalAlignment = HorizontalAlignment.Center;
+        var footer = UI.UI.VStack(6,
+            UI.UI.Secondary("The last few pages are hidden by your content settings.", Theme.Style.Footnote)
+                .Also(t => t.TextAlignment = TextAlignment.Center),
             button);
         footer.HorizontalAlignment = HorizontalAlignment.Center;
         footer.Margin = new Thickness(0, 8, 0, 8);
@@ -701,7 +722,7 @@ public sealed class SearchScreen : Screen
                     RenderContent();
                 }
                 rows.Add(new ListRow(UI.UI.Label("clock.arrow.circlepath", prompt, maxLines: UI.UI.LineLimit(1)), prompt, "Runs this search again",
-                    () => LoadPrompt(prompt), Remove, UI.UI.MenuItem("Remove", Remove, "trash", isDestructive: true)));
+                    () => LoadPrompt(prompt), Remove, [UI.UI.MenuItem("Remove", Remove, "trash", isDestructive: true)]));
             }
             stack.Children.Add(UI.UI.VStack(2, header, RowList("search.recent", "Recent searches", rows)));
         }
@@ -723,17 +744,56 @@ public sealed class SearchScreen : Screen
                     UI.UI.Text(s.Prompt, Theme.Style.Caption, Theme.TextSecondary, wrap: false));
                 if (SearchEnums.ParseSortColumn(s.SortColumn) is { } col)
                     text.Children.Add(UI.UI.Text($"Sort: {col.DisplayName()} {(s.SortDirection == "asc" ? "↑" : "↓")}", Theme.Style.Caption2, Theme.TextTertiary));
-                rows.Add(new ListRow(text, s.Name, $"Runs {s.Prompt}", () => LoadSaved(s), Delete,
-                    UI.UI.MenuItem("Delete", Delete, "trash", isDestructive: true)));
+                var status = AlertStatus(s);
+                if (status is not null) text.Children.Add(UI.UI.Label("bell.fill", status, Theme.Style.Caption,
+                    s.AlertNewWorkIds.Count > 0 ? Theme.Accent : Theme.TextSecondary, spacing: 4));
+                var alerts = UI.UI.MenuItem(s.AlertsEnabled ? "Turn Off New-Fic Alerts" : "Alert Me About New Fics",
+                    () => Later(() => _ = ToggleAlertsAsync(s)), s.AlertsEnabled ? "bell.fill" : "bell");
+                AutomationProperties.SetAutomationId(alerts, "search.saved.alerts");
+                rows.Add(new ListRow(text, status is null ? s.Name : $"{s.Name}, {status}", $"Runs {s.Prompt}", () => LoadSaved(s), Delete,
+                    [alerts, UI.UI.MenuItem("Delete", Delete, "trash", isDestructive: true)]));
             }
             stack.Children.Add(UI.UI.VStack(2, UI.UI.SectionHeader("Saved searches"), RowList("search.saved.list", "Saved searches", rows)));
         }
         return UI.UI.Scroll(stack);
     }
 
+    /// <summary>A saved search's alert line (#309): "Alerts on", or how many
+    /// alerted fics haven't been looked at yet. Null with alerts off.</summary>
+    private static string? AlertStatus(SavedSearch s) =>
+        !s.AlertsEnabled ? null : s.AlertNewWorkIds.Count > 0 ? $"{s.AlertNewWorkIds.Count} new" : "Alerts on";
+
+    /// <summary>Switches a saved search's new-fic alerts on or off, up to
+    /// <see cref="SavedSearchAlerts.MaxAlertingSearches"/> at once. Switching on
+    /// records what the search finds now, so only fics posted after this alert;
+    /// if that fails, the next poll takes the baseline instead.</summary>
+    private async Task ToggleAlertsAsync(SavedSearch s)
+    {
+        var on = !s.AlertsEnabled;
+        if (on && !SavedSearchAlerts.CanEnableMore(Store))
+        {
+            await Dialogs.AlertAsync("Too many alerts",
+                $"You can have new-fic alerts on for up to {SavedSearchAlerts.MaxAlertingSearches} saved searches. Turn one off to add another.");
+            return;
+        }
+        SavedSearchAlerts.SetAlerts(on, s, Store);
+        LibrarySyncManager.QueueBackupShared(Store);
+        MainWindow.Current.Announce(on ? $"New-fic alerts on for {s.Name}" : $"New-fic alerts off for {s.Name}");
+        if (!_hasSearched) RenderContent();
+        if (on) await TakeAlertBaselineAsync(s);
+    }
+
+    private async Task TakeAlertBaselineAsync(SavedSearch s)
+    {
+        if (AppHost.IsDemoMode) return;
+        var poller = new SubscriptionPoller(Client, Store, AppHost.Auth.Username, new AppHost.ToastNotifier());
+        await poller.CheckSavedSearchAsync(s);
+        Store.TrySave();
+    }
+
     /// <summary>One row of the start view's lists (the Swift List rows with a
     /// swipe-to-delete action; here Delete or the context menu removes it).</summary>
-    private sealed record ListRow(UIElement Content, string Name, string Help, Action Open, Action Delete, MenuFlyoutItem MenuItem);
+    private sealed record ListRow(UIElement Content, string Name, string Help, Action Open, Action Delete, IReadOnlyList<MenuFlyoutItem> MenuItems);
 
     /// <summary>An inset list card: a Fluent ListView (arrow keys, Narrator's
     /// "list, n of m"); clicking a row opens it, Delete removes it.</summary>
@@ -761,7 +821,7 @@ public sealed class SearchScreen : Screen
             };
             AutomationProperties.SetName(item, row.Name);
             AutomationProperties.SetHelpText(item, row.Help);
-            item.ContextFlyout = UI.UI.Menu(row.MenuItem);
+            item.ContextFlyout = UI.UI.Menu(row.MenuItems.Cast<MenuFlyoutItemBase?>().ToArray());
             byItem[item] = row;
             list.Items.Add(item);
         }
@@ -1035,6 +1095,7 @@ public sealed class SearchScreen : Screen
             if (generation != _searchGeneration) return;
             SessionExpiry.Check(result);
             _loadMoreError = null;
+            _stoppedOnHiddenPages = false;
             _results = result.Works.ToList();
             _totalFound = result.TotalFound;
             _totalPages = result.TotalPages;
@@ -1060,6 +1121,10 @@ public sealed class SearchScreen : Screen
         _isSearching = false;
         _slowNoteVisible = false;
         RenderAll();
+        // A first page the content filter hides entirely has no row to scroll
+        // to, so fetch on by itself rather than look like the end (#155).
+        if (_errorMessage is null && _results.Count > 0 && _list.Items.Count == 0 && _currentPage < _totalPages)
+            await LoadMoreAsync();
     }
 
     private void StartSlowTimer(int generation)
@@ -1093,11 +1158,14 @@ public sealed class SearchScreen : Screen
         var ct = _searchCts?.Token ?? CancellationToken.None;
         _isLoadingMore = true;
         _loadMoreError = null;
+        _stoppedOnHiddenPages = false;
         RenderContent();
         try
         {
             // A page whose works are all hidden adds no rows, and nothing would
-            // scroll to ask for the next; fetch on (a few pages at most) instead.
+            // scroll to ask for the next; fetch on (a few pages at most) instead,
+            // then leave the next run to the footer's Load More (#155).
+            var ended = false;
             for (var attempt = 0; attempt < 3 && _currentPage < _totalPages; attempt++)
             {
                 var result = await Client.SearchAsync(searched, _currentPage + 1, ct);
@@ -1111,8 +1179,9 @@ public sealed class SearchScreen : Screen
                 var visible = Visible(added);
                 _list.Append(visible);
                 _list.HasMore = _currentPage < _totalPages;
-                if (visible.Count > 0 || added.Count == 0) break;
+                if (visible.Count > 0 || added.Count == 0) { ended = true; break; }
             }
+            _stoppedOnHiddenPages = !ended && _currentPage < _totalPages;
         }
         catch (Exception) when (generation != _searchGeneration || ct.IsCancellationRequested)
         {
@@ -1155,6 +1224,7 @@ public sealed class SearchScreen : Screen
 
     private void LoadSaved(SavedSearch saved)
     {
+        SavedSearchAlerts.MarkSeen(saved, Store);
         _userPickedSort = true;
         LoadPrompt(saved.Prompt,
             SearchEnums.ParseSortColumn(saved.SortColumn) ?? SortColumn.BestMatch,
@@ -1224,10 +1294,15 @@ public sealed class SearchScreen : Screen
         var prompt = CurrentFilters.PromptText();
         if (Store.GetSavedSearch(name) is { } existing)
         {
+            // Alerts for an edited search start over: what the old search saw
+            // says nothing about the new one.
+            var edited = existing.Prompt != prompt;
+            if (edited) SavedSearchAlerts.ResetBaseline(existing);
             existing.Prompt = prompt;
             existing.SortColumn = _active.SortColumn.RawValue();
             existing.SortDirection = _active.SortDirection.RawValue();
             existing.SavedAt = DateTimeOffset.Now;
+            if (edited && existing.AlertsEnabled) _ = TakeAlertBaselineAsync(existing);
         }
         else
         {

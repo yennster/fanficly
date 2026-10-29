@@ -129,9 +129,4 @@ final class AO3EndpointsTests: XCTestCase {
         XCTAssertTrue(p2.absoluteString.contains("/users/reader/subscriptions"), p2.absoluteString)
         XCTAssertTrue(p2.absoluteString.contains("page=2"), p2.absoluteString)
     }
-
-    func test_workSubscriptionsURL() throws {
-        let url = try AO3Endpoints.workSubscriptions(id: 42, base: base)
-        XCTAssertEqual(url.absoluteString, "https://archiveofourown.org/works/42/subscriptions")
-    }
 }

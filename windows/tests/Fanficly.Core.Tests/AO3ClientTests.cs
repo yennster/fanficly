@@ -463,23 +463,12 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task SubscribeTakesItsTokenFromTheLightPage()
-    {
-        _handler.Respond(
-            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T"/></head></html>"""),
-            _ => FakeHandler.Html("<html></html>"));
-        await MakeClient().SubscribeToWorkAsync(5);
-        Assert.Equal(["https://archiveofourown.org/works/5?view_adult=true", "https://archiveofourown.org/works/5/subscriptions"],
-                     _handler.Requests.Select(r => r.Uri.AbsoluteUri));
-    }
-
-    [Fact]
     public async Task PostsAreNeverRetried()
     {
         // Replaying a POST after a timeout could double-submit (a comment that
         // landed but whose response was lost).
         _handler.Respond(
-            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T"/></head></html>"""),
+            _ => FakeHandler.Html(SubscribablePage()),
             _ => throw new HttpRequestException(HttpRequestError.ConnectionError, "refused"));
         var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(5));
         Assert.Equal(AO3ErrorKind.Network, e.Kind);
@@ -1207,48 +1196,182 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Single(_handler.Requests);
     }
 
+    // MARK: - Subscribe
+
+    /// <summary>A signed-in work page with AO3's subscribe form, which posts to the
+    /// reader's own subscriptions (or deletes one, once subscribed).</summary>
+    internal static string SubscribablePage(bool subscribed = false) => $$"""
+        <html><head><meta name="csrf-token" content="T0K"/></head><body>
+        <ul id="greeting"><li><a href="/users/reader">Hi, reader!</a></li></ul>
+        <ul class="work navigation actions"><li class="subscribe">
+        <form action="/users/reader/subscriptions{{(subscribed ? "/77" : "")}}" method="post">
+        <input type="hidden" name="authenticity_token" value="FORMTOK"/>
+        {{(subscribed ? """<input type="hidden" name="_method" value="delete"/>""" : "")}}
+        <input type="hidden" name="subscription[subscribable_id]" value="42"/>
+        <input type="hidden" name="subscription[subscribable_type]" value="Work"/>
+        <input type="submit" value="{{(subscribed ? "Unsubscribe" : "Subscribe")}}"/>
+        </form></li></ul></body></html>
+        """;
+
+    private const string FollowingNotice =
+        """<html><body><div class="flash notice">You are now following Of Maps and Mistakes. If you'd like to stop receiving email updates, you can unsubscribe from <a href="/users/reader/subscriptions">your Subscriptions page</a>.</div></body></html>""";
+
     [Fact]
-    public async Task SubscribePostsTheCsrfForm()
+    public async Task SubscribePostsTheWorksFormToTheReadersSubscriptions()
     {
         _handler.Respond(
-            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
-            _ => FakeHandler.Html("<html></html>"));
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Redirect("/works/42"),
+            _ => FakeHandler.Html(FollowingNotice));
         await MakeClient().SubscribeToWorkAsync(42);
 
+        Assert.Equal(["https://archiveofourown.org/works/42?view_adult=true", "https://archiveofourown.org/users/reader/subscriptions",
+                      "https://archiveofourown.org/works/42"],
+                     _handler.Requests.Select(r => r.Uri.AbsoluteUri));
         var post = _handler.Requests[1];
-        Assert.Equal("https://archiveofourown.org/works/42/subscriptions", post.Uri.AbsoluteUri);
+        Assert.Equal("POST", post.Method);
         Assert.Equal("T0K", post.Header("X-CSRF-Token"));
-        Assert.Equal("authenticity_token=T0K&subscription%5Bsubscribable_id%5D=42&subscription%5Bsubscribable_type%5D=Work", post.Body);
+        Assert.Equal("https://archiveofourown.org/works/42?view_adult=true", post.Header("Referer"));
+        var body = post.Body!.Split('&').ToHashSet();
+        Assert.Contains("authenticity_token=T0K", body);
+        Assert.Contains("subscription%5Bsubscribable_id%5D=42", body);
+        Assert.Contains("subscription%5Bsubscribable_type%5D=Work", body);
+        Assert.DoesNotContain(body, f => f.StartsWith("_method", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AnUnsubscribeButtonAfterThePostConfirmsIt()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Html(SubscribablePage(subscribed: true)));
+        await MakeClient().SubscribeToWorkAsync(42);
+        Assert.Equal(2, _handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task AlreadySubscribedDoesNotPostAgain()
+    {
+        // AO3 has no uniqueness check: a second POST would add a duplicate.
+        _handler.Respond(_ => FakeHandler.Html(SubscribablePage(subscribed: true)));
+        await MakeClient().SubscribeToWorkAsync(42);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task AWorkWithoutASubscribeButtonIsNotPosted()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><head><meta name="csrf-token" content="T0K"/></head><body>
+            <ul id="greeting"><li><a href="/users/reader">Hi, reader!</a></li></ul></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task ASignedOutWorkPageIsNotPosted()
+    {
+        _handler.Respond(_ => FakeHandler.Html("""
+            <html><head><meta name="csrf-token" content="T0K"/></head><body>
+            <div id="login"><form action="/users/login" method="post"><input name="user[login]"/></form></div></body></html>
+            """));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.Single(_handler.Requests);
     }
 
     [Fact]
     public async Task ARefusedTokenIsNotSubscribed()
     {
         _handler.Respond(
-            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => FakeHandler.Html(SubscribablePage()),
             _ => new HttpResponseMessage(HttpStatusCode.UnprocessableEntity));
         var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
         Assert.Equal(AO3ErrorKind.Http, e.Kind);
     }
 
     [Fact]
+    public async Task AStaleTokenRedirectingToAuthErrorIsUnauthorized()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Redirect("/auth_error"),
+            _ => FakeHandler.Html("<html><body><p>Your current session has expired.</p></body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
     public async Task ASubscriptionAO3TurnsDownIsNotSubscribed()
     {
         _handler.Respond(
-            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
+            _ => FakeHandler.Html(SubscribablePage()),
             _ => FakeHandler.Redirect("/works/42"),
             _ => FakeHandler.Html("""<html><body><div class="flash error">You can't subscribe to that.</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
+        Assert.Equal("You can't subscribe to that.", e.Reason);
+    }
+
+    [Fact]
+    public async Task ALoginRedirectBeforeThePostIsUnauthorized()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Redirect("/users/login?return_to=%2Fworks%2F42"),
+            _ => FakeHandler.Html("<html><body></body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+        Assert.DoesNotContain(_handler.Requests, r => r.Method == "POST");
+    }
+
+    [Fact]
+    public async Task ALoginRedirectAfterThePostIsUnauthorizedEvenWithAnErrorFlash()
+    {
+        // The login page carries "Sorry, you don't have permission…": that's an
+        // ended session, not AO3 turning the subscription down.
+        _handler.Respond(
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Redirect("/users/login"),
+            _ => FakeHandler.Html("""<html><body><div class="flash error">Sorry, you don't have permission to access the page you were trying to reach. Please log in.</div></body></html>"""));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Unauthorized, e.Kind);
+    }
+
+    [Fact]
+    public async Task TheWorkPageStillOfferingSubscribeIsNotSubscribed()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Redirect("/works/42"),
+            _ => FakeHandler.Html(SubscribablePage()));
         var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
         Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
     }
 
     [Fact]
-    public async Task AlreadySubscribedCountsAsSubscribed()
+    public void AnUnsubscribeButtonWithoutMethodDeleteReadsAsSubscribed()
     {
+        var form = SubscribeParser.FormOn("""
+            <ul><li class="subscribe"><form action="/users/reader/subscriptions/77" method="post">
+            <button type="submit">Unsubscribe</button></form></li></ul>
+            """, new Uri("https://archiveofourown.org"));
+        Assert.NotNull(form);
+        Assert.True(form.IsSubscribed);
+        Assert.Equal("https://archiveofourown.org/users/reader/subscriptions/77", form.Action.AbsoluteUri);
+        Assert.False(SubscribeParser.FormOn(SubscribablePage(), new Uri("https://archiveofourown.org"))!.IsSubscribed);
+    }
+
+    [Fact]
+    public async Task AnAnswerWithoutAConfirmationIsNotSubscribed()
+    {
+        // A maintenance page or a proxy isn't AO3 saying yes.
         _handler.Respond(
-            _ => FakeHandler.Html("""<html><head><meta name="csrf-token" content="T0K"/></head></html>"""),
-            _ => FakeHandler.Html("""<html><body><div class="flash error">You are already subscribed to that.</div></body></html>"""));
-        await MakeClient().SubscribeToWorkAsync(42);
+            _ => FakeHandler.Html(SubscribablePage()),
+            _ => FakeHandler.Html("<html><body><p>Down for maintenance.</p></body></html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().SubscribeToWorkAsync(42));
+        Assert.Equal(AO3ErrorKind.Rejected, e.Kind);
     }
 
     // MARK: - Bookmarks

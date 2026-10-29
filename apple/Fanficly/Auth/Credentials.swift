@@ -212,8 +212,6 @@ final class AuthState {
             isSessionExpired = false
         } catch let AO3Error.loginFailed(reason) {
             lastError = reason
-        } catch let AO3Error.network(underlying) {
-            lastError = "Network: \(underlying)"
         } catch {
             lastError = error.localizedDescription
         }
