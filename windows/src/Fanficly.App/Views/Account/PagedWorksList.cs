@@ -36,6 +36,9 @@ internal sealed class PagedWorksList
     private bool _isLoadingMore;
     private string? _errorMessage;
     private string? _loadMoreError;
+    /// <summary>The last next-page run stopped on pages the content filter hid
+    /// entirely, with more to load: the footer offers Load More (#155).</summary>
+    private bool _stoppedOnHiddenPages;
     /// <summary>The last load failed because the AO3 session expired (#131).</summary>
     private bool _sessionExpired;
     private List<int> _shownIds = [];
@@ -115,6 +118,7 @@ internal sealed class PagedWorksList
         SetLoading(true);
         _errorMessage = null;
         _loadMoreError = null;
+        _stoppedOnHiddenPages = false;
         _sessionExpired = false;
         Render();
         try
@@ -143,6 +147,11 @@ internal sealed class PagedWorksList
         }
         Render(force: true);
         if (LoadsPastHiddenPages) await LoadPastHiddenPagesAsync(cts);
+        // A first page the content filter hides entirely has no row to scroll
+        // to, so fetch on by itself rather than look like the end (#155).
+        else if (!cts.IsCancellationRequested && _errorMessage is null && _works.Count > 0
+                 && _currentPage < _totalPages && Visible().Count == 0)
+            await LoadMoreAsync();
     }
 
     private async Task LoadPastHiddenPagesAsync(CancellationTokenSource cts)
@@ -174,6 +183,7 @@ internal sealed class PagedWorksList
         _totalPages = 1;
         _errorMessage = null;
         _loadMoreError = null;
+        _stoppedOnHiddenPages = false;
         _sessionExpired = false;
         _shownIds = [];
         _list.Reset([]);
@@ -314,6 +324,12 @@ internal sealed class PagedWorksList
                     UI.UI.Secondary(_loadMoreError, Theme.Style.Footnote).Also(t => t.TextAlignment = TextAlignment.Center),
                     UI.UI.Button("Retry", () => _ = LoadMoreAsync()).Also(b => b.HorizontalAlignment = HorizontalAlignment.Center))
                 .Also(s => { s.HorizontalAlignment = HorizontalAlignment.Center; s.Margin = new Thickness(0, 8, 0, 8); });
+        else if (_stoppedOnHiddenPages && _currentPage < _totalPages)
+            // Nothing new scrolled into view, so the next run waits for a press (#155).
+            _list.Footer = UI.UI.VStack(6,
+                    UI.UI.Secondary("The last few pages are hidden by your content settings.", Theme.Style.Footnote).Also(t => t.TextAlignment = TextAlignment.Center),
+                    UI.UI.Button("Load More", () => _ = LoadMoreAsync()).Also(b => b.HorizontalAlignment = HorizontalAlignment.Center))
+                .Also(s => { s.HorizontalAlignment = HorizontalAlignment.Center; s.Margin = new Thickness(0, 8, 0, 8); });
         else
             _list.Footer = null;
     }
@@ -327,11 +343,13 @@ internal sealed class PagedWorksList
         var cts = _cts ??= new CancellationTokenSource();
         _isLoadingMore = true;
         _loadMoreError = null;
+        _stoppedOnHiddenPages = false;
         _sessionExpired = false;
         UpdateFooter();
         Render();
         try
         {
+            var ended = false;
             for (var attempt = 0; attempt < 3 && _currentPage < _totalPages; attempt++)
             {
                 var before = Visible().Count;
@@ -340,8 +358,9 @@ internal sealed class PagedWorksList
                 AppendUnique(result.Works);
                 _currentPage = result.CurrentPage;
                 _totalPages = result.TotalPages;
-                if (Visible().Count > before) break;
+                if (Visible().Count > before) { ended = true; break; }
             }
+            _stoppedOnHiddenPages = !ended && _currentPage < _totalPages;
         }
         catch (Exception) when (cts.IsCancellationRequested)
         {
