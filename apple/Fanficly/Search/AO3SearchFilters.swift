@@ -221,12 +221,12 @@ extension AO3SearchFilters {
     }
 
     /// These filters with `saved` applied: everything comes from the saved
-    /// filter except the fandom, the tags picked in Search and the keywords,
+    /// filter except the fandom, the tags picked in Search and any keywords,
     /// which stay. Tags an older saved filter still carries are dropped, as
     /// `savedJSON()` drops them today (#157).
     public func applyingSaved(_ saved: AO3SearchFilters) -> AO3SearchFilters {
         var applied = saved
-        applied.query = query
+        if !query.isEmpty { applied.query = query }
         applied.fandomNames = fandomNames
         applied.otherTagNames = otherTagNames
         return applied
@@ -241,7 +241,8 @@ extension AO3SearchFilters {
     public static func savedFilter(fromRouteQuery query: String) -> AO3SearchFilters? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{") else { return nil }
-        return from(savedJSON: trimmed)
+        // Applied like the Browse landing page applies one (#157).
+        return from(savedJSON: trimmed).map { AO3SearchFilters().applyingSaved($0) }
     }
 
     public func queryItems() -> [URLQueryItem] {

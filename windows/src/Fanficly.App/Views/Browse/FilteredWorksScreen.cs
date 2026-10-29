@@ -40,10 +40,15 @@ internal sealed class FilteredWorksScreen : Screen
     private VirtualList<AO3WorkSummary> _list = null!;
     private FrameworkElement _applyingOverlay = null!;
 
-    public FilteredWorksScreen(AO3SearchFilters filters, string title)
+    /// <summary>The tag this screen is about (a fandom, ship, character or
+    /// tag); the title says it, so it has no removable chip.</summary>
+    private readonly string? _subject;
+
+    public FilteredWorksScreen(AO3SearchFilters filters, string title, string? subject = null)
     {
         _filters = filters.Clone();
         Title = title;
+        _subject = subject;
     }
 
     protected override FrameworkElement Build()
@@ -91,7 +96,7 @@ internal sealed class FilteredWorksScreen : Screen
 
     public override IEnumerable<ICommandBarElement> PrimaryCommands()
     {
-        var count = BrowseModels.ActiveFilterCount(_filters);
+        var count = BrowseModels.ActiveFilterCount(_filters, _subject);
         var button = UI.UI.ToolbarButton(count > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
             "Filters", () => _ = ShowFiltersAsync());
         AutomationProperties.SetItemStatus(button, count > 0 ? $"{count} active" : "None");
@@ -140,7 +145,7 @@ internal sealed class FilteredWorksScreen : Screen
                 "Try Again", () => _ = ReloadAsync());
         else if (!hasWorks)
             view = WithChips(UI.UI.EmptyState("magnifyingglass", "No works found",
-                BrowseModels.FilterChips(_filters).Count == 0 ? "Try adjusting your filters or search terms." : "Try removing a filter.",
+                BrowseModels.FilterChips(_filters, _subject).Count == 0 ? "Try adjusting your filters or search terms." : "Try removing a filter.",
                 "Filters", () => _ = ShowFiltersAsync()));
         else if (_list.Items.Count == 0)
             // Rows are what ask for the next page, so offer it here.
@@ -265,10 +270,9 @@ internal sealed class FilteredWorksScreen : Screen
 
         var flow = UI.UI.Flow(6, 6);
         flow.Children.Add(sort);
-        foreach (var chip in BrowseModels.FilterChips(_filters))
+        foreach (var chip in BrowseModels.FilterChips(_filters, _subject))
             flow.Children.Add(Search.SearchChips.RemovableChip(chip, hasSearched: true, () => RemoveChip(chip), "filtered.chip"));
         flow.Margin = new Thickness(0, 8, 0, 8);
-        flow.IsHitTestVisible = !_isLoading;
         return flow;
     }
 
@@ -277,7 +281,6 @@ internal sealed class FilteredWorksScreen : Screen
         if (_isLoading) return;
         var edited = _filters.Clone();
         chip.Remove(edited);
-        MainWindow.Current.Announce($"Removed {chip.Label}");
         _ = ApplyFiltersAsync(edited);
     }
 

@@ -12,6 +12,7 @@ internal static class BrowseRegistration
     {
         Tabs.Register(SidebarItem.Browse, () => new BrowseScreen());
         Tabs.Register(SidebarItem.Popular, () => new PopularScreen());
-        Routes.FilteredWorks = (filters, title) => new FilteredWorksScreen(filters, title);
+        // Every route opens a tag's works under the tag's name: that tag is the subject.
+        Routes.FilteredWorks = (filters, title) => new FilteredWorksScreen(filters, title, subject: title);
     }
 }

@@ -138,7 +138,7 @@ internal sealed class CategoryFandomsScreen(FandomCategory category) : Screen
     }
 
     private void Open(BrowseFandom fandom) =>
-        Navigator.Push(new FilteredWorksScreen(BrowseModels.FiltersForFandom(fandom), fandom.DisplayName));
+        Navigator.Push(new FilteredWorksScreen(BrowseModels.FiltersForFandom(fandom), fandom.DisplayName, subject: fandom.CanonicalName));
 
     private async Task LoadLiveAsync()
     {

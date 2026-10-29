@@ -166,7 +166,7 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertEqual(inBrowse.freeformNames, ["Slow Burn"])
         XCTAssertEqual(inBrowse.complete, .yes)
         XCTAssertEqual(inBrowse.kudosCount, ">100")
-        let browseChips = FilterChip.all(in: inBrowse, includeFandoms: false).map(\.id)
+        let browseChips = FilterChip.all(in: inBrowse, subject: "Harry Potter - J. K. Rowling").map(\.id)
         XCTAssertEqual(browseChips, ["freeform|Slow Burn", "complete", "kudos"])
 
         // Search: the fandom picked there stays, keywords too.
@@ -179,6 +179,20 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertEqual(inSearch.freeformNames, ["Slow Burn"])
         XCTAssertEqual(FilterChip.all(in: inSearch).map(\.id),
                        ["tag|Sherlock (TV)", "freeform|Slow Burn", "complete", "kudos"])
+    }
+
+    /// The widget's saved-filter route applies a saved filter the way the
+    /// Browse landing page does: older search tags are dropped, keywords kept.
+    func test_routeQueryAppliesASavedFilter() {
+        var old = AO3SearchFilters()
+        old.query = "coffee"
+        old.otherTagNames = ["Teen Wolf (TV)"]
+        old.complete = .yes
+        let json = String(data: try! JSONEncoder().encode(old), encoding: .utf8)!
+        let routed = AO3SearchFilters.savedFilter(fromRouteQuery: json)!
+        XCTAssertEqual(routed.query, "coffee")
+        XCTAssertTrue(routed.otherTagNames.isEmpty)
+        XCTAssertEqual(routed.complete, .yes)
     }
 
     /// A filter saved before #157 may still carry search tags; applying it
@@ -228,7 +242,9 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertTrue(labels.contains("In English"))
         XCTAssertTrue(labels.contains("Not Angst"))
         XCTAssertTrue(labels.contains("Updated < 1 week"))
-        XCTAssertFalse(FilterChip.all(in: f, includeFandoms: false).contains { $0.id.hasPrefix("fandom|") })
+        XCTAssertFalse(FilterChip.all(in: f, subject: "Harry Potter - J. K. Rowling").contains { $0.id.hasPrefix("fandom|") })
+        // A ship screen's ship is its title, not a removable filter.
+        XCTAssertFalse(FilterChip.all(in: f, subject: "Draco Malfoy/Harry Potter").contains { $0.id.hasPrefix("ship|") })
 
         for chip in chips {
             var removed = f

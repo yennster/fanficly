@@ -93,9 +93,8 @@ struct WorkFilterSheet: View {
     /// search tag isn't saved by surprise (#157).
     private var saveDialogMessage: String {
         let intro = "Saves these filters (rating, tags, status, etc.) so you can apply them to any fandom later."
-        let unsaved = filters.unsavedTagNames
-        guard !unsaved.isEmpty else { return intro + " The fandom itself isn't saved." }
-        return intro + " The fandom and the tags picked in Search aren't saved: \(unsaved.joined(separator: ", "))."
+        guard !filters.otherTagNames.isEmpty else { return intro + " The fandom itself isn't saved." }
+        return intro + " The fandom and the tags picked in Search aren't saved: \(filters.otherTagNames.joined(separator: ", "))."
     }
 
     private func applySaved(_ saved: SavedFilter) {

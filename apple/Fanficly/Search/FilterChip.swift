@@ -10,12 +10,13 @@ struct FilterChip: Identifiable {
     let remove: (inout AO3SearchFilters) -> Void
 
     /// Every active filter in `f` as a chip (keywords stay in the box).
-    /// `includeFandoms: false` leaves out the fandom a Browse screen is about.
-    static func all(in f: AO3SearchFilters, includeFandoms: Bool = true) -> [FilterChip] {
+    /// `subject` is the tag a Browse screen is about (its fandom, ship or
+    /// character): it's the screen's title, so it gets no chip.
+    static func all(in f: AO3SearchFilters, subject: String? = nil) -> [FilterChip] {
         var chips: [FilterChip] = []
         func list(_ names: [String], _ key: String, prefix: String = "", kind: ChipView.Kind = .include,
                   _ path: WritableKeyPath<AO3SearchFilters, [String]>) {
-            for name in names {
+            for name in names where name != subject {
                 chips.append(FilterChip(id: "\(key)|\(name)", label: prefix + name, kind: kind) {
                     $0[keyPath: path].removeAll { $0 == name }
                 })
@@ -28,7 +29,7 @@ struct FilterChip: Identifiable {
             chips.append(FilterChip(id: "creators", label: "By \(f.creators)") { $0.creators = "" })
         }
         list(f.otherTagNames, "tag", \.otherTagNames)
-        if includeFandoms { list(f.fandomNames, "fandom", \.fandomNames) }
+        list(f.fandomNames, "fandom", \.fandomNames)
         list(f.relationshipNames, "ship", \.relationshipNames)
         list(f.characterNames, "character", \.characterNames)
         list(f.freeformNames, "freeform", \.freeformNames)

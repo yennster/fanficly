@@ -31,13 +31,14 @@ public static class BrowseModels
         $"{filters.SortColumn.DisplayName()} {(filters.SortDirection == SortDirection.Asc ? "↑" : "↓")}";
 
     /// <summary>The removable chips after the sort: every active filter, built and
-    /// worded like Search's so a saved filter's fields all show (#157). The fandom
-    /// is the screen's own title, so it has no chip.</summary>
-    public static IReadOnlyList<ActiveChip> FilterChips(AO3SearchFilters filters) =>
-        Core.FilterChips.For(filters, includeFandoms: false);
+    /// worded like Search's so a saved filter's fields all show (#157). The
+    /// screen's <paramref name="subject"/> (the fandom, ship or character it is
+    /// about) is its title, so it has no chip.</summary>
+    public static IReadOnlyList<ActiveChip> FilterChips(AO3SearchFilters filters, string? subject = null) =>
+        Core.FilterChips.For(filters, subject);
 
     /// <summary>How many filters are set (the toolbar button's badge).</summary>
-    public static int ActiveFilterCount(AO3SearchFilters f) => FilterChips(f).Count;
+    public static int ActiveFilterCount(AO3SearchFilters f, string? subject = null) => FilterChips(f, subject).Count;
 
     // MARK: - Filter sheet text fields
 

@@ -280,9 +280,13 @@ struct FandomWorksView: View {
     @State private var loadedFilters: AO3SearchFilters?
     @State private var failedFilters: AO3SearchFilters?
     @State private var showingFilters = false
+    /// The tag this screen is about (a fandom, ship or character); the title
+    /// says it, so it has no removable chip.
+    private let subject: String?
 
-    init(filters: AO3SearchFilters, title: String) {
+    init(filters: AO3SearchFilters, title: String, subject: String? = nil) {
         self.title = title
+        self.subject = subject
         _filters = State(initialValue: filters)
     }
 
@@ -291,7 +295,7 @@ struct FandomWorksView: View {
         initial.fandomNames = [fandom.canonicalName]
         initial.sortColumn = .revisedAt
         initial.sortDirection = .desc
-        self.init(filters: initial, title: fandom.displayName)
+        self.init(filters: initial, title: fandom.displayName, subject: fandom.canonicalName)
     }
 
     /// Applies a fandom-agnostic saved filter from the Browse landing page.
@@ -312,7 +316,7 @@ struct FandomWorksView: View {
         }
         initial.sortColumn = .kudosCount
         initial.sortDirection = .desc
-        self.init(filters: initial, title: tag.name)
+        self.init(filters: initial, title: tag.name, subject: tag.name)
     }
 
     /// Works minus hidden ones, blocked tags and authors (except the ones
@@ -452,7 +456,7 @@ struct FandomWorksView: View {
     /// The sort, then every active filter as a removable chip, built like
     /// Search's so a saved filter's fields all show and read the same (#157).
     /// The sort chip opens the filter dialog; a filter chip removes itself
-    /// and loads again. The fandom is the screen's own title, so it has no chip.
+    /// and loads again. The screen's subject is its title, so it has no chip.
     private var activeFilterSummary: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -474,6 +478,10 @@ struct FandomWorksView: View {
                 .accessibilityHint("Opens filter options.")
                 ForEach(filterChips) { chip in
                     Button {
+                        // Busy at once, so a second tap can't start a
+                        // re-filter that overlaps this one.
+                        guard !isLoading else { return }
+                        isLoading = true
                         chip.remove(&filters)
                         Task { await applyFilters() }
                     } label: {
@@ -495,7 +503,7 @@ struct FandomWorksView: View {
     }
 
     private var filterChips: [FilterChip] {
-        FilterChip.all(in: filters, includeFandoms: false)
+        FilterChip.all(in: filters, subject: subject)
     }
 
     private var activeFilterCount: Int { filterChips.count }

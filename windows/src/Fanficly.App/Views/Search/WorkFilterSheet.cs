@@ -175,10 +175,9 @@ public static class WorkFilterSheet
         private static string SaveFlyoutMessage(AO3SearchFilters filters)
         {
             const string intro = "Saves these filters (rating, tags, status, etc.) so you can apply them to any fandom later.";
-            var unsaved = filters.UnsavedTagNames;
-            return unsaved.Count == 0
+            return filters.OtherTagNames.Count == 0
                 ? intro + " The fandom itself isn't saved."
-                : intro + $" The fandom and the tags picked in Search aren't saved: {string.Join(", ", unsaved)}.";
+                : intro + $" The fandom and the tags picked in Search aren't saved: {string.Join(", ", filters.OtherTagNames)}.";
         }
 
         /// <summary>The "Save filter" alert, as a flyout on the button (a dialog

@@ -230,12 +230,12 @@ public sealed class AO3SearchFilters : IEquatable<AO3SearchFilters>
 
     /// <summary>These filters with <paramref name="saved"/> applied: everything
     /// comes from the saved filter except the fandom, the tags picked in Search
-    /// and the keywords, which stay. Tags an older saved filter still carries are
+    /// and any keywords, which stay. Tags an older saved filter still carries are
     /// dropped, as <see cref="SavedJson"/> drops them today (#157).</summary>
     public AO3SearchFilters ApplyingSaved(AO3SearchFilters saved)
     {
         var applied = saved.Clone();
-        applied.Query = Query;
+        if (Query.Length > 0) applied.Query = Query;
         applied.FandomNames = [.. FandomNames];
         applied.OtherTagNames = [.. OtherTagNames];
         return applied;

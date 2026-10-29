@@ -46,7 +46,7 @@ public class BrowseModelsTests
             LanguageId = "en",
         };
         Assert.Equal("Kudos ↓", BrowseModels.SortLabel(filters));
-        var chips = BrowseModels.FilterChips(filters).Select(c => c.Label).ToList();
+        var chips = BrowseModels.FilterChips(filters, subject: "Naruto").Select(c => c.Label).ToList();
         Assert.DoesNotContain("Naruto", chips); // the screen's title, not a filter
         Assert.Contains("Teen Wolf (TV)", chips);
         var general = chips.IndexOf($"Rated {Rating.General.DisplayName()}");
@@ -57,12 +57,13 @@ public class BrowseModelsTests
         Assert.Contains("No crossovers", chips);
         Assert.Contains("One-shots", chips);
         Assert.Contains("In English", chips);
-        Assert.Equal(11, BrowseModels.ActiveFilterCount(filters));
+        Assert.Equal(11, BrowseModels.ActiveFilterCount(filters, subject: "Naruto"));
+        Assert.Equal(11, BrowseModels.ActiveFilterCount(filters, subject: "A/B")); // a ship screen: Naruto shows, A/B doesn't
 
         var plain = new AO3SearchFilters { SortDirection = SortDirection.Asc, SortColumn = SortColumn.Title, FandomNames = ["Naruto"] };
         Assert.Equal("Title ↑", BrowseModels.SortLabel(plain));
-        Assert.Empty(BrowseModels.FilterChips(plain));
-        Assert.Equal(0, BrowseModels.ActiveFilterCount(plain));
+        Assert.Empty(BrowseModels.FilterChips(plain, subject: "Naruto"));
+        Assert.Equal(0, BrowseModels.ActiveFilterCount(plain, subject: "Naruto"));
     }
 
     /// <summary>#157 round trip: saved in Search with a fandom picked as a
@@ -88,7 +89,7 @@ public class BrowseModelsTests
         Assert.Equal(["Harry Potter - J. K. Rowling"], inBrowse.FandomNames);
         Assert.Empty(inBrowse.OtherTagNames);
         Assert.Empty(inBrowse.Ratings);
-        Assert.Equal(["freeform|Slow Burn", "complete", "kudos"], BrowseModels.FilterChips(inBrowse).Select(c => c.Id));
+        Assert.Equal(["freeform|Slow Burn", "complete", "kudos"], BrowseModels.FilterChips(inBrowse, subject: "Harry Potter - J. K. Rowling").Select(c => c.Id));
 
         var search = new AO3SearchFilters { Query = "coffee shop", OtherTagNames = ["Sherlock (TV)"] };
         var inSearch = search.ApplyingSaved(saved);
@@ -106,6 +107,18 @@ public class BrowseModelsTests
         var loaded = BrowseModels.FiltersForSavedFilter(new SavedFilter("Old", json));
         Assert.Empty(loaded.OtherTagNames);
         Assert.Equal([Rating.Teen], loaded.Ratings);
+    }
+
+    /// <summary>The widget's saved-filter route applies a saved filter the way the
+    /// Browse landing page does: older search tags are dropped, keywords kept.</summary>
+    [Fact]
+    public void RouteQueryAppliesASavedFilter()
+    {
+        var old = new AO3SearchFilters { Query = "coffee", OtherTagNames = ["Teen Wolf (TV)"], Complete = TriState.Yes };
+        var routed = DeepLink.SavedFilter(old.ToJson())!;
+        Assert.Equal("coffee", routed.Query);
+        Assert.Empty(routed.OtherTagNames);
+        Assert.Equal(TriState.Yes, routed.Complete);
     }
 
     [Fact]

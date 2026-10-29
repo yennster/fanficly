@@ -13,20 +13,20 @@ public static class FilterChips
 {
     /// <summary>Every active filter in <paramref name="f"/> as a removable chip
     /// (keywords stay in the box), in the Swift app's order.
-    /// <paramref name="includeFandoms"/> false leaves out the fandom a Browse
-    /// screen is about.</summary>
-    public static List<ActiveChip> For(AO3SearchFilters f, bool includeFandoms = true)
+    /// <paramref name="subject"/> is the tag a Browse screen is about (its fandom,
+    /// ship or character): it's the screen's title, so it gets no chip.</summary>
+    public static List<ActiveChip> For(AO3SearchFilters f, string? subject = null)
     {
         var chips = new List<ActiveChip>();
         void List(IEnumerable<string> names, string key, Func<AO3SearchFilters, List<string>> path, string prefix = "", ChipKind kind = ChipKind.Include)
         {
-            foreach (var name in names.ToList())
+            foreach (var name in names.Where(n => n != subject).ToList())
                 chips.Add(new ActiveChip($"{key}|{name}", prefix + name, kind, x => path(x).RemoveAll(n => n == name)));
         }
         if (f.Title.Length > 0) chips.Add(new("title", $"Title: {f.Title}", ChipKind.Include, x => x.Title = ""));
         if (f.Creators.Length > 0) chips.Add(new("creators", $"By {f.Creators}", ChipKind.Include, x => x.Creators = ""));
         List(f.OtherTagNames, "tag", x => x.OtherTagNames);
-        if (includeFandoms) List(f.FandomNames, "fandom", x => x.FandomNames);
+        List(f.FandomNames, "fandom", x => x.FandomNames);
         List(f.RelationshipNames, "ship", x => x.RelationshipNames);
         List(f.CharacterNames, "character", x => x.CharacterNames);
         List(f.FreeformNames, "freeform", x => x.FreeformNames);
