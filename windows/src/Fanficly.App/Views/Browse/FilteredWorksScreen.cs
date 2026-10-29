@@ -43,10 +43,15 @@ internal sealed class FilteredWorksScreen : Screen
     private VirtualList<AO3WorkSummary> _list = null!;
     private FrameworkElement _applyingOverlay = null!;
 
-    public FilteredWorksScreen(AO3SearchFilters filters, string title)
+    /// <summary>The tag this screen is about (a fandom, ship, character or
+    /// tag); the title says it, so it has no removable chip.</summary>
+    private readonly string? _subject;
+
+    public FilteredWorksScreen(AO3SearchFilters filters, string title, string? subject = null)
     {
         _filters = filters.Clone();
         Title = title;
+        _subject = subject;
     }
 
     protected override FrameworkElement Build()
@@ -94,7 +99,7 @@ internal sealed class FilteredWorksScreen : Screen
 
     public override IEnumerable<ICommandBarElement> PrimaryCommands()
     {
-        var count = BrowseModels.ActiveFilterCount(_filters);
+        var count = BrowseModels.ActiveFilterCount(_filters, _subject);
         var button = UI.UI.ToolbarButton(count > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
             "Filters", () => _ = ShowFiltersAsync());
         AutomationProperties.SetItemStatus(button, count > 0 ? $"{count} active" : "None");
@@ -142,8 +147,9 @@ internal sealed class FilteredWorksScreen : Screen
             view = UI.UI.EmptyState("exclamationmark.triangle", "Couldn't load works", _errorMessage,
                 "Try Again", () => _ = ReloadAsync());
         else if (!hasWorks)
-            view = UI.UI.EmptyState("magnifyingglass", "No works found",
-                "Try adjusting your filters or search terms.", "Filters", () => _ = ShowFiltersAsync());
+            view = WithChips(UI.UI.EmptyState("magnifyingglass", "No works found",
+                BrowseModels.FilterChips(_filters, _subject).Count == 0 ? "Try adjusting your filters or search terms." : "Try removing a filter.",
+                "Filters", () => _ = ShowFiltersAsync()));
         else if (_list.Items.Count == 0 && _isLoadingMore)
             // Loading on past a page with nothing to show (#155), like Search.
             view = UI.UI.VStack(12,
@@ -176,6 +182,19 @@ internal sealed class FilteredWorksScreen : Screen
         _list.Element.Opacity = applying ? 0.35 : 1;
         _list.Element.IsHitTestVisible = !applying;
         RenderFooter();
+    }
+
+    /// <summary>An empty state under the chips, which say which filters left
+    /// nothing and remove them (#157).</summary>
+    private FrameworkElement WithChips(FrameworkElement emptyState)
+    {
+        var header = BuildHeader();
+        header.Margin = new Thickness(16, 8, 16, 0);
+        var grid = UI.UI.Grid(rows: "Auto,*");
+        grid.Children.Add(header);
+        Grid.SetRow(emptyState, 1);
+        grid.Children.Add(emptyState);
+        return grid;
     }
 
     /// <summary>The spinner, plus a note and a way out once AO3 is clearly slow.</summary>
@@ -236,29 +255,52 @@ internal sealed class FilteredWorksScreen : Screen
         }
     }
 
-    /// <summary>The chips over the results; clicking them opens the filter panel.</summary>
+    /// <summary>The chips over the results.</summary>
     private void RefreshHeader()
     {
-        var chips = BrowseModels.FilterChips(_filters);
-        var flow = UI.UI.Flow(6, 6);
-        foreach (var chip in chips) flow.Children.Add(UI.UI.Chip(chip, fontSize: 11).A11yHidden());
-        flow.Children.Add(UI.UI.Icon("slider.horizontal.3", 11, Theme.Accent).Also(i => i.VerticalAlignment = VerticalAlignment.Center));
-        var button = new Button
-        {
-            Content = flow,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            Padding = new Thickness(6, 6, 6, 6),
-            Margin = new Thickness(0, 4, 0, 4),
-        };
-        UI.UI.ApplyKind(button, UI.UI.ButtonKind.Subtle);
-        AutomationProperties.SetName(button, $"Active filters: {string.Join(", ", chips)}");
-        AutomationProperties.SetHelpText(button, "Opens filter options.");
-        AutomationProperties.SetAutomationId(button, "filtered.chips");
-        ToolTipService.SetToolTip(button, "Filters");
-        button.Click += (_, _) => _ = ShowFiltersAsync();
-        _list.Header = button;
+        _list.Header = BuildHeader();
         InvalidateChrome();
+    }
+
+    /// <summary>The sort, which opens the filter panel, then every active filter
+    /// as a removable chip, built like Search's so a saved filter's fields all
+    /// show and read the same (#157). Removing one loads again.</summary>
+    private FrameworkElement BuildHeader()
+    {
+        var sortLabel = BrowseModels.SortLabel(_filters);
+        var sort = new Button
+        {
+            Content = UI.UI.HStack(6,
+                new TextBlock { Text = sortLabel, FontSize = 12, Foreground = Theme.Accent, VerticalAlignment = VerticalAlignment.Center },
+                UI.UI.Icon("slider.horizontal.3", 11, Theme.Accent).Also(i => i.VerticalAlignment = VerticalAlignment.Center)),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(8, 3, 8, 4),
+            MinHeight = 0,
+            MinWidth = 0,
+        };
+        UI.UI.ApplyKind(sort, UI.UI.ButtonKind.Subtle);
+        sort.BorderBrush = Theme.CardStroke;
+        sort.BorderThickness = new Thickness(1);
+        AutomationProperties.SetName(sort, $"Sorted by {_filters.SortColumn.DisplayName()}, {(_filters.SortDirection == SortDirection.Asc ? "ascending" : "descending")}. Filters");
+        AutomationProperties.SetHelpText(sort, "Opens filter options.");
+        AutomationProperties.SetAutomationId(sort, "filtered.chips");
+        ToolTipService.SetToolTip(sort, "Filters");
+        sort.Click += (_, _) => _ = ShowFiltersAsync();
+
+        var flow = UI.UI.Flow(6, 6);
+        flow.Children.Add(sort);
+        foreach (var chip in BrowseModels.FilterChips(_filters, _subject))
+            flow.Children.Add(Search.SearchChips.RemovableChip(chip, hasSearched: true, () => RemoveChip(chip), "filtered.chip"));
+        flow.Margin = new Thickness(0, 8, 0, 8);
+        return flow;
+    }
+
+    private void RemoveChip(ActiveChip chip)
+    {
+        if (_isLoading) return;
+        var edited = _filters.Clone();
+        chip.Remove(edited);
+        _ = ApplyFiltersAsync(edited);
     }
 
     // MARK: - Loading

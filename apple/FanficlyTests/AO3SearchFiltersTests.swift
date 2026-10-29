@@ -130,6 +130,145 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertEqual(restored!.wordCount, ">10000")
     }
 
+    /// #157: a fandom picked from a search suggestion is a tag chip, not a
+    /// `fandomNames` entry, and must not be saved into a "fandom-agnostic" filter.
+    func test_savedJSONDropsSearchTagChips() {
+        var f = AO3SearchFilters()
+        f.otherTagNames = ["Teen Wolf (TV)"]
+        f.freeformNames = ["Slow Burn"]
+        f.complete = .yes
+        XCTAssertEqual(f.unsavedTagNames, ["Teen Wolf (TV)"])
+
+        let restored = AO3SearchFilters.from(savedJSON: f.savedJSON())!
+        XCTAssertTrue(restored.otherTagNames.isEmpty, "search tag chips should not be saved")
+        XCTAssertEqual(restored.freeformNames, ["Slow Burn"])
+        XCTAssertEqual(restored.complete, .yes)
+    }
+
+    /// Every picked suggestion is a search tag, a trope as much as a fandom,
+    /// so none of them is saved; the save dialog lists them (#157).
+    func test_pickedSuggestionsAreListedAsUnsaved() {
+        var f = AO3SearchFilters()
+        SearchSuggestion.tag("Teen Wolf (TV)").apply(to: &f)
+        SearchSuggestion.tag("Slow Burn").apply(to: &f)
+        SearchSuggestion.completion(.yes).apply(to: &f)
+        XCTAssertEqual(f.unsavedTagNames, ["Teen Wolf (TV)", "Slow Burn"])
+
+        let restored = AO3SearchFilters.from(savedJSON: f.savedJSON())!
+        XCTAssertTrue(restored.otherTagNames.isEmpty)
+        XCTAssertEqual(restored.complete, .yes)
+    }
+
+    /// #157 round trip: save in Search with a fandom chip, then apply in a
+    /// Browse fandom, in Search with another fandom chip, and on its own.
+    func test_savedFilterAppliedInBrowseAndSearchKeepsTheCurrentFandom() {
+        var searched = AO3SearchFilters()
+        searched.otherTagNames = ["Teen Wolf (TV)"]
+        searched.freeformNames = ["Slow Burn"]
+        searched.complete = .yes
+        searched.kudosCount = ">100"
+        let saved = AO3SearchFilters.from(savedJSON: searched.savedJSON())!
+
+        // Browse: Harry Potter, plus the saved filter. One fandom, not two.
+        var browse = AO3SearchFilters()
+        browse.fandomNames = ["Harry Potter - J. K. Rowling"]
+        browse.ratings = [.explicit]  // replaced by the saved filter
+        let inBrowse = browse.applyingSaved(saved)
+        XCTAssertEqual(inBrowse.fandomNames, ["Harry Potter - J. K. Rowling"])
+        XCTAssertTrue(inBrowse.otherTagNames.isEmpty)
+        XCTAssertTrue(inBrowse.ratings.isEmpty)
+        XCTAssertEqual(inBrowse.freeformNames, ["Slow Burn"])
+        XCTAssertEqual(inBrowse.complete, .yes)
+        XCTAssertEqual(inBrowse.kudosCount, ">100")
+        let browseChips = FilterChip.all(in: inBrowse, subject: "Harry Potter - J. K. Rowling").map(\.id)
+        XCTAssertEqual(browseChips, ["freeform|Slow Burn", "complete", "kudos"])
+
+        // Search: the fandom picked there stays, keywords too.
+        var search = AO3SearchFilters()
+        search.query = "coffee shop"
+        search.otherTagNames = ["Sherlock (TV)"]
+        let inSearch = search.applyingSaved(saved)
+        XCTAssertEqual(inSearch.otherTagNames, ["Sherlock (TV)"])
+        XCTAssertEqual(inSearch.query, "coffee shop")
+        XCTAssertEqual(inSearch.freeformNames, ["Slow Burn"])
+        XCTAssertEqual(FilterChip.all(in: inSearch).map(\.id),
+                       ["tag|Sherlock (TV)", "freeform|Slow Burn", "complete", "kudos"])
+    }
+
+    /// The widget's saved-filter route applies a saved filter the way the
+    /// Browse landing page does: older search tags are dropped, keywords kept.
+    func test_routeQueryAppliesASavedFilter() {
+        var old = AO3SearchFilters()
+        old.query = "coffee"
+        old.otherTagNames = ["Teen Wolf (TV)"]
+        old.complete = .yes
+        let json = String(data: try! JSONEncoder().encode(old), encoding: .utf8)!
+        let routed = AO3SearchFilters.savedFilter(fromRouteQuery: json)!
+        XCTAssertEqual(routed.query, "coffee")
+        XCTAssertTrue(routed.otherTagNames.isEmpty)
+        XCTAssertEqual(routed.complete, .yes)
+    }
+
+    /// A filter saved before #157 may still carry search tags; applying it
+    /// (here from the Browse landing page, with no fandom) drops them.
+    func test_applyingAnOlderSavedFilterDropsItsSearchTags() {
+        var old = AO3SearchFilters()
+        old.otherTagNames = ["Teen Wolf (TV)"]
+        old.fandomNames = ["Teen Wolf (TV)"]
+        old.ratings = [.teen]
+        let applied = AO3SearchFilters().applyingSaved(old)
+        XCTAssertTrue(applied.otherTagNames.isEmpty)
+        XCTAssertTrue(applied.fandomNames.isEmpty)
+        XCTAssertEqual(applied.ratings, [.teen])
+    }
+
+    /// Every field a saved filter can set has a chip, in Search's wording,
+    /// and each chip removes only its own field.
+    func test_filterChipsCoverEveryField() {
+        var f = AO3SearchFilters()
+        f.title = "Tea"
+        f.creators = "someone"
+        f.otherTagNames = ["Teen Wolf (TV)"]
+        f.fandomNames = ["Harry Potter - J. K. Rowling"]
+        f.relationshipNames = ["Draco Malfoy/Harry Potter"]
+        f.characterNames = ["Hermione Granger"]
+        f.freeformNames = ["Fluff"]
+        f.excludedTagNames = ["Major Character Death"]
+        f.excludedFreeforms = ["Angst"]
+        f.ratings = [.teen]
+        f.warnings = [.noWarningsApply]
+        f.categories = [.mm]
+        f.complete = .yes
+        f.crossover = .no
+        f.singleChapter = true
+        f.wordCount = ">10000"
+        f.languageId = "en"
+        f.kudosCount = ">100"
+        f.hits = ">1000"
+        f.commentsCount = ">10"
+        f.bookmarksCount = ">5"
+        f.revisedAt = "< 1 week"
+
+        let chips = FilterChip.all(in: f)
+        XCTAssertEqual(chips.count, 22)
+        let labels = chips.map(\.label)
+        XCTAssertTrue(labels.contains("One-shots"))
+        XCTAssertTrue(labels.contains("In English"))
+        XCTAssertTrue(labels.contains("Not Angst"))
+        XCTAssertTrue(labels.contains("Updated < 1 week"))
+        XCTAssertFalse(FilterChip.all(in: f, subject: "Harry Potter - J. K. Rowling").contains { $0.id.hasPrefix("fandom|") })
+        // A ship screen's ship is its title, not a removable filter.
+        XCTAssertFalse(FilterChip.all(in: f, subject: "Draco Malfoy/Harry Potter").contains { $0.id.hasPrefix("ship|") })
+
+        for chip in chips {
+            var removed = f
+            chip.remove(&removed)
+            XCTAssertEqual(FilterChip.all(in: removed).map(\.id), chips.map(\.id).filter { $0 != chip.id },
+                           "removing \(chip.id)")
+        }
+        XCTAssertTrue(FilterChip.all(in: AO3SearchFilters()).isEmpty)
+    }
+
     func test_fromInvalidJSONIsNil() {
         XCTAssertNil(AO3SearchFilters.from(savedJSON: "not json"))
     }

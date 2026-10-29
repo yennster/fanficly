@@ -150,7 +150,7 @@ windows/
                                #   ReaderPaginator, ReaderTheme/Metrics/Spread,
                                #   ReaderProfile(+SyncStore), SentenceSegmenter
     Search/                    # AO3SearchFilters, SearchSyntax, SearchSuggestions,
-                               #   TagResolver, KnownTags
+                               #   TagResolver, KnownTags, FilterChips
     Settings/                  # IKeyValueStore + stores, ContentFilter (17+,
                                #   mature filter, hidden works, blocklist), ReviewPrompt,
                                #   SidebarItem (tab order + raw values)
@@ -304,7 +304,7 @@ When you add a feature, add its Core tests, and a smoke step if it adds a tab or
 
 **Add a setting.** Pick a key that matches the Swift `@AppStorage` key when one exists, read and write it through `KeyValueStores.Default` (per-device reader keys through `ReaderProfile.DeviceKey`), add the row with `SettingsKit`, and decide whether it belongs in the backup (`SettingsBackup.Fields` in `Sync/LibraryBackup.cs`) or the synced store.
 
-**Add a search filter.** Add the field to `AO3SearchFilters` (its `QueryItems` row, `IsEmpty`, `Merging`, `Clone` and the saved-JSON read and write), a `key:value` token in `SearchSyntax.Parse`/`Render` with a round-trip test, a chip in `SearchChips`, and optionally a control in `WorkFilterSheet`. Only add a natural phrase to `SearchSyntax`'s phrase list if it can never mean anything but the filter.
+**Add a search filter.** Add the field to `AO3SearchFilters` (its `QueryItems` row, `IsEmpty`, `Merging`, `Clone` and the saved-JSON read and write), a `key:value` token in `SearchSyntax.Parse`/`Render` with a round-trip test, a chip in Core's `FilterChips.For` (Search's chip row and Browse's header both use it), and optionally a control in `WorkFilterSheet`. Only add a natural phrase to `SearchSyntax`'s phrase list if it can never mean anything but the filter.
 
 **Add a parser.** Put it in `Parsing/`, take an HTML string, parse with `HtmlDom`, return a record, and add fixture tests. Fail closed where a wrong empty result could delete data (see `SubscriptionsParser`).
 

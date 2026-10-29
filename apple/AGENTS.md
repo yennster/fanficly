@@ -473,7 +473,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 ## Common tasks
 
-**Add a new search filter.** Add the field on `AO3SearchFilters` (+ its `queryItems()` row, `isEmpty`, the tolerant `init(from:)` and `merging`), a `key:value` token in `SearchSyntax.apply`/`render` (round-trip test), a chip in `SearchView.activeChips`, and optionally a control in `WorkFilterSheet`. Only add a *natural phrase* to `SearchSyntax.phrases` if it can never mean anything but the filter — that list is deliberately short.
+**Add a new search filter.** Add the field on `AO3SearchFilters` (+ its `queryItems()` row, `isEmpty`, the tolerant `init(from:)` and `merging`), a `key:value` token in `SearchSyntax.apply`/`render` (round-trip test), a chip in `FilterChip.all(in:)` (Search's chip row and Browse's header both use it), and optionally a control in `WorkFilterSheet`. Only add a *natural phrase* to `SearchSyntax.phrases` if it can never mean anything but the filter — that list is deliberately short.
 
 **Add a new HTML parser.** Put it in `Networking/HTMLParsers/`. Take a `String` of HTML, parse with SwiftSoup, return a Sendable struct. Add fixture-based tests in `FanficlyTests/`.
 

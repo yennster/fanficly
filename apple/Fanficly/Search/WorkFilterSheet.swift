@@ -101,7 +101,7 @@ struct WorkFilterSheet: View {
                 Button("Save") { saveCurrentFilter() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Saves these filters (rating, tags, status, etc.) so you can apply them to any fandom later. The fandom itself isn't saved.")
+                Text(saveDialogMessage)
             }
         }
     }
@@ -134,10 +134,17 @@ struct WorkFilterSheet: View {
         }
     }
 
+    /// Names what the saved filter leaves out, so a fandom picked as a
+    /// search tag isn't saved by surprise (#157).
+    private var saveDialogMessage: String {
+        let intro = "Saves these filters (rating, tags, status, etc.) so you can apply them to any fandom later."
+        guard !draft.otherTagNames.isEmpty else { return intro + " The fandom itself isn't saved." }
+        return intro + " The fandom and the tags picked in Search aren't saved: \(draft.otherTagNames.joined(separator: ", "))."
+    }
+
     private func applySaved(_ saved: SavedFilter) {
-        guard var loaded = AO3SearchFilters.from(savedJSON: saved.filtersJSON) else { return }
-        loaded.fandomNames = draft.fandomNames  // keep the current fandom
-        draft = loaded
+        guard let loaded = AO3SearchFilters.from(savedJSON: saved.filtersJSON) else { return }
+        draft = draft.applyingSaved(loaded)  // keeps the fandom and search tags
         seedText()
     }
 
