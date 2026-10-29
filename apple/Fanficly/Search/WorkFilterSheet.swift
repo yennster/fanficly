@@ -4,9 +4,14 @@ import SwiftData
 /// AO3-style filter panel that edits an `AO3SearchFilters`. The fandom (or
 /// any other already-fixed field) is preserved by the caller; this sheet
 /// edits ratings, warnings, categories, status, word count, tags, etc.
+///
+/// It edits a draft and writes it back only on Apply, so Cancel (or a swipe
+/// down with nothing changed) leaves the caller's filters, and the chips and
+/// results they drive, as they were (#156).
 struct WorkFilterSheet: View {
     @Binding var filters: AO3SearchFilters
     let onApply: () -> Void
+    @State private var draft: AO3SearchFilters
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
@@ -20,6 +25,25 @@ struct WorkFilterSheet: View {
     @State private var wordsTo: String = ""
     @State private var showingSaveDialog = false
     @State private var saveName = ""
+
+    init(filters: Binding<AO3SearchFilters>, onApply: @escaping () -> Void) {
+        _filters = filters
+        _draft = State(initialValue: filters.wrappedValue)
+        self.onApply = onApply
+    }
+
+    /// The draft as Apply would write it: toggles plus the text fields.
+    private var committedDraft: AO3SearchFilters {
+        var f = draft
+        f.relationshipNames = splitTags(relationshipsText)
+        f.characterNames = splitTags(charactersText)
+        f.freeformNames = splitTags(freeformsText)
+        f.excludedFreeforms = splitTags(excludeText)
+        f.wordCount = Self.wordCount(from: wordsFrom, to: wordsTo)
+        return f
+    }
+
+    private var hasChanges: Bool { committedDraft != filters }
 
     var body: some View {
         NavigationStack {
@@ -37,13 +61,19 @@ struct WorkFilterSheet: View {
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
+            // Swiping down would silently drop the edits; Cancel is explicit.
+            .interactiveDismissDisabled(hasChanges)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Reset", role: .destructive) { reset() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
                         commitText()
+                        filters = draft
                         onApply()
                         dismiss()
                     }
@@ -81,7 +111,7 @@ struct WorkFilterSheet: View {
             }
             Button {
                 commitText()
-                saveName = filters.suggestedName()
+                saveName = draft.suggestedName()
                 showingSaveDialog = true
             } label: {
                 Label("Save current filters…", systemImage: "plus.circle")
@@ -91,15 +121,15 @@ struct WorkFilterSheet: View {
 
     private func applySaved(_ saved: SavedFilter) {
         guard var loaded = AO3SearchFilters.from(savedJSON: saved.filtersJSON) else { return }
-        loaded.fandomNames = filters.fandomNames  // keep the current fandom
-        filters = loaded
+        loaded.fandomNames = draft.fandomNames  // keep the current fandom
+        draft = loaded
         seedText()
     }
 
     private func saveCurrentFilter() {
         let name = saveName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
-        let json = filters.savedJSON()
+        let json = draft.savedJSON()
         let descriptor = FetchDescriptor<SavedFilter>(predicate: #Predicate { $0.name == name })
         if let existing = (try? context.fetch(descriptor))?.first {
             existing.filtersJSON = json
@@ -115,12 +145,12 @@ struct WorkFilterSheet: View {
 
     private var sortSection: some View {
         Section("Sort") {
-            Picker("Sort by", selection: $filters.sortColumn) {
+            Picker("Sort by", selection: $draft.sortColumn) {
                 ForEach(AO3SearchFilters.SortColumn.allCases, id: \.self) {
                     Text($0.displayName).tag($0)
                 }
             }
-            Picker("Direction", selection: $filters.sortDirection) {
+            Picker("Direction", selection: $draft.sortDirection) {
                 ForEach(AO3SearchFilters.SortDirection.allCases, id: \.self) {
                     Text($0.displayName).tag($0)
                 }
@@ -131,7 +161,7 @@ struct WorkFilterSheet: View {
     private var ratingsSection: some View {
         Section("Rating") {
             ForEach(AO3SearchFilters.Rating.allCases, id: \.self) { rating in
-                toggleRow(rating.displayName, in: $filters.ratings, element: rating)
+                toggleRow(rating.displayName, in: $draft.ratings, element: rating)
             }
         }
     }
@@ -139,7 +169,7 @@ struct WorkFilterSheet: View {
     private var warningsSection: some View {
         Section("Archive warnings") {
             ForEach(AO3SearchFilters.ArchiveWarning.allCases, id: \.self) { warning in
-                toggleRow(warning.displayName, in: $filters.warnings, element: warning)
+                toggleRow(warning.displayName, in: $draft.warnings, element: warning)
             }
         }
     }
@@ -147,24 +177,24 @@ struct WorkFilterSheet: View {
     private var categoriesSection: some View {
         Section("Category") {
             ForEach(AO3SearchFilters.Category.allCases, id: \.self) { category in
-                toggleRow(category.displayName, in: $filters.categories, element: category)
+                toggleRow(category.displayName, in: $draft.categories, element: category)
             }
         }
     }
 
     private var statusSection: some View {
         Section("Status") {
-            Picker("Completion", selection: $filters.complete) {
+            Picker("Completion", selection: $draft.complete) {
                 Text("Any").tag(AO3SearchFilters.TriState.any)
                 Text("Complete only").tag(AO3SearchFilters.TriState.yes)
                 Text("Work in progress").tag(AO3SearchFilters.TriState.no)
             }
-            Picker("Crossovers", selection: $filters.crossover) {
+            Picker("Crossovers", selection: $draft.crossover) {
                 Text("Include").tag(AO3SearchFilters.TriState.any)
                 Text("Only crossovers").tag(AO3SearchFilters.TriState.yes)
                 Text("Exclude crossovers").tag(AO3SearchFilters.TriState.no)
             }
-            Toggle("Single chapter / oneshot", isOn: $filters.singleChapter)
+            Toggle("Single chapter / oneshot", isOn: $draft.singleChapter)
         }
     }
 
@@ -195,7 +225,7 @@ struct WorkFilterSheet: View {
 
     private var languageSection: some View {
         Section("Language") {
-            Picker("Language", selection: $filters.languageId) {
+            Picker("Language", selection: $draft.languageId) {
                 Text("Any").tag("")
                 Text("English").tag("en")
                 Text("Spanish").tag("es")
@@ -235,29 +265,15 @@ struct WorkFilterSheet: View {
     }
 
     private func seedText() {
-        relationshipsText = filters.relationshipNames.joined(separator: ", ")
-        charactersText = filters.characterNames.joined(separator: ", ")
-        freeformsText = filters.freeformNames.joined(separator: ", ")
-        excludeText = filters.excludedFreeforms.joined(separator: ", ")
-        // Parse an existing "from-to" / ">n" / "<n" word count back into fields.
-        let wc = filters.wordCount
-        if wc.contains("-") {
-            let parts = wc.split(separator: "-")
-            wordsFrom = parts.first.map(String.init) ?? ""
-            wordsTo = parts.count > 1 ? String(parts[1]) : ""
-        } else if wc.hasPrefix(">") {
-            wordsFrom = String(wc.dropFirst())
-        } else if wc.hasPrefix("<") {
-            wordsTo = String(wc.dropFirst())
-        }
+        relationshipsText = draft.relationshipNames.joined(separator: ", ")
+        charactersText = draft.characterNames.joined(separator: ", ")
+        freeformsText = draft.freeformNames.joined(separator: ", ")
+        excludeText = draft.excludedFreeforms.joined(separator: ", ")
+        (wordsFrom, wordsTo) = Self.wordFields(draft.wordCount)
     }
 
     private func commitText() {
-        filters.relationshipNames = splitTags(relationshipsText)
-        filters.characterNames = splitTags(charactersText)
-        filters.freeformNames = splitTags(freeformsText)
-        filters.excludedFreeforms = splitTags(excludeText)
-        filters.wordCount = buildWordCount()
+        draft = committedDraft
     }
 
     private func splitTags(_ s: String) -> [String] {
@@ -266,11 +282,29 @@ struct WorkFilterSheet: View {
             .filter { !$0.isEmpty }
     }
 
-    private func buildWordCount() -> String {
-        let from = wordsFrom.trimmingCharacters(in: .whitespaces)
-        let to = wordsTo.trimmingCharacters(in: .whitespaces)
+    /// Parses a "from-to" / ">n" / "<n" / exact "n" word count into the two
+    /// fields. Both start empty, so a count with only one bound (or none)
+    /// never keeps the other field's old value.
+    nonisolated static func wordFields(_ wc: String) -> (from: String, to: String) {
+        if wc.contains("-") {
+            let parts = wc.split(separator: "-")
+            return (parts.first.map(String.init) ?? "", parts.count > 1 ? String(parts[1]) : "")
+        } else if wc.hasPrefix(">") {
+            return (String(wc.dropFirst()), "")
+        } else if wc.hasPrefix("<") {
+            return ("", String(wc.dropFirst()))
+        } else if !wc.isEmpty, wc.allSatisfy({ $0.isASCII && $0.isNumber }) {
+            return (wc, wc)  // an exact count
+        }
+        return ("", "")
+    }
+
+    /// The inverse of `wordFields`: equal bounds give back an exact count.
+    nonisolated static func wordCount(from rawFrom: String, to rawTo: String) -> String {
+        let from = rawFrom.trimmingCharacters(in: .whitespaces)
+        let to = rawTo.trimmingCharacters(in: .whitespaces)
         switch (from.isEmpty, to.isEmpty) {
-        case (false, false): return "\(from)-\(to)"
+        case (false, false): return from == to ? from : "\(from)-\(to)"
         case (false, true):  return ">\(from)"
         case (true, false):  return "<\(to)"
         case (true, true):   return ""
@@ -278,11 +312,9 @@ struct WorkFilterSheet: View {
     }
 
     private func reset() {
-        let preservedFandoms = filters.fandomNames
         var fresh = AO3SearchFilters()
-        fresh.fandomNames = preservedFandoms
-        filters = fresh
+        fresh.fandomNames = draft.fandomNames
+        draft = fresh
         seedText()
-        wordsFrom = ""; wordsTo = ""
     }
 }
