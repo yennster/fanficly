@@ -273,6 +273,8 @@ struct FilteredOutView: View {
     /// That failure was an expired AO3 session and no one has signed in since.
     var sessionExpired = false
     let loadMore: @MainActor () async -> Void
+    /// Fetch by itself once; reappearing (a tab switch) leaves it to the button.
+    @State private var autoLoaded = false
 
     var body: some View {
         Group {
@@ -285,7 +287,8 @@ struct FilteredOutView: View {
         // Unstructured like the rows' infinite scroll, so the request isn't
         // cancelled when the first visible row replaces this view.
         .onAppear {
-            if canLoadMore, loadMoreError == nil, !isLoadingMore {
+            if !autoLoaded, canLoadMore, loadMoreError == nil, !isLoadingMore {
+                autoLoaded = true
                 Task { await loadMore() }
             }
         }

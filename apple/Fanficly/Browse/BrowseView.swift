@@ -660,8 +660,16 @@ struct SeriesView: View {
                             Text("This series has no works you can open.")
                                 .foregroundStyle(.secondary)
                         } else if visibleWorks.isEmpty {
-                            Text("Every work in this series is filtered out by your content settings.")
+                            Text(currentPage < totalPages
+                                 ? "Every work loaded so far is filtered out by your content settings."
+                                 : "Every work in this series is filtered out by your content settings.")
                                 .foregroundStyle(.secondary)
+                            // No row to scroll to, and the footer offers nothing
+                            // if the run was cut short (#155).
+                            if currentPage < totalPages, !isLoadingMore, paging.error == nil, !paging.stoppedOnHiddenPages {
+                                Button("Load more works") { Task { await loadMore() } }
+                                    .buttonStyle(.borderless)
+                            }
                         }
                         ForEach(visibleWorks) { work in
                             NavigationLink(value: work) { WorkRow(work: work) }
@@ -740,7 +748,8 @@ struct SeriesView: View {
         isLoading = false
         // Infinite scroll loads from the last visible row, which a page of
         // only hidden or filtered-out works doesn't have.
-        if visibleWorks.isEmpty { await loadMore() }
+        // Unstructured, so leaving the view doesn't cut the run short.
+        if visibleWorks.isEmpty { Task { await loadMore() } }
     }
 
     /// Loads the next page, and the ones after it while the content filter
