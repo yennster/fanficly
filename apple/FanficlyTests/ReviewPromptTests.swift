@@ -48,6 +48,16 @@ final class ReviewPromptTests: XCTestCase {
         XCTAssertFalse(ask(lastPrompt: daysAgo(400), isDone: true))
     }
 
+    func test_openingTheReviewPage_stopsThePrompt() {
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: ReviewPrompter.doneKey)
+        defer { defaults.set(saved, forKey: ReviewPrompter.doneKey) }
+        defaults.removeObject(forKey: ReviewPrompter.doneKey)
+        XCTAssertFalse(ReviewPrompter.isDone)
+        ReviewPrompter.shared.openedReviewPage()
+        XCTAssertTrue(ReviewPrompter.isDone)
+    }
+
     // MARK: - The "just finished" cue
 
     private func makeContext() throws -> ModelContext {

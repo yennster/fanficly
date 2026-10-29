@@ -56,8 +56,12 @@ final class ReviewPrompter {
     static let writeReviewURL = URL(string: "https://apps.apple.com/app/id6775897153?action=write-review")!
 
     private static let lastPromptAtKey = "review.lastPromptAt"
-    /// Set once the reader has rated; the prompt never asks again after it.
+    /// Set once the reader opens the App Store review page from Settings (the
+    /// only sign of rating StoreKit allows); the prompt never asks again after it.
     static let doneKey = "review.done"
+
+    /// Whether the prompt has stopped for good.
+    static var isDone: Bool { UserDefaults.standard.bool(forKey: doneKey) }
 
     /// The reader opened the App Store review page from Settings: count them
     /// as rated and stop asking.
@@ -85,7 +89,7 @@ final class ReviewPrompter {
             readingDays: Set(stats.flatMap(\.daySeconds.keys)).count,
             firstReadAt: stats.map(\.firstReadAt).min(),
             lastPromptAt: lastPromptAt,
-            isDone: defaults.bool(forKey: Self.doneKey)
+            isDone: Self.isDone
         ) else { return }
 
         // Recorded up front: StoreKit never says whether the prompt showed.

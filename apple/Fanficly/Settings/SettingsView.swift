@@ -259,14 +259,17 @@ struct SettingsView: View {
                 Link(destination: Self.feedbackMailto) {
                     Label("Send feedback", systemImage: "envelope")
                 }
-                // A button rather than a `Link` so the tap also stops the
-                // automatic rating prompt.
-                Button {
-                    ReviewPrompter.shared.openedReviewPage()
-                    openURL(ReviewPrompter.writeReviewURL)
-                } label: {
+                Link(destination: ReviewPrompter.writeReviewURL) {
                     Label("Rate Fanficly on the App Store", systemImage: "star")
                 }
+                // Opening the review page also stops the automatic rating
+                // prompt, but only once the system has accepted the link.
+                .environment(\.openURL, OpenURLAction { url in
+                    openURL(url) { accepted in
+                        if accepted { ReviewPrompter.shared.openedReviewPage() }
+                    }
+                    return .handled
+                })
             }
         }
         .navigationTitle("Settings")

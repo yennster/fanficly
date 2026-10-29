@@ -30,13 +30,15 @@ public sealed class StoreReviewRequester : IStoreReviewRequester
         }
     }
 
-    /// <summary>Opens the app's Store page at its reviews (Settings → About → Rate).</summary>
+    /// <summary>Opens the app's Store page at its reviews (Settings → About → Rate)
+    /// and, once it opens, stops the automatic rating prompt.</summary>
     public static async Task OpenStoreReviewPageAsync()
     {
         try
         {
             var id = Windows.ApplicationModel.Package.Current.Id.FamilyName;
-            await Windows.System.Launcher.LaunchUriAsync(new Uri($"ms-windows-store://review/?PFN={id}"));
+            if (await Windows.System.Launcher.LaunchUriAsync(new Uri($"ms-windows-store://review/?PFN={id}")))
+                ReviewPrompter.Shared.OpenedReviewPage();
         }
         catch (Exception e)
         {

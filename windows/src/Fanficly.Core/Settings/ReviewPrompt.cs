@@ -84,8 +84,8 @@ public sealed class ReviewPrompter
     public static ReviewPrompter Shared { get; set; } = new();
 
     public const string LastPromptAtKey = "review.lastPromptAt";
-    /// <summary>Set once the reader has rated or dismissed the dialog; the
-    /// prompt never asks again after it.</summary>
+    /// <summary>Set once the reader has rated or dismissed the dialog, or opened
+    /// the Store review page from Settings; the prompt never asks again after it.</summary>
     public const string DoneKey = "review.done";
 
     /// <summary>The Swift app's App Store "write a review" link.</summary>
