@@ -145,6 +145,20 @@ final class AO3SearchFiltersTests: XCTestCase {
         XCTAssertEqual(restored.complete, .yes)
     }
 
+    /// Every picked suggestion is a search tag, a trope as much as a fandom,
+    /// so none of them is saved; the save dialog lists them (#157).
+    func test_pickedSuggestionsAreListedAsUnsaved() {
+        var f = AO3SearchFilters()
+        SearchSuggestion.tag("Teen Wolf (TV)").apply(to: &f)
+        SearchSuggestion.tag("Slow Burn").apply(to: &f)
+        SearchSuggestion.completion(.yes).apply(to: &f)
+        XCTAssertEqual(f.unsavedTagNames, ["Teen Wolf (TV)", "Slow Burn"])
+
+        let restored = AO3SearchFilters.from(savedJSON: f.savedJSON())!
+        XCTAssertTrue(restored.otherTagNames.isEmpty)
+        XCTAssertEqual(restored.complete, .yes)
+    }
+
     /// #157 round trip: save in Search with a fandom chip, then apply in a
     /// Browse fandom, in Search with another fandom chip, and on its own.
     func test_savedFilterAppliedInBrowseAndSearchKeepsTheCurrentFandom() {
