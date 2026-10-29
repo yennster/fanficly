@@ -51,6 +51,9 @@ public sealed class SearchScreen : Screen
     /// <summary>That page failed because the AO3 session expired: offer Sign In
     /// Again, not a Try Again that would fail the same way.</summary>
     private bool _loadMoreSessionExpired;
+    /// <summary>The last next-page run stopped on pages the content filter hid
+    /// entirely, with more to load: the footer offers Load More (#155).</summary>
+    private bool _stoppedOnHiddenPages;
     /// <summary>The error is an expired AO3 session (#131): offer Sign In Again.</summary>
     private bool _sessionExpired;
     private CancellationTokenSource? _searchCts;
@@ -619,13 +622,31 @@ public sealed class SearchScreen : Screen
         if (_isLoadingMore)
             return new ProgressRing { IsActive = true, Width = 24, Height = 24, Margin = new Thickness(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Center }
                 .A11y("Loading more results");
-        if (_loadMoreError is not { } error) return null;
+        if (_loadMoreError is not { } error)
+            return _stoppedOnHiddenPages && _currentPage < _totalPages && _list.Items.Count > 0
+                ? HiddenPagesFooter()
+                : null;
         var button = LoadMoreNeedsSignIn
             ? UI.UI.Button(SessionExpiry.ActionTitle, Routes.OpenLogin, kind: UI.UI.ButtonKind.Accent)
             : UI.UI.Button("Try Again", () => _ = LoadMoreAsync());
         button.HorizontalAlignment = HorizontalAlignment.Center;
         var footer = UI.UI.VStack(6,
             UI.UI.Secondary(error, Theme.Style.Footnote).Also(t => t.TextAlignment = TextAlignment.Center),
+            button);
+        footer.HorizontalAlignment = HorizontalAlignment.Center;
+        footer.Margin = new Thickness(0, 8, 0, 8);
+        return footer;
+    }
+
+    /// <summary>After a run of hidden pages: nothing new scrolled into view, so
+    /// the next page waits for a press (#155).</summary>
+    private UIElement HiddenPagesFooter()
+    {
+        var button = UI.UI.Button("Load More", () => _ = LoadMoreAsync());
+        button.HorizontalAlignment = HorizontalAlignment.Center;
+        var footer = UI.UI.VStack(6,
+            UI.UI.Secondary("The last few pages are hidden by your content settings.", Theme.Style.Footnote)
+                .Also(t => t.TextAlignment = TextAlignment.Center),
             button);
         footer.HorizontalAlignment = HorizontalAlignment.Center;
         footer.Margin = new Thickness(0, 8, 0, 8);
@@ -1074,6 +1095,7 @@ public sealed class SearchScreen : Screen
             if (generation != _searchGeneration) return;
             SessionExpiry.Check(result);
             _loadMoreError = null;
+            _stoppedOnHiddenPages = false;
             _results = result.Works.ToList();
             _totalFound = result.TotalFound;
             _totalPages = result.TotalPages;
@@ -1099,6 +1121,10 @@ public sealed class SearchScreen : Screen
         _isSearching = false;
         _slowNoteVisible = false;
         RenderAll();
+        // A first page the content filter hides entirely has no row to scroll
+        // to, so fetch on by itself rather than look like the end (#155).
+        if (_errorMessage is null && _results.Count > 0 && _list.Items.Count == 0 && _currentPage < _totalPages)
+            await LoadMoreAsync();
     }
 
     private void StartSlowTimer(int generation)
@@ -1132,11 +1158,14 @@ public sealed class SearchScreen : Screen
         var ct = _searchCts?.Token ?? CancellationToken.None;
         _isLoadingMore = true;
         _loadMoreError = null;
+        _stoppedOnHiddenPages = false;
         RenderContent();
         try
         {
             // A page whose works are all hidden adds no rows, and nothing would
-            // scroll to ask for the next; fetch on (a few pages at most) instead.
+            // scroll to ask for the next; fetch on (a few pages at most) instead,
+            // then leave the next run to the footer's Load More (#155).
+            var ended = false;
             for (var attempt = 0; attempt < 3 && _currentPage < _totalPages; attempt++)
             {
                 var result = await Client.SearchAsync(searched, _currentPage + 1, ct);
@@ -1150,8 +1179,9 @@ public sealed class SearchScreen : Screen
                 var visible = Visible(added);
                 _list.Append(visible);
                 _list.HasMore = _currentPage < _totalPages;
-                if (visible.Count > 0 || added.Count == 0) break;
+                if (visible.Count > 0 || added.Count == 0) { ended = true; break; }
             }
+            _stoppedOnHiddenPages = !ended && _currentPage < _totalPages;
         }
         catch (Exception) when (generation != _searchGeneration || ct.IsCancellationRequested)
         {

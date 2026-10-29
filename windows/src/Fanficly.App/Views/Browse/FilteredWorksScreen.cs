@@ -25,6 +25,9 @@ internal sealed class FilteredWorksScreen : Screen
     private bool _isLoadingMore;
     private string? _errorMessage;
     private string? _loadMoreError;
+    /// <summary>The last next-page run stopped on pages the content filter hid
+    /// entirely, with more to load: the footer offers Load More (#155).</summary>
+    private bool _stoppedOnHiddenPages;
     private CancellationTokenSource _cts = new();
     private bool _slowNoteVisible;
     private Search.DispatcherQueueTimerHolder? _slowTimer;
@@ -211,6 +214,15 @@ internal sealed class FilteredWorksScreen : Screen
             footer.Margin = new Thickness(0, 12, 0, 12);
             _list.Footer = footer;
         }
+        else if (_stoppedOnHiddenPages && _currentPage < _totalPages && _list.Items.Count > 0)
+        {
+            // Nothing new scrolled into view, so the next run waits for a press (#155).
+            var more = UI.UI.Button("Load More", () => _ = LoadMoreAsync());
+            var footer = UI.UI.VStack(6, UI.UI.Secondary("The last few pages are hidden by your content settings.", Theme.Style.Footnote), more);
+            footer.HorizontalAlignment = HorizontalAlignment.Center;
+            footer.Margin = new Thickness(0, 12, 0, 12);
+            _list.Footer = footer;
+        }
         else
         {
             _list.Footer = null;
@@ -303,6 +315,7 @@ internal sealed class FilteredWorksScreen : Screen
             _currentPage = result.CurrentPage;
             _totalPages = result.TotalPages;
             _loadMoreError = null;
+            _stoppedOnHiddenPages = false;
             _list.Reset(Visible(_works));
             _list.HasMore = _currentPage < _totalPages;
             if (announce) MainWindow.Current.Announce(_list.Items.Count == 0 ? "No works found" : $"{_list.Items.Count} works");
@@ -323,20 +336,28 @@ internal sealed class FilteredWorksScreen : Screen
         _slowNoteVisible = false;
         _isLoading = false;
         Render();
+        // A first page the content filter hides entirely has no row to scroll
+        // to, so fetch on by itself rather than look like the end (#155).
+        if (_errorMessage is null && !token.IsCancellationRequested && _works.Count > 0
+            && _list.Items.Count == 0 && _currentPage < _totalPages)
+            await LoadMoreAsync();
     }
 
     /// <summary>The next page, appended. Pages whose every work is hidden are
-    /// skipped through (a few at most), so scrolling never stalls on them.</summary>
+    /// skipped through (a few at most, then Load More), so scrolling never
+    /// stalls on them.</summary>
     private async Task LoadMoreAsync()
     {
         if (_isLoadingMore || _isLoading || _currentPage >= _totalPages) return;
         var token = _cts.Token;
         _isLoadingMore = true;
         _loadMoreError = null;
+        _stoppedOnHiddenPages = false;
         RenderFooter();
         Render();
         try
         {
+            var ended = false;
             for (var attempt = 0; attempt < 3 && _currentPage < _totalPages; attempt++)
             {
                 var result = await AppHost.Client.SearchAsync(_filters, _currentPage + 1, token);
@@ -348,8 +369,9 @@ internal sealed class FilteredWorksScreen : Screen
                 _totalPages = result.TotalPages;
                 var visible = Visible(fresh);
                 _list.Append(visible);
-                if (visible.Count > 0) break;
+                if (visible.Count > 0) { ended = true; break; }
             }
+            _stoppedOnHiddenPages = !ended && _currentPage < _totalPages;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
