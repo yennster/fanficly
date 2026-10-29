@@ -7,18 +7,26 @@ namespace Fanficly.App.Platform;
 /// <summary>The Microsoft Store's in-app rating dialog (SwiftUI's requestReview).</summary>
 public sealed class StoreReviewRequester : IStoreReviewRequester
 {
-    public async Task RequestReviewAsync()
+    public async Task<ReviewPromptOutcome> RequestReviewAsync()
     {
-        if (!Services.AppPaths.IsPackaged || MainWindow.Current is null) return;
+        if (!Services.AppPaths.IsPackaged || MainWindow.Current is null) return ReviewPromptOutcome.Unknown;
         try
         {
             var context = StoreContext.GetDefault();
             WinRT.Interop.InitializeWithWindow.Initialize(context, WinRT.Interop.WindowNative.GetWindowHandle(MainWindow.Current));
-            await context.RequestRateAndReviewAppAsync();
+            var result = await context.RequestRateAndReviewAppAsync();
+            if (result.ExtendedError is { } error) AppHost.Log($"Rating prompt: {result.Status} ({error.Message})");
+            return result.Status switch
+            {
+                StoreRateAndReviewStatus.Succeeded => ReviewPromptOutcome.Rated,
+                StoreRateAndReviewStatus.CanceledByUser => ReviewPromptOutcome.Dismissed,
+                _ => ReviewPromptOutcome.Unknown,
+            };
         }
         catch (Exception e)
         {
             AppHost.Log($"Rating prompt failed: {e.Message}");
+            return ReviewPromptOutcome.Unknown;
         }
     }
 

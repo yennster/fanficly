@@ -14,6 +14,7 @@ struct SettingsView: View {
 
     @Environment(AuthState.self) private var auth
     @Environment(\.modelContext) private var context
+    @Environment(\.openURL) private var openURL
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("settings.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = false
     @AppStorage("library.showReadingProgress") private var showReadingProgress = true
@@ -258,7 +259,12 @@ struct SettingsView: View {
                 Link(destination: Self.feedbackMailto) {
                     Label("Send feedback", systemImage: "envelope")
                 }
-                Link(destination: ReviewPrompter.writeReviewURL) {
+                // A button rather than a `Link` so the tap also stops the
+                // automatic rating prompt.
+                Button {
+                    ReviewPrompter.shared.openedReviewPage()
+                    openURL(ReviewPrompter.writeReviewURL)
+                } label: {
                     Label("Rate Fanficly on the App Store", systemImage: "star")
                 }
             }

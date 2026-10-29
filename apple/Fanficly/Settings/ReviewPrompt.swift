@@ -5,13 +5,16 @@ import Observation
 /// the prompt only ever reaches people who are clearly enjoying the app: it
 /// needs a moment of success (a story just finished, checked by the caller),
 /// a few finished stories over several reading days, at least a week since
-/// the first read, and it asks at most once per app version and months apart.
-/// iOS adds its own cap (three per year) and honors the user's opt-out.
+/// the first read. After that it asks again every few weeks until the reader
+/// has rated (or dismissed the prompt, where the platform reports that).
+/// iOS and macOS add their own cap (three per year), skip people who already
+/// rated, and honor the user's opt-out; StoreKit never tells the app which
+/// happened, so on Apple only the Settings "Rate" link stops it.
 enum ReviewPromptPolicy {
     static let minFinishedStories = 3
     static let minReadingDays = 3
     static let minDaysSinceFirstRead = 7
-    static let minDaysBetweenPrompts = 120
+    static let minDaysBetweenPrompts = 21
 
     static func shouldAsk(
         now: Date,
@@ -19,14 +22,13 @@ enum ReviewPromptPolicy {
         readingDays: Int,
         firstReadAt: Date?,
         lastPromptAt: Date?,
-        lastPromptVersion: String?,
-        currentVersion: String
+        isDone: Bool
     ) -> Bool {
-        guard finishedStories >= minFinishedStories,
+        guard !isDone,
+              finishedStories >= minFinishedStories,
               readingDays >= minReadingDays,
               let firstReadAt,
-              now.timeIntervalSince(firstReadAt) >= Double(minDaysSinceFirstRead) * 86_400,
-              lastPromptVersion != currentVersion
+              now.timeIntervalSince(firstReadAt) >= Double(minDaysSinceFirstRead) * 86_400
         else { return false }
         if let lastPromptAt,
            now.timeIntervalSince(lastPromptAt) < Double(minDaysBetweenPrompts) * 86_400 {
@@ -54,7 +56,14 @@ final class ReviewPrompter {
     static let writeReviewURL = URL(string: "https://apps.apple.com/app/id6775897153?action=write-review")!
 
     private static let lastPromptAtKey = "review.lastPromptAt"
-    private static let lastPromptVersionKey = "review.lastPromptVersion"
+    /// Set once the reader has rated; the prompt never asks again after it.
+    static let doneKey = "review.done"
+
+    /// The reader opened the App Store review page from Settings: count them
+    /// as rated and stop asking.
+    func openedReviewPage() {
+        UserDefaults.standard.set(true, forKey: Self.doneKey)
+    }
 
     func storyFinished() {
         finishedThisSession = true
@@ -69,7 +78,6 @@ final class ReviewPrompter {
 
         let stats = loadStats()
         let defaults = UserDefaults.standard
-        let version = Bundle.main.shortVersionString
         let lastPromptAt = defaults.object(forKey: Self.lastPromptAtKey) as? Date
         guard ReviewPromptPolicy.shouldAsk(
             now: now,
@@ -77,13 +85,11 @@ final class ReviewPrompter {
             readingDays: Set(stats.flatMap(\.daySeconds.keys)).count,
             firstReadAt: stats.map(\.firstReadAt).min(),
             lastPromptAt: lastPromptAt,
-            lastPromptVersion: defaults.string(forKey: Self.lastPromptVersionKey),
-            currentVersion: version
+            isDone: defaults.bool(forKey: Self.doneKey)
         ) else { return }
 
         // Recorded up front: StoreKit never says whether the prompt showed.
         defaults.set(now, forKey: Self.lastPromptAtKey)
-        defaults.set(version, forKey: Self.lastPromptVersionKey)
         requestCount += 1
     }
 }

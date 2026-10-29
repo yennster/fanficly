@@ -31,7 +31,6 @@ public static partial class AppHost
         WorkPersistence.LibraryFolder = AppPaths.Downloads;
         NotificationsAuthorization.IsSuppressed = IsDemoMode;
         ReviewPrompter.Shared.IsSuppressed = IsDemoMode;
-        ReviewPrompter.Shared.CurrentVersion = AppVersion;
         ReaderProfile.CurrentDevice = ReaderDevice.Windows;
 
         if (IsDemoMode)

@@ -2,6 +2,7 @@ using Fanficly.App.Platform;
 using Fanficly.App.Services;
 using Fanficly.App.Shell;
 using Fanficly.App.UI;
+using Fanficly.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -25,7 +26,11 @@ public sealed class AboutScreen : Screen
         AutomationProperties.SetAutomationId(version, "settings.version");
 
         var rate = SettingsKit.LinkRow(Strings.Get("About_Rate"),
-            () => _ = StoreReviewRequester.OpenStoreReviewPageAsync(), "star", automationId: "settings.rate", chevron: false);
+            () =>
+            {
+                ReviewPrompter.Shared.OpenedReviewPage();
+                _ = StoreReviewRequester.OpenStoreReviewPageAsync();
+            }, "star", automationId: "settings.rate", chevron: false);
         ToolTipService.SetToolTip(rate, Strings.Get("About_RateTooltip"));
 
         // A grid, not a horizontal stack, so the tagline wraps beside the icon
