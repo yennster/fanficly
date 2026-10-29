@@ -164,11 +164,21 @@ public static class WorkFilterSheet
         private void ApplySaved(SavedFilter saved)
         {
             if (AO3SearchFilters.FromSavedJson(saved.FiltersJson) is not { } loaded) return;
-            loaded.FandomNames = [.. Filters.FandomNames]; // keep the current fandom
-            Filters = loaded;
+            Filters = Filters.ApplyingSaved(loaded); // keeps the fandom and search tags
             SeedText();
             Rebuild();
             Shell.MainWindow.Current.Announce($"Applied {saved.Name}");
+        }
+
+        /// <summary>Names what the saved filter leaves out, so a fandom picked as
+        /// a search tag isn't saved by surprise (#157).</summary>
+        private static string SaveFlyoutMessage(AO3SearchFilters filters)
+        {
+            const string intro = "Saves these filters (rating, tags, status, etc.) so you can apply them to any fandom later.";
+            var unsaved = filters.UnsavedTagNames;
+            return unsaved.Count == 0
+                ? intro + " The fandom itself isn't saved."
+                : intro + $" The fandom and the tags picked in Search aren't saved: {string.Join(", ", unsaved)}.";
         }
 
         /// <summary>The "Save filter" alert, as a flyout on the button (a dialog
@@ -208,7 +218,7 @@ public static class WorkFilterSheet
             buttons.HorizontalAlignment = HorizontalAlignment.Right;
             flyout.Content = UI.UI.VStack(10,
                 UI.UI.Text("Save filter", Theme.Style.Headline),
-                UI.UI.Secondary("Saves these filters (rating, tags, status, etc.) so you can apply them to any fandom later. The fandom itself isn't saved.", Theme.Style.Footnote)
+                UI.UI.Secondary(SaveFlyoutMessage(Filters), Theme.Style.Footnote)
                     .Also(t => t.MaxWidth = 320),
                 name,
                 buttons);

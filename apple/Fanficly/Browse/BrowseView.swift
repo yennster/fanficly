@@ -296,7 +296,8 @@ struct FandomWorksView: View {
 
     /// Applies a fandom-agnostic saved filter from the Browse landing page.
     init(savedFilter: SavedFilter) {
-        let initial = AO3SearchFilters.from(savedJSON: savedFilter.filtersJSON) ?? AO3SearchFilters()
+        let saved = AO3SearchFilters.from(savedJSON: savedFilter.filtersJSON) ?? AO3SearchFilters()
+        let initial = AO3SearchFilters().applyingSaved(saved)
         self.init(filters: initial, title: savedFilter.name)
     }
 
@@ -334,10 +335,19 @@ struct FandomWorksView: View {
                     Button("Try Again") { Task { await reload() } }
                 }
             } else if works.isEmpty {
-                ContentUnavailableView("No works found", systemImage: "magnifyingglass",
-                    description: Text("Try adjusting your filters or search terms."))
+                // The chips say which filters left nothing, and remove them.
+                VStack(spacing: 0) {
+                    activeFilterSummary
+                        .padding(.horizontal)
+                    ContentUnavailableView("No works found", systemImage: "magnifyingglass",
+                        description: Text(filterChips.isEmpty
+                                          ? "Try adjusting your filters or search terms."
+                                          : "Try removing a filter."))
+                }
             } else if visibleWorks.isEmpty {
                 VStack(spacing: 0) {
+                    activeFilterSummary
+                        .padding(.horizontal)
                     // Only a re-filter fails with works loaded.
                     if let errorMessage {
                         refilterFailedBanner(errorMessage)
@@ -439,76 +449,56 @@ struct FandomWorksView: View {
         .padding(.vertical, 4)
     }
 
-    @ViewBuilder
+    /// The sort, then every active filter as a removable chip, built like
+    /// Search's so a saved filter's fields all show and read the same (#157).
+    /// The sort chip opens the filter dialog; a filter chip removes itself
+    /// and loads again. The fandom is the screen's own title, so it has no chip.
     private var activeFilterSummary: some View {
-        if !filterChips.isEmpty {
-            // Tapping the summary opens the filter dialog.
-            Button {
-                showingFilters = true
-            } label: {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(filterChips, id: \.self) { chip in
-                            Text(chip)
-                                .font(.caption2)
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(Color.accentColor.opacity(0.15))
-                                .foregroundStyle(Color.accentColor)
-                                .clipShape(Capsule())
-                        }
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Button {
+                    showingFilters = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(sortLabel)
                         Image(systemName: "slider.horizontal.3")
-                            .font(.caption2)
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.leading, 2)
                             .accessibilityHidden(true)
                     }
+                    .font(.caption)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.5)))
+                    .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Sorted by \(filters.sortColumn.displayName), \(filters.sortDirection == .asc ? "ascending" : "descending"). Filters")
+                .accessibilityHint("Opens filter options.")
+                ForEach(filterChips) { chip in
+                    Button {
+                        chip.remove(&filters)
+                        Task { await applyFilters() }
+                    } label: {
+                        ChipView(text: chip.label, kind: chip.kind, removable: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove filter: \(chip.label)")
+                    .accessibilityHint("Removes this filter and searches again.")
                 }
             }
-            .buttonStyle(.plain)
-            .textCase(nil)
             .padding(.vertical, 2)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Active filters: \(filterChips.joined(separator: ", "))")
-            .accessibilityHint("Opens filter options.")
-            .disabled(isLoading)
         }
+        .textCase(nil)
+        .disabled(isLoading)
     }
 
-    private var filterChips: [String] {
-        var chips: [String] = ["\(filters.sortColumn.displayName) \(filters.sortDirection == .asc ? "↑" : "↓")"]
-        chips += filters.ratings.map(\.displayName)
-        chips += filters.warnings.map { $0.displayName }
-        chips += filters.categories.map(\.displayName)
-        chips += filters.relationshipNames
-        chips += filters.characterNames
-        chips += filters.freeformNames
-        chips += filters.excludedFreeforms.map { "−\($0)" }
-        switch filters.complete {
-        case .yes: chips.append("Complete")
-        case .no:  chips.append("WIP")
-        case .any: break
-        }
-        switch filters.crossover {
-        case .yes: chips.append("Crossovers only")
-        case .no:  chips.append("No crossovers")
-        case .any: break
-        }
-        if filters.singleChapter { chips.append("Oneshot") }
-        if !filters.wordCount.isEmpty { chips.append("words \(filters.wordCount)") }
-        if !filters.languageId.isEmpty { chips.append("lang \(filters.languageId)") }
-        return chips
+    private var sortLabel: String {
+        "\(filters.sortColumn.displayName) \(filters.sortDirection == .asc ? "↑" : "↓")"
     }
 
-    private var activeFilterCount: Int {
-        filters.ratings.count + filters.warnings.count + filters.categories.count
-            + filters.relationshipNames.count + filters.characterNames.count
-            + filters.freeformNames.count + filters.excludedFreeforms.count
-            + (filters.complete != .any ? 1 : 0)
-            + (filters.crossover != .any ? 1 : 0)
-            + (filters.singleChapter ? 1 : 0)
-            + (filters.wordCount.isEmpty ? 0 : 1)
-            + (filters.languageId.isEmpty ? 0 : 1)
+    private var filterChips: [FilterChip] {
+        FilterChip.all(in: filters, includeFandoms: false)
     }
+
+    private var activeFilterCount: Int { filterChips.count }
 
     /// Resolve user-typed tags to AO3's canonical names, then search.
     private func applyFilters() async {

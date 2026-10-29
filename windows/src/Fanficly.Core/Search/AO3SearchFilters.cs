@@ -209,14 +209,36 @@ public sealed class AO3SearchFilters : IEquatable<AO3SearchFilters>
         return string.Join(" · ", parts.Take(4));
     }
 
-    /// <summary>JSON for persisting a saved filter (fandom names excluded so the
-    /// config can be applied to any fandom). Same shape as the Swift app's
-    /// <c>JSONEncoder</c> output, so saved filters sync between platforms.</summary>
+    /// <summary>The tags a saved filter leaves out: the fandom, and the tags
+    /// picked in Search (suggestions and <c>tag:</c> tokens). AO3's tag
+    /// autocomplete doesn't say which of those are fandoms ("Teen Wolf (TV)" and
+    /// "Slow Burn" both land in <see cref="OtherTagNames"/>), so none of them are
+    /// saved; they are what you searched, not the filter (#157).</summary>
+    public List<string> UnsavedTagNames => [.. FandomNames, .. OtherTagNames];
+
+    /// <summary>JSON for persisting a saved filter, without
+    /// <see cref="UnsavedTagNames"/>, so the config can be applied to any fandom.
+    /// Same shape as the Swift app's <c>JSONEncoder</c> output, so saved filters
+    /// sync between platforms.</summary>
     public string SavedJson()
     {
         var copy = Clone();
         copy.FandomNames = [];
+        copy.OtherTagNames = [];
         return copy.ToJson();
+    }
+
+    /// <summary>These filters with <paramref name="saved"/> applied: everything
+    /// comes from the saved filter except the fandom, the tags picked in Search
+    /// and the keywords, which stay. Tags an older saved filter still carries are
+    /// dropped, as <see cref="SavedJson"/> drops them today (#157).</summary>
+    public AO3SearchFilters ApplyingSaved(AO3SearchFilters saved)
+    {
+        var applied = saved.Clone();
+        applied.Query = Query;
+        applied.FandomNames = [.. FandomNames];
+        applied.OtherTagNames = [.. OtherTagNames];
+        return applied;
     }
 
     public static AO3SearchFilters? FromSavedJson(string json)

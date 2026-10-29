@@ -22,50 +22,22 @@ public static class BrowseModels
     /// <summary>A fandom-agnostic saved filter from the Browse landing page
     /// (<c>FandomWorksView(savedFilter:)</c>); unreadable JSON runs as no filters.</summary>
     public static AO3SearchFilters FiltersForSavedFilter(SavedFilter saved) =>
-        AO3SearchFilters.FromSavedJson(saved.FiltersJson) ?? new AO3SearchFilters();
+        new AO3SearchFilters().ApplyingSaved(AO3SearchFilters.FromSavedJson(saved.FiltersJson) ?? new AO3SearchFilters());
 
     // MARK: - Active filters
 
-    /// <summary>The chips over the results: sort first, then each active filter.</summary>
-    public static IReadOnlyList<string> FilterChips(AO3SearchFilters filters)
-    {
-        var chips = new List<string>
-        {
-            $"{filters.SortColumn.DisplayName()} {(filters.SortDirection == SortDirection.Asc ? "↑" : "↓")}",
-        };
-        chips.AddRange(SearchEnums.AllRatings.Where(filters.Ratings.Contains).Select(r => r.DisplayName()));
-        chips.AddRange(SearchEnums.AllWarnings.Where(filters.Warnings.Contains).Select(w => w.DisplayName()));
-        chips.AddRange(SearchEnums.AllCategories.Where(filters.Categories.Contains).Select(c => c.DisplayName()));
-        chips.AddRange(filters.RelationshipNames);
-        chips.AddRange(filters.CharacterNames);
-        chips.AddRange(filters.FreeformNames);
-        chips.AddRange(filters.ExcludedFreeforms.Select(t => $"−{t}"));
-        switch (filters.Complete)
-        {
-            case TriState.Yes: chips.Add("Complete"); break;
-            case TriState.No: chips.Add("WIP"); break;
-        }
-        switch (filters.Crossover)
-        {
-            case TriState.Yes: chips.Add("Crossovers only"); break;
-            case TriState.No: chips.Add("No crossovers"); break;
-        }
-        if (filters.SingleChapter) chips.Add("Oneshot");
-        if (filters.WordCount.Length > 0) chips.Add($"words {filters.WordCount}");
-        if (filters.LanguageId.Length > 0) chips.Add($"lang {filters.LanguageId}");
-        return chips;
-    }
+    /// <summary>The sort, as the first chip over the results (it opens the filter panel).</summary>
+    public static string SortLabel(AO3SearchFilters filters) =>
+        $"{filters.SortColumn.DisplayName()} {(filters.SortDirection == SortDirection.Asc ? "↑" : "↓")}";
 
-    /// <summary>How many filters the sheet has set (the toolbar button's badge).</summary>
-    public static int ActiveFilterCount(AO3SearchFilters f) =>
-        f.Ratings.Count + f.Warnings.Count + f.Categories.Count
-        + f.RelationshipNames.Count + f.CharacterNames.Count
-        + f.FreeformNames.Count + f.ExcludedFreeforms.Count
-        + (f.Complete != TriState.Any ? 1 : 0)
-        + (f.Crossover != TriState.Any ? 1 : 0)
-        + (f.SingleChapter ? 1 : 0)
-        + (f.WordCount.Length == 0 ? 0 : 1)
-        + (f.LanguageId.Length == 0 ? 0 : 1);
+    /// <summary>The removable chips after the sort: every active filter, built and
+    /// worded like Search's so a saved filter's fields all show (#157). The fandom
+    /// is the screen's own title, so it has no chip.</summary>
+    public static IReadOnlyList<ActiveChip> FilterChips(AO3SearchFilters filters) =>
+        Core.FilterChips.For(filters, includeFandoms: false);
+
+    /// <summary>How many filters are set (the toolbar button's badge).</summary>
+    public static int ActiveFilterCount(AO3SearchFilters f) => FilterChips(f).Count;
 
     // MARK: - Filter sheet text fields
 

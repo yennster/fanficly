@@ -198,11 +198,19 @@ extension AO3SearchFilters {
         return parts.prefix(4).joined(separator: " · ")
     }
 
-    /// JSON for persisting a saved filter (fandom names excluded so the
-    /// config can be applied to any fandom).
+    /// The tags a saved filter leaves out: the fandom, and the tags picked
+    /// in Search (suggestions and `tag:` tokens). AO3's tag autocomplete
+    /// doesn't say which of those are fandoms ("Teen Wolf (TV)" and "Slow
+    /// Burn" both land in `otherTagNames`), so none of them are saved; they
+    /// are what you searched, not the filter (#157).
+    public var unsavedTagNames: [String] { fandomNames + otherTagNames }
+
+    /// JSON for persisting a saved filter, without `unsavedTagNames`, so the
+    /// config can be applied to any fandom.
     public func savedJSON() -> String {
         var copy = self
         copy.fandomNames = []
+        copy.otherTagNames = []
         guard let data = try? JSONEncoder().encode(copy) else { return "{}" }
         return String(data: data, encoding: .utf8) ?? "{}"
     }
@@ -210,6 +218,18 @@ extension AO3SearchFilters {
     public static func from(savedJSON json: String) -> AO3SearchFilters? {
         guard let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(AO3SearchFilters.self, from: data)
+    }
+
+    /// These filters with `saved` applied: everything comes from the saved
+    /// filter except the fandom, the tags picked in Search and the keywords,
+    /// which stay. Tags an older saved filter still carries are dropped, as
+    /// `savedJSON()` drops them today (#157).
+    public func applyingSaved(_ saved: AO3SearchFilters) -> AO3SearchFilters {
+        var applied = saved
+        applied.query = query
+        applied.fandomNames = fandomNames
+        applied.otherTagNames = otherTagNames
+        return applied
     }
 
     /// The saved filter a `fanficly://search?query=` route carries, if any.
