@@ -49,7 +49,7 @@ internal static class BackupUnknownKeys
     [
         ("works", "ao3Id", WorkKeys, false),
         ("bookmarks", "ao3Id", ["ao3Id", "workAo3Id", "notes", "tags", "savedAt"], false),
-        ("subscriptions", "key", ["key", "kind", "displayName", "authorName", "lastSeenChapterCount", "lastCheckedAt"], false),
+        ("subscriptions", "key", ["key", "kind", "displayName", "authorName", "lastSeenChapterCount", "lastCheckedAt", "account"], false),
         ("searches", "name",
         [
             "name", "prompt", "sortColumn", "sortDirection", "savedAt", "alertsEnabled", "alertsChangedAt",

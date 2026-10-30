@@ -116,8 +116,12 @@ public sealed record ChapterBackup(int Index, string Title, string BodyHtml, int
 
 public sealed record BookmarkBackup(int Ao3Id, int WorkAo3Id, string Notes, IReadOnlyList<string> Tags, DateTimeOffset SavedAt);
 
+/// <summary>An AO3 subscription. <c>Account</c> is the AO3 login name signed in
+/// when it was backed up (#159): a restore skips another account's. Null in
+/// older backups, which restore for anyone.</summary>
 public sealed record SubscriptionBackup(
-    string Key, string Kind, string DisplayName, string AuthorName, int? LastSeenChapterCount, DateTimeOffset? LastCheckedAt);
+    string Key, string Kind, string DisplayName, string AuthorName, int? LastSeenChapterCount, DateTimeOffset? LastCheckedAt,
+    string? Account = null);
 
 /// <summary>A saved search. The alert fields (#309) are optional so backups
 /// written before alerts still decode; <see cref="LibrarySyncManager.MergedSearch"/>
@@ -324,6 +328,7 @@ public static class LibraryBackupJson
                 w.WriteString("authorName", x.AuthorName);
                 WriteInt(w, "lastSeenChapterCount", x.LastSeenChapterCount);
                 WriteDate(w, "lastCheckedAt", x.LastCheckedAt);
+                if (x.Account is { } account) w.WriteString("account", account);
             });
             WriteArray(w, "searches", b.Searches, (w, x) =>
             {
@@ -544,7 +549,7 @@ public static class LibraryBackupJson
                 Int(x, "ao3Id"), Int(x, "workAo3Id"), Str(x, "notes"), Strings(x, "tags"), Date(x, "savedAt"))),
             Subscriptions: Array(o, "subscriptions", x => new SubscriptionBackup(
                 Str(x, "key"), Str(x, "kind"), Str(x, "displayName"), Str(x, "authorName"),
-                IntN(x, "lastSeenChapterCount"), DateN(x, "lastCheckedAt"))),
+                IntN(x, "lastSeenChapterCount"), DateN(x, "lastCheckedAt"), StrN(x, "account"))),
             Searches: Array(o, "searches", x => new SearchBackup(
                 Str(x, "name"), Str(x, "prompt"), Str(x, "sortColumn"), Str(x, "sortDirection"), Date(x, "savedAt"),
                 BoolN(x, "alertsEnabled"), DateN(x, "alertsChangedAt"),

@@ -94,7 +94,14 @@ public sealed class SubscriptionPoller
         Username = username;
         _notifier = notifier;
         _syncStamps = syncStamps;
+        _accountGeneration = AccountData.Generation;
     }
+
+    private readonly int _accountGeneration;
+
+    /// <summary>Signed out, or in as someone else, since this poller was made: the
+    /// subscription records it read were deleted with that account (#159).</summary>
+    public bool AccountChanged => AccountData.Generation != _accountGeneration;
 
     public string? Username { get; }
 
@@ -113,9 +120,19 @@ public sealed class SubscriptionPoller
     /// rarely changes; the Subscriptions tab syncs it whenever it refreshes (#150).</summary>
     public static readonly TimeSpan ListSyncInterval = TimeSpan.FromHours(24);
 
-    private IKeyValueStore SyncStamps => _syncStamps ?? AppGroupStore.Shared ?? KeyValueStores.Default;
+    private IKeyValueStore SyncStamps => _syncStamps ?? DefaultSyncStamps;
 
-    private string? ListSyncKey => Username is { } u ? $"subscriptions.listSyncedAt.{u}" : null;
+    /// <summary>Each account's last list sync is stamped under this prefix plus its name.</summary>
+    public const string ListSyncKeyPrefix = "subscriptions.listSyncedAt.";
+
+    /// <summary>The store list-sync stamps live in when a poller isn't given one.</summary>
+    public static IKeyValueStore DefaultSyncStamps => AppGroupStore.Shared ?? KeyValueStores.Default;
+
+    private string? ListSyncKey => Username is { } u ? ListSyncKeyPrefix + u : null;
+
+    /// <summary>This account's list has been read (or tried) since it signed in
+    /// here: signing out or switching accounts forgets the stamp (#159).</summary>
+    public bool HasSyncedList => ListSyncKey is { } key && SyncStamps.GetDate(key) is not null;
 
     /// <summary>Whether <see cref="RunFullPollAsync"/> should re-read the
     /// subscriptions list: signed in, and no sync (or attempt) for this account
@@ -143,6 +160,9 @@ public sealed class SubscriptionPoller
     {
         if (Username is not { } username) return [];
         var list = await _client.FetchSubscriptionsAsync(username, ct).ConfigureAwait(false);
+        // Signed out or switched accounts while AO3 answered: this list is the
+        // previous account's, and mustn't come back under the next (#159).
+        if (AccountChanged) return [];
         StampListSync();
         await OnRecords(() => MergeSubscriptionList(list)).ConfigureAwait(false);
         return list.Subscriptions;
@@ -360,8 +380,12 @@ public sealed class SubscriptionPoller
     /// notification. The attempt is stamped whatever happens: a permanently-failing
     /// record (deleted work, parse drift) must not stay "oldest" forever and hog
     /// the queue head.</summary>
-    private async Task<int> CheckWorkAsync(int workId, SubscriptionRecord? rec, Work? work, CancellationToken ct)
+    private async Task<int> CheckWorkAsync(int workId, SubscriptionRecord? subscription, Work? work, CancellationToken ct)
     {
+        // A subscription whose account signed out (before or during the request)
+        // was deleted with it (#159): don't touch it or alert for it.
+        SubscriptionRecord? Rec() => AccountChanged ? null : subscription;
+        if (subscription is not null && work is null && Rec() is null) return 0;
         try
         {
             var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
@@ -369,6 +393,7 @@ public sealed class SubscriptionPoller
             {
                 // Against the higher baseline: chapters either record already counted
                 // were notified (or seen) then, and mustn't notify again.
+                var rec = Rec();
                 var seen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
                 if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
                 if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
@@ -388,7 +413,7 @@ public sealed class SubscriptionPoller
         {
             await OnRecords(() =>
             {
-                if (rec is not null) rec.LastCheckedAt = DateTimeOffset.Now;
+                if (Rec() is { } rec) rec.LastCheckedAt = DateTimeOffset.Now;
                 if (work is not null) work.LastCheckedAt = DateTimeOffset.Now;
             }).ConfigureAwait(false);
         }

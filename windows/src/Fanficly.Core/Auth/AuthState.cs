@@ -20,6 +20,11 @@ public sealed class AuthState : INotifyPropertyChanged
         _username = _vault.StoredUsername();
     }
 
+    /// <summary>Forgets what the PC keeps about the account that just left (#159):
+    /// its subscriptions and when they were synced. Runs on sign-out and when
+    /// someone else signs in; the app sets it to <c>AccountData.Forget</c>.</summary>
+    public Action? ForgetAccount { get; init; }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string? Username
@@ -98,8 +103,12 @@ public sealed class AuthState : INotifyPropertyChanged
             if (_logout is { } pending) await pending;
             var login = await client.LoginAsync(username.Trim(), password, ct);
             // Signing in as someone else from the expired-session form skips
-            // logout, so drop the previous account's kudos here.
-            if (Username is { } previous && !string.Equals(previous, login, StringComparison.OrdinalIgnoreCase)) KudosStore.Clear();
+            // logout, so drop the previous account's kudos and subscriptions here.
+            if (Username is { } previous && !string.Equals(previous, login, StringComparison.OrdinalIgnoreCase))
+            {
+                KudosStore.Clear();
+                ForgetAccount?.Invoke();
+            }
             Username = login;
             _vault.SetUsername(login);
             IsSessionExpired = false;
@@ -166,6 +175,7 @@ public sealed class AuthState : INotifyPropertyChanged
             await client.LogoutAsync();
             _vault.SetUsername(null);
             KudosStore.Clear();
+            ForgetAccount?.Invoke();
             Username = null;
             IsSessionExpired = false;
         }

@@ -52,6 +52,7 @@ public sealed class SubscriptionsScreen : Screen
         AppHost.Auth.PropertyChanged += OnAuthChanged;
         CheckAccount();
         Render();
+        SyncIfNew();
         return _host;
     }
 
@@ -61,6 +62,7 @@ public sealed class SubscriptionsScreen : Screen
         if (!IsBuilt) { _ = RequestNotificationsOnceAsync(); return; }
         CheckAccount();
         Render();
+        SyncIfNew();
         _ = RequestNotificationsOnceAsync();
     }
 
@@ -82,7 +84,9 @@ public sealed class SubscriptionsScreen : Screen
             if (!AppHost.Auth.IsSessionExpired && _lastError?.StartsWith(SessionExpiry.Title, StringComparison.Ordinal) == true)
                 _lastError = null;
             CheckAccount();
-            if (_isVisible) Render();
+            if (!_isVisible) return;
+            Render();
+            SyncIfNew();
         });
     }
 
@@ -102,6 +106,15 @@ public sealed class SubscriptionsScreen : Screen
         _lastNewWorksCount = null;
         _hasRequestedNotifications = false;
         InvalidateChrome();
+    }
+
+    /// <summary>A new account's list syncs on its own (#159): just signed in, or the
+    /// first visit since. After that, Refresh and the background poll keep it.</summary>
+    private void SyncIfNew()
+    {
+        if (!_isVisible || _isRefreshing || _isChecking || !AppHost.Auth.HasSession || AppHost.IsDemoMode) return;
+        if (new SubscriptionPoller(AppHost.Client, AppHost.Library, Username).HasSyncedList) return;
+        _ = RefreshAsync();
     }
 
     private void OnLibraryChanged(LibraryEntityKinds kinds)
