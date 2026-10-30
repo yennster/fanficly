@@ -264,6 +264,8 @@ struct RootView: View {
             // Post-iCloud-restore "re-download offline stories?" prompt and
             // its progress banner — root-level so it shows on any tab.
             .restoreRedownloadUI()
+            // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).
+            .focusedSceneValue(\.selectTab, SelectTabAction { select($0) })
     }
 
     private var isCompactNavigation: Bool {
@@ -750,6 +752,28 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }
+    }
+}
+
+/// Switches the window's tab the way a sidebar click does. `RootView` hands
+/// this to the Go menu as a focused scene value.
+struct SelectTabAction {
+    let perform: @MainActor (SidebarItem) -> Void
+
+    @MainActor
+    func callAsFunction(_ item: SidebarItem) {
+        perform(item)
+    }
+}
+
+private struct SelectTabKey: FocusedValueKey {
+    typealias Value = SelectTabAction
+}
+
+extension FocusedValues {
+    var selectTab: SelectTabAction? {
+        get { self[SelectTabKey.self] }
+        set { self[SelectTabKey.self] = newValue }
     }
 }
 
