@@ -14,6 +14,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// False scripts a list that ran past `fetchSubscriptions`' page ceiling.
     var subscriptionsComplete = true
     private(set) var subscriptionsFetchCount = 0
+    /// Runs while the subscriptions list is "on the wire" (account switch tests).
+    var onFetchSubscriptions: (@MainActor () -> Void)?
     /// Scripted author works page (SubscriptionPoller tests); empty when nil.
     var authorWorksResponse: AO3SearchResults?
     /// Scripted search results (saved search alert tests); empty when nil.
@@ -31,6 +33,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// ids it was asked for (SubscriptionPoller tests).
     var workPublishedAt: [Int: Date] = [:]
     private(set) var workMetadataCalls: [Int] = []
+    /// Runs while a work's metadata is "on the wire" (account switch tests).
+    var onFetchWorkMetadata: (@MainActor () -> Void)?
     /// Scripted EPUB download failures by work id (RestoreDownloadCenter tests).
     var downloadEPUBErrors: [Int: Error] = [:]
     /// Scripted export failure (WorkExporter tests).
@@ -77,6 +81,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         workMetadataCalls.append(id)
+        if let onFetchWorkMetadata { await onFetchWorkMetadata() }
         if let publishedAt = workPublishedAt[id] {
             return AO3WorkMetadata(id: id, chapterCount: 2, totalChapters: nil, updatedAt: nil, publishedAt: publishedAt)
         }
@@ -88,6 +93,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
     func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList {
         subscriptionsFetchCount += 1
+        if let onFetchSubscriptions { await onFetchSubscriptions() }
         return AO3SubscriptionList(subscriptions: subscriptionsResponse, isComplete: subscriptionsComplete)
     }
     func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {

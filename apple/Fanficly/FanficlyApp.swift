@@ -10,7 +10,13 @@ struct FanficlyApp: App {
     static var isTestMode: Bool { ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil }
 
     private let client: any AO3ClientProtocol = FanficlyApp.isDemoMode ? DemoAO3Client() : AO3Client()
-    @State private var auth = AuthState()
+    @State private var auth = AuthState(forgetAccount: {
+        // The next account mustn't see this one's subscriptions (#159); the
+        // backup refreshes the widgets' copy of them too.
+        let context = FanficlyApp.sharedModelContainer.mainContext
+        AccountData.forget(in: context)
+        iCloudSyncManager.shared.queueBackup(context: context)
+    })
     @Environment(\.scenePhase) private var scenePhase
 
     init() {

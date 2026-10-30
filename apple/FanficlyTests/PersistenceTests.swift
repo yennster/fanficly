@@ -5,6 +5,17 @@ import CoreSpotlight
 
 @MainActor
 final class PersistenceTests: XCTestCase {
+    // Backed-up subscriptions belong to the signed-in account (#159).
+    override func setUp() {
+        super.setUp()
+        iCloudSyncManager.currentAccount = { "reader" }
+    }
+
+    override func tearDown() {
+        iCloudSyncManager.currentAccount = { CredentialStore.shared.storedUsername() }
+        super.tearDown()
+    }
+
     private func makeContext() throws -> ModelContext {
         let schema = Schema([
             Work.self, Chapter.self, TagRecord.self, BookmarkRecord.self,
