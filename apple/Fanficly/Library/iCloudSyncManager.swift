@@ -14,6 +14,10 @@ final class iCloudSyncManager {
     
     /// An optional local URL override for testing.
     static var overrideBackupURL: URL? = nil
+
+    /// The AO3 login name signed in here (#159): backed-up subscriptions are
+    /// tagged with it and restored only for it. Tests sign in their own.
+    nonisolated(unsafe) static var currentAccount: @Sendable () -> String? = { CredentialStore.shared.storedUsername() }
     
     /// The URL to the backup file in the iCloud ubiquitous container.
     static var backupURL: URL? {
@@ -178,7 +182,7 @@ final class iCloudSyncManager {
 
     /// This device's whole library as a backup: what an iCloud backup merges
     /// into the cloud file, and what a library file export writes.
-    func makeLocalBackup(context: ModelContext, account: String? = CredentialStore.shared.storedUsername()) -> LibraryBackup {
+    func makeLocalBackup(context: ModelContext, account: String? = iCloudSyncManager.currentAccount()) -> LibraryBackup {
         do {
             // 1. Fetch all records from SwiftData
             let works = (try? context.fetch(FetchDescriptor<Work>())) ?? []
@@ -1197,7 +1201,7 @@ final class iCloudSyncManager {
     /// forward-only rules, shared by the iCloud restore and a library file
     /// import. Throws when the save fails.
     func applyBackup(_ backup: LibraryBackup, context: ModelContext,
-                     account: String? = CredentialStore.shared.storedUsername()) throws {
+                     account: String? = iCloudSyncManager.currentAccount()) throws {
         // Deletion markers: the file's (every device's) and this device's
         // own, which the file may not hold yet. A record they cover isn't
         // restored, and this device's copy of it is deleted below (#135).
