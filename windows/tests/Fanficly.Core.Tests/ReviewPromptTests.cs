@@ -2,19 +2,17 @@ using Fanficly.Core;
 
 namespace Fanficly.Core.Tests;
 
-/// <summary>The store rating prompt must stay rare and well-timed: only for
-/// readers with real history, once per version, months apart, and only on the
-/// read that actually finishes a story.</summary>
+/// <summary>The store rating prompt must stay well-timed: only for readers with
+/// real history, every few weeks at most, never again once they've rated or
+/// dismissed it, and only on the read that actually finishes a story.</summary>
 public class ReviewPromptTests
 {
     private static readonly DateTimeOffset Now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
     private static DateTimeOffset DaysAgo(double n) => Now.AddSeconds(-n * 86_400);
 
     private static bool Ask(int finished = 3, int days = 3, DateTimeOffset? firstRead = null,
-                            DateTimeOffset? lastPrompt = null, string? lastVersion = null,
-                            string version = "1.9.0") =>
-        ReviewPromptPolicy.ShouldAsk(
-            Now, finished, days, firstRead ?? DaysAgo(30), lastPrompt, lastVersion, version);
+                            DateTimeOffset? lastPrompt = null, bool isDone = false) =>
+        ReviewPromptPolicy.ShouldAsk(Now, finished, days, firstRead ?? DaysAgo(60), lastPrompt, isDone);
 
     [Fact]
     public void EngagedReader_NeverAskedBefore_IsAsked()
@@ -34,20 +32,24 @@ public class ReviewPromptTests
     {
         Assert.False(Ask(firstRead: DaysAgo(6)));
         Assert.True(Ask(firstRead: DaysAgo(7)));
-        Assert.False(ReviewPromptPolicy.ShouldAsk(Now, 9, 9, null, null, null, "1.9.0"));
+        Assert.False(ReviewPromptPolicy.ShouldAsk(Now, 9, 9, null, null, false));
     }
 
     [Fact]
-    public void AtMostOncePerVersion()
+    public void AsksAgainEveryFewWeeks()
     {
-        Assert.False(Ask(lastPrompt: DaysAgo(400), lastVersion: "1.9.0", version: "1.9.0"));
+        Assert.False(Ask(lastPrompt: DaysAgo(20)));
+        Assert.True(Ask(lastPrompt: DaysAgo(21)));
+        // Someone asked under the old once-per-version rules is asked again
+        // on the new cadence, whatever version they're on.
+        Assert.True(Ask(lastPrompt: DaysAgo(130)));
     }
 
     [Fact]
-    public void MonthsBetweenPrompts_EvenAcrossVersions()
+    public void NeverAgainOnceRatedOrDismissed()
     {
-        Assert.False(Ask(lastPrompt: DaysAgo(30), lastVersion: "1.8.0", version: "1.9.0"));
-        Assert.True(Ask(lastPrompt: DaysAgo(121), lastVersion: "1.8.0", version: "1.9.0"));
+        Assert.False(Ask(isDone: true));
+        Assert.False(Ask(lastPrompt: DaysAgo(400), isDone: true));
     }
 
     // MARK: - The "just finished" cue
@@ -55,10 +57,10 @@ public class ReviewPromptTests
 
     // MARK: - Windows-only: the prompter's bookkeeping
 
-    private sealed class CountingRequester : IStoreReviewRequester
+    private sealed class CountingRequester(ReviewPromptOutcome outcome = ReviewPromptOutcome.Unknown) : IStoreReviewRequester
     {
         public int Calls;
-        public Task RequestReviewAsync() { Interlocked.Increment(ref Calls); return Task.CompletedTask; }
+        public Task<ReviewPromptOutcome> RequestReviewAsync() { Interlocked.Increment(ref Calls); return Task.FromResult(outcome); }
     }
 
     private static ReviewPromptStats Engaged() => ReviewPromptStats.From(
@@ -79,7 +81,7 @@ public class ReviewPromptTests
     public void Prompter_AsksOnlyAfterAFinishedStory_AndRecordsTheAsk()
     {
         var store = new InMemoryKeyValueStore();
-        var prompter = new ReviewPrompter(store) { CurrentVersion = "1.9.0" };
+        var prompter = new ReviewPrompter(store);
         var requested = 0;
         prompter.ReviewRequested += () => requested++;
 
@@ -88,17 +90,61 @@ public class ReviewPromptTests
         Assert.True(prompter.ReaderClosed(Engaged, Now));
         Assert.Equal(1, prompter.RequestCount);
         Assert.Equal(1, requested);
-        Assert.Equal("1.9.0", store.GetString(ReviewPrompter.LastPromptVersionKey));
         Assert.Equal(Now, store.GetDate(ReviewPrompter.LastPromptAtKey));
 
         prompter.StoryFinished();
-        Assert.False(prompter.ReaderClosed(Engaged, Now)); // once per version
+        Assert.False(prompter.ReaderClosed(Engaged, Now)); // not again so soon
+        prompter.StoryFinished();
+        Assert.True(prompter.ReaderClosed(Engaged, Now.AddDays(21))); // nor rated, so ask again
+    }
+
+    [Fact]
+    public void Prompter_OldVersionKeyStillCountsTheLastAsk()
+    {
+        // A reader asked under the old rules has review.lastPromptAt (and a
+        // version key nothing reads any more); the new cadence starts from it.
+        var store = new InMemoryKeyValueStore();
+        store.SetDate(ReviewPrompter.LastPromptAtKey, DaysAgo(5));
+        store.SetString("review.lastPromptVersion", "1.8.0");
+        var prompter = new ReviewPrompter(store);
+        prompter.StoryFinished();
+        Assert.False(prompter.ReaderClosed(Engaged, Now));
+    }
+
+    [Theory]
+    [InlineData(ReviewPromptOutcome.Rated, true)]
+    [InlineData(ReviewPromptOutcome.Dismissed, true)]
+    [InlineData(ReviewPromptOutcome.Unknown, false)]
+    public async Task Prompter_StopsForGoodOnceRatedOrDismissed(ReviewPromptOutcome outcome, bool done)
+    {
+        var store = new InMemoryKeyValueStore();
+        var requester = new CountingRequester(outcome);
+        var prompter = new ReviewPrompter(store) { Requester = requester };
+        prompter.StoryFinished();
+        Assert.True(prompter.ReaderClosed(Engaged, Now));
+        for (var i = 0; i < 100 && Volatile.Read(ref requester.Calls) == 0; i++) await Task.Delay(50);
+        // The outcome is recorded just after the requester returns.
+        for (var i = 0; i < 20 && store.GetBool(ReviewPrompter.DoneKey) != done; i++) await Task.Delay(50);
+        Assert.Equal(done, store.GetBool(ReviewPrompter.DoneKey));
+
+        prompter.StoryFinished();
+        Assert.Equal(!done, prompter.ReaderClosed(Engaged, Now.AddDays(400)));
+    }
+
+    [Fact]
+    public void Prompter_OpeningTheReviewPageStopsTheAsks()
+    {
+        var store = new InMemoryKeyValueStore();
+        var prompter = new ReviewPrompter(store);
+        prompter.OpenedReviewPage();
+        prompter.StoryFinished();
+        Assert.False(prompter.ReaderClosed(Engaged, Now));
     }
 
     [Fact]
     public void Prompter_NeverAsksWhenSuppressed()
     {
-        var prompter = new ReviewPrompter(new InMemoryKeyValueStore()) { CurrentVersion = "1.9.0", IsSuppressed = true };
+        var prompter = new ReviewPrompter(new InMemoryKeyValueStore()) { IsSuppressed = true };
         prompter.StoryFinished();
         Assert.False(prompter.ReaderClosed(Engaged, Now));
     }
@@ -107,7 +153,7 @@ public class ReviewPromptTests
     public async Task Prompter_ShowsTheStoreDialogAfterTheDelay()
     {
         var requester = new CountingRequester();
-        var prompter = new ReviewPrompter(new InMemoryKeyValueStore()) { CurrentVersion = "2.0", Requester = requester };
+        var prompter = new ReviewPrompter(new InMemoryKeyValueStore()) { Requester = requester };
         prompter.StoryFinished();
         Assert.True(prompter.ReaderClosed(Engaged, Now));
         for (var i = 0; i < 100 && Volatile.Read(ref requester.Calls) == 0; i++) await Task.Delay(50);

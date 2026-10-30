@@ -286,7 +286,7 @@ Fanficly/
                                #   NotificationRouting (notification tap →
                                #   work / author page)
   Settings/                    # SettingsView + ReaderSettingsView + privacy;
-                               #   ReviewPrompt (rare App Store rating prompt +
+                               #   ReviewPrompt (App Store rating prompt +
                                #   Settings → About "Rate Fanficly" link);
                                #   ContentFilter + ContentSafetyViews (age/hide)
   DesignSystem/                # Typography, Spacing, FlowLayout, SafariView, ShareSheet
@@ -765,7 +765,7 @@ value-type bridge from the @Model to the pure aggregator.
 
 ## App Store rating prompt
 
-`ReviewPrompter` (Settings/ReviewPrompt.swift) asks via SwiftUI `requestReview` only at a moment of success and only for clearly engaged readers. `ReadingStatsStore.record` returns true for the read that *finishes* a story; the reader reports it, and when that reader closes `ReviewPromptPolicy` must pass. The policy needs ≥3 finished stories, ≥3 reading days, ≥7 days since the first read, never asked in this version, and ≥120 days since the last ask. `RootView` then shows it ~1.2s later, over the list, never over story text. The ask is recorded up front, since StoreKit doesn't report display. Never in demo/test runs. Settings → About also has a manual "Rate Fanficly on the App Store" link (`ReviewPrompter.writeReviewURL`, app id 6775897153). Don't add more triggers: keeping it rare is the point.
+`ReviewPrompter` (Settings/ReviewPrompt.swift) asks via SwiftUI `requestReview` only at a moment of success and only for clearly engaged readers. `ReadingStatsStore.record` returns true for the read that *finishes* a story; the reader reports it, and when that reader closes `ReviewPromptPolicy` must pass. The policy needs ≥3 finished stories, ≥3 reading days, ≥7 days since the first read, ≥21 days since the last ask (any version; issue #273), and `review.done` unset. `RootView` then shows it ~1.2s later, over the list, never over story text. The ask is recorded up front (`review.lastPromptAt`). StoreKit reports neither display nor whether the reader rated or tapped Not Now, so the app keeps re-requesting every three weeks and relies on the system, which hides the prompt for people who rated or turned in-app ratings off and caps it at three a year; Windows stops on the store's rated/cancelled result instead. Never in demo/test runs. Settings → About also has a "Rate Fanficly on the App Store" link (`ReviewPrompter.writeReviewURL`, app id 6775897153) that sets `review.done` once the system accepts the link, so the prompt stops for good. Don't add more triggers: keeping it well-timed is the point.
 
 ## Privacy posture (do not regress)
 

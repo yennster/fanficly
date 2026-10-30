@@ -5,15 +5,16 @@ namespace Fanficly.Core;
 /// prompt only ever reaches people who are clearly enjoying the app: it needs a
 /// moment of success (a story just finished, checked by the caller), a few
 /// finished stories over several reading days, at least a week since the first
-/// read, and it asks at most once per app version and months apart. The store
-/// adds its own limits on top.
+/// read. After that it asks again every few weeks until the reader has rated or
+/// dismissed the dialog (<paramref name="isDone"/>). The store adds its own
+/// limits on top.
 /// </summary>
 public static class ReviewPromptPolicy
 {
     public const int MinFinishedStories = 3;
     public const int MinReadingDays = 3;
     public const int MinDaysSinceFirstRead = 7;
-    public const int MinDaysBetweenPrompts = 120;
+    public const int MinDaysBetweenPrompts = 21;
 
     public static bool ShouldAsk(
         DateTimeOffset now,
@@ -21,12 +22,11 @@ public static class ReviewPromptPolicy
         int readingDays,
         DateTimeOffset? firstReadAt,
         DateTimeOffset? lastPromptAt,
-        string? lastPromptVersion,
-        string currentVersion)
+        bool isDone)
     {
+        if (isDone) return false;
         if (finishedStories < MinFinishedStories || readingDays < MinReadingDays) return false;
         if (firstReadAt is not { } first || (now - first).TotalSeconds < MinDaysSinceFirstRead * 86_400.0) return false;
-        if (lastPromptVersion == currentVersion) return false;
         if (lastPromptAt is { } last && (now - last).TotalSeconds < MinDaysBetweenPrompts * 86_400.0) return false;
         return true;
     }
@@ -55,11 +55,22 @@ public sealed record ReviewPromptStats(int FinishedStories, int ReadingDays, Dat
     }
 }
 
+/// <summary>What the reader did with the rating dialog, as far as the store says.</summary>
+public enum ReviewPromptOutcome
+{
+    /// <summary>The dialog didn't show, failed, or the store didn't say.</summary>
+    Unknown,
+    /// <summary>The reader submitted a rating.</summary>
+    Rated,
+    /// <summary>The reader closed the dialog without rating.</summary>
+    Dismissed,
+}
+
 /// <summary>Shows the platform's rate-this-app dialog. The Windows app implements
 /// it with the Microsoft Store rating dialog (<c>StoreContext.RequestRateAndReviewAppAsync</c>).</summary>
 public interface IStoreReviewRequester
 {
-    Task RequestReviewAsync();
+    Task<ReviewPromptOutcome> RequestReviewAsync();
 }
 
 /// <summary>
@@ -73,7 +84,9 @@ public sealed class ReviewPrompter
     public static ReviewPrompter Shared { get; set; } = new();
 
     public const string LastPromptAtKey = "review.lastPromptAt";
-    public const string LastPromptVersionKey = "review.lastPromptVersion";
+    /// <summary>Set once the reader has rated or dismissed the dialog, or opened
+    /// the Store review page from Settings; the prompt never asks again after it.</summary>
+    public const string DoneKey = "review.done";
 
     /// <summary>The Swift app's App Store "write a review" link.</summary>
     public static readonly Uri WriteReviewUri = new("https://apps.apple.com/app/id6775897153?action=write-review");
@@ -99,9 +112,6 @@ public sealed class ReviewPrompter
     /// <summary>Shows the dialog; when null only <see cref="ReviewRequested"/> fires.</summary>
     public IStoreReviewRequester? Requester { get; set; }
 
-    /// <summary>The app's version (the package version); asks at most once per version.</summary>
-    public string CurrentVersion { get; set; } = "";
-
     /// <summary>True in demo and unit-test runs, which never ask.</summary>
     public bool IsSuppressed { get; set; }
 
@@ -112,6 +122,10 @@ public sealed class ReviewPrompter
     public event Action? ReviewRequested;
 
     public void StoryFinished() => _finishedThisSession = true;
+
+    /// <summary>The reader opened the Store review page from Settings: count
+    /// them as rated and stop asking.</summary>
+    public void OpenedReviewPage() => Store.SetBool(DoneKey, true);
 
     /// <summary>Called as a reader leaves the screen. Loads the reading stats and
     /// checks the policy only if a story was just finished. Returns whether the
@@ -126,24 +140,24 @@ public sealed class ReviewPrompter
         var stats = loadStats();
         if (!ReviewPromptPolicy.ShouldAsk(
                 at, stats.FinishedStories, stats.ReadingDays, stats.FirstReadAt,
-                Store.GetDate(LastPromptAtKey), Store.GetString(LastPromptVersionKey), CurrentVersion))
+                Store.GetDate(LastPromptAtKey), Store.GetBool(DoneKey)))
             return false;
 
-        // Recorded up front: the store never says whether the prompt showed.
+        // Recorded up front: the dialog may never show or report back.
         Store.SetDate(LastPromptAtKey, at);
-        Store.SetString(LastPromptVersionKey, CurrentVersion);
         RequestCount++;
         ReviewRequested?.Invoke();
         if (Requester is { } requester) _ = ShowAfterDelayAsync(requester);
         return true;
     }
 
-    private static async Task ShowAfterDelayAsync(IStoreReviewRequester requester)
+    private async Task ShowAfterDelayAsync(IStoreReviewRequester requester)
     {
         try
         {
             await Task.Delay(PromptDelay);
-            await requester.RequestReviewAsync();
+            if (await requester.RequestReviewAsync() is ReviewPromptOutcome.Rated or ReviewPromptOutcome.Dismissed)
+                Store.SetBool(DoneKey, true);
         }
         catch (Exception)
         {

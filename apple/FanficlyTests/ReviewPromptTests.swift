@@ -2,21 +2,19 @@ import XCTest
 import SwiftData
 @testable import Fanficly
 
-/// The App Store rating prompt must stay rare and well-timed: only for readers
-/// with real history, once per version, months apart, and only on the read
-/// that actually finishes a story.
+/// The App Store rating prompt must stay well-timed: only for readers with
+/// real history, every few weeks at most, never again once they've rated, and
+/// only on the read that actually finishes a story.
 @MainActor
 final class ReviewPromptTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private func daysAgo(_ n: Double) -> Date { now.addingTimeInterval(-n * 86_400) }
 
     private func ask(finished: Int = 3, days: Int = 3, firstRead: Date? = nil,
-                     lastPrompt: Date? = nil, lastVersion: String? = nil,
-                     version: String = "1.9.0") -> Bool {
+                     lastPrompt: Date? = nil, isDone: Bool = false) -> Bool {
         ReviewPromptPolicy.shouldAsk(
             now: now, finishedStories: finished, readingDays: days,
-            firstReadAt: firstRead ?? daysAgo(30), lastPromptAt: lastPrompt,
-            lastPromptVersion: lastVersion, currentVersion: version
+            firstReadAt: firstRead ?? daysAgo(60), lastPromptAt: lastPrompt, isDone: isDone
         )
     }
 
@@ -34,16 +32,30 @@ final class ReviewPromptTests: XCTestCase {
         XCTAssertTrue(ask(firstRead: daysAgo(7)))
         XCTAssertFalse(ReviewPromptPolicy.shouldAsk(
             now: now, finishedStories: 9, readingDays: 9, firstReadAt: nil,
-            lastPromptAt: nil, lastPromptVersion: nil, currentVersion: "1.9.0"))
+            lastPromptAt: nil, isDone: false))
     }
 
-    func test_atMostOncePerVersion() {
-        XCTAssertFalse(ask(lastPrompt: daysAgo(400), lastVersion: "1.9.0", version: "1.9.0"))
+    func test_asksAgainEveryFewWeeks() {
+        XCTAssertFalse(ask(lastPrompt: daysAgo(20)))
+        XCTAssertTrue(ask(lastPrompt: daysAgo(21)))
+        // Someone asked under the old once-per-version rules is asked again
+        // on the new cadence, whatever version they're on.
+        XCTAssertTrue(ask(lastPrompt: daysAgo(130)))
     }
 
-    func test_monthsBetweenPrompts_evenAcrossVersions() {
-        XCTAssertFalse(ask(lastPrompt: daysAgo(30), lastVersion: "1.8.0", version: "1.9.0"))
-        XCTAssertTrue(ask(lastPrompt: daysAgo(121), lastVersion: "1.8.0", version: "1.9.0"))
+    func test_neverAgainOnceRated() {
+        XCTAssertFalse(ask(isDone: true))
+        XCTAssertFalse(ask(lastPrompt: daysAgo(400), isDone: true))
+    }
+
+    func test_openingTheReviewPage_stopsThePrompt() {
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: ReviewPrompter.doneKey)
+        defer { defaults.set(saved, forKey: ReviewPrompter.doneKey) }
+        defaults.removeObject(forKey: ReviewPrompter.doneKey)
+        XCTAssertFalse(ReviewPrompter.isDone)
+        ReviewPrompter.shared.openedReviewPage()
+        XCTAssertTrue(ReviewPrompter.isDone)
     }
 
     // MARK: - The "just finished" cue
