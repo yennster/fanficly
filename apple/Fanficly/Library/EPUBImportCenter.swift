@@ -23,7 +23,7 @@ final class EPUBImportCenter {
     /// Imports each file in turn and returns the ids of the works saved.
     @discardableResult
     func importFiles(_ urls: [URL], context: ModelContext) async -> [Int] {
-        guard !urls.isEmpty else { return [] }
+        guard !urls.isEmpty, !isImporting else { return [] }
         isImporting = true
         defer { isImporting = false }
         var saved: [(id: Int, title: String)] = []
@@ -70,23 +70,34 @@ final class EPUBImportCenter {
     private static func read(_ url: URL) throws -> Data {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        return try Data(contentsOf: url)
+        let data = try Data(contentsOf: url)
+        // A file opened from another app arrives as a copy in Documents/Inbox;
+        // the Library keeps its own copy, so that one goes.
+        if let docs = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false),
+           url.deletingLastPathComponent().standardizedFileURL == docs.appendingPathComponent("Inbox", isDirectory: true).standardizedFileURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return data
     }
 
     /// Saves an imported book to the Library, with the file kept as the
     /// work's EPUB so it shows as Downloaded. A work already in the Library
     /// (an AO3 book) keeps its AO3 details and reading position and takes
-    /// the book's chapters; a new one gets the book's details too.
+    /// the book's chapters, unless it already holds more of them; a new one gets the book's details too.
     static func save(_ payload: AO3WorkPayload, epub data: Data, into context: ModelContext) throws -> Work {
         let id = payload.summary.id
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == id })
         let work: Work
         if let existing = try? context.fetch(descriptor).first {
             work = existing
-            for chapter in work.chapters { context.delete(chapter) }
-            work.chapters.removeAll()
-            for ch in payload.chapters {
-                context.insert(Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId))
+            // An older download with fewer chapters never replaces more text
+            // (AO3 may not be there to download it again).
+            if payload.chapters.count >= work.chapters.count {
+                for chapter in work.chapters { context.delete(chapter) }
+                work.chapters.removeAll()
+                for ch in payload.chapters {
+                    context.insert(Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId))
+                }
             }
             if work.wordCount == 0 { work.wordCount = payload.summary.wordCount }
             work.chapterCount = max(work.chapterCount, payload.chapters.count)

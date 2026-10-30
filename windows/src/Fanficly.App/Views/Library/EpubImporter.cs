@@ -9,8 +9,8 @@ using Windows.Storage.Pickers;
 namespace Fanficly.App.Views.Library;
 
 /// <summary>Imports EPUB files into the Library (Swift: <c>EPUBImportCenter</c>):
-/// from the Library's Import EPUB button, a file opened with Fanficly from
-/// File Explorer, or EPUBs dropped on the window. Parsing
+/// from the Library's Import EPUB button or a file opened with Fanficly from
+/// File Explorer. Parsing
 /// (<see cref="EpubImport.Parse"/>) runs on the pool; saving runs on the UI
 /// thread (<see cref="RecordsThread"/>). A dialog says how it went.</summary>
 internal static class EpubImporter

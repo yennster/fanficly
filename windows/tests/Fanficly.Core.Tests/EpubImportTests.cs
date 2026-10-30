@@ -43,6 +43,8 @@ public sealed class EpubImportTests : IDisposable
         var one = payload.Chapters[0];
         Assert.Equal((1, "Chapter 1: Hello", 678), (one.Index, one.Title, one.AoId));
         Assert.Contains("It was a dark and stormy night.", one.BodyHtml);
+        // The work's beginning notes open the first chapter.
+        Assert.StartsWith("<p><b>Notes:</b></p><blockquote><p>Thanks to my beta.</p></blockquote>", one.BodyHtml);
         Assert.Contains("They left at dawn.", one.BodyHtml);
         Assert.DoesNotContain("<img", one.BodyHtml);
         Assert.DoesNotContain("car broke down", one.BodyHtml);
@@ -119,6 +121,10 @@ public sealed class EpubImportTests : IDisposable
             Assert.Equal((99, "Renamed On AO3"), (again.Kudos, again.Title));
             Assert.Equal(2, again.Chapters.Count);
 
+            // An older download with fewer chapters doesn't replace more text.
+            EpubImport.Save(payload with { Chapters = [payload.Chapters[0]] }, bytes, store);
+            Assert.Equal(2, work.Chapters.Count);
+
             // A book that isn't on AO3 is never offered for download.
             var plainBytes = Convert.FromBase64String(PlainEpub);
             var plain = EpubImport.Save(EpubImport.Parse(plainBytes), plainBytes, store);
@@ -133,44 +139,44 @@ public sealed class EpubImportTests : IDisposable
     }
 
     private const string Ao3Epub =
-        "UEsDBBQAAAAAAAAAIQBvYassFAAAABQAAAAIAAAAbWltZXR5cGVhcHBsaWNhdGlvbi9lcHViK3ppcFBLAwQUAAAACAChtF5dHgvX" +
+        "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
-        "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
+        "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
-        "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
+        "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
-        "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" +
-        "AAA=";
+        "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" +
+        "SwUGAAAAAAcABwDMAQAACgkAAAAA";
 
     private const string PlainEpub =
         "UEsDBBQAAAAAAAAAIQBvYassFAAAABQAAAAIAAAAbWltZXR5cGVhcHBsaWNhdGlvbi9lcHViK3ppcFBLAwQUAAAAAAChtF5dHgvX" +

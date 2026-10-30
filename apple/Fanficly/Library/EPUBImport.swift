@@ -67,10 +67,14 @@ enum EPUBImport {
 
         // Book metadata (Dublin Core).
         func dc(_ name: String) -> [String] {
-            elements(named: name, in: opf).compactMap { try? $0.text().trimmingCharacters(in: .whitespacesAndNewlines) }
+            elements(named: name, in: opf)
+                .compactMap { try? $0.text(trimAndNormaliseWhitespace: false).trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
         }
-        let ao3Id = ao3WorkId(in: opfXML) ?? ao3WorkId(in: rawFirstDocs)
+        // The book's own link comes first in AO3's preface, before the summary
+        // (which may link other works); the package's identifier or source
+        // is the fallback.
+        let ao3Id = ao3WorkId(in: rawFirstDocs) ?? ao3WorkId(in: (dc("identifier") + dc("source")).joined(separator: " "))
         let preface = docs.prefix(3).map { AO3Preface(document: $0) }.first { !$0.isEmpty } ?? AO3Preface()
 
         // Table of contents: the NCX (EPUB 2) or the nav document (EPUB 3).
@@ -105,6 +109,9 @@ enum EPUBImport {
         if fromAO3 { sections = foldAO3FrontAndBackMatter(sections) }
         sections = sections.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !sections.isEmpty else { throw ImportError.noText }
+        if let notes = preface.notesHTML {
+            sections[0].html = "<p><b>Notes:</b></p><blockquote>\(notes)</blockquote>" + sections[0].html
+        }
 
         let chapters = sections.enumerated().map { i, section in
             AO3ChapterPayload(
@@ -210,7 +217,8 @@ enum EPUBImport {
             var element: Element?
             var position = -1
             if let fragment = entry.fragment, let body = docs[spine].body() {
-                let all = (try? body.getAllElements().array()) ?? []
+                // Not the body itself: an entry pointing at it is the top of the file.
+                let all = ((try? body.getAllElements().array()) ?? []).filter { $0 !== body }
                 if let i = all.firstIndex(where: { $0.id() == fragment || ((try? $0.attr("name")) ?? "") == fragment }) {
                     element = all[i]
                     position = i
@@ -343,6 +351,8 @@ enum EPUBImport {
         var author: String?
         var authorUsername = ""
         var summaryHTML: String?
+        /// The work's beginning notes, which open the first chapter.
+        var notesHTML: String?
         var rating: String?
         var warnings: [String] = []
         var categories: [String] = []
@@ -387,15 +397,15 @@ enum EPUBImport {
                 authorUsername = SearchResultsParser.authorLogin(fromHref: (try? byline[0].attr("href")) ?? "")
             }
             title = try? document.select("h1").first()?.text()
-            // "Summary" is a paragraph of its own, followed by the summary's blockquote.
+            // "Summary" and "Notes" are paragraphs of their own, each followed
+            // by a blockquote.
             for label in (try? document.select("p, b, strong, h2, h3").array()) ?? [] {
-                guard ((try? label.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == "Summary" else { continue }
+                let name = ((try? label.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard (name == "Summary" && summaryHTML == nil) || (name == "Notes" && notesHTML == nil) else { continue }
                 var next = try? label.nextElementSibling()
                 if next == nil { next = try? label.parent()?.nextElementSibling() }
-                if let next, next.tagName().lowercased() == "blockquote" {
-                    summaryHTML = try? next.html()
-                    break
-                }
+                guard let next, next.tagName().lowercased() == "blockquote" else { continue }
+                if name == "Summary" { summaryHTML = try? next.html() } else { notesHTML = try? next.html() }
             }
         }
 

@@ -74,7 +74,10 @@ public static partial class EpubImport
         }
 
         List<string> Dc(string name) => Elements(opf, name).Select(e => e.Value.Trim()).Where(v => v.Length > 0).ToList();
-        var ao3Id = Ao3WorkId(opfXml) ?? Ao3WorkId(rawFirstDocs.ToString());
+        // The book's own link comes first in AO3's preface, before the summary
+        // (which may link other works); the package's identifier or source is
+        // the fallback.
+        var ao3Id = Ao3WorkId(rawFirstDocs.ToString()) ?? Ao3WorkId(string.Join(" ", Dc("identifier").Concat(Dc("source"))));
         var preface = docs.Take(3).Select(d => new Ao3Preface(d)).FirstOrDefault(p => !p.IsEmpty) ?? new Ao3Preface();
 
         // Table of contents: the NCX (EPUB 2) or the nav document (EPUB 3).
@@ -110,6 +113,7 @@ public static partial class EpubImport
         if (fromAo3) sections = FoldAo3FrontAndBackMatter(sections);
         sections = sections.Where(s => !string.IsNullOrWhiteSpace(s.Text)).ToList();
         if (sections.Count == 0) throw new EpubImportException("The EPUB has no chapter text to read.");
+        if (preface.NotesHtml is { } notes) sections[0].Html = $"<p><b>Notes:</b></p><blockquote>{notes}</blockquote>" + sections[0].Html;
 
         var chapters = sections.Select((s, i) => new AO3ChapterPayload(
             i + 1,
@@ -150,7 +154,7 @@ public static partial class EpubImport
     /// <summary>Saves an imported book to the Library, with the file kept as the
     /// work's EPUB so it shows as Downloaded. A work already in the Library (an
     /// AO3 book) keeps its AO3 details and reading position and takes the
-    /// book's chapters; a new one gets the book's details too. Saves and queues
+    /// book's chapters, unless it already holds more of them; a new one gets the book's details too. Saves and queues
     /// a backup like every <see cref="WorkPersistence"/> change.</summary>
     public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store)
     {
@@ -158,8 +162,13 @@ public static partial class EpubImport
         if (store.GetWork(payload.Summary.Id) is { } existing)
         {
             work = existing;
-            foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
-            foreach (var ch in payload.Chapters) store.Insert(new Chapter(work, ch.Index, ch.Title, ch.BodyHtml, ch.AoId));
+            // An older download with fewer chapters never replaces more text
+            // (AO3 may not be there to download it again).
+            if (payload.Chapters.Count >= work.Chapters.Count)
+            {
+                foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
+                foreach (var ch in payload.Chapters) store.Insert(new Chapter(work, ch.Index, ch.Title, ch.BodyHtml, ch.AoId));
+            }
             if (work.WordCount == 0) work.WordCount = payload.Summary.WordCount;
             work.ChapterCount = Math.Max(work.ChapterCount, payload.Chapters.Count);
             SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: false);
@@ -395,6 +404,8 @@ public static partial class EpubImport
     private sealed class Ao3Preface
     {
         public string? Title, Author, SummaryHtml, Rating, Language;
+        /// <summary>The work's beginning notes, which open the first chapter.</summary>
+        public string? NotesHtml;
         public string AuthorUsername = "";
         public IReadOnlyList<string> Warnings = [], Categories = [], Fandoms = [], Relationships = [], Characters = [], Freeforms = [];
         public int? Words, TotalChapters;
@@ -436,16 +447,16 @@ public static partial class EpubImport
                 AuthorUsername = SearchResultsParser.AuthorLogin(byline[0].Attr("href"));
             }
             Title = document.QuerySelector("h1")?.TextContent.Trim();
-            // "Summary" is a paragraph of its own, followed by the summary's blockquote.
+            // "Summary" and "Notes" are paragraphs of their own, each followed
+            // by a blockquote.
             foreach (var label in document.QuerySelectorAll("p, b, strong, h2, h3"))
             {
-                if (label.TextContent.Trim() != "Summary") continue;
+                var name = label.TextContent.Trim();
+                if (!((name == "Summary" && SummaryHtml is null) || (name == "Notes" && NotesHtml is null))) continue;
                 var next = label.NextElementSibling ?? label.ParentElement?.NextElementSibling;
-                if (next is { LocalName: "blockquote" })
-                {
-                    SummaryHtml = next.InnerHtml;
-                    break;
-                }
+                if (next is not { LocalName: "blockquote" }) continue;
+                if (name == "Summary") SummaryHtml = next.InnerHtml;
+                else NotesHtml = next.InnerHtml;
             }
         }
 
