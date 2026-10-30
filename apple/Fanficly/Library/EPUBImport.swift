@@ -210,7 +210,7 @@ enum EPUBImport {
             var element: Element?
             var position = -1
             if let fragment = entry.fragment, let body = docs[spine].body() {
-                let all = body.getAllElements().array()
+                let all = (try? body.getAllElements().array()) ?? []
                 if let i = all.firstIndex(where: { $0.id() == fragment || ((try? $0.attr("name")) ?? "") == fragment }) {
                     element = all[i]
                     position = i
@@ -465,7 +465,7 @@ enum EPUBImport {
     /// Elements by local name, whatever namespace prefix the file uses
     /// (`dc:title`, `opf:item`, or none).
     private static func elements(named name: String, in doc: Document) -> [Element] {
-        doc.getAllElements().array().filter { localName($0).caseInsensitiveCompare(name) == .orderedSame }
+        ((try? doc.getAllElements().array()) ?? []).filter { localName($0).caseInsensitiveCompare(name) == .orderedSame }
     }
 
     private static func directory(of path: String) -> String {
