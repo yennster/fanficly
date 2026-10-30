@@ -101,3 +101,5 @@
 333	Signing in with a new AO3 account never shows the last account's bookmarks or subscriptions
 334	Opening a story on a second device no longer overwrites newer reading progress
 336	Import EPUBs: add EPUB files, like your AO3 downloads, to the Library and read them offline in Fanficly's reader. Use Import EPUB in the Library, or open an .epub with Fanficly.
+331	Fanficly now asks for a rating every few weeks at most, and stops once you've rated it
+335	Signing in with a new AO3 account never shows the last account's subscriptions
