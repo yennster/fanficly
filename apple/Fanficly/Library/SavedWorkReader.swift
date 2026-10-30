@@ -30,6 +30,8 @@ struct SavedWorkReader: View {
     @State private var subscriber = WorkSubscriber()
 
     private var hasOfflineText: Bool { !work.chapters.isEmpty }
+    /// An imported book that isn't on AO3: no comments, kudos or downloads.
+    private var isLocalBook: Bool { EPUBImport.isLocalWork(work.ao3Id) }
 
     /// AO3 chapter id for the chapter currently on screen (per-chapter comments).
     /// nil → CommentsView falls back to the work-level thread.
@@ -86,7 +88,7 @@ struct SavedWorkReader: View {
         .background(readerBackground.ignoresSafeArea())
         .onPreferenceChange(ReaderFullScreenKey.self) { readerFullScreen = $0 }
         .toolbar {
-            if !readerFullScreen {
+            if !readerFullScreen && !isLocalBook {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
                         Task {
@@ -182,7 +184,7 @@ struct SavedWorkReader: View {
     }
 
     private func load() async {
-        guard !hasOfflineText, payload == nil else { return }
+        guard !hasOfflineText, !isLocalBook, payload == nil else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }

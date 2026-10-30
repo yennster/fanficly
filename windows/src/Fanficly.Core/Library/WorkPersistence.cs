@@ -236,6 +236,9 @@ public static class WorkPersistence
     /// <paramref name="limit"/>.</summary>
     public static void RecordView(AO3WorkSummary summary, LibraryStore store, int limit = 50)
     {
+        // History rows open the AO3 work page, which an imported book that
+        // isn't on AO3 doesn't have; it stays in the Library instead.
+        if (EpubImport.IsLocalWork(summary.Id)) return;
         if (store.GetRecentlyViewed(summary.Id) is { } existing)
         {
             existing.ViewedAt = DateTimeOffset.Now;

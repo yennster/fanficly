@@ -63,6 +63,16 @@
           </uap:Protocol>
         </uap:Extension>
 
+        <!-- "Open with → Fanficly" for EPUBs (AO3 downloads): imported into the Library. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="epub">
+            <uap:DisplayName>EPUB e-book</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="application/epub+zip">.epub</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+
         <!-- "Share → Fanficly" from Edge, Chrome or any app: imports the AO3 work. -->
         <uap:Extension Category="windows.shareTarget">
           <uap:ShareTarget Description="Add an AO3 work to your Fanficly library">

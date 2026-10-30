@@ -69,6 +69,8 @@ final class RestoreDownloadCenter {
         return works
             .filter { restored?.contains($0.ao3Id) ?? true }
             .filter { !declined.contains($0.ao3Id) }
+            // An imported book that isn't on AO3 has nothing to download.
+            .filter { !EPUBImport.isLocalWork($0.ao3Id) }
             .filter { !$0.chapters.isEmpty && WorkPersistence.epubURL(workId: $0.ao3Id) == nil }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
             .map(\.ao3Id)
@@ -157,7 +159,7 @@ final class RestoreDownloadCenter {
         var seen = Set<Int>()
         return works
             .map(\.ao3Id)
-            .filter { !isDownloaded($0) && seen.insert($0).inserted }
+            .filter { !EPUBImport.isLocalWork($0) && !isDownloaded($0) && seen.insert($0).inserted }
     }
 
     /// Downloads a folder's stories one after another. `download` does the

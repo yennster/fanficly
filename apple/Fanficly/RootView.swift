@@ -264,6 +264,8 @@ struct RootView: View {
             // Post-iCloud-restore "re-download offline stories?" prompt and
             // its progress banner — root-level so it shows on any tab.
             .restoreRedownloadUI()
+            // How an EPUB import went, from the Library or an opened file.
+            .epubImportAlert()
             // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).
             .focusedSceneValue(\.selectTab, SelectTabAction { select($0) })
     }
@@ -310,6 +312,14 @@ struct RootView: View {
     }
 
     private func handleIncomingURL(_ url: URL) {
+        // An EPUB opened in Fanficly from Files, Books, Mail or Safari.
+        if url.isFileURL {
+            guard url.pathExtension.lowercased() == "epub" else { return }
+            select(.library)
+            Task { await EPUBImportCenter.shared.importFiles([url], context: context) }
+            return
+        }
+
         if let route = parseResumeRoute(from: url) {
             openResumeRoute(route)
             return

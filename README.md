@@ -144,7 +144,7 @@ No. Searching, reading, saving works for offline reading, and following works an
 
 ### Can I read AO3 fanfiction offline?
 
-Yes. Download a work and its chapters are saved on your device. You can also export a work as EPUB, MOBI, AZW3, PDF or HTML.
+Yes. Download a work and its chapters are saved on your device. You can also export a work as EPUB, MOBI, AZW3, PDF or HTML, and import EPUB files you already have (AO3 downloads or any other e-book) to read them in Fanficly without AO3.
 
 ### Will Fanficly tell me when a story updates?
 
