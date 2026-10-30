@@ -3,6 +3,29 @@ import SwiftData
 import UserNotifications
 import os
 
+/// What the device keeps about the signed-in AO3 account (#159): its
+/// subscription records (and their chapter baselines) and when its list was
+/// last synced. Signing out, or signing in as someone else, forgets them, so
+/// the next account never sees or gets alerts for the last one's
+/// subscriptions. Locally followed works and authors aren't account data.
+@MainActor
+enum AccountData {
+    /// Goes up each time an account's data is forgotten. A list sync that
+    /// started before then fetched the previous account's list.
+    private(set) static var generation = 0
+
+    static func forget(in context: ModelContext, defaults: UserDefaults = .standard) {
+        generation += 1
+        for record in (try? context.fetch(FetchDescriptor<SubscriptionRecord>())) ?? [] {
+            context.delete(record)
+        }
+        try? context.save()
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(SubscriptionPoller.listSyncKeyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}
+
 @MainActor
 struct SubscriptionPoller {
     let client: any AO3ClientProtocol
@@ -21,8 +44,17 @@ struct SubscriptionPoller {
     /// rarely changes; the Subscriptions tab syncs it whenever it refreshes.
     static let listSyncInterval: TimeInterval = 24 * 60 * 60
 
+    /// Each account's last list sync is stored under this prefix plus its name.
+    static let listSyncKeyPrefix = "subscriptions.listSyncedAt."
+
     private var listSyncKey: String? {
-        username.map { "subscriptions.listSyncedAt.\($0)" }
+        username.map { Self.listSyncKeyPrefix + $0 }
+    }
+
+    /// This account's list has been read (or tried) since it signed in here:
+    /// signing out or switching accounts forgets the stamp (#159).
+    var hasSyncedList: Bool {
+        listSyncKey.map { defaults.object(forKey: $0) != nil } ?? false
     }
 
     /// Whether `runFullPoll` should re-read the subscriptions list: signed in,
@@ -41,7 +73,11 @@ struct SubscriptionPoller {
 
     func syncSubscriptionList() async throws -> [AO3Subscription] {
         guard let username else { return [] }
+        let generation = AccountData.generation
         let list = try await client.fetchSubscriptions(username: username)
+        // Signed out or switched accounts while AO3 answered: this list is
+        // the previous account's, and mustn't come back under the next (#159).
+        guard AccountData.generation == generation else { return [] }
         stampListSync()
         let fresh = list.subscriptions
         let freshKeys = Set(fresh.map(\.key))

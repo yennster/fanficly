@@ -14,6 +14,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// False scripts a list that ran past `fetchSubscriptions`' page ceiling.
     var subscriptionsComplete = true
     private(set) var subscriptionsFetchCount = 0
+    /// Runs while the subscriptions list is "on the wire" (account switch tests).
+    var onFetchSubscriptions: (@MainActor () -> Void)?
     /// Scripted author works page (SubscriptionPoller tests); empty when nil.
     var authorWorksResponse: AO3SearchResults?
     /// Scripted search results (saved search alert tests); empty when nil.
@@ -88,6 +90,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
     func fetchSubscriptions(username: String) async throws -> AO3SubscriptionList {
         subscriptionsFetchCount += 1
+        if let onFetchSubscriptions { await onFetchSubscriptions() }
         return AO3SubscriptionList(subscriptions: subscriptionsResponse, isComplete: subscriptionsComplete)
     }
     func fetchComments(workId: Int, chapterId: Int?, page: Int) async throws -> AO3CommentsPage {
