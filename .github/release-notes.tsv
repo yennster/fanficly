@@ -64,13 +64,13 @@
 286	none
 287	Save Offline and Download tell you when they fail
 294	Save Offline and Download tell you when they fail
-288	Signing in with an email address no longer breaks Bookmarks, Marked for Later and Subscriptions
-295	Signing in with an email address no longer breaks Bookmarks, Marked for Later and Subscriptions
+288	Signing in with an email address no longer breaks your AO3 lists
+295	Signing in with an email address no longer breaks your AO3 lists
 289	Subscribe to a story on AO3 from its options menu
 291	none
 293	none
 296	The reader's controls show and hide like Apple Books
-297	Slow connections no longer send AO3 repeated requests
+297	none
 298	Clearer messages when AO3 turns a request away, instead of asking you to sign in
 300	Clearer messages when AO3 turns a request away, instead of asking you to sign in
 299	Signing out fully signs you out, and reinstalling starts signed out
@@ -100,6 +100,10 @@
 332	The Go menu switches tabs the same way the sidebar does
 333	Signing in with a new AO3 account never shows the last account's bookmarks or subscriptions
 334	Opening a story on a second device no longer overwrites newer reading progress
-336	Import EPUBs: add EPUB files, like your AO3 downloads, to the Library and read them offline in Fanficly's reader. Use Import EPUB in the Library, or open an .epub with Fanficly.
+336	Import EPUB files, like your AO3 downloads, and read them offline in Fanficly's reader
 331	Fanficly now asks for a rating every few weeks at most, and stops once you've rated it
 335	Signing in with a new AO3 account never shows the last account's subscriptions
+326	none
+327	The Filters sheet has Cancel, and an old word count no longer sticks
+328	Search keeps loading when your content filter hides a whole page
+330	Search keeps loading when your content filter hides a whole page
