@@ -24,6 +24,12 @@ internal static class ReaderModule
         Routes.Resume = OpenResume;
     }
 
+    /// <summary>Where the reader opens a work: a newer place synced from another
+    /// device may win over this PC's (#160). Not in demo mode: its library is in
+    /// memory, so an entry left by an earlier run would move where it opens.</summary>
+    internal static ReadingAnchor? OpeningAnchor(int workId) =>
+        ReadingProgressStore.LoadForOpening(workId, AppHost.Library, AppHost.IsDemoMode ? null : WidgetProgressStore.Load());
+
     /// <summary>A widget / jump-list resume tap: install the position it carries
     /// when that can't move saved progress backwards (RootView's
     /// <c>installResumeProgressIfAvailable</c>), then open the saved reader, or the

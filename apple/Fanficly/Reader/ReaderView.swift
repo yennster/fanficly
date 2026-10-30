@@ -55,6 +55,8 @@ struct ReaderView: View {
     /// `ChapterTracking.clampedAnchor`). Never saved: opening a shorter copy
     /// mustn't overwrite the real place. Reading on from it saves as usual.
     @State private var clampedRestoreAnchor: ReadingAnchor?
+    /// Not saved until the reader moves (#160); see `OpenedAnchorGate`.
+    @State private var openedAnchorGate = OpenedAnchorGate()
     @State private var isRestoring = false
     @State private var lastSaveAt: Date = .distantPast
     // Paginated-mode one-shot paragraph restore.
@@ -885,11 +887,12 @@ struct ReaderView: View {
     private func loadAnchorIfNeeded() -> ReadingAnchor? {
         if !loadedFromDisk {
             loadedFromDisk = true
-            if let id = summary?.id, let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext),
+            if let id = summary?.id, let saved = ReadingProgressStore.openingAnchor(ao3Id: id, in: modelContext),
                let anchor = ChapterTracking.clampedAnchor(
                    saved, toChapters: chapters.map(\.index),
                    lastParagraph: { paragraphCount(ofChapter: $0) - 1 }) {
                 if anchor != saved { clampedRestoreAnchor = anchor }
+                openedAnchorGate = OpenedAnchorGate(openedAnchor: anchor)
                 currentAnchor = anchor
                 selectedChapterIndex = anchor.chapter
             }
@@ -953,7 +956,8 @@ struct ReaderView: View {
     private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false, syncWidgetImmediately: Bool = false) {
         // Reading on from the moved place: it's a real place again from now on.
         if anchor != clampedRestoreAnchor { clampedRestoreAnchor = nil }
-        guard let id = summary?.id, anchor != clampedRestoreAnchor,
+        guard openedAnchorGate.allowsSave(of: anchor),
+              let id = summary?.id, anchor != clampedRestoreAnchor,
               let progress = readingProgressFraction(for: anchor) else { return }
         let now = Date()
         if !force && now.timeIntervalSince(lastSaveAt) < 1.5 { return }
@@ -1715,15 +1719,29 @@ struct ReaderView: View {
                 if anchorAtomIndex < atoms.count {
                     let originalParaIndex = atoms[anchorAtomIndex].originalParagraphIndex
                     let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: originalParaIndex)
+                    landOpenedAnchorGate(on: anchor, pages: [shown, page])
                     currentAnchor = anchor
                     saveProgress(anchor)
                 }
             } else {
                 let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: 0)
+                landOpenedAnchorGate(on: anchor, pages: [shown, page])
                 currentAnchor = anchor
                 saveProgress(anchor)
             }
         }
+    }
+
+    /// Opening on the page that holds the opened place isn't a move (#160).
+    private func landOpenedAnchorGate(on anchor: ReadingAnchor, pages: [ChapterPage]) {
+        guard let opened = openedAnchorGate.openedAnchor else { return }
+        let holdsOpened = pages.contains { page in
+            guard page.chapterIndex == opened.chapter else { return false }
+            if page.paragraphIndices.isEmpty { return opened.paragraph == 0 }
+            guard let atoms = parsedAtoms[page.chapterIndex] else { return false }
+            return page.paragraphIndices.contains { $0 < atoms.count && atoms[$0].originalParagraphIndex == opened.paragraph }
+        }
+        openedAnchorGate.landed(on: anchor, holdingOpened: holdsOpened)
     }
 
     private func handleChapterIndexChange(_ newChapter: Int) {
