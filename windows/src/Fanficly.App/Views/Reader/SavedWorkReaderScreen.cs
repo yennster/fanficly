@@ -79,14 +79,16 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight };
         menu.Opening += (_, _) => FillMore(menu);
         _moreButton.Flyout = menu;
-        reader.SetTrailingItems(_commentsButton, _moreButton);
+        // An imported book that isn't on AO3 has no comments, kudos or downloads.
+        if (EpubImport.IsLocalWork(_work.Ao3Id)) reader.SetTrailingItems();
+        else reader.SetTrailingItems(_commentsButton, _moreButton);
         UpdateMoreButton();
         return reader;
     }
 
     private async Task LoadAsync()
     {
-        if (HasOfflineText || _payload is not null || _isLoading) return;
+        if (HasOfflineText || EpubImport.IsLocalWork(_work.Ao3Id) || _payload is not null || _isLoading) return;
         _isLoading = true;
         ShowLoading("Loading from AO3…");
         try

@@ -27,6 +27,9 @@ internal static class LibraryActions
     /// doesn't cover (an EPUB file appeared or was deleted).</summary>
     public static event Action? FilesChanged;
 
+    /// <summary>Raises <see cref="FilesChanged"/> (an imported EPUB was saved).</summary>
+    internal static void NotifyFilesChanged() => FilesChanged?.Invoke();
+
     /// <summary>Runs <paramref name="action"/> after the flyout has closed, so a
     /// dialog never presents from inside menu content.</summary>
     private static void AfterMenu(Func<Task> action) =>
@@ -71,13 +74,17 @@ internal static class LibraryActions
                 flyout.Items.Add(Item("Folders...", "folder", () => AfterMenu(() => ShowFolderSheetAsync(work)), automationId: "library.row.folders"));
             }
             flyout.Items.Add(Item("Note & Tags...", "note.text", () => AfterMenu(() => EditNotesAsync(work)), automationId: "library.row.notes"));
-            if (Downloading.Contains(work.Ao3Id))
+            // An imported book that isn't on AO3: its text is all there is, and
+            // there's no AO3 link to share.
+            if (EpubImport.IsLocalWork(work.Ao3Id)) { }
+            else if (Downloading.Contains(work.Ao3Id))
                 flyout.Items.Add(new MenuFlyoutItem { Text = "Downloading…", IsEnabled = false, Icon = Symbols.Icon("arrow.down.circle") });
             else if (WorkPersistence.EpubPath(work.Ao3Id) is not null)
                 flyout.Items.Add(Item("Remove Download", "xmark.circle", () => AfterMenu(() => RemoveDownloadAsync(work))));
             else
                 flyout.Items.Add(Item("Download for Offline", "arrow.down.circle", () => _ = DownloadAsync(work)));
-            flyout.Items.Add(Item("Share Story...", "square.and.arrow.up", () => ShareService.ShareWork(work.Ao3Id, work.Title)));
+            if (!EpubImport.IsLocalWork(work.Ao3Id))
+                flyout.Items.Add(Item("Share Story...", "square.and.arrow.up", () => ShareService.ShareWork(work.Ao3Id, work.Title)));
             flyout.Items.Add(new MenuFlyoutSeparator());
             if (folder is null)
                 flyout.Items.Add(Item("Delete from Library", "trash", () => Delete(work), destructive: true,

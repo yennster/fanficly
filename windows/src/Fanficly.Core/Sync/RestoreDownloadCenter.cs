@@ -157,6 +157,8 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
         store.All<Work>()
             .Where(w => restored?.Contains(w.Ao3Id) ?? true)
             .Where(w => declined?.Contains(w.Ao3Id) != true)
+            // An imported book that isn't on AO3 has nothing to download.
+            .Where(w => !EpubImport.IsLocalWork(w.Ao3Id))
             .Where(w => w.Chapters.Count > 0 && WorkPersistence.EpubPath(w.Ao3Id) is null)
             .OrderBy(w => w.Title, StringComparer.CurrentCultureIgnoreCase)
             .Select(w => w.Ao3Id)
@@ -239,7 +241,7 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
     public static IReadOnlyList<int> FolderDownloadCandidates(IEnumerable<Work> works, Func<int, bool>? isDownloaded = null)
     {
         isDownloaded ??= id => WorkPersistence.EpubPath(id) is not null;
-        return works.Select(w => w.Ao3Id).Where(id => !isDownloaded(id)).Distinct().ToList();
+        return works.Select(w => w.Ao3Id).Where(id => !EpubImport.IsLocalWork(id) && !isDownloaded(id)).Distinct().ToList();
     }
 
     /// <summary>Downloads a folder's stories one after another, each saved like

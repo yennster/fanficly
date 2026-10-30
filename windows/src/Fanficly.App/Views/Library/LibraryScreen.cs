@@ -159,6 +159,19 @@ public sealed class LibraryScreen : Screen
         return _root;
     }
 
+    // MARK: - Toolbar
+
+    public override IEnumerable<ICommandBarElement> PrimaryCommands()
+    {
+        var import = UI.UI.ToolbarButton("square.and.arrow.down", "Import EPUB", () => _ = EpubImporter.PickAndImportAsync(), showLabel: true);
+        import.IsEnabled = !EpubImporter.IsImporting;
+        AutomationProperties.SetAutomationId(import, "library.importEpub");
+        ToolTipService.SetToolTip(import, "Import EPUB files, like AO3 downloads, to read offline");
+        yield return import;
+    }
+
+    private void OnImportingChanged() => InvalidateChrome();
+
     // MARK: - Lifecycle
 
     public override void OnAppearing()
@@ -179,6 +192,7 @@ public sealed class LibraryScreen : Screen
         Store.Changed += OnStoreChanged;
         LibrarySortMenu.Changed += ScheduleRebuild;
         LibraryActions.FilesChanged += ScheduleRebuild;
+        EpubImporter.IsImportingChanged += OnImportingChanged;
     }
 
     private void Unsubscribe()
@@ -188,6 +202,7 @@ public sealed class LibraryScreen : Screen
         Store.Changed -= OnStoreChanged;
         LibrarySortMenu.Changed -= ScheduleRebuild;
         LibraryActions.FilesChanged -= ScheduleRebuild;
+        EpubImporter.IsImportingChanged -= OnImportingChanged;
     }
 
     private void OnStoreChanged(LibraryEntityKinds kinds)
@@ -235,7 +250,8 @@ public sealed class LibraryScreen : Screen
         {
             _list.Element.Visibility = Visibility.Collapsed;
             _emptyHost.Content = UI.UI.EmptyState("books.vertical", "Nothing saved yet",
-                "Click the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed.");
+                "Click the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.",
+                "Import EPUB...", () => _ = EpubImporter.PickAndImportAsync());
             _list.Reset([]);
             return;
         }

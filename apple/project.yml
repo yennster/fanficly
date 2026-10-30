@@ -68,6 +68,16 @@ targets:
           - CFBundleURLName: io.github.yennster.fanficly
             CFBundleURLSchemes:
               - fanficly
+        # "Open in Fanficly" for EPUBs (AO3 downloads) from Files, Books,
+        # Mail or Safari: RootView's onOpenURL imports them (EPUBImportCenter).
+        # Copied in, never opened in place.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: EPUB e-book
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - org.idpf.epub-container
+        LSSupportsOpeningDocumentsInPlace: false
         UILaunchScreen:
           UIColorName: ""
         # All four on iPhone too: iPhone Duo's multitasking requires every

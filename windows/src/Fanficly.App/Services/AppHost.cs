@@ -109,6 +109,11 @@ public static partial class AppHost
                 case ExtendedActivationKind.Protocol when args.Data is IProtocolActivatedEventArgs p:
                     OpenUri(p.Uri);
                     break;
+                case ExtendedActivationKind.File when args.Data is IFileActivatedEventArgs f:
+                    // An EPUB opened with Fanficly from File Explorer.
+                    MainWindow.Current?.Select(SidebarItem.Library);
+                    _ = Views.Library.EpubImporter.ImportAsync(f.Files);
+                    break;
                 case ExtendedActivationKind.ShareTarget when args.Data is IShareTargetActivatedEventArgs s:
                     HandleShare(s.ShareOperation);
                     break;
