@@ -105,17 +105,24 @@ public sealed class SubscriptionsScreen : Screen
         _lastNotifyCount = null;
         _lastNewWorksCount = null;
         _hasRequestedNotifications = false;
+        _autoSyncedFor.Clear(); // a new sign-in gets its own first sync
         InvalidateChrome();
     }
 
     /// <summary>A new account's list syncs on its own (#159): just signed in, or the
-    /// first visit since. After that, Refresh and the background poll keep it.</summary>
+    /// first visit since. Once per sign-in, so a list AO3 keeps failing doesn't
+    /// refresh on every visit; after that, Refresh and the background poll
+    /// keep it.</summary>
     private void SyncIfNew()
     {
         if (!_isVisible || _isRefreshing || _isChecking || !AppHost.Auth.HasSession || AppHost.IsDemoMode) return;
-        if (new SubscriptionPoller(AppHost.Client, AppHost.Library, Username).HasSyncedList) return;
+        if (Username is not { } user || _autoSyncedFor.Contains(user)) return;
+        if (new SubscriptionPoller(AppHost.Client, AppHost.Library, user).HasSyncedList) return;
+        _autoSyncedFor.Add(user);
         _ = RefreshAsync();
     }
+
+    private readonly HashSet<string> _autoSyncedFor = new(StringComparer.OrdinalIgnoreCase);
 
     private void OnLibraryChanged(LibraryEntityKinds kinds)
     {

@@ -83,18 +83,21 @@ public sealed class SubscriptionPoller
 
     /// <param name="username">AO3 username for syncing account subscriptions;
     /// null when logged out (locally-followed works are still polled).</param>
+    /// <param name="accountGeneration"><see cref="AccountData.Generation"/> when
+    /// <paramref name="username"/> was read; now when null. A poller built off the
+    /// UI thread passes it, so a sign-out in between still counts (#159).</param>
     /// <param name="syncStamps">Where the last list sync is stamped; defaults to
     /// the widgets' shared store, which the app and the background task both
     /// write, else <see cref="KeyValueStores.Default"/>.</param>
     public SubscriptionPoller(IAO3Client client, LibraryStore store, string? username, ILocalNotifier? notifier = null,
-                              IKeyValueStore? syncStamps = null)
+                              IKeyValueStore? syncStamps = null, int? accountGeneration = null)
     {
         _client = client;
         _store = store;
         Username = username;
         _notifier = notifier;
         _syncStamps = syncStamps;
-        _accountGeneration = AccountData.Generation;
+        _accountGeneration = accountGeneration ?? AccountData.Generation;
     }
 
     private readonly int _accountGeneration;
@@ -130,8 +133,8 @@ public sealed class SubscriptionPoller
 
     private string? ListSyncKey => Username is { } u ? ListSyncKeyPrefix + u : null;
 
-    /// <summary>This account's list has been read (or tried) since it signed in
-    /// here: signing out or switching accounts forgets the stamp (#159).</summary>
+    /// <summary>This account's list has been synced (or a background poll tried to)
+    /// since it signed in here: signing out or switching accounts forgets the stamp (#159).</summary>
     public bool HasSyncedList => ListSyncKey is { } key && SyncStamps.GetDate(key) is not null;
 
     /// <summary>Whether <see cref="RunFullPollAsync"/> should re-read the
@@ -162,10 +165,15 @@ public sealed class SubscriptionPoller
         var list = await _client.FetchSubscriptionsAsync(username, ct).ConfigureAwait(false);
         // Signed out or switched accounts while AO3 answered: this list is the
         // previous account's, and mustn't come back under the next (#159).
-        if (AccountChanged) return [];
-        StampListSync();
-        await OnRecords(() => MergeSubscriptionList(list)).ConfigureAwait(false);
-        return list.Subscriptions;
+        // Checked on the records thread, where AccountData.Forget runs.
+        var merged = await OnRecords(() =>
+        {
+            if (AccountChanged) return false;
+            StampListSync();
+            MergeSubscriptionList(list);
+            return true;
+        }).ConfigureAwait(false);
+        return merged ? list.Subscriptions : [];
     }
 
     private void MergeSubscriptionList(AO3SubscriptionList list)
@@ -400,6 +408,8 @@ public sealed class SubscriptionPoller
                 return (seen, work?.Title ?? rec?.DisplayName ?? "");
             }).ConfigureAwait(false);
             if (lastSeen is not { } seenCount || meta.ChapterCount <= seenCount) return 0;
+            // Only a subscription, and its account signed out since: no alert.
+            if (work is null && AccountChanged) return 0;
             await PostAsync(NewChapterContent(title, seenCount, meta.ChapterCount, workId)).ConfigureAwait(false);
             return 1;
         }
@@ -690,9 +700,10 @@ public static class BackgroundRefresh
     /// <summary>Runs one full poll. Runs even when logged out
     /// (<paramref name="username"/> null): locally-followed works are still polled.</summary>
     public static async Task<int> RunPollAsync(IAO3Client client, LibraryStore store, string? username,
-                                               ILocalNotifier? notifier, CancellationToken ct = default)
+                                               ILocalNotifier? notifier, CancellationToken ct = default,
+                                               int? accountGeneration = null)
     {
-        var poller = new SubscriptionPoller(client, store, username, notifier);
+        var poller = new SubscriptionPoller(client, store, username, notifier, accountGeneration: accountGeneration);
         var notified = await poller.RunFullPollAsync(ct).ConfigureAwait(false);
         Debug.WriteLine($"Background poll posted {notified} notifications");
         return notified;
