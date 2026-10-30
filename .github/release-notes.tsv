@@ -96,3 +96,8 @@
 321	A failed "load more" keeps the results you already have
 323	none
 324	Subscribing to a story on AO3 works again
+329	Saved filters keep the fandom you're in, and Browse shows every filter you've set
+332	The Go menu switches tabs the same way the sidebar does
+333	Signing in with a new AO3 account never shows the last account's bookmarks or subscriptions
+334	Opening a story on a second device no longer overwrites newer reading progress
+336	Import EPUBs: add EPUB files, like your AO3 downloads, to the Library and read them offline in Fanficly's reader. Use Import EPUB in the Library, or open an .epub with Fanficly.
