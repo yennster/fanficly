@@ -60,3 +60,43 @@ public static class ResumeProgressPolicy
         return AnchorToInstall(route.Anchor, WidgetAnchor(matching), matching?.FreshnessDate, existingUpdatedAt);
     }
 }
+
+/// <summary>
+/// Where a reader opens a work (#160). Reading chapter 20 on one device and then
+/// opening the story on another that last saw chapter 12 used to open at 12 and,
+/// on close, stamp 12 as the newest place, so the widget, the synced last-read
+/// entry and the next backup merge all went back to 12. The synced entry wins by
+/// the widget tap's rule (<see cref="ResumeProgressPolicy"/>): only when it is for
+/// this work and strictly newer than the local save, which stamps both stores
+/// with the same date, so this device's own saves always tie.
+/// </summary>
+public static class OpeningProgressPolicy
+{
+    public static ReadingAnchor? Anchor(
+        int workId, ReadingAnchor? local, DateTimeOffset? localUpdatedAt, WidgetStoryProgress? synced)
+    {
+        var matching = ResumeProgressPolicy.MatchingWidgetProgress(workId, synced);
+        return ResumeProgressPolicy.AnchorToInstall(
+            null, ResumeProgressPolicy.WidgetAnchor(matching), matching?.FreshnessDate,
+            local is null ? null : localUpdatedAt) ?? local;
+    }
+}
+
+/// <summary>Keeps a reader from saving the place it opened at until the reader
+/// moves (#160). A save stamps the place as the newest read anywhere, so closing a
+/// story you only glanced at must not re-stamp it over a newer place another
+/// device saved since. Once a different place is offered, the opened one is a real
+/// place again: moving away and back saves it.</summary>
+public struct OpenedAnchorGate(ReadingAnchor? openedAnchor)
+{
+    public ReadingAnchor? OpenedAnchor { get; private set; } = openedAnchor;
+
+    /// <summary>Whether <paramref name="anchor"/> is worth saving. Call it for
+    /// every save the reader attempts, before any throttling, so a move away is
+    /// never missed.</summary>
+    public bool AllowsSave(ReadingAnchor anchor)
+    {
+        if (anchor != OpenedAnchor) OpenedAnchor = null;
+        return anchor != OpenedAnchor;
+    }
+}

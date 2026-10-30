@@ -107,6 +107,77 @@ final class ResumeProgressPolicyTests: XCTestCase {
     }
 }
 
+/// Opening a story from the Library (not the widget) takes a strictly newer
+/// place synced from another device too, and closing the reader without moving
+/// writes nothing (#160).
+final class OpeningProgressPolicyTests: XCTestCase {
+    private let noon = Date(timeIntervalSince1970: 1_700_000_000)
+    private let local = ReadingAnchor(chapter: 12, paragraph: 4)
+    private let other = ReadingAnchor(chapter: 20, paragraph: 7)
+
+    private func synced(id: Int = 1, chapter: Int? = 20, paragraph: Int? = 7,
+                        updatedAt: Date?) -> WidgetStoryProgress {
+        WidgetStoryProgress(id: id, title: "T", author: "A", progress: 0.8,
+                            chapter: chapter, paragraph: paragraph, updatedAt: updatedAt)
+    }
+
+    // The issue's scenario: chapter 20 read on the iPhone, the iPad last saw 12.
+    // The iPad opens at 20, and closing without moving doesn't save 12 or 20.
+    func test_fresherSyncedEntry_opensThereAndUnmovedCloseSavesNothing() {
+        let opened = OpeningProgressPolicy.anchor(
+            workId: 1, local: local, localUpdatedAt: noon,
+            synced: synced(updatedAt: noon.addingTimeInterval(60)))
+        XCTAssertEqual(opened, other)
+
+        var gate = OpenedAnchorGate(openedAnchor: opened)
+        XCTAssertFalse(gate.allowsSave(of: other), "closing where it opened must not re-stamp the place")
+        XCTAssertFalse(gate.allowsSave(of: other))
+    }
+
+    func test_sameDeviceSave_tiesAndLocalWins() {
+        XCTAssertEqual(OpeningProgressPolicy.anchor(
+            workId: 1, local: local, localUpdatedAt: noon, synced: synced(updatedAt: noon)), local)
+    }
+
+    func test_olderSyncedEntry_localWins() {
+        XCTAssertEqual(OpeningProgressPolicy.anchor(
+            workId: 1, local: local, localUpdatedAt: noon,
+            synced: synced(updatedAt: noon.addingTimeInterval(-60))), local)
+    }
+
+    func test_syncedEntryForAnotherWork_localWins() {
+        XCTAssertEqual(OpeningProgressPolicy.anchor(
+            workId: 1, local: local, localUpdatedAt: noon,
+            synced: synced(id: 2, updatedAt: noon.addingTimeInterval(60))), local)
+    }
+
+    func test_fresherSyncedEntryWithoutChapter_localWins() {
+        XCTAssertEqual(OpeningProgressPolicy.anchor(
+            workId: 1, local: local, localUpdatedAt: noon,
+            synced: synced(chapter: nil, paragraph: nil, updatedAt: noon.addingTimeInterval(60))), local)
+    }
+
+    // Never read here: the other device's place, whatever its date.
+    func test_noLocalProgress_opensSyncedPlace() {
+        XCTAssertEqual(OpeningProgressPolicy.anchor(
+            workId: 1, local: nil, localUpdatedAt: nil, synced: synced(updatedAt: nil)), other)
+        XCTAssertNil(OpeningProgressPolicy.anchor(
+            workId: 1, local: nil, localUpdatedAt: nil, synced: nil))
+    }
+
+    func test_gate_movingSavesAndMovingBackSavesTheOpenedPlaceToo() {
+        var gate = OpenedAnchorGate(openedAnchor: local)
+        XCTAssertFalse(gate.allowsSave(of: local))
+        XCTAssertTrue(gate.allowsSave(of: other))
+        XCTAssertTrue(gate.allowsSave(of: local), "after a move the opened place is a real place again")
+    }
+
+    func test_gate_nothingOpened_savesEverything() {
+        var gate = OpenedAnchorGate()
+        XCTAssertTrue(gate.allowsSave(of: ReadingAnchor(chapter: 1, paragraph: 0)))
+    }
+}
+
 /// "Continue Reading" opens whichever story was read last: the widget store's
 /// entry (mirrored from other devices through iCloud KVS) or this device's
 /// newest reading progress.

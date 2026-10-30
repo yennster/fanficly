@@ -10,6 +10,21 @@ enum ReadingProgressStore {
         return ReadingAnchor(chapter: rec.chapterIndex, paragraph: rec.paragraphIndex)
     }
 
+    /// Where the reader opens a work: this device's saved place, unless the
+    /// last-read entry synced from another device (`WidgetProgressStore`'s iCloud
+    /// mirror) is for this work and strictly newer (#160).
+    @MainActor
+    static func openingAnchor(ao3Id: Int, in context: ModelContext) -> ReadingAnchor? {
+        let descriptor = FetchDescriptor<ReadingProgress>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        let rec = (try? context.fetch(descriptor))?.first
+        return OpeningProgressPolicy.anchor(
+            workId: ao3Id,
+            local: rec.map { ReadingAnchor(chapter: $0.chapterIndex, paragraph: $0.paragraphIndex) },
+            localUpdatedAt: rec?.updatedAt,
+            synced: WidgetProgressStore.load()
+        )
+    }
+
     @MainActor
     static func save(ao3Id: Int, anchor: ReadingAnchor, title: String, author: String,
                      progress: Double? = nil, syncWidgetImmediately: Bool = false, in context: ModelContext) {
@@ -57,6 +72,54 @@ enum ReadingProgressStore {
 
         StreakStore.recordReadingEvent()
         WidgetDataStore.updateAll(context: context)
+    }
+}
+
+/// Where a reader opens a work (#160). Reading chapter 20 on one device and
+/// then opening the story on another that last saw chapter 12 used to open at
+/// 12 and, on close, stamp 12 as the newest place, so the widget, the synced
+/// last-read entry and the next backup merge all went back to 12. The synced
+/// entry wins by the widget tap's rule (`ResumeProgressPolicy`): only when it is
+/// for this work and strictly newer than the local save, which stamps both
+/// stores with the same date, so this device's own saves always tie.
+enum OpeningProgressPolicy {
+    static func anchor(
+        workId: Int,
+        local: ReadingAnchor?,
+        localUpdatedAt: Date?,
+        synced: WidgetStoryProgress?
+    ) -> ReadingAnchor? {
+        let matching = synced?.id == workId ? synced : nil
+        let syncedAnchor = matching.flatMap { progress -> ReadingAnchor? in
+            guard let chapter = progress.chapter else { return nil }
+            return ReadingAnchor(chapter: max(chapter, 1), paragraph: max(progress.paragraph ?? 0, 0))
+        }
+        return ResumeProgressPolicy.anchorToInstall(
+            routeAnchor: nil,
+            widgetAnchor: syncedAnchor,
+            widgetFreshness: matching?.freshnessDate,
+            existingUpdatedAt: local == nil ? nil : localUpdatedAt
+        ) ?? local
+    }
+}
+
+/// Keeps a reader from saving the place it opened at until the reader moves
+/// (#160). A save stamps the place as the newest read anywhere, so closing a
+/// story you only glanced at must not re-stamp it over a newer place another
+/// device saved since. Once a different place is offered, the opened one is a
+/// real place again: moving away and back saves it.
+struct OpenedAnchorGate: Equatable {
+    private(set) var openedAnchor: ReadingAnchor?
+
+    init(openedAnchor: ReadingAnchor? = nil) {
+        self.openedAnchor = openedAnchor
+    }
+
+    /// Whether `anchor` is worth saving. Call it for every save the reader
+    /// attempts, before any throttling, so a move away is never missed.
+    mutating func allowsSave(of anchor: ReadingAnchor) -> Bool {
+        if anchor != openedAnchor { openedAnchor = nil }
+        return anchor != openedAnchor
     }
 }
 

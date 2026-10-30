@@ -9,6 +9,17 @@ public static class ReadingProgressStore
     public static (int Chapter, int Paragraph)? Load(int ao3Id, LibraryStore store) =>
         store.GetReadingProgress(ao3Id) is { } rec ? (rec.ChapterIndex, rec.ParagraphIndex) : null;
 
+    /// <summary>Where the reader opens a work: this device's saved place, unless
+    /// <paramref name="synced"/>, the last-read entry synced from another device
+    /// (<see cref="WidgetProgressStore.Load"/>), is for this work and strictly
+    /// newer (see <see cref="OpeningProgressPolicy"/>, #160).</summary>
+    public static ReadingAnchor? LoadForOpening(int ao3Id, LibraryStore store, WidgetStoryProgress? synced)
+    {
+        var rec = store.GetReadingProgress(ao3Id);
+        return OpeningProgressPolicy.Anchor(
+            ao3Id, rec is null ? null : new ReadingAnchor(rec.ChapterIndex, rec.ParagraphIndex), rec?.UpdatedAt, synced);
+    }
+
     /// <summary>Saves the reading position, stamps the saved work's
     /// <c>LastRead*</c> fields, and — when <paramref name="progress"/> is known —
     /// feeds the last-read widget store with the same timestamp (so a resume
