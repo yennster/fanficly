@@ -425,7 +425,7 @@ public sealed class SearchScreen : Screen
 
     private void RenderFiltersButton()
     {
-        var count = SearchChips.For(_active).Count;
+        var count = FilterChips.For(_active).Count;
         var icon = UI.UI.Icon(count > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle", 22, Theme.Accent);
         icon.HorizontalAlignment = HorizontalAlignment.Center;
         icon.VerticalAlignment = VerticalAlignment.Center;
@@ -482,7 +482,7 @@ public sealed class SearchScreen : Screen
 
     private void RenderChips()
     {
-        var chips = SearchChips.For(_active);
+        var chips = FilterChips.For(_active);
         var ids = string.Join("\n", chips.Select(c => c.Id)) + (_hasSearched ? "|searched" : "");
         if (ids == _renderedChipIds) return;
         _renderedChipIds = ids;
@@ -574,7 +574,7 @@ public sealed class SearchScreen : Screen
         }
         else if (_results.Count == 0)
         {
-            var hasChips = SearchChips.For(_active).Count > 0;
+            var hasChips = FilterChips.For(_active).Count > 0;
             view = UI.UI.EmptyState("magnifyingglass", "No results",
                 hasChips
                     ? "Try removing a filter, or fewer keywords — AO3 matches every word."

@@ -604,79 +604,8 @@ struct SearchView: View {
 
     // MARK: - Chips
 
-    private struct ActiveChip: Identifiable {
-        let id: String
-        let label: String
-        var kind: ChipView.Kind = .include
-        let remove: (inout AO3SearchFilters) -> Void
-    }
-
     /// Every active filter as a removable chip (keywords stay in the box).
-    private var activeChips: [ActiveChip] {
-        let f = active
-        var chips: [ActiveChip] = []
-        func list(_ names: [String], _ key: String, prefix: String = "", kind: ChipView.Kind = .include,
-                  _ path: WritableKeyPath<AO3SearchFilters, [String]>) {
-            for name in names {
-                chips.append(ActiveChip(id: "\(key)|\(name)", label: prefix + name, kind: kind) {
-                    $0[keyPath: path].removeAll { $0 == name }
-                })
-            }
-        }
-        if !f.title.isEmpty {
-            chips.append(ActiveChip(id: "title", label: "Title: \(f.title)") { $0.title = "" })
-        }
-        if !f.creators.isEmpty {
-            chips.append(ActiveChip(id: "creators", label: "By \(f.creators)") { $0.creators = "" })
-        }
-        list(f.otherTagNames, "tag", \.otherTagNames)
-        list(f.fandomNames, "fandom", \.fandomNames)
-        list(f.relationshipNames, "ship", \.relationshipNames)
-        list(f.characterNames, "character", \.characterNames)
-        list(f.freeformNames, "freeform", \.freeformNames)
-        list(f.excludedTagNames, "-tag", prefix: "Not ", kind: .exclude, \.excludedTagNames)
-        list(f.excludedFreeforms, "exclude", prefix: "Not ", kind: .exclude, \.excludedFreeforms)
-        for rating in f.ratings.sorted(by: { $0.rawValue < $1.rawValue }) {
-            chips.append(ActiveChip(id: "rating|\(rating.rawValue)", label: "Rated \(rating.displayName)") { $0.ratings.remove(rating) })
-        }
-        for warning in f.warnings.sorted(by: { $0.rawValue < $1.rawValue }) {
-            chips.append(ActiveChip(id: "warning|\(warning.rawValue)", label: warning.displayName) { $0.warnings.remove(warning) })
-        }
-        for category in f.categories.sorted(by: { $0.rawValue < $1.rawValue }) {
-            chips.append(ActiveChip(id: "category|\(category.rawValue)", label: category.displayName) { $0.categories.remove(category) })
-        }
-        if f.complete != .any {
-            chips.append(ActiveChip(id: "complete", label: f.complete == .yes ? "Complete works" : "Works in progress") { $0.complete = .any })
-        }
-        if f.crossover != .any {
-            chips.append(ActiveChip(id: "crossover", label: f.crossover == .yes ? "Crossovers" : "No crossovers") { $0.crossover = .any })
-        }
-        if f.singleChapter {
-            chips.append(ActiveChip(id: "oneshot", label: "One-shots") { $0.singleChapter = false })
-        }
-        if !f.wordCount.isEmpty {
-            chips.append(ActiveChip(id: "words", label: AO3SearchFilters.wordCountLabel(f.wordCount)) { $0.wordCount = "" })
-        }
-        if !f.languageId.isEmpty {
-            chips.append(ActiveChip(id: "lang", label: "In \(SearchSyntax.languageNames[f.languageId] ?? f.languageId)") { $0.languageId = "" })
-        }
-        if !f.kudosCount.isEmpty {
-            chips.append(ActiveChip(id: "kudos", label: "Kudos \(f.kudosCount)") { $0.kudosCount = "" })
-        }
-        if !f.hits.isEmpty {
-            chips.append(ActiveChip(id: "hits", label: "Hits \(f.hits)") { $0.hits = "" })
-        }
-        if !f.commentsCount.isEmpty {
-            chips.append(ActiveChip(id: "comments", label: "Comments \(f.commentsCount)") { $0.commentsCount = "" })
-        }
-        if !f.bookmarksCount.isEmpty {
-            chips.append(ActiveChip(id: "bookmarks", label: "Bookmarks \(f.bookmarksCount)") { $0.bookmarksCount = "" })
-        }
-        if !f.revisedAt.isEmpty {
-            chips.append(ActiveChip(id: "updated", label: "Updated \(f.revisedAt)") { $0.revisedAt = "" })
-        }
-        return chips
-    }
+    private var activeChips: [FilterChip] { FilterChip.all(in: active) }
 
     private func clearFilters() {
         let sort = (active.sortColumn, active.sortDirection)

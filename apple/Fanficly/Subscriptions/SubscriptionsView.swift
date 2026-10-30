@@ -115,6 +115,13 @@ struct SubscriptionsView: View {
             // Signed in again: the expired-session error no longer stands.
             if !expired, lastError?.hasPrefix(SessionExpiry.title) == true { lastError = nil }
         }
+        .onAppear { syncIfNew() }
+        // Another account (or none): the last run's messages were the old one's.
+        .onChange(of: auth.username) { _, _ in
+            lastError = nil
+            lastNotifyCount = nil
+            syncIfNew()
+        }
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
@@ -146,21 +153,42 @@ struct SubscriptionsView: View {
         isRefreshing = true
         lastError = nil
         let poller = SubscriptionPoller(client: client, context: context, username: username)
+        var error: String?
         do {
             // Fetch the subscription list first — this is fast and updates
             // the UI immediately.
             _ = try await poller.syncSubscriptionList()
         } catch AO3Error.unauthorized {
             // Signed in here, so AO3 dropped the session (#131).
-            auth.markSessionExpired()
-            lastError = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
-        } catch {
-            lastError = error.localizedDescription
+            // Not when the account changed meanwhile: signing out ended the
+            // session this request used, not the one signed in now.
+            if auth.username == username, !poller.accountChanged { auth.markSessionExpired() }
+            error = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
+        } catch let failure {
+            error = failure.localizedDescription
         }
         isRefreshing = false
+        // Signed out or in as someone else meanwhile (even back as the same
+        // account): the poller dropped the list it fetched (#159), and the
+        // account now signed in gets its own sync.
+        guard auth.username == username, !poller.accountChanged else {
+            syncIfNew()
+            return
+        }
+        lastError = error
         // The per-work new-chapter check is throttled (1 req/sec) and only
         // feeds notifications, so run it after the list is already showing.
-        lastNotifyCount = await poller.checkForNewChapters()
+        let count = await poller.checkForNewChapters()
+        if auth.username == username { lastNotifyCount = count }
+    }
+
+    /// A new account's list syncs on its own (#159): just signed in, or the
+    /// first visit since. After that, Refresh and the background poll keep it.
+    private func syncIfNew() {
+        guard let username = auth.username, auth.hasSession, !isRefreshing, !FanficlyApp.isDemoMode,
+              !SubscriptionPoller(client: client, context: context, username: username).hasSyncedList
+        else { return }
+        Task { await refresh() }
     }
 }
 
@@ -314,8 +342,10 @@ struct BookmarksView: View {
             }
         }
         .task { await loadFirst() }
+        // Another account (or none): the list on screen isn't theirs (#159).
         .onChange(of: auth.username) { _, name in
-            if name != nil, works.isEmpty { Task { await loadFirst() } }
+            forgetList()
+            if name != nil { Task { await loadFirst() } }
         }
         // Signed in again after the session expired.
         .onChange(of: auth.hasSession) { _, live in
@@ -330,9 +360,16 @@ struct BookmarksView: View {
         sessionExpired = false
         // A next page of the list being replaced must not land in this one.
         paging.restart()
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            // Someone else signed in while this loaded; their list loads now.
+            if let name = auth.username, name != username { Task { await loadFirst() } }
+        }
         do {
-            let result = try auth.check(await client.fetchBookmarks(username: username, page: 1))
+            let page = try await client.fetchBookmarks(username: username, page: 1)
+            // Signed out or in as someone else meanwhile (#159).
+            guard auth.username == username else { return }
+            let result = try auth.check(page)
             works = result.works
             currentPage = result.currentPage
             totalPages = result.totalPages
@@ -341,7 +378,7 @@ struct BookmarksView: View {
             // mid-flight (the split view settling its detail column, widened by
             // the 1 req/sec throttle), not a load failure. Don't surface it —
             // `.task` re-runs when the view re-appears. Only real errors show.
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, auth.username == username else { return }
             sessionExpired = auth.explains(error)
             errorMessage = sessionExpired ? AuthState.message(for: error) : error.localizedDescription
         }
@@ -352,6 +389,17 @@ struct BookmarksView: View {
         currentPage = 1
         totalPages = 1
         await loadFirst()
+    }
+
+    /// Drops the list on screen, and any next page still on its way to it.
+    private func forgetList() {
+        works = []
+        badges = [:]
+        currentPage = 1
+        totalPages = 1
+        errorMessage = nil
+        sessionExpired = false
+        paging.restart()
     }
 
     /// Loads the next page, and the ones after it while the content filter
@@ -369,8 +417,9 @@ struct BookmarksView: View {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let result = try auth.check(await client.fetchBookmarks(username: username, page: currentPage + 1))
-            guard paging.isCurrent(generation) else { return false }  // refreshed meanwhile
+            let page = try await client.fetchBookmarks(username: username, page: currentPage + 1)
+            guard paging.isCurrent(generation) else { return false }  // refreshed or signed out meanwhile
+            let result = try auth.check(page)
             let shown = visibleWorks.count
             let existing = Set(works.map(\.id))
             works.append(contentsOf: result.works.filter { !existing.contains($0.id) })
@@ -554,8 +603,10 @@ struct ReadingListView: View {
             }
         }
         .task { await loadFirst() }
+        // Another account (or none): the list on screen isn't theirs (#159).
         .onChange(of: auth.username) { _, name in
-            if name != nil, works.isEmpty { Task { await loadFirst() } }
+            forgetList()
+            if name != nil { Task { await loadFirst() } }
         }
         // Signed in again after the session expired.
         .onChange(of: auth.hasSession) { _, live in
@@ -570,14 +621,20 @@ struct ReadingListView: View {
         sessionExpired = false
         // A next page of the list being replaced must not land in this one.
         paging.restart()
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            // Someone else signed in while this loaded; their list loads now.
+            if let name = auth.username, name != username { Task { await loadFirst() } }
+        }
         do {
             let result = try await list.fetch(client, username: username, page: 1)
+            // Signed out or in as someone else meanwhile (#159).
+            guard auth.username == username else { return }
             works = result.works
             currentPage = result.currentPage
             totalPages = result.totalPages
         } catch {
-            guard !Task.isCancelled else { return }   // benign cancellation — see BookmarksView
+            guard !Task.isCancelled, auth.username == username else { return }   // benign cancellation — see BookmarksView
             sessionExpired = auth.explains(error)
             errorMessage = sessionExpired ? AuthState.message(for: error) : Self.message(for: error)
         }
@@ -588,6 +645,17 @@ struct ReadingListView: View {
         currentPage = 1
         totalPages = 1
         await loadFirst()
+    }
+
+    /// Drops the list on screen, and any next page still on its way to it.
+    private func forgetList() {
+        works = []
+        badges = [:]
+        currentPage = 1
+        totalPages = 1
+        errorMessage = nil
+        sessionExpired = false
+        paging.restart()
     }
 
     /// Loads the next page, and the ones after it while the content filter

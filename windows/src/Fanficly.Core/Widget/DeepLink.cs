@@ -126,7 +126,10 @@ public abstract record DeepLink
     public static AO3SearchFilters? SavedFilter(string query)
     {
         var trimmed = query.Trim();
-        return trimmed.StartsWith('{') ? AO3SearchFilters.FromSavedJson(trimmed) : null;
+        // Applied like the Browse landing page applies one (#157).
+        return trimmed.StartsWith('{') && AO3SearchFilters.FromSavedJson(trimmed) is { } saved
+            ? new AO3SearchFilters().ApplyingSaved(saved)
+            : null;
     }
 
     // MARK: - Helpers

@@ -351,14 +351,32 @@ internal sealed partial class ReaderView
                 var isFinalPage = page.ChapterIndex == lastChapter && page.ParagraphIndices.End >= atoms.Count;
                 var atomIndex = isFinalPage ? page.ParagraphIndices.End - 1 : page.ParagraphIndices.Start;
                 if (atomIndex < atoms.Count)
-                    SetCurrentAnchor(new ReadingAnchor(page.ChapterIndex, atoms[atomIndex].OriginalParagraphIndex));
+                {
+                    var anchor = new ReadingAnchor(page.ChapterIndex, atoms[atomIndex].OriginalParagraphIndex);
+                    LandOpenedAnchorGate(anchor, shown, page);
+                    SetCurrentAnchor(anchor);
+                }
             }
             else
             {
-                SetCurrentAnchor(new ReadingAnchor(page.ChapterIndex, 0));
+                var anchor = new ReadingAnchor(page.ChapterIndex, 0);
+                LandOpenedAnchorGate(anchor, shown, page);
+                SetCurrentAnchor(anchor);
             }
         }
         UpdateFooter();
+    }
+
+    /// <summary>Opening on the page that holds the opened place isn't a move (#160).</summary>
+    private void LandOpenedAnchorGate(ReadingAnchor anchor, params ChapterPage[] pages)
+    {
+        if (_openedAnchorGate.OpenedAnchor is not { } opened) return;
+        var holdsOpened = pages.Any(page => page.ChapterIndex == opened.Chapter
+            && (page.ParagraphIndices.IsEmpty
+                ? opened.Paragraph == 0
+                : _atoms.TryGetValue(page.ChapterIndex, out var atoms)
+                  && page.ParagraphIndices.Indices().Any(i => i < atoms.Count && atoms[i].OriginalParagraphIndex == opened.Paragraph)));
+        _openedAnchorGate.Landed(anchor, holdsOpened);
     }
 
     /// <summary>A chapter was picked (the chapters menu, Ctrl+←/→, narration):

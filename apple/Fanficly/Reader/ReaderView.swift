@@ -55,6 +55,8 @@ struct ReaderView: View {
     /// `ChapterTracking.clampedAnchor`). Never saved: opening a shorter copy
     /// mustn't overwrite the real place. Reading on from it saves as usual.
     @State private var clampedRestoreAnchor: ReadingAnchor?
+    /// Not saved until the reader moves (#160); see `OpenedAnchorGate`.
+    @State private var openedAnchorGate = OpenedAnchorGate()
     @State private var isRestoring = false
     @State private var lastSaveAt: Date = .distantPast
     // Paginated-mode one-shot paragraph restore.
@@ -66,6 +68,7 @@ struct ReaderView: View {
     // Text-to-speech ("Listen") narration of the current chapter.
     @State private var speech = SpeechController()
     @State private var isUIMinimized: Bool = false
+    @Environment(StatusBarVisibility.self) private var statusBar: StatusBarVisibility?
     @State private var listeningChapter: Int?
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
@@ -93,6 +96,9 @@ struct ReaderView: View {
     /// bookTopShift as it was with the controls up, kept while they're
     /// hidden for as long as the page area keeps its size.
     @State private var heldTopShift: HeldTopShift?
+    /// The sides the page runs under iPhone Duo's column, and its width there
+    /// (RunUnderSideColumn); the text keeps clear of it.
+    @State private var sideColumn = SideColumn.empty
     private let scrollSpace = "readerScroll"
 
     // Profile Management
@@ -389,14 +395,17 @@ struct ReaderView: View {
         .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive)))
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
-            if speech.isActive {
-                narrationBar(fg: fg, bg: bg)
-            } else if mode == .pageByPage {
-                // Kept in full screen too, showing only the page number (as
-                // Apple Books does), so its room never changes and the pages
-                // never re-flow when the controls toggle.
-                pageFooterBar(fg: fg, bg: bg)
+            Group {
+                if speech.isActive {
+                    narrationBar(fg: fg, bg: bg)
+                } else if mode == .pageByPage {
+                    // Kept in full screen too, showing only the page number (as
+                    // Apple Books does), so its room never changes and the pages
+                    // never re-flow when the controls toggle.
+                    pageFooterBar(fg: fg, bg: bg)
+                }
             }
+            .ignoresSafeArea(.container, edges: sideColumn.edges)
         }
         // The reader has no text input, so it must never reserve room for the
         // keyboard. Without this, focus landing on the page (it's
@@ -409,6 +418,11 @@ struct ReaderView: View {
         // page-by-page measured its pages for the squashed area above it.
         // The home-indicator inset is unaffected.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        // On iPhone Duo the page runs under the side column of status bar
+        // and toolbar strip, which floats over it, as in Apple Books (one page
+        // on screen: see RunUnderSideColumn).
+        .modifier(RunUnderSideColumn(enabled: mode != .pageByPage || spreadLayout == nil,
+                                     controlsHidden: isUIMinimized, column: $sideColumn))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
         .toolbarColorScheme(theme.preferredColorScheme, for: .navigationBar)
@@ -425,6 +439,9 @@ struct ReaderView: View {
         .navigationBarBackButtonHidden(isUIMinimized)
         .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
         .statusBarHidden(isUIMinimized)
+        .onChange(of: isUIMinimized, initial: true) { _, hidden in statusBar?.hidden = hidden }
+        .onAppear { statusBar?.hidden = isUIMinimized }
+        .onDisappear { statusBar?.hidden = false }
         .preference(key: ReaderFullScreenKey.self, value: isUIMinimized)
         .toolbar {
             if !isUIMinimized {
@@ -744,8 +761,7 @@ struct ReaderView: View {
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
                         }
                     }
-                    .frame(maxWidth: columnWidth(geo.size.width), alignment: .leading)
-                    .padding(.horizontal, (geo.size.width - columnWidth(geo.size.width)) / 2)
+                    .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.vertical, Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .background(ReaderScrollViewFinder(views: keyScrollViews, id: ReaderScrollViews.continuous))
@@ -871,11 +887,12 @@ struct ReaderView: View {
     private func loadAnchorIfNeeded() -> ReadingAnchor? {
         if !loadedFromDisk {
             loadedFromDisk = true
-            if let id = summary?.id, let saved = ReadingProgressStore.load(ao3Id: id, in: modelContext),
+            if let id = summary?.id, let saved = ReadingProgressStore.openingAnchor(ao3Id: id, in: modelContext),
                let anchor = ChapterTracking.clampedAnchor(
                    saved, toChapters: chapters.map(\.index),
                    lastParagraph: { paragraphCount(ofChapter: $0) - 1 }) {
                 if anchor != saved { clampedRestoreAnchor = anchor }
+                openedAnchorGate = OpenedAnchorGate(openedAnchor: anchor)
                 currentAnchor = anchor
                 selectedChapterIndex = anchor.chapter
             }
@@ -939,7 +956,8 @@ struct ReaderView: View {
     private func saveProgress(_ anchor: ReadingAnchor, force: Bool = false, syncWidgetImmediately: Bool = false) {
         // Reading on from the moved place: it's a real place again from now on.
         if anchor != clampedRestoreAnchor { clampedRestoreAnchor = nil }
-        guard let id = summary?.id, anchor != clampedRestoreAnchor,
+        guard openedAnchorGate.allowsSave(of: anchor),
+              let id = summary?.id, anchor != clampedRestoreAnchor,
               let progress = readingProgressFraction(for: anchor) else { return }
         let now = Date()
         if !force && now.timeIntervalSince(lastSaveAt) < 1.5 { return }
@@ -1025,7 +1043,11 @@ struct ReaderView: View {
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(fg.opacity(0.5))
         }
-        .padding(.horizontal, 16)
+        // Clear of the Duo's side column, which sits over the top of the
+        // page (its camera hid the chapter count); the bar's background
+        // still runs under it.
+        .padding(.leading, 16 + sideColumn.leading)
+        .padding(.trailing, 16 + sideColumn.trailing)
         .padding(.vertical, 7)
         .background(bg)
         .overlay(alignment: .bottom) {
@@ -1149,8 +1171,7 @@ struct ReaderView: View {
                         }
                         chapterBlock(chapter, fg: fg)
                     }
-                    .frame(maxWidth: columnWidth(geo.size.width), alignment: .leading)
-                    .padding(.horizontal, (geo.size.width - columnWidth(geo.size.width)) / 2)
+                    .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.top, Spacing.lg)
                     .padding(.bottom, chapters.count > 1 ? 56 : Spacing.lg)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -1253,12 +1274,17 @@ struct ReaderView: View {
     /// bars. Pagination subtracts exactly this, so measured pages match drawn ones.
     static let pageVerticalMargin: CGFloat = 12
 
-    private func columnWidth(_ containerWidth: CGFloat, widthPercent percent: Double? = nil) -> CGFloat {
+    /// The text column in a page `containerWidth` wide, clear of the Duo's
+    /// side column (`column`; the reader's own unless given).
+    private func placement(_ containerWidth: CGFloat, widthPercent percent: Double? = nil,
+                           column: SideColumn? = nil) -> (leading: CGFloat, width: CGFloat) {
         // The zoomed size, as performPagination caps the column with: the
         // unzoomed one drew a capped column narrower than it was paginated
         // at whenever the zoom was below 1, and pages ran a line past the end.
-        ReaderMetrics.textColumnWidth(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
-                                      fontSize: Double(fontSize), limitLineLength: Self.limitsLineLength)
+        let column = column ?? sideColumn
+        return ReaderMetrics.textColumnPlacement(containerWidth: containerWidth, widthPercent: percent ?? widthPercent,
+                                                 fontSize: Double(fontSize), limitLineLength: Self.limitsLineLength,
+                                                 reservedLeading: column.leading, reservedTrailing: column.trailing)
     }
 
     /// Scrolls the paragraph that was on top back to the top once a resize
@@ -1324,7 +1350,8 @@ struct ReaderView: View {
                     // bar (bottom insets) are already out of it. A change
                     // re-paginates, keeping the page on screen in place.
                     height: readingHeight
-                )
+                ),
+                sideColumn: spread == nil ? sideColumn : .empty
             )
             
             let content = Group {
@@ -1453,8 +1480,9 @@ struct ReaderView: View {
     }
 
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
-        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent)
+        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: sideColumn)
             .ignoresSafeArea(.container)  // see makeSpreadCell
+            .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
             .contentShape(Rectangle())
             .tag(page.id)
     }
@@ -1541,14 +1569,14 @@ struct ReaderView: View {
         let percent = spreadWidthPercent
         return HStack(spacing: 0) {
             Color.clear.frame(width: max(0, layout.leftX))
-            pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent)
+            pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty)
                 .frame(width: layout.pageWidth)
             // The gutter: blank space on the fold. No drawn crease — the
             // hardware fold is the only seam, even lying flat.
             Color.clear.frame(width: layout.gutter.upperBound - layout.gutter.lowerBound)
             Group {
                 if let right = spread.right {
-                    pageCellContent(page: right, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent)
+                    pageCellContent(page: right, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty)
                 } else {
                     Color.clear
                 }
@@ -1579,7 +1607,8 @@ struct ReaderView: View {
     }
 
     @ViewBuilder
-    private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent requested: Double) -> some View {
+    private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent requested: Double,
+                                 column: SideColumn) -> some View {
         // The title page holds only the work header (no story text, so nothing
         // is paginated against its width): keep it at least the standard width
         // so narrow margins don't crush its metadata row.
@@ -1604,8 +1633,7 @@ struct ReaderView: View {
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
-            .frame(maxWidth: columnWidth(containerWidth, widthPercent: percent), alignment: .leading)
-            .padding(.horizontal, (containerWidth - columnWidth(containerWidth, widthPercent: percent)) / 2)
+            .textColumn(placement(containerWidth, widthPercent: percent, column: column), in: containerWidth)
             .padding(.vertical, Self.pageVerticalMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
@@ -1691,15 +1719,29 @@ struct ReaderView: View {
                 if anchorAtomIndex < atoms.count {
                     let originalParaIndex = atoms[anchorAtomIndex].originalParagraphIndex
                     let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: originalParaIndex)
+                    landOpenedAnchorGate(on: anchor, pages: [shown, page])
                     currentAnchor = anchor
                     saveProgress(anchor)
                 }
             } else {
                 let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: 0)
+                landOpenedAnchorGate(on: anchor, pages: [shown, page])
                 currentAnchor = anchor
                 saveProgress(anchor)
             }
         }
+    }
+
+    /// Opening on the page that holds the opened place isn't a move (#160).
+    private func landOpenedAnchorGate(on anchor: ReadingAnchor, pages: [ChapterPage]) {
+        guard let opened = openedAnchorGate.openedAnchor else { return }
+        let holdsOpened = pages.contains { page in
+            guard page.chapterIndex == opened.chapter else { return false }
+            if page.paragraphIndices.isEmpty { return opened.paragraph == 0 }
+            guard let atoms = parsedAtoms[page.chapterIndex] else { return false }
+            return page.paragraphIndices.contains { $0 < atoms.count && atoms[$0].originalParagraphIndex == opened.paragraph }
+        }
+        openedAnchorGate.landed(on: anchor, holdingOpened: holdsOpened)
     }
 
     private func handleChapterIndexChange(_ newChapter: Int) {
@@ -1996,10 +2038,12 @@ struct ReaderView: View {
     private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult {
         // Must match `makePageCell`'s column, or pages are measured at one
         // width and drawn at another.
-        let w = ReaderMetrics.textColumnWidth(containerWidth: trigger.size.width,
-                                              widthPercent: trigger.widthPercent,
-                                              fontSize: trigger.fontSize,
-                                              limitLineLength: Self.limitsLineLength)
+        let w = ReaderMetrics.textColumnPlacement(containerWidth: trigger.size.width,
+                                                  widthPercent: trigger.widthPercent,
+                                                  fontSize: trigger.fontSize,
+                                                  limitLineLength: Self.limitsLineLength,
+                                                  reservedLeading: trigger.sideColumn.leading,
+                                                  reservedTrailing: trigger.sideColumn.trailing).width
         let h = trigger.size.height - 2 * Self.pageVerticalMargin
         
         guard w > 50 && h > 100 else {
@@ -2314,6 +2358,8 @@ struct PaginationTrigger: Equatable {
     let boldText: Bool
     let showImages: Bool
     let size: CGSize
+    /// The Duo's side column the text keeps clear of (none on a spread).
+    let sideColumn: SideColumn
 }
 
 /// What page-by-page's settle task waits on: any change restarts the wait.

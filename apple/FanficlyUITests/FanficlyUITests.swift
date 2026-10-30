@@ -82,6 +82,27 @@ final class ReaderLayoutTests: XCTestCase {
         turnToMiddlePage(footer)
         capture("01-page")
         try assertPageLayout(footer, "on opening")
+        #if !targetEnvironment(macCatalyst)
+        if UIDevice.current.userInterfaceIdiom == .phone && !isDuoUnfolded {
+            // A phone in portrait gives the page the whole width: on iPhone
+            // Duo's outer display it runs under the side column of status bar
+            // and toolbar strip, as in Apple Books, instead of leaving it blank.
+            let window = app.windows.firstMatch.frame
+            XCTAssertEqual(footer.frame.minX, window.minX, accuracy: 1, "the page left room on the left")
+            XCTAssertEqual(footer.frame.maxX, window.maxX, accuracy: 1, "the page left room on the right")
+            // The text doesn't: it keeps a gutter from the screen's edges, and
+            // the controls (the Duo's toolbar strip) float over margin only.
+            let texts = try storyTextFrames(above: footer.frame)
+            let buttons = app.navigationBars.buttons.allElementsBoundByIndex.map { $0.frame }.filter { !$0.isEmpty }
+            for text in texts {
+                XCTAssertGreaterThanOrEqual(text.minX, window.minX + 15, "text at \(text) touches the left edge")
+                XCTAssertLessThanOrEqual(text.maxX, window.maxX - 15, "text at \(text) touches the right edge")
+                for button in buttons where button.intersects(text) {
+                    XCTFail("the control at \(button) covers text at \(text)")
+                }
+            }
+        }
+        #endif
     }
 
     func test_backgrounding_keepsThePageLayout() throws {
@@ -483,7 +504,12 @@ final class ReaderLayoutTests: XCTestCase {
             let which = pages.count > 1 ? (index == 0 ? "left page" : "right page") : "page"
             let onPage = texts.filter { $0.frame.midX >= minX && $0.frame.midX < maxX }
             guard let bottom = onPage.map(\.frame.maxY).max(), let top = onPage.map(\.frame.minY).min() else {
-                XCTFail("\(context): no text on the \(which)", file: file, line: line)
+                // Where the text is instead, for the failure.
+                let anywhere = (try? storyTexts(above: CGRect(x: -10_000, y: bar.minY, width: 20_000, height: 1))) ?? []
+                let seen = anywhere.prefix(3).map { "\(Int($0.frame.minX))–\(Int($0.frame.maxX))" }
+                XCTFail("\(context): no text on the \(which) (\(Int(minX))–\(Int(maxX)) across; text at \(seen); pages \(pageFrames()); "
+                        + "paging view \(app.collectionViews.firstMatch.frame); window \(app.windows.firstMatch.frame))",
+                        file: file, line: line)
                 continue
             }
             // The page clips its text at its own frame, a margin above the edge.

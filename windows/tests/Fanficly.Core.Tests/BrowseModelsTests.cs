@@ -27,12 +27,14 @@ public class BrowseModelsTests
     }
 
     [Fact]
-    public void ChipsStartWithSortAndListEveryFilter()
+    public void ChipsAreSearchsChipsWithoutTheFandom()
     {
         var filters = new AO3SearchFilters
         {
             SortColumn = SortColumn.KudosCount,
             SortDirection = SortDirection.Desc,
+            FandomNames = ["Naruto"],
+            OtherTagNames = ["Teen Wolf (TV)"],
             Ratings = [Rating.Teen, Rating.General],
             Categories = [WorkCategory.MM],
             RelationshipNames = ["A/B"],
@@ -43,22 +45,105 @@ public class BrowseModelsTests
             WordCount = "1000-5000",
             LanguageId = "en",
         };
-        var chips = BrowseModels.FilterChips(filters);
-        Assert.Equal("Kudos ↓", chips[0]);
-        Assert.Equal(Rating.General.DisplayName(), chips[1]); // rating order is AO3's, not insertion order
-        Assert.Equal(Rating.Teen.DisplayName(), chips[2]);
+        Assert.Equal("Kudos ↓", BrowseModels.SortLabel(filters));
+        var chips = BrowseModels.FilterChips(filters, subject: "Naruto").Select(c => c.Label).ToList();
+        Assert.DoesNotContain("Naruto", chips); // the screen's title, not a filter
+        Assert.Contains("Teen Wolf (TV)", chips);
+        var general = chips.IndexOf($"Rated {Rating.General.DisplayName()}");
+        Assert.True(general >= 0 && general < chips.IndexOf($"Rated {Rating.Teen.DisplayName()}")); // AO3's order
         Assert.Contains("A/B", chips);
-        Assert.Contains("−Angst", chips);
-        Assert.Contains("WIP", chips);
+        Assert.Contains("Not Angst", chips);
+        Assert.Contains("Works in progress", chips);
         Assert.Contains("No crossovers", chips);
-        Assert.Contains("Oneshot", chips);
-        Assert.Contains("words 1000-5000", chips);
-        Assert.Contains("lang en", chips);
-        Assert.Equal(10, BrowseModels.ActiveFilterCount(filters));
+        Assert.Contains("One-shots", chips);
+        Assert.Contains("In English", chips);
+        Assert.Equal(11, BrowseModels.ActiveFilterCount(filters, subject: "Naruto"));
+        Assert.Equal(11, BrowseModels.ActiveFilterCount(filters, subject: "A/B")); // a ship screen: Naruto shows, A/B doesn't
 
-        var plain = new AO3SearchFilters { SortDirection = SortDirection.Asc, SortColumn = SortColumn.Title };
-        Assert.Equal(["Title ↑"], BrowseModels.FilterChips(plain));
-        Assert.Equal(0, BrowseModels.ActiveFilterCount(plain));
+        var plain = new AO3SearchFilters { SortDirection = SortDirection.Asc, SortColumn = SortColumn.Title, FandomNames = ["Naruto"] };
+        Assert.Equal("Title ↑", BrowseModels.SortLabel(plain));
+        Assert.Empty(BrowseModels.FilterChips(plain, subject: "Naruto"));
+        Assert.Equal(0, BrowseModels.ActiveFilterCount(plain, subject: "Naruto"));
+    }
+
+    /// <summary>#157 round trip: saved in Search with a fandom picked as a
+    /// suggestion, applied in a Browse fandom and in Search with another fandom
+    /// chip; each keeps its own fandom and shows every saved field.</summary>
+    [Fact]
+    public void SavedFilterAppliedInBrowseAndSearchKeepsTheCurrentFandom()
+    {
+        var searched = new AO3SearchFilters
+        {
+            OtherTagNames = ["Teen Wolf (TV)"],
+            FreeformNames = ["Slow Burn"],
+            Complete = TriState.Yes,
+            KudosCount = ">100",
+        };
+        Assert.Equal(["Teen Wolf (TV)"], searched.UnsavedTagNames);
+        var saved = AO3SearchFilters.FromSavedJson(searched.SavedJson())!;
+        Assert.Empty(saved.OtherTagNames);
+
+        var browse = BrowseModels.FiltersForFandom(new BrowseFandom("Harry Potter - J. K. Rowling"));
+        browse.Ratings = [Rating.Explicit]; // replaced by the saved filter
+        var inBrowse = browse.ApplyingSaved(saved);
+        Assert.Equal(["Harry Potter - J. K. Rowling"], inBrowse.FandomNames);
+        Assert.Empty(inBrowse.OtherTagNames);
+        Assert.Empty(inBrowse.Ratings);
+        Assert.Equal(["freeform|Slow Burn", "complete", "kudos"], BrowseModels.FilterChips(inBrowse, subject: "Harry Potter - J. K. Rowling").Select(c => c.Id));
+
+        var search = new AO3SearchFilters { Query = "coffee shop", OtherTagNames = ["Sherlock (TV)"] };
+        var inSearch = search.ApplyingSaved(saved);
+        Assert.Equal("coffee shop", inSearch.Query);
+        Assert.Equal(["tag|Sherlock (TV)", "freeform|Slow Burn", "complete", "kudos"], FilterChips.For(inSearch).Select(c => c.Id));
+    }
+
+    /// <summary>A filter saved before #157 may still carry search tags; the
+    /// Browse landing page drops them.</summary>
+    [Fact]
+    public void OlderSavedFilterDropsItsSearchTags()
+    {
+        var old = new AO3SearchFilters { OtherTagNames = ["Teen Wolf (TV)"], Ratings = [Rating.Teen] };
+        var json = old.ToJson();
+        var loaded = BrowseModels.FiltersForSavedFilter(new SavedFilter("Old", json));
+        Assert.Empty(loaded.OtherTagNames);
+        Assert.Equal([Rating.Teen], loaded.Ratings);
+    }
+
+    /// <summary>The widget's saved-filter route applies a saved filter the way the
+    /// Browse landing page does: older search tags are dropped, keywords kept.</summary>
+    [Fact]
+    public void RouteQueryAppliesASavedFilter()
+    {
+        var old = new AO3SearchFilters { Query = "coffee", OtherTagNames = ["Teen Wolf (TV)"], Complete = TriState.Yes };
+        var routed = DeepLink.SavedFilter(old.ToJson())!;
+        Assert.Equal("coffee", routed.Query);
+        Assert.Empty(routed.OtherTagNames);
+        Assert.Equal(TriState.Yes, routed.Complete);
+    }
+
+    [Fact]
+    public void FilterChipsCoverEveryFieldAndRemoveOnlyTheirOwn()
+    {
+        var f = new AO3SearchFilters
+        {
+            Title = "Tea", Creators = "someone", OtherTagNames = ["Teen Wolf (TV)"], FandomNames = ["Naruto"],
+            RelationshipNames = ["A/B"], CharacterNames = ["C"], FreeformNames = ["Fluff"],
+            ExcludedTagNames = ["Major Character Death"], ExcludedFreeforms = ["Angst"],
+            Ratings = [Rating.Teen], Warnings = [SearchEnums.AllWarnings[0]], Categories = [WorkCategory.MM],
+            Complete = TriState.Yes, Crossover = TriState.No, SingleChapter = true, WordCount = ">10000",
+            LanguageId = "en", KudosCount = ">100", Hits = ">1000", CommentsCount = ">10", BookmarksCount = ">5",
+            RevisedAt = "< 1 week",
+        };
+        var chips = FilterChips.For(f);
+        Assert.Equal(22, chips.Count);
+        Assert.Contains(chips, c => c.Label == "Updated < 1 week");
+        foreach (var chip in chips)
+        {
+            var removed = f.Clone();
+            chip.Remove(removed);
+            Assert.Equal(chips.Select(c => c.Id).Where(id => id != chip.Id), FilterChips.For(removed).Select(c => c.Id));
+        }
+        Assert.Empty(FilterChips.For(new AO3SearchFilters()));
     }
 
     [Fact]

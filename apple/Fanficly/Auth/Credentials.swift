@@ -188,9 +188,15 @@ final class AuthState {
     var isAuthenticating: Bool = false
     var lastError: String?
     private let store: any LoginNameStore
+    /// Forgets what the device keeps about the account that just left (#159):
+    /// its subscriptions and when they were synced. Runs on sign-out and when
+    /// someone else signs in; the app passes `AccountData.forget`.
+    private let forgetAccount: @MainActor () -> Void
 
-    init(store: any LoginNameStore = CredentialStore.shared) {
+    init(store: any LoginNameStore = CredentialStore.shared,
+         forgetAccount: @escaping @MainActor () -> Void = {}) {
         self.store = store
+        self.forgetAccount = forgetAccount
         self.username = store.storedUsername()
     }
 
@@ -205,8 +211,11 @@ final class AuthState {
             let login = try await client.login(username: typed.trimmingCharacters(in: .whitespacesAndNewlines),
                                                password: password)
             // Signing in as someone else from the expired-session form skips
-            // logout, so drop the previous account's kudos here.
-            if let previous = self.username, previous.caseInsensitiveCompare(login) != .orderedSame { KudosStore.clear() }
+            // logout, so drop the previous account's kudos and subscriptions here.
+            if let previous = self.username, previous.caseInsensitiveCompare(login) != .orderedSame {
+                KudosStore.clear()
+                forgetAccount()
+            }
             self.username = login
             store.setUsername(login)
             isSessionExpired = false
@@ -227,6 +236,7 @@ final class AuthState {
         await client.logout()
         store.setUsername(nil)
         KudosStore.clear()
+        forgetAccount()
         username = nil
         isSessionExpired = false
     }

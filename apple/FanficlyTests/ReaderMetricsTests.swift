@@ -18,7 +18,47 @@ final class ReaderMetricsTests: XCTestCase {
 
     func test_capScalesWithTextSize() {
         let big = ReaderMetrics.textColumnWidth(containerWidth: 951, widthPercent: 100, fontSize: 24, limitLineLength: true)
-        XCTAssertEqual(big, min(951, 24 * ReaderMetrics.maxLineLengthEm))
+        XCTAssertEqual(big, min(951 - 2 * ReaderMetrics.minimumGutter, 24 * ReaderMetrics.maxLineLengthEm))
+    }
+
+    func test_fullMargins_keepAGutter() {
+        let w = ReaderMetrics.textColumnWidth(containerWidth: 402, widthPercent: 100, fontSize: 18, limitLineLength: true)
+        XCTAssertEqual(w, 402 - 2 * ReaderMetrics.minimumGutter)
+    }
+
+    /// iPhone Duo's outer display: 466 pt wide, its side column 84 pt in
+    /// the scrolling modes.
+    func test_duoColumn_marginsShareTheRoomBesideIt() {
+        let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 70, fontSize: 18,
+                                                  limitLineLength: true, reservedTrailing: 84)
+        XCTAssertEqual(p.width, 267, "70% of the 382 pt beside the column")
+        XCTAssertEqual(p.leading, 57.5, "centred beside the column")
+        XCTAssertLessThanOrEqual(p.leading + p.width, 466 - 84 - ReaderMetrics.minimumGutter)
+    }
+
+    func test_duoColumn_everyMarginsSettingChangesTheText() {
+        let widths = [60.0, 70, 80, 90, 100].map {
+            ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: $0, fontSize: 18,
+                                              limitLineLength: true, reservedTrailing: 84).width
+        }
+        XCTAssertEqual(Set(widths).count, widths.count, "\(widths)")
+    }
+
+    func test_duoColumn_fullMarginsKeepTheGutter() {
+        for (leading, trailing) in [(CGFloat(0), CGFloat(84)), (84, 0)] {
+            let p = ReaderMetrics.textColumnPlacement(containerWidth: 466, widthPercent: 100, fontSize: 18,
+                                                      limitLineLength: true, reservedLeading: leading,
+                                                      reservedTrailing: trailing)
+            XCTAssertEqual(p.width, 466 - 84 - 2 * ReaderMetrics.minimumGutter)
+            XCTAssertEqual(p.leading, leading + ReaderMetrics.minimumGutter)
+        }
+    }
+
+    func test_noColumn_centres() {
+        let p = ReaderMetrics.textColumnPlacement(containerWidth: 402, widthPercent: 90, fontSize: 18,
+                                                  limitLineLength: true)
+        XCTAssertEqual(p.width, 361)
+        XCTAssertEqual(p.leading, 20.5)
     }
 
     func test_ipadAndMac_keepThePercentage() {
@@ -95,6 +135,40 @@ final class ReaderSpreadTests: XCTestCase {
     }
 }
 
+
+/// Which side insets the reader runs under (`RunUnderSideColumn`).
+final class ReaderSideColumnTests: XCTestCase {
+    private func edges(leading: CGFloat, trailing: CGFloat, isPhone: Bool = true,
+                       compactHeight: Bool = false) -> Edge.Set {
+        RunUnderSideColumn.columnEdges(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: trailing),
+                                        isPhone: isPhone, compactHeight: compactHeight)
+    }
+
+    func test_duoColumn_isRunUnder() {
+        XCTAssertEqual(edges(leading: 0, trailing: 64), .trailing)
+        XCTAssertEqual(edges(leading: 64, trailing: 0), .leading)
+    }
+
+    func test_duoColumnBesideASidebar_onlyTheColumnIsRunUnder() {
+        XCTAssertEqual(edges(leading: 320, trailing: 64), .trailing)
+    }
+
+    func test_landscapeNotch_isKept() {
+        XCTAssertEqual(edges(leading: 62, trailing: 62), [])
+        // An iPhone in landscape, whichever side its sensor housing is on.
+        XCTAssertEqual(edges(leading: 62, trailing: 0, compactHeight: true), [])
+        XCTAssertEqual(edges(leading: 0, trailing: 62, compactHeight: true), [])
+    }
+
+    func test_noInsets_orASidebarAlone_changeNothing() {
+        XCTAssertEqual(edges(leading: 0, trailing: 0), [])
+        XCTAssertEqual(edges(leading: 320, trailing: 0), [])
+    }
+
+    func test_iPadAndMac_keepTheirInsets() {
+        XCTAssertEqual(edges(leading: 0, trailing: 64, isPhone: false), [])
+    }
+}
 
 /// Page-by-page's page height: pages fill the page area on screen, shrink at
 /// once and grow only once the area settles. The heights are an iPhone's page

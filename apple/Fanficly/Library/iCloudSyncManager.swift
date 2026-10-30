@@ -14,6 +14,10 @@ final class iCloudSyncManager {
     
     /// An optional local URL override for testing.
     static var overrideBackupURL: URL? = nil
+
+    /// The AO3 login name signed in here (#159): backed-up subscriptions are
+    /// tagged with it and restored only for it. Tests sign in their own.
+    nonisolated(unsafe) static var currentAccount: @Sendable () -> String? = { CredentialStore.shared.storedUsername() }
     
     /// The URL to the backup file in the iCloud ubiquitous container.
     static var backupURL: URL? {
@@ -178,12 +182,15 @@ final class iCloudSyncManager {
 
     /// This device's whole library as a backup: what an iCloud backup merges
     /// into the cloud file, and what a library file export writes.
-    func makeLocalBackup(context: ModelContext) -> LibraryBackup {
+    func makeLocalBackup(context: ModelContext, account: String? = iCloudSyncManager.currentAccount()) -> LibraryBackup {
         do {
             // 1. Fetch all records from SwiftData
             let works = (try? context.fetch(FetchDescriptor<Work>())) ?? []
             let bookmarks = (try? context.fetch(FetchDescriptor<BookmarkRecord>())) ?? []
-            let subscriptions = (try? context.fetch(FetchDescriptor<SubscriptionRecord>())) ?? []
+            // Subscriptions belong to the signed-in account (#159). Signed out
+            // (or mid sign-out) there's no account to tag them with, and an
+            // untagged copy would restore for anyone, so none are backed up.
+            let subscriptions = account == nil ? [] : (try? context.fetch(FetchDescriptor<SubscriptionRecord>())) ?? []
             let searches = (try? context.fetch(FetchDescriptor<SavedSearch>())) ?? []
             let progress = (try? context.fetch(FetchDescriptor<ReadingProgress>())) ?? []
             let filters = (try? context.fetch(FetchDescriptor<SavedFilter>())) ?? []
@@ -206,7 +213,8 @@ final class iCloudSyncManager {
                     displayName: $0.displayName,
                     authorName: $0.authorName,
                     lastSeenChapterCount: $0.lastSeenChapterCount,
-                    lastCheckedAt: $0.lastCheckedAt
+                    lastCheckedAt: $0.lastCheckedAt,
+                    account: account
                 )
             }
             
@@ -981,8 +989,17 @@ final class iCloudSyncManager {
             displayName: local.displayName,
             authorName: local.authorName,
             lastSeenChapterCount: higher(local.lastSeenChapterCount, other.lastSeenChapterCount),
-            lastCheckedAt: later(local.lastCheckedAt, other.lastCheckedAt)
+            lastCheckedAt: later(local.lastCheckedAt, other.lastCheckedAt),
+            account: local.account ?? other.account
         )
+    }
+
+    /// Whether a backed-up subscription may be restored for the AO3 account
+    /// signed in here (#159): only that account's own. One from a backup made
+    /// before subscriptions recorded their account restores for anyone.
+    nonisolated static func subscription(_ s: SubscriptionBackup, belongsTo account: String?) -> Bool {
+        guard let owner = s.account else { return true }
+        return account.map { owner.caseInsensitiveCompare($0) == .orderedSame } ?? false
     }
 
     /// A saved search merges forward-only too (#309). Its definition (prompt
@@ -1183,7 +1200,8 @@ final class iCloudSyncManager {
     /// Merges a backup into the library and saves: the restore's
     /// forward-only rules, shared by the iCloud restore and a library file
     /// import. Throws when the save fails.
-    func applyBackup(_ backup: LibraryBackup, context: ModelContext) throws {
+    func applyBackup(_ backup: LibraryBackup, context: ModelContext,
+                     account: String? = iCloudSyncManager.currentAccount()) throws {
         // Deletion markers: the file's (every device's) and this device's
         // own, which the file may not hold yet. A record they cover isn't
         // restored, and this device's copy of it is deleted below (#135).
@@ -1330,7 +1348,9 @@ final class iCloudSyncManager {
             // only move forward (`mergedSubscription`): an older backup must
             // not re-announce chapters, and a nil baseline must not switch
             // alerts off until the next poll. Names come from the backup.
-            for s in backup.subscriptions {
+            // Another AO3 account's subscriptions stay in the file (another
+            // device may still be signed in as it) but never restore here (#159).
+            for s in backup.subscriptions where Self.subscription(s, belongsTo: account) {
                 let descriptor = FetchDescriptor<SubscriptionRecord>(predicate: #Predicate { $0.key == s.key })
                 let existing = (try? context.fetch(descriptor))?.first
                 if let existing {
@@ -1965,6 +1985,9 @@ struct SubscriptionBackup: Codable {
     let authorName: String
     let lastSeenChapterCount: Int?
     let lastCheckedAt: Date?
+    /// The AO3 login name signed in when it was backed up (#159); restore
+    /// skips another account's. Nil in older backups and in the Windows app's.
+    var account: String? = nil
 }
 
 struct SearchBackup: Codable {
