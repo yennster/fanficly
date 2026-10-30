@@ -160,7 +160,9 @@ struct SubscriptionsView: View {
             _ = try await poller.syncSubscriptionList()
         } catch AO3Error.unauthorized {
             // Signed in here, so AO3 dropped the session (#131).
-            if auth.username == username { auth.markSessionExpired() }
+            // Not when the account changed meanwhile: signing out ended the
+            // session this request used, not the one signed in now.
+            if auth.username == username, !poller.accountChanged { auth.markSessionExpired() }
             error = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
         } catch let failure {
             error = failure.localizedDescription

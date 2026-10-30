@@ -93,7 +93,7 @@ final class AccountSwitchTests: XCTestCase {
         let defaults = scratchDefaults()
         for id in [1, 2] {
             let rec = SubscriptionRecord(key: "work:\(id)", kind: "work", displayName: "Fic \(id)")
-            rec.lastSeenChapterCount = 1
+            rec.lastSeenChapterCount = 0   // the stub answers 1 chapter: a new one
             ctx.insert(rec)
         }
         try ctx.save()

@@ -183,7 +183,10 @@ final class iCloudSyncManager {
             // 1. Fetch all records from SwiftData
             let works = (try? context.fetch(FetchDescriptor<Work>())) ?? []
             let bookmarks = (try? context.fetch(FetchDescriptor<BookmarkRecord>())) ?? []
-            let subscriptions = (try? context.fetch(FetchDescriptor<SubscriptionRecord>())) ?? []
+            // Subscriptions belong to the signed-in account (#159). Signed out
+            // (or mid sign-out) there's no account to tag them with, and an
+            // untagged copy would restore for anyone, so none are backed up.
+            let subscriptions = account == nil ? [] : (try? context.fetch(FetchDescriptor<SubscriptionRecord>())) ?? []
             let searches = (try? context.fetch(FetchDescriptor<SavedSearch>())) ?? []
             let progress = (try? context.fetch(FetchDescriptor<ReadingProgress>())) ?? []
             let filters = (try? context.fetch(FetchDescriptor<SavedFilter>())) ?? []
