@@ -264,6 +264,10 @@ struct RootView: View {
             // Post-iCloud-restore "re-download offline stories?" prompt and
             // its progress banner — root-level so it shows on any tab.
             .restoreRedownloadUI()
+            // How an EPUB import went, from the Library or an opened file.
+            .epubImportAlert()
+            // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).
+            .focusedSceneValue(\.selectTab, SelectTabAction { select($0) })
     }
 
     private var isCompactNavigation: Bool {
@@ -308,6 +312,14 @@ struct RootView: View {
     }
 
     private func handleIncomingURL(_ url: URL) {
+        // An EPUB opened in Fanficly from Files, Books, Mail or Safari.
+        if url.isFileURL {
+            guard url.pathExtension.lowercased() == "epub" else { return }
+            select(.library)
+            Task { await EPUBImportCenter.shared.importFiles([url], context: context) }
+            return
+        }
+
         if let route = parseResumeRoute(from: url) {
             openResumeRoute(route)
             return
@@ -750,6 +762,28 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case .subscriptions: "bell"
         case .settings: "gearshape"
         }
+    }
+}
+
+/// Switches the window's tab the way a sidebar click does. `RootView` hands
+/// this to the Go menu as a focused scene value.
+struct SelectTabAction {
+    let perform: @MainActor (SidebarItem) -> Void
+
+    @MainActor
+    func callAsFunction(_ item: SidebarItem) {
+        perform(item)
+    }
+}
+
+private struct SelectTabKey: FocusedValueKey {
+    typealias Value = SelectTabAction
+}
+
+extension FocusedValues {
+    var selectTab: SelectTabAction? {
+        get { self[SelectTabKey.self] }
+        set { self[SelectTabKey.self] = newValue }
     }
 }
 

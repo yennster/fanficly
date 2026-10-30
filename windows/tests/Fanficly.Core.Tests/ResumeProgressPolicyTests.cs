@@ -94,3 +94,67 @@ public class ResumeProgressPolicyTests
         Assert.Equal(new ReadingAnchor(1, 0), ResumeProgressPolicy.AnchorToInstall(route, clamped, null));
     }
 }
+
+/// <summary>Opening a story from the Library (not the widget) takes a strictly
+/// newer place synced from another device too, and the reader doesn't save the
+/// place it opened at until it moves (#160).</summary>
+public class OpeningProgressPolicyTests
+{
+    private static readonly DateTimeOffset Noon = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+    private static readonly ReadingAnchor Local = new(12, 4);
+    private static readonly ReadingAnchor Other = new(20, 7);
+    private static WidgetStoryProgress Synced(DateTimeOffset? updatedAt) => new(1, "T", "A", 0.8, 20, 7, updatedAt);
+
+    [Fact]
+    public void FresherSyncedEntry_Wins()
+    {
+        Assert.Equal(Other, OpeningProgressPolicy.Anchor(1, Local, Noon, Synced(Noon.AddSeconds(60))));
+    }
+
+    [Fact]
+    public void TiedOlderOtherWorkOrChapterlessEntry_LocalWins()
+    {
+        Assert.Equal(Local, OpeningProgressPolicy.Anchor(1, Local, Noon, Synced(Noon)));
+        Assert.Equal(Local, OpeningProgressPolicy.Anchor(1, Local, Noon, Synced(Noon.AddSeconds(-60))));
+        Assert.Equal(Local, OpeningProgressPolicy.Anchor(1, Local, Noon, Synced(Noon.AddSeconds(60)) with { Id = 2 }));
+        Assert.Equal(Local, OpeningProgressPolicy.Anchor(1, Local, Noon,
+            Synced(Noon.AddSeconds(60)) with { Chapter = null, Paragraph = null }));
+    }
+
+    [Fact]
+    public void NoLocalProgress_OpensSyncedPlace()
+    {
+        Assert.Equal(Other, OpeningProgressPolicy.Anchor(1, null, null, Synced(null)));
+        Assert.Null(OpeningProgressPolicy.Anchor(1, null, null, null));
+    }
+
+    [Fact]
+    public void Gate_SkipsTheOpenedPlaceUntilTheReaderMoves()
+    {
+        var gate = new OpenedAnchorGate(Local);
+        Assert.False(gate.AllowsSave(Local));
+        Assert.False(gate.AllowsSave(Local));
+        Assert.True(gate.AllowsSave(Other));
+        Assert.True(gate.AllowsSave(Local));
+        Assert.True(default(OpenedAnchorGate).AllowsSave(new ReadingAnchor(1, 0)));
+    }
+
+    // Page by page: opened at (20,7), the page holding it starts at (20,3).
+    [Fact]
+    public void Gate_LandingOnThePageHoldingTheOpenedPlaceIsNotAMove()
+    {
+        var pageStart = new ReadingAnchor(20, 3);
+        var gate = new OpenedAnchorGate(Other);
+        gate.Landed(pageStart, holdingOpened: true);
+        Assert.False(gate.AllowsSave(pageStart));
+        Assert.True(gate.AllowsSave(new ReadingAnchor(20, 12)));
+
+        var elsewhere = new OpenedAnchorGate(Other);
+        elsewhere.Landed(pageStart, holdingOpened: false);
+        Assert.True(elsewhere.AllowsSave(pageStart));
+
+        var moved = default(OpenedAnchorGate);
+        moved.Landed(pageStart, holdingOpened: true);
+        Assert.True(moved.AllowsSave(pageStart));
+    }
+}

@@ -94,7 +94,6 @@ struct FanficlyApp: App {
         return try! ModelContainer(for: schema, configurations: config)
     }()
 
-    @AppStorage("app.selectedTabRaw") private var selectedTabRaw: String = "search"
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("app.zoomScale") private var zoomScale: Double = UIZoom.actualSize
@@ -214,68 +213,8 @@ struct FanficlyApp: App {
                 .keyboardShortcut("0", modifiers: [.command])
             }
 
-            CommandMenu("Go") {
-                Button("Search") {
-                    selectedTabRaw = SidebarItem.search.rawValue
-                }
-                .keyboardShortcut("1", modifiers: [.command])
-                
-                Button("Browse") {
-                    selectedTabRaw = SidebarItem.browse.rawValue
-                }
-                .keyboardShortcut("2", modifiers: [.command])
+            GoCommands()
 
-                Button("Popular") {
-                    selectedTabRaw = SidebarItem.popular.rawValue
-                }
-                .keyboardShortcut("3", modifiers: [.command])
-
-                Button("Library") {
-                    selectedTabRaw = SidebarItem.library.rawValue
-                }
-                .keyboardShortcut("4", modifiers: [.command])
-
-                Button("Recently Viewed") {
-                    selectedTabRaw = SidebarItem.recentlyViewed.rawValue
-                }
-                .keyboardShortcut("5", modifiers: [.command])
-
-                Button("Followed Authors") {
-                    selectedTabRaw = SidebarItem.authors.rawValue
-                }
-                .keyboardShortcut("6", modifiers: [.command])
-
-                Button("Bookmarks") {
-                    selectedTabRaw = SidebarItem.bookmarks.rawValue
-                }
-                .keyboardShortcut("7", modifiers: [.command])
-
-                // ⌘1–⌘9 are all taken, so these two have no ⌘-number shortcut
-                // (the Windows app's Ctrl+number list matches).
-                Button("Marked for Later") {
-                    selectedTabRaw = SidebarItem.markedForLater.rawValue
-                }
-
-                Button("AO3 History") {
-                    selectedTabRaw = SidebarItem.ao3History.rawValue
-                }
-
-                Button("Subscriptions") {
-                    selectedTabRaw = SidebarItem.subscriptions.rawValue
-                }
-                .keyboardShortcut("8", modifiers: [.command])
-
-                Button("Stats") {
-                    selectedTabRaw = SidebarItem.stats.rawValue
-                }
-                .keyboardShortcut("9", modifiers: [.command])
-
-                Button("Settings") {
-                    selectedTabRaw = SidebarItem.settings.rawValue
-                }
-                .keyboardShortcut(",", modifiers: [.command])
-            }
-            
             CommandMenu("Reader") {
                 Menu("Reading Mode") {
                     ForEach(ReadingMode.allCases) { mode in
@@ -341,6 +280,45 @@ struct FanficlyApp: App {
                     iCloudSyncManager.shared.startBackgroundBackup(context: Self.sharedModelContainer.mainContext)
                 }
             }
+        }
+    }
+}
+
+/// The Go menu. Each item switches tabs through `RootView`'s own `select(_:)`,
+/// as a sidebar click does, so it also clears what's pushed on the old tab;
+/// setting `app.selectedTabRaw` alone left the reader (or any other pushed
+/// screen) on top of the new tab. Through a focused scene value, so with two
+/// windows open it acts on the one in front.
+private struct GoCommands: Commands {
+    @FocusedValue(\.selectTab) private var selectTab
+
+    var body: some Commands {
+        CommandMenu("Go") {
+            item(.search, key: "1")
+            item(.browse, key: "2")
+            item(.popular, key: "3")
+            item(.library, key: "4")
+            item(.recentlyViewed, key: "5")
+            item(.authors, key: "6")
+            item(.bookmarks, key: "7")
+            // ⌘1–⌘9 are all taken, so these two have no ⌘-number shortcut
+            // (the Windows app's Ctrl+number list matches).
+            item(.markedForLater, key: nil)
+            item(.ao3History, key: nil)
+            item(.subscriptions, key: "8")
+            item(.stats, key: "9")
+            item(.settings, key: ",")
+        }
+    }
+
+    @ViewBuilder
+    private func item(_ tab: SidebarItem, key: KeyEquivalent?) -> some View {
+        let button = Button(tab.title) { selectTab?(tab) }
+            .disabled(selectTab == nil)
+        if let key {
+            button.keyboardShortcut(key, modifiers: [.command])
+        } else {
+            button
         }
     }
 }

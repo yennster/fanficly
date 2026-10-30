@@ -60,6 +60,8 @@ internal sealed partial class ReaderView
     /// <see cref="ChapterTracking.ClampedAnchor"/>). Never saved: opening a shorter
     /// copy mustn't overwrite the real place. Reading on from it saves as usual.</summary>
     private ReadingAnchor? _clampedRestoreAnchor;
+    /// <summary>Not saved until the reader moves (#160); see <see cref="OpenedAnchorGate"/>.</summary>
+    private OpenedAnchorGate _openedAnchorGate;
     private bool _isRestoring;
     private DateTimeOffset _lastSaveAt = DateTimeOffset.MinValue;
     /// <summary>"Swipe by chapter"'s one-shot paragraph restore.</summary>
@@ -173,6 +175,7 @@ internal sealed partial class ReaderView
         // hold the saved chapter, so it reads the saved place itself.
         if (previous._currentAnchor is { } moved && moved == previous._clampedRestoreAnchor) return;
         _loadedFromDisk = true;
+        _openedAnchorGate = previous._openedAnchorGate;
         if (previous._currentAnchor is { } anchor && ChapterAt(anchor.Chapter) is not null)
         {
             _currentAnchor = anchor;
@@ -489,11 +492,12 @@ internal sealed partial class ReaderView
         if (!_loadedFromDisk)
         {
             _loadedFromDisk = true;
-            if (_summary is { } summary && ReadingProgressStore.Load(summary.Id, AppHost.Library) is { } saved
-                && ChapterTracking.ClampedAnchor(new ReadingAnchor(saved.Chapter, saved.Paragraph), _chapterOrder,
-                                                 chapter => Paragraphs(chapter).Count - 1) is { } anchor)
+            if (_summary is { } summary
+                && ReaderModule.OpeningAnchor(summary.Id) is { } saved
+                && ChapterTracking.ClampedAnchor(saved, _chapterOrder, chapter => Paragraphs(chapter).Count - 1) is { } anchor)
             {
-                if (anchor != new ReadingAnchor(saved.Chapter, saved.Paragraph)) _clampedRestoreAnchor = anchor;
+                if (anchor != saved) _clampedRestoreAnchor = anchor;
+                _openedAnchorGate = new OpenedAnchorGate(anchor);
                 _currentAnchor = anchor;
                 _selectedChapter = anchor.Chapter;
                 _visibleChapter = anchor.Chapter;
@@ -517,7 +521,7 @@ internal sealed partial class ReaderView
     {
         // Reading on from the moved place: it's a real place again from now on.
         if (anchor != _clampedRestoreAnchor) _clampedRestoreAnchor = null;
-        if (_summary is not { } summary || anchor == _clampedRestoreAnchor
+        if (!_openedAnchorGate.AllowsSave(anchor) || _summary is not { } summary || anchor == _clampedRestoreAnchor
             || ReadingProgressFraction(anchor) is not { } progress) return;
         var now = DateTimeOffset.Now;
         if (!force && now - _lastSaveAt < TimeSpan.FromSeconds(1.5)) return;

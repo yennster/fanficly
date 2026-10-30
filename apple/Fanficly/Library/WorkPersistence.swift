@@ -209,6 +209,9 @@ enum WorkPersistence {
     /// keeping its details for the row.
     @MainActor
     static func recordView(summary: AO3WorkSummary, into context: ModelContext, limit: Int = 50) {
+        // History rows open the AO3 work page, which an imported book that
+        // isn't on AO3 doesn't have; it stays in the Library instead.
+        guard !EPUBImport.isLocalWork(summary.id) else { return }
         let ao3Id = summary.id
         let descriptor = FetchDescriptor<RecentlyViewed>(predicate: #Predicate { $0.ao3Id == ao3Id })
         if let existing = (try? context.fetch(descriptor))?.first {

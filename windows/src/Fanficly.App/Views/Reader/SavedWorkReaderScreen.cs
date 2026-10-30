@@ -79,21 +79,23 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         var menu = new MenuFlyout { Placement = FlyoutPlacementMode.BottomEdgeAlignedRight };
         menu.Opening += (_, _) => FillMore(menu);
         _moreButton.Flyout = menu;
-        reader.SetTrailingItems(_commentsButton, _moreButton);
+        // An imported book that isn't on AO3 has no comments, kudos or downloads.
+        if (EpubImport.IsLocalWork(_work.Ao3Id)) reader.SetTrailingItems();
+        else reader.SetTrailingItems(_commentsButton, _moreButton);
         UpdateMoreButton();
         return reader;
     }
 
     private async Task LoadAsync()
     {
-        if (HasOfflineText || _payload is not null || _isLoading) return;
+        if (HasOfflineText || EpubImport.IsLocalWork(_work.Ao3Id) || _payload is not null || _isLoading) return;
         _isLoading = true;
         ShowLoading("Loading from AO3…");
         try
         {
             // The chapter you were on first; AO3's whole-work page is its
             // slowest, so the rest loads behind it.
-            var chapter = ReadingProgressStore.Load(_work.Ao3Id, AppHost.Library)?.Chapter ?? 1;
+            var chapter = ReaderModule.OpeningAnchor(_work.Ao3Id)?.Chapter ?? 1;
             var page = await AppHost.Client.FetchWorkChapterAsync(_work.Ao3Id, chapter);
             if (IsRemoved) return;
             _payload = page.Payload;

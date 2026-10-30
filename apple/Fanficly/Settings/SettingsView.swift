@@ -14,6 +14,7 @@ struct SettingsView: View {
 
     @Environment(AuthState.self) private var auth
     @Environment(\.modelContext) private var context
+    @Environment(\.openURL) private var openURL
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
     @AppStorage("settings.iCloudSyncEnabled") private var iCloudSyncEnabled: Bool = false
     @AppStorage("library.showReadingProgress") private var showReadingProgress = true
@@ -261,6 +262,14 @@ struct SettingsView: View {
                 Link(destination: ReviewPrompter.writeReviewURL) {
                     Label("Rate Fanficly on the App Store", systemImage: "star")
                 }
+                // Opening the review page also stops the automatic rating
+                // prompt, but only once the system has accepted the link.
+                .environment(\.openURL, OpenURLAction { url in
+                    openURL(url) { accepted in
+                        if accepted { ReviewPrompter.shared.openedReviewPage() }
+                    }
+                    return .handled
+                })
             }
         }
         .navigationTitle("Settings")

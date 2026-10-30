@@ -18,6 +18,8 @@ struct LibraryView: View {
     @State private var workMovingToFolder: Work?
     @State private var workEditingNotes: Work?
     @State private var searchText = ""
+    @State private var showingEPUBImporter = false
+    @State private var epubImport = EPUBImportCenter.shared
 
     enum LibraryFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -71,11 +73,14 @@ struct LibraryView: View {
     var body: some View {
         Group {
             if works.isEmpty {
-                ContentUnavailableView(
-                    "Nothing saved yet",
-                    systemImage: "books.vertical",
-                    description: Text("Tap the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed.")
-                )
+                ContentUnavailableView {
+                    Label("Nothing saved yet", systemImage: "books.vertical")
+                } description: {
+                    Text("Tap the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.")
+                } actions: {
+                    Button("Import EPUB…") { showingEPUBImporter = true }
+                        .disabled(epubImport.isImporting)
+                }
             } else {
                 List {
                     if !readingStats.isEmpty {
@@ -249,7 +254,8 @@ struct LibraryView: View {
                                     Label("Note & Tags...", systemImage: "note.text")
                                 }
                                 
-                                if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
+                                if !EPUBImport.isLocalWork(work.ao3Id),
+                                   let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
                                     ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
                                         Label("Share Story...", systemImage: "square.and.arrow.up")
                                     }
@@ -281,6 +287,24 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search titles, authors, tags, or notes")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingEPUBImporter = true
+                } label: {
+                    if epubImport.isImporting {
+                        ProgressView()
+                    } else {
+                        Label("Import EPUB", systemImage: "square.and.arrow.down")
+                    }
+                }
+                .disabled(epubImport.isImporting)
+                .help("Import EPUB files, like AO3 downloads, to read offline")
+                .accessibilityLabel("Import EPUB")
+                .accessibilityHint("Adds EPUB files from your device to the Library to read offline.")
+            }
+        }
+        .epubImporter(isPresented: $showingEPUBImporter, context: context)
         .navigationDestination(for: Work.self) { work in
             SavedWorkReader(work: work)
         }
@@ -459,7 +483,8 @@ struct FolderDetailView: View {
                                 Label("Note & Tags...", systemImage: "note.text")
                             }
                             
-                            if let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
+                            if !EPUBImport.isLocalWork(work.ao3Id),
+                               let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
                                 ShareLink(item: url, subject: Text(work.title), message: Text("Check out this story: \(work.title)")) {
                                     Label("Share Story...", systemImage: "square.and.arrow.up")
                                 }
