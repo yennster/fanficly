@@ -55,7 +55,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.books</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<false/>
+	<true/>
 	<key>NSUserActivityTypes</key>
 	<array/>
 	<key>UIBackgroundModes</key>

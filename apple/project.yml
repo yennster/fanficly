@@ -70,14 +70,15 @@ targets:
               - fanficly
         # "Open in Fanficly" for EPUBs (AO3 downloads) from Files, Books,
         # Mail or Safari: RootView's onOpenURL imports them (EPUBImportCenter).
-        # Copied in, never opened in place.
+        # Opened in place (Mac Catalyst refuses NO): the import reads the file
+        # through its security scope and keeps its own copy.
         CFBundleDocumentTypes:
           - CFBundleTypeName: EPUB e-book
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - org.idpf.epub-container
-        LSSupportsOpeningDocumentsInPlace: false
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen:
           UIColorName: ""
         # All four on iPhone too: iPhone Duo's multitasking requires every
