@@ -86,8 +86,10 @@ detached tasks. `BackgroundRefresh.runPoll` creates its own context from the
 shared container. Keep cancellation effective and never retry write requests.
 
 **Navigation ownership.** `RootView` owns `SidebarItem`, the split view,
-`compactSelection`, and the detail `NavigationPath`; persisted
-`app.selectedTabRaw` also drives the Go menu. Compact cold launch starts at the
+`compactSelection`, and the detail `NavigationPath`. The Go menu
+(`GoCommands`) switches tabs through `RootView.select(_:)`, handed to it as the
+`selectTab` focused scene value, never by writing `app.selectedTabRaw` itself:
+that alone leaves the old tab's pushed screen on top. Compact cold launch starts at the
 sidebar; resizing preserves the current detail. Work/author list destinations
 are shared through `.workAndAuthorDestinations()` in `SearchView.swift`.
 Root-level resume and notification routes have special cold/warm handling; read
