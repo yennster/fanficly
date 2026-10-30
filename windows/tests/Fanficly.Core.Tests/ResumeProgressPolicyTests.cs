@@ -138,4 +138,23 @@ public class OpeningProgressPolicyTests
         Assert.True(gate.AllowsSave(Local));
         Assert.True(default(OpenedAnchorGate).AllowsSave(new ReadingAnchor(1, 0)));
     }
+
+    // Page by page: opened at (20,7), the page holding it starts at (20,3).
+    [Fact]
+    public void Gate_LandingOnThePageHoldingTheOpenedPlaceIsNotAMove()
+    {
+        var pageStart = new ReadingAnchor(20, 3);
+        var gate = new OpenedAnchorGate(Other);
+        gate.Landed(pageStart, holdingOpened: true);
+        Assert.False(gate.AllowsSave(pageStart));
+        Assert.True(gate.AllowsSave(new ReadingAnchor(20, 12)));
+
+        var elsewhere = new OpenedAnchorGate(Other);
+        elsewhere.Landed(pageStart, holdingOpened: false);
+        Assert.True(elsewhere.AllowsSave(pageStart));
+
+        var moved = default(OpenedAnchorGate);
+        moved.Landed(pageStart, holdingOpened: true);
+        Assert.True(moved.AllowsSave(pageStart));
+    }
 }

@@ -115,6 +115,14 @@ struct OpenedAnchorGate: Equatable {
         self.openedAnchor = openedAnchor
     }
 
+    /// Page by page, opening lands on the page that holds the opened place and
+    /// reports that page's first paragraph, which is rarely the opened place
+    /// itself. While nothing has moved, that landing stands for the opened
+    /// place too, so it isn't saved either.
+    mutating func landed(on anchor: ReadingAnchor, holdingOpened: Bool) {
+        if holdingOpened, openedAnchor != nil { openedAnchor = anchor }
+    }
+
     /// Whether `anchor` is worth saving. Call it for every save the reader
     /// attempts, before any throttling, so a move away is never missed.
     mutating func allowsSave(of anchor: ReadingAnchor) -> Bool {

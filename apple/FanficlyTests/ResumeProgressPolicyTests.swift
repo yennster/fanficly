@@ -172,6 +172,23 @@ final class OpeningProgressPolicyTests: XCTestCase {
         XCTAssertTrue(gate.allowsSave(of: local), "after a move the opened place is a real place again")
     }
 
+    // Page by page: opened at (20,7), the page holding it starts at (20,3).
+    func test_gate_landingOnThePageHoldingTheOpenedPlaceIsNotAMove() {
+        let pageStart = ReadingAnchor(chapter: 20, paragraph: 3)
+        var gate = OpenedAnchorGate(openedAnchor: other)
+        gate.landed(on: pageStart, holdingOpened: true)
+        XCTAssertFalse(gate.allowsSave(of: pageStart))
+        XCTAssertTrue(gate.allowsSave(of: ReadingAnchor(chapter: 20, paragraph: 12)))
+
+        var elsewhere = OpenedAnchorGate(openedAnchor: other)
+        elsewhere.landed(on: pageStart, holdingOpened: false)
+        XCTAssertTrue(elsewhere.allowsSave(of: pageStart))
+
+        var moved = OpenedAnchorGate()
+        moved.landed(on: pageStart, holdingOpened: true)
+        XCTAssertTrue(moved.allowsSave(of: pageStart))
+    }
+
     func test_gate_nothingOpened_savesEverything() {
         var gate = OpenedAnchorGate()
         XCTAssertTrue(gate.allowsSave(of: ReadingAnchor(chapter: 1, paragraph: 0)))

@@ -91,6 +91,15 @@ public struct OpenedAnchorGate(ReadingAnchor? openedAnchor)
 {
     public ReadingAnchor? OpenedAnchor { get; private set; } = openedAnchor;
 
+    /// <summary>Page by page, opening lands on the page that holds the opened
+    /// place and reports that page's first paragraph, which is rarely the opened
+    /// place itself. While nothing has moved, that landing stands for the opened
+    /// place too, so it isn't saved either.</summary>
+    public void Landed(ReadingAnchor anchor, bool holdingOpened)
+    {
+        if (holdingOpened && OpenedAnchor is not null) OpenedAnchor = anchor;
+    }
+
     /// <summary>Whether <paramref name="anchor"/> is worth saving. Call it for
     /// every save the reader attempts, before any throttling, so a move away is
     /// never missed.</summary>

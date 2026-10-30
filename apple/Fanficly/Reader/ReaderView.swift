@@ -1719,15 +1719,29 @@ struct ReaderView: View {
                 if anchorAtomIndex < atoms.count {
                     let originalParaIndex = atoms[anchorAtomIndex].originalParagraphIndex
                     let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: originalParaIndex)
+                    landOpenedAnchorGate(on: anchor, pages: [shown, page])
                     currentAnchor = anchor
                     saveProgress(anchor)
                 }
             } else {
                 let anchor = ReadingAnchor(chapter: page.chapterIndex, paragraph: 0)
+                landOpenedAnchorGate(on: anchor, pages: [shown, page])
                 currentAnchor = anchor
                 saveProgress(anchor)
             }
         }
+    }
+
+    /// Opening on the page that holds the opened place isn't a move (#160).
+    private func landOpenedAnchorGate(on anchor: ReadingAnchor, pages: [ChapterPage]) {
+        guard let opened = openedAnchorGate.openedAnchor else { return }
+        let holdsOpened = pages.contains { page in
+            guard page.chapterIndex == opened.chapter else { return false }
+            if page.paragraphIndices.isEmpty { return opened.paragraph == 0 }
+            guard let atoms = parsedAtoms[page.chapterIndex] else { return false }
+            return page.paragraphIndices.contains { $0 < atoms.count && atoms[$0].originalParagraphIndex == opened.paragraph }
+        }
+        openedAnchorGate.landed(on: anchor, holdingOpened: holdsOpened)
     }
 
     private func handleChapterIndexChange(_ newChapter: Int) {
