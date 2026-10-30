@@ -36,6 +36,8 @@ struct SubscriptionPoller {
     /// Holds when the account's subscriptions list was last synced (see
     /// `listSyncIsDue`); tests pass their own suite.
     var defaults: UserDefaults = .standard
+    /// `AccountData.generation` when this poller was made.
+    private let accountGeneration = AccountData.generation
     private let logger = Logger(subsystem: "io.github.yennster.fanficly", category: "SubscriptionPoller")
 
     /// How often a background poll re-reads the subscriptions list. The walk
@@ -43,6 +45,10 @@ struct SubscriptionPoller {
     /// a big list is the whole ~30 s `BGAppRefreshTask` window, and the list
     /// rarely changes; the Subscriptions tab syncs it whenever it refreshes.
     static let listSyncInterval: TimeInterval = 24 * 60 * 60
+
+    /// Signed out, or in as someone else, since this poller was made: the
+    /// subscription records it read were deleted with that account (#159).
+    var accountChanged: Bool { AccountData.generation != accountGeneration }
 
     /// Each account's last list sync is stored under this prefix plus its name.
     static let listSyncKeyPrefix = "subscriptions.listSyncedAt."
@@ -73,11 +79,10 @@ struct SubscriptionPoller {
 
     func syncSubscriptionList() async throws -> [AO3Subscription] {
         guard let username else { return [] }
-        let generation = AccountData.generation
         let list = try await client.fetchSubscriptions(username: username)
         // Signed out or switched accounts while AO3 answered: this list is
         // the previous account's, and mustn't come back under the next (#159).
-        guard AccountData.generation == generation else { return [] }
+        guard !accountChanged else { return [] }
         stampListSync()
         let fresh = list.subscriptions
         let freshKeys = Set(fresh.map(\.key))
@@ -122,6 +127,7 @@ struct SubscriptionPoller {
     func checkForNewChapters() async -> Int {
         var notifyCount = 0
         for rec in workSubscriptionRecords() {
+            if accountChanged { break }
             notifyCount += await checkWorkSubscription(rec)
         }
         try? context.save()
@@ -292,7 +298,11 @@ struct SubscriptionPoller {
     /// Check a work for new chapters with one throttled request of its light
     /// page, for its subscription, its follow or both, and post at most one
     /// alert. Returns the number of notifications posted.
-    private func checkWork(id workId: Int, subscription rec: SubscriptionRecord?, followed work: Work?) async -> Int {
+    private func checkWork(id workId: Int, subscription: SubscriptionRecord?, followed work: Work?) async -> Int {
+        // A subscription whose account signed out (before or during the
+        // request) was deleted with it (#159): don't touch it or alert for it.
+        var rec: SubscriptionRecord? { accountChanged ? nil : subscription }
+        if subscription != nil, rec == nil, work == nil { return 0 }
         // Stamp the attempt up front: a permanently-failing record (deleted
         // work, parse drift) must not stay "oldest" forever and hog the head
         // of the round-robin queue.

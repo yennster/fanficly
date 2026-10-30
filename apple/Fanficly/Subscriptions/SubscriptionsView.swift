@@ -166,9 +166,10 @@ struct SubscriptionsView: View {
             error = failure.localizedDescription
         }
         isRefreshing = false
-        // Signed out or in as someone else meanwhile: the poller dropped the
-        // old account's list (#159), and the new account gets its own sync.
-        guard auth.username == username else {
+        // Signed out or in as someone else meanwhile (even back as the same
+        // account): the poller dropped the list it fetched (#159), and the
+        // account now signed in gets its own sync.
+        guard auth.username == username, !poller.accountChanged else {
             syncIfNew()
             return
         }

@@ -2,14 +2,14 @@ import XCTest
 import SwiftData
 @testable import Fanficly
 
-/// Switching AO3 accounts (#159): signing out, or signing in as someone else,
-/// forgets the previous account's subscriptions and list-sync stamps, and a
-/// list that was still on its way when the account changed is dropped.
 @MainActor
 private final class Counter {
     var count = 0
 }
 
+/// Switching AO3 accounts (#159): signing out, or signing in as someone else,
+/// forgets the previous account's subscriptions and list-sync stamps, and a
+/// list that was still on its way when the account changed is dropped.
 @MainActor
 final class AccountSwitchTests: XCTestCase {
     private func makeContext() throws -> ModelContext {
@@ -84,5 +84,43 @@ final class AccountSwitchTests: XCTestCase {
         XCTAssertTrue(fresh.isEmpty)
         XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<SubscriptionRecord>()), 0)
         XCTAssertFalse(poller.hasSyncedList)
+    }
+
+    // Alice signs out while Refresh checks her subscriptions for new chapters:
+    // the check stops and never touches the deleted records.
+    func test_chapterCheck_stopsWhenTheAccountChanges() async throws {
+        let ctx = try makeContext()
+        let defaults = scratchDefaults()
+        for id in [1, 2] {
+            let rec = SubscriptionRecord(key: "work:\(id)", kind: "work", displayName: "Fic \(id)")
+            rec.lastSeenChapterCount = 1
+            ctx.insert(rec)
+        }
+        try ctx.save()
+        let client = StubAO3Client()
+        client.onFetchWorkMetadata = { AccountData.forget(in: ctx, defaults: defaults) }
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "alice", defaults: defaults)
+
+        let notified = await poller.checkForNewChapters()
+
+        XCTAssertEqual(notified, 0)
+        XCTAssertEqual(client.workMetadataCalls.count, 1)
+        XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<SubscriptionRecord>()), 0)
+    }
+
+    // The iCloud backup is shared by every device on the Apple ID: another AO3
+    // account's subscriptions stay in it but never restore here.
+    func test_backedUpSubscriptions_restoreOnlyForTheirAccount() {
+        func sub(_ account: String?) -> SubscriptionBackup {
+            SubscriptionBackup(key: "work:1", kind: "work", displayName: "Fic", authorName: "",
+                               lastSeenChapterCount: 1, lastCheckedAt: nil, account: account)
+        }
+        XCTAssertTrue(iCloudSyncManager.subscription(sub("alice"), belongsTo: "Alice"))
+        XCTAssertFalse(iCloudSyncManager.subscription(sub("alice"), belongsTo: "bob"))
+        XCTAssertFalse(iCloudSyncManager.subscription(sub("alice"), belongsTo: nil))
+        // From a backup made before subscriptions recorded their account.
+        XCTAssertTrue(iCloudSyncManager.subscription(sub(nil), belongsTo: "bob"))
+        let merged = iCloudSyncManager.mergedSubscription(local: sub(nil), other: sub("alice"))
+        XCTAssertEqual(merged.account, "alice")
     }
 }

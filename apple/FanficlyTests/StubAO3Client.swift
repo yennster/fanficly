@@ -33,6 +33,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// ids it was asked for (SubscriptionPoller tests).
     var workPublishedAt: [Int: Date] = [:]
     private(set) var workMetadataCalls: [Int] = []
+    /// Runs while a work's metadata is "on the wire" (account switch tests).
+    var onFetchWorkMetadata: (@MainActor () -> Void)?
     /// Scripted EPUB download failures by work id (RestoreDownloadCenter tests).
     var downloadEPUBErrors: [Int: Error] = [:]
     /// Scripted export failure (WorkExporter tests).
@@ -79,6 +81,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         workMetadataCalls.append(id)
+        if let onFetchWorkMetadata { await onFetchWorkMetadata() }
         if let publishedAt = workPublishedAt[id] {
             return AO3WorkMetadata(id: id, chapterCount: 2, totalChapters: nil, updatedAt: nil, publishedAt: publishedAt)
         }
