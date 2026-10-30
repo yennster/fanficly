@@ -93,7 +93,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         {
             // The chapter you were on first; AO3's whole-work page is its
             // slowest, so the rest loads behind it.
-            var chapter = ReadingProgressStore.LoadForOpening(_work.Ao3Id, AppHost.Library, WidgetProgressStore.Load())?.Chapter ?? 1;
+            var chapter = ReaderModule.OpeningAnchor(_work.Ao3Id)?.Chapter ?? 1;
             var page = await AppHost.Client.FetchWorkChapterAsync(_work.Ao3Id, chapter);
             if (IsRemoved) return;
             _payload = page.Payload;

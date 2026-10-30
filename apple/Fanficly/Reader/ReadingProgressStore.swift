@@ -12,7 +12,9 @@ enum ReadingProgressStore {
 
     /// Where the reader opens a work: this device's saved place, unless the
     /// last-read entry synced from another device (`WidgetProgressStore`'s iCloud
-    /// mirror) is for this work and strictly newer (#160).
+    /// mirror) is for this work and strictly newer (#160). Not in demo mode: its
+    /// library is in memory, so an entry left by an earlier run would move where
+    /// it opens.
     @MainActor
     static func openingAnchor(ao3Id: Int, in context: ModelContext) -> ReadingAnchor? {
         let descriptor = FetchDescriptor<ReadingProgress>(predicate: #Predicate { $0.ao3Id == ao3Id })
@@ -21,7 +23,7 @@ enum ReadingProgressStore {
             workId: ao3Id,
             local: rec.map { ReadingAnchor(chapter: $0.chapterIndex, paragraph: $0.paragraphIndex) },
             localUpdatedAt: rec?.updatedAt,
-            synced: WidgetProgressStore.load()
+            synced: FanficlyApp.isDemoMode ? nil : WidgetProgressStore.load()
         )
     }
 

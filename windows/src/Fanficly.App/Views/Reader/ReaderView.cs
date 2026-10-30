@@ -493,7 +493,7 @@ internal sealed partial class ReaderView
         {
             _loadedFromDisk = true;
             if (_summary is { } summary
-                && ReadingProgressStore.LoadForOpening(summary.Id, AppHost.Library, WidgetProgressStore.Load()) is { } saved
+                && ReaderModule.OpeningAnchor(summary.Id) is { } saved
                 && ChapterTracking.ClampedAnchor(saved, _chapterOrder, chapter => Paragraphs(chapter).Count - 1) is { } anchor)
             {
                 if (anchor != saved) _clampedRestoreAnchor = anchor;
