@@ -274,4 +274,40 @@ public class AuthStateTests
         Assert.Empty(SerializableCookie.ListFromJson("not json"));
         Assert.Empty(SerializableCookie.ListFromJson(null));
     }
+
+    [Fact]
+    public async Task LogoutForgetsTheAccount()
+    {
+        var forgotten = 0;
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("alice");
+        var auth = new AuthState(vault) { ForgetAccount = () => forgotten++ };
+        await auth.LogoutAsync(new ClientTestDouble());
+        Assert.Null(auth.Username);
+        Assert.Equal(1, forgotten);
+    }
+
+    // The expired-session form lets someone else sign in without logging out (#159).
+    [Fact]
+    public async Task SigningInAsSomeoneElseForgetsThePreviousAccount()
+    {
+        var forgotten = 0;
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("alice");
+        var auth = new AuthState(vault) { ForgetAccount = () => forgotten++ };
+        await auth.LoginAsync(new ClientTestDouble(), "bob", "pw");
+        Assert.Equal("bob", auth.Username);
+        Assert.Equal(1, forgotten);
+    }
+
+    [Fact]
+    public async Task SigningInAgainAsTheSameAccountKeepsItsData()
+    {
+        var forgotten = 0;
+        var vault = new InMemoryCookieVault();
+        vault.SetUsername("alice");
+        var auth = new AuthState(vault) { ForgetAccount = () => forgotten++ };
+        await auth.LoginAsync(new ClientTestDouble(), "Alice", "pw");
+        Assert.Equal(0, forgotten);
+    }
 }

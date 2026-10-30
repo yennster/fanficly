@@ -83,18 +83,28 @@ public sealed class SubscriptionPoller
 
     /// <param name="username">AO3 username for syncing account subscriptions;
     /// null when logged out (locally-followed works are still polled).</param>
+    /// <param name="accountGeneration"><see cref="AccountData.Generation"/> when
+    /// <paramref name="username"/> was read; now when null. A poller built off the
+    /// UI thread passes it, so a sign-out in between still counts (#159).</param>
     /// <param name="syncStamps">Where the last list sync is stamped; defaults to
     /// the widgets' shared store, which the app and the background task both
     /// write, else <see cref="KeyValueStores.Default"/>.</param>
     public SubscriptionPoller(IAO3Client client, LibraryStore store, string? username, ILocalNotifier? notifier = null,
-                              IKeyValueStore? syncStamps = null)
+                              IKeyValueStore? syncStamps = null, int? accountGeneration = null)
     {
         _client = client;
         _store = store;
         Username = username;
         _notifier = notifier;
         _syncStamps = syncStamps;
+        _accountGeneration = accountGeneration ?? AccountData.Generation;
     }
+
+    private readonly int _accountGeneration;
+
+    /// <summary>Signed out, or in as someone else, since this poller was made: the
+    /// subscription records it read were deleted with that account (#159).</summary>
+    public bool AccountChanged => AccountData.Generation != _accountGeneration;
 
     public string? Username { get; }
 
@@ -113,9 +123,19 @@ public sealed class SubscriptionPoller
     /// rarely changes; the Subscriptions tab syncs it whenever it refreshes (#150).</summary>
     public static readonly TimeSpan ListSyncInterval = TimeSpan.FromHours(24);
 
-    private IKeyValueStore SyncStamps => _syncStamps ?? AppGroupStore.Shared ?? KeyValueStores.Default;
+    private IKeyValueStore SyncStamps => _syncStamps ?? DefaultSyncStamps;
 
-    private string? ListSyncKey => Username is { } u ? $"subscriptions.listSyncedAt.{u}" : null;
+    /// <summary>Each account's last list sync is stamped under this prefix plus its name.</summary>
+    public const string ListSyncKeyPrefix = "subscriptions.listSyncedAt.";
+
+    /// <summary>The store list-sync stamps live in when a poller isn't given one.</summary>
+    public static IKeyValueStore DefaultSyncStamps => AppGroupStore.Shared ?? KeyValueStores.Default;
+
+    private string? ListSyncKey => Username is { } u ? ListSyncKeyPrefix + u : null;
+
+    /// <summary>This account's list has been synced (or a background poll tried to)
+    /// since it signed in here: signing out or switching accounts forgets the stamp (#159).</summary>
+    public bool HasSyncedList => ListSyncKey is { } key && SyncStamps.GetDate(key) is not null;
 
     /// <summary>Whether <see cref="RunFullPollAsync"/> should re-read the
     /// subscriptions list: signed in, and no sync (or attempt) for this account
@@ -143,9 +163,17 @@ public sealed class SubscriptionPoller
     {
         if (Username is not { } username) return [];
         var list = await _client.FetchSubscriptionsAsync(username, ct).ConfigureAwait(false);
-        StampListSync();
-        await OnRecords(() => MergeSubscriptionList(list)).ConfigureAwait(false);
-        return list.Subscriptions;
+        // Signed out or switched accounts while AO3 answered: this list is the
+        // previous account's, and mustn't come back under the next (#159).
+        // Checked on the records thread, where AccountData.Forget runs.
+        var merged = await OnRecords(() =>
+        {
+            if (AccountChanged) return false;
+            StampListSync();
+            MergeSubscriptionList(list);
+            return true;
+        }).ConfigureAwait(false);
+        return merged ? list.Subscriptions : [];
     }
 
     private void MergeSubscriptionList(AO3SubscriptionList list)
@@ -360,8 +388,12 @@ public sealed class SubscriptionPoller
     /// notification. The attempt is stamped whatever happens: a permanently-failing
     /// record (deleted work, parse drift) must not stay "oldest" forever and hog
     /// the queue head.</summary>
-    private async Task<int> CheckWorkAsync(int workId, SubscriptionRecord? rec, Work? work, CancellationToken ct)
+    private async Task<int> CheckWorkAsync(int workId, SubscriptionRecord? subscription, Work? work, CancellationToken ct)
     {
+        // A subscription whose account signed out (before or during the request)
+        // was deleted with it (#159): don't touch it or alert for it.
+        SubscriptionRecord? Rec() => AccountChanged ? null : subscription;
+        if (subscription is not null && work is null && Rec() is null) return 0;
         try
         {
             var meta = await _client.FetchWorkMetadataAsync(workId, ct).ConfigureAwait(false);
@@ -369,12 +401,15 @@ public sealed class SubscriptionPoller
             {
                 // Against the higher baseline: chapters either record already counted
                 // were notified (or seen) then, and mustn't notify again.
+                var rec = Rec();
                 var seen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
                 if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
                 if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
                 return (seen, work?.Title ?? rec?.DisplayName ?? "");
             }).ConfigureAwait(false);
             if (lastSeen is not { } seenCount || meta.ChapterCount <= seenCount) return 0;
+            // Only a subscription, and its account signed out since: no alert.
+            if (work is null && AccountChanged) return 0;
             await PostAsync(NewChapterContent(title, seenCount, meta.ChapterCount, workId)).ConfigureAwait(false);
             return 1;
         }
@@ -388,7 +423,7 @@ public sealed class SubscriptionPoller
         {
             await OnRecords(() =>
             {
-                if (rec is not null) rec.LastCheckedAt = DateTimeOffset.Now;
+                if (Rec() is { } rec) rec.LastCheckedAt = DateTimeOffset.Now;
                 if (work is not null) work.LastCheckedAt = DateTimeOffset.Now;
             }).ConfigureAwait(false);
         }
@@ -665,9 +700,10 @@ public static class BackgroundRefresh
     /// <summary>Runs one full poll. Runs even when logged out
     /// (<paramref name="username"/> null): locally-followed works are still polled.</summary>
     public static async Task<int> RunPollAsync(IAO3Client client, LibraryStore store, string? username,
-                                               ILocalNotifier? notifier, CancellationToken ct = default)
+                                               ILocalNotifier? notifier, CancellationToken ct = default,
+                                               int? accountGeneration = null)
     {
-        var poller = new SubscriptionPoller(client, store, username, notifier);
+        var poller = new SubscriptionPoller(client, store, username, notifier, accountGeneration: accountGeneration);
         var notified = await poller.RunFullPollAsync(ct).ConfigureAwait(false);
         Debug.WriteLine($"Background poll posted {notified} notifications");
         return notified;

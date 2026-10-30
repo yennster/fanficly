@@ -70,7 +70,9 @@ public static class InAppPolling
             var client = AppHost.Client;
             var library = AppHost.Library;
             var username = AppHost.Auth.Username;
-            var notified = await Task.Run(() => BackgroundRefresh.RunPollAsync(client, library, username, new AppHost.ToastNotifier(), ct), ct);
+            // With the name: a sign-out before the poll starts still counts (#159).
+            var generation = AccountData.Generation;
+            var notified = await Task.Run(() => BackgroundRefresh.RunPollAsync(client, library, username, new AppHost.ToastNotifier(), ct, generation), ct);
             AppHost.Log($"In-app poll posted {notified} notifications");
         }
         catch (OperationCanceledException) { }

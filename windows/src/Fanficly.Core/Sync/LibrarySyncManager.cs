@@ -113,6 +113,11 @@ public sealed class LibrarySyncManager
     /// (<c>ReaderProfileSyncStore.publishLocalProfiles</c>).</summary>
     public Action<string>? PublishReaderProfiles { get; set; }
 
+    /// <summary>The AO3 login name signed in on this PC (#159). Backed-up
+    /// subscriptions record it, and a restore skips another account's. Left null
+    /// (as in most tests), subscriptions are backed up and restored untagged.</summary>
+    public Func<string?>? CurrentAccount { get; set; }
+
     public string? BackupPath =>
         BackupPathOverride ?? (string.IsNullOrEmpty(SyncFolder) ? null : Path.Combine(SyncFolder, BackupFileName));
 
@@ -536,8 +541,7 @@ public sealed class LibrarySyncManager
         var backup = new LibraryBackup(
             Works: works,
             Bookmarks: store.All<BookmarkRecord>().Select(b => new BookmarkBackup(b.Ao3Id, b.WorkAo3Id, b.Notes, b.Tags, b.SavedAt)).ToList(),
-            Subscriptions: store.All<SubscriptionRecord>().Select(s => new SubscriptionBackup(
-                s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt)).ToList(),
+            Subscriptions: BackedUpSubscriptions(store),
             Searches: store.All<SavedSearch>().Select(SearchBackupOf).ToList(),
             Progress: store.All<ReadingProgress>().Select(p => new ProgressBackup(
                 p.Ao3Id, p.ChapterIndex, p.ParagraphIndex, p.Title, p.Author, p.UpdatedAt)).ToList(),
@@ -778,7 +782,25 @@ public sealed class LibrarySyncManager
         {
             LastSeenChapterCount = Higher(local.LastSeenChapterCount, other.LastSeenChapterCount),
             LastCheckedAt = Later(local.LastCheckedAt, other.LastCheckedAt),
+            Account = local.Account ?? other.Account,
         };
+
+    /// <summary>The subscriptions a backup carries, tagged with the signed-in account
+    /// (#159). Signed out (or mid sign-out) there's no account to tag them with, and
+    /// an untagged copy would restore for anyone, so none are backed up.</summary>
+    private List<SubscriptionBackup> BackedUpSubscriptions(LibraryStore store)
+    {
+        var account = CurrentAccount?.Invoke();
+        if (CurrentAccount is not null && account is null) return [];
+        return store.All<SubscriptionRecord>().Select(s => new SubscriptionBackup(
+            s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt, account)).ToList();
+    }
+
+    /// <summary>Whether a backed-up subscription may be restored for the AO3 account
+    /// signed in here (#159): only that account's own. One from a backup made before
+    /// subscriptions recorded their account restores for anyone.</summary>
+    public static bool SubscriptionBelongs(SubscriptionBackup sub, string? account) =>
+        sub.Account is not { } owner || (account is not null && string.Equals(owner, account, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>A saved search's two copies merged forward-only (#309; Swift's
     /// <c>mergedSearch</c>). Its definition (prompt and sort) comes from the copy
@@ -1135,9 +1157,12 @@ public sealed class LibrarySyncManager
             }
         }
 
-        // 3. Subscriptions.
+        // 3. Subscriptions. Another AO3 account's stay in the file (another PC may
+        // still be signed in as it) but never restore here (#159).
+        var account = CurrentAccount?.Invoke();
         foreach (var sub in backup.Subscriptions)
         {
+            if (CurrentAccount is not null && !SubscriptionBelongs(sub, account)) continue;
             if (store.GetSubscription(sub.Key) is { } existing)
             {
                 // The baseline and last check only move forward: an older backup

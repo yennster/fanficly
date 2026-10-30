@@ -52,7 +52,16 @@ public static partial class AppHost
             CredentialStore.Shared = new ProtectedCookieVault(Path.Combine(AppPaths.LocalData, "Credentials"));
             Client = new AO3Client(AppPaths.Downloads, CredentialStore.Shared, AppVersion) { Log = Log };
             Library = OpenLibrary();
-            Auth = new AuthState(CredentialStore.Shared);
+            Auth = new AuthState(CredentialStore.Shared)
+            {
+                // The next account mustn't see this one's subscriptions (#159); the
+                // backup refreshes the widgets' copy of them too.
+                ForgetAccount = () =>
+                {
+                    AccountData.Forget(Library);
+                    LibrarySyncManager.QueueBackupShared(Library);
+                },
+            };
         }
 
         // This runs on the UI thread (OnLaunched): backups, restores and the
@@ -65,6 +74,7 @@ public static partial class AppHost
             MergeReaderProfiles = (local, incoming) => ReaderProfile.MergedProfiles(local, incoming),
             PublishReaderProfiles = ReaderProfileSyncStore.PublishLocalProfiles,
             RecordsContext = SynchronizationContext.Current,
+            CurrentAccount = () => CredentialStore.Shared.StoredUsername(),
         };
         // Without the real library, a backup or restore would stamp the sync
         // folder as applied while this PC's library never saw it.
