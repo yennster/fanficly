@@ -49,3 +49,61 @@
 274	Fixed a rare crash when widgets update
 231	Your settings are kept safe if the settings file can't be read at launch
 257	Saving no longer stalls while new chapters are checked at launch
+83	Export your library to a file, and import it on another device
+106	Export your library to a file, and import it on another device
+103	Spotlight finds every story in your Library and opens it where you left off, and a Continue Reading shortcut works with Siri, Shortcuts and the Action button
+108	Download a whole folder of stories for offline reading at once
+119	none
+122	Add notes and your own tags to stories in your Library
+149	⌘+ and ⌘− change the reader's text size
+213	none
+222	See every story in a series, and go straight to the next one
+282	none
+284	none
+285	none
+286	none
+287	Save Offline and Download tell you when they fail
+294	Save Offline and Download tell you when they fail
+288	Signing in with an email address no longer breaks your AO3 lists
+295	Signing in with an email address no longer breaks your AO3 lists
+289	Subscribe to a story on AO3 from its options menu
+291	none
+293	none
+296	The reader's controls show and hide like Apple Books
+297	none
+298	Clearer messages when AO3 turns a request away, instead of asking you to sign in
+300	Clearer messages when AO3 turns a request away, instead of asking you to sign in
+299	Signing out fully signs you out, and reinstalling starts signed out
+301	Signing out fully signs you out
+302	The last line of a page stays on screen at full margins
+303	On iPhone Duo, the page runs under the side toolbar column, like Apple Books
+304	Turn pages with the volume buttons (turn it on in reader settings)
+305	Turn pages with the volume buttons (turn it on in reader settings)
+306	Recently Viewed shows each story's details
+307	none
+308	Reading stats say which numbers count finished stories
+311	Get an alert when a new story matches a saved search
+312	none
+314	none
+313	Checking for new chapters is faster and lighter on AO3
+316	Checking for new chapters is faster and lighter on AO3
+315	Following an author before their works list loads still alerts you to new works
+317	The My Reading share card shows the real app icon
+318	Typing "explicit" or "femslash" in search no longer turns on a filter
+319	The re-download prompt no longer comes back after every launch
+322	The re-download prompt no longer comes back after every launch
+320	A failed "load more" keeps the results you already have
+321	A failed "load more" keeps the results you already have
+323	none
+324	Subscribing to a story on AO3 works again
+329	Saved filters keep the fandom you're in, and Browse shows every filter you've set
+332	The Go menu switches tabs the same way the sidebar does
+333	Signing in with a new AO3 account never shows the last account's bookmarks or subscriptions
+334	Opening a story on a second device no longer overwrites newer reading progress
+336	Import EPUB files, like your AO3 downloads, and read them offline in Fanficly's reader
+331	Fanficly now asks for a rating every few weeks at most, and stops once you've rated it
+335	Signing in with a new AO3 account never shows the last account's subscriptions
+326	none
+327	The Filters sheet has Cancel, and an old word count no longer sticks
+328	Search keeps loading when your content filter hides a whole page
+330	Search keeps loading when your content filter hides a whole page
