@@ -4,6 +4,7 @@ using Fanficly.Core;
 using Microsoft.UI.Dispatching;
 using Windows.Media;
 using Windows.Media.Core;
+using Windows.Media.Devices;
 using Windows.Media.Playback;
 using Windows.Media.SpeechSynthesis;
 
@@ -79,6 +80,7 @@ internal sealed class SpeechController : IDisposable
         _dispatcher = dispatcher;
         _rateMultiplier = StoredMultiplier();
         KeyValueStores.Default.Changed += OnSettingChanged;
+        MediaDevice.DefaultAudioRenderDeviceChanged += OnAudioDeviceChanged;
     }
 
     /// <summary>The speaking rate as a multiplier of normal speed; persisted.</summary>
@@ -94,7 +96,7 @@ internal sealed class SpeechController : IDisposable
             if (Math.Abs(newRaw - oldRaw) > 0.001)
             {
                 KeyValueStores.Default.SetDouble(RateKey, newRaw);
-                if (IsActive) Enqueue(CurrentParagraph);
+                ApplyRateChange();
             }
             Changed?.Invoke();
         }
@@ -113,9 +115,35 @@ internal sealed class SpeechController : IDisposable
             if (Math.Abs(stored - _rateMultiplier) > 0.001)
             {
                 _rateMultiplier = stored;
-                if (IsActive) Enqueue(CurrentParagraph);
+                ApplyRateChange();
                 Changed?.Invoke();
             }
+        });
+    }
+
+    /// <summary>A new speed reaches paragraphs only when they're synthesized, so
+    /// playing narration re-queues from the current paragraph. Paused narration
+    /// drops its queue instead of playing again; <see cref="Resume"/> rebuilds it
+    /// from the current paragraph at the new speed (Swift: <c>applyRateChange</c>).</summary>
+    private void ApplyRateChange()
+    {
+        if (!IsActive) return;
+        if (IsPlaying) Enqueue(CurrentParagraph);
+        else { _generation++; StopPlayback(); }
+    }
+
+    /// <summary>The default output device changed: a Bluetooth or USB headset
+    /// off or flat, separate-endpoint headphones unplugged, or a new device taking over. Pause rather
+    /// than carry on through whatever plays next, as the Apple app does when its
+    /// route's device goes away (Swift: <c>handleAudioRouteChange</c>); Windows
+    /// doesn't say whether the old device went away, so any change pauses.</summary>
+    private void OnAudioDeviceChanged(object? sender, DefaultAudioRenderDeviceChangedEventArgs args)
+    {
+        if (args.Role != AudioDeviceRole.Default) return;
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (_disposed || !IsActive) return;
+            Pause();
         });
     }
 
@@ -220,6 +248,7 @@ internal sealed class SpeechController : IDisposable
         Stop();
         _disposed = true;
         KeyValueStores.Default.Changed -= OnSettingChanged;
+        MediaDevice.DefaultAudioRenderDeviceChanged -= OnAudioDeviceChanged;
         if (_player is not null)
         {
             _player.MediaEnded -= OnMediaEnded;
