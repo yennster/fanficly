@@ -49,6 +49,9 @@ struct ReaderView: View {
     @State private var activeSpanStart: Date?
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
+    /// Bumped by `jump(toChapter:)`; continuous scroll jumps on it rather than
+    /// on `selectedChapterIndex`, which scrolling never updates there.
+    @State private var continuousJump = 0
     @State private var currentAnchor: ReadingAnchor?
     @State private var loadedFromDisk = false
     /// Where a saved position past the loaded chapters was moved to (see
@@ -266,6 +269,16 @@ struct ReaderView: View {
     /// scroll, the selected page in paginated / page-by-page.
     private var effectiveChapterIndex: Int {
         mode == .continuous ? visibleChapterIndex : selectedChapterIndex
+    }
+
+    /// Shows a chapter from its top (the Chapters menu, narration). The paged
+    /// modes follow `selectedChapterIndex`. Continuous scroll jumps on
+    /// `continuousJump`, so picking the chapter `selectedChapterIndex` still
+    /// holds after you've scrolled away from it scrolls back to it (#163).
+    private func jump(toChapter index: Int) {
+        selectedChapterIndex = index
+        visibleChapterIndex = index
+        continuousJump &+= 1
     }
 
     /// Push the current chapter up to a parent (for its Comments action).
@@ -603,8 +616,7 @@ struct ReaderView: View {
     /// page in sync so the reader follows along.
     private func narrate(toChapter index: Int) {
         guard index != listeningChapter else { return }
-        selectedChapterIndex = index
-        visibleChapterIndex = index
+        jump(toChapter: index)
         narrate(chapter: index, from: 0)
     }
 
@@ -628,8 +640,7 @@ struct ReaderView: View {
             return
         }
         // Follow along visually so the page tracks what's being read.
-        selectedChapterIndex = target
-        visibleChapterIndex = target
+        jump(toChapter: target)
         narrate(chapter: target, from: 0)
     }
 
@@ -837,7 +848,8 @@ struct ReaderView: View {
                             .allowsHitTesting(!isUIMinimized)
                     }
                 }
-                .onChange(of: selectedChapterIndex) { _, newIndex in
+                .onChange(of: continuousJump) { _, _ in
+                    let newIndex = selectedChapterIndex
                     proxy.scrollTo(newIndex, anchor: .top)
                     Task {
                         try? await Task.sleep(nanoseconds: 60_000_000)
@@ -2192,13 +2204,22 @@ struct ReaderView: View {
 
     private var chaptersMenu: some View {
         Menu {
-            Picker("Jump to chapter", selection: $selectedChapterIndex) {
-                ForEach(chapters, id: \.index) { chapter in
-                    let label = chapter.title.isEmpty
-                        ? "Chapter \(chapter.index)"
-                        : "Chapter \(chapter.index): \(chapter.title)"
-                    Text(label).tag(chapter.index)
+            // Buttons, not a Picker: they tick the chapter you're on (the
+            // visible one in continuous scroll), and picking that chapter
+            // still jumps back to its top (#163).
+            let current = effectiveChapterIndex
+            ForEach(chapters, id: \.index) { chapter in
+                let label = chapter.title.isEmpty
+                    ? "Chapter \(chapter.index)"
+                    : "Chapter \(chapter.index): \(chapter.title)"
+                Button { jump(toChapter: chapter.index) } label: {
+                    if chapter.index == current {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
                 }
+                .accessibilityAddTraits(chapter.index == current ? .isSelected : [])
             }
         } label: {
             Label("Chapters", systemImage: "list.bullet")
