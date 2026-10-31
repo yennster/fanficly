@@ -281,15 +281,6 @@ struct ReaderView: View {
         continuousJump &+= 1
     }
 
-    /// The Chapters menu's selection: ticks the chapter you're on (the visible
-    /// one in continuous scroll) and always jumps, even to that chapter.
-    private var chapterMenuBinding: Binding<Int> {
-        Binding(
-            get: { effectiveChapterIndex },
-            set: { jump(toChapter: $0) }
-        )
-    }
-
     /// Push the current chapter up to a parent (for its Comments action).
     private func reportCurrentChapter() {
         currentChapter?.wrappedValue = effectiveChapterIndex
@@ -2213,13 +2204,22 @@ struct ReaderView: View {
 
     private var chaptersMenu: some View {
         Menu {
-            Picker("Jump to chapter", selection: chapterMenuBinding) {
-                ForEach(chapters, id: \.index) { chapter in
-                    let label = chapter.title.isEmpty
-                        ? "Chapter \(chapter.index)"
-                        : "Chapter \(chapter.index): \(chapter.title)"
-                    Text(label).tag(chapter.index)
+            // Buttons, not a Picker: they tick the chapter you're on (the
+            // visible one in continuous scroll), and picking that chapter
+            // still jumps back to its top (#163).
+            let current = effectiveChapterIndex
+            ForEach(chapters, id: \.index) { chapter in
+                let label = chapter.title.isEmpty
+                    ? "Chapter \(chapter.index)"
+                    : "Chapter \(chapter.index): \(chapter.title)"
+                Button { jump(toChapter: chapter.index) } label: {
+                    if chapter.index == current {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
                 }
+                .accessibilityAddTraits(chapter.index == current ? .isSelected : [])
             }
         } label: {
             Label("Chapters", systemImage: "list.bullet")
