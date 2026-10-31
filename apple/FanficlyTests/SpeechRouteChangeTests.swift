@@ -28,6 +28,6 @@ final class SpeechRouteChangeTests: XCTestCase {
     }
 
     func test_speedChangeWithNothingLoadedDoesNothing() {
-        XCTAssertEqual(SpeechController.rateChange(isActive: false, isPlaying: false), .none)
+        XCTAssertEqual(SpeechController.rateChange(isActive: false, isPlaying: false), .ignore)
     }
 }

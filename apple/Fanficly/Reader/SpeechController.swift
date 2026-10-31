@@ -270,17 +270,17 @@ final class SpeechController: NSObject {
         case .dropQueue:
             synthesizer.stopSpeaking(at: .immediate)
             indexOf.removeAll()
-        case .none:
+        case .ignore:
             break
         }
     }
 
-    enum RateChange: Equatable { case requeue, dropQueue, none }
+    enum RateChange: Equatable { case requeue, dropQueue, ignore }
 
     /// What a speed change does: re-queue playing narration, drop a paused
     /// one's queue (never speak), nothing with no chapter loaded.
     nonisolated static func rateChange(isActive: Bool, isPlaying: Bool) -> RateChange {
-        guard isActive else { return .none }
+        guard isActive else { return .ignore }
         return isPlaying ? .requeue : .dropQueue
     }
 
