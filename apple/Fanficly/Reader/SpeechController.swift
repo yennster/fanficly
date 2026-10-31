@@ -59,9 +59,7 @@ final class SpeechController: NSObject {
             let oldRaw = UserDefaults.standard.double(forKey: Self.rateKey)
             if abs(newRaw - oldRaw) > 0.001 {
                 UserDefaults.standard.set(newRaw, forKey: Self.rateKey)
-                if isActive {
-                    enqueue(from: currentParagraph)
-                }
+                applyRateChange()
             }
         }
     }
@@ -105,6 +103,12 @@ final class SpeechController: NSObject {
             self,
             selector: #selector(handleAudioInterruption(_:)),
             name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioRouteChange(_:)),
+            name: AVAudioSession.routeChangeNotification,
             object: nil
         )
     }
@@ -255,6 +259,20 @@ final class SpeechController: NSObject {
         updateNowPlaying()
     }
 
+    /// A new speed reaches utterances only when they're built, so playing
+    /// narration re-queues from the current paragraph. Paused narration drops
+    /// its queue instead of speaking again; `resume()` rebuilds it from the
+    /// current paragraph at the new speed.
+    private func applyRateChange() {
+        guard isActive else { return }
+        if isPlaying {
+            enqueue(from: currentParagraph)
+        } else {
+            synthesizer.stopSpeaking(at: .immediate)
+            indexOf.removeAll()
+        }
+    }
+
     private func finishChapter() {
         synthesizer.stopSpeaking(at: .immediate)
         isPlaying = false
@@ -300,6 +318,28 @@ final class SpeechController: NSObject {
                 break
             }
         }
+    }
+
+    /// Headphones were unplugged or AirPods disconnected or ran flat. The
+    /// synthesizer doesn't pause on its own (`AVPlayer` does), so without this
+    /// a chapter would carry on through the speaker. Pause as you would by
+    /// hand: reconnecting doesn't resume, and neither does the end of an
+    /// interruption that was already pausing it.
+    @objc nonisolated private func handleAudioRouteChange(_ note: Notification) {
+        guard let rawReason = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason),
+              Self.pausesNarration(for: reason) else { return }
+        Task { @MainActor in
+            guard isActive else { return }
+            pausedByInterruption = false
+            pause()
+        }
+    }
+
+    /// Only losing the device narration was playing on pauses it; a new
+    /// device (plugging headphones in) or a category change doesn't.
+    nonisolated static func pausesNarration(for reason: AVAudioSession.RouteChangeReason) -> Bool {
+        reason == .oldDeviceUnavailable
     }
 
     // MARK: - Lock-screen / Control Center
