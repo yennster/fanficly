@@ -45,8 +45,12 @@ struct ReaderView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     // Start of the current active-reading span, for the Stats tab. Set while
-    // the reader is open and foregrounded; nil when paused (backgrounded/closed).
+    // the reader is open and foregrounded, or narration plays in the
+    // background; nil when paused (backgrounded/closed).
     @State private var activeSpanStart: Date?
+    /// The scene is `.active`, mirrored for the narration callbacks, whose
+    /// copy of this view would hold a stale `scenePhase`.
+    @State private var sceneIsActive = true
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
     @State private var currentAnchor: ReadingAnchor?
@@ -334,13 +338,16 @@ struct ReaderView: View {
     /// independently. Keeps the screen awake while reading, tears down speech on
     /// exit, and drives the Stats active-reading timer: start on appear and when
     /// the app returns to `.active` while this reader is visible, flush on
-    /// disappear and when it leaves.
+    /// disappear and when it leaves (`leaveActive` keeps timing narration that's
+    /// still playing, #161).
     private struct ReaderLifecycleModifier: ViewModifier {
         let keepScreenAwake: Bool
         let scenePhase: ScenePhase
         let applyKeepScreenAwake: (Bool) -> Void
         let startTimer: () -> Void
         let flushTimer: () -> Void
+        let leaveActive: () -> Void
+        let sceneActiveChanged: (Bool) -> Void
         let stopSpeech: () -> Void
         let readerClosed: () -> Void
 
@@ -360,10 +367,11 @@ struct ReaderView: View {
                 }
                 .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
                 .onChange(of: scenePhase) { _, newPhase in
+                    sceneActiveChanged(newPhase == .active)
                     if newPhase == .active {
                         if isVisible { startTimer() }
                     } else {
-                        flushTimer()
+                        leaveActive()
                     }
                 }
                 .onDisappear {
@@ -454,7 +462,7 @@ struct ReaderView: View {
         // Chapters can arrive after narration started; the chapter-end
         // handler should see them (see narrate(chapter:from:)).
         .onChange(of: chapters.count) { _, _ in
-            if speech.isActive { speech.onChapterFinished = { advanceNarration() } }
+            if speech.isActive { wireNarrationCallbacks() }
         }
         // Keep a parent informed of the chapter being read (for its Comments
         // action). A ViewModifier so its onChange/onAppear are type-checked
@@ -477,6 +485,10 @@ struct ReaderView: View {
             applyKeepScreenAwake: { applyKeepScreenAwake($0) },
             startTimer: { startReadingTimer() },
             flushTimer: { recordReadingSpan(restart: false) },
+            // Listening goes on in the background and counts as reading time
+            // (#161), so narration that's playing keeps the span going.
+            leaveActive: { recordReadingSpan(restart: speech.isPlaying) },
+            sceneActiveChanged: { sceneIsActive = $0 },
             stopSpeech: { speech.stop() },
             readerClosed: {
                 ReviewPrompter.shared.readerClosed(stats: { ReadingStatsStore.snapshots(in: modelContext) })
@@ -612,11 +624,43 @@ struct ReaderView: View {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
         listeningChapter = index
-        // When the chapter finishes, roll on to the next (or stop). Called by
-        // the controller directly so it works with the app in the background.
-        speech.onChapterFinished = { advanceNarration() }
+        wireNarrationCallbacks()
         speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
                     workTitle: title, author: author, chapterLabel: label, from: paragraph)
+    }
+
+    /// The controller calls these directly, not through an observed change, so
+    /// they run with the app in the background or the phone locked. Rewired
+    /// when `chapters` grows, since each closure holds a copy of this view.
+    private func wireNarrationCallbacks() {
+        // When the chapter finishes, roll on to the next (or stop).
+        speech.onChapterFinished = { advanceNarration() }
+        speech.onParagraphStarted = { narrationStarted(paragraph: $0) }
+        speech.onPlayingChanged = { narrationPlayingChanged($0) }
+    }
+
+    /// The narrated paragraph is the reading place, so the widget, synced
+    /// progress and a reader iOS relaunches after ending the app in the
+    /// background all follow listening (#161). On screen the karaoke scroll
+    /// lands on the same place. Saves are throttled like scrolling's.
+    private func narrationStarted(paragraph: Int) {
+        guard let chapter = listeningChapter else { return }
+        let anchor = ReadingAnchor(chapter: chapter, paragraph: paragraph)
+        currentAnchor = anchor
+        saveProgress(anchor)
+    }
+
+    /// Listening counts as reading time (#161). In the foreground the reader's
+    /// own timer runs, narration or not; in the background only narration
+    /// that's playing is timed, so pausing it on the lock screen (or a call
+    /// interrupting it) ends the span and playing again starts a new one.
+    private func narrationPlayingChanged(_ playing: Bool) {
+        guard !sceneIsActive else { return }
+        if playing {
+            if activeSpanStart == nil { startReadingTimer() }
+        } else {
+            recordReadingSpan(restart: false)
+        }
     }
 
     private func advanceNarration() {
@@ -906,9 +950,15 @@ struct ReaderView: View {
 
     // MARK: - Reading-time stats
 
-    /// Begin (or resume) timing an active reading span.
+    /// Begin (or resume) timing an active reading span. A span still running
+    /// (narration timed in the background, #161) is recorded first, so
+    /// returning to the app doesn't drop the time listened.
     private func startReadingTimer() {
-        activeSpanStart = Date()
+        if activeSpanStart != nil {
+            recordReadingSpan(restart: true)
+        } else {
+            activeSpanStart = Date()
+        }
     }
 
     /// Record the elapsed active-reading time since `activeSpanStart` into the

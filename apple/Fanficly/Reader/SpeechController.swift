@@ -22,7 +22,9 @@ final class SpeechController: NSObject {
     /// A chapter is loaded — the reader should show the mini-player.
     private(set) var isActive = false
     /// Audio is currently being produced (vs. paused).
-    private(set) var isPlaying = false
+    private(set) var isPlaying = false {
+        didSet { if isPlaying != oldValue { onPlayingChanged?(isPlaying) } }
+    }
     /// Index of the *rendered* paragraph currently being spoken — aligned with
     /// `ChapterContentView`'s paragraphs so the reader can highlight it.
     private(set) var currentParagraph = 0
@@ -40,6 +42,16 @@ final class SpeechController: NSObject {
     /// the chapter. The closure captures the reading view, so `stop()` (which
     /// the reader calls whenever it closes) drops it to break that cycle.
     @ObservationIgnored var onChapterFinished: (@MainActor () -> Void)?
+    /// Called with the rendered index of each paragraph as it starts, so the
+    /// reader saves the place even in the background, where its
+    /// `onChange(of: currentParagraph)` doesn't run (#161). Direct for the
+    /// same reason as `onChapterFinished`, and dropped by `stop()` with it.
+    @ObservationIgnored var onParagraphStarted: (@MainActor (Int) -> Void)?
+    /// Called when narration starts or stops producing audio (play, pause, an
+    /// interruption, a chapter's end), so the reader can time listening in
+    /// the background as reading (#161). Dropped by `stop()`, after it reports
+    /// the stop.
+    @ObservationIgnored var onPlayingChanged: (@MainActor (Bool) -> Void)?
 
     static let rateKey = "reader.ttsRate"
     static let voiceKey = "reader.ttsVoiceId"
@@ -220,6 +232,8 @@ final class SpeechController: NSObject {
         spokenPosition = 0
         chapterLabel = ""
         onChapterFinished = nil
+        onParagraphStarted = nil
+        onPlayingChanged = nil
         pausedByInterruption = false
         if let narrationActivity {
             ProcessInfo.processInfo.endActivity(narrationActivity)
@@ -358,6 +372,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
                 currentParagraph = i
                 spokenPosition = (spokenIndices.firstIndex(of: i) ?? 0) + 1
                 updateNowPlaying()
+                onParagraphStarted?(i)
             }
         }
     }
