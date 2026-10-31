@@ -305,7 +305,9 @@ internal sealed partial class ReaderView
         if (args.Visible) { if (_visible) StartReadingTimer(); }
         else
         {
-            RecordReadingSpan(restart: false);
+            // Listening goes on minimized and counts as reading time (#161),
+            // so narration that's playing keeps the span going.
+            RecordReadingSpan(restart: _visible && _speech.IsPlaying);
             if (_visible) PersistNow();
         }
     }
@@ -562,9 +564,14 @@ internal sealed partial class ReaderView
 
     // MARK: - Reading-time stats
 
+    /// <summary>Begins (or resumes) timing a reading span. A span still running
+    /// (narration timed while minimized, #161) is recorded first, so restoring
+    /// the window doesn't drop the time listened.</summary>
     private void StartReadingTimer()
     {
-        if (_visible && _windowVisible) _activeSpanStart = DateTimeOffset.Now;
+        if (!_visible || !_windowVisible) return;
+        if (_activeSpanStart is not null) RecordReadingSpan(restart: true);
+        else _activeSpanStart = DateTimeOffset.Now;
     }
 
     /// <summary>Records the active reading time since the span started (capped at
@@ -644,7 +651,14 @@ internal sealed partial class ReaderView
         var label = chapter.Title.Length == 0 ? $"Chapter {chapterIndex}" : $"Chapter {chapterIndex}: {chapter.Title}";
         var previous = _listeningChapter;
         _listeningChapter = chapterIndex;
-        _speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph);
+        // A chapter with nothing to speak (only images, with images off) rolls
+        // on to the next, rather than leaving the last chapter's text loaded
+        // under this chapter's number.
+        if (!_speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph))
+        {
+            AdvanceNarration();
+            return;
+        }
         if (previous != chapterIndex) OnListeningChapterChanged();
     }
 
@@ -667,6 +681,7 @@ internal sealed partial class ReaderView
 
     private int _lastSpokenParagraph = -1;
     private bool _lastSpeechActive;
+    private bool _lastSpeechPlaying;
 
     private void OnSpeechChanged()
     {
@@ -676,6 +691,11 @@ internal sealed partial class ReaderView
             _lastSpeechActive = _speech.IsActive;
             if (!_speech.IsActive) _listeningChapter = null;
             RefreshChrome(); // the narration bar comes or goes (a page-area change)
+        }
+        if (_speech.IsPlaying != _lastSpeechPlaying)
+        {
+            _lastSpeechPlaying = _speech.IsPlaying;
+            OnNarrationPlayingChanged();
         }
         UpdateNarrationBar();
         ApplyHighlight();
@@ -697,8 +717,28 @@ internal sealed partial class ReaderView
         }
     }
 
+    /// <summary>Listening counts as reading time (#161). With the window up the
+    /// reader's own timer runs, narration or not; minimized, only narration that's
+    /// playing is timed, so pausing it from the media keys ends the span and
+    /// playing again starts a new one.</summary>
+    private void OnNarrationPlayingChanged()
+    {
+        if (_windowVisible || !_visible) return;
+        if (_speech.IsPlaying) { _activeSpanStart ??= DateTimeOffset.Now; return; }
+        RecordReadingSpan(restart: false);
+        // The last paragraph heard may have fallen inside the save throttle.
+        PersistNow();
+    }
+
     private void OnSpokenParagraphChanged()
     {
+        // Minimized, the narrated paragraph is the reading place, saved here
+        // because the page may not follow (#161). With the window up the page's
+        // own tracking saves it: it follows narration, and swiping to another
+        // chapter to read there keeps that chapter as the place. Throttled
+        // like scrolling's saves.
+        if (!_windowVisible && _listeningChapter is { } chapter)
+            SetCurrentAnchor(new ReadingAnchor(chapter, _speech.CurrentParagraph));
         switch (_builtMode)
         {
             case ReadingMode.Continuous: ScrollToSpokenParagraph(); break;

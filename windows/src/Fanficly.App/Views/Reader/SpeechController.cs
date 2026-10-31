@@ -149,11 +149,12 @@ internal sealed class SpeechController : IDisposable
 
     // MARK: - Control
 
-    /// <summary>Loads a chapter's paragraphs and starts speaking from <paramref name="paragraph"/>.</summary>
-    public void Play(IReadOnlyList<string> paragraphs, string workTitle, string author, string chapterLabel, int paragraph = 0)
+    /// <summary>Loads a chapter's paragraphs and starts speaking from <paramref name="paragraph"/>.
+    /// False when the chapter has nothing to speak (nothing is loaded then).</summary>
+    public bool Play(IReadOnlyList<string> paragraphs, string workTitle, string author, string chapterLabel, int paragraph = 0)
     {
         var spoken = Enumerable.Range(0, paragraphs.Count).Where(i => paragraphs[i].Trim().Length > 0).ToList();
-        if (spoken.Count == 0) return;
+        if (spoken.Count == 0) return false;
         _paragraphs = paragraphs.ToList();
         _spokenIndices = spoken;
         SpokenCount = spoken.Count;
@@ -165,6 +166,7 @@ internal sealed class SpeechController : IDisposable
         if (!_throttlingOptedOut) { PowerThrottling.SetOptedOut(true); _throttlingOptedOut = true; }
         EnsurePlayer();
         Enqueue(Math.Max(0, paragraph));
+        return true;
     }
 
     public void TogglePlayPause()
