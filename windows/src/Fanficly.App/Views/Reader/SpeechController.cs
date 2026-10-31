@@ -132,8 +132,8 @@ internal sealed class SpeechController : IDisposable
         else { _generation++; StopPlayback(); }
     }
 
-    /// <summary>The default output device changed: headphones unplugged, a
-    /// Bluetooth headset off or flat, or a new device taking over. Pause rather
+    /// <summary>The default output device changed: a Bluetooth or USB headset
+    /// off or flat, separate-endpoint headphones unplugged, or a new device taking over. Pause rather
     /// than carry on through whatever plays next, as the Apple app does when its
     /// route's device goes away (Swift: <c>handleAudioRouteChange</c>); Windows
     /// doesn't say whether the old device went away, so any change pauses.</summary>

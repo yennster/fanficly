@@ -264,13 +264,24 @@ final class SpeechController: NSObject {
     /// its queue instead of speaking again; `resume()` rebuilds it from the
     /// current paragraph at the new speed.
     private func applyRateChange() {
-        guard isActive else { return }
-        if isPlaying {
+        switch Self.rateChange(isActive: isActive, isPlaying: isPlaying) {
+        case .requeue:
             enqueue(from: currentParagraph)
-        } else {
+        case .dropQueue:
             synthesizer.stopSpeaking(at: .immediate)
             indexOf.removeAll()
+        case .none:
+            break
         }
+    }
+
+    enum RateChange: Equatable { case requeue, dropQueue, none }
+
+    /// What a speed change does: re-queue playing narration, drop a paused
+    /// one's queue (never speak), nothing with no chapter loaded.
+    nonisolated static func rateChange(isActive: Bool, isPlaying: Bool) -> RateChange {
+        guard isActive else { return .none }
+        return isPlaying ? .requeue : .dropQueue
     }
 
     private func finishChapter() {
@@ -332,7 +343,11 @@ final class SpeechController: NSObject {
         Task { @MainActor in
             guard isActive else { return }
             pausedByInterruption = false
-            pause()
+            // Not `pause()`, which finishes the word: not one more through the speaker.
+            guard synthesizer.isSpeaking, !synthesizer.isPaused else { return }
+            synthesizer.pauseSpeaking(at: .immediate)
+            isPlaying = false
+            updateNowPlaying()
         }
     }
 
