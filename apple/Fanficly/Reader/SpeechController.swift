@@ -150,12 +150,14 @@ final class SpeechController: NSObject {
     // MARK: - Control
 
     /// Loads a chapter's paragraphs and starts speaking from `paragraph`.
+    /// False when the chapter has nothing to speak (nothing is loaded then).
+    @discardableResult
     func play(paragraphs: [String], workTitle: String, author: String,
-              chapterLabel: String, from paragraph: Int = 0) {
+              chapterLabel: String, from paragraph: Int = 0) -> Bool {
         let spoken = paragraphs.indices.filter {
             !paragraphs[$0].trimmingCharacters(in: .whitespaces).isEmpty
         }
-        guard !spoken.isEmpty else { return }
+        guard !spoken.isEmpty else { return false }
         self.paragraphs = paragraphs
         self.spokenIndices = spoken
         self.spokenCount = spoken.count
@@ -171,6 +173,7 @@ final class SpeechController: NSObject {
         }
         wireRemoteCommands()
         enqueue(from: max(0, paragraph))
+        return true
     }
 
     func togglePlayPause() {

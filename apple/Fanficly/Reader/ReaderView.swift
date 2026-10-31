@@ -625,8 +625,13 @@ struct ReaderView: View {
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
         listeningChapter = index
         wireNarrationCallbacks()
-        speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
-                    workTitle: title, author: author, chapterLabel: label, from: paragraph)
+        // A chapter with nothing to speak (only images, with images off) rolls
+        // on to the next, rather than leaving the last chapter's text loaded
+        // under this chapter's number.
+        if !speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
+                        workTitle: title, author: author, chapterLabel: label, from: paragraph) {
+            advanceNarration()
+        }
     }
 
     /// The controller calls these directly, not through an observed change, so
@@ -639,12 +644,14 @@ struct ReaderView: View {
         speech.onPlayingChanged = { narrationPlayingChanged($0) }
     }
 
-    /// The narrated paragraph is the reading place, so the widget, synced
-    /// progress and a reader iOS relaunches after ending the app in the
-    /// background all follow listening (#161). On screen the karaoke scroll
-    /// lands on the same place. Saves are throttled like scrolling's.
+    /// In the background the narrated paragraph is the reading place, so the
+    /// widget, synced progress and a reader iOS relaunches after ending the
+    /// app all follow listening (#161). On screen the page's own tracking
+    /// saves it: the karaoke scroll follows narration, and swiping to another
+    /// chapter to read there keeps that chapter as the place. Saves are
+    /// throttled like scrolling's.
     private func narrationStarted(paragraph: Int) {
-        guard let chapter = listeningChapter else { return }
+        guard !sceneIsActive, let chapter = listeningChapter else { return }
         let anchor = ReadingAnchor(chapter: chapter, paragraph: paragraph)
         currentAnchor = anchor
         saveProgress(anchor)
@@ -657,9 +664,12 @@ struct ReaderView: View {
     private func narrationPlayingChanged(_ playing: Bool) {
         guard !sceneIsActive else { return }
         if playing {
-            if activeSpanStart == nil { startReadingTimer() }
+            startReadingTimer()
         } else {
             recordReadingSpan(restart: false)
+            // The last paragraph heard may have fallen inside the save
+            // throttle; iOS can end the app any time from here.
+            persistNow()
         }
     }
 

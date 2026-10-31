@@ -651,7 +651,14 @@ internal sealed partial class ReaderView
         var label = chapter.Title.Length == 0 ? $"Chapter {chapterIndex}" : $"Chapter {chapterIndex}: {chapter.Title}";
         var previous = _listeningChapter;
         _listeningChapter = chapterIndex;
-        _speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph);
+        // A chapter with nothing to speak (only images, with images off) rolls
+        // on to the next, rather than leaving the last chapter's text loaded
+        // under this chapter's number.
+        if (!_speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph))
+        {
+            AdvanceNarration();
+            return;
+        }
         if (previous != chapterIndex) OnListeningChapterChanged();
     }
 
@@ -717,16 +724,21 @@ internal sealed partial class ReaderView
     private void OnNarrationPlayingChanged()
     {
         if (_windowVisible || !_visible) return;
-        if (!_speech.IsPlaying) RecordReadingSpan(restart: false);
-        else if (_activeSpanStart is null) _activeSpanStart = DateTimeOffset.Now;
+        if (_speech.IsPlaying) { _activeSpanStart ??= DateTimeOffset.Now; return; }
+        RecordReadingSpan(restart: false);
+        // The last paragraph heard may have fallen inside the save throttle.
+        PersistNow();
     }
 
     private void OnSpokenParagraphChanged()
     {
-        // The narrated paragraph is the reading place, saved here so it's kept
-        // with the window minimized too, where the page may not follow (#161).
-        // Throttled like scrolling's saves.
-        if (_listeningChapter is { } chapter) SetCurrentAnchor(new ReadingAnchor(chapter, _speech.CurrentParagraph));
+        // Minimized, the narrated paragraph is the reading place, saved here
+        // because the page may not follow (#161). With the window up the page's
+        // own tracking saves it: it follows narration, and swiping to another
+        // chapter to read there keeps that chapter as the place. Throttled
+        // like scrolling's saves.
+        if (!_windowVisible && _listeningChapter is { } chapter)
+            SetCurrentAnchor(new ReadingAnchor(chapter, _speech.CurrentParagraph));
         switch (_builtMode)
         {
             case ReadingMode.Continuous: ScrollToSpokenParagraph(); break;
