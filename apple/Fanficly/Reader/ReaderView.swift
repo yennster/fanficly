@@ -48,9 +48,9 @@ struct ReaderView: View {
     // the reader is open and foregrounded, or narration plays in the
     // background; nil when paused (backgrounded/closed).
     @State private var activeSpanStart: Date?
-    /// The scene is `.active`, mirrored for the narration callbacks, whose
-    /// copy of this view would hold a stale `scenePhase`.
-    @State private var sceneIsActive = true
+    /// `scenePhase`, mirrored for the narration callbacks, whose copy of this
+    /// view would hold a stale one.
+    @State private var currentScenePhase: ScenePhase = .active
     @State private var selectedChapterIndex: Int = 1
     @State private var visibleChapterIndex: Int = 1
     @State private var currentAnchor: ReadingAnchor?
@@ -347,7 +347,7 @@ struct ReaderView: View {
         let startTimer: () -> Void
         let flushTimer: () -> Void
         let leaveActive: () -> Void
-        let sceneActiveChanged: (Bool) -> Void
+        let scenePhaseChanged: (ScenePhase) -> Void
         let stopSpeech: () -> Void
         let readerClosed: () -> Void
 
@@ -367,7 +367,7 @@ struct ReaderView: View {
                 }
                 .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
                 .onChange(of: scenePhase) { _, newPhase in
-                    sceneActiveChanged(newPhase == .active)
+                    scenePhaseChanged(newPhase)
                     if newPhase == .active {
                         if isVisible { startTimer() }
                     } else {
@@ -488,7 +488,7 @@ struct ReaderView: View {
             // Listening goes on in the background and counts as reading time
             // (#161), so narration that's playing keeps the span going.
             leaveActive: { recordReadingSpan(restart: speech.isPlaying) },
-            sceneActiveChanged: { sceneIsActive = $0 },
+            scenePhaseChanged: { currentScenePhase = $0 },
             stopSpeech: { speech.stop() },
             readerClosed: {
                 ReviewPrompter.shared.readerClosed(stats: { ReadingStatsStore.snapshots(in: modelContext) })
@@ -651,7 +651,9 @@ struct ReaderView: View {
     /// chapter to read there keeps that chapter as the place. Saves are
     /// throttled like scrolling's.
     private func narrationStarted(paragraph: Int) {
-        guard !sceneIsActive, let chapter = listeningChapter else { return }
+        // Only in the background: Control Center or the app switcher over
+        // the reader (.inactive) leaves the page on screen as the place.
+        guard currentScenePhase == .background, let chapter = listeningChapter else { return }
         let anchor = ReadingAnchor(chapter: chapter, paragraph: paragraph)
         currentAnchor = anchor
         saveProgress(anchor)
@@ -662,7 +664,7 @@ struct ReaderView: View {
     /// that's playing is timed, so pausing it on the lock screen (or a call
     /// interrupting it) ends the span and playing again starts a new one.
     private func narrationPlayingChanged(_ playing: Bool) {
-        guard !sceneIsActive else { return }
+        guard currentScenePhase != .active else { return }
         if playing {
             startReadingTimer()
         } else {
