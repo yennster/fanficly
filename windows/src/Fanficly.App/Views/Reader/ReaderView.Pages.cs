@@ -35,6 +35,12 @@ internal sealed partial class ReaderView
     private double _stableWindowHeight;
     private bool _settledControlsUp = true;
     private PaginationTrigger? _lastTrigger;
+    /// <summary>The pagination in flight (see <see cref="RunPagination"/>), and what it's for.</summary>
+    private CancellationTokenSource? _paginationRun;
+    private PaginationTrigger? _runningTrigger;
+    private ReaderSpread.Layout? _runningSpread;
+    /// <summary>Parsed chapter atoms, reused across re-paginations (#164).</summary>
+    private readonly ChapterAtomsCache _atomsCache = new();
 
     private RegionGrid? _pageRoot;
     private Grid? _pageHost;
@@ -58,6 +64,7 @@ internal sealed partial class ReaderView
 
     private FrameworkElement BuildPages()
     {
+        CancelPagination();
         _isRestoring = true;
         _pages = [];
         _atoms = [];
@@ -96,6 +103,7 @@ internal sealed partial class ReaderView
 
     private void TeardownPages()
     {
+        CancelPagination();
         _paginationTimer?.Stop();
         _settleTimer?.Stop();
         if (_pageHost is not null) _pageHost.SizeChanged -= OnPageHostSizeChanged;
@@ -166,6 +174,14 @@ internal sealed partial class ReaderView
 
     // MARK: - Pagination
 
+    private void CancelPagination()
+    {
+        _paginationRun?.Cancel();
+        _paginationRun = null;
+        _runningTrigger = null;
+        _runningSpread = null;
+    }
+
     private void SchedulePagination()
     {
         if (_builtMode != ReadingMode.PageByPage || _pageHost is null) return;
@@ -182,8 +198,11 @@ internal sealed partial class ReaderView
 
     /// <summary>handlePaginationTrigger + performPagination: re-paginates when
     /// anything that shapes the pages changed, keeping the page on screen in place
-    /// (its <see cref="PageStart"/>) when it's in the chapter being paginated.</summary>
-    private void RunPagination()
+    /// (its <see cref="PageStart"/>) when it's in the chapter being paginated.
+    /// It runs in slices (<see cref="ReaderPaginator.PerformPaginationAsync"/>), so
+    /// a long one-shot doesn't freeze the window while it measures (#164): the old
+    /// pages stay up and turning meanwhile, and a newer trigger cancels the run.</summary>
+    private async void RunPagination()
     {
         if (_removed || _builtMode != ReadingMode.PageByPage || _pageHost is null || _pageFlip is null) return;
         if (!_pageHost.IsLoaded) return;
@@ -208,25 +227,65 @@ internal sealed partial class ReaderView
             ReaderPrefs.BoldText,
             ShowImages,
             new ReaderSize(spread?.PageWidth ?? width, area));
+        // Already paginating for exactly this: let that run finish.
+        if (_paginationRun is not null && trigger == _runningTrigger && Equals(spread, _runningSpread)) return;
+        _paginationRun?.Cancel();
+        _paginationRun = null;
+        _runningTrigger = null;
         if (_pages.Count > 0 && trigger == _lastTrigger && Equals(spread, _spreadLayout)) return;
-        _lastTrigger = trigger;
-        _spreadLayout = spread;
-        _isRestoring = true;
 
-        var start = _pages.Count == 0 ? null : _pageStart is { } s && s.Chapter == trigger.Chapter ? s : (PageStart?)null;
-        PaginationResult result;
+        var run = new CancellationTokenSource();
+        _paginationRun = run;
+        _runningTrigger = trigger;
+        _runningSpread = spread;
+        var repaginating = _pages.Count > 0;
+        // The first pages show a spinner until they're ready; a re-pagination keeps
+        // the old pages turning meanwhile, so the place and progress keep up.
+        if (!repaginating) _isRestoring = true;
+
+        var start = !repaginating ? null : _pageStart is { } s && s.Chapter == trigger.Chapter ? s : (PageStart?)null;
+        var startedFrom = _pageStart;
+        PaginationResult? result;
         try
         {
-            result = ReaderPaginator.PerformPagination(trigger, start, _chapters, _title, _author, _authorUsername, _summary,
-                                                       limitLineLength: false, _measurer);
+            result = await ReaderPaginator.PerformPaginationAsync(
+                trigger, start, _chapters, limitLineLength: false, _measurer, _atomsCache,
+                // A timer's wait, so the window handles input and draws in between
+                // (work posted straight back would be taken ahead of input).
+                pause: () => Task.Delay(1), slice: PaginationSlice, run.Token);
         }
         catch (Exception e)
         {
             AppHost.Log($"Pagination failed: {e}");
-            _isRestoring = false;
+            if (_paginationRun == run) { _paginationRun = null; _runningTrigger = null; }
+            if (!repaginating) _isRestoring = false;
             return;
         }
+        // A newer trigger (a resize mid-pagination) cancelled this run: its pages
+        // are stale.
+        if (run.IsCancellationRequested || _paginationRun != run || result is null) return;
+        _paginationRun = null;
+        _runningTrigger = null;
+        if (_removed || _builtMode != ReadingMode.PageByPage || _pageFlip is null) return;
 
+        // Pages turned while a long chapter re-paginated: stay on the page reached,
+        // not the one the pagination started from.
+        var kept = result.KeptPageId;
+        var moved = repaginating && _pageStart != startedFrom;
+        if (moved)
+        {
+            if (_pageStart is { } place)
+                kept = place.Chapter == trigger.Chapter
+                    ? (result.Atoms.TryGetValue(place.Chapter, out var placeAtoms)
+                        ? ReaderPaginator.PageContaining(place, result.Pages, placeAtoms)?.Id : null) ?? kept
+                    : null;
+            else // back on the work's title page, which has no text to start at
+                kept = result.Pages.FirstOrDefault(p => p.ChapterIndex == trigger.Chapter && p.ParagraphIndices.IsEmpty)?.Id;
+        }
+
+        _lastTrigger = trigger;
+        _spreadLayout = spread;
+        _isRestoring = true;
         var active = new HashSet<int> { _selectedChapter };
         if (ChapterTracking.AdjacentChapter(_chapterOrder, _selectedChapter, forward: false) is { } previous) active.Add(previous);
         if (ChapterTracking.AdjacentChapter(_chapterOrder, _selectedChapter, forward: true) is { } next) active.Add(next);
@@ -235,10 +294,24 @@ internal sealed partial class ReaderView
         _atoms = atoms;
         _pages = result.Pages.ToList();
 
-        RestoreOrValidatePageSelection(result.KeptPageId);
+        var before = _selectedPageId;
+        RestoreOrValidatePageSelection(kept);
+        // The page kept holds the place reached but needn't start there, and with an
+        // unchanged id selecting it doesn't update _pageStart: do it here, or the
+        // next re-pagination breaks a page mid-way through it.
+        if (moved && _selectedPageId == before && _pages.FirstOrDefault(p => p.Id == _selectedPageId) is { } page)
+        {
+            var shown = _spreadLayout is null ? page
+                : ReaderSpread.Spreads(_pages).FirstOrDefault(sp => sp.Contains(page.Id))?.Left ?? page;
+            _pageStart = StartOf(shown);
+        }
         RebuildPageSlots();
         RefreshChrome();
     }
+
+    /// <summary>How long pagination measures before letting the window breathe: about
+    /// a 60 Hz frame. Each pause is a timer's wait (about 15 ms on Windows).</summary>
+    private static readonly TimeSpan PaginationSlice = TimeSpan.FromMilliseconds(16);
 
     private PageStart? StartOf(ChapterPage page) =>
         _atoms.TryGetValue(page.ChapterIndex, out var atoms) ? ReaderPaginator.Start(page, atoms) : null;

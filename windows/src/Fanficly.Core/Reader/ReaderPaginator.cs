@@ -377,95 +377,44 @@ public static partial class ReaderPaginator
         PageStart? startingAt = null)
     {
         _ = titleHeaderHeight; // the title page is a page of its own; kept for parity with the Swift signature
-        var pages = new List<ChapterPage>();
-        var startIndex = 0;
-        var pageIndex = 0;
+        var run = new ChapterPagination(chapterIndex, atoms, width, viewportHeight, chapterHeaderHeight, isFirstChapter,
+                                        showChapterHeader, typography, measurer, drawnHeight, startingAt);
+        while (run.PackNextPage()) { }
+        return run.Pages;
+    }
 
-        Guid? keptId = null;
-        if (startingAt is { } start)
+    /// <summary>The page holding <paramref name="start"/> in a chapter's pages: the one
+    /// whose atoms include that point of its text (null when none does). Keeps the
+    /// reader's place when they turned pages while the chapter re-paginated, so the
+    /// new pages don't break exactly there (#164).</summary>
+    public static ChapterPage? PageContaining(PageStart start, IReadOnlyList<ChapterPage> pages, IReadOnlyList<ParagraphAtom> atoms)
+    {
+        var i = -1;
+        for (var j = 0; j < atoms.Count; j++)
         {
-            var i = atoms.FindIndex(a =>
-                a.OriginalParagraphIndex == start.Paragraph && a.SentenceIndex == start.Sentence
-                && start.Offset >= a.SentenceOffset && start.Offset < a.SentenceOffset + a.Text.Length);
-            if (i >= 0)
+            var a = atoms[j];
+            if (a.OriginalParagraphIndex == start.Paragraph && a.SentenceIndex == start.Sentence
+                && start.Offset >= a.SentenceOffset && start.Offset < a.SentenceOffset + a.Text.Length)
             {
-                var k = start.Offset - atoms[i].SentenceOffset;
-                if (k > 0 && SplitAtom(atoms[i], k) is (var head, var tail))
+                i = j;
+                break;
+            }
+        }
+        if (i < 0)
+        {
+            // Not inside any atom (a dropped space at a split): the next text.
+            for (var j = 0; j < atoms.Count; j++)
+            {
+                var a = atoms[j];
+                if ((a.OriginalParagraphIndex, a.SentenceIndex, a.SentenceOffset).CompareTo((start.Paragraph, start.Sentence, start.Offset)) > 0)
                 {
-                    atoms[i] = head;
-                    atoms.Insert(i + 1, tail);
-                    keptId = tail.Id;
-                }
-                else
-                {
-                    keptId = atoms[i].Id;
+                    i = j;
+                    break;
                 }
             }
         }
-        var reachedKept = keptId is null;
-
-        double Measure(ReaderRichText text) => CalculateHeight(text, width, typography, measurer);
-        // One line of body text.
-        var oneLine = measurer.LineHeight(typography.Family, typography.FontSize);
-
-        if (isFirstChapter)
-        {
-            // Page 0 is a dedicated cover/metadata page with no story text.
-            pages.Add(new ChapterPage($"c{chapterIndex}-p0", chapterIndex, 0, new IndexRange(0, 0)));
-            pageIndex = 1;
-        }
-
-        while (startIndex < atoms.Count)
-        {
-            var pageMaxHeight = viewportHeight;
-            // Whether this page shows the chapter header.
-            var displaysChapterHeader = showChapterHeader && (isFirstChapter ? pageIndex == 1 : pageIndex == 0);
-            if (displaysChapterHeader) pageMaxHeight = Math.Max(0, viewportHeight - chapterHeaderHeight);
-
-            var reserve = drawnHeight is null ? UncheckedReserve(pageMaxHeight) : Reserve;
-            var isKept = atoms[startIndex].Id == keptId;
-            if (isKept) reachedKept = true;
-            // Pages before the kept one stop short of it.
-            var stop = reachedKept ? null : keptId;
-            var endIndex = startIndex;
-            var includedAny = false;
-            if (pageMaxHeight > 40 && drawnHeight is not null)
-            {
-                endIndex = FitPage(atoms, startIndex, pageMaxHeight, reserve, typography.ParagraphSpacing, oneLine,
-                                   Measure, drawnHeight, stop);
-                includedAny = true;
-            }
-            else if (pageMaxHeight > 40)
-            {
-                endIndex = PackPage(atoms, startIndex, pageMaxHeight - reserve, typography.ParagraphSpacing, oneLine,
-                                    Measure, stop);
-                includedAny = true;
-            }
-
-            IndexRange range;
-            if (includedAny)
-            {
-                range = new IndexRange(startIndex, endIndex + 1);
-                startIndex = endIndex + 1;
-            }
-            else
-            {
-                range = new IndexRange(startIndex, startIndex);
-            }
-
-            pages.Add(new ChapterPage($"c{chapterIndex}-p{pageIndex}", chapterIndex, pageIndex, range,
-                // Spreads pair pages from the chapter's first: an odd page sits on
-                // the right, so the kept page opens a spread of its own.
-                StartsSpread: isKept && includedAny && pageIndex % 2 == 1));
-            pageIndex += 1;
-            // A page area too short for any text (≤ 40) would loop forever; the Swift
-            // only ever gets here with a chapter header taller than the page.
-            if (!includedAny && pageIndex > atoms.Count + 2) break;
-        }
-
-        if (pages.Count == 0)
-            pages.Add(new ChapterPage($"c{chapterIndex}-p0", chapterIndex, 0, new IndexRange(0, 0)));
-        return pages;
+        if (i < 0) return null;
+        return pages.FirstOrDefault(p => p.ChapterIndex == start.Chapter && p.ParagraphIndices.Contains(i));
     }
 
     /// <summary>Packs a page by the quick estimate, then checks it against the drawn
@@ -477,7 +426,7 @@ public static partial class ReaderPaginator
     /// the footer. Most pages need one drawn measurement; a misjudged one bisects the
     /// budget between the fullest packing that fit and the smallest that ran past.
     /// Returns the page's last atom.</summary>
-    private static int FitPage(List<ParagraphAtom> atoms, int start, double pageHeight, double reserve,
+    internal static int FitPage(List<ParagraphAtom> atoms, int start, double pageHeight, double reserve,
                                double paragraphSpacing, double oneLine, Func<ReaderRichText, double> measure,
                                DrawnHeight drawnHeight, Guid? stop)
     {
@@ -558,7 +507,7 @@ public static partial class ReaderPaginator
     /// atom <paramref name="stop"/> (where a kept page starts). May split a sentence
     /// at a line end (the rest becomes a new atom right after it). Returns the page's
     /// last atom.</summary>
-    private static int PackPage(List<ParagraphAtom> atoms, int startIndex, double packingBudget, double paragraphSpacing,
+    internal static int PackPage(List<ParagraphAtom> atoms, int startIndex, double packingBudget, double paragraphSpacing,
                                 double oneLine, Func<ReaderRichText, double> measure, Guid? stop)
     {
         var endIndex = startIndex;
@@ -657,13 +606,67 @@ public static partial class ReaderPaginator
         string authorUsername,
         AO3WorkSummary? summary,
         bool limitLineLength,
-        IReaderTextMeasurer measurer)
+        IReaderTextMeasurer measurer,
+        ChapterAtomsCache? atomsCache = null)
+    {
+        _ = (title, author, authorUsername, summary); // the title page is a page of its own; kept for parity with Swift
+        PaginationResult? result = null;
+        foreach (var step in PaginationSteps(trigger, start, chapters, limitLineLength, measurer, atomsCache))
+            result = step ?? result;
+        return result!;
+    }
+
+    /// <summary><see cref="PerformPagination"/> in slices: it hands the UI thread back
+    /// (<paramref name="pause"/>) once <paramref name="slice"/> of work has run, so
+    /// input, page turns and frames go on while a long one-shot (a thousand pages or
+    /// more, seconds of measuring) paginates; in one go it froze the reader whenever
+    /// the controls toggled or the window resized (#164). Null once
+    /// <paramref name="cancellation"/> is cancelled (a newer trigger). Measuring needs
+    /// the UI thread, so <paramref name="pause"/> must resume on it.</summary>
+    public static async Task<PaginationResult?> PerformPaginationAsync(
+        PaginationTrigger trigger,
+        PageStart? start,
+        IReadOnlyList<AO3ChapterPayload> chapters,
+        bool limitLineLength,
+        IReaderTextMeasurer measurer,
+        ChapterAtomsCache? atomsCache,
+        Func<Task> pause,
+        TimeSpan slice,
+        CancellationToken cancellation)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        foreach (var step in PaginationSteps(trigger, start, chapters, limitLineLength, measurer, atomsCache))
+        {
+            if (step is not null) return step;
+            if (watch.Elapsed >= slice)
+            {
+                await pause();
+                watch.Restart();
+            }
+            if (cancellation.IsCancellationRequested) return null;
+        }
+        return null;
+    }
+
+    /// <summary>Pagination a page at a time: null after each page (and each chapter's
+    /// parsing), then the result.</summary>
+    private static IEnumerable<PaginationResult?> PaginationSteps(
+        PaginationTrigger trigger,
+        PageStart? start,
+        IReadOnlyList<AO3ChapterPayload> chapters,
+        bool limitLineLength,
+        IReaderTextMeasurer measurer,
+        ChapterAtomsCache? atomsCache)
     {
         // Must match the drawn page's column, or pages are measured at one width
         // and drawn at another.
         var w = ReaderMetrics.TextColumnWidth(trigger.Size.Width, trigger.WidthPercent, trigger.FontSize, limitLineLength);
         var h = trigger.Size.Height - 2 * PageVerticalMargin;
-        if (!(w > 50 && h > 100)) return new PaginationResult([], new Dictionary<int, List<ParagraphAtom>>());
+        if (!(w > 50 && h > 100))
+        {
+            yield return new PaginationResult([], new Dictionary<int, List<ParagraphAtom>>());
+            yield break;
+        }
 
         var fontFamily = ReaderFontFamilyExtensions.FromRawValue(trigger.FontFamily) ?? ReaderFontFamily.NewYork;
         var typography = new ReaderTypography(fontFamily, trigger.FontSize, trigger.LineSpacing,
@@ -672,6 +675,7 @@ public static partial class ReaderPaginator
         var targetChapters = new List<int> { trigger.Chapter };
         if (ChapterTracking.AdjacentChapter(order, trigger.Chapter, forward: false) is { } prev) targetChapters.Add(prev);
         if (ChapterTracking.AdjacentChapter(order, trigger.Chapter, forward: true) is { } next) targetChapters.Add(next);
+        atomsCache?.KeepOnly(targetChapters);
 
         var allPages = new List<ChapterPage>();
         var allAtoms = new Dictionary<int, List<ParagraphAtom>>();
@@ -682,21 +686,21 @@ public static partial class ReaderPaginator
             var chapter = chapters.FirstOrDefault(c => c.Index == chIndex);
             if (chapter is null) continue;
 
-            var atoms = Atoms(chapter.BodyHtml, trigger.ShowImages);
-            var titleHeaderHeight = EstimateTitleHeaderHeight(title, author, authorUsername, summary, w,
-                                                              trigger.FontSize, fontFamily, measurer);
+            var atoms = atomsCache?.Atoms(chapter, trigger.ShowImages) ?? Atoms(chapter.BodyHtml, trigger.ShowImages);
+            yield return null;
             var chapterHeaderHeight = EstimateChapterHeaderHeight(chapter.Title, w, trigger.FontSize, fontFamily, measurer);
             var isFirstChapter = chapters.Count > 0 && chIndex == chapters[0].Index;
             var showChapterHeader = chapters.Count > 1;
 
             // Pagination may split a sentence at a line end (see SplitAtomToFit), so
             // the atoms are stored after it — pages index into the split list.
-            var chPages = PaginateChapter(chIndex, atoms, w, h, titleHeaderHeight, chapterHeaderHeight,
-                                          isFirstChapter, showChapterHeader, typography, measurer,
-                                          chIndex == trigger.Chapter || ChecksAdjacentChapters ? drawnHeight : null,
-                                          start?.Chapter == chIndex ? start : null);
+            var run = new ChapterPagination(chIndex, atoms, w, h, chapterHeaderHeight, isFirstChapter, showChapterHeader,
+                                            typography, measurer,
+                                            chIndex == trigger.Chapter || ChecksAdjacentChapters ? drawnHeight : null,
+                                            start?.Chapter == chIndex ? start : null);
+            while (run.PackNextPage()) yield return null;
             allAtoms[chIndex] = atoms;
-            allPages.AddRange(chPages);
+            allPages.AddRange(run.Pages);
         }
 
         string? kept = null;
@@ -705,9 +709,183 @@ public static partial class ReaderPaginator
                 page.ChapterIndex == s.Chapter
                 && allAtoms.TryGetValue(page.ChapterIndex, out var chapterAtoms)
                 && Start(page, chapterAtoms) == s)?.Id;
-        return new PaginationResult(allPages, allAtoms, kept);
+        yield return new PaginationResult(allPages, allAtoms, kept);
     }
 
     [GeneratedRegex("<[^>]+>")]
     private static partial Regex TagRegex();
+}
+
+/// <summary>One chapter's pagination a page at a time (the Swift <c>ChapterPagination</c>),
+/// so the reader can run it in slices (#164). <see cref="ReaderPaginator.PaginateChapter"/>
+/// runs it to the end in one go. Splits sentences in <c>atoms</c> in place, at line
+/// ends; pages index into that list as it stands at the end.</summary>
+public sealed class ChapterPagination
+{
+    private readonly int _chapterIndex;
+    private readonly List<ParagraphAtom> _atoms;
+    private readonly List<ChapterPage> _pages = [];
+    private readonly double _viewportHeight;
+    private readonly double _chapterHeaderHeight;
+    private readonly bool _isFirstChapter;
+    private readonly bool _showChapterHeader;
+    private readonly double _paragraphSpacing;
+    private readonly DrawnHeight? _drawnHeight;
+    private readonly Func<ReaderRichText, double> _measure;
+    /// <summary>One line of body text.</summary>
+    private readonly double _oneLine;
+    private readonly Guid? _keptId;
+    private bool _reachedKept;
+    private int _startIndex;
+    private int _pageIndex;
+    private bool _finished;
+
+    public ChapterPagination(int chapterIndex, List<ParagraphAtom> atoms, double width, double viewportHeight,
+                             double chapterHeaderHeight, bool isFirstChapter, bool showChapterHeader,
+                             ReaderTypography typography, IReaderTextMeasurer measurer,
+                             DrawnHeight? drawnHeight = null, PageStart? startingAt = null)
+    {
+        _chapterIndex = chapterIndex;
+        _atoms = atoms;
+        _viewportHeight = viewportHeight;
+        _chapterHeaderHeight = chapterHeaderHeight;
+        _isFirstChapter = isFirstChapter;
+        _showChapterHeader = showChapterHeader;
+        _paragraphSpacing = typography.ParagraphSpacing;
+        _drawnHeight = drawnHeight;
+        _measure = text => ReaderPaginator.CalculateHeight(text, width, typography, measurer);
+        _oneLine = measurer.LineHeight(typography.Family, typography.FontSize);
+
+        // Re-paginating with a page on screen (the controls shown or hidden, the
+        // narration bar, a resize): a page starts exactly where that one did, so its
+        // first line stays put and the new room shows at its foot. The page before
+        // it may come out short.
+        if (startingAt is { } start)
+        {
+            var i = atoms.FindIndex(a =>
+                a.OriginalParagraphIndex == start.Paragraph && a.SentenceIndex == start.Sentence
+                && start.Offset >= a.SentenceOffset && start.Offset < a.SentenceOffset + a.Text.Length);
+            if (i >= 0)
+            {
+                var k = start.Offset - atoms[i].SentenceOffset;
+                if (k > 0 && ReaderPaginator.SplitAtom(atoms[i], k) is (var head, var tail))
+                {
+                    atoms[i] = head;
+                    atoms.Insert(i + 1, tail);
+                    _keptId = tail.Id;
+                }
+                else
+                {
+                    _keptId = atoms[i].Id;
+                }
+            }
+        }
+        _reachedKept = _keptId is null;
+
+        if (isFirstChapter)
+        {
+            // Page 0 is a dedicated cover/metadata page with no story text.
+            _pages.Add(new ChapterPage($"c{chapterIndex}-p0", chapterIndex, 0, new IndexRange(0, 0)));
+            _pageIndex = 1;
+        }
+    }
+
+    /// <summary>The pages so far; complete once <see cref="PackNextPage"/> returns false
+    /// (a chapter with no text still gets its one empty page).</summary>
+    public IReadOnlyList<ChapterPage> Pages => _pages;
+
+    /// <summary>Packs the next page. False once the chapter is done.</summary>
+    public bool PackNextPage()
+    {
+        if (_finished) return false;
+        if (_startIndex >= _atoms.Count)
+        {
+            Finish();
+            return false;
+        }
+
+        var pageMaxHeight = _viewportHeight;
+        // Whether this page shows the chapter header.
+        var displaysChapterHeader = _showChapterHeader && (_isFirstChapter ? _pageIndex == 1 : _pageIndex == 0);
+        if (displaysChapterHeader) pageMaxHeight = Math.Max(0, _viewportHeight - _chapterHeaderHeight);
+
+        var reserve = _drawnHeight is null ? ReaderPaginator.UncheckedReserve(pageMaxHeight) : ReaderPaginator.Reserve;
+        var isKept = _atoms[_startIndex].Id == _keptId;
+        if (isKept) _reachedKept = true;
+        // Pages before the kept one stop short of it.
+        var stop = _reachedKept ? null : _keptId;
+        var endIndex = _startIndex;
+        var includedAny = false;
+        if (pageMaxHeight > 40 && _drawnHeight is not null)
+        {
+            endIndex = ReaderPaginator.FitPage(_atoms, _startIndex, pageMaxHeight, reserve, _paragraphSpacing, _oneLine,
+                                               _measure, _drawnHeight, stop);
+            includedAny = true;
+        }
+        else if (pageMaxHeight > 40)
+        {
+            endIndex = ReaderPaginator.PackPage(_atoms, _startIndex, pageMaxHeight - reserve, _paragraphSpacing, _oneLine,
+                                                _measure, stop);
+            includedAny = true;
+        }
+
+        IndexRange range;
+        if (includedAny)
+        {
+            range = new IndexRange(_startIndex, endIndex + 1);
+            _startIndex = endIndex + 1;
+        }
+        else
+        {
+            range = new IndexRange(_startIndex, _startIndex);
+        }
+
+        _pages.Add(new ChapterPage($"c{_chapterIndex}-p{_pageIndex}", _chapterIndex, _pageIndex, range,
+            // Spreads pair pages from the chapter's first: an odd page sits on the
+            // right, so the kept page opens a spread of its own.
+            StartsSpread: isKept && includedAny && _pageIndex % 2 == 1));
+        _pageIndex += 1;
+        // A page area too short for any text (≤ 40) would loop forever; the Swift
+        // only ever gets here with a chapter header taller than the page.
+        if (!includedAny && _pageIndex > _atoms.Count + 2)
+        {
+            Finish();
+            return false;
+        }
+        return true;
+    }
+
+    private void Finish()
+    {
+        _finished = true;
+        if (_pages.Count == 0)
+            _pages.Add(new ChapterPage($"c{_chapterIndex}-p0", _chapterIndex, 0, new IndexRange(0, 0)));
+    }
+}
+
+/// <summary>Chapters' atoms as parsed from their HTML, before pagination splits any,
+/// kept for the chapters page-by-page is paginating, so a re-pagination (the controls
+/// toggling, a resize) doesn't parse a long one-shot's HTML again (#164).</summary>
+public sealed class ChapterAtomsCache
+{
+    private readonly Dictionary<int, (string Html, bool IncludeImages, List<ParagraphAtom> Atoms)> _entries = [];
+
+    /// <summary>A copy of the chapter's atoms (pagination splits the list it's given).</summary>
+    public List<ParagraphAtom> Atoms(AO3ChapterPayload chapter, bool includeImages)
+    {
+        if (!_entries.TryGetValue(chapter.Index, out var entry) || entry.IncludeImages != includeImages
+            || !ReferenceEquals(entry.Html, chapter.BodyHtml) && entry.Html != chapter.BodyHtml)
+        {
+            entry = (chapter.BodyHtml, includeImages, ReaderPaginator.Atoms(chapter.BodyHtml, includeImages));
+            _entries[chapter.Index] = entry;
+        }
+        return [.. entry.Atoms];
+    }
+
+    /// <summary>Forgets every chapter but these.</summary>
+    public void KeepOnly(IEnumerable<int> chapters)
+    {
+        var keep = chapters.ToHashSet();
+        foreach (var key in _entries.Keys.Where(k => !keep.Contains(k)).ToList()) _entries.Remove(key);
+    }
 }
