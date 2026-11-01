@@ -634,20 +634,20 @@ final class ReaderPaginationTests: XCTestCase {
     }
 
     func test_pacer_stopsOnceCancelled() async {
-        let task = Task { @MainActor () -> Int in
+        // Running: every pause (each one a short sleep, with no slice) goes on.
+        var pacer = PaginationPacer(slice: .zero)
+        let first = await pacer.pause()
+        let second = await pacer.pause()
+        XCTAssertTrue(first && second, "a running pagination stopped")
+        // Cancelled (a newer trigger): the next pause stops it. The task can't
+        // start before this test suspends, so it's cancelled by then.
+        let task = Task { @MainActor () -> Bool in
             var pacer = PaginationPacer(slice: .zero)
-            var slices = 0
-            while await pacer.pause() {
-                slices += 1
-                if slices > 10_000 { break }
-            }
-            return slices
+            return await pacer.pause()
         }
-        try? await Task.sleep(nanoseconds: 20_000_000)
         task.cancel()
-        let slices = await task.value
-        XCTAssertGreaterThan(slices, 0, "it ran until cancelled")
-        XCTAssertLessThan(slices, 10_000, "it stopped when cancelled")
+        let goesOn = await task.value
+        XCTAssertFalse(goesOn, "a cancelled pagination went on")
     }
 }
 
