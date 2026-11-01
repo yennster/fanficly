@@ -814,12 +814,15 @@ struct SearchView: View {
             ))
         }
         try? context.save()
+        // Refreshes the Saved Searches widget too (#165).
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     private func delete(_ saved: SavedSearch) {
         iCloudSyncManager.recordDeletion(.search, key: saved.name)
         context.delete(saved)
         try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     /// Switches a saved search's new-fic alerts (#309) on or off, up to

@@ -136,7 +136,9 @@ updates the per-ID anchor, existing `Work.lastRead*`, the streak, and the last-r
 widget (only when a progress fraction is supplied). It does not rebuild the library
 widgets' snapshots: saves come every 1.5 s while reading and those lists show nothing
 a place changes (#165). `WidgetDataStore.updateAll` reloads only the four library
-widget kinds and caps each list at `WidgetDataStore.listLimit` (20).
+widget kinds and caps saved searches, subscriptions and recommendations at `WidgetDataStore.listLimit` (20).
+A library change that only calls `context.save()` therefore leaves those widgets stale
+until the next `queueBackup`: call `queueBackup` (or `updateAll`) after it.
 Chapter indices are one-based; paragraph indices
 are zero-based. Keep those indices aligned between parsing, rendering, speech,
 pagination, saved anchors, and resume URLs.
