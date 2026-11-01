@@ -108,7 +108,7 @@ public static class ShareService
             TypedEventHandler<DataTransferManager, DataRequestedEventArgs>? handler = null;
             handler = (sender, args) =>
             {
-                sender.DataRequested -= handler;
+                manager.DataRequested -= handler;
                 if (_pending is { } p && p.Handler == handler) _pending = null;
                 fill(args.Request);
             };
@@ -144,12 +144,20 @@ public static class ShareService
             request.Data.Properties.Description = $"Check out this story: {title}";
             request.Data.SetWebLink(url);
             request.Data.SetText($"Check out this story: {title}\n{url}");
-        }, _ =>
+        }, e =>
         {
-            var package = new DataPackage();
-            package.SetText(url.ToString());
-            Clipboard.SetContent(package);
-            MainWindow.Current?.ShowMessage("Link copied", title, InfoBarSeverity.Success);
+            try
+            {
+                var package = new DataPackage();
+                package.SetText(url.ToString());
+                Clipboard.SetContent(package);
+                MainWindow.Current?.ShowMessage("Link copied", title, InfoBarSeverity.Success);
+            }
+            catch (Exception copyError)
+            {
+                AppHost.Log($"Copy link failed: {copyError.Message}");
+                MainWindow.Current?.ShowMessage("Couldn't open Share", e.Message, InfoBarSeverity.Error);
+            }
         });
     }
 
