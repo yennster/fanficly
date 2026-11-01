@@ -1733,8 +1733,8 @@ struct ReaderView: View {
         // A live resize (dragging a Mac or Stage Manager window's edge) sends
         // a new width every frame: wait for it to rest before measuring a
         // thing, as every new size cancels this task (#164). A height change
-        // (the controls or the narration bar) refits at once, so text never
-        // sits under them.
+        // (the controls or the narration bar) starts refitting at once; a
+        // long one-shot's old pages stay up, turning, until it's done.
         let repaginating = !paginatedPages.isEmpty
         if repaginating, let width = paginatedWidth, abs(width - trigger.size.width) > 0.5 {
             try? await Task.sleep(nanoseconds: 120_000_000)
@@ -1751,6 +1751,7 @@ struct ReaderView: View {
         // Keep the page on screen in place, when it's in this chapter (a
         // chapter jump re-paginates from the new chapter's start).
         let start = !repaginating ? nil : pageStart.flatMap { $0.chapter == trigger.chapter ? $0 : nil }
+        let startedFrom = pageStart
         // A newer trigger (a resize mid-pagination, e.g. the sidebar
         // collapsing) cancels this task; applying its now-stale pages after
         // the newer ones produced pages taller than the screen.
@@ -1767,9 +1768,18 @@ struct ReaderView: View {
         // Pages turned while a long chapter re-paginated: stay on the page
         // reached, not the one the pagination started from.
         var kept = result.keptPageId
-        if repaginating, let moved = pageStart, moved != start, moved.chapter == trigger.chapter,
-           let atoms = result.atoms[moved.chapter] {
-            kept = ReaderPaginator.page(containing: moved, in: result.pages, atoms: atoms)?.id ?? kept
+        let moved = repaginating && pageStart != startedFrom
+        if moved {
+            if let place = pageStart {
+                kept = place.chapter == trigger.chapter
+                    ? result.atoms[place.chapter].flatMap {
+                        ReaderPaginator.page(containing: place, in: result.pages, atoms: $0)?.id
+                    } ?? kept
+                    : nil
+            } else {
+                // Back on the work's title page, which has no text to start at.
+                kept = result.pages.first { $0.chapterIndex == trigger.chapter && $0.paragraphIndices.isEmpty }?.id
+            }
         }
 
         isRestoring = true
@@ -1779,6 +1789,14 @@ struct ReaderView: View {
         paginatedWidth = trigger.size.width
 
         restoreOrValidatePageSelection(keeping: kept)
+        // The page kept holds the place reached but needn't start there, and
+        // with an unchanged id selecting it doesn't update pageStart: do it
+        // here, or the next re-pagination breaks a page mid-way through it.
+        if moved, let page = paginatedPages.first(where: { $0.id == selectedPageId }) {
+            let shown = spreadLayout == nil ? page
+                : ReaderSpread.spreads(from: paginatedPages).first(where: { $0.contains(page.id) })?.left ?? page
+            pageStart = start(of: shown)
+        }
     }
 
     private func handlePageIdChange(_ pageId: String) {
