@@ -81,6 +81,20 @@ public static class WidgetDataStore
     public const string SubscriptionsKey = "widget.subscriptions";
     public const string RecommendationsKey = "widget.recommendations";
 
+    /// <summary>The kinds of the widgets these lists feed (the Swift widget
+    /// kinds). The last-read and streak widgets have their own stores, which
+    /// reload them, so a library change leaves them alone (#165).</summary>
+    public const string SubscriptionsWidgetKind = "FanficlySubscriptionsWidget";
+    public const string FolderShortcutWidgetKind = "FanficlyFolderShortcutWidget";
+    public const string SavedSearchesWidgetKind = "FanficlySavedSearchesWidget";
+    public const string RecommendationWidgetKind = "FanficlyRecommendationWidget";
+    public static readonly IReadOnlyList<string> LibraryWidgetKinds =
+        [SubscriptionsWidgetKind, FolderShortcutWidgetKind, SavedSearchesWidgetKind, RecommendationWidgetKind];
+
+    /// <summary>The most entries a widget list keeps; the recommendation widget
+    /// picks one from its list.</summary>
+    public const int ListLimit = 20;
+
     /// <summary>Test seams; null uses <see cref="KeyValueStores.Default"/> and
     /// <see cref="AppGroupStore.Shared"/>.</summary>
     internal static IKeyValueStore? LocalOverride { get; set; }
@@ -115,7 +129,7 @@ public static class WidgetDataStore
         UpdateFolders(sources.Folders);
         UpdateSubscriptions(sources.Works, sources.Subscriptions, now);
         UpdateRecommendations(sources.Works);
-        WidgetCenter.ReloadAllTimelines();
+        foreach (var kind in LibraryWidgetKinds) WidgetCenter.ReloadTimelines(kind);
     }
 
     public static void UpdateSavedSearches(IEnumerable<WidgetSavedSearchSource> searches, IEnumerable<WidgetSavedFilterSource> filters) =>
@@ -139,7 +153,7 @@ public static class WidgetDataStore
         var list = new List<WidgetSavedSearch>();
         list.AddRange(searches.OrderByDescending(s => s.SavedAt).Select(s => new WidgetSavedSearch(s.Name, s.Prompt, false)));
         list.AddRange(filters.OrderByDescending(f => f.SavedAt).Select(f => new WidgetSavedSearch(f.Name, f.FiltersJson, true)));
-        return list.Take(20).ToList();
+        return list.Take(ListLimit).ToList();
     }
 
     /// <summary>Folders, newest first.</summary>
@@ -164,16 +178,18 @@ public static class WidgetDataStore
             if (list.Any(u => u.WorkId == workId)) continue;
             list.Add(new WidgetSubscriptionUpdate(workId, s.DisplayName, s.AuthorName, s.LastSeenChapterCount ?? 0, false, s.LastCheckedAt ?? now));
         }
-        return list.OrderByDescending(u => u.UpdatedAt).Take(20).ToList();
+        return list.OrderByDescending(u => u.UpdatedAt).Take(ListLimit).ToList();
     }
 
-    /// <summary>Every saved work — starred first, then pinned, then newest saved —
-    /// with its summary as plain text (≤ 180 characters) and up to three key tags.</summary>
+    /// <summary>The top saved works — starred first, then pinned, then newest
+    /// saved; at most 20 (only those are stripped and encoded) — with each
+    /// summary as plain text (≤ 180 characters) and up to three key tags.</summary>
     public static IReadOnlyList<WidgetRecommendation> BuildRecommendations(IEnumerable<WidgetWorkSource> works) =>
         works
             .OrderByDescending(w => w.IsStarred)
             .ThenByDescending(w => w.IsPinned)
             .ThenByDescending(w => w.SavedAt)
+            .Take(ListLimit)
             .Select(w =>
             {
                 // Strip HTML tags from the summary for the widget preview.

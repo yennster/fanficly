@@ -24,7 +24,9 @@ public static class ReadingProgressStore
     /// <c>LastRead*</c> fields, and — when <paramref name="progress"/> is known —
     /// feeds the last-read widget store with the same timestamp (so a resume
     /// tap on this device always ties, never overrides). Also records a
-    /// reading event for the streak and refreshes the widget data.</summary>
+    /// reading event for the streak. It doesn't rebuild the library widgets'
+    /// data: saves come every 1.5 s while reading and those lists show nothing
+    /// a place changes (#165).</summary>
     public static void Save(int ao3Id, int chapter, int paragraph, string title, string author,
                             LibraryStore store, double? progress = null, bool syncWidgetImmediately = false)
     {
@@ -58,7 +60,6 @@ public static class ReadingProgressStore
         }
 
         LibraryHooks.RecordReadingEvent?.Invoke();
-        LibraryHooks.UpdateWidgetData?.Invoke(store);
     }
 }
 
