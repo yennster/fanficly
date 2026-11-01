@@ -85,6 +85,13 @@ struct ReaderView: View {
     /// The two-page spread geometry while one is showing (nil = one page).
     @State private var spreadLayout: ReaderSpread.Layout?
     @State private var parsedAtoms: [Int: [ParagraphAtom]] = [:]
+    /// Chapters' atoms as parsed from their HTML, before pagination splits
+    /// any: a re-pagination (the controls toggling, a resize) reuses them
+    /// instead of parsing a long one-shot's HTML again (#164).
+    @State private var sourceAtoms = ChapterAtomsCache()
+    /// The page width the pages on screen were made for; see the
+    /// live-resize wait in handlePaginationTrigger.
+    @State private var paginatedWidth: CGFloat?
     @State private var stableWidth: CGFloat = 0
     @State private var stableHeight: CGFloat = 0
     /// The page area pages are measured for: the page container's height as
@@ -1722,36 +1729,56 @@ struct ReaderView: View {
         if trigger.chapter != selectedChapterIndex {
             return
         }
-        
-        await MainActor.run {
+
+        // A live resize (dragging a Mac or Stage Manager window's edge) sends
+        // a new width every frame: wait for it to rest before measuring a
+        // thing, as every new size cancels this task (#164). A height change
+        // (the controls or the narration bar) refits at once, so text never
+        // sits under them.
+        let repaginating = !paginatedPages.isEmpty
+        if repaginating, let width = paginatedWidth, abs(width - trigger.size.width) > 0.5 {
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+        }
+
+        // The first pages of a story show a spinner until they're ready; a
+        // re-pagination keeps the old pages up and turning meanwhile, so the
+        // reader's place and progress keep up with them.
+        if !repaginating {
             isRestoring = true
         }
 
         // Keep the page on screen in place, when it's in this chapter (a
         // chapter jump re-paginates from the new chapter's start).
-        let start = paginatedPages.isEmpty ? nil : pageStart.flatMap { $0.chapter == trigger.chapter ? $0 : nil }
-        let result = await performPagination(trigger: trigger, start: start)
+        let start = !repaginating ? nil : pageStart.flatMap { $0.chapter == trigger.chapter ? $0 : nil }
         // A newer trigger (a resize mid-pagination, e.g. the sidebar
         // collapsing) cancels this task; applying its now-stale pages after
         // the newer ones produced pages taller than the screen.
-        guard !Task.isCancelled else { return }
-        await MainActor.run {
-            guard !Task.isCancelled else { return }
-            var activeChapters = Set<Int>()
-            activeChapters.insert(selectedChapterIndex)
-            if let prev = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: false) {
-                activeChapters.insert(prev)
-            }
-            if let next = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: true) {
-                activeChapters.insert(next)
-            }
-            
-            self.parsedAtoms = self.parsedAtoms.filter { activeChapters.contains($0.key) }
-            self.parsedAtoms.merge(result.atoms) { _, new in new }
-            self.paginatedPages = result.pages
-            
-            restoreOrValidatePageSelection(keeping: result.keptPageId)
+        guard let result = await performPagination(trigger: trigger, start: start), !Task.isCancelled else { return }
+        var activeChapters = Set<Int>()
+        activeChapters.insert(selectedChapterIndex)
+        if let prev = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: false) {
+            activeChapters.insert(prev)
         }
+        if let next = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: true) {
+            activeChapters.insert(next)
+        }
+
+        // Pages turned while a long chapter re-paginated: stay on the page
+        // reached, not the one the pagination started from.
+        var kept = result.keptPageId
+        if repaginating, let moved = pageStart, moved != start, moved.chapter == trigger.chapter,
+           let atoms = result.atoms[moved.chapter] {
+            kept = ReaderPaginator.page(containing: moved, in: result.pages, atoms: atoms)?.id ?? kept
+        }
+
+        isRestoring = true
+        self.parsedAtoms = self.parsedAtoms.filter { activeChapters.contains($0.key) }
+        self.parsedAtoms.merge(result.atoms) { _, new in new }
+        self.paginatedPages = result.pages
+        paginatedWidth = trigger.size.width
+
+        restoreOrValidatePageSelection(keeping: kept)
     }
 
     private func handlePageIdChange(_ pageId: String) {
@@ -2109,7 +2136,7 @@ struct ReaderView: View {
             .first { $0.isKeyWindow }
     }
 
-    private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult {
+    private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult? {
         // Must match `makePageCell`'s column, or pages are measured at one
         // width and drawn at another.
         let w = ReaderMetrics.textColumnPlacement(containerWidth: trigger.size.width,
@@ -2141,20 +2168,19 @@ struct ReaderView: View {
             lineSpacing: CGFloat(trigger.lineSpacing), paragraphSpacing: CGFloat(trigger.paragraphSpacing),
             kerning: CGFloat(trigger.kerning), boldText: trigger.boldText)
         
+        // Measuring runs on the main actor (it lays pages out in SwiftUI), so
+        // it runs in slices with a pause between them: a long one-shot is a
+        // thousand pages, seconds of work, and in one go it froze the reader
+        // whenever the controls toggled or the window resized (#164). A
+        // newer trigger cancels this one at the next pause.
+        var pacer = PaginationPacer()
+        sourceAtoms.keep(only: Set(targetChapters))
+
         for chIndex in targetChapters.sorted() {
             guard let chapter = chapters.first(where: { $0.index == chIndex }) else { continue }
-            
-            var atoms = ReaderPaginator.atoms(fromChapterHTML: chapter.bodyHTML, includeImages: trigger.showImages)
-            let titleHeaderHeight = ReaderPaginator.estimateTitleHeaderHeight(
-                title: title,
-                author: author,
-                authorUsername: authorUsername,
-                summary: summary,
-                width: w,
-                fontSize: CGFloat(trigger.fontSize),
-                fontFamily: fontFamily
-            )
-            
+
+            let atoms = sourceAtoms.atoms(for: chapter, includeImages: trigger.showImages)
+            guard await pacer.pause() else { return nil }
             let chapterHeaderHeight = ReaderPaginator.estimateChapterHeaderHeight(
                 title: chapter.title,
                 width: w,
@@ -2167,12 +2193,11 @@ struct ReaderView: View {
             
             // Pagination may split a sentence at a line end (see splitAtomToFit),
             // so the atoms are stored after it — pages index into the split list.
-            let chPages = ReaderPaginator.paginateChapter(
+            var run = ChapterPagination(
                 chapterIndex: chIndex,
-                atoms: &atoms,
+                atoms: atoms,
                 width: w,
                 viewportHeight: h,
-                titleHeaderHeight: titleHeaderHeight,
                 chapterHeaderHeight: chapterHeaderHeight,
                 isFirstChapter: isFirstChapter,
                 showChapterHeader: showChapterHeader,
@@ -2185,9 +2210,12 @@ struct ReaderView: View {
                 drawnHeight: chIndex == trigger.chapter || ReaderPaginator.checksAdjacentChapters ? drawnHeight : nil,
                 startingAt: start?.chapter == chIndex ? start : nil
             )
+            while run.packNextPage() {
+                guard await pacer.pause() else { return nil }
+            }
 
-            allAtoms[chIndex] = atoms
-            allPages.append(contentsOf: chPages)
+            allAtoms[chIndex] = run.atoms
+            allPages.append(contentsOf: run.pages)
         }
         
         let kept = start.flatMap { start in

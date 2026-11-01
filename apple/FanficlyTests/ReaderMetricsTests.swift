@@ -557,6 +557,98 @@ final class ReaderPaginationTests: XCTestCase {
             }
         }
     }
+
+    func test_pagesTurnedWhileRepaginating_stayOnThePageReached() throws {
+        // A long one-shot re-paginates in slices while the old pages stay up
+        // and turning (#164). The new pages break where the page on screen was
+        // when it started; the page the reader turned to since is found in them.
+        try forEachLayout { _, type, layout, label in
+            let before = paginate(type, layout)
+            let started = before.pages[before.pages.count / 3]
+            let reached = before.pages[before.pages.count * 2 / 3]
+            let start = try XCTUnwrap(ReaderPaginator.start(of: started, atoms: before.atoms))
+            let moved = try XCTUnwrap(ReaderPaginator.start(of: reached, atoms: before.atoms))
+            let resized = Layout(columnWidth: layout.columnWidth,
+                                 viewportHeight: layout.viewportHeight - Self.controlsHeight,
+                                 pagesOnScreen: layout.pagesOnScreen)
+            let after = paginate(type, resized, startingAt: start)
+            let page = try XCTUnwrap(ReaderPaginator.page(containing: moved, in: after.pages, atoms: after.atoms),
+                                     "\(label): no page holds the place reached")
+            // The page found starts at or before the place reached, and the
+            // next one after it.
+            func key(_ s: PageStart) -> (Int, Int, Int) { (s.paragraph, s.sentence, s.offset) }
+            let pageStart = try XCTUnwrap(ReaderPaginator.start(of: page, atoms: after.atoms))
+            XCTAssertTrue(key(pageStart) <= key(moved), "\(label): the page found starts after the place reached")
+            if let i = after.pages.firstIndex(of: page), i + 1 < after.pages.count {
+                let next = try XCTUnwrap(ReaderPaginator.start(of: after.pages[i + 1], atoms: after.atoms))
+                XCTAssertTrue(key(next) > key(moved), "\(label): the place reached is on a later page")
+            }
+        }
+    }
+
+    func test_steppingAChapter_paginatesItAsInOneGo() {
+        // ReaderView runs a chapter's pagination a page at a time, pausing
+        // between slices; that must make exactly the pages paginateChapter does.
+        let type = Self.typographies[0]
+        let layout = layout(Self.devices[1], type)
+        let whole = paginate(type, layout, isFirstChapter: true)
+        let header = ReaderPaginator.estimateChapterHeaderHeight(
+            title: "The Long Way Round", width: layout.columnWidth, fontSize: type.fontSize, fontFamily: type.family)
+        var run = ChapterPagination(
+            chapterIndex: 1, atoms: ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false),
+            width: layout.columnWidth, viewportHeight: layout.viewportHeight, chapterHeaderHeight: header,
+            isFirstChapter: true, showChapterHeader: true, fontSize: type.fontSize, fontFamily: type.family,
+            lineSpacing: type.lineSpacing, paragraphSpacing: type.paragraphSpacing, kerning: type.kerning,
+            boldText: type.bold, drawnHeight: drawn(type, layout), startingAt: nil)
+        var steps = 0
+        while run.packNextPage() { steps += 1 }
+        XCTAssertFalse(run.packNextPage(), "a finished pagination stays finished")
+        XCTAssertEqual(run.pages, whole.pages)
+        XCTAssertEqual(run.atoms.map(\.text), whole.atoms.map(\.text))
+        // One step a page of text (the title page comes with the first).
+        XCTAssertEqual(steps, whole.pages.count - 1)
+    }
+
+    func test_aChapterWithNoText_stillGetsItsPage() {
+        var run = ChapterPagination(
+            chapterIndex: 3, atoms: [], width: 300, viewportHeight: 500, chapterHeaderHeight: 60,
+            isFirstChapter: false, showChapterHeader: true, fontSize: 17, fontFamily: .newYork,
+            lineSpacing: 4, paragraphSpacing: 12, kerning: 0, boldText: false, drawnHeight: nil, startingAt: nil)
+        XCTAssertFalse(run.packNextPage())
+        XCTAssertEqual(run.pages.map(\.id), ["c3-p0"])
+    }
+
+    func test_parsedAtoms_areReusedUntilTheChapterChanges() {
+        let cache = ChapterAtomsCache()
+        let chapter = AO3ChapterPayload(index: 1, title: "", bodyHTML: "<p>One. Two.</p><p>Three.</p>")
+        let first = cache.atoms(for: chapter, includeImages: false)
+        XCTAssertEqual(first.count, 3)
+        XCTAssertEqual(cache.atoms(for: chapter, includeImages: false).map(\.id), first.map(\.id), "parsed again")
+        XCTAssertNotEqual(cache.atoms(for: chapter, includeImages: true).map(\.id), first.map(\.id),
+                          "the images setting changes paragraph indices, so it parses again")
+        let edited = AO3ChapterPayload(index: 1, title: "", bodyHTML: "<p>One.</p>")
+        XCTAssertEqual(cache.atoms(for: edited, includeImages: false).count, 1)
+        let kept = cache.atoms(for: edited, includeImages: false).map(\.id)
+        cache.keep(only: [2])
+        XCTAssertNotEqual(cache.atoms(for: edited, includeImages: false).map(\.id), kept, "forgotten chapter kept")
+    }
+
+    func test_pacer_stopsOnceCancelled() async {
+        let task = Task { @MainActor () -> Int in
+            var pacer = PaginationPacer(slice: .zero)
+            var slices = 0
+            while await pacer.pause() {
+                slices += 1
+                if slices > 10_000 { break }
+            }
+            return slices
+        }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        task.cancel()
+        let slices = await task.value
+        XCTAssertGreaterThan(slices, 0, "it ran until cancelled")
+        XCTAssertLessThan(slices, 10_000, "it stopped when cancelled")
+    }
 }
 
 
