@@ -33,6 +33,36 @@ public class WidgetDataStoreTests
         }
     }
 
+    /// <summary>The app's path: the shared sync manager's
+    /// <see cref="LibrarySyncManager.QueueBackup"/> (sync off) skips the rebuild
+    /// for reading saves too, and still rebuilds for a library change.</summary>
+    [Fact]
+    public void ReadingPositionSavesDontRebuildWidgetData_ThroughTheSyncManager()
+    {
+        var previousHook = LibraryHooks.UpdateWidgetData;
+        var previousShared = LibrarySyncManager.Shared;
+        var rebuilds = 0;
+        LibraryHooks.UpdateWidgetData = _ => rebuilds++;
+        LibrarySyncManager.Shared = new LibrarySyncManager(new InMemoryKeyValueStore());
+        try
+        {
+            using var store = LibraryStore.OpenInMemory();
+            store.Changed += _ => LibrarySyncManager.QueueBackupShared(store);
+
+            ReadingProgressStore.Save(1, chapter: 1, paragraph: 4, title: "T", author: "A", store);
+            Assert.Equal(0, rebuilds);
+
+            store.Insert(new SavedSearch("S", "slow burn"));
+            store.Save();
+            Assert.Equal(1, rebuilds);
+        }
+        finally
+        {
+            LibraryHooks.UpdateWidgetData = previousHook;
+            LibrarySyncManager.Shared = previousShared;
+        }
+    }
+
     /// <summary>Rebuilding the library widgets' data reloads those four
     /// widgets, not Continue reading or the streak (#165).</summary>
     [Fact]
@@ -41,7 +71,10 @@ public class WidgetDataStoreTests
         WidgetDataStore.LocalOverride = new InMemoryKeyValueStore();
         WidgetDataStore.SharedOverride = new InMemoryKeyValueStore();
         var reloaded = new List<string?>();
-        void Record(string? kind) => reloaded.Add(kind);
+        // Only this thread's reloads: a last-read reload an earlier test
+        // scheduled can still land on the thread pool.
+        var thread = Environment.CurrentManagedThreadId;
+        void Record(string? kind) { if (Environment.CurrentManagedThreadId == thread) reloaded.Add(kind); }
         WidgetCenter.ReloadRequested += Record;
         try
         {

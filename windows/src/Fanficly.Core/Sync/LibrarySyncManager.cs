@@ -45,8 +45,11 @@ public sealed class LibrarySyncManager
     /// either way) — what every library mutation calls.</summary>
     public static void QueueBackupShared(LibraryStore store)
     {
-        if (Shared is { } manager) manager.QueueBackup(store, readingActivity: InReadingActivity);
-        else if (!InReadingActivity) LibraryHooks.UpdateWidgetData?.Invoke(store);
+        // A reading save that also wrote a failed save's library change counts
+        // as that change (#165).
+        var readingActivity = InReadingActivity && !store.RetriedFailedChanges;
+        if (Shared is { } manager) manager.QueueBackup(store, readingActivity);
+        else if (!readingActivity) LibraryHooks.UpdateWidgetData?.Invoke(store);
     }
 
     [ThreadStatic] private static int t_readingActivity;
