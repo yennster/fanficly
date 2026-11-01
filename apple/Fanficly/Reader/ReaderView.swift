@@ -1795,7 +1795,7 @@ struct ReaderView: View {
         if moved, let page = paginatedPages.first(where: { $0.id == selectedPageId }) {
             let shown = spreadLayout == nil ? page
                 : ReaderSpread.spreads(from: paginatedPages).first(where: { $0.contains(page.id) })?.left ?? page
-            pageStart = start(of: shown)
+            pageStart = self.start(of: shown)
         }
     }
 
