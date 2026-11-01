@@ -2,7 +2,6 @@ using Fanficly.App.Shell;
 using Fanficly.App.UI;
 using Fanficly.Core;
 using Microsoft.UI.Xaml.Controls;
-using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 
@@ -69,7 +68,7 @@ internal sealed class WorkExporter
             var path = await AppHost.Client.ExportWorkAsync(workId, format, title);
             var file = await StorageFile.GetFileFromPathAsync(path);
             if (saveAs) await SaveCopyAsync(file, title, format);
-            else ShareService.Share(file, title);
+            else Library.ShareService.ShareFile(file, title);
         }
         catch (Exception e)
         {
@@ -103,33 +102,5 @@ internal sealed class WorkExporter
         var invalid = Path.GetInvalidFileNameChars();
         var cleaned = new string(title.Select(c => invalid.Contains(c) ? ' ' : c).ToArray()).Trim();
         return cleaned.Length == 0 ? "Work" : cleaned;
-    }
-}
-
-/// <summary>Windows' share sheet for a file, from the app window (ShareSheet).</summary>
-internal static class ShareService
-{
-    private static DataTransferManager? _manager;
-    private static (StorageFile File, string Title)? _pending;
-
-    public static void Share(StorageFile file, string title)
-    {
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(MainWindow.Current);
-        if (_manager is null)
-        {
-            _manager = DataTransferManagerInterop.GetForWindow(hwnd);
-            _manager.DataRequested += OnDataRequested;
-        }
-        _pending = (file, title);
-        DataTransferManagerInterop.ShowShareUIForWindow(hwnd);
-    }
-
-    private static void OnDataRequested(DataTransferManager sender, DataRequestedEventArgs args)
-    {
-        if (_pending is not { } pending) return;
-        var data = args.Request.Data;
-        data.Properties.Title = pending.Title.Length == 0 ? pending.File.Name : pending.Title;
-        data.Properties.Description = pending.File.Name;
-        data.SetStorageItems([pending.File]);
     }
 }
