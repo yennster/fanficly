@@ -121,6 +121,8 @@ struct SubscriptionPoller {
             logger.warning("Subscriptions list ran past the page ceiling; kept the records it didn't reach")
         }
         try? context.save()
+        // Reading no longer rebuilds the widgets, so the list sync does (#165).
+        WidgetDataStore.updateAll(context: context)
         return fresh
     }
 
@@ -131,6 +133,7 @@ struct SubscriptionPoller {
             notifyCount += await checkWorkSubscription(rec)
         }
         try? context.save()
+        WidgetDataStore.updateAll(context: context)
         return notifyCount
     }
 

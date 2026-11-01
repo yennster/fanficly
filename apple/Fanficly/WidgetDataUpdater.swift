@@ -6,6 +6,10 @@ import WidgetKit
 
 extension WidgetDataStore {
 
+    /// Rebuilds the library widgets' snapshots after a library change and
+    /// reloads only those widgets. Reading progress doesn't call this: the
+    /// last-read widget is `WidgetProgressStore`'s, and nothing these lists
+    /// show changes when a reader saves its place (#165).
     @MainActor
     public static func updateAll(context: ModelContext) {
         updateSavedSearches(context: context)
@@ -14,7 +18,9 @@ extension WidgetDataStore {
         updateRecommendations(context: context)
         
         #if canImport(WidgetKit)
-        WidgetCenter.shared.reloadAllTimelines()
+        for kind in libraryWidgetKinds {
+            WidgetCenter.shared.reloadTimelines(ofKind: kind)
+        }
         #endif
     }
 
@@ -38,9 +44,8 @@ extension WidgetDataStore {
             }
         }
         
-        // Limit to top 20
-        if list.count > 20 {
-            list = Array(list.prefix(20))
+        if list.count > listLimit {
+            list = Array(list.prefix(listLimit))
         }
         
         saveLocal(list, forKey: savedSearchesKey)
@@ -108,8 +113,8 @@ extension WidgetDataStore {
         // Sort by update date descending
         list.sort(by: { $0.updatedAt > $1.updatedAt })
         
-        if list.count > 20 {
-            list = Array(list.prefix(20))
+        if list.count > listLimit {
+            list = Array(list.prefix(listLimit))
         }
         
         saveLocal(list, forKey: subscriptionsKey)
@@ -135,7 +140,8 @@ extension WidgetDataStore {
                 }
                 return w1.savedAt > w2.savedAt
             }
-            for w in works {
+            // Only the top of the list is kept, so only it is stripped and encoded.
+            for w in works.prefix(listLimit) {
                 // Strip HTML tags from summary for widget preview
                 let cleanSummary = w.summary
                     .replacingOccurrences(of: "<[^>]+>", with: "", options: String.CompareOptions.regularExpression)

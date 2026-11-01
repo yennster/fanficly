@@ -38,6 +38,7 @@ final class WorkSubscriber {
                 record.lastSeenChapterCount = chapterCount
                 context.insert(record)
                 try? context.save()
+                WidgetDataStore.updateAll(context: context)
             }
             isSubscribed = true
             result = (title: "Subscribed on AO3", message: "AO3 will email you when this work updates.")

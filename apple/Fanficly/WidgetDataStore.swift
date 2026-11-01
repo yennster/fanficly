@@ -84,6 +84,21 @@ public enum WidgetDataStore {
     public static let subscriptionsKey = "widget.subscriptions"
     public static let recommendationsKey = "widget.recommendations"
 
+    /// The kinds of the widgets these snapshots feed. The last-read and streak
+    /// widgets have their own stores (`WidgetProgressStore`, `StreakStore`),
+    /// which reload them, so a library change leaves them alone (#165).
+    public static let subscriptionsWidgetKind = "FanficlySubscriptionsWidget"
+    public static let folderShortcutWidgetKind = "FanficlyFolderShortcutWidget"
+    public static let savedSearchesWidgetKind = "FanficlySavedSearchesWidget"
+    public static let recommendationWidgetKind = "FanficlyRecommendationWidget"
+    public static let libraryWidgetKinds = [
+        subscriptionsWidgetKind, folderShortcutWidgetKind,
+        savedSearchesWidgetKind, recommendationWidgetKind,
+    ]
+    /// The most entries a widget list keeps; the recommendation widget picks
+    /// one at random from its list.
+    public static let listLimit = 20
+
     public static func loadLocalSavedSearches() -> [WidgetSavedSearch] {
         loadLocal(forKey: savedSearchesKey) ?? []
     }

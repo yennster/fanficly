@@ -1490,6 +1490,8 @@ final class iCloudSyncManager {
             Self.applyDeletions(tombstones, backup: backup, context: context)
 
             try context.save()
+            // The library widgets show the restored library (#165).
+            WidgetDataStore.updateAll(context: context)
             RestoreDownloadCenter.shared.noteRestoredText(workIds: textRestored)
             // Restored works skip upsertMetadata, so they reach Spotlight here.
             WorkPersistence.indexLibrary(context: context)
