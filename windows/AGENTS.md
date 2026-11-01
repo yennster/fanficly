@@ -203,11 +203,12 @@ windows/
     Views/
       Tabs.cs, Routes.cs       # the registries
       Search/                  # SearchScreen, WorkFilterSheet, SearchChips,
-                               #   SearchHelp (tips), ShareLink
+                               #   SearchHelp (tips)
       Browse/                  # Browse, category fandoms, filtered works,
                                #   Popular; LibraryChanges
       Library/                 # Library, folders, rows, sort menu, actions,
-                               #   restore banner, helpers
+                               #   restore banner, helpers (ShareService: every
+                               #   share goes through its one-shot Share)
       History/                 # Recently Viewed
       Authors/                 # author works (Follow), followed authors,
                                #   a series' works (SeriesScreen)

@@ -82,35 +82,59 @@ public static class RelativeDate
 /// <summary>
 /// Windows' share sheet (the Swift <c>ShareLink</c> / <c>ShareSheet</c>):
 /// DataTransferManager for this window, filled when Windows asks.
+///
+/// Every share in the app goes through <see cref="Share"/>. Each call hooks one
+/// handler that unhooks itself after the request it was made for, and drops any
+/// handler a previous share left behind, so a share never carries the link,
+/// text or file of an earlier one (#166).
 /// </summary>
 public static class ShareService
 {
     private static nint WindowHandle => WinRT.Interop.WindowNative.GetWindowHandle(MainWindow.Current);
 
-    /// <summary>Opens the share UI; <paramref name="fill"/> fills the request.</summary>
-    public static void Share(Action<DataRequest> fill)
+    /// <summary>The handler of the share in flight, until Windows asks for its data.</summary>
+    private static (DataTransferManager Manager, TypedEventHandler<DataTransferManager, DataRequestedEventArgs> Handler)? _pending;
+
+    /// <summary>Opens the share UI; <paramref name="fill"/> fills the request.
+    /// When the share UI can't open, <paramref name="onFailure"/> runs instead
+    /// (the default says so in the window).</summary>
+    public static void Share(Action<DataRequest> fill, Action<Exception>? onFailure = null)
     {
         try
         {
             var hwnd = WindowHandle;
             var manager = DataTransferManagerInterop.GetForWindow(hwnd);
+            Unhook();
             TypedEventHandler<DataTransferManager, DataRequestedEventArgs>? handler = null;
             handler = (sender, args) =>
             {
                 sender.DataRequested -= handler;
+                if (_pending is { } p && p.Handler == handler) _pending = null;
                 fill(args.Request);
             };
             manager.DataRequested += handler;
+            _pending = (manager, handler);
             DataTransferManagerInterop.ShowShareUIForWindow(hwnd);
         }
         catch (Exception e)
         {
+            Unhook();
             AppHost.Log($"Share failed: {e.Message}");
-            MainWindow.Current?.ShowMessage("Couldn't open Share", e.Message, InfoBarSeverity.Error);
+            if (onFailure is not null) onFailure(e);
+            else MainWindow.Current?.ShowMessage("Couldn't open Share", e.Message, InfoBarSeverity.Error);
         }
     }
 
-    /// <summary>"Share Story…": the work's AO3 link with its title.</summary>
+    private static void Unhook()
+    {
+        if (_pending is not { } p) return;
+        _pending = null;
+        try { p.Manager.DataRequested -= p.Handler; }
+        catch (Exception e) { AppHost.Log($"Share unhook failed: {e.Message}"); }
+    }
+
+    /// <summary>"Share Story…": the work's AO3 link with its title. Copies the
+    /// link instead when the share UI isn't available.</summary>
     public static void ShareWork(int workId, string title)
     {
         var url = new Uri($"https://archiveofourown.org/works/{workId}");
@@ -120,8 +144,23 @@ public static class ShareService
             request.Data.Properties.Description = $"Check out this story: {title}";
             request.Data.SetWebLink(url);
             request.Data.SetText($"Check out this story: {title}\n{url}");
+        }, _ =>
+        {
+            var package = new DataPackage();
+            package.SetText(url.ToString());
+            Clipboard.SetContent(package);
+            MainWindow.Current?.ShowMessage("Link copied", title, InfoBarSeverity.Success);
         });
     }
+
+    /// <summary>Shares a file (an exported work).</summary>
+    public static void ShareFile(StorageFile file, string title) =>
+        Share(request =>
+        {
+            request.Data.Properties.Title = title.Length == 0 ? file.Name : title;
+            request.Data.Properties.Description = file.Name;
+            request.Data.SetStorageItems(new IStorageItem[] { file });
+        });
 
     /// <summary>Shares a PNG (written to a temp file first, so apps that take
     /// files and apps that take bitmaps both get it).</summary>
