@@ -205,7 +205,7 @@ public sealed partial class FanficlyBackgroundTask : IBackgroundTask
         WorkPersistence.LibraryFolder = AppPaths.Downloads;
         SubscriptionPoller.RoutePayloads = new AppHost.RoutePayloads();
         LibraryHooks.UpdateWidgetData = store => WidgetDataStore.UpdateAll(AppHost.WidgetSources(store));
-        WidgetCenter.ReloadRequested += _ => FanficlyWidgetProvider.UpdateAll();
+        WidgetCenter.ReloadRequested += FanficlyWidgetProvider.UpdateAll;
 
         using var library = LibraryStore.Open(AppPaths.Database);
         using var client = new AO3Client(AppPaths.Downloads, vault, AppHost.AppVersion);

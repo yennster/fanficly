@@ -46,7 +46,7 @@ public sealed class LibrarySyncManager
     public static void QueueBackupShared(LibraryStore store)
     {
         if (Shared is { } manager) manager.QueueBackup(store, readingActivity: InReadingActivity);
-        else LibraryHooks.UpdateWidgetData?.Invoke(store);
+        else if (!InReadingActivity) LibraryHooks.UpdateWidgetData?.Invoke(store);
     }
 
     [ThreadStatic] private static int t_readingActivity;
@@ -157,7 +157,9 @@ public sealed class LibrarySyncManager
     /// <see cref="BackupDebounce"/> from now.</summary>
     public void QueueBackup(LibraryStore store, bool readingActivity = false)
     {
-        LibraryHooks.UpdateWidgetData?.Invoke(store);
+        // Reading activity changes nothing the library widgets show; the
+        // last-read widget has its own store (#165).
+        if (!readingActivity) LibraryHooks.UpdateWidgetData?.Invoke(store);
         if (!IsSyncEnabled) return;
         ScheduleBackup(store, readingActivity);
     }

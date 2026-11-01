@@ -170,7 +170,7 @@ public static partial class AppHost
             if (NotificationRouter.Shared.TakePendingRoute() is { } r) OpenNotificationRoute(r);
         });
         Platform.GamepadInput.Install(window);
-        WidgetCenter.ReloadRequested += _ => Platform.Widgets.FanficlyWidgetProvider.UpdateAll();
+        WidgetCenter.ReloadRequested += Platform.Widgets.FanficlyWidgetProvider.UpdateAll;
         _ = Platform.JumpListService.RefreshAsync();
     }
 }

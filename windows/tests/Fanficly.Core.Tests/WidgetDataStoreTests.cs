@@ -5,6 +5,59 @@ namespace Fanficly.Core.Tests;
 [Collection(GlobalStoreCollection.Name)]
 public class WidgetDataStoreTests
 {
+    /// <summary>A reading-position save rebuilds no library widget data, in
+    /// the save or through the backup it queues; a library change still does
+    /// (#165).</summary>
+    [Fact]
+    public void ReadingPositionSavesDontRebuildWidgetData()
+    {
+        var previous = LibraryHooks.UpdateWidgetData;
+        var rebuilds = 0;
+        LibraryHooks.UpdateWidgetData = _ => rebuilds++;
+        try
+        {
+            using var store = LibraryStore.OpenInMemory();
+            store.Changed += _ => LibrarySyncManager.QueueBackupShared(store);
+
+            for (var paragraph = 0; paragraph < 3; paragraph++)
+                ReadingProgressStore.Save(1, chapter: 1, paragraph: paragraph, title: "T", author: "A", store);
+            Assert.Equal(0, rebuilds);
+
+            store.Insert(new SavedSearch("S", "slow burn"));
+            store.Save();
+            Assert.Equal(1, rebuilds);
+        }
+        finally
+        {
+            LibraryHooks.UpdateWidgetData = previous;
+        }
+    }
+
+    /// <summary>Rebuilding the library widgets' data reloads those four
+    /// widgets, not Continue reading or the streak (#165).</summary>
+    [Fact]
+    public void UpdateAll_ReloadsOnlyTheLibraryWidgets()
+    {
+        WidgetDataStore.LocalOverride = new InMemoryKeyValueStore();
+        WidgetDataStore.SharedOverride = new InMemoryKeyValueStore();
+        var reloaded = new List<string?>();
+        void Record(string? kind) => reloaded.Add(kind);
+        WidgetCenter.ReloadRequested += Record;
+        try
+        {
+            WidgetDataStore.UpdateAll(new WidgetDataSources([], [], [], [], []));
+            Assert.Equal<string?>(WidgetDataStore.LibraryWidgetKinds, reloaded);
+            Assert.DoesNotContain(WidgetProgressStore.WidgetKind, reloaded);
+            Assert.DoesNotContain(StreakStore.WidgetKind, reloaded);
+        }
+        finally
+        {
+            WidgetCenter.ReloadRequested -= Record;
+            WidgetDataStore.LocalOverride = null;
+            WidgetDataStore.SharedOverride = null;
+        }
+    }
+
     [Fact]
     public void WidgetDataStore_Serialization()
     {
@@ -117,6 +170,7 @@ public class WidgetDataStoreTests
         Assert.DoesNotContain(updates, u => u.Title is "dup" or "bad key" or "series");
 
         var recs = WidgetDataStore.BuildRecommendations(works);
+        Assert.Equal(WidgetDataStore.ListLimit, recs.Count); // the top 20 only (#165)
         Assert.Equal([2, 3, 25], recs.Take(3).Select(r => r.WorkId)); // starred, pinned, then newest
         Assert.Equal(180, recs[0].Summary.Length);
         Assert.Equal(["C"], recs[0].Tags);

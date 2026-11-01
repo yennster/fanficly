@@ -146,7 +146,7 @@ public static partial class AppHost
         LibraryHooks.SaveWidgetProgress = u =>
         {
             WidgetProgressStore.Save(u.Id, u.Title, u.Author, u.Progress, u.Chapter, u.Paragraph, u.UpdatedAt, u.SyncImmediately);
-            MainWindow.Current?.DispatcherQueue.TryEnqueue(() => _ = JumpListService.RefreshAsync());
+            MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: u.SyncImmediately));
         };
         LibraryHooks.UpdateWidgetData = store => WidgetDataStore.UpdateAll(WidgetSources(store));
         if (!IsDemoMode) Library.Changed += _ => LibrarySyncManager.QueueBackupShared(Library);
