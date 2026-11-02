@@ -17,7 +17,12 @@ struct WorkFilterSheet: View {
     private let original: AO3SearchFilters
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
+    @Environment(\.undoManager) private var undoManager
+    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var allSavedFilters: [SavedFilter]
+    /// Without a filter deleted a moment ago, still behind its Undo toast (#169).
+    private var savedFilters: [SavedFilter] {
+        allSavedFilters.filter { !UndoCenter.shared.isPending(UndoCenter.Key.filter($0.name)) }
+    }
 
     // Editable text mirrors for the comma-separated tag fields.
     @State private var relationshipsText: String = ""
@@ -104,6 +109,8 @@ struct WorkFilterSheet: View {
                 Text(saveDialogMessage)
             }
         }
+        // A saved filter's Undo toast, over the sheet rather than behind it (#169).
+        .undoToastHost()
     }
 
     private var savedFiltersSection: some View {
@@ -117,10 +124,7 @@ struct WorkFilterSheet: View {
                 }
                 .swipeActions {
                     Button(role: .destructive) {
-                        iCloudSyncManager.recordDeletion(.filter, key: saved.name)
-                        context.delete(saved)
-                        try? context.save()
-                        iCloudSyncManager.shared.queueBackup(context: context)
+                        deleteSavedFilter(saved, context: context, undoManager: undoManager)
                     } label: { Label("Delete", systemImage: "trash") }
                 }
             }

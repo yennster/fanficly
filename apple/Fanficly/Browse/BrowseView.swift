@@ -3,7 +3,12 @@ import SwiftData
 
 struct BrowseView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
+    @Environment(\.undoManager) private var undoManager
+    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var allSavedFilters: [SavedFilter]
+    /// Without a filter deleted a moment ago, still behind its Undo toast (#169).
+    private var savedFilters: [SavedFilter] {
+        allSavedFilters.filter { !UndoCenter.shared.isPending(UndoCenter.Key.filter($0.name)) }
+    }
 
     var body: some View {
         List {
@@ -16,8 +21,7 @@ struct BrowseView: View {
                         }
                         .swipeActions {
                             Button(role: .destructive) {
-                                iCloudSyncManager.recordDeletion(.filter, key: saved.name)
-                                context.delete(saved); try? context.save()
+                                deleteSavedFilter(saved, context: context, undoManager: undoManager)
                             } label: { Label("Delete", systemImage: "trash") }
                         }
                     }
@@ -43,6 +47,22 @@ struct BrowseView: View {
             FandomWorksView(savedFilter: saved)
         }
         .workAndAuthorDestinations()
+    }
+}
+
+/// Deletes a saved filter (Browse and the Filters sheet) once its Undo toast
+/// closes (#169). Browse used to skip `queueBackup`, so the delete only
+/// reached the widgets and iCloud with the next change.
+@MainActor
+func deleteSavedFilter(_ saved: SavedFilter, context: ModelContext, undoManager: UndoManager?) {
+    UndoCenter.shared.schedule(String(localized: "Deleted saved filter “\(saved.name)”"),
+                               keys: [UndoCenter.Key.filter(saved.name)],
+                               undoManager: undoManager) {
+        guard !saved.isDeleted, saved.modelContext != nil else { return }
+        iCloudSyncManager.recordDeletion(.filter, key: saved.name)
+        context.delete(saved)
+        try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 }
 

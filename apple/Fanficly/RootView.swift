@@ -266,6 +266,8 @@ struct RootView: View {
             .restoreRedownloadUI()
             // How an EPUB import went, from the Library or an opened file.
             .epubImportAlert()
+            // "Deleted 'X' · Undo" after a one-tap delete (#169).
+            .undoToastHost()
             // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).
             .focusedSceneValue(\.selectTab, SelectTabAction { select($0) })
     }

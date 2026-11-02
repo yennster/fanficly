@@ -8,8 +8,13 @@ import SwiftData
 struct SearchView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(\.undoManager) private var undoManager
     @Environment(AuthState.self) private var auth
-    @Query(sort: \SavedSearch.savedAt, order: .reverse) private var savedSearches: [SavedSearch]
+    @Query(sort: \SavedSearch.savedAt, order: .reverse) private var allSavedSearches: [SavedSearch]
+    /// Without a search deleted a moment ago, still behind its Undo toast (#169).
+    private var savedSearches: [SavedSearch] {
+        allSavedSearches.filter { !UndoCenter.shared.isPending(UndoCenter.Key.search($0.name)) }
+    }
     @Query private var hiddenWorks: [HiddenWork]
     @Query private var blockedTerms: [BlockedTerm]
     @AppStorage(ContentControl.filterMatureKey) private var filterMature: Bool = true
@@ -818,11 +823,18 @@ struct SearchView: View {
         iCloudSyncManager.shared.queueBackup(context: context)
     }
 
+    /// Waits behind the Undo toast (#169).
     private func delete(_ saved: SavedSearch) {
-        iCloudSyncManager.recordDeletion(.search, key: saved.name)
-        context.delete(saved)
-        try? context.save()
-        iCloudSyncManager.shared.queueBackup(context: context)
+        let context = context
+        UndoCenter.shared.schedule(String(localized: "Deleted saved search “\(saved.name)”"),
+                                   keys: [UndoCenter.Key.search(saved.name)],
+                                   undoManager: undoManager) {
+            guard !saved.isDeleted, saved.modelContext != nil else { return }
+            iCloudSyncManager.recordDeletion(.search, key: saved.name)
+            context.delete(saved)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
     }
 
     /// Switches a saved search's new-fic alerts (#309) on or off, up to
