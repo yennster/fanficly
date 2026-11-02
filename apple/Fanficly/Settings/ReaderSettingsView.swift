@@ -4,7 +4,7 @@ import SwiftData
 
 struct ReaderSettingsView: View {
     @Environment(\.modelContext) private var context
-    @Environment(\.undoManager) private var undoManager
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
@@ -117,7 +117,7 @@ struct ReaderSettingsView: View {
         saveProfiles(list)
         queueBackup()
         guard let deleted else { return }
-        UndoCenter.shared.offer(String(localized: "Deleted profile “\(name)”"), undoManager: undoManager) {
+        UndoCenter.shared.offer(String(localized: "Deleted profile “\(name)”"), host: undoHost) {
             restoreProfile(deleted, makeActive: wasActive)
         }
     }

@@ -170,7 +170,7 @@ struct AuthorWorksView: View {
 /// new work. Follows are added from an author's works page (the Follow button).
 struct FollowedAuthorsView: View {
     @Environment(\.modelContext) private var context
-    @Environment(\.undoManager) private var undoManager
+    @Environment(\.undoToastHost) private var undoHost
     @Query(sort: [SortDescriptor<FollowedAuthor>(\.displayName, order: .forward)])
     private var allAuthors: [FollowedAuthor]
     /// Without an author unfollowed a moment ago, still behind its Undo toast (#169).
@@ -215,7 +215,7 @@ struct FollowedAuthorsView: View {
         let context = context
         UndoCenter.shared.schedule(message,
                                    keys: Set(removed.map { UndoCenter.Key.author($0.username) }),
-                                   undoManager: undoManager) {
+                                   host: undoHost) {
             for author in removed where !author.isDeleted && author.modelContext != nil {
                 context.delete(author)
             }

@@ -42,7 +42,7 @@ struct ReaderView: View {
     @AppStorage("reader.showImages") private var showImages: Bool = false
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.undoManager) private var undoManager
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     // Start of the current active-reading span, for the Stats tab. Set while
@@ -203,7 +203,7 @@ struct ReaderView: View {
         saveProfiles(list)
         queueBackup()
         guard let deleted else { return }
-        UndoCenter.shared.offer(String(localized: "Deleted profile “\(name)”"), undoManager: undoManager) {
+        UndoCenter.shared.offer(String(localized: "Deleted profile “\(name)”"), host: undoHost) {
             restoreProfile(deleted, makeActive: wasActive)
         }
     }

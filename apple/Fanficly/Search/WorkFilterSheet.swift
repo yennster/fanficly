@@ -17,7 +17,6 @@ struct WorkFilterSheet: View {
     private let original: AO3SearchFilters
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @Environment(\.undoManager) private var undoManager
     @Query(sort: \SavedFilter.savedAt, order: .reverse) private var allSavedFilters: [SavedFilter]
     /// Without a filter deleted a moment ago, still behind its Undo toast (#169).
     private var savedFilters: [SavedFilter] {
@@ -123,9 +122,7 @@ struct WorkFilterSheet: View {
                         .foregroundStyle(.primary)
                 }
                 .swipeActions {
-                    Button(role: .destructive) {
-                        deleteSavedFilter(saved, context: context, undoManager: undoManager)
-                    } label: { Label("Delete", systemImage: "trash") }
+                    SavedFilterDeleteButton(saved: saved)
                 }
             }
             Button {
@@ -156,6 +153,8 @@ struct WorkFilterSheet: View {
         let name = saveName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         let json = draft.savedJSON()
+        // Saving under a name deleted a moment ago keeps it (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.filter(name))
         let descriptor = FetchDescriptor<SavedFilter>(predicate: #Predicate { $0.name == name })
         if let existing = (try? context.fetch(descriptor))?.first {
             existing.filtersJSON = json

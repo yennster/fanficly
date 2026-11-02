@@ -8,7 +8,7 @@ import SwiftData
 struct SearchView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
-    @Environment(\.undoManager) private var undoManager
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(AuthState.self) private var auth
     @Query(sort: \SavedSearch.savedAt, order: .reverse) private var allSavedSearches: [SavedSearch]
     /// Without a search deleted a moment ago, still behind its Undo toast (#169).
@@ -799,6 +799,8 @@ struct SearchView: View {
         let name = saveName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         let prompt = currentFilters.promptText()
+        // Saving under a name deleted a moment ago keeps it (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.search(name))
         let descriptor = FetchDescriptor<SavedSearch>(predicate: #Predicate { $0.name == name })
         if let existing = (try? context.fetch(descriptor))?.first {
             // Alerts for an edited search start over: what the old search
@@ -828,7 +830,7 @@ struct SearchView: View {
         let context = context
         UndoCenter.shared.schedule(String(localized: "Deleted saved search “\(saved.name)”"),
                                    keys: [UndoCenter.Key.search(saved.name)],
-                                   undoManager: undoManager) {
+                                   host: undoHost) {
             guard !saved.isDeleted, saved.modelContext != nil else { return }
             iCloudSyncManager.recordDeletion(.search, key: saved.name)
             context.delete(saved)

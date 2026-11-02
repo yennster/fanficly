@@ -127,13 +127,47 @@ final class UndoCenterTests: XCTestCase {
         XCTAssertEqual(commits, [], "once the toast closes, nothing is put back")
     }
 
-    func test_innermostHostShowsTheToast() {
+    func test_cancel_dropsTheDeleteWithoutRunningIt() {
         let undo = center()
-        let window = UUID(), sheet = UUID()
-        undo.addHost(window)
-        undo.addHost(sheet)
-        XCTAssertEqual(undo.hosts.last, sheet)
-        undo.removeHost(sheet)
-        XCTAssertEqual(undo.hosts.last, window)
+        undo.schedule("Deleted saved search “X”", keys: [UndoCenter.Key.search("X")]) { self.commits.append("X") }
+        undo.cancel(UndoCenter.Key.search("Y"))
+        XCTAssertNotNil(undo.pending, "another key leaves it waiting")
+
+        undo.cancel(UndoCenter.Key.search("X"))  // saved again under the same name
+        XCTAssertNil(undo.pending)
+        undo.commitPending()
+        XCTAssertEqual(commits, [])
+    }
+
+    func test_toastShowsInTheHostItCameFrom() {
+        let undo = center()
+        let window = UUID(), otherWindow = UUID(), sheet = UUID()
+        undo.addHost(window, parent: nil, undoManager: nil)
+        undo.addHost(otherWindow, parent: nil, undoManager: nil)
+        undo.addHost(sheet, parent: window, undoManager: nil)
+
+        undo.schedule("Deleted saved filter “F”", keys: [UndoCenter.Key.filter("F")], host: sheet) {}
+        XCTAssertTrue(undo.showsToast(in: sheet))
+        XCTAssertFalse(undo.showsToast(in: window), "the sheet covers its window's toast")
+        XCTAssertFalse(undo.showsToast(in: otherWindow), "never in another window")
+
+        undo.removeHost(sheet)  // the sheet closed with the toast still up
+        XCTAssertTrue(undo.showsToast(in: window))
+        XCTAssertFalse(undo.showsToast(in: otherWindow))
+    }
+
+    func test_hostGivesItsUndoManager() {
+        let undo = center()
+        let window = UUID()
+        let manager = UndoManager()
+        manager.groupsByEvent = false
+        undo.addHost(window, parent: nil, undoManager: manager)
+        manager.beginUndoGrouping()
+        undo.schedule("Deleted “A”", keys: [UndoCenter.Key.work(1)], host: window) { self.commits.append("A") }
+        manager.endUndoGrouping()
+
+        manager.undo()
+        XCTAssertNil(undo.pending)
+        XCTAssertEqual(commits, [])
     }
 }

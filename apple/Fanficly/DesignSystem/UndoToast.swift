@@ -25,13 +25,21 @@ final class UndoCenter {
         let commit: (@MainActor () -> Void)?
         /// Runs on Undo (a delete that already happened, see `offer`).
         let revert: (@MainActor () -> Void)?
+        /// The toast host the delete came from (`\.undoToastHost`).
+        let host: UUID?
+    }
+
+    struct Host {
+        let parent: UUID?
+        weak var undoManager: UndoManager?
     }
 
     private(set) var pending: Pending?
-    /// Toast hosts on screen, innermost last: the window, then any sheet
-    /// over it. Only the innermost shows the toast, so a sheet's delete
-    /// isn't hidden behind the sheet and the window doesn't show a second copy.
-    private(set) var hosts: [UUID] = []
+    /// Toast hosts on screen: each window's root, and any sheet that
+    /// deletes (its parent is the host it sits in). The toast shows in the
+    /// host its delete came from, so in that window and over that sheet; once
+    /// a sheet closes, in the host under it.
+    private(set) var hosts: [UUID: Host] = [:]
 
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private weak var undoManager: UndoManager?
@@ -56,21 +64,33 @@ final class UndoCenter {
     /// Hides `keys` from their lists and runs `commit` when the toast closes,
     /// unless Undo is pressed first. `commit` must check its objects still
     /// exist: an iCloud restore can delete them while the toast is up.
-    func schedule(_ message: String, keys: Set<String>, undoManager: UndoManager? = nil,
+    /// `host` is the view's `\.undoToastHost`, which also gives the window's
+    /// `UndoManager` (⌘Z) unless one is passed.
+    func schedule(_ message: String, keys: Set<String>, host: UUID? = nil, undoManager: UndoManager? = nil,
                   commit: @escaping @MainActor () -> Void) {
-        show(Pending(message: message, keys: keys, commit: commit, revert: nil), undoManager: undoManager)
+        show(Pending(message: message, keys: keys, commit: commit, revert: nil, host: host), undoManager: undoManager)
+    }
+
+    /// Drops a waiting delete without undoing anything because `key` is
+    /// being saved again (a search or filter saved under the same name, a
+    /// folder made again, a deleted work saved or followed again): the newest
+    /// intent wins, and the delete never runs or writes its tombstone.
+    func cancel(_ key: String) {
+        guard isPending(key) else { return }
+        finish()
     }
 
     /// For a delete that has already happened and is cheap to put back (a
     /// reader profile, a plain value whose deletion syncs as a tombstone):
     /// shows the same toast, and Undo runs `revert`.
-    func offer(_ message: String, undoManager: UndoManager? = nil,
+    func offer(_ message: String, host: UUID? = nil, undoManager: UndoManager? = nil,
                revert: @escaping @MainActor () -> Void) {
-        show(Pending(message: message, keys: [], commit: nil, revert: revert), undoManager: undoManager)
+        show(Pending(message: message, keys: [], commit: nil, revert: revert, host: host), undoManager: undoManager)
     }
 
     private func show(_ item: Pending, undoManager: UndoManager?) {
         commitPending()
+        let undoManager = undoManager ?? liveHost(from: item.host).flatMap { hosts[$0]?.undoManager }
         let message = item.message
         let id = item.id
         withAnimation(.easeInOut(duration: 0.2)) { pending = item }
@@ -126,13 +146,38 @@ final class UndoCenter {
         withAnimation(.easeInOut(duration: 0.2)) { pending = nil }
     }
 
-    func addHost(_ id: UUID) {
-        hosts.removeAll { $0 == id }
-        hosts.append(id)
+    func addHost(_ id: UUID, parent: UUID?, undoManager: UndoManager?) {
+        hosts[id] = Host(parent: parent, undoManager: undoManager)
+        if let parent { parentOf[id] = parent }
     }
 
     func removeHost(_ id: UUID) {
-        hosts.removeAll { $0 == id }
+        hosts[id] = nil
+    }
+
+    /// Parents of every host that has been on screen, kept after it leaves
+    /// so a closed sheet's delete finds the host under it. One small entry
+    /// per sheet shown.
+    @ObservationIgnored private var parentOf: [UUID: UUID] = [:]
+
+    /// The host on screen nearest to `id`: itself, or the host it sat in.
+    private func liveHost(from id: UUID?) -> UUID? {
+        var current = id
+        var seen = Set<UUID>()
+        while let candidate = current, seen.insert(candidate).inserted {
+            if hosts[candidate] != nil { return candidate }
+            current = parentOf[candidate]
+        }
+        return nil
+    }
+
+    /// Where the waiting delete's toast shows. A delete with no host (or
+    /// whose hosts have all gone) shows in any window root.
+    func showsToast(in id: UUID) -> Bool {
+        guard let pending else { return false }
+        if let host = liveHost(from: pending.host) { return host == id }
+        let roots = hosts.filter { $0.value.parent == nil }.keys
+        return roots.min(by: { $0.uuidString < $1.uuidString }) == id
     }
 
     /// Keys for the records a delete hides. Lists check these with `isPending`.
@@ -145,10 +190,23 @@ final class UndoCenter {
     }
 }
 
+private struct UndoToastHostKey: EnvironmentKey {
+    static let defaultValue: UUID? = nil
+}
+
+extension EnvironmentValues {
+    /// The Undo toast host this view sits in (`.undoToastHost()`). Pass it as
+    /// `schedule(host:)` so the toast shows in this window, over this sheet.
+    var undoToastHost: UUID? {
+        get { self[UndoToastHostKey.self] }
+        set { self[UndoToastHostKey.self] = newValue }
+    }
+}
+
 extension View {
-    /// Shows the Undo toast over this view while it is the innermost host.
-    /// Apply once to the window's root and once inside each sheet that can
-    /// delete something.
+    /// Shows the Undo toast for deletes made inside this view. Apply once to
+    /// each window's root and once inside each sheet that can delete
+    /// something, since a sheet covers the window's toast.
     func undoToastHost() -> some View {
         modifier(UndoToastHost())
     }
@@ -156,19 +214,23 @@ extension View {
 
 private struct UndoToastHost: ViewModifier {
     @State private var id = UUID()
+    @Environment(\.undoToastHost) private var parent
+    @Environment(\.undoManager) private var undoManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         let center = UndoCenter.shared
         content
+            .environment(\.undoToastHost, id)
             .overlay(alignment: .bottom) {
-                if let pending = center.pending, center.hosts.last == id {
+                if let pending = center.pending, center.showsToast(in: id) {
                     UndoToast(message: pending.message) { center.undo() }
                         .id(pending.id)
                         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .onAppear { center.addHost(id) }
+            .onAppear { center.addHost(id, parent: parent, undoManager: undoManager) }
+            .onChange(of: undoManager) { _, manager in center.addHost(id, parent: parent, undoManager: manager) }
             .onDisappear { center.removeHost(id) }
     }
 }

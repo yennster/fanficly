@@ -12,7 +12,7 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.undoManager) private var undoManager
+    @Environment(\.undoToastHost) private var undoHost
     @State private var filter: LibraryFilter = .all
     @State private var showingCreateFolderAlert = false
     @State private var newFolderName = ""
@@ -140,7 +140,9 @@ struct LibraryView: View {
                             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                             let folders = visibleFolders
                             let filteredFolders = query.isEmpty ? folders : folders.filter {
-                                $0.name.lowercased().contains(query) || $0.works.contains(where: { $0.matches(query: query) })
+                                $0.name.lowercased().contains(query) || $0.works.contains(where: {
+                                    $0.matches(query: query) && !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id))
+                                })
                             }
                             ForEach(filteredFolders) { folder in
                                 NavigationLink(value: folder) {
@@ -350,7 +352,7 @@ struct LibraryView: View {
         let context = context
         UndoCenter.shared.schedule(String(localized: "Deleted “\(work.title)”"),
                                    keys: [UndoCenter.Key.work(work.ao3Id)],
-                                   undoManager: undoManager) {
+                                   host: undoHost) {
             guard !work.isDeleted, work.modelContext != nil else { return }
             iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
             WorkPersistence.delete(work, in: context)
@@ -363,7 +365,7 @@ struct LibraryView: View {
         let context = context
         UndoCenter.shared.schedule(String(localized: "Deleted folder “\(folder.name)”"),
                                    keys: [UndoCenter.Key.folder(folder.name)],
-                                   undoManager: undoManager) {
+                                   host: undoHost) {
             guard !folder.isDeleted, folder.modelContext != nil else { return }
             iCloudSyncManager.recordDeletion(.folder, key: folder.name)
             context.delete(folder)
@@ -375,6 +377,8 @@ struct LibraryView: View {
     private func createFolder() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        // Making it again keeps a folder deleted a moment ago (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.folder(name))
         
         let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == name })
         let existing = (try? context.fetch(descriptor))?.first
@@ -591,7 +595,7 @@ struct FolderDetailView: View {
             if editMode != .active {
                 ToolbarItem(placement: .topBarTrailing) {
                     let downloadIds = RestoreDownloadCenter.folderDownloadCandidates(
-                        LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folder.works))
+                        LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folderWorks))
                     Button {
                         pendingDownloadIds = downloadIds
                     } label: {
@@ -683,7 +687,7 @@ struct FolderSelectionSheet: View {
                 }
                 
                 Section("All Folders") {
-                    ForEach(folders) { folder in
+                    ForEach(folders.filter { !UndoCenter.shared.isPending(UndoCenter.Key.folder($0.name)) }) { folder in
                         Button {
                             if work.folders.contains(where: { $0.id == folder.id }) {
                                 work.folders.removeAll { $0.id == folder.id }
@@ -742,6 +746,8 @@ struct FolderSelectionSheet: View {
     private func createFolder() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        // Making it again keeps a folder deleted a moment ago (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.folder(name))
         
         let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == name })
         let existing = (try? context.fetch(descriptor))?.first
