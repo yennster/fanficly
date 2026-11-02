@@ -46,6 +46,7 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 
 - The D-pad or left stick moves focus.
 - A selects, B goes back, and the right stick scrolls.
+- With a dialog, menu or drop-down open, the D-pad moves inside it and B closes it, so nothing changes on the page behind it.
 - LB and RB switch tabs (Narrator announces the new tab).
 - Menu shows or hides the sidebar, and View toggles full screen.
 - LT and RT are passed to the screen you're on. In the reader, LT and RT and the D-pad's left and right turn pages, and LB and RB change chapter instead of switching tabs.
