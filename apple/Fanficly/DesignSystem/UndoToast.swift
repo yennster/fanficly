@@ -21,7 +21,10 @@ final class UndoCenter {
         let id = UUID()
         let message: String
         let keys: Set<String>
-        let commit: @MainActor () -> Void
+        /// Runs when the toast closes (a delete that waits).
+        let commit: (@MainActor () -> Void)?
+        /// Runs on Undo (a delete that already happened, see `offer`).
+        let revert: (@MainActor () -> Void)?
     }
 
     private(set) var pending: Pending?
@@ -55,8 +58,20 @@ final class UndoCenter {
     /// exist: an iCloud restore can delete them while the toast is up.
     func schedule(_ message: String, keys: Set<String>, undoManager: UndoManager? = nil,
                   commit: @escaping @MainActor () -> Void) {
+        show(Pending(message: message, keys: keys, commit: commit, revert: nil), undoManager: undoManager)
+    }
+
+    /// For a delete that has already happened and is cheap to put back (a
+    /// reader profile, a plain value whose deletion syncs as a tombstone):
+    /// shows the same toast, and Undo runs `revert`.
+    func offer(_ message: String, undoManager: UndoManager? = nil,
+               revert: @escaping @MainActor () -> Void) {
+        show(Pending(message: message, keys: [], commit: nil, revert: revert), undoManager: undoManager)
+    }
+
+    private func show(_ item: Pending, undoManager: UndoManager?) {
         commitPending()
-        let item = Pending(message: message, keys: keys, commit: commit)
+        let message = item.message
         let id = item.id
         withAnimation(.easeInOut(duration: 0.2)) { pending = item }
 
@@ -91,15 +106,16 @@ final class UndoCenter {
     }
 
     private func undo(_ id: UUID) {
-        guard pending?.id == id else { return }
+        guard let item = pending, item.id == id else { return }
         finish()
+        item.revert?()
         UIAccessibility.post(notification: .announcement, argument: String(localized: "Undone"))
     }
 
     private func commit(_ id: UUID) {
         guard let item = pending, item.id == id else { return }
         finish()
-        item.commit()
+        item.commit?()
     }
 
     private func finish() {

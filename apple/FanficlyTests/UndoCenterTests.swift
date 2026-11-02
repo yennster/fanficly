@@ -110,6 +110,23 @@ final class UndoCenterTests: XCTestCase {
         XCTAssertNil(undo.pending)
     }
 
+    func test_offer_undoRunsTheRevert() {
+        let undo = center()
+        undo.offer("Deleted profile “Night”") { self.commits.append("restored") }
+        XCTAssertNotNil(undo.pending)
+        undo.undo()
+        XCTAssertEqual(commits, ["restored"])
+        XCTAssertNil(undo.pending)
+    }
+
+    func test_offer_closingKeepsTheDelete() {
+        let undo = center()
+        undo.offer("Deleted profile “Night”") { self.commits.append("restored") }
+        undo.commitPending()
+        undo.undo()
+        XCTAssertEqual(commits, [], "once the toast closes, nothing is put back")
+    }
+
     func test_innermostHostShowsTheToast() {
         let undo = center()
         let window = UUID(), sheet = UUID()
