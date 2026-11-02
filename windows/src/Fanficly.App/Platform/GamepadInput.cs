@@ -39,6 +39,12 @@ public static class GamepadInput
     private static readonly Dictionary<GamepadButtons, DateTime> _heldSince = [];
     private static readonly Dictionary<GamepadButtons, DateTime> _lastRepeat = [];
     private static bool _windowActive = true;
+    /// <summary>Submenus opened from the controller, innermost last, so B and
+    /// D-pad left close them through their <see cref="MenuFlyoutSubItem"/>.</summary>
+    private static readonly List<MenuFlyoutSubItem> _openSubmenus = [];
+    /// <summary>What had focus in the window before a popup opened, to put
+    /// focus back if closing the popup leaves it nowhere.</summary>
+    private static WeakReference<Control>? _focusBeforePopup;
 
     /// <summary>True once XAML has delivered a gamepad key itself.</summary>
     public static bool XamlDeliversGamepad { get; private set; }
@@ -163,13 +169,21 @@ public static class GamepadInput
             {
                 case VirtualKey.GamepadDPadUp: MoveFocus(FocusNavigationDirection.Up, popup); break;
                 case VirtualKey.GamepadDPadDown: MoveFocus(FocusNavigationDirection.Down, popup); break;
-                case VirtualKey.GamepadDPadLeft: MoveFocus(FocusNavigationDirection.Left, popup); break;
-                case VirtualKey.GamepadDPadRight: MoveFocus(FocusNavigationDirection.Right, popup); break;
+                case VirtualKey.GamepadDPadLeft:
+                    if (!CloseSubmenu(popup)) MoveFocus(FocusNavigationDirection.Left, popup);
+                    break;
+                case VirtualKey.GamepadDPadRight:
+                    if (!OpenSubmenu()) MoveFocus(FocusNavigationDirection.Right, popup);
+                    break;
                 case VirtualKey.GamepadA: Activate(); break;
                 case VirtualKey.GamepadB: Dismiss(popup); break;
             }
             return;
         }
+
+        _openSubmenus.Clear();
+        if (window.XamlRoot is { } xamlRoot && FocusManager.GetFocusedElement(xamlRoot) is Control mainFocus)
+            _focusBeforePopup = new(mainFocus);
 
         // The screen gets first refusal (the reader turns pages on D-pad / triggers).
         if (screen?.HandleKey(key, VirtualKeyModifiers.None) == true) return;
@@ -228,6 +242,7 @@ public static class GamepadInput
     /// going back on the page underneath.</summary>
     private static void Dismiss(Popup popup)
     {
+        if (CloseSubmenu(popup)) return;
         // A ContentDialog closes through Hide so its Closing handlers run
         // (the import dialog cancels its import there).
         if (FindDescendant<ContentDialog>(popup.Child) is { } dialog)
@@ -246,8 +261,76 @@ public static class GamepadInput
                 case AutoSuggestBox box: box.IsSuggestionListOpen = false; return;
             }
         }
-        // Flyouts and menus: closing their popup closes the flyout.
+        // Flyouts and menus: closing their popup closes the flyout. Every open
+        // menu level goes, as Escape on a menu bar's flyout would leave the
+        // parent stale otherwise.
         popup.IsOpen = false;
+        if (popup.Child is MenuFlyoutPresenter && VisualTreeHelper.GetOpenPopupsForXamlRoot(_window!.XamlRoot) is { } open)
+            foreach (var other in open)
+                if (other.Child is MenuFlyoutPresenter) other.IsOpen = false;
+        _openSubmenus.Clear();
+        RestoreFocusSoon();
+    }
+
+    /// <summary>Puts focus back on what had it before the popup opened when
+    /// closing the popup left focus nowhere (WinUI usually does this itself).</summary>
+    private static void RestoreFocusSoon()
+    {
+        _window!.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            var root = _window.XamlRoot;
+            if (root is null || ModalPopup() is not null) return;
+            if (FocusManager.GetFocusedElement(root) is UIElement { XamlRoot: not null }) return;
+            if (_focusBeforePopup?.TryGetTarget(out var previous) == true && previous.IsLoaded)
+                previous.Focus(FocusState.Keyboard);
+        });
+    }
+
+    /// <summary>A on a <see cref="MenuFlyoutSubItem"/>, or D-pad right: open its
+    /// submenu and move focus into it (automation's Expand opens it but leaves
+    /// focus on the parent menu, where the D-pad can't reach the new items).</summary>
+    private static bool OpenSubmenu()
+    {
+        var root = _window!.XamlRoot;
+        if (root is null || FocusManager.GetFocusedElement(root) is not MenuFlyoutSubItem sub) return false;
+        var before = new HashSet<Popup>(VisualTreeHelper.GetOpenPopupsForXamlRoot(root));
+        if ((FrameworkElementAutomationPeer.FromElement(sub) ?? FrameworkElementAutomationPeer.CreatePeerForElement(sub))
+            ?.GetPattern(PatternInterface.ExpandCollapse) is not IExpandCollapseProvider expand) return false;
+        expand.Expand();
+        _openSubmenus.Remove(sub);
+        _openSubmenus.Add(sub);
+        // The submenu's popup opens on a later frame.
+        _window.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root))
+            {
+                if (before.Contains(popup) || popup.Child is not MenuFlyoutPresenter) continue;
+                if (FocusManager.FindFirstFocusableElement(popup.Child) is Control first) first.Focus(FocusState.Keyboard);
+                return;
+            }
+        });
+        return true;
+    }
+
+    /// <summary>B or D-pad left inside a submenu the controller opened: close
+    /// just that level and put focus back on its <see cref="MenuFlyoutSubItem"/>.</summary>
+    private static bool CloseSubmenu(Popup focusedPopup)
+    {
+        while (_openSubmenus.Count > 0)
+        {
+            var sub = _openSubmenus[^1];
+            _openSubmenus.RemoveAt(_openSubmenus.Count - 1);
+            if (!sub.IsLoaded || IsInside(sub, focusedPopup.Child)) continue; // stale, or focus is on the item itself
+            if ((FrameworkElementAutomationPeer.FromElement(sub) ?? FrameworkElementAutomationPeer.CreatePeerForElement(sub))
+                ?.GetPattern(PatternInterface.ExpandCollapse) is IExpandCollapseProvider expand
+                && expand.ExpandCollapseState != Microsoft.UI.Xaml.Automation.ExpandCollapseState.Collapsed)
+            {
+                expand.Collapse();
+                sub.Focus(FocusState.Keyboard);
+                return true;
+            }
+        }
+        return false;
     }
 
     private static T? FindDescendant<T>(DependencyObject? node) where T : DependencyObject
@@ -290,6 +373,15 @@ public static class GamepadInput
         if (focused is TextBox or PasswordBox or AutoSuggestBox) return; // the touch keyboard takes it
         var peer = FrameworkElementAutomationPeer.FromElement(focused) ?? FrameworkElementAutomationPeer.CreatePeerForElement(focused);
         if (peer is null) return;
+        if (focused is MenuFlyoutSubItem && OpenSubmenu()) return;
+        // A drop-down item: pick it and close the list, as Enter would.
+        if (focused is ComboBoxItem item && ItemsControl.ItemsControlFromItemContainer(item) is ComboBox combo)
+        {
+            combo.SelectedItem = combo.ItemFromContainer(item);
+            combo.IsDropDownOpen = false;
+            combo.Focus(FocusState.Keyboard);
+            return;
+        }
         if (peer.GetPattern(PatternInterface.Invoke) is IInvokeProvider invoke) { invoke.Invoke(); return; }
         if (peer.GetPattern(PatternInterface.Toggle) is IToggleProvider toggle) { toggle.Toggle(); return; }
         if (peer.GetPattern(PatternInterface.ExpandCollapse) is IExpandCollapseProvider expand)
