@@ -291,24 +291,38 @@ public static class GamepadInput
     /// focus on the parent menu, where the D-pad can't reach the new items).</summary>
     private static bool OpenSubmenu()
     {
-        var root = _window!.XamlRoot;
+        var window = _window!;
+        var root = window.XamlRoot;
         if (root is null || FocusManager.GetFocusedElement(root) is not MenuFlyoutSubItem sub) return false;
-        var before = new HashSet<Popup>(VisualTreeHelper.GetOpenPopupsForXamlRoot(root));
         if ((FrameworkElementAutomationPeer.FromElement(sub) ?? FrameworkElementAutomationPeer.CreatePeerForElement(sub))
             ?.GetPattern(PatternInterface.ExpandCollapse) is not IExpandCollapseProvider expand) return false;
-        expand.Expand();
+        // A submenu the mouse already opened is in the snapshot, so keep it out:
+        // focus then goes to whichever menu level holds neither this item nor
+        // one of the levels the controller opened above it.
+        var alreadyOpen = expand.ExpandCollapseState != Microsoft.UI.Xaml.Automation.ExpandCollapseState.Collapsed;
+        var before = alreadyOpen ? [] : new HashSet<Popup>(VisualTreeHelper.GetOpenPopupsForXamlRoot(root));
+        if (!alreadyOpen) expand.Expand();
         _openSubmenus.Remove(sub);
+        var parents = _openSubmenus.ToArray();
         _openSubmenus.Add(sub);
-        // The submenu's popup opens on a later frame.
-        _window.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        // The submenu's popup opens, and builds its items, on a later frame:
+        // try a few times before giving up.
+        var attempts = 0;
+        void FocusSubmenu()
         {
             foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root))
             {
-                if (before.Contains(popup) || popup.Child is not MenuFlyoutPresenter) continue;
-                if (FocusManager.FindFirstFocusableElement(popup.Child) is Control first) first.Focus(FocusState.Keyboard);
-                return;
+                if (before.Contains(popup) || popup.Child is not MenuFlyoutPresenter presenter) continue;
+                if (IsInside(sub, presenter) || parents.Any(p => IsInside(p, presenter))) continue;
+                if (FocusManager.FindFirstFocusableElement(presenter) is Control first)
+                {
+                    first.Focus(FocusState.Keyboard);
+                    return;
+                }
             }
-        });
+            if (++attempts < 5) window.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusSubmenu);
+        }
+        window.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusSubmenu);
         return true;
     }
 
@@ -377,8 +391,10 @@ public static class GamepadInput
         // A drop-down item: pick it and close the list, as Enter would.
         if (focused is ComboBoxItem item && ItemsControl.ItemsControlFromItemContainer(item) is ComboBox combo)
         {
-            combo.SelectedItem = combo.ItemFromContainer(item);
+            // Close first, so closing can't put back the selection the list opened with.
+            var choice = combo.ItemFromContainer(item);
             combo.IsDropDownOpen = false;
+            combo.SelectedItem = choice;
             combo.Focus(FocusState.Keyboard);
             return;
         }
