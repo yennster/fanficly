@@ -87,7 +87,7 @@
 314	none
 313	Checking for new chapters is faster and lighter on AO3
 316	Checking for new chapters is faster and lighter on AO3
-315	Following an author before their works list loads still alerts you to new works
+315	Following an author before their works load still alerts you to new works
 317	The My Reading share card shows the real app icon
 318	Typing "explicit" or "femslash" in search no longer turns on a filter
 319	The re-download prompt no longer comes back after every launch
@@ -96,14 +96,23 @@
 321	A failed "load more" keeps the results you already have
 323	none
 324	Subscribing to a story on AO3 works again
-329	Saved filters keep the fandom you're in, and Browse shows every filter you've set
+329	Saved filters keep your fandom, and Browse shows every filter you set
 332	The Go menu switches tabs the same way the sidebar does
 333	Signing in with a new AO3 account never shows the last account's bookmarks or subscriptions
 334	Opening a story on a second device no longer overwrites newer reading progress
-336	Import EPUB files, like your AO3 downloads, and read them offline in Fanficly's reader
-331	Fanficly now asks for a rating every few weeks at most, and stops once you've rated it
-335	Signing in with a new AO3 account never shows the last account's subscriptions
+336	Import EPUB files, like your AO3 downloads, and read them offline
+331	Fanficly asks for a rating every few weeks at most, and stops once you've rated it
+335	A new AO3 account never sees the last one's subscriptions
 326	none
 327	The Filters sheet has Cancel, and an old word count no longer sticks
 328	Search keeps loading when your content filter hides a whole page
 330	Search keeps loading when your content filter hides a whole page
+338	The Chapters menu follows continuous scroll and always jumps to your pick
+339	Listen pauses when your headphones disconnect
+340	Background listening saves your place and counts as reading time
+341	Saving your place is lighter on battery
+343	Saving your place is lighter on battery
+344	Long one-shots open page by page without freezing
+345	Long one-shots open page by page without freezing
+346	A controller stays inside open dialogs and menus
+347	One-tap deletes can be undone for a few seconds
