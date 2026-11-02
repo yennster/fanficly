@@ -166,12 +166,7 @@ private struct ResultBadgesModifier: ViewModifier {
             .onChange(of: works.map(\.id)) { refresh() }
             // "In Library" goes as soon as a removal waits behind the Undo
             // toast, and comes back on Undo (#168).
-            // The list's badge lookup runs after a save or removal elsewhere
-        // (the context menu, another row for the same story).
-        .onChange(of: badge) {
-            isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
-        }
-        .onChange(of: UndoCenter.shared.pending?.id) { refresh() }
+            .onChange(of: UndoCenter.shared.pending?.id) { refresh() }
     }
 
     private func refresh() {
