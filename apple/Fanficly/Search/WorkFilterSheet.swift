@@ -17,7 +17,11 @@ struct WorkFilterSheet: View {
     private let original: AO3SearchFilters
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
-    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
+    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var allSavedFilters: [SavedFilter]
+    /// Without a filter deleted a moment ago, still behind its Undo toast (#169).
+    private var savedFilters: [SavedFilter] {
+        allSavedFilters.filter { !UndoCenter.shared.isPending(UndoCenter.Key.filter($0.name)) }
+    }
 
     // Editable text mirrors for the comma-separated tag fields.
     @State private var relationshipsText: String = ""
@@ -104,6 +108,8 @@ struct WorkFilterSheet: View {
                 Text(saveDialogMessage)
             }
         }
+        // A saved filter's Undo toast, over the sheet rather than behind it (#169).
+        .undoToastHost()
     }
 
     private var savedFiltersSection: some View {
@@ -116,12 +122,7 @@ struct WorkFilterSheet: View {
                         .foregroundStyle(.primary)
                 }
                 .swipeActions {
-                    Button(role: .destructive) {
-                        iCloudSyncManager.recordDeletion(.filter, key: saved.name)
-                        context.delete(saved)
-                        try? context.save()
-                        iCloudSyncManager.shared.queueBackup(context: context)
-                    } label: { Label("Delete", systemImage: "trash") }
+                    SavedFilterDeleteButton(saved: saved)
                 }
             }
             Button {
@@ -152,6 +153,8 @@ struct WorkFilterSheet: View {
         let name = saveName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         let json = draft.savedJSON()
+        // Saving under a name deleted a moment ago keeps it (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.filter(name))
         let descriptor = FetchDescriptor<SavedFilter>(predicate: #Predicate { $0.name == name })
         if let existing = (try? context.fetch(descriptor))?.first {
             existing.filtersJSON = json

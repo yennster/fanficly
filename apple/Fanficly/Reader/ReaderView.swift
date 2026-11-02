@@ -42,6 +42,7 @@ struct ReaderView: View {
     @AppStorage("reader.showImages") private var showImages: Bool = false
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     // Start of the current active-reading span, for the Stats tab. Set while
@@ -183,7 +184,12 @@ struct ReaderView: View {
         queueBackup()
     }
 
+    /// Deletes at once (the deletion syncs as a tombstone) and offers Undo
+    /// (#169), which saves the profile again, newer than its tombstone, and
+    /// makes it active again if it was.
     private func deleteProfile(_ name: String) {
+        let deleted = profiles.first { $0.name == name }
+        let wasActive = activeProfileName == name
         var list = profiles
         list.removeAll { $0.name == name }
         if activeProfileName == name {
@@ -195,6 +201,19 @@ struct ReaderView: View {
             }
         }
         saveProfiles(list)
+        queueBackup()
+        guard let deleted else { return }
+        UndoCenter.shared.offer(String(localized: "Deleted profile “\(name)”"), host: undoHost) {
+            restoreProfile(deleted, makeActive: wasActive)
+        }
+    }
+
+    private func restoreProfile(_ profile: ReaderProfile, makeActive: Bool) {
+        var list = profiles
+        guard !list.contains(where: { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }) else { return }
+        list.append(profile)
+        saveProfiles(list)
+        if makeActive { selectProfile(profile) }
         queueBackup()
     }
 

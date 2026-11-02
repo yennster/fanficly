@@ -190,6 +190,9 @@ enum WorkPersistence {
         let work = upsertMetadata(summary: summary, into: context, save: false)
         work.isFollowed.toggle()
         if work.isFollowed {
+            // Following a work deleted a moment ago keeps it (#169); an
+            // unfollow leaves its waiting delete alone.
+            UndoCenter.shared.cancel(UndoCenter.Key.work(work.ao3Id))
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
             // Following opts into the poller's new-chapter alerts — the one

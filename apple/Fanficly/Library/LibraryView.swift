@@ -12,6 +12,7 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.undoToastHost) private var undoHost
     @State private var filter: LibraryFilter = .all
     @State private var showingCreateFolderAlert = false
     @State private var newFolderName = ""
@@ -53,7 +54,17 @@ struct LibraryView: View {
         horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
     }
 
+    /// The library without works or folders waiting behind the Undo toast.
+    private var visibleWorks: [Work] {
+        works.filter { !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id)) }
+    }
+
+    private var visibleFolders: [CustomFolder] {
+        folders.filter { !UndoCenter.shared.isPending(UndoCenter.Key.folder($0.name)) }
+    }
+
     private var filtered: [Work] {
+        let works = visibleWorks
         var base: [Work]
         switch filter {
         case .all:        base = works
@@ -72,7 +83,7 @@ struct LibraryView: View {
 
     var body: some View {
         Group {
-            if works.isEmpty {
+            if visibleWorks.isEmpty {
                 ContentUnavailableView {
                     Label("Nothing saved yet", systemImage: "books.vertical")
                 } description: {
@@ -127,8 +138,11 @@ struct LibraryView: View {
                             }
                             
                             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                            let folders = visibleFolders
                             let filteredFolders = query.isEmpty ? folders : folders.filter {
-                                $0.name.lowercased().contains(query) || $0.works.contains(where: { $0.matches(query: query) })
+                                $0.name.lowercased().contains(query) || $0.works.contains(where: {
+                                    $0.matches(query: query) && !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id))
+                                })
                             }
                             ForEach(filteredFolders) { folder in
                                 NavigationLink(value: folder) {
@@ -143,8 +157,9 @@ struct LibraryView: View {
                                             Text(folder.name).font(.headline)
                                         }
                                         if !dynamicTypeSize.isAccessibilitySize { Spacer() }
-                                        let totalCount = folder.works.count
-                                        let matchingCount = query.isEmpty ? totalCount : folder.works.filter { $0.matches(query: query) }.count
+                                        let folderWorks = folder.works.filter { !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id)) }
+                                        let totalCount = folderWorks.count
+                                        let matchingCount = query.isEmpty ? totalCount : folderWorks.filter { $0.matches(query: query) }.count
                                         if query.isEmpty {
                                             Text("\(totalCount) stories")
                                                 .font(.subheadline)
@@ -278,7 +293,7 @@ struct LibraryView: View {
                         ContentUnavailableView.search(text: searchText)
                     } else if filter == .folders && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                        if !folders.contains(where: { $0.name.lowercased().contains(query) }) {
+                        if !visibleFolders.contains(where: { $0.name.lowercased().contains(query) }) {
                             ContentUnavailableView.search(text: searchText)
                         }
                     }
@@ -331,23 +346,39 @@ struct LibraryView: View {
         }
     }
 
+    /// Waits behind the Undo toast (#169): the delete takes the offline
+    /// text, EPUB, note, tags and folder links, and AO3 may no longer have it.
     private func delete(_ work: Work) {
-        iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
-        WorkPersistence.delete(work, in: context)
-        try? context.save()
-        iCloudSyncManager.shared.queueBackup(context: context)
+        let context = context
+        UndoCenter.shared.schedule(String(localized: "Deleted “\(work.title)”"),
+                                   keys: [UndoCenter.Key.work(work.ao3Id)],
+                                   host: undoHost) {
+            guard !work.isDeleted, work.modelContext != nil else { return }
+            iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
+            WorkPersistence.delete(work, in: context)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
     }
 
     private func deleteFolder(_ folder: CustomFolder) {
-        iCloudSyncManager.recordDeletion(.folder, key: folder.name)
-        context.delete(folder)
-        try? context.save()
-        iCloudSyncManager.shared.queueBackup(context: context)
+        let context = context
+        UndoCenter.shared.schedule(String(localized: "Deleted folder “\(folder.name)”"),
+                                   keys: [UndoCenter.Key.folder(folder.name)],
+                                   host: undoHost) {
+            guard !folder.isDeleted, folder.modelContext != nil else { return }
+            iCloudSyncManager.recordDeletion(.folder, key: folder.name)
+            context.delete(folder)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
     }
 
     private func createFolder() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        // Making it again keeps a folder deleted a moment ago (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.folder(name))
         
         let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == name })
         let existing = (try? context.fetch(descriptor))?.first
@@ -421,7 +452,9 @@ struct FolderDetailView: View {
 
     var body: some View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filteredWorks = query.isEmpty ? folder.works : folder.works.filter { $0.matches(query: query) }
+        // Without a work deleted from the Library a moment ago (#169).
+        let folderWorks = folder.works.filter { !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id)) }
+        let filteredWorks = query.isEmpty ? folderWorks : folderWorks.filter { $0.matches(query: query) }
         let sortedWorks = LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(filteredWorks)
         // Any run's progress (it also re-renders the rows as each download
         // lands, so their Downloaded badges update).
@@ -562,7 +595,7 @@ struct FolderDetailView: View {
             if editMode != .active {
                 ToolbarItem(placement: .topBarTrailing) {
                     let downloadIds = RestoreDownloadCenter.folderDownloadCandidates(
-                        LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folder.works))
+                        LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folderWorks))
                     Button {
                         pendingDownloadIds = downloadIds
                     } label: {
@@ -595,8 +628,10 @@ struct FolderDetailView: View {
     @MainActor
     private static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
-        // Removed from the library mid-run: nothing to save it for.
-        guard let work = try? context.fetch(descriptor).first else { return }
+        // Removed from the library mid-run, or waiting to be (#169): nothing
+        // to save it for. A download never cancels the user's delete.
+        guard !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)),
+              let work = try? context.fetch(descriptor).first else { return }
         if work.chapters.isEmpty {
             let payload = try await client.fetchWork(id: workId)
             _ = WorkPersistence.upsert(payload: payload, into: context)
@@ -654,7 +689,7 @@ struct FolderSelectionSheet: View {
                 }
                 
                 Section("All Folders") {
-                    ForEach(folders) { folder in
+                    ForEach(folders.filter { !UndoCenter.shared.isPending(UndoCenter.Key.folder($0.name)) }) { folder in
                         Button {
                             if work.folders.contains(where: { $0.id == folder.id }) {
                                 work.folders.removeAll { $0.id == folder.id }
@@ -713,6 +748,8 @@ struct FolderSelectionSheet: View {
     private func createFolder() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        // Making it again keeps a folder deleted a moment ago (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.folder(name))
         
         let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == name })
         let existing = (try? context.fetch(descriptor))?.first

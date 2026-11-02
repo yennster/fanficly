@@ -170,8 +170,13 @@ struct AuthorWorksView: View {
 /// new work. Follows are added from an author's works page (the Follow button).
 struct FollowedAuthorsView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.undoToastHost) private var undoHost
     @Query(sort: [SortDescriptor<FollowedAuthor>(\.displayName, order: .forward)])
-    private var authors: [FollowedAuthor]
+    private var allAuthors: [FollowedAuthor]
+    /// Without an author unfollowed a moment ago, still behind its Undo toast (#169).
+    private var authors: [FollowedAuthor] {
+        allAuthors.filter { !UndoCenter.shared.isPending(UndoCenter.Key.author($0.username)) }
+    }
 
     var body: some View {
         Group {
@@ -198,12 +203,25 @@ struct FollowedAuthorsView: View {
         .workAndAuthorDestinations()
     }
 
+    /// Waits behind the Undo toast (#169): the follow's record holds the
+    /// works already seen, which a fresh follow can't get back.
     private func unfollow(at offsets: IndexSet) {
-        for index in offsets {
-            context.delete(authors[index])
+        let shown = authors
+        let removed = offsets.filter { shown.indices.contains($0) }.map { shown[$0] }
+        guard let first = removed.first else { return }
+        let message = removed.count == 1
+            ? String(localized: "Unfollowed \(first.displayName)")
+            : String(localized: "Unfollowed \(removed.count) authors")
+        let context = context
+        UndoCenter.shared.schedule(message,
+                                   keys: Set(removed.map { UndoCenter.Key.author($0.username) }),
+                                   host: undoHost) {
+            for author in removed where !author.isDeleted && author.modelContext != nil {
+                context.delete(author)
+            }
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
         }
-        try? context.save()
-        iCloudSyncManager.shared.queueBackup(context: context)
     }
 }
 

@@ -269,6 +269,9 @@ struct FanficlyApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
+                // A delete waiting behind its Undo toast runs now, before the
+                // backup snapshot, so a suspended app doesn't hold it (#169).
+                UndoCenter.shared.commitPending()
                 BackgroundRefresh.scheduleNext()
                 
                 let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")

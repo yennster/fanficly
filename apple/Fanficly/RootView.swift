@@ -266,6 +266,8 @@ struct RootView: View {
             .restoreRedownloadUI()
             // How an EPUB import went, from the Library or an opened file.
             .epubImportAlert()
+            // "Deleted 'X' · Undo" after a one-tap delete (#169).
+            .undoToastHost()
             // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).
             .focusedSceneValue(\.selectTab, SelectTabAction { select($0) })
     }
@@ -708,6 +710,8 @@ struct ImportOverlay: View {
                 status = "Fetching metadata..."
                 let payload = try await client.fetchWork(id: workId)
                 status = "Saving to library..."
+                // Importing a work deleted a moment ago keeps it (#169).
+                UndoCenter.shared.cancel(UndoCenter.Key.work(workId))
                 let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
                 work.isFollowed = true
                 work.followedAt = .now
