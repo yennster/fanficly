@@ -155,6 +155,16 @@ final class PersistenceTests: XCTestCase {
 
     // MARK: Save to Library / Remove from Library (#168)
 
+    /// A removal that runs records its sync tombstone in the real defaults;
+    /// put them back so later backup tests don't see it.
+    private func keepingDeletionMarkers(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let key = iCloudSyncManager.deletionsKey
+        let original = defaults.object(forKey: key)
+        defer { defaults.set(original, forKey: key) }
+        try body()
+    }
+
     func test_toggleLibrary_savesAndFollows() throws {
         let ctx = try makeContext()
         let undo = UndoCenter(delay: .seconds(60))
@@ -167,36 +177,40 @@ final class PersistenceTests: XCTestCase {
     }
 
     func test_toggleLibrary_removesTheStoryFullyWhenTheToastCloses() throws {
-        let ctx = try makeContext()
-        let undo = UndoCenter(delay: .seconds(60))
-        // A story with offline text, as a download leaves it.
-        _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 3), into: ctx)
-        try ctx.save()
-        let summary = payload(id: 9, chapters: 3).summary
+        try keepingDeletionMarkers {
+            let ctx = try makeContext()
+            let undo = UndoCenter(delay: .seconds(60))
+            // A story with offline text, as a download leaves it.
+            _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 3), into: ctx)
+            try ctx.save()
+            let summary = payload(id: 9, chapters: 3).summary
 
-        XCTAssertFalse(WorkPersistence.toggleLibrary(summary: summary, into: ctx, undo: undo))
-        // Gone from view at once, but nothing is deleted until the toast closes.
-        XCTAssertFalse(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
-        XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 1)
+            XCTAssertFalse(WorkPersistence.toggleLibrary(summary: summary, into: ctx, undo: undo))
+            // Gone from view at once, but nothing is deleted until the toast closes.
+            XCTAssertFalse(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 1)
 
-        undo.commitPending()
-        XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 0)
-        XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Chapter>()), 0)
+            undo.commitPending()
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 0)
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Chapter>()), 0)
+        }
     }
 
     func test_toggleLibrary_unfollowedStoryIsRemovedToo() throws {
-        let ctx = try makeContext()
-        let undo = UndoCenter(delay: .seconds(60))
-        // Downloaded without following: still in the Library, so the action
-        // offers to remove it rather than to save it again.
-        _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 2), into: ctx)
-        try ctx.save()
-        XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
-        XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
+        try keepingDeletionMarkers {
+            let ctx = try makeContext()
+            let undo = UndoCenter(delay: .seconds(60))
+            // Downloaded without following: still in the Library, so the action
+            // offers to remove it rather than to save it again.
+            _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 2), into: ctx)
+            try ctx.save()
+            XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
+            XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
 
-        XCTAssertFalse(WorkPersistence.toggleLibrary(summary: payload(id: 9, chapters: 2).summary, into: ctx, undo: undo))
-        undo.commitPending()
-        XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 0)
+            XCTAssertFalse(WorkPersistence.toggleLibrary(summary: payload(id: 9, chapters: 2).summary, into: ctx, undo: undo))
+            undo.commitPending()
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 0)
+        }
     }
 
     func test_toggleLibrary_undoKeepsEverything() throws {
@@ -211,6 +225,31 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
         let work = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Work>()).first)
         XCTAssertEqual(work.chapters.count, 3)
+    }
+
+    func test_setInLibrary_staleSaveNeverRemoves() throws {
+        let ctx = try makeContext()
+        let undo = UndoCenter(delay: .seconds(60))
+        _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 3), into: ctx)
+        try ctx.save()
+
+        // A row still showing "Save" for a story saved elsewhere keeps it.
+        XCTAssertTrue(WorkPersistence.setInLibrary(true, summary: payload(id: 9, chapters: 3).summary, into: ctx, undo: undo))
+        XCTAssertNil(undo.pending)
+        XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
+    }
+
+    func test_resultBadge_waitingRemovalShowsNotInLibrary() throws {
+        let ctx = try makeContext()
+        let undo = UndoCenter(delay: .seconds(60))
+        let summary = payload(id: 9, chapters: 3).summary
+        WorkPersistence.saveToLibrary(summary: summary, into: ctx, undo: undo)
+        XCTAssertEqual(WorkPersistence.resultBadges(for: [summary], in: ctx, undo: undo)[9], .inLibrary)
+
+        WorkPersistence.setInLibrary(false, summary: summary, into: ctx, undo: undo)
+        XCTAssertNil(WorkPersistence.resultBadges(for: [summary], in: ctx, undo: undo)[9])
+        undo.undo()
+        XCTAssertEqual(WorkPersistence.resultBadges(for: [summary], in: ctx, undo: undo)[9], .inLibrary)
     }
 
     func test_toggleLibrary_savingAgainCancelsTheWaitingRemoval() throws {

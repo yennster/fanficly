@@ -402,11 +402,14 @@ struct SearchView: View {
                                 Label("Read Now", systemImage: "book")
                             }
 
-                            Button {
-                                WorkPersistence.toggleLibrary(summary: work, into: context, undoHost: undoHost)
+                            // Removing deletes the saved story, offline text
+                            // and all, behind the Undo toast (#168).
+                            let inLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
+                            Button(role: inLibrary ? ButtonRole.destructive : nil) {
+                                WorkPersistence.setInLibrary(!inLibrary, summary: work, into: context, undoHost: undoHost)
                                 badges = WorkPersistence.resultBadges(for: visibleResults, in: context)
                             } label: {
-                                if WorkPersistence.isInLibrary(workId: work.id, in: context) {
+                                if inLibrary {
                                     Label("Remove from Library", systemImage: "bookmark.slash")
                                 } else {
                                     Label("Save to Library", systemImage: "bookmark")

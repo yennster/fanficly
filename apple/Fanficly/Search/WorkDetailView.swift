@@ -45,13 +45,15 @@ struct WorkDetailView: View {
                         if !readerFullScreen {
                             ToolbarItemGroup(placement: .topBarTrailing) {
                                 Button {
-                                    inLibrary = WorkPersistence.toggleLibrary(summary: payload.summary, into: context,
-                                                                              undoHost: undoHost)
+                                    inLibrary = WorkPersistence.setInLibrary(!inLibrary, summary: payload.summary,
+                                                                             into: context, undoHost: undoHost)
                                 } label: {
                                     Label(inLibrary ? "Remove from Library" : "Save to Library",
                                           systemImage: inLibrary ? "bookmark.fill" : "bookmark")
                                 }
                                 .accessibilityLabel(inLibrary ? "Remove from Library" : "Save to Library")
+                                // A removal mid-download would leave the EPUB behind.
+                                .disabled(isSavingOffline)
                             
                                 moreMenu(payload: payload)
                             }
@@ -97,6 +99,8 @@ struct WorkDetailView: View {
         // elsewhere (Save Offline, an import) can cancel one (#168).
         .onChange(of: UndoCenter.shared.pending?.id) {
             inLibrary = WorkPersistence.isInLibrary(workId: workId, in: context)
+            // A removal that ran took the EPUB with it.
+            epubURL = WorkPersistence.epubURL(workId: workId)
         }
     }
 

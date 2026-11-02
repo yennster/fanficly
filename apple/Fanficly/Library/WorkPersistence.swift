@@ -203,14 +203,29 @@ enum WorkPersistence {
     @discardableResult
     static func toggleLibrary(summary: AO3WorkSummary, into context: ModelContext,
                               undoHost: UUID? = nil, undo: UndoCenter = .shared) -> Bool {
+        setInLibrary(!isInLibrary(workId: summary.id, in: context, undo: undo), summary: summary,
+                     into: context, undoHost: undoHost, undo: undo)
+    }
+
+    /// Saves (`true`) or removes (`false`) a story, as a button showing that
+    /// action asks: a button acts on what it shows, so a row whose state is
+    /// stale never deletes a story it offered to save. Saving a story that is
+    /// already in the Library just keeps it. Returns whether the story is in
+    /// the Library afterwards.
+    @MainActor
+    @discardableResult
+    static func setInLibrary(_ wanted: Bool, summary: AO3WorkSummary, into context: ModelContext,
+                             undoHost: UUID? = nil, undo: UndoCenter = .shared) -> Bool {
+        guard !wanted else {
+            saveToLibrary(summary: summary, into: context, undo: undo)
+            return true
+        }
         let workId = summary.id
-        if isInLibrary(workId: workId, in: context, undo: undo),
+        if !undo.isPending(UndoCenter.Key.work(workId)),
            let work = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })))?.first {
             scheduleRemoval(work, in: context, undoHost: undoHost, undo: undo)
-            return false
         }
-        saveToLibrary(summary: summary, into: context, undo: undo)
-        return true
+        return false
     }
 
     /// Saves a story's metadata and follows it. A story whose removal is
@@ -315,7 +330,7 @@ enum WorkPersistence {
             ))
             try? context.save()
             iCloudSyncManager.shared.queueBackup(context: context)
-            NotificationsAuthorization.requestAfterFollow()  // see toggleFollow
+            NotificationsAuthorization.requestAfterFollow()  // see saveToLibrary
             return true
         }
     }
@@ -323,7 +338,8 @@ enum WorkPersistence {
     /// Badges for one page of search/browse results, keyed by work id. One
     /// fetch per model for the whole page, never one per row.
     @MainActor
-    static func resultBadges(for works: [AO3WorkSummary], in context: ModelContext) -> [Int: ResultBadge] {
+    static func resultBadges(for works: [AO3WorkSummary], in context: ModelContext,
+                             undo: UndoCenter = .shared) -> [Int: ResultBadge] {
         guard !works.isEmpty else { return [:] }
         let ids = works.map(\.id)
         let saved = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
@@ -337,7 +353,7 @@ enum WorkPersistence {
         for work in works {
             // A story waiting behind the Undo toast to be removed is shown
             // as gone already (#168).
-            let savedWork = UndoCenter.shared.isPending(UndoCenter.Key.work(work.id)) ? nil : savedById[work.id]
+            let savedWork = undo.isPending(UndoCenter.Key.work(work.id)) ? nil : savedById[work.id]
             // The saved position, as the Library row shows it; a story read
             // without saving only has its stats row's furthest point.
             let progress = [savedWork?.lastReadProgress, statById[work.id]?.maxProgress]

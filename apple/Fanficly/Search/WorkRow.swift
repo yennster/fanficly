@@ -79,6 +79,11 @@ struct WorkRow: View {
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
         .onAppear { isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context) }
+        // The list's badge lookup runs after a save or removal elsewhere
+        // (the context menu, another row for the same story).
+        .onChange(of: badge) {
+            isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
+        }
         .onChange(of: UndoCenter.shared.pending?.id) {
             isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
             if !isInLibrary { savedHere = false }
@@ -91,7 +96,9 @@ struct WorkRow: View {
     /// keeps the tap from also triggering the row's NavigationLink.
     private var bookmarkButton: some View {
         Button {
-            let newState = WorkPersistence.toggleLibrary(summary: work, into: context, undoHost: undoHost)
+            // Acts on what the button shows (#168): a stale row never
+            // deletes a story it offered to save.
+            let newState = WorkPersistence.setInLibrary(!isInLibrary, summary: work, into: context, undoHost: undoHost)
             withAnimation(.easeInOut(duration: 0.2)) {
                 isInLibrary = newState
                 savedHere = newState
@@ -159,7 +166,12 @@ private struct ResultBadgesModifier: ViewModifier {
             .onChange(of: works.map(\.id)) { refresh() }
             // "In Library" goes as soon as a removal waits behind the Undo
             // toast, and comes back on Undo (#168).
-            .onChange(of: UndoCenter.shared.pending?.id) { refresh() }
+            // The list's badge lookup runs after a save or removal elsewhere
+        // (the context menu, another row for the same story).
+        .onChange(of: badge) {
+            isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
+        }
+        .onChange(of: UndoCenter.shared.pending?.id) { refresh() }
     }
 
     private func refresh() {
