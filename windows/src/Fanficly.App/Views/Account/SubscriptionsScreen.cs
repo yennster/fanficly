@@ -268,7 +268,7 @@ public sealed class SubscriptionsScreen : Screen
         var username = Username;
         var subs = AppHost.Library.Subscriptions()
             .OrderBy(s => s.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
-        var followedWorks = AppHost.Library.FollowedWorks()
+        var followedWorks = Fanficly.App.Views.Library.LibraryActions.Visible(AppHost.Library.FollowedWorks())
             .OrderBy(w => w.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
         var authors = AppHost.Library.All<FollowedAuthor>()
             .Where(a => !Fanficly.App.Views.Authors.FollowedAuthorsScreen.IsUnfollowing(a))

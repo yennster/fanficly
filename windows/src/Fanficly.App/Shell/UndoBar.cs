@@ -27,7 +27,10 @@ internal static class UndoBar
     private static readonly List<Panel> Hosts = [];
     private static InfoBar? _bar;
     private static DispatcherQueueTimer? _timer;
-    private static bool _held;
+    // The pointer and keyboard focus hold the bar separately, so leaving
+    // with one doesn't restart the countdown while the other is still there.
+    private static bool _pointerHeld, _focusHeld;
+    private static bool Held => _pointerHeld || _focusHeld;
 
     /// <summary>Called once from <see cref="MainWindow"/>, with its message area.</summary>
     public static void Install(Panel windowHost)
@@ -68,10 +71,10 @@ internal static class UndoBar
         AutomationProperties.SetAutomationId(bar, "undo.bar");
         // The close button keeps the delete, like the bar timing out.
         bar.Closed += (_, _) => { if (ReferenceEquals(_bar, bar)) UndoQueue.Shared.Commit(pending.Id); };
-        bar.PointerEntered += (_, _) => Hold(true);
-        bar.PointerExited += (_, _) => Hold(false);
-        bar.GotFocus += (_, _) => Hold(true);
-        bar.LostFocus += (_, _) => Hold(false);
+        bar.PointerEntered += (_, _) => { _pointerHeld = true; Hold(); };
+        bar.PointerExited += (_, _) => { _pointerHeld = false; Hold(); };
+        bar.GotFocus += (_, _) => { _focusHeld = true; Hold(); };
+        bar.LostFocus += (_, _) => { _focusHeld = false; Hold(); };
         _bar = bar;
         Hosts.LastOrDefault()?.Children.Add(bar);
         MainWindow.Current?.Announce($"{pending.Message}. Undo is available.");
@@ -79,26 +82,25 @@ internal static class UndoBar
         var timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         timer.Interval = Delay;
         timer.IsRepeating = false;
-        timer.Tick += (_, _) => { if (!_held) UndoQueue.Shared.Commit(pending.Id); };
+        timer.Tick += (_, _) => { if (!Held) UndoQueue.Shared.Commit(pending.Id); };
         _timer = timer;
-        _held = false;
+        _pointerHeld = _focusHeld = false;
         timer.Start();
     }
 
-    private static void Hold(bool held)
+    private static void Hold()
     {
-        _held = held;
         if (_timer is null) return;
         // Starting again resets the interval: a full Delay after leaving the bar.
         _timer.Stop();
-        if (!held) _timer.Start();
+        if (!Held) _timer.Start();
     }
 
     private static void Close()
     {
         _timer?.Stop();
         _timer = null;
-        _held = false;
+        _pointerHeld = _focusHeld = false;
         if (_bar is not { } bar) return;
         _bar = null;
         (bar.Parent as Panel)?.Children.Remove(bar);

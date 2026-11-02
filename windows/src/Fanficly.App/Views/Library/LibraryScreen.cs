@@ -274,7 +274,7 @@ public sealed class LibraryScreen : Screen
         if (_filter == LibraryFilter.Folders)
         {
             var folders = Store.Folders()
-                .Where(f => query.Length == 0 || f.Name.ToLowerInvariant().Contains(query, StringComparison.Ordinal) || f.Works.Any(w => w.Matches(query)))
+                .Where(f => query.Length == 0 || f.Name.ToLowerInvariant().Contains(query, StringComparison.Ordinal) || LibraryActions.Visible(f.Works).Any(w => w.Matches(query)))
                 .ToList();
             items = folders.Cast<object>().ToList();
             if (folders.Count == 0)

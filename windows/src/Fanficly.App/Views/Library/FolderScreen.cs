@@ -129,7 +129,7 @@ public sealed class FolderScreen : Screen
     public override IEnumerable<ICommandBarElement> PrimaryCommands()
     {
         var folder = Folder;
-        if (folder is null || (folder.Works.Count == 0 && !_selecting)) yield break;
+        if (folder is null || (LibraryActions.Visible(folder.Works).Count == 0 && !_selecting)) yield break;
         if (!_selecting)
         {
             // Download All (RM-010): every story here without an EPUB, one at a time.
