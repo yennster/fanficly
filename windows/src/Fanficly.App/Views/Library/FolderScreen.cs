@@ -167,7 +167,7 @@ public sealed class FolderScreen : Screen
     /// <summary>The folder's stories without an EPUB, in on-screen order.</summary>
     private static IReadOnlyList<int> DownloadCandidates(CustomFolder folder) =>
         RestoreDownloadCenter.FolderDownloadCandidates(
-            LibrarySortMenu.Current.Sorted(folder.Works.OrderByDescending(w => w.SavedAt)));
+            LibrarySortMenu.Current.Sorted(LibraryActions.Visible(folder.Works).OrderByDescending(w => w.SavedAt)));
 
     private async Task DownloadAllAsync()
     {

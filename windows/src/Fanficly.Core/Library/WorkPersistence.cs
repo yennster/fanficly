@@ -79,6 +79,9 @@ public static class WorkPersistence
         work.IsFollowed = !work.IsFollowed;
         if (work.IsFollowed)
         {
+            // Following a work deleted a moment ago keeps it (#169); an
+            // unfollow leaves its waiting delete alone.
+            UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(work.Ao3Id));
             work.FollowedAt = DateTimeOffset.Now;
             work.LastSeenChapterCount = summary.ChapterCount;
             // Following opts into the poller's new-chapter alerts — the one

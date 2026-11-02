@@ -257,8 +257,9 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
     /// when none is stored yet (so it reads offline in the app), then the EPUB.</summary>
     public static async Task SaveOfflineAsync(IAO3Client client, LibraryStore store, int workId, CancellationToken ct = default)
     {
-        // Removed from the library mid-run: nothing to save it for.
-        if (store.GetWork(workId) is not { } work) return;
+        // Removed from the library mid-run, or waiting to be behind the Undo
+        // bar (#169): nothing to save it for. A download never cancels it.
+        if (UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(workId)) || store.GetWork(workId) is not { } work) return;
         if (store.ChaptersOf(work).Count == 0)
         {
             var payload = await client.FetchWorkAsync(workId, ct);

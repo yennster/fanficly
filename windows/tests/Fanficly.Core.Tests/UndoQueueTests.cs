@@ -75,6 +75,20 @@ public class UndoQueueTests
     }
 
     [Fact]
+    public void CancelDropsTheDeleteWithoutRunningIt()
+    {
+        var undo = new UndoQueue();
+        undo.Schedule("Deleted saved search “X”", [UndoQueue.Keys.Search("X")], LibraryEntityKinds.SavedSearches, () => _commits.Add("X"));
+        undo.Cancel(UndoQueue.Keys.Search("Y"));
+        Assert.NotNull(undo.Current);
+
+        undo.Cancel(UndoQueue.Keys.Search("X")); // saved again under the same name
+        Assert.Null(undo.Current);
+        undo.CommitPending();
+        Assert.Empty(_commits);
+    }
+
+    [Fact]
     public void OfferUndoRunsTheRevert()
     {
         var undo = new UndoQueue();

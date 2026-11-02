@@ -237,6 +237,8 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             }
             if (toSave is not null)
             {
+                // Saving a work deleted a moment ago keeps it (#169).
+                UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(toSave.Summary.Id));
                 WorkPersistence.Upsert(toSave, AppHost.Library);
                 _payload = toSave;
                 _isWholeWork = true;

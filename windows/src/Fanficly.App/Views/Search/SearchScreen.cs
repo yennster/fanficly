@@ -1295,6 +1295,8 @@ public sealed class SearchScreen : Screen
             "Saves the keywords, filters and sort so you can re-run it later.");
         if (name is null) return;
         var prompt = CurrentFilters.PromptText();
+        // Saving under a name deleted a moment ago keeps it (#169).
+        UndoQueue.Shared.Cancel(UndoQueue.Keys.Search(name));
         if (Store.GetSavedSearch(name) is { } existing)
         {
             // Alerts for an edited search start over: what the old search saw

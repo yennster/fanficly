@@ -218,6 +218,8 @@ public static class WorkFilterSheet
                 if (trimmed.Length == 0) return;
                 var json = Filters.SavedJson();
                 var store = AppHost.Library;
+                // Saving under a name deleted a moment ago keeps it (#169).
+                UndoQueue.Shared.Cancel(UndoQueue.Keys.Filter(trimmed));
                 if (store.GetSavedFilter(trimmed) is { } existing)
                 {
                     existing.FiltersJson = json;

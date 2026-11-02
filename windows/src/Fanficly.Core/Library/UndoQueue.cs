@@ -60,6 +60,18 @@ public sealed class UndoQueue
     public Pending Offer(string message, Action revert) =>
         Show(new Pending(message, new HashSet<string>(), LibraryEntityKinds.None, null, revert));
 
+    /// <summary>Drops a waiting delete without undoing anything because
+    /// <paramref name="key"/> is being saved again by the user (a search or
+    /// filter saved under that name, a deleted work followed, saved offline or
+    /// imported again): the newest intent wins, and the delete never runs or
+    /// writes its tombstone. Swift's <c>UndoCenter.cancel</c>.</summary>
+    public void Cancel(string key)
+    {
+        if (Current is not { } item || !item.Keys.Contains(key)) return;
+        Current = null;
+        Changed?.Invoke(null, item.Kinds);
+    }
+
     /// <summary>Drops the waiting delete; its rows come back.</summary>
     public bool Undo() => Current is { } p && Undo(p.Id);
 
