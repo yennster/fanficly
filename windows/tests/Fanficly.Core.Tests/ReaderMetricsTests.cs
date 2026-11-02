@@ -688,6 +688,113 @@ public class ReaderPaginationTests(ITestOutputHelper output)
                                                        "A Work", "", "", null, true, Measurer).Pages);
         output.WriteLine($"{result.Pages.Count} pages across three chapters");
     }
+
+    // MARK: - Paginating in slices (#164)
+
+    [Fact]
+    public void PagesTurnedWhileRepaginating_StayOnThePageReached()
+    {
+        // A long one-shot re-paginates in slices while the old pages stay up and
+        // turning. The new pages break where the page on screen was when it started;
+        // the page the reader turned to since is found in them.
+        ForEachLayout((_, type, layout, label) =>
+        {
+            var before = Paginate(type, layout);
+            var started = before.Pages[before.Pages.Count / 3];
+            var reached = before.Pages[before.Pages.Count * 2 / 3];
+            var start = ReaderPaginator.Start(started, before.Atoms);
+            var moved = ReaderPaginator.Start(reached, before.Atoms);
+            Assert.NotNull(start);
+            Assert.NotNull(moved);
+            var resized = layout with { ViewportHeight = layout.ViewportHeight - ControlsHeight };
+            var after = Paginate(type, resized, start: start);
+            var page = ReaderPaginator.PageContaining(moved.Value, after.Pages, after.Atoms);
+            Assert.NotNull(page);
+            // It starts at or before the place reached, and the next page after it.
+            static (int, int, int) Key(PageStart p) => (p.Paragraph, p.Sentence, p.Offset);
+            var pageStart = ReaderPaginator.Start(page, after.Atoms);
+            Assert.NotNull(pageStart);
+            Assert.True(Key(pageStart.Value).CompareTo(Key(moved.Value)) <= 0, $"{label}: the page found starts after the place reached");
+            var i = after.Pages.ToList().IndexOf(page);
+            if (i + 1 < after.Pages.Count && ReaderPaginator.Start(after.Pages[i + 1], after.Atoms) is { } next)
+                Assert.True(Key(next).CompareTo(Key(moved.Value)) > 0, $"{label}: the place reached is on a later page");
+        });
+    }
+
+    [Fact]
+    public void SteppingAChapter_MakesThePagesOfOneGo()
+    {
+        var type = Typographies[0];
+        var layout = LayoutFor(Devices[1], type);
+        var whole = Paginate(type, layout, isFirstChapter: true);
+        var atoms = ReaderPaginator.Atoms(ChapterHtml, includeImages: false);
+        var header = ReaderPaginator.EstimateChapterHeaderHeight("The Long Way Round", layout.ColumnWidth, type.FontSize,
+                                                                 type.Family, Measurer);
+        var run = new ChapterPagination(1, atoms, layout.ColumnWidth, layout.ViewportHeight, header, isFirstChapter: true,
+                                        showChapterHeader: true, type.Reader, Measurer, Drawn(type, layout));
+        var steps = 0;
+        while (run.PackNextPage()) steps++;
+        Assert.False(run.PackNextPage());
+        Assert.Equal(whole.Pages, run.Pages);
+        Assert.Equal(whole.Atoms.Select(a => a.Text.Text), atoms.Select(a => a.Text.Text));
+        // One step a page of text (the title page comes with the first).
+        Assert.Equal(whole.Pages.Count - 1, steps);
+    }
+
+    [Fact]
+    public void AChapterWithNoText_StillGetsItsPage()
+    {
+        var run = new ChapterPagination(3, [], 300, 500, 60, isFirstChapter: false, showChapterHeader: true,
+                                        Typographies[0].Reader, Measurer);
+        Assert.False(run.PackNextPage());
+        Assert.Equal(["c3-p0"], run.Pages.Select(p => p.Id));
+    }
+
+    [Fact]
+    public void ParsedAtoms_AreReusedUntilTheChapterChanges()
+    {
+        var cache = new ChapterAtomsCache();
+        var chapter = new AO3ChapterPayload(1, "", "<p>One. Two.</p><p>Three.</p>");
+        var first = cache.Atoms(chapter, includeImages: false);
+        Assert.Equal(3, first.Count);
+        var again = cache.Atoms(chapter, includeImages: false);
+        Assert.Equal(first.Select(a => a.Id), again.Select(a => a.Id));
+        // A copy: pagination splits the list it's given.
+        again.RemoveAt(0);
+        Assert.Equal(3, cache.Atoms(chapter, includeImages: false).Count);
+        // The images setting changes paragraph indices, so it parses again.
+        Assert.NotEqual(first.Select(a => a.Id), cache.Atoms(chapter, includeImages: true).Select(a => a.Id));
+        Assert.Single(cache.Atoms(chapter with { BodyHtml = "<p>One.</p>" }, includeImages: false));
+        var kept = cache.Atoms(chapter, includeImages: false).Select(a => a.Id).ToList();
+        cache.KeepOnly([2]);
+        Assert.NotEqual(kept, cache.Atoms(chapter, includeImages: false).Select(a => a.Id));
+    }
+
+    [Fact]
+    public async Task PaginatingInSlices_MakesThePagesOfOneGo_AndStopsOnceCancelled()
+    {
+        AO3ChapterPayload[] chapters = [new(1, "One", ChapterHtml), new(2, "Two", ChapterHtml), new(3, "Three", ChapterHtml)];
+        var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
+        var whole = ReaderPaginator.PerformPagination(trigger, null, chapters, "A Work", "tester", "tester", null,
+                                                      limitLineLength: true, Measurer);
+        var pauses = 0;
+        var sliced = await ReaderPaginator.PerformPaginationAsync(
+            trigger, null, chapters, limitLineLength: true, Measurer, new ChapterAtomsCache(),
+            pause: () => { pauses++; return Task.CompletedTask; }, slice: TimeSpan.Zero, CancellationToken.None);
+        Assert.NotNull(sliced);
+        Assert.Equal(whole.Pages, sliced.Pages);
+        // A pause after every page (and every chapter's parsing).
+        Assert.True(pauses >= whole.Pages.Count, $"{pauses} pauses for {whole.Pages.Count} pages");
+
+        // A newer trigger cancels a run at its next pause.
+        using var cancel = new CancellationTokenSource();
+        var cancelledPauses = 0;
+        var cancelled = await ReaderPaginator.PerformPaginationAsync(
+            trigger, null, chapters, limitLineLength: true, Measurer, null,
+            pause: () => { cancelledPauses++; cancel.Cancel(); return Task.CompletedTask; }, slice: TimeSpan.Zero, cancel.Token);
+        Assert.Null(cancelled);
+        Assert.Equal(1, cancelledPauses);
+    }
 }
 
 /// <summary>Ctrl+Plus / Ctrl+Minus step the reader's text size, as the Mac's
