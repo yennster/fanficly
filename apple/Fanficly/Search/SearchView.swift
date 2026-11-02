@@ -403,10 +403,10 @@ struct SearchView: View {
                             }
 
                             Button {
-                                _ = WorkPersistence.toggleFollow(summary: work, into: context)
+                                WorkPersistence.toggleLibrary(summary: work, into: context, undoHost: undoHost)
                                 badges = WorkPersistence.resultBadges(for: visibleResults, in: context)
                             } label: {
-                                if WorkPersistence.isFollowed(workId: work.id, in: context) {
+                                if WorkPersistence.isInLibrary(workId: work.id, in: context) {
                                     Label("Remove from Library", systemImage: "bookmark.slash")
                                 } else {
                                     Label("Save to Library", systemImage: "bookmark")

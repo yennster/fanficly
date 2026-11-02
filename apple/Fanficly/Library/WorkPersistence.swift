@@ -182,17 +182,46 @@ enum WorkPersistence {
         return (try? context.fetch(descriptor))?.first?.isFollowed ?? false
     }
 
-    /// Toggle the local follow flag, persisting metadata if needed.
-    /// Returns the new follow state.
+    /// Whether a story is in the Library: saved, and not waiting behind the
+    /// Undo toast to be removed. This is what "Save to Library" / "Remove
+    /// from Library" shows, whether the story was saved, followed, downloaded
+    /// or imported (#168).
+    @MainActor
+    static func isInLibrary(workId: Int, in context: ModelContext, undo: UndoCenter = .shared) -> Bool {
+        guard !undo.isPending(UndoCenter.Key.work(workId)) else { return false }
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        return ((try? context.fetchCount(descriptor)) ?? 0) > 0
+    }
+
+    /// The one "Save to Library" / "Remove from Library" action (#168), used
+    /// by result rows, their context menus and the work page. Saving creates
+    /// the story and follows it for new-chapter alerts. Removing deletes it
+    /// fully, like Library → Delete: offline text, EPUB, note, tags, folder
+    /// links and progress on the `Work` go with it, behind the Undo toast.
+    /// Returns whether the story is in the Library afterwards.
     @MainActor
     @discardableResult
-    static func toggleFollow(summary: AO3WorkSummary, into context: ModelContext) -> Bool {
+    static func toggleLibrary(summary: AO3WorkSummary, into context: ModelContext,
+                              undoHost: UUID? = nil, undo: UndoCenter = .shared) -> Bool {
+        let workId = summary.id
+        if isInLibrary(workId: workId, in: context, undo: undo),
+           let work = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })))?.first {
+            scheduleRemoval(work, in: context, undoHost: undoHost, undo: undo)
+            return false
+        }
+        saveToLibrary(summary: summary, into: context, undo: undo)
+        return true
+    }
+
+    /// Saves a story's metadata and follows it. A story whose removal is
+    /// still behind the Undo toast keeps everything it had (#169).
+    @MainActor
+    @discardableResult
+    static func saveToLibrary(summary: AO3WorkSummary, into context: ModelContext, undo: UndoCenter = .shared) -> Work {
+        undo.cancel(UndoCenter.Key.work(summary.id))
         let work = upsertMetadata(summary: summary, into: context, save: false)
-        work.isFollowed.toggle()
-        if work.isFollowed {
-            // Following a work deleted a moment ago keeps it (#169); an
-            // unfollow leaves its waiting delete alone.
-            UndoCenter.shared.cancel(UndoCenter.Key.work(work.ao3Id))
+        if !work.isFollowed {
+            work.isFollowed = true
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
             // Following opts into the poller's new-chapter alerts — the one
@@ -200,12 +229,28 @@ enum WorkPersistence {
             // the moment to ask for permission, not the login-gated
             // Subscriptions tab.
             NotificationsAuthorization.requestAfterFollow()
-        } else {
-            work.followedAt = nil
         }
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
-        return work.isFollowed
+        return work
+    }
+
+    /// Removes a story from the Library behind the Undo toast (#169): it
+    /// leaves every list at once and is deleted when the toast closes, with
+    /// its offline text, EPUB, note, tags and folder links. Library → Delete
+    /// and "Remove from Library" both come here.
+    @MainActor
+    static func scheduleRemoval(_ work: Work, in context: ModelContext,
+                                undoHost: UUID? = nil, undo: UndoCenter = .shared) {
+        undo.schedule(String(localized: "Deleted “\(work.title)”"),
+                      keys: [UndoCenter.Key.work(work.ao3Id)],
+                      host: undoHost) {
+            guard !work.isDeleted, work.modelContext != nil else { return }
+            iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
+            delete(work, in: context)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
     }
 
     /// Record (or bump to "now") a work in the recently-viewed history,
@@ -290,7 +335,9 @@ enum WorkPersistence {
 
         var badges: [Int: ResultBadge] = [:]
         for work in works {
-            let savedWork = savedById[work.id]
+            // A story waiting behind the Undo toast to be removed is shown
+            // as gone already (#168).
+            let savedWork = UndoCenter.shared.isPending(UndoCenter.Key.work(work.id)) ? nil : savedById[work.id]
             // The saved position, as the Library row shows it; a story read
             // without saving only has its stats row's furthest point.
             let progress = [savedWork?.lastReadProgress, statById[work.id]?.maxProgress]

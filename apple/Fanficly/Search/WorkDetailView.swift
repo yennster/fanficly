@@ -5,6 +5,7 @@ import UIKit // UIAccessibility announcements (SaveOfflineAlert)
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @Environment(\.dismiss) private var dismiss
@@ -15,7 +16,7 @@ struct WorkDetailView: View {
     /// the work never loaded.
     @State private var saveError: String?
     @State private var isSavingOffline: Bool = false
-    @State private var followed: Bool = false
+    @State private var inLibrary: Bool = false
     @State private var epubURL: URL?
     @State private var showingReport: Bool = false
     @State private var showingComments: Bool = false
@@ -44,12 +45,13 @@ struct WorkDetailView: View {
                         if !readerFullScreen {
                             ToolbarItemGroup(placement: .topBarTrailing) {
                                 Button {
-                                    followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
+                                    inLibrary = WorkPersistence.toggleLibrary(summary: payload.summary, into: context,
+                                                                              undoHost: undoHost)
                                 } label: {
-                                    Label(followed ? "Remove from Library" : "Save to Library",
-                                          systemImage: followed ? "bookmark.fill" : "bookmark")
+                                    Label(inLibrary ? "Remove from Library" : "Save to Library",
+                                          systemImage: inLibrary ? "bookmark.fill" : "bookmark")
                                 }
-                                .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
+                                .accessibilityLabel(inLibrary ? "Remove from Library" : "Save to Library")
                             
                                 moreMenu(payload: payload)
                             }
@@ -91,6 +93,11 @@ struct WorkDetailView: View {
         .subscribePresentation(subscriber, workId: workId)
         .saveOfflineAlert($saveError)
         .task { await load() }
+        // Undoing a removal puts the story back in the Library; a save
+        // elsewhere (Save Offline, an import) can cancel one (#168).
+        .onChange(of: UndoCenter.shared.pending?.id) {
+            inLibrary = WorkPersistence.isInLibrary(workId: workId, in: context)
+        }
     }
 
     // MARK: - Toolbar buttons
@@ -168,7 +175,7 @@ struct WorkDetailView: View {
 
     private func load() async {
         epubURL = WorkPersistence.epubURL(workId: workId)
-        followed = WorkPersistence.isFollowed(workId: workId, in: context)
+        inLibrary = WorkPersistence.isInLibrary(workId: workId, in: context)
 
         do {
             let fetched = try await client.fetchWork(id: workId)
@@ -187,6 +194,9 @@ struct WorkDetailView: View {
         UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
         _ = WorkPersistence.upsert(payload: payload, into: context)
         iCloudSyncManager.shared.queueBackup(context: context)
+        // Saving offline puts the story in the Library, so the toolbar
+        // offers to remove it (#168).
+        inLibrary = true
         do {
             let url = try await client.downloadEPUB(workId: payload.summary.id)
             epubURL = url
