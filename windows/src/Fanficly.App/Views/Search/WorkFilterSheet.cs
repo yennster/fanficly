@@ -46,6 +46,14 @@ public static class WorkFilterSheet
         dialog.Resources["ContentDialogMinWidth"] = 320.0;
         dialog.Resources["ContentDialogMaxHeight"] = 900.0;
         AutomationProperties.SetAutomationId(dialog, "filters.sheet");
+        // A saved filter's Undo bar shows in the sheet, which covers the
+        // window's message area, and its list redraws on Undo (#169).
+        void OnUndo(UndoQueue.Pending? _, LibraryEntityKinds kinds)
+        {
+            if ((kinds & LibraryEntityKinds.SavedFilters) != 0) editor.Refresh();
+        }
+        dialog.Opened += (_, _) => { Shell.UndoBar.PushHost(editor.UndoHost); UndoQueue.Shared.Changed += OnUndo; };
+        dialog.Closed += (_, _) => { UndoQueue.Shared.Changed -= OnUndo; Shell.UndoBar.PopHost(editor.UndoHost); };
         var result = await Dialogs.ShowAsync(dialog);
         if (result != ContentDialogResult.Primary) return null;
         editor.CommitText();
@@ -56,7 +64,15 @@ public static class WorkFilterSheet
     private sealed class FilterEditor
     {
         public AO3SearchFilters Filters { get; private set; }
-        public ScrollViewer Root { get; }
+        public Grid Root { get; }
+        /// <summary>Where the Undo bar shows while the sheet is open.</summary>
+        public StackPanel UndoHost { get; } = new()
+        {
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 8),
+        };
         private readonly Border _host = new();
 
         // Editable text mirrors for the comma-separated tag fields.
@@ -74,17 +90,21 @@ public static class WorkFilterSheet
         {
             Filters = filters;
             SeedText();
-            Root = new ScrollViewer
+            Root = new Grid();
+            Root.Children.Add(new ScrollViewer
             {
                 Content = _host,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollMode = ScrollMode.Disabled,
                 Padding = new Thickness(0, 0, 12, 0),
-            };
+            });
+            Root.Children.Add(UndoHost);
             _host.Child = Build();
         }
 
         private void Rebuild() => _host.Child = Build();
+
+        public void Refresh() => Rebuild();
 
         private StackPanel Build()
         {
@@ -112,7 +132,9 @@ public static class WorkFilterSheet
         {
             var store = AppHost.Library;
             var rows = new List<UIElement>();
-            foreach (var saved in store.All<SavedFilter>().OrderByDescending(s => s.SavedAt))
+            foreach (var saved in store.All<SavedFilter>()
+                         .Where(s => !UndoQueue.Shared.IsPending(UndoQueue.Keys.Filter(s.Name)))
+                         .OrderByDescending(s => s.SavedAt))
             {
                 var open = new Button
                 {
@@ -127,14 +149,15 @@ public static class WorkFilterSheet
                 AutomationProperties.SetName(open, saved.Name);
                 AutomationProperties.SetHelpText(open, "Applies this saved filter");
                 open.Click += (_, _) => ApplySaved(saved);
-                void Delete()
-                {
-                    LibrarySyncManager.RecordDeletionShared(DeletionKind.Filter, saved.Name);
-                    store.Delete(saved);
-                    store.TrySave();
-                    Shell.MainWindow.Current.Announce($"Deleted {saved.Name}");
-                    Rebuild();
-                }
+                // Waits behind the Undo bar (#169).
+                void Delete() => UndoQueue.Shared.Schedule($"Deleted saved filter “{saved.Name}”",
+                    [UndoQueue.Keys.Filter(saved.Name)], LibraryEntityKinds.SavedFilters, () =>
+                    {
+                        if (!saved.IsInserted) return;
+                        LibrarySyncManager.RecordDeletionShared(DeletionKind.Filter, saved.Name);
+                        store.Delete(saved);
+                        store.TrySave();
+                    });
                 var delete = UI.UI.IconButton("trash", $"Delete {saved.Name}", Delete, 14);
                 var row = UI.UI.Grid("*,Auto");
                 row.Children.Add(open.Col(0));

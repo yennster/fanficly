@@ -286,7 +286,7 @@ public sealed class FolderScreen : Screen
         _search.Visibility = Visibility.Visible;
 
         var query = Query;
-        var all = folder.Works.ToList();
+        var all = LibraryActions.Visible(folder.Works);
         var filtered = query.Length == 0 ? all : all.Where(w => w.Matches(query)).ToList();
         var sorted = LibrarySortMenu.Current.Sorted(filtered.OrderByDescending(w => w.SavedAt));
         _selected.IntersectWith(sorted.Select(w => w.Ao3Id));

@@ -42,6 +42,14 @@ public sealed class LibraryStore : IDisposable
     /// the store's lock; UI subscribers marshal to their own thread.</summary>
     public event Action<LibraryEntityKinds>? Changed;
 
+    /// <summary>Raises <see cref="Changed"/> without a save: a delete waiting
+    /// behind the Undo bar (<see cref="UndoQueue"/>) hid or brought back rows of
+    /// these kinds, so their screens redraw (#169).</summary>
+    public void NotifyChanged(LibraryEntityKinds kinds)
+    {
+        if (kinds != LibraryEntityKinds.None) Changed?.Invoke(kinds);
+    }
+
     /// <summary>The database file, or ":memory:".</summary>
     public string DatabasePath { get; }
 

@@ -679,8 +679,10 @@ public sealed class SearchScreen : Screen
 
     // MARK: - Start view (recent and saved searches)
 
+    /// <summary>Without a search deleted a moment ago, still behind its Undo bar (#169).</summary>
     private static List<SavedSearch> SavedSearches() =>
-        Store.All<SavedSearch>().OrderByDescending(s => s.SavedAt).ToList();
+        Store.All<SavedSearch>().Where(s => !UndoQueue.Shared.IsPending(UndoQueue.Keys.Search(s.Name)))
+            .OrderByDescending(s => s.SavedAt).ToList();
 
     /// <summary>Before the first search: recent and saved searches, or a short intro.</summary>
     private FrameworkElement StartView()
@@ -731,14 +733,15 @@ public sealed class SearchScreen : Screen
             var rows = new List<ListRow>();
             foreach (var s in saved)
             {
-                void Delete()
-                {
-                    LibrarySyncManager.RecordDeletionShared(DeletionKind.Search, s.Name);
-                    Store.Delete(s);
-                    Store.TrySave();
-                    MainWindow.Current.Announce($"Deleted {s.Name}");
-                    RenderContent();
-                }
+                // Waits behind the Undo bar (#169), which redraws the list.
+                void Delete() => UndoQueue.Shared.Schedule($"Deleted saved search “{s.Name}”",
+                    [UndoQueue.Keys.Search(s.Name)], LibraryEntityKinds.SavedSearches, () =>
+                    {
+                        if (!s.IsInserted) return;
+                        LibrarySyncManager.RecordDeletionShared(DeletionKind.Search, s.Name);
+                        Store.Delete(s);
+                        Store.TrySave();
+                    });
                 var text = UI.UI.VStack(2,
                     UI.UI.Text(s.Name, Theme.Style.Headline),
                     UI.UI.Text(s.Prompt, Theme.Style.Caption, Theme.TextSecondary, wrap: false));

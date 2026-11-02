@@ -89,6 +89,8 @@ public static partial class AppHost
     {
         window.AppWindow.Closing += (_, _) =>
         {
+            // A delete waiting behind its Undo bar runs before the save (#169).
+            UndoQueue.Shared.CommitPending();
             OnClosing();
             if (KeyValueStores.Default is JsonFileKeyValueStore s) s.Flush();
             if (KeyValueStores.Synced is SyncFolderKeyValueStore k) k.Flush();

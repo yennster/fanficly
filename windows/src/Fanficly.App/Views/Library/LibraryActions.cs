@@ -173,22 +173,28 @@ internal static class LibraryActions
     }
 
     /// <summary>Removes the work (and its EPUB) from the library.</summary>
-    public static void Delete(Work work)
-    {
-        if (!work.IsInserted) return;
-        var title = work.Title;
-        WorkPersistence.DeleteWork(work, Store);
-        FilesChanged?.Invoke();
-        MainWindow.Current?.Announce($"Deleted {title} from Library");
-    }
+    /// <summary>The works not waiting to be deleted behind the Undo bar (#169).</summary>
+    public static List<Work> Visible(IEnumerable<Work> works) =>
+        works.Where(w => !UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(w.Ao3Id))).ToList();
+
+    /// <summary>Waits behind the Undo bar (#169): the delete takes the offline
+    /// text, EPUB, note, tags and folder links, and AO3 may no longer have it.
+    /// The bar announces it to Narrator.</summary>
+    public static void Delete(Work work) => Delete([work]);
 
     public static void Delete(IEnumerable<Work> works)
     {
         var list = works.Where(w => w.IsInserted).ToList();
         if (list.Count == 0) return;
-        foreach (var w in list) WorkPersistence.DeleteWork(w, Store);
-        FilesChanged?.Invoke();
-        MainWindow.Current?.Announce(list.Count == 1 ? $"Deleted {list[0].Title} from Library" : $"Deleted {list.Count} stories from Library");
+        var message = list.Count == 1 ? $"Deleted “{list[0].Title}”" : $"Deleted {list.Count} stories";
+        UndoQueue.Shared.Schedule(message, list.Select(w => UndoQueue.Keys.Work(w.Ao3Id)),
+            LibraryEntityKinds.Works | LibraryEntityKinds.Folders, () =>
+            {
+                var still = list.Where(w => w.IsInserted).ToList();
+                if (still.Count == 0) return;
+                foreach (var w in still) WorkPersistence.DeleteWork(w, Store);
+                FilesChanged?.Invoke();
+            });
     }
 
     public static void RemoveFromFolder(IReadOnlyList<Work> works, CustomFolder folder)
