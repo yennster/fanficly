@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.Gaming.Input;
 using Windows.System;
 
@@ -19,8 +20,12 @@ namespace Fanficly.App.Platform;
 /// D-pad / left stick move focus, A activates, B goes back, LB / RB switch
 /// sidebar tabs, LT / RT turn pages (offered to the screen first, like the
 /// arrow keys), the right stick scrolls, Menu opens the sidebar and View
-/// toggles full screen. When the platform does deliver controller keys to
-/// XAML (Xbox), this steps aside so nothing fires twice.
+/// toggles full screen. While a dialog, flyout, menu or drop-down is open
+/// (they live in popups outside the window's tree) the D-pad moves focus
+/// inside it, A activates, B closes it like Escape, the right stick scrolls
+/// it, and nothing reaches the screen or the shell behind it (#167). When the
+/// platform does deliver controller keys to XAML (Xbox), this steps aside so
+/// nothing fires twice.
 /// </summary>
 public static class GamepadInput
 {
@@ -151,6 +156,21 @@ public static class GamepadInput
             (GamepadButtons)0x10000 => VirtualKey.GamepadLeftTrigger,
             _ => VirtualKey.GamepadRightTrigger,
         };
+        // A dialog, flyout or drop-down is on top: keep the controller inside it.
+        if (ModalPopup() is { } popup)
+        {
+            switch (key)
+            {
+                case VirtualKey.GamepadDPadUp: MoveFocus(FocusNavigationDirection.Up, popup); break;
+                case VirtualKey.GamepadDPadDown: MoveFocus(FocusNavigationDirection.Down, popup); break;
+                case VirtualKey.GamepadDPadLeft: MoveFocus(FocusNavigationDirection.Left, popup); break;
+                case VirtualKey.GamepadDPadRight: MoveFocus(FocusNavigationDirection.Right, popup); break;
+                case VirtualKey.GamepadA: Activate(); break;
+                case VirtualKey.GamepadB: Dismiss(popup); break;
+            }
+            return;
+        }
+
         // The screen gets first refusal (the reader turns pages on D-pad / triggers).
         if (screen?.HandleKey(key, VirtualKeyModifiers.None) == true) return;
 
@@ -177,19 +197,87 @@ public static class GamepadInput
         _window.Announce(_window.SelectedItem.Title());
     }
 
-    private static void MoveFocus(FocusNavigationDirection direction)
+    /// <summary>The open popup the controller should stay in: a ContentDialog,
+    /// flyout, context menu or drop-down. Tooltips and popups with nothing to
+    /// focus (a dialog's smoke layer) don't count. The one holding focus wins,
+    /// so a menu opened from inside a dialog comes before the dialog.</summary>
+    private static Popup? ModalPopup()
+    {
+        var root = _window!.XamlRoot;
+        if (root is null) return null;
+        var focused = FocusManager.GetFocusedElement(root) as DependencyObject;
+        Popup? fallback = null;
+        foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root))
+        {
+            if (!popup.IsOpen || popup.Child is null or ToolTip) continue;
+            if (FocusManager.FindFirstFocusableElement(popup.Child) is null) continue;
+            if (IsInside(focused, popup.Child)) return popup;
+            fallback ??= popup;
+        }
+        return fallback;
+    }
+
+    private static bool IsInside(DependencyObject? node, DependencyObject container)
+    {
+        for (; node is not null; node = VisualTreeHelper.GetParent(node))
+            if (ReferenceEquals(node, container)) return true;
+        return false;
+    }
+
+    /// <summary>"B" over a popup: close it the way Escape would, rather than
+    /// going back on the page underneath.</summary>
+    private static void Dismiss(Popup popup)
+    {
+        // A ContentDialog closes through Hide so its Closing handlers run
+        // (the import dialog cancels its import there).
+        if (FindDescendant<ContentDialog>(popup.Child) is { } dialog)
+        {
+            dialog.Hide();
+            return;
+        }
+        // A templated popup (a ComboBox's drop-down, an AutoSuggestBox's
+        // suggestion list) belongs to its control: close it through the control
+        // so the control's own state stays in step.
+        for (DependencyObject? node = popup; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            switch (node)
+            {
+                case ComboBox combo: combo.IsDropDownOpen = false; combo.Focus(FocusState.Keyboard); return;
+                case AutoSuggestBox box: box.IsSuggestionListOpen = false; return;
+            }
+        }
+        // Flyouts and menus: closing their popup closes the flyout.
+        popup.IsOpen = false;
+    }
+
+    private static T? FindDescendant<T>(DependencyObject? node) where T : DependencyObject
+    {
+        if (node is null) return null;
+        if (node is T match) return match;
+        var count = VisualTreeHelper.GetChildrenCount(node);
+        for (var i = 0; i < count; i++)
+            if (FindDescendant<T>(VisualTreeHelper.GetChild(node, i)) is { } found) return found;
+        return null;
+    }
+
+    /// <summary>Moves focus in the window, or only inside <paramref name="popup"/>
+    /// when one is open (a popup isn't under the window's root, so a search
+    /// there never finds the dialog's buttons).</summary>
+    private static void MoveFocus(FocusNavigationDirection direction, Popup? popup = null)
     {
         var root = _window!.XamlRoot;
         if (root is null) return;
-        if (FocusManager.GetFocusedElement(root) is null or Microsoft.UI.Xaml.Controls.ScrollViewer)
+        DependencyObject searchRoot = popup?.Child ?? _window.RootElement;
+        var focused = FocusManager.GetFocusedElement(root);
+        if (focused is null or ScrollViewer || (popup is not null && !IsInside(focused as DependencyObject, searchRoot)))
         {
-            if (FocusManager.FindFirstFocusableElement(_window.RootElement) is Control first)
+            if (FocusManager.FindFirstFocusableElement(searchRoot) is Control first)
             {
                 first.Focus(FocusState.Keyboard);
                 return;
             }
         }
-        var options = new FindNextElementOptions { SearchRoot = _window.RootElement, XYFocusNavigationStrategyOverride = XYFocusNavigationStrategyOverride.Projection };
+        var options = new FindNextElementOptions { SearchRoot = searchRoot, XYFocusNavigationStrategyOverride = XYFocusNavigationStrategyOverride.Projection };
         if (!FocusManager.TryMoveFocus(direction, options) && direction is FocusNavigationDirection.Up or FocusNavigationDirection.Down)
             Scroll(direction == FocusNavigationDirection.Down ? 120 : -120, 0);
     }
@@ -216,23 +304,16 @@ public static class GamepadInput
     {
         var root = _window!.XamlRoot;
         DependencyObject? node = root is null ? null : FocusManager.GetFocusedElement(root) as DependencyObject;
+        // With a popup open, scroll inside it (a long dialog), never the page behind it.
+        var popup = ModalPopup();
+        if (popup is not null && !IsInside(node, popup.Child)) node = null;
         ScrollViewer? viewer = null;
         while (node is not null && viewer is null)
         {
             viewer = node as ScrollViewer;
-            node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node);
+            node = VisualTreeHelper.GetParent(node);
         }
-        viewer ??= FindScrollViewer(_window.Navigator.Current?.View);
+        viewer ??= FindDescendant<ScrollViewer>(popup is not null ? popup.Child : _window.Navigator.Current?.View);
         viewer?.ChangeView(viewer.HorizontalOffset + dx, viewer.VerticalOffset + dy, null, disableAnimation: true);
-    }
-
-    private static ScrollViewer? FindScrollViewer(DependencyObject? node)
-    {
-        if (node is null) return null;
-        if (node is ScrollViewer sv) return sv;
-        var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(node);
-        for (var i = 0; i < count; i++)
-            if (FindScrollViewer(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(node, i)) is { } found) return found;
-        return null;
     }
 }

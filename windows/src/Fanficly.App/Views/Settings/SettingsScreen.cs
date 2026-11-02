@@ -275,7 +275,7 @@ public sealed class SettingsScreen : Screen
     internal static readonly IReadOnlyList<(string Button, string Action)> ControllerMap =
     [
         ("A", "Select the focused item"),
-        ("B", "Go back"),
+        ("B", "Go back, or close a dialog or menu"),
         ("D-pad / left stick", "Move between items; turn pages in the reader"),
         ("LB / RB", "Previous / next sidebar tab; in the reader, previous / next chapter"),
         ("LT / RT", "Previous / next page in the reader"),
