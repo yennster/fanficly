@@ -25,9 +25,6 @@ enum WorkPersistence {
     @discardableResult
     static func upsertMetadata(summary: AO3WorkSummary, into context: ModelContext, save: Bool = true) -> Work {
         let ao3Id = summary.id
-        // Saving, following or downloading a work deleted a moment ago keeps
-        // it: its delete, still behind the Undo toast, never runs (#169).
-        UndoCenter.shared.cancel(UndoCenter.Key.work(ao3Id))
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
         let existing = (try? context.fetch(descriptor))?.first
 
@@ -193,6 +190,9 @@ enum WorkPersistence {
         let work = upsertMetadata(summary: summary, into: context, save: false)
         work.isFollowed.toggle()
         if work.isFollowed {
+            // Following a work deleted a moment ago keeps it (#169); an
+            // unfollow leaves its waiting delete alone.
+            UndoCenter.shared.cancel(UndoCenter.Key.work(work.ao3Id))
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
             // Following opts into the poller's new-chapter alerts — the one

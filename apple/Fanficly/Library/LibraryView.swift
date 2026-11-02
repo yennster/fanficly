@@ -628,8 +628,10 @@ struct FolderDetailView: View {
     @MainActor
     private static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
-        // Removed from the library mid-run: nothing to save it for.
-        guard let work = try? context.fetch(descriptor).first else { return }
+        // Removed from the library mid-run, or waiting to be (#169): nothing
+        // to save it for. A download never cancels the user's delete.
+        guard !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)),
+              let work = try? context.fetch(descriptor).first else { return }
         if work.chapters.isEmpty {
             let payload = try await client.fetchWork(id: workId)
             _ = WorkPersistence.upsert(payload: payload, into: context)

@@ -182,6 +182,9 @@ struct WorkDetailView: View {
     private func saveOffline(_ payload: AO3WorkPayload) async {
         isSavingOffline = true
         defer { isSavingOffline = false }
+        // Saving a work deleted a moment ago keeps it: its delete, still
+        // behind the Undo toast, never runs (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
         _ = WorkPersistence.upsert(payload: payload, into: context)
         iCloudSyncManager.shared.queueBackup(context: context)
         do {
