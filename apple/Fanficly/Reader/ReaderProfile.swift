@@ -121,7 +121,9 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
         }
     }
 
-    static let defaultProfiles: [ReaderProfile] = [
+    /// The built-in profile. Its text size follows the system text size
+    /// (`ReaderMetrics.systemFontSize`) at the time it's built (#174).
+    static var defaultProfiles: [ReaderProfile] { [
         ReaderProfile(
             name: "Default",
             themeRaw: ReaderTheme.system.rawValue,
@@ -129,7 +131,7 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
             widthRaw: ReaderWidth.medium.rawValue,
             widthPercent: 70.0,
             modeRaw: ReadingMode.continuous.rawValue,
-            fontSizePt: ReaderMetrics.defaultFontSize,
+            fontSizePt: ReaderMetrics.systemFontSize,
             lineSpacingPt: ReaderMetrics.defaultLineSpacing,
             paragraphSpacingPt: ReaderMetrics.defaultParagraphSpacing,
             pageTurnHaptics: false,
@@ -137,7 +139,7 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
             kerningPt: ReaderMetrics.defaultKerning,
             boldText: false
         )
-    ]
+    ] }
 
     /// Decodes every stored entry, including deletion tombstones. Display
     /// paths should use loadProfiles(from:), which filters tombstones out.

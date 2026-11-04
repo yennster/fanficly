@@ -15,7 +15,7 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
     @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
@@ -24,6 +24,8 @@ struct ReaderView: View {
     @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    // The system's Bold Text setting turns story text bold too (#174).
+    @Environment(\.legibilityWeight) private var legibilityWeight
     // Page-by-page shows two pages side by side on a wide window (iPhone Duo
     // unfolded, iPad landscape, Mac). Per device but not in reading profiles:
     // it's about the screen's shape, not typography.
@@ -263,6 +265,9 @@ struct ReaderView: View {
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) / CGFloat(zoomScale) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) / CGFloat(zoomScale) }
     private var kerning: CGFloat { CGFloat(kerningPt) / CGFloat(zoomScale) }
+    /// Story text is bold: the Bold text setting, or the system's Bold Text.
+    private var drawsBold: Bool { ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight) }
+    private var systemBoldText: Bool { legibilityWeight == .bold }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -1442,7 +1447,7 @@ struct ReaderView: View {
                 lineSpacing: lineSpacingPt / zoomScale,
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 kerning: kerningPt / zoomScale,
-                boldText: boldText,
+                boldText: drawsBold,
                 showImages: showImages,
                 size: CGSize(
                     width: spread?.pageWidth ?? geo.size.width,
@@ -1729,7 +1734,7 @@ struct ReaderView: View {
                 lineSpacing: lineSpacing,
                 paragraphSpacing: paragraphSpacing,
                 kerning: kerning,
-                boldText: boldText,
+                boldText: drawsBold,
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
@@ -2315,7 +2320,7 @@ struct ReaderView: View {
             foreground: fg,
             scrollSpace: scrollSpace,
             kerning: kerning,
-            boldText: boldText,
+            boldText: drawsBold,
             highlightParagraph: highlightedParagraph(for: chapter.index),
             showImages: showImages
         )
@@ -2434,9 +2439,11 @@ struct ReaderView: View {
                 Label("Font · \(fontFamily.displayName)", systemImage: "character")
             }
 
-            Toggle(isOn: $boldText) {
+            // On, and locked on, while the system's Bold Text is on.
+            Toggle(isOn: systemBoldText ? .constant(true) : $boldText) {
                 Label("Bold text", systemImage: "bold")
             }
+            .disabled(systemBoldText)
 
             presetMenu("Text size", value: $fontSizePt, presets: ReaderMetrics.fontSizePresets,
                        icon: "textformat.size")

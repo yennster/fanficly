@@ -94,9 +94,28 @@ enum ReaderMetrics {
 
     static let maxLineLengthEm: Double = 40
 
+    /// The reader's size at the standard system text size. A device that
+    /// hasn't picked a size reads at `systemFontSize`, this scaled by Dynamic Type.
     static let defaultFontSize: Double = 18
-    static let fontSizeRange: ClosedRange<Double> = 12...30
+    /// Up to 60 pt so the accessibility text sizes (body text up to ~53 pt)
+    /// carry into the reader (#174); page-by-page measures any size.
+    static let fontSizeRange: ClosedRange<Double> = 12...60
     static let fontSizeStep: Double = 1
+
+    /// The text size a device that hasn't picked one reads at, and the
+    /// Default profile's: `defaultFontSize` scaled as Dynamic Type scales body
+    /// text (18 pt at the standard size, 56 pt at the largest accessibility
+    /// size), in whole points and kept in `fontSizeRange` (#174).
+    static var systemFontSize: Double {
+        systemFontSize(scaledBy: UIFontMetrics(forTextStyle: .body), traits: nil)
+    }
+
+    /// `systemFontSize` for a given text size (`traits` nil: the app's own).
+    static func systemFontSize(scaledBy metrics: UIFontMetrics, traits: UITraitCollection?) -> Double {
+        let scaled = Double(metrics.scaledValue(for: CGFloat(defaultFontSize), compatibleWith: traits))
+        guard scaled.isFinite else { return defaultFontSize }
+        return min(fontSizeRange.upperBound, max(fontSizeRange.lowerBound, scaled.rounded()))
+    }
 
     /// ⌘+ / ⌘− (Reader → Bigger / Smaller Text): one point bigger or smaller,
     /// snapped to whole points and kept in `fontSizeRange`. A size the slider
@@ -105,6 +124,14 @@ enum ReaderMetrics {
         let current = size.isFinite ? size : defaultFontSize
         let next = bigger ? (current + fontSizeStep).rounded(.down) : (current - fontSizeStep).rounded(.up)
         return min(fontSizeRange.upperBound, max(fontSizeRange.lowerBound, next))
+    }
+
+    /// Whether story text is drawn bold: the reader's own Bold text setting,
+    /// or the system's Bold Text (Settings › Accessibility › Display & Text
+    /// Size), which a fixed reader font doesn't pick up by itself (#174).
+    /// Pagination measures with the same answer, so pages fit what's drawn.
+    static func drawsBold(_ boldText: Bool, legibilityWeight: LegibilityWeight?) -> Bool {
+        boldText || legibilityWeight == .bold
     }
 
     static let defaultLineSpacing: Double = 6
@@ -121,6 +148,7 @@ enum ReaderMetrics {
     static let fontSizePresets: [(name: String, value: Double)] = [
         ("Extra Small", 13), ("Small", 15), ("Medium", 18),
         ("Large", 20), ("Extra Large", 23), ("Huge", 27),
+        ("Giant", 34), ("Jumbo", 44), ("Maximum", 60),
     ]
     static let lineSpacingPresets: [(name: String, value: Double)] = [
         ("Tight", 2), ("Normal", 6), ("Relaxed", 11), ("Loose", 16),

@@ -97,7 +97,7 @@ struct FanficlyApp: App {
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("app.zoomScale") private var zoomScale: Double = UIZoom.actualSize
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
 
     var body: some Scene {
         WindowGroup {
