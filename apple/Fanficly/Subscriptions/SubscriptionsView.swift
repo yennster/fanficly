@@ -15,10 +15,15 @@ struct SubscriptionsView: View {
     @ViewBuilder
     private func subscriptionRow(_ sub: SubscriptionRecord) -> some View {
         if sub.kind == "work", let workId = workId(from: sub) {
-            // Tap a work subscription to open the fic. Render the same
-            // LibraryRow when we have the work cached locally — the
-            // subscription record alone only carries title + chapter count.
-            NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+            // Tap a work subscription to open the fic: a work saved in the
+            // Library opens its saved copy, like the Library does, so offline
+            // text reads offline (#175); any other opens the live work page.
+            // A new-chapter alert still opens the live page (RootView's
+            // NotificationRoute), since the saved copy lacks that chapter.
+            // Render the same LibraryRow when we have the work cached
+            // locally — the subscription record alone only carries title +
+            // chapter count.
+            NavigationLink(value: SavedFirstWorkRoute(workId: workId)) {
                 if let work = cachedWork(ao3Id: workId) {
                     LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: workId) != nil)
                 } else {
@@ -38,8 +43,7 @@ struct SubscriptionsView: View {
     }
 
     private func cachedWork(ao3Id: Int) -> Work? {
-        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
-        return (try? context.fetch(descriptor))?.first
+        WorkPersistence.savedWork(ao3Id: ao3Id, in: context)
     }
 
     private func workId(from sub: SubscriptionRecord) -> Int? {
@@ -122,6 +126,7 @@ struct SubscriptionsView: View {
             lastNotifyCount = nil
             syncIfNew()
         }
+        .savedFirstWorkDestination()
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()

@@ -1,4 +1,39 @@
 import SwiftUI
+import SwiftData
+
+/// Opens a story the way the Library does when it's saved there (the saved
+/// reader: offline text, or fetched on demand for a bookmark-only save), and
+/// the live work page when it isn't. Recently Viewed and Subscriptions push
+/// it (#175), so a downloaded story opens offline from them too. Resolved when
+/// the screen is built, like `ResumeWorkRoute`, so a story saved or removed
+/// since the list drew opens the right way. Notification routes stay live on
+/// purpose: a saved copy lacks the new chapter the alert is about.
+struct SavedFirstWorkRoute: Hashable {
+    let workId: Int
+}
+
+extension View {
+    /// The destination for `SavedFirstWorkRoute`. Apply once per
+    /// `NavigationStack` root that pushes the route.
+    func savedFirstWorkDestination() -> some View {
+        navigationDestination(for: SavedFirstWorkRoute.self) { route in
+            SavedFirstWorkView(workId: route.workId)
+        }
+    }
+}
+
+private struct SavedFirstWorkView: View {
+    @Environment(\.modelContext) private var context
+    let workId: Int
+
+    var body: some View {
+        if let work = WorkPersistence.savedWork(ao3Id: workId, in: context) {
+            SavedWorkReader(work: work)
+        } else {
+            WorkDetailView(workId: workId)
+        }
+    }
+}
 
 /// Reader for a work in the Library.
 /// - Downloaded works (chapters saved on device) read fully offline.

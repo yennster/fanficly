@@ -167,6 +167,17 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
     }
 
+    // Recently Viewed and Subscriptions open a saved story's Library copy (#175).
+    func test_savedWork_findsOnlyTheLibraryCopy() throws {
+        let ctx = try makeContext()
+        XCTAssertNil(WorkPersistence.savedWork(ao3Id: 11, in: ctx))
+        _ = WorkPersistence.upsert(payload: payload(id: 11, chapters: 2), into: ctx)
+        let saved = try XCTUnwrap(WorkPersistence.savedWork(ao3Id: 11, in: ctx))
+        XCTAssertEqual(saved.ao3Id, 11)
+        XCTAssertEqual(saved.chapters.count, 2, "the saved copy carries its offline text")
+        XCTAssertNil(WorkPersistence.savedWork(ao3Id: 12, in: ctx))
+    }
+
     // MARK: Result-row badges (RM-002)
 
     func test_resultBadge_unknownWorkHasNone() {

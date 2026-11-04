@@ -422,11 +422,13 @@ public sealed class SubscriptionsScreen : Screen
         var page = AO3Page(sub);
         if (sub.Kind == "work" && WorkId(sub) is { } workId)
         {
-            // A subscribed work opens its page; the cached work (if saved) gives
-            // the richer Library row — the record alone has only title + chapters.
+            // A subscribed work saved in the Library opens its saved reader, so
+            // offline text reads offline (#175); any other opens its page. The
+            // cached work (if saved) gives the richer Library row — the record
+            // alone has only title + chapters.
             var cached = AppHost.Library.GetWork(workId);
             var (content, name) = cached is not null ? SubscriptionRows.CachedWork(cached) : SubscriptionRows.Subscription(sub);
-            void Open() => Routes.OpenWork(workId, Stub(workId, sub.DisplayName));
+            void Open() => Routes.OpenSavedOrLiveWork(workId, Stub(workId, sub.DisplayName));
             var menu = UI.UI.Menu(
                 UI.UI.MenuItem("Open", Open, "book"),
                 page is null ? null : UI.UI.MenuItem("Open on AO3", () => AccountKit.OpenInBrowser(page), "globe"),
