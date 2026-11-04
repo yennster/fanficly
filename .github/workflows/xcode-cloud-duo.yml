@@ -2,7 +2,7 @@ name: Xcode Cloud Duo tests
 
 # GitHub's ci.yml runs ReaderLayoutTests on the iPhone Duo for pull requests
 # that change the reader's layout, on its "xcode-27" runner. This is the
-# fallback in Xcode Cloud, started by hand only, since Xcode Cloud's 250
+# fallback in Xcode Cloud, started by hand only, since Xcode Cloud's 100
 # compute hours a month are kept for releases: its "Duo tests" workflow
 # (bin/xcode-cloud-duo.py) never starts on its own. Given a branch, this brings
 # that workflow up to date (the newest Xcode with a Duo), runs it on the
