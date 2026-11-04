@@ -65,7 +65,7 @@ The reader's settings are in its Aa menu (quick presets) and in Settings → The
 
 - **Larger text:**
   - Story text goes from 12 to 60 points, more than three times the 18-point default.
-  - Windows' **Text size** setting (Settings → Accessibility → Text size) enlarges story text too, on top of the size you pick, and page by page lays its pages out at the enlarged size.
+  - Windows' **Text size** setting (Settings → Accessibility → Text size) enlarges story text too, on top of the size you pick, and page by page lays its pages out at the enlarged size when you open the story.
   - Line spacing, paragraph spacing, character spacing and margins each have their own control.
   - **Bold text** gives heavier strokes. (Windows has no system-wide Bold Text setting like the iPhone's, so this is the switch to use.)
   - Zooming the interface with Ctrl+Shift+Plus doesn't change the story's text size, so you can set the two separately.

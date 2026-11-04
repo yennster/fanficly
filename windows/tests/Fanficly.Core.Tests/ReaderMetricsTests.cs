@@ -449,7 +449,11 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         return new Layout(width, device.PageArea.Height - 2 * ReaderPaginator.PageVerticalMargin, spread is null ? 1 : 2);
     }
 
-    private sealed record Pagination(IReadOnlyList<ChapterPage> Pages, List<ParagraphAtom> Atoms, double ChapterHeaderHeight);
+    /// <param name="HeaderFillsPage">The chapter header leaves no room under it for the
+    /// chapter's first word (the largest text sizes on a short page), so it gets a page
+    /// to itself.</param>
+    private sealed record Pagination(IReadOnlyList<ChapterPage> Pages, List<ParagraphAtom> Atoms, double ChapterHeaderHeight,
+                                     bool HeaderFillsPage = false);
 
     /// <summary>A chapter after the first (chapter 1 adds the work's title page).
     /// <paramref name="checked"/> false paginates as unchecked adjacent chapters are:
@@ -469,7 +473,11 @@ public class ReaderPaginationTests(ITestOutputHelper output)
             // against the drawn layout.
             drawnHeight: @checked ? Drawn(type, layout) : null,
             startingAt: start);
-        return new Pagination(pages, atoms, header);
+        var room = layout.ViewportHeight - header;
+        var reserve = @checked ? ReaderPaginator.Reserve : ReaderPaginator.UncheckedReserve(room);
+        var firstWord = ReaderPaginator.CalculateHeight(ReaderPaginator.FirstWord(atoms[0]), layout.ColumnWidth,
+                                                        type.Reader, Measurer);
+        return new Pagination(pages, atoms, header, HeaderFillsPage: firstWord + 1 > room - reserve);
     }
 
     private static DrawnHeight Drawn(Typography type, Layout layout) =>
@@ -486,8 +494,16 @@ public class ReaderPaginationTests(ITestOutputHelper output)
     private static double FillTolerance(Typography type, Layout layout)
     {
         var oneLine = ReaderPaginator.Atoms("<p>Ag</p>", includeImages: false);
-        var line = Drawn(type, layout)(oneLine, new IndexRange(0, oneLine.Count)) + type.LineSpacing;
-        return ReaderPaginator.Reserve + type.ParagraphSpacing + line + 1;
+        var measure = Drawn(type, layout);
+        var line = measure(oneLine, new IndexRange(0, oneLine.Count)) + type.LineSpacing;
+        // A word wider than the column (the largest text sizes on a narrow phone)
+        // wraps onto two lines and can't be split at a space, so it may leave that
+        // much blank instead.
+        var longest = ReaderPaginator.Atoms(ChapterHtml, includeImages: false)
+            .SelectMany(a => a.Text.Text.Split(' ')).Distinct().OrderByDescending(w => w.Length).Take(5)
+            .Select(w => ReaderPaginator.Atoms($"<p><b>{w}</b></p>", includeImages: false))
+            .Max(word => measure(word, new IndexRange(0, word.Count)) + type.LineSpacing);
+        return ReaderPaginator.Reserve + type.ParagraphSpacing + Math.Max(line, longest) + 1;
     }
 
     private static void AssertEverySentenceOnOnePage(Pagination result, string label)
@@ -496,7 +512,10 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         foreach (var page in result.Pages)
         {
             Assert.True(page.ParagraphIndices.Start == next, $"{label}: gap or overlap before page {page.PageIndex}");
-            Assert.False(page.ParagraphIndices.IsEmpty, $"{label}: empty page {page.PageIndex}");
+            // Only a chapter header with no room for a line under it has a page to
+            // itself (these are later chapters, so the header is on page 0).
+            if (!(result.HeaderFillsPage && page.PageIndex == 0))
+                Assert.False(page.ParagraphIndices.IsEmpty, $"{label}: empty page {page.PageIndex}");
             next = page.ParagraphIndices.End;
         }
         Assert.True(next == result.Atoms.Count, $"{label}: sentences missing from the last page");
