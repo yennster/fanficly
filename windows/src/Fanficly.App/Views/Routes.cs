@@ -63,6 +63,16 @@ public static class Routes
     public static void OpenSavedWork(int workId) =>
         Nav.Push(SavedWork?.Invoke(workId) ?? Missing("Work"));
 
+    /// <summary>A story saved in the Library opens its saved reader, as the
+    /// Library does, so offline text reads offline; any other opens the live
+    /// work page. Recently Viewed and Subscriptions open works this way (#175);
+    /// a new-chapter alert stays live, since a saved copy lacks the new chapter.</summary>
+    public static void OpenSavedOrLiveWork(int workId, AO3WorkSummary? summary = null)
+    {
+        if (AppHost.Library.GetWork(workId) is not null) OpenSavedWork(workId);
+        else OpenWork(workId, summary);
+    }
+
     public static void OpenAuthor(AuthorRef author) =>
         Nav.Push(AuthorWorks?.Invoke(author) ?? Missing(author.DisplayName));
 

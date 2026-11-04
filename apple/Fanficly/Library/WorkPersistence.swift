@@ -208,6 +208,13 @@ enum WorkPersistence {
         return work.isFollowed
     }
 
+    /// The Library's copy of a story, if it's saved there.
+    static func savedWork(ao3Id: Int, in context: ModelContext) -> Work? {
+        var descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
     /// Record (or bump to "now") a work in the recently-viewed history,
     /// keeping its details for the row.
     @MainActor

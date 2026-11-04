@@ -26,7 +26,10 @@ struct RecentlyViewedView: View {
             } else {
                 List {
                     ForEach(recents) { item in
-                        NavigationLink(value: item.ao3Id) {
+                        // A story saved in the Library opens its saved copy,
+                        // like the Library does, so offline text reads
+                        // offline (#175); any other opens the live work page.
+                        NavigationLink(value: SavedFirstWorkRoute(workId: item.ao3Id)) {
                             let summary = rowSummary(for: item)
                             // An entry with no details anywhere hides the
                             // bookmark button: saving from it would put an
@@ -50,9 +53,7 @@ struct RecentlyViewedView: View {
             }
         }
         .navigationTitle("Recently Viewed")
-        .navigationDestination(for: Int.self) { id in
-            WorkDetailView(workId: id)
-        }
+        .savedFirstWorkDestination()
         .workAndAuthorDestinations()
         .toolbar {
             if !recents.isEmpty {
