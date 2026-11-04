@@ -28,4 +28,5 @@
 - [Privacy policy for iPhone, iPad and Mac](https://github.com/yennster/fanficly/blob/main/PRIVACY.md)
 - [Privacy policy for Windows](https://github.com/yennster/fanficly/blob/main/windows/PRIVACY.md)
 - [Release notes](https://github.com/yennster/fanficly/releases)
+- [Sponsor the developer on GitHub Sponsors](https://github.com/sponsors/yennster)
 - [Support](https://github.com/yennster/fanficly/issues)
