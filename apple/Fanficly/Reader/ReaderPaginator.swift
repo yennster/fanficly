@@ -114,6 +114,15 @@ enum ReaderPaginator {
         return splitAtom(atom, at: breaks[lo] + 1)
     }
 
+    /// The atom's text up to its first space: the least of it a page can
+    /// take (see `splitAtomToFit`).
+    static func firstWord(of atom: ParagraphAtom) -> AttributedString {
+        let chars = Array(atom.text.characters)
+        guard let space = chars.indices.first(where: { $0 > 0 && chars[$0] == " " }) else { return atom.text }
+        let text = atom.text
+        return AttributedString(text[text.startIndex..<text.characters.index(text.startIndex, offsetBy: space)])
+    }
+
     /// Splits `atom` so its second part starts at character `k`; a space
     /// just before `k` is dropped, as at a line end. Nil when either part
     /// would be empty.
@@ -683,12 +692,19 @@ struct ChapterPagination {
         let stop = reachedKept ? nil : keptID
         var endIndex = startIndex
         var includedAny = false
-        if pageMaxHeight > 40, let drawnHeight {
+        // Room under the chapter header for the first word: at the largest
+        // text sizes on a short page (a phone in landscape) the header can
+        // leave less, and a sentence that can't be split put under it ran far
+        // past the page. That header gets the page to itself (#174).
+        let hasRoom = pageMaxHeight > 40
+            && (!displaysChapterHeader
+                || measure(ReaderPaginator.firstWord(of: atoms[startIndex])) + 1 <= pageMaxHeight - reserve)
+        if hasRoom, let drawnHeight {
             endIndex = ReaderPaginator.fitPage(&atoms, from: startIndex, pageHeight: pageMaxHeight, reserve: reserve,
                                                paragraphSpacing: paragraphSpacing, oneLine: oneLine,
                                                measure: measure, drawnHeight: drawnHeight, stoppingBefore: stop)
             includedAny = true
-        } else if pageMaxHeight > 40 {
+        } else if hasRoom {
             endIndex = ReaderPaginator.packPage(&atoms, from: startIndex, budget: pageMaxHeight - reserve,
                                                 paragraphSpacing: paragraphSpacing, oneLine: oneLine,
                                                 measure: measure, stoppingBefore: stop)

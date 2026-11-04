@@ -367,6 +367,9 @@ final class ReaderPaginationTests: XCTestCase {
         let pages: [ChapterPage]
         let atoms: [ParagraphAtom]
         let chapterHeaderHeight: CGFloat
+        /// The chapter header leaves no room under it for the chapter's first
+        /// word (the largest text sizes on a short page), so it gets a page to itself.
+        var headerFillsPage = false
     }
 
     /// A chapter after the first (chapter 1 adds the work's title page).
@@ -390,7 +393,13 @@ final class ReaderPaginationTests: XCTestCase {
             // page against SwiftUI's layout.
             drawnHeight: checked ? drawn(type, layout) : nil,
             startingAt: start)
-        return Pagination(pages: pages, atoms: atoms, chapterHeaderHeight: header)
+        let room = layout.viewportHeight - header
+        let reserve = checked ? ReaderPaginator.reserve : ReaderPaginator.uncheckedReserve(room)
+        let firstWord = ReaderPaginator.calculateHeight(
+            for: ReaderPaginator.firstWord(of: atoms[0]), width: layout.columnWidth, fontSize: type.fontSize,
+            fontFamily: type.family, lineSpacing: type.lineSpacing, kerning: type.kerning, boldText: type.bold)
+        return Pagination(pages: pages, atoms: atoms, chapterHeaderHeight: header,
+                          headerFillsPage: firstWord + 1 > room - reserve)
     }
 
     /// SwiftUI's layout of a page's text, in ReaderPageCell's own view.
@@ -412,8 +421,18 @@ final class ReaderPaginationTests: XCTestCase {
     /// may start with a single line at the foot of a page, so nothing more).
     private func fillTolerance(_ type: Typography, _ layout: Layout) -> CGFloat {
         let oneLine = ReaderPaginator.atoms(fromChapterHTML: "<p>Ag</p>", includeImages: false)
-        let line = drawn(type, layout)(oneLine, 0..<oneLine.count) + type.lineSpacing
-        return ReaderPaginator.reserve + type.paragraphSpacing + line + 1
+        let measure = drawn(type, layout)
+        let line = measure(oneLine, 0..<oneLine.count) + type.lineSpacing
+        // A word wider than the column (the largest text sizes on a narrow
+        // phone) wraps onto two lines and can't be split at a space, so it may
+        // leave that much blank instead.
+        let words = Set(ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false)
+            .flatMap { String($0.text.characters).split(separator: " ").map(String.init) })
+        let longest = words.sorted { $0.count > $1.count }.prefix(5).map { word -> CGFloat in
+            let atoms = ReaderPaginator.atoms(fromChapterHTML: "<p><b>\(word)</b></p>", includeImages: false)
+            return measure(atoms, 0..<atoms.count) + type.lineSpacing
+        }.max() ?? 0
+        return ReaderPaginator.reserve + type.paragraphSpacing + max(line, longest) + 1
     }
 
 
@@ -423,7 +442,12 @@ final class ReaderPaginationTests: XCTestCase {
         for page in result.pages {
             XCTAssertEqual(page.paragraphIndices.lowerBound, next, "\(label): gap or overlap before page \(page.pageIndex)",
                            file: file, line: line)
-            XCTAssertFalse(page.paragraphIndices.isEmpty, "\(label): empty page \(page.pageIndex)", file: file, line: line)
+            // Only a chapter header with no room for a line under it has a page
+            // to itself (these are later chapters, so the header is on page 0).
+            if !(result.headerFillsPage && page.pageIndex == 0) {
+                XCTAssertFalse(page.paragraphIndices.isEmpty, "\(label): empty page \(page.pageIndex)",
+                               file: file, line: line)
+            }
             next = page.paragraphIndices.upperBound
         }
         XCTAssertEqual(next, result.atoms.count, "\(label): sentences missing from the last page", file: file, line: line)
