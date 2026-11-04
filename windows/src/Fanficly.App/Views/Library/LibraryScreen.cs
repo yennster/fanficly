@@ -245,7 +245,8 @@ public sealed class LibraryScreen : Screen
     private void Rebuild(bool resetScroll)
     {
         if (_list is null) return;
-        var works = Store.Works;
+        // Without a work deleted a moment ago, still behind its Undo bar (#169).
+        var works = LibraryActions.Visible(Store.Works);
         if (works.Count == 0)
         {
             _list.Element.Visibility = Visibility.Collapsed;
@@ -273,7 +274,7 @@ public sealed class LibraryScreen : Screen
         if (_filter == LibraryFilter.Folders)
         {
             var folders = Store.Folders()
-                .Where(f => query.Length == 0 || f.Name.ToLowerInvariant().Contains(query, StringComparison.Ordinal) || f.Works.Any(w => w.Matches(query)))
+                .Where(f => query.Length == 0 || f.Name.ToLowerInvariant().Contains(query, StringComparison.Ordinal) || LibraryActions.Visible(f.Works).Any(w => w.Matches(query)))
                 .ToList();
             items = folders.Cast<object>().ToList();
             if (folders.Count == 0)
@@ -370,8 +371,9 @@ public sealed class LibraryScreen : Screen
     private Button FolderRowButton(CustomFolder folder, int index)
     {
         var query = Query;
-        var total = folder.Works.Count;
-        var matching = query.Length == 0 ? total : folder.Works.Count(w => w.Matches(query));
+        var folderWorks = LibraryActions.Visible(folder.Works);
+        var total = folderWorks.Count;
+        var matching = query.Length == 0 ? total : folderWorks.Count(w => w.Matches(query));
         var countText = query.Length == 0 ? Plural.Stories(total) : $"{matching} of {Plural.Stories(total)}";
 
         var grid = UI.UI.Grid("Auto,*,Auto,Auto", columnSpacing: 10);

@@ -210,6 +210,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         {
             // Saving replaces the stored chapters, so never with just one of them.
             var payload = await WholeWorkAsync();
+            // Saving a work deleted a moment ago keeps it (#169).
+            UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(payload.Summary.Id));
             WorkPersistence.Upsert(payload, AppHost.Library);
             textSaved = true;
             _epubPath = await AppHost.Client.DownloadEpubAsync(payload.Summary.Id);

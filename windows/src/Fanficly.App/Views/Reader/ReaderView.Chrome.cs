@@ -629,8 +629,13 @@ internal sealed partial class ReaderView
         MainWindow.Current.Announce($"Profile {profile.Name} applied");
     }
 
-    private static void DeleteProfile(string name)
+    /// <summary>Deletes at once (the deletion syncs as a tombstone) and offers
+    /// Undo (#169), which saves the profile again, newer than its tombstone, and
+    /// makes it active again if it was. <paramref name="after"/> runs after either.</summary>
+    private static void DeleteProfile(string name, Action? after = null)
     {
+        var deleted = Profiles.FirstOrDefault(p => p.Name == name);
+        var wasActive = ReaderPrefs.ActiveProfileName == name;
         var list = Profiles.ToList();
         list.RemoveAll(p => p.Name == name);
         if (ReaderPrefs.ActiveProfileName == name)
@@ -640,7 +645,27 @@ internal sealed partial class ReaderView
         }
         SaveProfiles(list);
         QueueBackup();
-        MainWindow.Current.Announce($"Deleted profile {name}");
+        after?.Invoke();
+        if (deleted is null) return;
+        UndoQueue.Shared.Offer($"Deleted profile “{name}”", () =>
+        {
+            RestoreProfile(deleted, wasActive);
+            after?.Invoke();
+        });
+    }
+
+    private static void RestoreProfile(ReaderProfile profile, bool makeActive)
+    {
+        var list = Profiles.ToList();
+        if (list.Any(p => string.Equals(p.Name, profile.Name, StringComparison.CurrentCultureIgnoreCase))) return;
+        list.Add(profile);
+        SaveProfiles(list);
+        if (makeActive)
+        {
+            ReaderPrefs.ActiveProfileName = profile.Name;
+            SelectProfile(profile);
+        }
+        QueueBackup();
     }
 
     private static void OverwriteProfile(string name)

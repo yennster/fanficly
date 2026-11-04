@@ -138,7 +138,10 @@ internal sealed class BrowseScreen : Screen
 
     private void RefreshSavedFilters()
     {
-        var saved = AppHost.Library.All<SavedFilter>().OrderByDescending(f => f.SavedAt).ToList();
+        // Without a filter deleted a moment ago, still behind its Undo bar (#169).
+        var saved = AppHost.Library.All<SavedFilter>()
+            .Where(f => !UndoQueue.Shared.IsPending(UndoQueue.Keys.Filter(f.Name)))
+            .OrderByDescending(f => f.SavedAt).ToList();
         _savedFilters.Children.Clear();
         _savedFilters.Visibility = saved.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         // Like the Mac list, "Categories" only gets a heading once there's a
@@ -165,13 +168,17 @@ internal sealed class BrowseScreen : Screen
     private void Open(SavedFilter saved) =>
         Navigator.Push(new FilteredWorksScreen(BrowseModels.FiltersForSavedFilter(saved), saved.Name));
 
+    /// <summary>Waits behind the Undo bar (#169), which redraws the list.</summary>
     private void Delete(SavedFilter saved)
     {
-        LibrarySyncManager.RecordDeletionShared(DeletionKind.Filter, saved.Name);
-        AppHost.Library.Delete(saved);
-        AppHost.Library.TrySave();
-        RefreshSavedFilters();
-        MainWindow.Current.Announce($"Deleted {saved.Name}");
+        UndoQueue.Shared.Schedule($"Deleted saved filter “{saved.Name}”",
+            [UndoQueue.Keys.Filter(saved.Name)], LibraryEntityKinds.SavedFilters, () =>
+            {
+                if (!saved.IsInserted) return;
+                LibrarySyncManager.RecordDeletionShared(DeletionKind.Filter, saved.Name);
+                AppHost.Library.Delete(saved);
+                AppHost.Library.TrySave();
+            });
         _cards.FirstOrDefault()?.Focus(FocusState.Programmatic);
     }
 }

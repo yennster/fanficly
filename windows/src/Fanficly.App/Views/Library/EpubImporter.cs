@@ -56,6 +56,8 @@ internal static class EpubImporter
             {
                 var data = (await FileIO.ReadBufferAsync(file)).ToArray();
                 var payload = await Task.Run(() => EpubImport.Parse(data));
+                // Importing a work deleted a moment ago keeps it (#169).
+                UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(payload.Summary.Id));
                 var work = EpubImport.Save(payload, data, AppHost.Library);
                 saved.Add(work.Title);
             }

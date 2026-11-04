@@ -203,12 +203,7 @@ public sealed class ReaderSettingsScreen : Screen
             }, "square.and.arrow.down", tooltip: "Overwrite the selected profile with your current settings."));
             rows.Add(SettingsKit.ActionRow($"Rename Profile “{active}”…", () => _ = RenameProfileAsync(active), "pencil",
                 tooltip: "Give the selected profile a new name."));
-            rows.Add(SettingsKit.ActionRow($"Delete Profile “{active}”", () =>
-            {
-                DeleteProfile(active);
-                MainWindow.Current.Announce($"Deleted profile {active}");
-                RebuildSoon();
-            }, "trash", destructive: true, automationId: "settings.reader.deleteProfile", tooltip: "Delete the selected profile."));
+            rows.Add(SettingsKit.ActionRow($"Delete Profile “{active}”", () => DeleteProfile(active, RebuildSoon), "trash", destructive: true, automationId: "settings.reader.deleteProfile", tooltip: "Delete the selected profile."));
         }
         return UI.UI.Section("Reader Profile", rows);
     }
@@ -263,8 +258,13 @@ public sealed class ReaderSettingsScreen : Screen
         QueueBackup();
     }
 
-    private static void DeleteProfile(string name)
+    /// <summary>Deletes at once (the deletion syncs as a tombstone) and offers
+    /// Undo (#169), which saves the profile again, newer than its tombstone, and
+    /// makes it active again if it was. <paramref name="after"/> runs after either.</summary>
+    private static void DeleteProfile(string name, Action? after = null)
     {
+        var deleted = Profiles.FirstOrDefault(p => p.Name == name);
+        var wasActive = ActiveProfileName == name;
         var list = Profiles.ToList();
         list.RemoveAll(p => p.Name == name);
         if (ActiveProfileName == name)
@@ -273,6 +273,27 @@ public sealed class ReaderSettingsScreen : Screen
             SelectProfile(list.FirstOrDefault(p => p.Name == DefaultProfileName) ?? ReaderProfile.DefaultProfiles[0]);
         }
         SaveProfiles(list);
+        QueueBackup();
+        after?.Invoke();
+        if (deleted is null) return;
+        UndoQueue.Shared.Offer($"Deleted profile “{name}”", () =>
+        {
+            RestoreProfile(deleted, wasActive);
+            after?.Invoke();
+        });
+    }
+
+    private static void RestoreProfile(ReaderProfile profile, bool makeActive)
+    {
+        var list = Profiles.ToList();
+        if (list.Any(p => string.Equals(p.Name, profile.Name, StringComparison.CurrentCultureIgnoreCase))) return;
+        list.Add(profile);
+        SaveProfiles(list);
+        if (makeActive)
+        {
+            ActiveProfileName = profile.Name;
+            SelectProfile(profile);
+        }
         QueueBackup();
     }
 

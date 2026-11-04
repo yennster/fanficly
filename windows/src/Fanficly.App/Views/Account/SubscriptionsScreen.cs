@@ -268,9 +268,10 @@ public sealed class SubscriptionsScreen : Screen
         var username = Username;
         var subs = AppHost.Library.Subscriptions()
             .OrderBy(s => s.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
-        var followedWorks = AppHost.Library.FollowedWorks()
+        var followedWorks = Fanficly.App.Views.Library.LibraryActions.Visible(AppHost.Library.FollowedWorks())
             .OrderBy(w => w.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
         var authors = AppHost.Library.All<FollowedAuthor>()
+            .Where(a => !Fanficly.App.Views.Authors.FollowedAuthorsScreen.IsUnfollowing(a))
             .OrderBy(a => a.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
         var hasLocal = followedWorks.Count > 0 || authors.Count > 0;
         var hadRefresh = _refreshButton is not null;
@@ -489,15 +490,9 @@ public sealed class SubscriptionsScreen : Screen
         var menu = UI.UI.Menu(
             UI.UI.MenuItem("Open", Open, "person"),
             new MenuFlyoutSeparator(),
-            UI.UI.MenuItem("Unfollow", () =>
-            {
-                var name = author.DisplayName;
-                AppHost.Library.Delete(author);
-                AppHost.Library.TrySave();
-                LibrarySyncManager.QueueBackupShared(AppHost.Library);
-                MainWindow.Current.Announce($"Unfollowed {name}");
-                Render();
-            }, "person.slash", isDestructive: true));
+            // Waits behind the Undo bar (#169), which redraws this list.
+            UI.UI.MenuItem("Unfollow", () => Fanficly.App.Views.Authors.FollowedAuthorsScreen.ScheduleUnfollow(author),
+                "person.slash", isDestructive: true));
         return WithDivider(AccountKit.ListRow(content, Open, string.Join(", ", parts), menu).Id($"followed.author.{author.Username}"));
     }
 
