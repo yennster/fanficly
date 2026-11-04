@@ -2,7 +2,7 @@
 """The Apple app's CI, in Xcode Cloud, started by hand only.
 
 The tests run on every pull request in GitHub's ci.yml, on its "xcode-27"
-runner (Xcode 27, free for this public repo). Xcode Cloud has 250 compute
+runner (Xcode 27, free for this public repo). Xcode Cloud has 100 compute
 hours a month, kept for the release archives and the store art, so this "CI"
 workflow never starts on its own: no pull request, branch, tag or schedule
 start conditions. It stays as a fallback for when GitHub's runner can't run

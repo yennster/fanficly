@@ -7,7 +7,7 @@ name: CI
 # SDK runs in compatibility mode on the iPhone Duo (1.11.0, built with Xcode
 # 26.6, did). GitHub's "xcode-27" runner image has Xcode 27 and an iPhone Duo
 # simulator (iOS 27.1), so the unit, UI and Duo tests run here, free for this
-# public repo. Xcode Cloud's 250 compute hours a month are kept for what only
+# public repo. Xcode Cloud's 100 compute hours a month are kept for what only
 # it can do: the signed release archives and the store art (release.yml,
 # store-assets.yml). Its "CI" and "Duo tests" workflows still exist, started
 # by hand only, as a fallback (apple/docs/RELEASING.md, Xcode Cloud).

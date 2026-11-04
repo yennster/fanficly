@@ -187,7 +187,7 @@ path** workflow (`xcode-cloud.yml`, `bin/xcode-cloud-project-path.py`): without
 "apply" it lists each workflow's path, with it it points the outdated ones at
 `apple/`. It uses the same `app-store` secrets, so it only runs from `main`.
 The workflows' start conditions are kept in code and set through the API (see
-Keeping to 250 compute hours a month); a change made in App Store Connect is
+Keeping to 100 compute hours a month); a change made in App Store Connect is
 overwritten by the next **Xcode Cloud workflows** run.
 
 The **Duo tests** workflow is kept in code too (`bin/xcode-cloud-duo.py`), as a
@@ -201,9 +201,10 @@ date (the newest Xcode with a Duo), tests that branch in the pose the
 simulator boots in, waits, and uploads the screenshots as the `duo-tests`
 artifact. Run it once without a branch after a new Xcode lands.
 
-### Keeping to 250 compute hours a month
+### Keeping to 100 compute hours a month
 
-Xcode Cloud's plan has 250 compute hours a month, and pull requests from
+Xcode Cloud's plan has 100 compute hours a month from December 4, 2026
+(250 before then), and pull requests from
 Claude's threads push often, so the PR tests run on GitHub instead (`ci.yml`
 on the `xcode-27` runner: Xcode 27 with the iPhone Duo, free for this public
 repo) and no Xcode Cloud workflow starts on its own for a push or a PR:
@@ -243,7 +244,7 @@ So every Apple build uses Xcode 27 or later: the PR tests on GitHub's
   uploads them, and fastlane attaches each build to its App Store version, or
   gives it its TestFlight notes (`ios_build:`, `mac_build:`).
 - **CI** (`bin/xcode-cloud-ci.py`): the unit and UI tests, started by hand
-  only, as a fallback for GitHub's `ci.yml` (see Keeping to 250 compute hours
+  only, as a fallback for GitHub's `ci.yml` (see Keeping to 100 compute hours
   a month).
 - **Store art** (`bin/xcode-cloud-store-art.py`): the App Store screenshots,
   started only by **Store assets**.

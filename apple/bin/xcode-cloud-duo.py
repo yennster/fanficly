@@ -4,7 +4,7 @@
 GitHub's ci.yml runs ReaderLayoutTests on the Duo for every pull request that
 changes the reader's layout, on its "xcode-27" runner (Xcode 27.1 has the Duo
 simulator). This Xcode Cloud "Duo tests" workflow is the fallback, started by
-hand only, to save Xcode Cloud's 250 compute hours a month: it never starts on
+hand only, to save Xcode Cloud's 100 compute hours a month: it never starts on
 its own. It tests the FanficlyReaderLayout scheme (ReaderLayoutTests only) on
 the Duo, in the pose the simulator boots in, on the newest Xcode Cloud Xcode
 with a Duo. Run by xcode-cloud-duo.yml (by hand, with a branch), no Mac needed:
