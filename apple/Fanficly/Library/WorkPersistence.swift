@@ -351,13 +351,74 @@ enum WorkPersistence {
         return removed
     }
 
+    /// The saved EPUB for a work (AO3's download or an imported book), if
+    /// there is one. Only Export reads it (#173); Downloaded doesn't depend
+    /// on it, since the saved EPUBs can be removed in Settings → Storage.
     static func epubURL(workId: Int) -> URL? {
-        guard let docs = try? FileManager.default.url(
-            for: .documentDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: false
-        ) else { return nil }
-        let url = docs.appendingPathComponent("library/\(workId).epub")
+        guard let dir = epubDirectory() else { return nil }
+        let url = dir.appendingPathComponent("\(workId).epub")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// `Documents/library`, where saved EPUBs live.
+    static func epubDirectory() -> URL? {
+        (try? FileManager.default.url(
+            for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ))?.appendingPathComponent("library", isDirectory: true)
+    }
+
+    /// Downloaded means the story's text is saved on this device, so it reads
+    /// offline (#173). The EPUB file is an extra copy for Export: a restore
+    /// doesn't bring it back and Settings → Storage can remove them all, and
+    /// neither should make a readable story look not downloaded.
+    static func isDownloaded(_ work: Work) -> Bool {
+        !work.chapters.isEmpty
+    }
+
+    @MainActor
+    static func isDownloaded(workId: Int, in context: ModelContext) -> Bool {
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        guard let work = (try? context.fetch(descriptor))?.first else { return false }
+        return isDownloaded(work)
+    }
+
+    /// How many saved EPUBs there are and how many bytes they take, for
+    /// Settings → Storage.
+    struct EPUBStorage: Equatable, Sendable {
+        var count: Int
+        var bytes: Int64
+    }
+
+    static func savedEPUBStorage(directory: URL? = nil) -> EPUBStorage {
+        var total = EPUBStorage(count: 0, bytes: 0)
+        for file in savedEPUBFiles(directory: directory) {
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            total.count += 1
+            total.bytes += Int64(size)
+        }
+        return total
+    }
+
+    /// Deletes every saved EPUB (Settings → Storage). The saved chapter text
+    /// stays, so every story still reads offline, shows as Downloaded and
+    /// exports (Export builds the EPUB from the text). Returns how many it
+    /// removed.
+    @discardableResult
+    static func removeAllSavedEPUBs(directory: URL? = nil) -> Int {
+        var removed = 0
+        for file in savedEPUBFiles(directory: directory)
+        where (try? FileManager.default.removeItem(at: file)) != nil {
+            removed += 1
+        }
+        return removed
+    }
+
+    private static func savedEPUBFiles(directory: URL?) -> [URL] {
+        guard let dir = directory ?? epubDirectory(),
+              let files = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.fileSizeKey])
+        else { return [] }
+        return files.filter { $0.pathExtension.lowercased() == "epub" }
     }
 }
 

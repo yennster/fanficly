@@ -69,7 +69,7 @@ struct LibraryView: View {
         switch filter {
         case .all:        base = works
         case .starred:    base = works.filter(\.isStarred)
-        case .downloaded: base = works.filter { WorkPersistence.epubURL(workId: $0.ao3Id) != nil }
+        case .downloaded: base = works.filter { WorkPersistence.isDownloaded($0) }
         case .folders:    base = []
         }
         
@@ -186,7 +186,7 @@ struct LibraryView: View {
                     } else {
                         ForEach(filtered) { work in
                             NavigationLink(value: work) {
-                                LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
+                                LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                             }
                             .hoverEffect(.highlight)
                             .help("Read \(work.title)")
@@ -475,11 +475,11 @@ struct FolderDetailView: View {
                 }
                 ForEach(sortedWorks) { work in
                     if editMode == .active {
-                        LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
+                        LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                             .tag(work.id)
                     } else {
                         NavigationLink(value: work) {
-                            LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
+                            LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                         }
                         .hoverEffect(.highlight)
                         .help("Read \(work.title)")

@@ -20,7 +20,7 @@ struct SubscriptionsView: View {
             // subscription record alone only carries title + chapter count.
             NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
                 if let work = cachedWork(ao3Id: workId) {
-                    LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: workId) != nil)
+                    LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                 } else {
                     SubscriptionRow(sub: sub)
                 }

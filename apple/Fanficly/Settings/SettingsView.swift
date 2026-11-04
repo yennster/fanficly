@@ -238,6 +238,7 @@ struct SettingsView: View {
             } footer: {
                 Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards.")
             }
+            EPUBStorageSection()
             Section {
                 Toggle("Filter mature & explicit works", isOn: $filterMature)
                 NavigationLink("Hidden works", value: SettingsRoute.hiddenWorks)
@@ -375,6 +376,54 @@ struct SettingsView: View {
         #if os(iOS)
         UIAccessibility.post(notification: .announcement, argument: message)
         #endif
+    }
+}
+
+/// Settings → Storage (#173): how much room the saved EPUB files take, and a
+/// button that removes them all. The saved chapter text stays, so every story
+/// still reads offline, still shows as Downloaded and still exports as EPUB
+/// (built from the text).
+struct EPUBStorageSection: View {
+    @State private var storage = WorkPersistence.EPUBStorage(count: 0, bytes: 0)
+    @State private var confirming = false
+
+    var body: some View {
+        Section {
+            LabeledContent("Saved EPUB files", value: Self.summary(storage))
+            Button("Remove Saved EPUB Files…", role: .destructive) {
+                confirming = true
+            }
+            .disabled(storage.count == 0)
+            .confirmationDialog("Remove \(storage.count) saved EPUB \(storage.count == 1 ? "file" : "files")?",
+                                isPresented: $confirming, titleVisibility: .visible) {
+                Button("Remove EPUB Files", role: .destructive) {
+                    let removed = WorkPersistence.removeAllSavedEPUBs()
+                    refresh()
+                    #if os(iOS)
+                    UIAccessibility.post(notification: .announcement,
+                                         argument: "Removed \(removed) EPUB \(removed == 1 ? "file" : "files").")
+                    #endif
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your stories stay saved and still read offline. Export can still make an EPUB of any saved story.")
+            }
+        } header: {
+            Text("Storage")
+        } footer: {
+            Text("Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay.")
+        }
+        .onAppear(perform: refresh)
+    }
+
+    private func refresh() {
+        storage = WorkPersistence.savedEPUBStorage()
+    }
+
+    static func summary(_ storage: WorkPersistence.EPUBStorage) -> String {
+        guard storage.count > 0 else { return String(localized: "None") }
+        let size = ByteCountFormatter.string(fromByteCount: storage.bytes, countStyle: .file)
+        return String(localized: "\(storage.count) \(storage.count == 1 ? "file" : "files"), \(size)")
     }
 }
 
