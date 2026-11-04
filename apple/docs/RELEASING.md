@@ -186,42 +186,42 @@ does not exist at the root of the repository", run the **Xcode Cloud project
 path** workflow (`xcode-cloud.yml`, `bin/xcode-cloud-project-path.py`): without
 "apply" it lists each workflow's path, with it it points the outdated ones at
 `apple/`. It uses the same `app-store` secrets, so it only runs from `main`.
-The workflows' start conditions, file-path filters included, are kept in code
-and set through the API (see Keeping to 100 compute hours a month); a change
-made in App Store Connect is overwritten by the next **Xcode Cloud workflows**
-run.
+The workflows' start conditions are kept in code and set through the API (see
+Keeping to 250 compute hours a month); a change made in App Store Connect is
+overwritten by the next **Xcode Cloud workflows** run.
 
-The **Duo tests** workflow is kept in code too: `bin/xcode-cloud-duo.py` makes
-and updates it through the API, because GitHub's runners have no Xcode with the
-iPhone Duo yet. It runs `ReaderLayoutTests` (scheme `FanficlyReaderLayout`) on
-the Duo simulator, in the pose it boots in, for pull requests into `main` that
-change the reader's layout (`LAYOUT_FILES` in `bin/xcode-cloud-duo.py`), and
-Xcode Cloud shows it on the PR as a check. When that
-check ends, the **Xcode Cloud Duo tests** workflow (`xcode-cloud-duo.yml`, run
-from `main` with the `app-store` secrets) downloads the result bundle, uploads
-its screenshots as the `duo-tests` artifact and links that run from the PR's
-commit as the "Duo screenshots" status. Started by hand, it brings the Xcode
-Cloud workflow up to date (the newest Xcode with a Duo) and, given a branch,
-tests that branch and waits for the screenshots. Run it once by hand after a
-new Xcode lands. The PR builds use Xcode Cloud compute hours.
+The **Duo tests** workflow is kept in code too (`bin/xcode-cloud-duo.py`), as a
+fallback started by hand only: GitHub's `ci.yml` runs `ReaderLayoutTests` on
+the iPhone Duo for every PR that changes the reader's layout, on its
+`xcode-27` runner. To run the Duo in Xcode Cloud instead (for example when
+GitHub's runner has no Duo, or to try a newer Xcode Cloud Xcode), run the
+**Xcode Cloud Duo tests** workflow (`xcode-cloud-duo.yml`, from `main` with the
+`app-store` secrets) with the branch: it brings the Xcode Cloud workflow up to
+date (the newest Xcode with a Duo), tests that branch in the pose the
+simulator boots in, waits, and uploads the screenshots as the `duo-tests`
+artifact. Run it once without a branch after a new Xcode lands.
 
-### Keeping to 100 compute hours a month
+### Keeping to 250 compute hours a month
 
-Xcode Cloud's plan has 100 compute hours a month, so each workflow starts only
-when its result can change:
+Xcode Cloud's plan has 250 compute hours a month, and pull requests from
+Claude's threads push often, so the PR tests run on GitHub instead (`ci.yml`
+on the `xcode-27` runner: Xcode 27 with the iPhone Duo, free for this public
+repo) and no Xcode Cloud workflow starts on its own for a push or a PR:
 
 | Workflow | Starts | Doesn't start for |
 | --- | --- | --- |
-| **CI** | PRs into `main` that change the app's code, tests, `project.yml`, `Signing.xcconfig` or `ci_scripts/` | docs, screenshots, store text, `fastlane/`, `bin/`, `windows/`, `website/`, the merge to `main` |
-| **Duo tests** | PRs into `main` that change the reader's layout; by hand for any branch | every other PR |
+| **CI** | by hand only (Start Build in App Store Connect), a fallback for GitHub's `ci.yml` | any push or PR |
+| **Duo tests** | by hand only (**Xcode Cloud Duo tests** with a branch), a fallback for `ci.yml`'s Duo job | any push or PR |
 | **Store art** | a release, or **Store assets** run by hand | anything else |
 | **Release (iOS)**, **Release (Mac)** | a release | anything else |
 
-CI and Duo tests cancel a run that a newer push to the same PR supersedes.
-CI tests the unit tests on one iPhone simulator (they're logic, not layout)
-and the UI tests on the iPhone and the iPad. Any workflow made by hand in App
-Store Connect is left startable by hand only: the **Xcode Cloud workflows**
-workflow runs `bin/xcode-cloud-ci.py others` after updating the others.
+GitHub's `ci.yml` runs its macOS jobs only for PRs that change what gets built
+(the app's code, tests, `project.yml`, `Signing.xcconfig`, `ci_scripts/`), the
+Duo's only for ones that change the reader's layout, and a newer push to the
+same PR cancels the run it supersedes. Any Xcode Cloud workflow made by hand
+in App Store Connect is left startable by hand only: the **Xcode Cloud
+workflows** workflow runs `bin/xcode-cloud-ci.py others` after updating the
+others.
 
 Xcode Cloud builds what is committed, and the committed `Fanficly.xcodeproj`
 only lists the files it had when XcodeGen last ran. So
@@ -234,20 +234,22 @@ Swift files build there without a Mac.
 An iOS app built with an SDK older than a device runs in compatibility mode on
 that device. 1.11.0 was built with the GitHub runner's Xcode 26.6, so the
 iPhone Duo showed it as a letterboxed iPhone app instead of its Duo layout.
-So every Apple build uses the newest Xcode 27 or later, which for now means
-Xcode Cloud, kept in code:
+So every Apple build uses Xcode 27 or later: the PR tests on GitHub's
+`xcode-27` runner (`ci.yml`), and the rest in Xcode Cloud, kept in code:
 
 - **Release (iOS)** and **Release (Mac)** (`bin/xcode-cloud-release.py`):
   **Release** archives both at once, Xcode Cloud signs them with cloud-managed
   signing (`ci_post_clone.sh` writes its team into `Signing.xcconfig`) and
   uploads them, and fastlane attaches each build to its App Store version, or
   gives it its TestFlight notes (`ios_build:`, `mac_build:`).
-- **CI** (`bin/xcode-cloud-ci.py`): the unit and UI tests that GitHub's
-  `ci.yml` used to run, on PRs into `main` that change the app's code (see
-  Keeping to 100 compute hours a month).
+- **CI** (`bin/xcode-cloud-ci.py`): the unit and UI tests, started by hand
+  only, as a fallback for GitHub's `ci.yml` (see Keeping to 250 compute hours
+  a month).
 - **Store art** (`bin/xcode-cloud-store-art.py`): the App Store screenshots,
   started only by **Store assets**.
-- **Duo tests**, below.
+- **Duo tests** (`bin/xcode-cloud-duo.py`): the iPhone Duo's
+  `ReaderLayoutTests`, started by hand only, as a fallback for `ci.yml`'s Duo
+  job (see above).
 
 Each uses Xcode Cloud's "Latest Release" Xcode when it has the iPhone Duo,
 else the newest Xcode 27+ that does (`bin/xcode_cloud.py`). The **Xcode Cloud

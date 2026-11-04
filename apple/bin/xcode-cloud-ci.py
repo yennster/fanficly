@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""The Apple app's CI, in Xcode Cloud.
+"""The Apple app's CI, in Xcode Cloud, started by hand only.
 
-Every Apple build runs on the newest Xcode 27 or later (xcode_cloud.py says
-why), and GitHub's macOS runners don't have it yet, so the tests GitHub CI
-used to run (ci.yml) run in Xcode Cloud's "CI" workflow instead. Xcode Cloud
-has 100 compute hours a month, so it starts only for pull requests into main
-that change what gets built (APP_FILES: the app's code, tests, project and
-ci_scripts, not docs, screenshots, store text or the release tooling), never
-again for the merge to main, and cancels a run a newer push supersedes. Xcode
-Cloud reports each action on the pull request as a check:
+The tests run on every pull request in GitHub's ci.yml, on its "xcode-27"
+runner (Xcode 27, free for this public repo). Xcode Cloud has 250 compute
+hours a month, kept for the release archives and the store art, so this "CI"
+workflow never starts on its own: no pull request, branch, tag or schedule
+start conditions. It stays as a fallback for when GitHub's runner can't run
+the tests: start it on a branch with Start Build in App Store Connect (Xcode
+Cloud > CI). Its actions, reported on that build:
 
   Unit tests (iPhone)         FanficlyTests on the newest iPhone simulator
   Unit tests (Mac)            FanficlyTests under Mac Catalyst
@@ -40,14 +39,6 @@ from asc_assets import API, req
 NAME = "CI"
 IPHONE = ["iPhone 17 Pro Max"]
 IPAD = ["iPad Pro 13-inch (M5)"]
-# What a build depends on. Everything else in apple/ (docs/, screenshots/,
-# appstore/, fastlane/, bin/, the Markdown) can't change a test result.
-APP_FILES = {"mode": "START_IF_ANY_FILE_MATCHES", "matchers": [
-    *({"directory": f"apple/{d}"} for d in ("Fanficly", "FanficlyShare", "FanficlyWidget", "FanficlyTests",
-                                             "FanficlyUITests", "Fanficly.xcodeproj", "ci_scripts")),
-    {"directory": "apple", "fileName": "project.yml"},
-    {"directory": "apple", "fileName": "Signing.xcconfig"},
-]}
 # The workflows kept in code: this one, bin/xcode-cloud-release.py's two,
 # bin/xcode-cloud-store-art.py's and bin/xcode-cloud-duo.py's.
 MANAGED = {NAME, "Release (iOS)", "Release (Mac)", "Store art", "Duo tests"}
@@ -57,20 +48,16 @@ AUTO_STARTS = ("branchStartCondition", "pullRequestStartCondition", "tagStartCon
 def setup() -> None:
     xc, mac = xcc.latest_xcode()
     iphone, ipad = xcc.simulator(xc, IPHONE, "iPhone"), xcc.simulator(xc, IPAD, "iPad")
-    main_only = {"isAllMatch": False, "patterns": [{"pattern": "main", "isPrefix": False}]}
     xcc.upsert_workflow({
         "name": NAME,
-        "description": "Unit and UI tests on the newest Xcode 27+, for pull requests into main that "
-                       "change the app's code. Kept up to date by xcode-cloud-setup.yml in GitHub.",
+        "description": "Unit and UI tests on the newest Xcode 27+, started by hand only (GitHub's ci.yml "
+                       "runs them on every PR). Kept up to date by xcode-cloud-setup.yml in GitHub.",
         "clean": False,
-        "pullRequestStartCondition": {
-            "source": {"isAllMatch": True},
-            "destination": main_only,
-            "filesAndFoldersRule": APP_FILES,
-            "autoCancel": True,
-        },
-        # The PR already ran it; the merge to main doesn't run it again.
+        # GitHub's ci.yml tests every PR; this one only runs when started by hand.
+        "pullRequestStartCondition": None,
         "branchStartCondition": None,
+        "tagStartCondition": None,
+        "scheduledStartCondition": None,
         "manualBranchStartCondition": {"source": {"isAllMatch": True}},
         "actions": [
             {

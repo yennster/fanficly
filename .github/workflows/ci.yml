@@ -3,14 +3,18 @@ name: CI
 # The Apple app, in apple/. The Windows app (windows/) has its own workflows,
 # windows-*.yml; each runs only for its own app's paths.
 #
-# Every Apple build uses the newest Xcode 27 or later, because an app built
-# with an older SDK runs in compatibility mode on the iPhone Duo (1.11.0,
-# built here with Xcode 26.6, did). GitHub's macOS runners don't have Xcode 27
-# yet, so the unit and UI tests run in Xcode Cloud's "CI" workflow
-# (apple/bin/xcode-cloud-ci.py) and the iPhone Duo's in "Duo tests", only for
-# pull requests that change the app's code (Duo tests: the reader's layout);
-# Xcode Cloud reports both on the pull request as checks. This job only checks
-# the release and Xcode Cloud tooling that runs from GitHub.
+# Every Apple build uses Xcode 27 or later, because an app built with an older
+# SDK runs in compatibility mode on the iPhone Duo (1.11.0, built with Xcode
+# 26.6, did). GitHub's "xcode-27" runner image has Xcode 27 and an iPhone Duo
+# simulator (iOS 27.1), so the unit, UI and Duo tests run here, free for this
+# public repo. Xcode Cloud's 250 compute hours a month are kept for what only
+# it can do: the signed release archives and the store art (release.yml,
+# store-assets.yml). Its "CI" and "Duo tests" workflows still exist, started
+# by hand only, as a fallback (apple/docs/RELEASING.md, Xcode Cloud).
+#
+# The macOS jobs run only for pull requests that change what gets built (the
+# "changes" job), the Duo's only for ones that change the reader's layout, and
+# a newer push to the same PR cancels the run it supersedes.
 on:
   push:
     branches: [main]
@@ -18,6 +22,14 @@ on:
   pull_request:
     branches: [main]
     paths: ['apple/**', '.github/workflows/ci.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:
@@ -37,7 +49,241 @@ jobs:
       - name: Parse the scripts
         run: |
           python3 -m py_compile bin/xcode_cloud.py bin/xcode-cloud-ci.py bin/xcode-cloud-release.py \
-            bin/xcode-cloud-store-art.py bin/xcode-cloud-duo.py bin/asc_assets.py bin/release-notes.py
+            bin/xcode-cloud-store-art.py bin/xcode-cloud-duo.py bin/asc_assets.py bin/release-notes.py \
+            bin/ci-simulator.py
           ruby -c fastlane/Fastfile
           sh -n ci_scripts/ci_post_clone.sh
           sh -n ci_scripts/ci_pre_xcodebuild.sh
+
+  changes:
+    # What the PR touches. Docs, screenshots, store text, fastlane/ and bin/
+    # (but this file and ci-simulator.py) can't change a test result.
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.diff.outputs.app }}
+      layout: ${{ steps.diff.outputs.layout }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compare with main
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "layout=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT" != pull_request ]; then
+            echo "app=false" >> "$GITHUB_OUTPUT"
+            echo "layout=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD")
+          echo "$files"
+          # The app's code, tests, project and the CI that tests them.
+          app='^(apple/(Fanficly|FanficlyShare|FanficlyWidget|FanficlyTests|FanficlyUITests|Fanficly\.xcodeproj|ci_scripts)/|apple/(project\.yml|Signing\.xcconfig|bin/ci-simulator\.py)$|\.github/workflows/ci\.yml$)'
+          # What ReaderLayoutTests exercise: the reader and the views that
+          # host it, the window and layout, the reader's settings, the demo
+          # chapters they paginate, the strings they match, the project and
+          # the tests themselves (as LAYOUT_FILES in bin/xcode-cloud-duo.py).
+          layout='^(apple/Fanficly/(Reader|DesignSystem)/|apple/Fanficly/(RootView\.swift|FanficlyApp\.swift|Localizable\.xcstrings|Info\.plist|Settings/ReaderSettingsView\.swift|Search/WorkDetailView\.swift|Library/SavedWorkReader\.swift|Networking/DemoAO3Client\.swift)$|apple/(project\.yml|bin/ci-simulator\.py)$|apple/FanficlyUITests/FanficlyUITests\.swift$|\.github/workflows/ci\.yml$)'
+          if echo "$files" | grep -qE "$app"; then echo "app=true" >> "$GITHUB_OUTPUT"; else echo "app=false" >> "$GITHUB_OUTPUT"; fi
+          if echo "$files" | grep -qE "$layout"; then echo "layout=true" >> "$GITHUB_OUTPUT"; else echo "layout=false" >> "$GITHUB_OUTPUT"; fi
+
+  unit-iphone:
+    # Logic, not layout, so one simulator covers them.
+    name: Unit tests (iPhone)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Xcode 27 or later
+        run: &xcode |
+          xcodebuild -version
+          xcode=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
+          [ "${xcode:-0}" -ge 27 ] || { echo "::error::Xcode ${xcode:-?}: Fanficly builds need Xcode 27 or later (iPhone Duo)"; exit 1; }
+
+      - name: Generate the project
+        run: &xcodegen |
+          HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
+          xcodegen generate
+
+      - name: Test
+        run: |
+          udid=$(python3 bin/ci-simulator.py iPhone)
+          xcodebuild test -project Fanficly.xcodeproj -scheme FanficlyUnitTests \
+            -destination "id=$udid" CODE_SIGNING_ALLOWED=NO -resultBundlePath build/unit-iphone.xcresult
+
+      - name: Upload the result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcresult-unit-iphone
+          path: apple/build/*.xcresult
+          if-no-files-found: ignore
+
+  unit-mac:
+    # The unit tests again under Mac Catalyst: the Mac measures text with its
+    # own metrics, which is where page-by-page's measurements drift most.
+    name: Unit tests (Mac)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Xcode 27 or later
+        run: *xcode
+
+      - name: Generate the project
+        run: *xcodegen
+
+      # MACOSX_DEPLOYMENT_TARGET: xcodebuild's "can this Mac run the tests"
+      # check reads this unset setting, which defaults to the SDK's version
+      # and refuses a runner on an older macOS.
+      - name: Test
+        run: |
+          xcodebuild test -project Fanficly.xcodeproj -scheme FanficlyUnitTests \
+            -destination "platform=macOS,variant=Mac Catalyst,arch=arm64" \
+            CODE_SIGNING_ALLOWED=NO MACOSX_DEPLOYMENT_TARGET=14.0 -resultBundlePath build/unit-mac.xcresult
+
+      - name: Upload the result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcresult-unit-mac
+          path: apple/build/*.xcresult
+          if-no-files-found: ignore
+
+  ui:
+    # ReaderLayoutTests and NonReaderAccessibilityTests (scheme
+    # FanficlyCIUITests) on the iPhone and the iPad, whose layouts differ.
+    name: UI tests (iPhone, iPad)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Xcode 27 or later
+        run: *xcode
+
+      - name: Generate the project
+        run: *xcodegen
+
+      - name: Build for testing
+        run: |
+          xcodebuild build-for-testing -project Fanficly.xcodeproj -scheme FanficlyCIUITests \
+            -destination "generic/platform=iOS Simulator" CODE_SIGNING_ALLOWED=NO -derivedDataPath build/dd
+
+      # The app's first launch on a fresh simulator can pass XCUITest's
+      # launch timeout and fail whichever test runs first, so boot each one
+      # and launch the app once (demo mode, offline) before the tests.
+      - name: Warm up the simulators
+        id: sim
+        run: &warmup |
+          app=$(find build/dd/Build/Products -type d -path '*-iphonesimulator/Fanficly.app' -prune -print -quit)
+          for kind in $KINDS; do
+            udid=$(python3 bin/ci-simulator.py "$(echo "$kind" | tr _ ' ')")
+            echo "$kind=$udid" >> "$GITHUB_OUTPUT"
+            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl install "$udid" "$app"
+            xcrun simctl launch "$udid" io.github.yennster.fanficly -demoMode || true
+            sleep 20
+            xcrun simctl terminate "$udid" io.github.yennster.fanficly || true
+          done
+        env:
+          KINDS: iPhone iPad
+
+      - name: Test on the iPhone
+        run: |
+          xcodebuild test-without-building -project Fanficly.xcodeproj -scheme FanficlyCIUITests \
+            -destination "id=${{ steps.sim.outputs.iPhone }}" -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO -resultBundlePath build/ui-iphone.xcresult
+
+      - name: Test on the iPad
+        if: success() || failure()
+        run: |
+          xcodebuild test-without-building -project Fanficly.xcodeproj -scheme FanficlyCIUITests \
+            -destination "id=${{ steps.sim.outputs.iPad }}" -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO -resultBundlePath build/ui-ipad.xcresult
+
+      # What the layout tests saw, step by step, on each simulator.
+      - name: Upload the reader screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reader-layout-screenshots
+          path: apple/build/reader-layout-screenshots
+          if-no-files-found: ignore
+
+      - name: Upload the result bundles on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcresult-ui
+          path: apple/build/*.xcresult
+          if-no-files-found: ignore
+
+  duo:
+    # ReaderLayoutTests (scheme FanficlyReaderLayout) on the iPhone Duo
+    # simulator, in the pose it boots in (pose can't be scripted;
+    # test_unfoldedDuo_... opens the hinge itself).
+    name: Duo tests
+    needs: changes
+    if: needs.changes.outputs.layout == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Xcode 27 or later
+        run: *xcode
+
+      - name: Generate the project
+        run: *xcodegen
+
+      - name: Build for testing
+        run: |
+          xcodebuild build-for-testing -project Fanficly.xcodeproj -scheme FanficlyReaderLayout \
+            -destination "generic/platform=iOS Simulator" CODE_SIGNING_ALLOWED=NO -derivedDataPath build/dd
+
+      - name: Warm up the simulator
+        id: sim
+        run: *warmup
+        env:
+          KINDS: iPhone_Duo
+
+      - name: Test on the iPhone Duo
+        run: |
+          xcodebuild test-without-building -project Fanficly.xcodeproj -scheme FanficlyReaderLayout \
+            -destination "id=${{ steps.sim.outputs.iPhone_Duo }}" -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO -resultBundlePath build/duo.xcresult
+
+      - name: Upload the Duo screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: duo-tests
+          path: apple/build/reader-layout-screenshots
+          if-no-files-found: ignore
+
+      - name: Upload the result bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcresult-duo
+          path: apple/build/*.xcresult
+          if-no-files-found: ignore

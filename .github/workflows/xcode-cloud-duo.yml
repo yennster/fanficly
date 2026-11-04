@@ -1,20 +1,15 @@
 name: Xcode Cloud Duo tests
 
-# GitHub's macOS runners have no Xcode with the iPhone Duo yet, so
-# ReaderLayoutTests run on the Duo simulator in Xcode Cloud, in its "Duo tests"
-# workflow (bin/xcode-cloud-duo.py). To save compute hours, Xcode Cloud starts
-# it on its own only for pull requests into main that change the reader's
-# layout (LAYOUT_FILES there), and shows it on the PR as its own check; for any
-# other branch, start this workflow by hand with the branch. When that check
-# ends, the "screenshots" job here (main's code, never the PR's) exports the
-# result bundle's attachments, ReaderLayoutTests' screenshots among them, as
-# the duo-tests artifact and links its run from the PR's commit as the "Duo
-# screenshots" status. The Duo boots in one pose (pose can't be scripted), so
-# this covers that pose only.
-#
-# Started by hand, it brings the Xcode Cloud workflow up to date (the newest
-# Xcode with a Duo, its start conditions) and, given a branch, runs it there
-# and waits for the screenshots.
+# GitHub's ci.yml runs ReaderLayoutTests on the iPhone Duo for pull requests
+# that change the reader's layout, on its "xcode-27" runner. This is the
+# fallback in Xcode Cloud, started by hand only, since Xcode Cloud's 250
+# compute hours a month are kept for releases: its "Duo tests" workflow
+# (bin/xcode-cloud-duo.py) never starts on its own. Given a branch, this brings
+# that workflow up to date (the newest Xcode with a Duo), runs it on the
+# branch, waits, and exports the result bundle's attachments,
+# ReaderLayoutTests' screenshots among them, as the duo-tests artifact.
+# Without a branch it only brings the Xcode Cloud workflow up to date. The Duo
+# boots in one pose (pose can't be scripted), so this covers that pose only.
 
 on:
   workflow_dispatch:
@@ -22,18 +17,13 @@ on:
       branch:
         description: Branch to test (empty = only update the Xcode Cloud workflow)
         required: false
-  check_run:
-    types: [completed]
 
 permissions:
   contents: read
 
-# One run per commit, in case Xcode Cloud posts more than one "Duo tests" check.
-# Every other check that completes starts a run too, which skips its job; it
-# gets a group of its own, so it can't cancel a Duo run waiting for approval.
 concurrency:
-  group: xcode-cloud-duo-${{ contains(github.event.check_run.name, 'Duo tests') && github.event.check_run.head_sha || github.run_id }}
-  cancel-in-progress: true
+  group: xcode-cloud-duo
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -42,17 +32,13 @@ defaults:
 jobs:
   screenshots:
     name: Duo screenshots
-    if: >-
-      github.repository == 'yennster/fanficly' &&
-      (github.event_name == 'workflow_dispatch' && github.actor == 'yennster' ||
-       github.event_name == 'check_run' && contains(github.event.check_run.name, 'Duo tests'))
+    if: github.repository == 'yennster/fanficly' && github.actor == 'yennster'
     # macOS for xcresulttool; the waiting is on Xcode Cloud.
     runs-on: macos-26
     timeout-minutes: 180
     environment: app-store
     permissions:
       contents: read
-      statuses: write
     steps:
       - uses: actions/checkout@v7
 
@@ -72,15 +58,12 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           BRANCH: ${{ inputs.branch }}
-          SHA: ${{ github.event.check_run.head_sha }}
         run: |
           umask 077
           printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
           jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
             '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
-          if [ -n "$SHA" ]; then
-            bin/.venv/bin/python bin/xcode-cloud-duo.py fetch "$SHA" build/xcode-cloud
-          elif [ -n "$BRANCH" ]; then
+          if [ -n "$BRANCH" ]; then
             bin/.venv/bin/python bin/xcode-cloud-duo.py run "$BRANCH" build/xcode-cloud
           else
             bin/.venv/bin/python bin/xcode-cloud-duo.py setup
@@ -122,19 +105,3 @@ jobs:
             apple/build/duo-attachments
             apple/build/xcode-cloud/*.zip
           if-no-files-found: ignore
-
-      - name: Link the screenshots from the PR's commit
-        if: always() && github.event_name == 'check_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.event.check_run.head_sha }}
-          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          OK: ${{ steps.xcode-cloud.outcome == 'success' && steps.export.outcome == 'success' }}
-        run: |
-          if [ "$OK" = true ]; then
-            state=success description="iPhone Duo reader layout screenshots"
-          else
-            state=error description="Couldn't get all of the Duo screenshots: see the run"
-          fi
-          gh api "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" -f state="$state" \
-            -f context="Duo screenshots" -f description="$description" -f target_url="$URL"

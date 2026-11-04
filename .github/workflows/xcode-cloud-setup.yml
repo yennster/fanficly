@@ -6,7 +6,8 @@ name: Xcode Cloud workflows
 # all on the newest Xcode 27 or later, and
 # "Duo tests" (bin/xcode-cloud-duo.py), then leaves any workflow made by hand
 # in App Store Connect startable by hand only (xcode-cloud-ci.py others), so
-# only these spend the 100 compute hours a month. Runs when those scripts
+# only these spend the 250 compute hours a month (CI and Duo tests start by
+# hand only; GitHub's ci.yml runs the PR tests). Runs when those scripts
 # change on main, and by hand, for example after a new Xcode lands (workflows on "Latest
 # Release" follow it anyway). The release workflow also refreshes its own two
 # before every release. Schemes are looked up by name at build time, so a
