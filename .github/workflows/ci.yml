@@ -169,11 +169,17 @@ jobs:
   ui:
     # ReaderLayoutTests and NonReaderAccessibilityTests (scheme
     # FanficlyCIUITests) on the iPhone and the iPad, whose layouts differ.
-    name: UI tests (iPhone, iPad)
+    # One simulator per runner: with both booted on one xcode-27 runner, UI
+    # queries timed out ("Timed out while evaluating UI query").
+    name: UI tests (${{ matrix.device }})
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: xcode-27
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iPhone, iPad]
     steps:
       - uses: actions/checkout@v7
 
@@ -189,51 +195,42 @@ jobs:
             -destination "generic/platform=iOS Simulator" CODE_SIGNING_ALLOWED=NO -derivedDataPath build/dd
 
       # The app's first launch on a fresh simulator can pass XCUITest's
-      # launch timeout and fail whichever test runs first, so boot each one
-      # and launch the app once (demo mode, offline) before the tests.
-      - name: Warm up the simulators
+      # launch timeout and fail whichever test runs first, so boot it and
+      # launch the app once (demo mode, offline) before the tests.
+      - name: Warm up the simulator
         id: sim
         run: &warmup |
           app=$(find build/dd/Build/Products -type d -path '*-iphonesimulator/Fanficly.app' -prune -print -quit)
-          for kind in $KINDS; do
-            udid=$(python3 bin/ci-simulator.py "$(echo "$kind" | tr _ ' ')")
-            echo "$kind=$udid" >> "$GITHUB_OUTPUT"
-            xcrun simctl bootstatus "$udid" -b
-            xcrun simctl install "$udid" "$app"
-            xcrun simctl launch "$udid" io.github.yennster.fanficly -demoMode || true
-            sleep 20
-            xcrun simctl terminate "$udid" io.github.yennster.fanficly || true
-          done
+          udid=$(python3 bin/ci-simulator.py "$KIND")
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl launch "$udid" io.github.yennster.fanficly -demoMode || true
+          sleep 20
+          xcrun simctl terminate "$udid" io.github.yennster.fanficly || true
         env:
-          KINDS: iPhone iPad
+          KIND: ${{ matrix.device }}
 
-      - name: Test on the iPhone
+      - name: Test on the ${{ matrix.device }}
         run: |
           xcodebuild test-without-building -project Fanficly.xcodeproj -scheme FanficlyCIUITests \
-            -destination "id=${{ steps.sim.outputs.iPhone }}" -derivedDataPath build/dd \
-            CODE_SIGNING_ALLOWED=NO -resultBundlePath build/ui-iphone.xcresult
+            -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO -resultBundlePath build/ui.xcresult
 
-      - name: Test on the iPad
-        if: success() || failure()
-        run: |
-          xcodebuild test-without-building -project Fanficly.xcodeproj -scheme FanficlyCIUITests \
-            -destination "id=${{ steps.sim.outputs.iPad }}" -derivedDataPath build/dd \
-            CODE_SIGNING_ALLOWED=NO -resultBundlePath build/ui-ipad.xcresult
-
-      # What the layout tests saw, step by step, on each simulator.
+      # What the layout tests saw, step by step.
       - name: Upload the reader screenshots
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: reader-layout-screenshots
+          name: reader-layout-screenshots-${{ matrix.device }}
           path: apple/build/reader-layout-screenshots
           if-no-files-found: ignore
 
-      - name: Upload the result bundles on failure
+      - name: Upload the result bundle on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: xcresult-ui
+          name: xcresult-ui-${{ matrix.device }}
           path: apple/build/*.xcresult
           if-no-files-found: ignore
 
@@ -264,12 +261,12 @@ jobs:
         id: sim
         run: *warmup
         env:
-          KINDS: iPhone_Duo
+          KIND: iPhone Duo
 
       - name: Test on the iPhone Duo
         run: |
           xcodebuild test-without-building -project Fanficly.xcodeproj -scheme FanficlyReaderLayout \
-            -destination "id=${{ steps.sim.outputs.iPhone_Duo }}" -derivedDataPath build/dd \
+            -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build/dd \
             CODE_SIGNING_ALLOWED=NO -resultBundlePath build/duo.xcresult
 
       - name: Upload the Duo screenshots
