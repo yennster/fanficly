@@ -11,7 +11,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
     @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
@@ -20,6 +20,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.spreadWidthPercent")) private var spreadWidthPercent: Double = ReaderSpread.defaultWidthPercent
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    @Environment(\.legibilityWeight) private var legibilityWeight
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     // Global (not per-device / not part of reader profiles): a content &
@@ -219,12 +220,12 @@ struct ReaderSettingsView: View {
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
                         .tracking(kerningPt / zoomScale)
-                        .bold(boldText)
+                        .bold(ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight))
                     Text("Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
                         .tracking(kerningPt / zoomScale)
-                        .bold(boldText)
+                        .bold(ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight))
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -365,10 +366,14 @@ struct ReaderSettingsView: View {
                 .accessibilityLabel("Font")
                 .help("Choose the typography for the reader.")
                 
-                Toggle(isOn: $boldText) {
+                // On, and locked on, while the system's Bold Text is on (#174).
+                Toggle(isOn: legibilityWeight == .bold ? .constant(true) : $boldText) {
                     Label("Bold text", systemImage: "bold")
                 }
-                .help("Make all reader text bold for easier reading.")
+                .disabled(legibilityWeight == .bold)
+                .help(legibilityWeight == .bold
+                      ? Text("On while Bold Text is on in your device's accessibility settings.")
+                      : Text("Make all reader text bold for easier reading."))
             }
 
             Section {

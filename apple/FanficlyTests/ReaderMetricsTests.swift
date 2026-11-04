@@ -308,6 +308,12 @@ final class ReaderPaginationTests: XCTestCase {
                    kerning: 0, bold: false, widthPercent: 90),
         Typography(name: "huge bold serif", family: .serif, fontSize: 27, lineSpacing: 12, paragraphSpacing: 30,
                    kerning: 1.5, bold: true, widthPercent: 100),
+        // The largest size the slider allows, as an accessibility text size
+        // brings it (#174).
+        Typography(name: "maximum bold", family: .newYork, fontSize: CGFloat(ReaderMetrics.fontSizeRange.upperBound),
+                   lineSpacing: CGFloat(ReaderMetrics.defaultLineSpacing),
+                   paragraphSpacing: CGFloat(ReaderMetrics.defaultParagraphSpacing),
+                   kerning: 0, bold: true, widthPercent: 90),
     ]
 
     /// ~3,000 words of plain prose: paragraphs of one to twelve sentences,
@@ -663,7 +669,7 @@ final class ReaderFontSizeStepTests: XCTestCase {
         let range = ReaderMetrics.fontSizeRange
         XCTAssertEqual(ReaderMetrics.steppedFontSize(range.upperBound, bigger: true), range.upperBound)
         XCTAssertEqual(ReaderMetrics.steppedFontSize(range.lowerBound, bigger: false), range.lowerBound)
-        XCTAssertEqual(ReaderMetrics.steppedFontSize(40, bigger: false), range.upperBound)
+        XCTAssertEqual(ReaderMetrics.steppedFontSize(range.upperBound + 10, bigger: false), range.upperBound)
         XCTAssertEqual(ReaderMetrics.steppedFontSize(4, bigger: true), range.lowerBound)
     }
 
@@ -675,5 +681,48 @@ final class ReaderFontSizeStepTests: XCTestCase {
 
     func test_invalidStoredSizeStepsFromTheDefault() {
         XCTAssertEqual(ReaderMetrics.steppedFontSize(.nan, bigger: true), ReaderMetrics.defaultFontSize + 1)
+    }
+}
+
+
+/// The reader follows the system text size and Bold Text (#174).
+final class ReaderSystemTextTests: XCTestCase {
+    private func size(_ category: UIContentSizeCategory) -> Double {
+        ReaderMetrics.systemFontSize(scaledBy: UIFontMetrics(forTextStyle: .body),
+                                     traits: UITraitCollection(preferredContentSizeCategory: category))
+    }
+
+    func test_standardTextSize_readsAtTheDefault() {
+        XCTAssertEqual(size(.large), ReaderMetrics.defaultFontSize)
+    }
+
+    func test_followsDynamicType_inWholePoints() {
+        let sizes = [UIContentSizeCategory.extraSmall, .medium, .large, .extraLarge, .extraExtraExtraLarge,
+                     .accessibilityMedium, .accessibilityExtraExtraExtraLarge].map(size)
+        XCTAssertEqual(sizes, sizes.sorted(), "bigger system text, bigger story text")
+        for s in sizes {
+            XCTAssertEqual(s, s.rounded())
+            XCTAssertTrue(ReaderMetrics.fontSizeRange.contains(s), "\(s) pt is outside the slider's range")
+        }
+        XCTAssertLessThan(size(.extraSmall), ReaderMetrics.defaultFontSize)
+    }
+
+    /// The accessibility sizes carry past the old 30 pt ceiling.
+    func test_largestAccessibilitySize_goesWellPastThirtyPoints() {
+        XCTAssertGreaterThanOrEqual(size(.accessibilityExtraExtraExtraLarge), 48)
+    }
+
+    func test_presetsSitInsideTheRange() {
+        for preset in ReaderMetrics.fontSizePresets {
+            XCTAssertTrue(ReaderMetrics.fontSizeRange.contains(preset.value), preset.name)
+        }
+        XCTAssertEqual(ReaderMetrics.fontSizePresets.last?.value, ReaderMetrics.fontSizeRange.upperBound)
+    }
+
+    func test_systemBoldText_turnsStoryTextBold() {
+        XCTAssertFalse(ReaderMetrics.drawsBold(false, legibilityWeight: .regular))
+        XCTAssertFalse(ReaderMetrics.drawsBold(false, legibilityWeight: nil))
+        XCTAssertTrue(ReaderMetrics.drawsBold(false, legibilityWeight: .bold))
+        XCTAssertTrue(ReaderMetrics.drawsBold(true, legibilityWeight: .regular))
     }
 }
