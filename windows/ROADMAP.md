@@ -252,6 +252,12 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Already covered:** the "Continue reading" Widgets-board widget already supports the small size (`Package.appxmanifest`), so where Windows offers lock-screen widgets people can add it there. It and the jump list's "Continue “<title>”" entry both open `fanficly://resume/<id>`.
 - **Revisit when:** Windows gives widget providers a lock-screen size or template of their own.
 
+### RM-125 — Follow the system's Bold Text in the reader
+- **Status:** exception · **Size:** S · **Validation:** windows
+- **Why:** The Swift app draws story text bold when the system's Bold Text accessibility setting is on (#174), as well as when the reader's own Bold text switch is.
+- **Why it's an exception:** Windows has no system-wide Bold Text setting for apps to follow. Its accessibility text options are Text size (which the reader already follows, since XAML scales its text) and contrast themes (which the reader's colours follow). The reader's own Bold text switch is the way to get heavier strokes.
+- **Revisit when:** Windows adds a bold or heavier-text accessibility setting that apps can read.
+
 ### RM-109 — Localization groundwork
 - **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Every string is English and inline in C#.

@@ -384,6 +384,9 @@ public class ReaderPaginationTests(ITestOutputHelper output)
             ReaderMetrics.DefaultParagraphSpacing, 0, false, 70),
         new("small sans", ReaderFontFamily.Sans, 13, 2, 8, 0, false, 90),
         new("huge bold serif", ReaderFontFamily.Serif, 27, 12, 30, 1.5, true, 100),
+        // The largest size the slider allows (#174).
+        new("maximum bold", ReaderFontFamily.NewYork, ReaderMetrics.FontSizeRange.Max, ReaderMetrics.DefaultLineSpacing,
+            ReaderMetrics.DefaultParagraphSpacing, 0, true, 90),
     ];
 
     /// <summary>~3,000 words of plain prose: paragraphs of one to twelve sentences,
@@ -814,8 +817,19 @@ public class ReaderFontSizeStepTests
         var (min, max) = ReaderMetrics.FontSizeRange;
         Assert.Equal(max, ReaderMetrics.SteppedFontSize(max, bigger: true));
         Assert.Equal(min, ReaderMetrics.SteppedFontSize(min, bigger: false));
-        Assert.Equal(max, ReaderMetrics.SteppedFontSize(40, bigger: false));
+        Assert.Equal(max, ReaderMetrics.SteppedFontSize(max + 10, bigger: false));
         Assert.Equal(min, ReaderMetrics.SteppedFontSize(4, bigger: true));
+    }
+
+    /// <summary>Story text goes well past the old 30-point ceiling, and the Aa
+    /// menu's presets reach the top of the range (#174).</summary>
+    [Fact]
+    public void RangeAndPresets_ReachSixtyPoints()
+    {
+        Assert.Equal(60, ReaderMetrics.FontSizeRange.Max);
+        foreach (var (name, value) in ReaderMetrics.FontSizePresets)
+            Assert.True(value >= ReaderMetrics.FontSizeRange.Min && value <= ReaderMetrics.FontSizeRange.Max, name);
+        Assert.Equal(ReaderMetrics.FontSizeRange.Max, ReaderMetrics.FontSizePresets[^1].Value);
     }
 
     [Fact]
