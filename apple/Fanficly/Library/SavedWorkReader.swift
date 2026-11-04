@@ -27,7 +27,10 @@ private struct SavedFirstWorkView: View {
     let workId: Int
 
     var body: some View {
-        if let work = WorkPersistence.savedWork(ao3Id: workId, in: context) {
+        // A story waiting behind the Library's Undo toast is about to be
+        // deleted: the reader would be left on a deleted Work, so it opens live.
+        if !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)),
+           let work = WorkPersistence.savedWork(ao3Id: workId, in: context) {
             SavedWorkReader(work: work)
         } else {
             WorkDetailView(workId: workId)
