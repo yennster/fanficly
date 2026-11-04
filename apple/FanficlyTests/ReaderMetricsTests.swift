@@ -399,7 +399,9 @@ final class ReaderPaginationTests: XCTestCase {
     /// The page's height as SwiftUI draws it, with the chapter heading's
     /// (estimated) height on the chapter's first page.
     private func drawnHeight(_ page: ChapterPage, in result: Pagination, _ measure: ReaderPaginator.DrawnHeight) -> CGFloat {
-        measure(result.atoms, page.paragraphIndices) + (page.pageIndex == 0 ? result.chapterHeaderHeight : 0)
+        measure(result.atoms, page.paragraphIndices)
+            // The chapter's opening page has no running header: its heading takes that row.
+            + (page.pageIndex == 0 ? result.chapterHeaderHeight - ReaderPaginator.runningHeaderHeight : 0)
     }
 
     /// The most blank space a full page may leave: the paginator's rounding

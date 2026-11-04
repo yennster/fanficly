@@ -23,15 +23,19 @@ enum ReaderChapterText {
 
     /// A chapter title as the reader shows it: leftover entities decoded
     /// ("The Decree &amp; Draco's Hunt" → "The Decree & Draco's Hunt") and
-    /// AO3's "Chapter N:" prefix dropped, as the reader's heading shows the
-    /// number itself. A title of just "Chapter N" is no title at all.
+    /// this chapter's own "Chapter N:" prefix dropped, as the reader's heading
+    /// shows the number itself (an author's "Chapter 2: …" reaches the reader
+    /// as AO3's "Chapter 2: Chapter 2: …" with one gone, and an EPUB's section
+    /// titles keep theirs). Another number is the author's: chapter 2 titled
+    /// "Chapter 1" after a prologue keeps it. Just "Chapter N" is no title.
     static func title(_ raw: String, index: Int) -> String {
-        // Twice: an author's own "Chapter 2: …" title reaches the reader as
-        // AO3's "Chapter 2: Chapter 2: …" with one prefix gone.
-        let title = WorkPageParser.cleanChapterTitle(decodingLeftoverEntities(raw), index: index)
-        guard title.range(of: "^Chapter\\s+\(index)(?!\\d)", options: .regularExpression) != nil
-        else { return title }
-        return WorkPageParser.cleanChapterTitle(title, index: index)
+        var title = decodingLeftoverEntities(raw).trimmingCharacters(in: .whitespaces)
+        let prefix = "^Chapter\\s+\(index)(?!\\d)\\s*[:.\\-\u{2013}\u{2014}]?\\s*"
+        for _ in 0..<2 {
+            guard let range = title.range(of: prefix, options: [.regularExpression, .caseInsensitive]) else { break }
+            title = String(title[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        return title
     }
 
     // MARK: - Entities
@@ -107,7 +111,14 @@ enum ReaderChapterText {
         let before = plainText(ns.substring(to: match.range.location))
         guard before.isEmpty else { return html }
         let paragraph = plainText(ns.substring(with: match.range(at: 2)))
-        guard repeatsTitle(paragraph, rawTitle: rawTitle, title: title, index: index) else { return html }
+        // Set out as a heading, or naming the chapter's number: a plain line
+        // that equals the title can be the story's first words (chapter "Run"
+        // opening on "Run!").
+        let looksLikeHeading = !ns.substring(with: match.range(at: 1)).lowercased().hasPrefix("p")
+            || isSetOut(ns.substring(with: match.range))
+            || comparable(paragraph).hasPrefix(comparable("chapter \(index)"))
+            || comparable(paragraph).hasPrefix("\(index)")
+        guard looksLikeHeading, repeatsTitle(paragraph, rawTitle: rawTitle, title: title, index: index) else { return html }
         return ns.replacingCharacters(in: match.range, with: "")
     }
 
@@ -120,6 +131,17 @@ enum ReaderChapterText {
             headings += [name, "chapter \(index) \(name)", "\(index) \(name)"]
         }
         return headings.contains { comparable($0) == said }
+    }
+
+    private static let setOutPattern = try? NSRegularExpression(
+        pattern: "^<p\\b[^>]*(align\\s*=\\s*[\"']?center|text-align\\s*:\\s*center)[^>]*>|^<p\\b[^>]*>\\s*<(b|strong|em|i|u|big)\\b[^>]*>.*</\\2\\s*>\\s*</p\\s*>$",
+        options: [.caseInsensitive, .dotMatchesLineSeparators])
+
+    /// A paragraph centred, or all in bold, italics or underline: set out as a heading.
+    private static func isSetOut(_ paragraphHTML: String) -> Bool {
+        guard let setOutPattern else { return false }
+        return setOutPattern.firstMatch(in: paragraphHTML,
+                                        range: NSRange(location: 0, length: (paragraphHTML as NSString).length)) != nil
     }
 
     /// Text with its tags dropped, entities decoded and whitespace trimmed.

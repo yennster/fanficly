@@ -13,6 +13,11 @@ final class ReaderChapterTextTests: XCTestCase {
         XCTAssertEqual(ReaderChapterText.title("AT&T; and &unknown;", index: 1), "AT&T; and &unknown;")
         XCTAssertEqual(ReaderChapterText.title("Chapter 4", index: 4), "")
         XCTAssertEqual(ReaderChapterText.title("Chapter 2: Homecoming", index: 2), "Homecoming")
+        XCTAssertEqual(ReaderChapterText.title("Chapter 2: Chapter 2 - Homecoming", index: 2), "Homecoming")
+        // Another chapter's number is the author's (a prologue shifts them).
+        XCTAssertEqual(ReaderChapterText.title("Chapter 1", index: 2), "Chapter 1")
+        XCTAssertEqual(ReaderChapterText.title("Chapter 1 - Arrival", index: 2), "Chapter 1 - Arrival")
+        XCTAssertEqual(ReaderChapterText.title("Chapter 11 of Our Lives", index: 1), "Chapter 11 of Our Lives")
     }
 
     func test_cleaned_dropsAnOpeningParagraphThatRepeatsTheTitle() {
@@ -52,11 +57,21 @@ final class ReaderChapterTextTests: XCTestCase {
             "<p>Before anything else.</p><p>Landfall</p>",
             // An empty paragraph isn't a title.
             "<p> </p><p>The ship came in.</p>",
+            // A plain line that equals the title can be the story's first words.
+            "<p>Landfall.</p><p>The ship came in.</p>",
         ]
         for body in bodies {
             let chapter = AO3ChapterPayload(index: 3, title: "Landfall", bodyHTML: body)
             XCTAssertEqual(ReaderChapterText.cleaned(chapter).bodyHTML, body, body)
         }
+    }
+
+    func test_cleaned_keepsAPrologueShiftedChapterNumber() {
+        let chapter = AO3ChapterPayload(index: 2, title: "Chapter 1", bodyHTML: "<p>Chapter 1</p><p>One.</p>")
+        let cleaned = ReaderChapterText.cleaned(chapter)
+        XCTAssertEqual(cleaned.title, "Chapter 1")
+        // A plain line, without this chapter's number: kept.
+        XCTAssertEqual(cleaned.bodyHTML, chapter.bodyHTML)
     }
 
     func test_cleaned_untitledChapterDropsOnlyItsNumber() {

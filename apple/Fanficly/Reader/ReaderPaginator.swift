@@ -318,6 +318,12 @@ enum ReaderPaginator {
     /// drawn, and even a 2 pt margin cost the page a last line now and then.
     static let reserve: CGFloat = 0
 
+    /// The running header's row at the top of a page-by-page page, as in
+    /// Apple Books: a caption line and the gap under it (ReaderView's
+    /// runningHeaderRow). Pagination takes it off every page but one that
+    /// opens a chapter, whose heading stands in its place.
+    static let runningHeaderHeight: CGFloat = 26
+
     /// Pages not checked against SwiftUI's layout keep headroom for
     /// boundingRect measuring differently (2% of the page, 8–24 pt). On every
     /// page it left a line blank at the foot of many of them.
@@ -672,8 +678,10 @@ struct ChapterPagination {
             isFirstChapter ? (pageIndex == 1) : (pageIndex == 0)
         )
 
+        // A page that opens a chapter has no running header: the heading
+        // takes that row too (see ReaderPaginator.runningHeaderHeight).
         if displaysChapterHeader {
-            pageMaxHeight = max(0, viewportHeight - chapterHeaderHeight)
+            pageMaxHeight = max(0, viewportHeight + ReaderPaginator.runningHeaderHeight - chapterHeaderHeight)
         }
 
         let reserve = drawnHeight == nil ? ReaderPaginator.uncheckedReserve(pageMaxHeight) : ReaderPaginator.reserve

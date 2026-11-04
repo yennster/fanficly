@@ -1374,14 +1374,11 @@ struct ReaderView: View {
     /// bars. Pagination subtracts exactly this, so measured pages match drawn ones.
     static let pageVerticalMargin: CGFloat = 12
 
-    /// The running header's row at the top of every page-by-page page (see
-    /// runningHeaderRow): a caption line and the gap under it.
-    static let runningHeaderHeight: CGFloat = 26
-
     /// The height a page-by-page page has for its text in a page area
-    /// `area` tall: its margins and the running header come off.
+    /// `area` tall: its margins and the running header's row come off (a
+    /// chapter's opening page gets the row back, see ReaderPaginator).
     static func pageTextHeight(area: CGFloat) -> CGFloat {
-        area - 2 * pageVerticalMargin - runningHeaderHeight
+        area - 2 * pageVerticalMargin - ReaderPaginator.runningHeaderHeight
     }
 
     /// The text column in a page `containerWidth` wide, clear of the Duo's
@@ -1756,17 +1753,21 @@ struct ReaderView: View {
     }
 
     /// The running header's row above the page's text. It keeps its height
-    /// on every page, header or not (pagination takes it off every page),
-    /// and stays with the controls up or hidden, so nothing re-flows.
+    /// on every page but one that opens the work or a chapter (pagination
+    /// counts on exactly that), and stays with the controls up or hidden,
+    /// so nothing re-flows.
     private func runningHeaderRow(_ text: String?, fg: Color) -> some View {
+        // A fixed size, not Dynamic Type: the row is a fixed height that
+        // pagination takes off every page, and a caption grown past it ran
+        // over the first lines. VoiceOver skips it (below).
         Text(text ?? " ")
-            .font(.caption)
+            .font(.system(size: 12))
             .lineLimit(1)
             .truncationMode(.middle)
             .foregroundStyle(fg.opacity(0.5))
             .opacity(text == nil ? 0 : 1)
             .frame(maxWidth: .infinity, alignment: .center)
-            .frame(height: Self.runningHeaderHeight, alignment: .top)
+            .frame(height: ReaderPaginator.runningHeaderHeight, alignment: .top)
             // The page number's label in the footer says where you are; the
             // header is the page's decoration (and layout tests read every
             // other text above the footer as story text).
@@ -1784,7 +1785,11 @@ struct ReaderView: View {
            let atoms = parsedAtoms[page.chapterIndex] {
             
             VStack(spacing: 0) {
-                runningHeaderRow(runningHeader(for: page, side: side), fg: fg)
+                // A page that opens the work or a chapter has no header: its
+                // heading takes the row.
+                if !showsTitleHeader(page) && !showsChapterHeader(page) {
+                    runningHeaderRow(runningHeader(for: page, side: side), fg: fg)
+                }
                 ReaderPageCell(
                     page: page,
                     chapter: chapter,
