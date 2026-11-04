@@ -109,7 +109,7 @@ public sealed class SettingsScreen : Screen
             destructive: true, automationId: "settings.storage.removeEpubs").Also(b => b.IsEnabled = storage.Count > 0);
         _storageHost.Children.Clear();
         _storageHost.Children.Add(UI.UI.Section("Storage", [size, remove],
-            footer: "Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay."));
+            footer: "Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay. Books you imported keep their original files."));
     }
 
     private async Task RemoveEpubsAsync(int count)

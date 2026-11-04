@@ -23,7 +23,7 @@ final class WorkExporter {
 
     func export(workId: Int, title: String, format: WorkExportFormat,
                 client: any AO3ClientProtocol, context: ModelContext? = nil) async {
-        if format == .epub, let context, let url = savedEPUB(workId: workId, title: title, context: context) {
+        if format == .epub, let context, let url = await savedEPUB(workId: workId, title: title, context: context) {
             shareItem = ShareItem(url: url)
             return
         }
@@ -45,8 +45,11 @@ final class WorkExporter {
 
     /// An EPUB of a story saved on this device, without AO3: a copy of the
     /// saved AO3 file named after the story, or one built from the saved
-    /// text. Nil when the story isn't saved (no text), so Export downloads.
-    private func savedEPUB(workId: Int, title: String, context: ModelContext) -> URL? {
+    /// text (off the main actor: a long work takes a moment). Nil when the
+    /// story isn't saved (no text), or the file couldn't be written, so
+    /// Export downloads. The saved file is never older than the text:
+    /// saving or restoring new text deletes it.
+    private func savedEPUB(workId: Int, title: String, context: ModelContext) async -> URL? {
         if let saved = WorkPersistence.epubURL(workId: workId),
            let copy = try? Self.shareableCopy(of: saved, title: title, workId: workId) {
             return copy
@@ -54,12 +57,10 @@ final class WorkExporter {
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
         guard let work = (try? context.fetch(descriptor))?.first,
               WorkPersistence.isDownloaded(work) else { return nil }
-        do {
-            return try EPUBBuilder.writeTemporaryFile(EPUBBuilder.book(from: work))
-        } catch {
-            errorMessage = "Couldn't make the EPUB file. \(error.localizedDescription)"
-            return nil
-        }
+        let book = EPUBBuilder.book(from: work)
+        isExporting = true
+        defer { isExporting = false }
+        return try? await Task.detached { try EPUBBuilder.writeTemporaryFile(book) }.value
     }
 
     /// The saved file is `<id>.epub`; the share sheet should offer the

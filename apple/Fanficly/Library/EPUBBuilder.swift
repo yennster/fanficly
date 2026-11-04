@@ -228,7 +228,8 @@ enum EPUBBuilder {
     /// Saved chapter HTML as well-formed XHTML: SwiftSoup re-serializes it as
     /// XML (closed void tags, escaped text). Scripts, styles, embeds and
     /// forms are dropped, and so are images, which would be remote resources.
-    /// Attributes whose names aren't valid XML are dropped so the file
+    /// Attributes whose names aren't valid XML are dropped, prefixed elements
+    /// give way to their contents and control characters go, so the file
     /// still parses.
     static func xhtmlBody(fromHTML html: String) -> String {
         guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
@@ -237,6 +238,11 @@ enum EPUBBuilder {
             return "<p>\(escape(text))</p>"
         }
         _ = try? doc.select("script, style, link, meta, iframe, object, embed, form, input, button, img, svg, video, audio, source").remove()
+        // Word's `<o:p>` and the like: a prefix with no namespace isn't XML.
+        for element in (try? body.getAllElements().array()) ?? []
+        where element !== body && element.tagName().contains(":") {
+            _ = try? element.unwrap()
+        }
         if let all = try? body.getAllElements() {
             for element in all.array() {
                 guard let attributes = element.getAttributes() else { continue }
@@ -249,7 +255,18 @@ enum EPUBBuilder {
             .syntax(syntax: .xml)
             .escapeMode(Entities.EscapeMode.xhtml)
             .prettyPrint(pretty: false)
-        return (try? body.html()) ?? ""
+        return withoutControlCharacters((try? body.html()) ?? "")
+    }
+
+    /// Control characters other than tab and newlines aren't allowed in XML
+    /// 1.0 at all, even escaped.
+    static func withoutControlCharacters(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars
+        where scalar.value >= 0x20 || scalar == "\t" || scalar == "\n" || scalar == "\r" {
+            out.append(scalar)
+        }
+        return String(out)
     }
 
     static func isXMLName(_ name: String) -> Bool {

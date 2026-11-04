@@ -14,6 +14,9 @@ public static class WorkPersistence
     public static Work Upsert(AO3WorkPayload payload, LibraryStore store)
     {
         var work = UpsertMetadata(payload.Summary, store, save: false);
+        // New text makes a saved EPUB stale; the caller saves a current one
+        // (Save Offline, an import), and until then Export builds from the text (#173).
+        RemoveSavedEpub(payload.Summary.Id);
 
         foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
         foreach (var ch in payload.Chapters)
@@ -371,6 +374,14 @@ public static class WorkPersistence
         return File.Exists(path) ? path : null;
     }
 
+    /// <summary>Deletes one work's saved EPUB, if there is one.</summary>
+    public static void RemoveSavedEpub(int workId)
+    {
+        if (EpubPath(workId) is not { } path) return;
+        try { File.Delete(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { LibraryHooks.Log?.Invoke($"Removing {path} failed: {e.Message}"); }
+    }
+
     /// <summary>Downloaded means the story's text is saved on this PC, so it
     /// reads offline (#173). The EPUB file is an extra copy for Export: a
     /// restore doesn't bring it back and Settings → Storage can remove them
@@ -408,6 +419,9 @@ public static class WorkPersistence
         return removed;
     }
 
+    /// <summary>AO3 downloads only: an imported book that isn't on AO3 (a
+    /// negative id) keeps its file, the only copy of the original with its
+    /// pictures, which nothing can download again.</summary>
     private static IEnumerable<string> SavedEpubFiles(string? folder)
     {
         var dir = folder ?? LibraryFolder;
@@ -416,6 +430,7 @@ public static class WorkPersistence
         {
             return Directory.GetFiles(dir)
                 .Where(f => string.Equals(Path.GetExtension(f), ".epub", StringComparison.OrdinalIgnoreCase))
+                .Where(f => !(int.TryParse(Path.GetFileNameWithoutExtension(f), out var id) && EpubImport.IsLocalWork(id)))
                 .ToList();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return []; }

@@ -88,11 +88,16 @@ final class EPUBImportCenter {
         let id = payload.summary.id
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == id })
         let work: Work
+        // The file becomes the work's saved EPUB only when its text is the
+        // one kept, so Export never shares a shorter book than the reader
+        // shows (#173).
+        var keepsFile = true
         if let existing = try? context.fetch(descriptor).first {
             work = existing
             // An older download with fewer chapters never replaces more text
             // (AO3 may not be there to download it again).
-            if payload.chapters.count >= work.chapters.count {
+            keepsFile = payload.chapters.count >= work.chapters.count
+            if keepsFile {
                 for chapter in work.chapters { context.delete(chapter) }
                 work.chapters.removeAll()
                 for ch in payload.chapters {
@@ -105,6 +110,7 @@ final class EPUBImportCenter {
         } else {
             work = WorkPersistence.upsert(payload: payload, into: context)
         }
+        guard keepsFile else { return work }
 
         let docs = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
                                                appropriateFor: nil, create: true)

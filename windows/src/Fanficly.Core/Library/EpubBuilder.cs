@@ -11,7 +11,7 @@ namespace Fanficly.Core;
 /// works offline for every story saved on this PC, including ones whose AO3
 /// EPUB was never fetched (a restore) or was removed in Settings → Storage
 /// (#173). When AO3's own file is saved, Export shares that instead
-/// (<see cref="OfflineExport"/>). Swift: <c>EPUBBuilder</c>.
+/// (<see cref="OfflineExportAsync"/>). Swift: <c>EPUBBuilder</c>.
 ///
 /// The book is EPUB 3 with an EPUB 2 table of contents (<c>toc.ncx</c>) for
 /// older readers: a title page (title, author, AO3 link, summary), then one
@@ -36,8 +36,11 @@ public static partial class EpubBuilder
     /// <summary>An EPUB of a story saved on this PC, without AO3, written into
     /// <paramref name="exportsDirectory"/> under the story's title: a copy of
     /// the saved AO3 file, or one built from the saved text. Null when the
-    /// story isn't saved (no text and no file), so Export downloads.</summary>
-    public static string? OfflineExport(int workId, string title, LibraryStore store, string exportsDirectory)
+    /// story isn't saved (no text and no file), so Export downloads. The saved
+    /// file is never older than the text: saving or restoring new text deletes
+    /// it. The book is read on the caller's thread and built on the thread
+    /// pool, since a long work takes a moment.</summary>
+    public static async Task<string?> OfflineExportAsync(int workId, string title, LibraryStore store, string exportsDirectory)
     {
         var saved = WorkPersistence.EpubPath(workId);
         var work = store.GetWork(workId);
@@ -57,7 +60,9 @@ public static partial class EpubBuilder
                 if (work is null || !WorkPersistence.IsDownloaded(work)) return null;
             }
         }
-        File.WriteAllBytes(target, Build(BookFrom(work!)));
+        var book = BookFrom(work!);
+        var bytes = await Task.Run(() => Build(book));
+        await File.WriteAllBytesAsync(target, bytes);
         return target;
     }
 
@@ -130,6 +135,9 @@ public static partial class EpubBuilder
 
     [GeneratedRegex("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$")]
     private static partial Regex LanguageTagPattern();
+
+    [GeneratedRegex("[\u0000-\u0008\u000B\u000C\u000E-\u001F]")]
+    private static partial Regex ControlCharacters();
 
     [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_.-]*$")]
     private static partial Regex XmlNamePattern();
@@ -242,7 +250,8 @@ public static partial class EpubBuilder
     /// <summary>Saved chapter HTML as well-formed XHTML: AngleSharp re-serializes
     /// it as XHTML (closed void tags, escaped text). Scripts, styles, embeds and
     /// forms are dropped, and so are images, which would be remote resources.
-    /// Attributes whose names aren't valid XML are dropped so the file still parses.</summary>
+    /// Attributes whose names aren't valid XML are dropped, prefixed elements give
+    /// way to their contents and control characters go, so the file still parses.</summary>
     public static string XhtmlBody(string html)
     {
         if (string.IsNullOrWhiteSpace(html)) return "";
@@ -250,10 +259,14 @@ public static partial class EpubBuilder
         var body = document.Body;
         if (body is null) return $"<p>{Escape(Regex.Replace(html, "<[^>]+>", ""))}</p>";
         foreach (var element in body.QuerySelectorAll(DroppedElements).ToList()) element.Remove();
+        // Word's <o:p> and the like: a prefix with no namespace isn't XML.
+        foreach (var element in body.QuerySelectorAll("*").Where(e => e.LocalName.Contains(':') || e.Prefix is not null).ToList())
+            element.Replace([.. element.ChildNodes]);
         foreach (var element in body.QuerySelectorAll("*"))
             foreach (var attribute in element.Attributes.ToList())
                 if (!XmlNamePattern().IsMatch(attribute.Name)) element.RemoveAttribute(attribute.Name);
-        return string.Concat(body.ChildNodes.Select(n => n.ToHtml(XhtmlMarkupFormatter.Instance)));
+        // Control characters other than tab and newlines aren't allowed in XML 1.0 at all.
+        return ControlCharacters().Replace(string.Concat(body.ChildNodes.Select(n => n.ToHtml(XhtmlMarkupFormatter.Instance))), "");
     }
 
     public static string Escape(string text)

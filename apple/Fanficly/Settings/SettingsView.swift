@@ -411,7 +411,7 @@ struct EPUBStorageSection: View {
         } header: {
             Text("Storage")
         } footer: {
-            Text("Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay.")
+            Text("Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay. Books you imported keep their original files.")
         }
         .onAppear(perform: refresh)
     }

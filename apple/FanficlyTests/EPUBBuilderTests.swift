@@ -46,9 +46,11 @@ final class EPUBBuilderTests: XCTestCase {
     }
 
     func testChapterHTMLBecomesWellFormedXHTML() throws {
-        let body = EPUBBuilder.xhtmlBody(fromHTML: "<p bad\"name=1 class=x>One<br>two &amp; <i>three</p><hr>")
+        let body = EPUBBuilder.xhtmlBody(fromHTML: "<p bad\"name=1 class=x>One<br>two &amp; <i>three</p><hr>&nbsp;<o:p>word</o:p>\u{1}\u{B}")
         XCTAssertTrue(body.contains("<br />") || body.contains("<br/>"))
         XCTAssertFalse(body.contains("bad"))
+        XCTAssertTrue(body.contains("word"))
+        XCTAssertFalse(body.contains("o:p"))
         let parser = XMLParser(data: Data("<body>\(body)</body>".utf8))
         XCTAssertTrue(parser.parse(), "\(body): \(String(describing: parser.parserError))")
     }
@@ -132,11 +134,29 @@ final class EPUBBuilderTests: XCTestCase {
         try Data(count: 100).write(to: dir.appendingPathComponent("1.epub"))
         try Data(count: 50).write(to: dir.appendingPathComponent("2.EPUB"))
         try Data(count: 10).write(to: dir.appendingPathComponent("notes.txt"))
+        try Data(count: 30).write(to: dir.appendingPathComponent("-42.epub"))  // an imported book: kept
 
         XCTAssertEqual(WorkPersistence.savedEPUBStorage(directory: dir),
                        WorkPersistence.EPUBStorage(count: 2, bytes: 150))
         XCTAssertEqual(WorkPersistence.removeAllSavedEPUBs(directory: dir), 2)
         XCTAssertEqual(WorkPersistence.savedEPUBStorage(directory: dir).count, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("notes.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("-42.epub").path))
+    }
+
+    func testSavingNewTextRemovesTheStaleSavedEPUB() throws {
+        let context = try makeContext()
+        let id = 987_650_175
+        let dir = try XCTUnwrap(WorkPersistence.epubDirectory())
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("\(id).epub")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("old".utf8).write(to: file)
+        XCTAssertNotNil(WorkPersistence.epubURL(workId: id))
+
+        var payload = DemoCatalog.payload(for: 90001)
+        payload = AO3WorkPayload(summary: AO3WorkSummary.stub(id: id, title: "Grew"), chapters: payload.chapters)
+        _ = WorkPersistence.upsert(payload: payload, into: context)
+        XCTAssertNil(WorkPersistence.epubURL(workId: id))
     }
 }

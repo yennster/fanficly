@@ -67,9 +67,10 @@ public sealed class EpubBuilderTests : IDisposable
     [Fact]
     public void ChapterHtmlBecomesWellFormedXhtml()
     {
-        var body = EpubBuilder.XhtmlBody("<p bad\"name=1 class=x>One<br>two &amp; <i>three</p><hr>&nbsp;");
+        var body = EpubBuilder.XhtmlBody("<p bad\"name=1 class=x>One<br>two &amp; <i>three</p><hr>&nbsp;<o:p>word</o:p>\u0001\u000B");
         Assert.Contains("<br", body);
         Assert.DoesNotContain("bad", body);
+        Assert.Contains("word", body);
         var doc = new XmlDocument();
         doc.LoadXml($"<body>{body}</body>");
     }
@@ -91,7 +92,7 @@ public sealed class EpubBuilderTests : IDisposable
         Assert.Equal(0xCBF43926u, Crc32.Checksum(Encoding.ASCII.GetBytes("123456789")));
 
     [Fact]
-    public void OfflineExportBuildsFromSavedTextAndSkipsUnsavedWorks()
+    public async Task OfflineExportBuildsFromSavedTextAndSkipsUnsavedWorks()
     {
         using var store = LibraryStore.Open(Path.Combine(_dir, "library.sqlite"));
         const int id = 987_650_173;
@@ -108,14 +109,14 @@ public sealed class EpubBuilderTests : IDisposable
         Assert.Equal([987_650_174], RestoreDownloadCenter.FolderDownloadCandidates([work, bookmarked]));
 
         var exports = Path.Combine(_dir, "exports");
-        var path = EpubBuilder.OfflineExport(id, "Offline Fic", store, exports);
+        var path = await EpubBuilder.OfflineExportAsync(id, "Offline Fic", store, exports);
         Assert.Equal(Path.Combine(exports, "Offline Fic.epub"), path);
         var payload = EpubImport.Parse(File.ReadAllBytes(path!));
         Assert.Contains("Saved words.", payload.Chapters[0].BodyHtml);
 
         // Not saved here: Export downloads from AO3 instead.
-        Assert.Null(EpubBuilder.OfflineExport(987_650_174, "Bookmarked", store, exports));
-        Assert.Null(EpubBuilder.OfflineExport(987_650_175, "Unknown", store, exports));
+        Assert.Null(await EpubBuilder.OfflineExportAsync(987_650_174, "Bookmarked", store, exports));
+        Assert.Null(await EpubBuilder.OfflineExportAsync(987_650_175, "Unknown", store, exports));
     }
 
     [Fact]
@@ -126,11 +127,13 @@ public sealed class EpubBuilderTests : IDisposable
         File.WriteAllBytes(Path.Combine(folder, "1.epub"), new byte[100]);
         File.WriteAllBytes(Path.Combine(folder, "2.EPUB"), new byte[50]);
         File.WriteAllBytes(Path.Combine(folder, "notes.txt"), new byte[10]);
+        File.WriteAllBytes(Path.Combine(folder, "-42.epub"), new byte[30]);  // an imported book: kept
 
         Assert.Equal(new EpubStorage(2, 150), WorkPersistence.SavedEpubStorage(folder));
         Assert.Equal(2, WorkPersistence.RemoveAllSavedEpubs(folder));
         Assert.Equal(0, WorkPersistence.SavedEpubStorage(folder).Count);
         Assert.True(File.Exists(Path.Combine(folder, "notes.txt")));
+        Assert.True(File.Exists(Path.Combine(folder, "-42.epub")));
         Assert.Equal(new EpubStorage(0, 0), WorkPersistence.SavedEpubStorage(Path.Combine(_dir, "missing")));
     }
 }

@@ -7,6 +7,10 @@ enum WorkPersistence {
     @MainActor
     static func upsert(payload: AO3WorkPayload, into context: ModelContext) -> Work {
         let work = upsertMetadata(summary: payload.summary, into: context, save: false)
+        // New text makes a saved EPUB stale; the caller saves a current one
+        // (Save Offline, an import), and until then Export builds from the
+        // text (#173).
+        removeSavedEPUB(workId: payload.summary.id)
 
         for ch in work.chapters { context.delete(ch) }
         work.chapters.removeAll()
@@ -360,6 +364,13 @@ enum WorkPersistence {
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
+    /// Deletes one work's saved EPUB, if there is one.
+    static func removeSavedEPUB(workId: Int) {
+        if let url = epubURL(workId: workId) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     /// `Documents/library`, where saved EPUBs live.
     static func epubDirectory() -> URL? {
         (try? FileManager.default.url(
@@ -413,12 +424,19 @@ enum WorkPersistence {
         return removed
     }
 
+    /// AO3 downloads only: an imported book that isn't on AO3 (a negative
+    /// id) keeps its file, the only copy of the original with its pictures,
+    /// which nothing can download again.
     private static func savedEPUBFiles(directory: URL?) -> [URL] {
         guard let dir = directory ?? epubDirectory(),
               let files = try? FileManager.default.contentsOfDirectory(
                 at: dir, includingPropertiesForKeys: [.fileSizeKey])
         else { return [] }
-        return files.filter { $0.pathExtension.lowercased() == "epub" }
+        return files.filter {
+            guard $0.pathExtension.lowercased() == "epub" else { return false }
+            let id = Int($0.deletingPathExtension().lastPathComponent)
+            return !(id.map(EPUBImport.isLocalWork) ?? false)
+        }
     }
 }
 
