@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -92,7 +92,7 @@ jobs:
           # What ReaderLayoutTests exercise: the reader and the views that
           # host it, the window and layout, the reader's settings, the demo
           # chapters they paginate, the strings they match, the project and
-          # the tests themselves (as LAYOUT_FILES in bin/xcode-cloud-duo.py).
+          # the tests themselves.
           layout='^(apple/Fanficly/(Reader|DesignSystem)/|apple/Fanficly/(RootView\.swift|FanficlyApp\.swift|Localizable\.xcstrings|Info\.plist|Settings/ReaderSettingsView\.swift|Search/WorkDetailView\.swift|Library/SavedWorkReader\.swift|Networking/DemoAO3Client\.swift)$|apple/(project\.yml|bin/ci-simulator\.py)$|apple/FanficlyUITests/FanficlyUITests\.swift$|\.github/workflows/ci\.yml$)'
           if echo "$files" | grep -qE "$app"; then echo "app=true" >> "$GITHUB_OUTPUT"; else echo "app=false" >> "$GITHUB_OUTPUT"; fi
           if echo "$files" | grep -qE "$layout"; then echo "layout=true" >> "$GITHUB_OUTPUT"; else echo "layout=false" >> "$GITHUB_OUTPUT"; fi
