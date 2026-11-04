@@ -23,6 +23,7 @@ public sealed class SettingsScreen : Screen
 
     private readonly StackPanel _accountHost = new();
     private readonly StackPanel _notificationsHost = new();
+    private readonly StackPanel _storageHost = new();
     private Expander? _controllerExpander;
     private TextBlock? _controllerStatus;
     private Button? _syncRow;
@@ -36,6 +37,7 @@ public sealed class SettingsScreen : Screen
         AutomationProperties.SetAutomationId(_accountHost, "settings.account");
         RefreshAccount();
         RefreshNotifications();
+        RefreshStorage();
 
         var page = UI.UI.VStack(18,
             _accountHost,
@@ -52,6 +54,7 @@ public sealed class SettingsScreen : Screen
                     on => KeyValueStores.Default.SetBool(ShowReadingProgressKey, on),
                     "chart.bar.xaxis", automationId: "settings.showReadingProgress"),
             ], footer: "Shows a progress bar and percentage on works you've started. Your reading position is always saved — this only hides the display."),
+            _storageHost,
             SyncSection(),
             _notificationsHost,
             // The Content & Safety section (mature filter, hidden works, content policy):
@@ -85,7 +88,50 @@ public sealed class SettingsScreen : Screen
             RefreshNotifications();
             RefreshSyncRow();
             RefreshController();
+            RefreshStorage();
         }
+    }
+
+    /// <summary>Settings → Storage (#173): how much room the saved EPUB files
+    /// take, and a button that removes them all. The saved chapter text stays,
+    /// so every story still reads offline, still shows as Downloaded and still
+    /// exports as EPUB (built from the text).</summary>
+    private void RefreshStorage()
+    {
+        var storage = WorkPersistence.SavedEpubStorage();
+        var summary = storage.Count == 0
+            ? "None"
+            : $"{storage.Count} {(storage.Count == 1 ? "file" : "files")}, {FormatBytes(storage.Bytes)}";
+        var size = UI.UI.SettingsRow("Saved EPUB files", UI.UI.Secondary(summary, Theme.Style.Body), sfSymbol: "book");
+        AutomationProperties.SetName(size, $"Saved EPUB files: {summary}");
+        AutomationProperties.SetAutomationId(size, "settings.storage.epubs");
+        var remove = SettingsKit.ActionRow("Remove Saved EPUB Files…", () => _ = RemoveEpubsAsync(storage.Count), "trash",
+            destructive: true, automationId: "settings.storage.removeEpubs").Also(b => b.IsEnabled = storage.Count > 0);
+        _storageHost.Children.Clear();
+        _storageHost.Children.Add(UI.UI.Section("Storage", [size, remove],
+            footer: "Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay."));
+    }
+
+    private async Task RemoveEpubsAsync(int count)
+    {
+        var confirmed = await Dialogs.ConfirmAsync(
+            $"Remove {count} saved EPUB {(count == 1 ? "file" : "files")}?",
+            "Your stories stay saved and still read offline. Export can still make an EPUB of any saved story.",
+            "Remove EPUB Files", destructive: true);
+        if (!confirmed) return;
+        var removed = WorkPersistence.RemoveAllSavedEpubs();
+        RefreshStorage();
+        MainWindow.Current.ShowMessage("EPUB files removed", $"Removed {removed} {(removed == 1 ? "file" : "files")}.");
+    }
+
+    /// <summary>"12.3 MB", like the Mac's file sizes (decimal units).</summary>
+    internal static string FormatBytes(long bytes)
+    {
+        string[] units = ["bytes", "KB", "MB", "GB"];
+        double value = bytes;
+        var unit = 0;
+        while (value >= 1000 && unit < units.Length - 1) { value /= 1000; unit++; }
+        return unit == 0 ? $"{bytes} {(bytes == 1 ? "byte" : "bytes")}" : $"{value:0.#} {units[unit]}";
     }
 
     public override void OnDisappearing()

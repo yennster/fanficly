@@ -287,7 +287,7 @@ public sealed class LibraryScreen : Screen
             IEnumerable<Work> baseList = _filter switch
             {
                 LibraryFilter.Starred => works.Where(w => w.IsStarred),
-                LibraryFilter.Downloaded => works.Where(w => WorkPersistence.EpubPath(w.Ao3Id) is not null),
+                LibraryFilter.Downloaded => works.Where(WorkPersistence.IsDownloaded),
                 _ => works,
             };
             if (query.Length > 0) baseList = baseList.Where(w => w.Matches(query));
@@ -351,7 +351,7 @@ public sealed class LibraryScreen : Screen
 
     private Button WorkRowButton(Work work, int index)
     {
-        var downloaded = WorkPersistence.EpubPath(work.Ao3Id) is not null;
+        var downloaded = WorkPersistence.IsDownloaded(work);
         var (content, name) = LibraryRow.Build(work, downloaded);
         var button = RowButton(content);
         AutomationProperties.SetName(button, name);

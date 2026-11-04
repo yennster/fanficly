@@ -358,7 +358,7 @@ public sealed class FolderScreen : Screen
 
     private UIElement BuildRow(Work work, int index)
     {
-        var downloaded = WorkPersistence.EpubPath(work.Ao3Id) is not null;
+        var downloaded = WorkPersistence.IsDownloaded(work);
         var (content, name) = LibraryRow.Build(work, downloaded);
         Control row;
         if (_selecting)

@@ -12,6 +12,9 @@ namespace Fanficly.App.Views.Reader;
 /// Drives a work export (WorkExporter + WorkExportButton): downloads the work in
 /// the chosen AO3 format through the client (so the throttle applies), then hands
 /// the file to Windows' share sheet — or, from "Save a copy as", to a save dialog.
+/// EPUB never needs AO3 for a story saved on this PC (#173): it uses the saved
+/// AO3 EPUB, or one built from the saved chapter text
+/// (<see cref="EpubBuilder.OfflineExport"/>), so it works offline.
 ///
 /// Owned by the screen, never by menu content (CLAUDE.md: a sheet or alert
 /// attached inside a menu has no live anchor once the menu closes). The menu
@@ -58,6 +61,7 @@ internal sealed class WorkExporter
     public async Task ExportAsync(int workId, string title, WorkExportFormat format, bool saveAs)
     {
         if (IsExporting) return;
+        if (format == WorkExportFormat.Epub && await OfflineEpubAsync(workId, title, saveAs)) return;
         IsExporting = true;
         Changed?.Invoke();
         // The download can take several seconds (AO3's throttle): say something is happening.
@@ -82,6 +86,30 @@ internal sealed class WorkExporter
             Changed?.Invoke();
         }
     }
+
+    /// <summary>Shares or saves the EPUB of a story saved on this PC without
+    /// asking AO3. False when the story isn't saved here, so it downloads.</summary>
+    private static async Task<bool> OfflineEpubAsync(int workId, string title, bool saveAs)
+    {
+        string? path;
+        try
+        {
+            path = EpubBuilder.OfflineExport(workId, title, AppHost.Library, ExportsDirectory);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            AppHost.Log($"Offline EPUB export failed: {e}");
+            await Dialogs.AlertAsync("Export failed", $"Couldn't make the EPUB file: {e.Message}");
+            return true;
+        }
+        if (path is null) return false;
+        var file = await StorageFile.GetFileFromPathAsync(path);
+        if (saveAs) await SaveCopyAsync(file, title, WorkExportFormat.Epub);
+        else ShareService.Share(file, title);
+        return true;
+    }
+
+    private static readonly string ExportsDirectory = Path.Combine(Path.GetTempPath(), "Fanficly", "Exports");
 
     private static async Task SaveCopyAsync(StorageFile file, string title, WorkExportFormat format)
     {

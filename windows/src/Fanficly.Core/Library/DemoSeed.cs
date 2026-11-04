@@ -41,6 +41,10 @@ public static class DemoSeed
             }
             if (downloaded.Contains(summary.Id))
             {
+                // Downloaded means saved text (#173), so these carry their
+                // chapters, plus a placeholder EPUB for Settings → Storage.
+                foreach (var ch in DemoCatalog.Payload(summary.Id).Chapters)
+                    store.Insert(new Chapter(work, ch.Index, ch.Title, ch.BodyHtml, ch.AoId));
                 work.EpubLocalPath = $"library/{summary.Id}.epub";
                 WritePlaceholderEpub(summary.Id);
             }
