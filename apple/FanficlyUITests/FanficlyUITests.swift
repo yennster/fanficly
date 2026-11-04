@@ -285,6 +285,11 @@ final class ReaderLayoutTests: XCTestCase {
             XCTAssertFalse(readerItems.exists, "round \(round): full screen hides the reader's items")
             XCTAssertEqual(hostItems.count, 0, "round \(round): full screen hides the work page's items")
             XCTAssertFalse(app.buttons["reader.fullScreenBack"].exists, "round \(round): no back arrow stays behind")
+            // iPad and iPhone Duo unfolded: the split view's sidebar button
+            // floated over the page.
+            let sidebarButtons = app.buttons.matching(NSPredicate(format: "label IN {'Show Sidebar', 'Hide Sidebar'}"))
+            XCTAssertFalse(sidebarButtons.allElementsBoundByIndex.contains { $0.isHittable },
+                           "round \(round): full screen hides the sidebar button")
             XCTAssertTrue(pageNumber.exists, "round \(round): full screen keeps the page number")
             tap(middle)
             XCTAssertTrue(footer.waitForExistence(timeout: 5), "round \(round): a tap brought the controls back")
