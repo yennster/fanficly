@@ -339,7 +339,8 @@ final class ReaderPaginationTests: XCTestCase {
 
     private struct Layout {
         let columnWidth: CGFloat
-        /// The page's height for content, inside its top and bottom margins.
+        /// The page's height for content, inside its top and bottom margins
+        /// and under its running header.
         let viewportHeight: CGFloat
         let pagesOnScreen: Int
     }
@@ -353,7 +354,7 @@ final class ReaderPaginationTests: XCTestCase {
                                                   widthPercent: percent, fontSize: Double(type.fontSize),
                                                   limitLineLength: device.isPhone)
         return Layout(columnWidth: width,
-                      viewportHeight: device.pageArea.height - 2 * ReaderView.pageVerticalMargin,
+                      viewportHeight: ReaderView.pageTextHeight(area: device.pageArea.height),
                       pagesOnScreen: spread == nil ? 1 : 2)
     }
 
