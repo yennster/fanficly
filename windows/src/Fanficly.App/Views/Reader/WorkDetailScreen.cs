@@ -76,7 +76,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
     private async Task LoadRestAsync()
     {
-        if (await FetchRestAsync(_workId) is not { } full || IsRemoved) return;
+        if (await FetchRestAsync(_workId, () => _isWholeWork ? _payload : null, () => _ = LoadRestAsync()) is not { } full || IsRemoved) return;
         _payload = full;
         _isWholeWork = true;
         SwapReader(MakeReader(ReaderView.FromPayload(full)));
