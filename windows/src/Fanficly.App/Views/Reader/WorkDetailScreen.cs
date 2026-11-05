@@ -22,7 +22,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
     /// <summary><see cref="_payload"/> holds every chapter (not just the one the
     /// reader opened on), so it's safe to save.</summary>
     private bool _isWholeWork;
-    private string? _epubPath;
+    /// <summary>The story's text is saved on this PC (#173: what Downloaded means).</summary>
+    private bool _downloaded;
     private bool _followed;
     private bool _isSavingOffline;
     private int _currentChapter = 1;
@@ -47,7 +48,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
     private async Task LoadAsync()
     {
-        _epubPath = WorkPersistence.EpubPath(_workId);
+        _downloaded = WorkPersistence.IsDownloaded(_workId, AppHost.Library);
         _followed = WorkPersistence.IsFollowed(_workId, AppHost.Library);
         ShowLoading("Loading…");
         try
@@ -167,7 +168,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
         menu.Items.Add(_exporter.Menu(_workId, () => title));
 
-        var downloaded = _epubPath is not null;
+        var downloaded = _downloaded;
         var download = UI.UI.MenuItem(
             _isSavingOffline ? "Downloading…" : downloaded ? "Downloaded" : "Download",
             () => Later(SaveOfflineAsync),
@@ -212,7 +213,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
             var payload = await WholeWorkAsync();
             WorkPersistence.Upsert(payload, AppHost.Library);
             textSaved = true;
-            _epubPath = await AppHost.Client.DownloadEpubAsync(payload.Summary.Id);
+            _downloaded = true;
+            await AppHost.Client.DownloadEpubAsync(payload.Summary.Id);
             _followed = WorkPersistence.IsFollowed(_workId, AppHost.Library);
             UpdateSaveButton();
             MainWindow.Current.ShowMessage("Downloaded", "This work is available offline.");

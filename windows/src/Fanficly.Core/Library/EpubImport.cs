@@ -159,12 +159,16 @@ public static partial class EpubImport
     public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store)
     {
         Work work;
+        // The file becomes the work's saved EPUB only when its text is the one
+        // kept, so Export never shares a shorter book than the reader shows (#173).
+        var keepsFile = true;
         if (store.GetWork(payload.Summary.Id) is { } existing)
         {
             work = existing;
             // An older download with fewer chapters never replaces more text
             // (AO3 may not be there to download it again).
-            if (payload.Chapters.Count >= work.Chapters.Count)
+            keepsFile = payload.Chapters.Count >= work.Chapters.Count;
+            if (keepsFile)
             {
                 foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
                 foreach (var ch in payload.Chapters) store.Insert(new Chapter(work, ch.Index, ch.Title, ch.BodyHtml, ch.AoId));
@@ -177,6 +181,11 @@ public static partial class EpubImport
         else
         {
             work = WorkPersistence.Upsert(payload, store);
+        }
+        if (!keepsFile)
+        {
+            LibrarySyncManager.QueueBackupShared(store);
+            return work;
         }
         Directory.CreateDirectory(WorkPersistence.LibraryFolder);
         var target = WorkPersistence.EpubTargetPath(work.Ao3Id);

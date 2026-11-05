@@ -16,7 +16,8 @@ struct WorkDetailView: View {
     @State private var saveError: String?
     @State private var isSavingOffline: Bool = false
     @State private var followed: Bool = false
-    @State private var epubURL: URL?
+    /// The story's text is saved on this device (#173: what Downloaded means).
+    @State private var isDownloaded = false
     @State private var showingReport: Bool = false
     @State private var showingComments: Bool = false
     @State private var showingBookmark: Bool = false
@@ -125,13 +126,13 @@ struct WorkDetailView: View {
             } label: {
                 if isSavingOffline {
                     Label("Downloading…", systemImage: "arrow.down.circle")
-                } else if epubURL != nil {
+                } else if isDownloaded {
                     Label("Downloaded", systemImage: "checkmark.circle.fill")
                 } else {
                     Label("Download", systemImage: "arrow.down.circle")
                 }
             }
-            .disabled(isSavingOffline || epubURL != nil)
+            .disabled(isSavingOffline || isDownloaded)
             SubscribeMenuButton(workId: workId, title: payload.summary.title, author: payload.summary.author,
                                 chapterCount: payload.summary.chapterCount, subscriber: subscriber)
 
@@ -167,7 +168,7 @@ struct WorkDetailView: View {
     }
 
     private func load() async {
-        epubURL = WorkPersistence.epubURL(workId: workId)
+        isDownloaded = WorkPersistence.isDownloaded(workId: workId, in: context)
         followed = WorkPersistence.isFollowed(workId: workId, in: context)
 
         do {
@@ -187,9 +188,9 @@ struct WorkDetailView: View {
         UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
         _ = WorkPersistence.upsert(payload: payload, into: context)
         iCloudSyncManager.shared.queueBackup(context: context)
+        isDownloaded = true
         do {
-            let url = try await client.downloadEPUB(workId: payload.summary.id)
-            epubURL = url
+            _ = try await client.downloadEPUB(workId: payload.summary.id)
         } catch {
             saveError = "The text is saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }

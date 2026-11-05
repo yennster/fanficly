@@ -970,7 +970,7 @@ public actor AO3Client: AO3ClientProtocol {
         data.prefix(1024).range(of: Data("%PDF-".utf8)) != nil
     }
 
-    private static func sanitizeFilename(_ name: String) -> String {
+    static func sanitizeFilename(_ name: String) -> String {
         let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
         let cleaned = name.components(separatedBy: invalid).joined(separator: "-")
         return String(cleaned.prefix(80)).trimmingCharacters(in: .whitespaces)

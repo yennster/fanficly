@@ -1,8 +1,12 @@
 import SwiftUI
+import SwiftData
 import UIKit
 
 /// Drives a work export: downloads the work in the chosen AO3 format and holds
 /// the resulting file so the presenting screen can hand it to the share sheet.
+/// EPUB never needs AO3 for a story saved on this device (#173): it shares
+/// the saved AO3 EPUB, or builds one from the saved chapter text
+/// (`EPUBBuilder`), so it works offline. The other formats always download.
 ///
 /// The exporter (and the `.workExportPresentation` modifier that renders its
 /// sheet/alert) must be owned by the stable screen view, never by a view inside
@@ -18,7 +22,11 @@ final class WorkExporter {
     var errorMessage: String?
 
     func export(workId: Int, title: String, format: WorkExportFormat,
-                client: any AO3ClientProtocol) async {
+                client: any AO3ClientProtocol, context: ModelContext? = nil) async {
+        if format == .epub, let context, let url = await savedEPUB(workId: workId, title: title, context: context) {
+            shareItem = ShareItem(url: url)
+            return
+        }
         isExporting = true
         defer { isExporting = false }
         // The menu has already dismissed and the download can take several
@@ -34,6 +42,39 @@ final class WorkExporter {
             errorMessage = "Couldn't download the \(format.displayName) file. \(error.localizedDescription)"
         }
     }
+
+    /// An EPUB of a story saved on this device, without AO3: a copy of the
+    /// saved AO3 file named after the story, or one built from the saved
+    /// text (off the main actor: a long work takes a moment). Nil when the
+    /// story isn't saved (no text), or the file couldn't be written, so
+    /// Export downloads. The saved file is never older than the text:
+    /// saving or restoring new text deletes it.
+    private func savedEPUB(workId: Int, title: String, context: ModelContext) async -> URL? {
+        if let saved = WorkPersistence.epubURL(workId: workId),
+           let copy = try? Self.shareableCopy(of: saved, title: title, workId: workId) {
+            return copy
+        }
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        guard let work = (try? context.fetch(descriptor))?.first,
+              WorkPersistence.isDownloaded(work) else { return nil }
+        let book = EPUBBuilder.book(from: work)
+        isExporting = true
+        defer { isExporting = false }
+        return try? await Task.detached { try EPUBBuilder.writeTemporaryFile(book) }.value
+    }
+
+    /// The saved file is `<id>.epub`; the share sheet should offer the
+    /// story's title, as a download does, and never hand out the library's
+    /// own copy.
+    private static func shareableCopy(of saved: URL, title: String, workId: Int) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let name = AO3Client.sanitizeFilename(title)
+        let url = dir.appendingPathComponent("\(name.isEmpty ? "work-\(workId)" : name).epub")
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.copyItem(at: saved, to: url)
+        return url
+    }
 }
 
 /// Reusable export/share control — a submenu of AO3 download formats. Embed it
@@ -41,6 +82,7 @@ final class WorkExporter {
 /// attach `.workExportPresentation(exporter)` to the screen itself.
 struct WorkExportButton: View {
     @Environment(\.ao3Client) private var client
+    @Environment(\.modelContext) private var context
     let workId: Int
     let title: String
     let exporter: WorkExporter
@@ -52,9 +94,10 @@ struct WorkExportButton: View {
                 ForEach(WorkExportFormat.allCases) { format in
                     Button {
                         let client = client
+                        let context = context
                         Task {
                             await exporter.export(workId: workId, title: title,
-                                                  format: format, client: client)
+                                                  format: format, client: client, context: context)
                         }
                     } label: {
                         Label(format.displayName, systemImage: format.icon)

@@ -79,7 +79,7 @@ internal static class LibraryActions
             if (EpubImport.IsLocalWork(work.Ao3Id)) { }
             else if (Downloading.Contains(work.Ao3Id))
                 flyout.Items.Add(new MenuFlyoutItem { Text = "Downloading…", IsEnabled = false, Icon = Symbols.Icon("arrow.down.circle") });
-            else if (WorkPersistence.EpubPath(work.Ao3Id) is not null)
+            else if (WorkPersistence.IsDownloaded(work))
                 flyout.Items.Add(Item("Remove Download", "xmark.circle", () => AfterMenu(() => RemoveDownloadAsync(work))));
             else
                 flyout.Items.Add(Item("Download for Offline", "arrow.down.circle", () => _ = DownloadAsync(work)));

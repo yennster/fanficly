@@ -11,7 +11,7 @@ namespace Fanficly.App.Views.Library;
 
 /// <summary>
 /// The post-restore re-download UI (Swift's <c>.restoreRedownloadUI()</c>):
-/// a "Re-download offline stories?" prompt whenever a restore proposes it
+/// a "Download EPUB files again?" prompt whenever a restore proposes it
 /// (installed once, app-wide, so it shows wherever the user is) and a progress
 /// card — spinner, "x of y" bar, Cancel — that any screen can host with
 /// <see cref="Attach"/>. Progress is announced to Narrator.
@@ -72,11 +72,12 @@ public static class RestoreBanner
         try
         {
             var n = ids.Count;
-            var message = $"{n} {(n == 1 ? "story" : "stories")} in your restored library {(n == 1 ? "was" : "were")} saved for offline reading. " +
-                          $"Download {(n == 1 ? "it" : "them")} again on this device? Everything else is already restored.";
+            var message = $"{n} {(n == 1 ? "story" : "stories")} in your restored library {(n == 1 ? "has" : "have")} an AO3 EPUB on your other device. " +
+                          $"{(n == 1 ? "It already reads" : "They already read")} offline here, and Export can make an EPUB from the saved text. " +
+                          $"Download AO3's {(n == 1 ? "file" : "files")} again anyway?";
             var dialog = new ContentDialog
             {
-                Title = "Re-download offline stories?",
+                Title = "Download EPUB files again?",
                 Content = UI.UI.Text(message),
                 PrimaryButtonText = "Download",
                 CloseButtonText = "Not Now",

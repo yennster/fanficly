@@ -5,9 +5,9 @@ import UIKit
 
 /// After an iCloud restore, offers to re-download the EPUB files for works
 /// that were saved offline on the old device. Chapter text rides in the
-/// backup, but the EPUB files themselves don't — so a restored library reads
-/// offline yet loses its Downloaded state (and export copies) until the
-/// files are fetched again. Any restore path (launch auto-sync, Settings)
+/// backup, but the EPUB files themselves don't. A restored work still reads
+/// offline and shows as Downloaded (that means saved text, #173), and Export
+/// builds an EPUB from the text, so this only brings AO3's own file back. Any restore path (launch auto-sync, Settings)
 /// calls `proposeRedownload`; `RootView` renders the prompt and the progress
 /// banner via `.restoreRedownloadUI()`. Downloads are cancellable at any
 /// point — the restored library data is already saved and unaffected.
@@ -151,15 +151,18 @@ final class RestoreDownloadCenter {
 
     /// The works in a folder that aren't downloaded yet, in the order given
     /// (the folder's on-screen order), each once. `isDownloaded` defaults to
-    /// the EPUB file check that drives the Downloaded badge.
+    /// the Downloaded badge's check, saved text (`WorkPersistence.isDownloaded`).
     static func folderDownloadCandidates(
         _ works: [Work],
-        isDownloaded: (Int) -> Bool = { WorkPersistence.epubURL(workId: $0) != nil }
+        isDownloaded: ((Int) -> Bool)? = nil
     ) -> [Int] {
         var seen = Set<Int>()
         return works
+            .filter { work in
+                let downloaded = isDownloaded?(work.ao3Id) ?? WorkPersistence.isDownloaded(work)
+                return !EPUBImport.isLocalWork(work.ao3Id) && !downloaded && seen.insert(work.ao3Id).inserted
+            }
             .map(\.ao3Id)
-            .filter { !EPUBImport.isLocalWork($0) && !isDownloaded($0) && seen.insert($0).inserted }
     }
 
     /// Downloads a folder's stories one after another. `download` does the
@@ -354,13 +357,13 @@ private struct RestoreRedownloadUI: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Re-download offline stories?", isPresented: Binding(
+            .alert("Download EPUB files again?", isPresented: Binding(
                 get: { RestoreDownloadCenter.shared.proposedIds != nil },
                 set: { if !$0 { RestoreDownloadCenter.shared.dismissProposal() } })) {
                 Button("Download") { center.startDownloads(client: client, signedIn: auth.isLoggedIn) }
                 Button("Not Now", role: .cancel) { center.declineProposal() }
             } message: {
-                Text("\(proposedCount) \(proposedCount == 1 ? "story" : "stories") in your restored library \(proposedCount == 1 ? "was" : "were") saved for offline reading. Download \(proposedCount == 1 ? "it" : "them") again on this device? Everything else is already restored.")
+                Text("\(proposedCount) \(proposedCount == 1 ? "story" : "stories") in your restored library \(proposedCount == 1 ? "has" : "have") an AO3 EPUB on your other device. \(proposedCount == 1 ? "It already reads" : "They already read") offline here, and Export can make an EPUB from the saved text. Download AO3's \(proposedCount == 1 ? "file" : "files") again anyway?")
             }
             .overlay(alignment: .bottom) {
                 RestoreDownloadBanner(center: RestoreDownloadCenter.shared)
