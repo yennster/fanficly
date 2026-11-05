@@ -183,6 +183,12 @@ internal abstract class ReaderHostScreen : Screen
     public override bool HandleKey(VirtualKey key, VirtualKeyModifiers modifiers) =>
         Reader?.HandleKey(key, modifiers) ?? false;
 
+    /// <summary>Opening a work doesn't put focus on a reader button: the arrow
+    /// keys, Space and a page turner's Up/Down turn pages only while no button has
+    /// focus. The window still announces the work's title, and Back to the reader
+    /// returns focus to the button that opened the next screen.</summary>
+    protected override void FocusInitial() { }
+
     public override bool WantsVolumeKeys => Reader?.WantsVolumeKeys ?? false;
 
     protected bool IsRemoved => _removed;

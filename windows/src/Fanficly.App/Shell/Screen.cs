@@ -1,5 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.System;
 
 namespace Fanficly.App.Shell;
@@ -66,6 +68,81 @@ public abstract class Screen
     /// <summary>True while volume keys should turn pages rather than change the
     /// volume ("Volume buttons turn pages"; see <c>Platform.VolumeKeyGate</c>).</summary>
     public virtual bool WantsVolumeKeys => false;
+
+    // MARK: - Keyboard focus across navigation (#178)
+
+    private WeakReference<UIElement>? _focusOnReturn;
+
+    /// <summary>Notes which element has keyboard focus as another screen is pushed
+    /// over this one, so Back can put it there again (UIKit's navigation stack
+    /// does this for VoiceOver and Full Keyboard Access on the Apple app).</summary>
+    internal void RememberFocus()
+    {
+        _focusOnReturn = null;
+        if (!IsBuilt || View.XamlRoot is not { } root) return;
+        if (FocusManager.GetFocusedElement(root) is UIElement focused && IsWithinView(focused))
+            _focusOnReturn = new WeakReference<UIElement>(focused);
+    }
+
+    /// <summary>
+    /// Moves keyboard focus into the screen once it's on top and loaded: back to
+    /// the element that had it when <paramref name="returning"/> (Back), otherwise
+    /// to the first thing that takes focus. Focus is set programmatically, so the
+    /// focus rectangle shows only when the last input was the keyboard.
+    /// </summary>
+    internal void MoveFocusIn(bool returning)
+    {
+        var remembered = _focusOnReturn;
+        _focusOnReturn = null;
+        // A screen that focused something itself as it loaded (Login's first
+        // field) keeps it.
+        if (!returning && FocusIsWithinView()) return;
+        if (returning && RestoreFocus()) return;
+        if (returning && remembered?.TryGetTarget(out var previous) == true
+            && previous is FrameworkElement { IsLoaded: true } && IsWithinView(previous)
+            && previous.Focus(FocusState.Programmatic))
+            return;
+        FocusInitial();
+    }
+
+    /// <summary>Screens that rebuild their rows when they reappear (the Library)
+    /// put focus back on the same row themselves; return true when handled.</summary>
+    protected virtual bool RestoreFocus() => false;
+
+    /// <summary>Focuses the screen's first focusable element that isn't a text
+    /// box (a focused text box would swallow Esc and the screen's own keys).
+    /// The reader overrides this to leave the story, not a toolbar button, in
+    /// charge of the arrow keys.</summary>
+    protected virtual void FocusInitial()
+    {
+        if (!IsBuilt) return;
+        FirstFocusable(View)?.Focus(FocusState.Programmatic);
+    }
+
+    private bool FocusIsWithinView() =>
+        IsBuilt && View.XamlRoot is { } root && FocusManager.GetFocusedElement(root) is DependencyObject focused && IsWithinView(focused);
+
+    private bool IsWithinView(DependencyObject element)
+    {
+        for (DependencyObject? node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+            if (ReferenceEquals(node, _view)) return true;
+        return false;
+    }
+
+    /// <summary>The first visible, enabled tab stop under <paramref name="root"/>
+    /// in tree order, skipping text entry.</summary>
+    internal static Control? FirstFocusable(DependencyObject root)
+    {
+        if (root is UIElement { Visibility: Visibility.Collapsed }) return null;
+        if (root is Control { IsTabStop: true, IsEnabled: true } control
+            && control is not (TextBox or PasswordBox or AutoSuggestBox or RichEditBox))
+            return control;
+        if (root is TextBox or PasswordBox or AutoSuggestBox or RichEditBox) return null;
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+            if (FirstFocusable(VisualTreeHelper.GetChild(root, i)) is { } found) return found;
+        return null;
+    }
 
     /// <summary>Back was requested (Esc, Alt+←, mouse back, gamepad B). Return
     /// true to consume it, e.g. to close an inline panel first.</summary>

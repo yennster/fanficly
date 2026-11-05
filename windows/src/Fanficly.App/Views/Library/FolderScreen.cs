@@ -37,6 +37,7 @@ public sealed class FolderScreen : Screen
     private bool _subscribed;
     private int _pendingFocusIndex = -1;
     private int _lastFocusedIndex = -1;
+    private int _returnFocusIndex = -1;
 
     public FolderScreen(string folderName, string initialSearchText = "")
     {
@@ -215,7 +216,22 @@ public sealed class FolderScreen : Screen
         if (IsBuilt) Rebuild(resetScroll: false);
     }
 
-    public override void OnDisappearing() => Unsubscribe();
+    public override void OnDisappearing()
+    {
+        // Back puts focus on the row the user opened (#178); the rows are rebuilt
+        // when the screen reappears, so remember the row by its index.
+        _returnFocusIndex = IsBuilt && LibraryActions.IsFocusWithin(_list.Element) ? _lastFocusedIndex : -1;
+        Unsubscribe();
+    }
+
+    protected override bool RestoreFocus()
+    {
+        var index = _returnFocusIndex;
+        _returnFocusIndex = -1;
+        if (index < 0 || _list.Items.Count == 0) return false;
+        return _list.ElementAt(Math.Min(index, _list.Items.Count - 1)) is { } row
+               && FirstFocusable(row)?.Focus(FocusState.Programmatic) == true;
+    }
 
     public override void OnRemoved() => Unsubscribe();
 

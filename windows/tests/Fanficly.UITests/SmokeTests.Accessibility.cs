@@ -1,3 +1,6 @@
+using FlaUI.Core.Tools;
+using FlaUI.Core.WindowsAPI;
+
 namespace Fanficly.UITests;
 
 /// <summary>Narrator names (RM-019): the icon-only buttons on Library, Stats,
@@ -49,5 +52,47 @@ public sealed partial class SmokeTests
 
         Assert.True(s.IsRunning);
         Assert.True(problems.Count == 0, $"Icon-only buttons without the right Narrator name: {string.Join("; ", problems)}");
+    }
+
+    /// <summary>#178: opening a page with the keyboard moves focus into it, and Back
+    /// puts focus on the row that opened it (the Library rebuilds its rows when it
+    /// reappears, so this also covers a restore by index).</summary>
+    [Fact]
+    public void FocusMovesInOnOpenAndReturnsOnBack()
+    {
+        using var s = AppSession.Launch(Laptop);
+        string FocusedId() => s.Automation.FocusedElement()?.Properties.AutomationId.ValueOrDefault ?? "";
+
+        // Browse → TV Shows (a pushed screen) and back.
+        Assert.True(s.OpenTab("browse"), "Browse didn't open.");
+        var root = s.HeaderTitle;
+        var card = s.ById("browse.category.tv-shows", 6) ?? s.ByName("TV Shows", 6);
+        Assert.NotNull(card);
+        var cardId = card!.Properties.AutomationId.ValueOrDefault ?? "";
+        card.Focus();
+        s.Settle(300);
+        s.Keys(VirtualKeyShort.RETURN);
+        Assert.True(Retry.WhileFalse(() => s.HeaderTitle != root, TimeSpan.FromSeconds(6)).Result, "TV Shows didn't open.");
+        Assert.True(Retry.WhileFalse(() => FocusedId() is { Length: > 0 } id && id != cardId && !id.StartsWith("sidebar.", StringComparison.Ordinal),
+            TimeSpan.FromSeconds(4)).Result, $"Focus didn't move into TV Shows (it's on \"{FocusedId()}\").");
+        s.GoBack();
+        Assert.True(s.WaitForHeader(root), "Alt+Left didn't go back.");
+        Assert.True(Retry.WhileFalse(() => FocusedId() == cardId, TimeSpan.FromSeconds(4)).Result,
+            $"Back didn't return focus to {cardId} (it's on \"{FocusedId()}\").");
+
+        // Library → a work in the reader and back.
+        Assert.True(s.OpenTab("library"), "Library didn't open.");
+        var row = s.ByIdPrefix("library.work.", 8);
+        Assert.NotNull(row);
+        var rowId = row!.Properties.AutomationId.ValueOrDefault ?? "";
+        row.Focus();
+        s.Settle(300);
+        s.Keys(VirtualKeyShort.RETURN);
+        Assert.NotNull(s.ById("reader.root", 15));
+        s.Settle();
+        s.GoBack();
+        Assert.True(s.WaitForHeader("Library"), "Alt+Left didn't leave the reader.");
+        Assert.True(Retry.WhileFalse(() => FocusedId() == rowId, TimeSpan.FromSeconds(4)).Result,
+            $"Back didn't return focus to {rowId} (it's on \"{FocusedId()}\").");
     }
 }
