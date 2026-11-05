@@ -40,6 +40,7 @@ struct RootView: View {
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
     
     @State private var importingWorkId: Int? = nil
+    @State private var showNotAWorkLink = false
     @State private var compactSelection: SidebarItem?
     @State private var detailPath = NavigationPath()
     @State private var pendingResumeRoute: ResumeWorkRoute?
@@ -248,10 +249,14 @@ struct RootView: View {
                     
                     ImportOverlay(workId: workId) { work in
                         self.importingWorkId = nil
-                        select(.library)
+                        // Open the story itself, saved and ready offline (#176).
+                        openResumeRoute(ResumeWorkRoute(workId: work.ao3Id, anchor: nil))
                     } onCancel: {
                         self.importingWorkId = nil
                     }
+                    // A second link shared mid-import starts over for that work
+                    // instead of the old fetch finishing under the new id.
+                    .id(workId)
                     .transition(.scale)
                 }
             }
@@ -259,7 +264,15 @@ struct RootView: View {
                 self.handleImportProviders(providers)
             }
             .onPasteCommandIfAvailable { providers in
-                _ = self.handleImportProviders(providers)
+                // A stray paste says nothing; only a work link imports.
+                _ = self.handleImportProviders(providers, warnIfNotAWork: false)
+            }
+            // A shared or dropped link Fanficly can't open (a series, an
+            // author, a tag, another site) says so instead of doing nothing.
+            .alert("Fanficly can open AO3 work links", isPresented: $showNotAWorkLink) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Share or drop the page of a story on archiveofourown.org (a link with /works/ in it).")
             }
             // Post-iCloud-restore "re-download offline stories?" prompt and
             // its progress banner — root-level so it shows on any tab.
@@ -327,11 +340,16 @@ struct RootView: View {
             return
         }
 
-        if let workId = parseWorkId(from: url) {
+        if let workId = ImportLink.workId(from: url) {
             importingWorkId = workId
             return
         }
-        
+
+        if ImportLink.isLinkToImport(url) {
+            showNotAWorkLink = true
+            return
+        }
+
         // Custom Folder Shortcut routing (fanficly://library?folder=name)
         if url.host == "library",
            let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
@@ -471,66 +489,100 @@ struct RootView: View {
         return ResumeWorkRoute(workId: id, anchor: anchor)
     }
     
-    private func parseWorkId(from url: URL) -> Int? {
-        var targetURL = url
-        if url.scheme == "fanficly" {
-            if url.host == "import" {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let queryItem = components.queryItems?.first(where: { $0.name == "url" }),
-                   let urlString = queryItem.value,
-                   let decodedURL = URL(string: urlString) {
-                    targetURL = decodedURL
-                }
-            } else if let host = url.host, host == "works" || host == "work",
-                      let firstPath = url.pathComponents.dropFirst().first,
-                      let id = Int(firstPath) {
-                return id
-            } else if let firstPath = url.pathComponents.dropFirst().first,
-                      let id = Int(firstPath) {
-                return id
-            }
-        }
-        
-        let path = targetURL.absoluteString
-        guard let regex = try? NSRegularExpression(pattern: #"works/(\d+)"#, options: .caseInsensitive) else { return nil }
-        let range = NSRange(location: 0, length: path.utf16.count)
-        if let match = regex.firstMatch(in: path, range: range) {
-            if let idRange = Range(match.range(at: 1), in: path),
-               let id = Int(path[idRange]) {
-                return id
-            }
-        }
-        return nil
-    }
-
+    /// A link dropped on the window (Mac, iPad) or pasted with ⌘V imports the
+    /// work it points at. A dropped link to anything else says so; a paste
+    /// that isn't a work link is left alone.
     @discardableResult
-    private func handleImportProviders(_ providers: [NSItemProvider]) -> Bool {
+    private func handleImportProviders(_ providers: [NSItemProvider], warnIfNotAWork: Bool = true) -> Bool {
         guard let provider = providers.first else { return false }
         if provider.canLoadObject(ofClass: URL.self) {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                if let url = url {
-                    Task { @MainActor in
-                        if let workId = self.parseWorkId(from: url) {
-                            self.importingWorkId = workId
-                        }
-                    }
-                }
+                guard let url, !url.isFileURL else { return }
+                Task { @MainActor in self.importOrWarn(url: url, warn: warnIfNotAWork) }
             }
             return true
         } else if provider.canLoadObject(ofClass: String.self) {
             _ = provider.loadObject(ofClass: String.self) { text, _ in
-                if let text = text,
-                   let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    Task { @MainActor in
-                        if let workId = self.parseWorkId(from: url) {
-                            self.importingWorkId = workId
-                        }
-                    }
-                }
+                guard let text,
+                      let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
+                Task { @MainActor in self.importOrWarn(url: url, warn: warnIfNotAWork) }
             }
             return true
         }
         return false
+    }
+
+    private func importOrWarn(url: URL, warn: Bool) {
+        if let workId = ImportLink.workId(from: url) {
+            importingWorkId = workId
+        } else if warn {
+            showNotAWorkLink = true
+        }
+    }
+}
+
+/// Which AO3 work a shared, dropped, pasted or opened link points at (#176).
+/// Only links to a work on AO3 itself count: a series, author or tag page, or
+/// another site's `/works/<n>` path, is not a work Fanficly can import.
+enum ImportLink {
+    /// AO3's own hosts (and their subdomains, such as `www.` and `download.`).
+    static let ao3Hosts = ["archiveofourown.org", "archiveofourown.com", "archiveofourown.net", "ao3.org"]
+
+    /// The work id from `fanficly://import?url=<AO3 link>` (the share
+    /// extension), `fanficly://works/<id>` or `fanficly://work/<id>`, or an AO3
+    /// work link itself (with or without `https://`). Nil for anything else.
+    static func workId(from url: URL) -> Int? {
+        if url.scheme?.lowercased() == "fanficly" {
+            switch url.host?.lowercased() {
+            case "import":
+                guard let embedded = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "url" })?.value else { return nil }
+                return workId(fromWebLink: embedded)
+            case "works", "work":
+                return url.pathComponents.dropFirst().first.flatMap(positiveInt)
+            default:
+                return nil
+            }
+        }
+        return workId(fromWebLink: url.absoluteString)
+    }
+
+    /// Whether the link was meant as something to import: a web link, or the
+    /// share extension's `fanficly://import`. Those get "Fanficly can open AO3
+    /// work links" when they aren't a work; the app's own widget and shortcut
+    /// links don't.
+    static func isLinkToImport(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "http", "https": true
+        case "fanficly": url.host?.lowercased() == "import"
+        default: false
+        }
+    }
+
+    /// An `http(s)` link on an AO3 host whose path has `works/<id>`:
+    /// `/works/1`, `/works/1/chapters/2`, `/collections/x/works/1`. A link with
+    /// no scheme (`archiveofourown.org/works/1`, as pasted) reads as https.
+    static func workId(fromWebLink text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let absolute = trimmed.contains("://") ? trimmed : "https://" + trimmed
+        guard let components = URLComponents(string: absolute),
+              let scheme = components.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = components.host?.lowercased(), isAO3Host(host) else { return nil }
+        let parts = components.path.split(separator: "/").map(String.init)
+        for (index, part) in parts.enumerated().dropLast() where part.lowercased() == "works" {
+            if let id = positiveInt(parts[index + 1]) { return id }
+        }
+        return nil
+    }
+
+    static func isAO3Host(_ host: String) -> Bool {
+        let host = host.lowercased()
+        return ao3Hosts.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    private static func positiveInt(_ text: String) -> Int? {
+        guard let value = Int(text), value > 0 else { return nil }
+        return value
     }
 }
 
@@ -684,6 +736,11 @@ struct ImportOverlay: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                // AO3 can take a minute to send a long work; the overlay
+                // covers the app, so it must never be the only way out.
+                Button("Cancel", role: .cancel, action: onCancel)
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.cancelAction)
             }
         }
         .padding(30)
@@ -705,23 +762,24 @@ struct ImportOverlay: View {
             guard let newError else { return }
             UIAccessibility.post(notification: .announcement, argument: "Import failed. \(newError)")
         }
+        // Cancel (or a newer import) removes the overlay, which cancels this
+        // task and the AO3 fetch with it.
         .task {
             do {
-                status = "Fetching metadata..."
+                status = "Fetching the story..."
                 let payload = try await client.fetchWork(id: workId)
+                // Cancelled while AO3 answered: save nothing.
+                try Task.checkCancellation()
                 status = "Saving to library..."
-                // Importing a work deleted a moment ago keeps it (#169).
-                UndoCenter.shared.cancel(UndoCenter.Key.work(workId))
-                let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
-                work.isFollowed = true
-                work.followedAt = .now
-                work.savedAt = .now
-                status = "Done!"
-                try? context.save()
+                // The fetch already has every chapter: keep them, so the story
+                // reads offline with no second request (#176).
+                let work = WorkPersistence.saveImported(payload: payload, into: context)
                 iCloudSyncManager.shared.queueBackup(context: context)
-                try? await Task.sleep(for: .seconds(1))
+                status = "Done!"
+                try await Task.sleep(for: .seconds(0.6))
                 onComplete(work)
             } catch {
+                guard !Task.isCancelled else { return }
                 self.error = error.localizedDescription
             }
         }

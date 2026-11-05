@@ -19,6 +19,26 @@ enum WorkPersistence {
         return work
     }
 
+    /// Saves a work opened from a shared, dropped or pasted link (#176): its
+    /// metadata and every chapter, from the fetch the import already made, so
+    /// the story reads offline with no second request. The work is followed;
+    /// one already in the Library keeps when it was saved and followed.
+    @MainActor
+    @discardableResult
+    static func saveImported(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+        // Importing a work deleted a moment ago keeps it (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
+        let work = upsert(payload: payload, into: context)
+        if !work.isFollowed {
+            work.isFollowed = true
+            work.followedAt = .now
+            // Following now isn't news: alert only for chapters after this.
+            work.lastSeenChapterCount = payload.summary.chapterCount
+            try? context.save()
+        }
+        return work
+    }
+
     /// Upsert just the metadata (no chapter bodies). Used by the local
     /// follow action, which doesn't need to download the full work.
     @MainActor
