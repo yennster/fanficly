@@ -66,15 +66,15 @@ public sealed partial class SmokeTests
         // Browse → TV Shows (a pushed screen) and back.
         Assert.True(s.OpenTab("browse"), "Browse didn't open.");
         var root = s.HeaderTitle;
-        var card = s.ById("browse.category.tv-shows", 6) ?? s.ByName("TV Shows", 6);
+        const string cardId = "browse.category.tv-shows";
+        var card = s.ById(cardId, 6);
         Assert.NotNull(card);
-        var cardId = card!.Properties.AutomationId.ValueOrDefault ?? "";
-        card.Focus();
+        card!.Focus();
         s.Settle(300);
         s.Keys(VirtualKeyShort.RETURN);
         Assert.True(Retry.WhileFalse(() => s.HeaderTitle != root, TimeSpan.FromSeconds(6)).Result, "TV Shows didn't open.");
-        Assert.True(Retry.WhileFalse(() => FocusedId() is { Length: > 0 } id && id != cardId && !id.StartsWith("sidebar.", StringComparison.Ordinal),
-            TimeSpan.FromSeconds(4)).Result, $"Focus didn't move into TV Shows (it's on \"{FocusedId()}\").");
+        Assert.True(Retry.WhileFalse(() => FocusedId().StartsWith("browse.fandom.", StringComparison.Ordinal),
+            TimeSpan.FromSeconds(4)).Result, $"Focus didn't move to TV Shows' first fandom (it's on \"{FocusedId()}\").");
         s.GoBack();
         Assert.True(s.WaitForHeader(root), "Alt+Left didn't go back.");
         Assert.True(Retry.WhileFalse(() => FocusedId() == cardId, TimeSpan.FromSeconds(4)).Result,

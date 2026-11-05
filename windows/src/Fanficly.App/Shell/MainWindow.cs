@@ -303,13 +303,37 @@ public sealed partial class MainWindow : Window
 
     private int _focusToken;
 
+    /// <summary>A screen that was still loading (a spinner, AO3 not answered yet)
+    /// had nothing to focus: try again as its layout changes, for up to 20 s.</summary>
+    private void RetryWhileLoading(Screen screen, int token)
+    {
+        var view = screen.View;
+        var stranded = XamlRoot is { } root ? FocusManager.GetFocusedElement(root) : null;
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        var queued = false;
+        void Stop() => view.LayoutUpdated -= OnLayout;
+        void OnLayout(object? sender, object e)
+        {
+            if (queued) return;
+            if (token != _focusToken || Navigator.Current != screen || DateTime.UtcNow > deadline) { Stop(); return; }
+            queued = true;
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+            {
+                queued = false;
+                if (token != _focusToken || Navigator.Current != screen) { Stop(); return; }
+                if (FocusIsInPopup() || screen.RetryFocusInitial(stranded)) Stop();
+            });
+        }
+        view.LayoutUpdated += OnLayout;
+    }
+
     /// <summary>Whether a dialog, menu or other popup holds keyboard focus.</summary>
     private bool FocusIsInPopup()
     {
         if (RootElement.XamlRoot is not { } root || FocusManager.GetFocusedElement(root) is not DependencyObject focused) return false;
         foreach (var popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(root))
         {
-            if (popup.Child is null) continue;
+            if (!popup.IsOpen || popup.Child is null or ToolTip) continue;
             for (DependencyObject? node = focused; node is not null; node = VisualTreeHelper.GetParent(node))
                 if (ReferenceEquals(node, popup.Child)) return true;
         }
@@ -330,9 +354,11 @@ public sealed partial class MainWindow : Window
         void Run()
         {
             if (token != _focusToken || Navigator.Current != screen) return;
-            // Leave a dialog or menu that opened meanwhile in charge of focus.
-            if (!FocusIsInPopup()) screen.MoveFocusIn(returning);
+            // Leave a dialog or menu that opened meanwhile in charge of focus
+            // (and don't talk over it).
+            if (FocusIsInPopup()) return;
             if (screen.Title.Length > 0) Announce(screen.Title, interrupt: false);
+            if (!screen.MoveFocusIn(returning)) RetryWhileLoading(screen, token);
         }
         void Later() => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Run);
         if (view.IsLoaded && view.Parent == _body) { Later(); return; }

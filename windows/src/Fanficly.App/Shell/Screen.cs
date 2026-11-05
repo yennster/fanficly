@@ -90,19 +90,21 @@ public abstract class Screen
     /// to the first thing that takes focus. Focus is set programmatically, so the
     /// focus rectangle shows only when the last input was the keyboard.
     /// </summary>
-    internal void MoveFocusIn(bool returning)
+    /// <returns>False when nothing could take focus yet (the screen is still
+    /// loading), so the window tries again as its content arrives.</returns>
+    internal bool MoveFocusIn(bool returning)
     {
         var remembered = _focusOnReturn;
         _focusOnReturn = null;
         // A screen that focused something itself as it loaded (Login's first
         // field) keeps it.
-        if (!returning && FocusIsWithinView()) return;
-        if (returning && RestoreFocus()) return;
+        if (!returning && FocusIsWithinView()) return true;
+        if (returning && RestoreFocus()) return true;
         if (returning && remembered?.TryGetTarget(out var previous) == true
             && previous is FrameworkElement { IsLoaded: true } && IsWithinView(previous)
             && previous.Focus(FocusState.Programmatic))
-            return;
-        FocusInitial();
+            return true;
+        return FocusInitial();
     }
 
     /// <summary>Screens that rebuild their rows when they reappear (the Library)
@@ -111,12 +113,22 @@ public abstract class Screen
 
     /// <summary>Focuses the screen's first focusable element that isn't a text
     /// box (a focused text box would swallow Esc and the screen's own keys).
-    /// The reader overrides this to leave the story, not a toolbar button, in
-    /// charge of the arrow keys.</summary>
-    protected virtual void FocusInitial()
+    /// Returns false when there's none yet. The reader overrides this to leave
+    /// the story, not a toolbar button, in charge of the arrow keys.</summary>
+    protected virtual bool FocusInitial() =>
+        IsBuilt && FirstFocusable(View)?.Focus(FocusState.Programmatic) == true;
+
+    /// <summary>Retried while a screen loads: moves focus in once something can
+    /// take it. <paramref name="stranded"/> is where focus sat when the first try
+    /// failed; if the user has moved it anywhere else since, leave it.</summary>
+    internal bool RetryFocusInitial(object? stranded)
     {
-        if (!IsBuilt) return;
-        FirstFocusable(View)?.Focus(FocusState.Programmatic);
+        if (FocusIsWithinView()) return true;
+        if (!IsBuilt || View.XamlRoot is not { } root) return false;
+        var focused = FocusManager.GetFocusedElement(root);
+        if (focused is not null && !ReferenceEquals(focused, stranded) && focused is FrameworkElement { IsLoaded: true })
+            return true;
+        return FocusInitial();
     }
 
     private bool FocusIsWithinView() =>

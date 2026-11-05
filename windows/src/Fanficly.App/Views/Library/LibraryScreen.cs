@@ -47,7 +47,7 @@ public sealed class LibraryScreen : Screen
     private bool _suppressFilterEvent;
     private int _pendingFocusIndex = -1;
     private int _lastFocusedIndex = -1;
-    private int _returnFocusIndex = -1;
+    private object? _returnFocusItem;
 
     private static LibraryStore Store => AppHost.Library;
 
@@ -184,18 +184,22 @@ public sealed class LibraryScreen : Screen
 
     public override void OnDisappearing()
     {
-        // Back puts focus on the row the user opened (#178); the rows are rebuilt
-        // when the screen reappears, so remember the row by its index.
-        _returnFocusIndex = IsBuilt && LibraryActions.IsFocusWithin(_list.Element) ? _lastFocusedIndex : -1;
+        // Back puts focus on the row the user opened (#178). The rows are rebuilt,
+        // and maybe re-sorted (Last Read), when the screen reappears, so remember
+        // the item itself and find its new row.
+        _returnFocusItem = IsBuilt && LibraryActions.IsFocusWithin(_list.Element)
+            && _lastFocusedIndex >= 0 && _lastFocusedIndex < _list.Items.Count
+            ? _list.Items[_lastFocusedIndex] : null;
         Unsubscribe();
     }
 
     protected override bool RestoreFocus()
     {
-        var index = _returnFocusIndex;
-        _returnFocusIndex = -1;
-        if (index < 0 || _list.Items.Count == 0) return false;
-        return _list.ElementAt(Math.Min(index, _list.Items.Count - 1)) is { } row
+        var item = _returnFocusItem;
+        _returnFocusItem = null;
+        if (item is null) return false;
+        var index = _list.Items.IndexOf(item);
+        return index >= 0 && _list.ElementAt(index) is { } row
                && FirstFocusable(row)?.Focus(FocusState.Programmatic) == true;
     }
 
