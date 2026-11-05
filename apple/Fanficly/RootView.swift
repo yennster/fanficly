@@ -503,9 +503,15 @@ struct RootView: View {
             return true
         } else if provider.canLoadObject(ofClass: String.self) {
             _ = provider.loadObject(ofClass: String.self) { text, _ in
-                guard let text,
-                      let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return }
-                Task { @MainActor in self.importOrWarn(url: url, warn: warnIfNotAWork) }
+                guard let text else { return }
+                Task { @MainActor in
+                    if let workId = ImportLink.workId(fromText: text) {
+                        self.importingWorkId = workId
+                    } else if warnIfNotAWork && ImportLink.hasWebLink(text) {
+                        // Plain text dropped from Notes was never a link: no alert.
+                        self.showNotAWorkLink = true
+                    }
+                }
             }
             return true
         }
@@ -515,7 +521,7 @@ struct RootView: View {
     private func importOrWarn(url: URL, warn: Bool) {
         if let workId = ImportLink.workId(from: url) {
             importingWorkId = workId
-        } else if warn {
+        } else if warn && ImportLink.isLinkToImport(url) {
             showNotAWorkLink = true
         }
     }
@@ -559,12 +565,34 @@ enum ImportLink {
         }
     }
 
+    /// The work in dropped or pasted text: the text as one link, or else the
+    /// first AO3 work link among its words ("My fic: https://…/works/1").
+    static func workId(fromText text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("fanficly:"), let url = URL(string: trimmed) {
+            return workId(from: url)
+        }
+        if let id = workId(fromWebLink: trimmed) { return id }
+        for word in trimmed.split(whereSeparator: \.isWhitespace) {
+            let link = word.trimmingCharacters(in: CharacterSet(charactersIn: "<>()[]{}\"'.,;:!?"))
+            if let id = workId(fromWebLink: link) { return id }
+        }
+        return nil
+    }
+
+    /// Whether dropped text has a web link in it (so a non-work link can say so).
+    static func hasWebLink(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return lowered.contains("http://") || lowered.contains("https://")
+    }
+
     /// An `http(s)` link on an AO3 host whose path has `works/<id>`:
     /// `/works/1`, `/works/1/chapters/2`, `/collections/x/works/1`. A link with
     /// no scheme (`archiveofourown.org/works/1`, as pasted) reads as https.
     static func workId(fromWebLink text: String) -> Int? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let absolute = trimmed.contains("://") ? trimmed : "https://" + trimmed
+        let hasScheme = trimmed.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*://"#, options: .regularExpression) != nil
+        let absolute = hasScheme ? trimmed : "https://" + trimmed
         guard let components = URLComponents(string: absolute),
               let scheme = components.scheme?.lowercased(), scheme == "http" || scheme == "https",
               let host = components.host?.lowercased(), isAO3Host(host) else { return nil }
@@ -737,10 +765,13 @@ struct ImportOverlay: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 // AO3 can take a minute to send a long work; the overlay
-                // covers the app, so it must never be the only way out.
-                Button("Cancel", role: .cancel, action: onCancel)
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut(.cancelAction)
+                // covers the app, so it must never be the only way out. Once
+                // saved there's nothing left to cancel: the story opens.
+                if status != "Done!" {
+                    Button("Cancel", role: .cancel, action: onCancel)
+                        .buttonStyle(.bordered)
+                        .keyboardShortcut(.cancelAction)
+                }
             }
         }
         .padding(30)

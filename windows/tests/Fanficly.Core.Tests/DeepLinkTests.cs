@@ -112,6 +112,11 @@ public class DeepLinkTests
         Assert.Equal(12, DeepLink.WorkIdFromText("archiveofourown.org/works/12"));
         Assert.Equal(12, DeepLink.WorkIdFromText("fanficly://works/12"));
         Assert.Null(DeepLink.WorkIdFromText("example.com/works/12"));
+        // A link among other words, and "://" later in a scheme-less link's query.
+        Assert.Equal(123, DeepLink.WorkIdFromText("My fic: https://archiveofourown.org/works/123 enjoy!"));
+        Assert.Equal(77, DeepLink.WorkIdFromText("(archiveofourown.org/works/77)."));
+        Assert.Equal(5, DeepLink.WorkIdFromText("archiveofourown.org/works/5?return_to=https://x"));
+        Assert.Null(DeepLink.WorkIdFromText("see https://example.com/works/1"));
         Assert.Null(DeepLink.WorkIdFromText("works/12"));
         Assert.Null(DeepLink.WorkIdFromText("hello"));
         Assert.Null(DeepLink.WorkIdFromText("   "));

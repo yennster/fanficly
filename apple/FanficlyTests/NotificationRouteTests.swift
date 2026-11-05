@@ -154,6 +154,19 @@ final class ImportLinkTests: XCTestCase {
         XCTAssertNil(id("fanficly://resume/5"))
     }
 
+    func test_workInDroppedText() {
+        XCTAssertEqual(ImportLink.workId(fromText: "My fic: https://archiveofourown.org/works/123 enjoy!"), 123)
+        XCTAssertEqual(ImportLink.workId(fromText: "(archiveofourown.org/works/77)."), 77)
+        XCTAssertEqual(ImportLink.workId(fromText: "  https://archiveofourown.org/works/12/chapters/3 \n"), 12)
+        XCTAssertEqual(ImportLink.workId(fromText: "fanficly://works/8"), 8)
+        // No scheme, with "://" later in the query.
+        XCTAssertEqual(ImportLink.workId(fromText: "archiveofourown.org/works/5?return_to=https://x"), 5)
+        XCTAssertNil(ImportLink.workId(fromText: "see https://example.com/works/1"))
+        XCTAssertNil(ImportLink.workId(fromText: "a paragraph from Notes"))
+        XCTAssertFalse(ImportLink.hasWebLink("a paragraph from Notes"))
+        XCTAssertTrue(ImportLink.hasWebLink("see HTTPS://archiveofourown.org/series/1"))
+    }
+
     func test_onlySharedLinks_warnWhenTheyArentAWork() throws {
         XCTAssertTrue(ImportLink.isLinkToImport(try XCTUnwrap(URL(string: "https://example.com/"))))
         XCTAssertTrue(ImportLink.isLinkToImport(try XCTUnwrap(URL(string: "fanficly://import?url=https%3A%2F%2Fexample.com"))))

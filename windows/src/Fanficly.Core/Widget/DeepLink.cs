@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Fanficly.Core;
 
@@ -85,15 +86,24 @@ public abstract record DeepLink
         return WorkIdFromWebLink(url.OriginalString);
     }
 
-    /// <summary>A work id from dropped or pasted text (trimmed, read as a URL;
-    /// <c>archiveofourown.org/works/1</c> with no scheme reads as https).</summary>
+    /// <summary>A work id from dropped or pasted text: the text as one link
+    /// (<c>archiveofourown.org/works/1</c> with no scheme reads as https), or else
+    /// the first AO3 work link among its words ("My fic: https://…/works/1").</summary>
     public static int? WorkIdFromText(string text)
     {
         var trimmed = text.Trim();
         if (trimmed.Length == 0) return null;
         if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && IsFanficly(uri)) return ParseWorkId(uri);
-        return WorkIdFromWebLink(trimmed);
+        if (WorkIdFromWebLink(trimmed) is { } id) return id;
+        foreach (var word in trimmed.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (WorkIdFromWebLink(word.Trim(WordPunctuation)) is { } found) return found;
+        }
+        return null;
     }
+
+    private static readonly char[] WordPunctuation = "<>()[]{}\"'.,;:!?".ToCharArray();
+    private static readonly Regex SchemePrefix = new(@"^[A-Za-z][A-Za-z0-9+.-]*://", RegexOptions.CultureInvariant);
 
     /// <summary>Whether a link was meant as something to import: a web link, or
     /// the share target's <c>fanficly://import</c>. Those say "That isn't an AO3
@@ -120,7 +130,7 @@ public abstract record DeepLink
     private static int? WorkIdFromWebLink(string text)
     {
         var trimmed = text.Trim();
-        var absolute = trimmed.Contains("://", StringComparison.Ordinal) ? trimmed : "https://" + trimmed;
+        var absolute = SchemePrefix.IsMatch(trimmed) ? trimmed : "https://" + trimmed;
         if (!Uri.TryCreate(absolute, UriKind.Absolute, out var uri)) return null;
         if (uri.Scheme is not ("http" or "https") || !IsAO3Host(uri.Host)) return null;
         var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);

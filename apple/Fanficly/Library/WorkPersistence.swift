@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 enum WorkPersistence {
     @MainActor
-    static func upsert(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+    static func upsert(payload: AO3WorkPayload, into context: ModelContext, save: Bool = true) -> Work {
         let work = upsertMetadata(summary: payload.summary, into: context, save: false)
 
         for ch in work.chapters { context.delete(ch) }
@@ -15,7 +15,7 @@ enum WorkPersistence {
             context.insert(chapter)
         }
 
-        try? context.save()
+        if save { try? context.save() }
         return work
     }
 
@@ -28,14 +28,14 @@ enum WorkPersistence {
     static func saveImported(payload: AO3WorkPayload, into context: ModelContext) -> Work {
         // Importing a work deleted a moment ago keeps it (#169).
         UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
-        let work = upsert(payload: payload, into: context)
+        let work = upsert(payload: payload, into: context, save: false)
         if !work.isFollowed {
             work.isFollowed = true
             work.followedAt = .now
             // Following now isn't news: alert only for chapters after this.
             work.lastSeenChapterCount = payload.summary.chapterCount
-            try? context.save()
         }
+        try? context.save()
         return work
     }
 
