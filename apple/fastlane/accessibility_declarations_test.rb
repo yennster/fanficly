@@ -22,8 +22,8 @@ class AccessibilityDeclarationsTest < Minitest::Test
       @pages.shift || { "data" => [] }
     end
 
-    def post(path, body)
-      @calls << [:post, path, body]
+    def post(path, body, tries: 5)
+      @calls << [:post, path, body, tries]
       { "data" => { "id" => "new-#{body[:data][:attributes][:deviceFamily]}" } }
     end
 
@@ -70,6 +70,7 @@ class AccessibilityDeclarationsTest < Minitest::Test
     assert_equal [["IPHONE", :published]], result
     post, patch = client.writes
     assert_equal "v1/accessibilityDeclarations", post[1]
+    assert_equal 1, post[3]
     assert_equal "IPHONE", post[2][:data][:attributes][:deviceFamily]
     assert_equal({ data: { type: "apps", id: "app1" } }, post[2][:data][:relationships][:app])
     assert_equal "v1/accessibilityDeclarations/new-IPHONE", patch[1]

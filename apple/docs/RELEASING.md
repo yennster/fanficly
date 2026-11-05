@@ -156,6 +156,9 @@ no App Review and no new version, so only run it when the maintainer asks:
 gh workflow run release.yml -f lane=accessibility
 ```
 
+It always publishes all three device families: the workflow's `platform`
+input doesn't apply to it.
+
 The lane leaves a family alone when its published answers already match,
 publishes a leftover draft rather than making another, and otherwise creates
 and publishes a new declaration (the old one becomes REPLACED). Locally,
@@ -173,8 +176,8 @@ ask. When a change adds or removes one, update the JSON in the same PR and
 | Larger Text | no | Story text stops at 30 pt (167% of the 18 pt default) and ignores the system text size; #174 fixes it. |
 | Dark Interface | yes | System colors follow Dark Mode, plus the Dark, OLED Black and Dracula Navy reading themes. |
 | Differentiate Without Color Alone | yes | Status always has a symbol or text with its color (Finished, Starred, Downloaded, errors). |
-| Sufficient Contrast | yes | Reading themes are 10:1 to 18:1; everything else uses system colors, which follow Increase Contrast. |
-| Reduced Motion | yes | Page-turn animations and the Undo toast's slide follow Reduce Motion; the rest are short fades. |
+| Sufficient Contrast | no | Story text is 10:1 to 18:1, but the reader's page counters and story details are its text color at 50–55% opacity (about 2.7:1 on Sepia) and don't follow Increase Contrast. |
+| Reduced Motion | no | Page turns and the Undo toast follow Reduce Motion, but Listen's scroll to each paragraph, the import overlay's zoom and the restore banner's slide don't. |
 | Captions, Audio Descriptions | no | The app has no video or recorded audio (Listen speaks the story text shown on screen). |
 
 ## Regenerating the store art

@@ -5,8 +5,8 @@
     "supportsLargerText": false,
     "supportsDarkInterface": true,
     "supportsDifferentiateWithoutColorAlone": true,
-    "supportsSufficientContrast": true,
-    "supportsReducedMotion": true,
+    "supportsSufficientContrast": false,
+    "supportsReducedMotion": false,
     "supportsCaptions": false,
     "supportsAudioDescriptions": false
   },
@@ -16,8 +16,8 @@
     "supportsLargerText": false,
     "supportsDarkInterface": true,
     "supportsDifferentiateWithoutColorAlone": true,
-    "supportsSufficientContrast": true,
-    "supportsReducedMotion": true,
+    "supportsSufficientContrast": false,
+    "supportsReducedMotion": false,
     "supportsCaptions": false,
     "supportsAudioDescriptions": false
   },
@@ -27,8 +27,8 @@
     "supportsLargerText": false,
     "supportsDarkInterface": true,
     "supportsDifferentiateWithoutColorAlone": true,
-    "supportsSufficientContrast": true,
-    "supportsReducedMotion": true,
+    "supportsSufficientContrast": false,
+    "supportsReducedMotion": false,
     "supportsCaptions": false,
     "supportsAudioDescriptions": false
   }

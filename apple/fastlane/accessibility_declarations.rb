@@ -57,12 +57,14 @@ module AccessibilityDeclarations
       log.call("#{family}: #{live ? 'change' : 'publish'} to #{describe(features)}")
       next [family, :would_publish] if dry_run
 
+      # One try: a create that timed out but went through leaves a draft the
+      # next run publishes, where a retry could make a second one.
       draft = mine.find { |d| d.dig("attributes", "state") == "DRAFT" } ||
               data(client.post("v1/accessibilityDeclarations", { data: {
                 type: "accessibilityDeclarations",
                 attributes: { deviceFamily: family }.merge(features),
                 relationships: { app: { data: { type: "apps", id: app_id } } }
-              } }))
+              } }, tries: 1))
       # A leftover draft gets the wanted answers too, since it's what publishes.
       client.patch("v1/accessibilityDeclarations/#{draft['id']}", { data: {
         type: "accessibilityDeclarations", id: draft["id"],
