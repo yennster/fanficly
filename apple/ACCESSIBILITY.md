@@ -55,6 +55,13 @@ Fanficly is built with native SwiftUI, so it inherits system accessibility
 behaviors such as Dynamic Type, Bold Text, and Dark Mode. Improving support for
 assistive technologies like VoiceOver is an ongoing effort.
 
+## On the App Store
+
+The App Store product page lists the features above that Fanficly supports on
+iPhone, iPad and Mac. Those answers live in `fastlane/accessibility.json`;
+[docs/RELEASING.md](docs/RELEASING.md#accessibility-declarations) explains each
+one and how they're published.
+
 ## Feedback
 
 Accessibility is never "done." If something isn't working for you, please open

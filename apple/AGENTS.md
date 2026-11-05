@@ -808,4 +808,9 @@ labels, announcements, accessible alternatives to reader gestures, and
 screen-owned sheet/alert presentation (see Conventions). Verify reader themes,
 large text, compact/regular widths, all three reading modes, and controls
 shown/hidden when changing shared reader layout. Read `ACCESSIBILITY.md` before
-changing reading comfort or assistive-technology behavior.
+changing reading comfort or assistive-technology behavior. The App Store's
+accessibility labels come from `fastlane/accessibility.json`: when a change
+makes a claimed feature true or false (Larger Text once the reader follows the
+system size, say), update that file and its table in `docs/RELEASING.md`
+("Accessibility declarations") in the same PR. Publishing them is the
+maintainer's call, like a release.

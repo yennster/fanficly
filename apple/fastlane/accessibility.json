@@ -1,0 +1,35 @@
+{
+  "IPHONE": {
+    "supportsVoiceover": true,
+    "supportsVoiceControl": false,
+    "supportsLargerText": false,
+    "supportsDarkInterface": true,
+    "supportsDifferentiateWithoutColorAlone": true,
+    "supportsSufficientContrast": true,
+    "supportsReducedMotion": true,
+    "supportsCaptions": false,
+    "supportsAudioDescriptions": false
+  },
+  "IPAD": {
+    "supportsVoiceover": true,
+    "supportsVoiceControl": false,
+    "supportsLargerText": false,
+    "supportsDarkInterface": true,
+    "supportsDifferentiateWithoutColorAlone": true,
+    "supportsSufficientContrast": true,
+    "supportsReducedMotion": true,
+    "supportsCaptions": false,
+    "supportsAudioDescriptions": false
+  },
+  "MAC": {
+    "supportsVoiceover": true,
+    "supportsVoiceControl": false,
+    "supportsLargerText": false,
+    "supportsDarkInterface": true,
+    "supportsDifferentiateWithoutColorAlone": true,
+    "supportsSufficientContrast": true,
+    "supportsReducedMotion": true,
+    "supportsCaptions": false,
+    "supportsAudioDescriptions": false
+  }
+}

@@ -54,6 +54,9 @@ Podfile.lock
 !/apple/fastlane/Fastfile
 !/apple/fastlane/Appfile
 !/apple/fastlane/Matchfile
+!/apple/fastlane/accessibility.json
+!/apple/fastlane/accessibility_declarations.rb
+!/apple/fastlane/accessibility_declarations_test.rb
 !/apple/fastlane/metadata/
 !/apple/fastlane/metadata-mac/
 /apple/fastlane/metadata*/review_information/first_name.txt

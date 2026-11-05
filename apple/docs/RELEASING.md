@@ -140,6 +140,43 @@ for review stays in App Store Connect.
 gh workflow run release.yml -f lane=attach_build -f platform=mac -f build=220 -f art_run=<run id> -f notes="$(cat notes.txt)"
 ```
 
+## Accessibility declarations
+
+The App Store product page lists the accessibility features the app supports
+(Apple's Accessibility Nutrition Labels), per device: iPhone (which covers the
+iPhone Duo), iPad and Mac. The answers live in
+`fastlane/accessibility.json`, one true/false per feature, and the
+`accessibility` lane publishes them through the App Store Connect API
+(`accessibilityDeclarations`; fastlane has no action for it, so
+`fastlane/accessibility_declarations.rb` makes the calls, and CI runs its
+tests). A published declaration goes live on the product page at once, with
+no App Review and no new version, so only run it when the maintainer asks:
+
+```bash
+gh workflow run release.yml -f lane=accessibility
+```
+
+The lane leaves a family alone when its published answers already match,
+publishes a leftover draft rather than making another, and otherwise creates
+and publishes a new declaration (the old one becomes REPLACED). Locally,
+`bundle exec fastlane accessibility dry_run:true` lists what would change.
+
+Claim a feature only when people can do the app's common tasks (search, open
+and read a story, Listen, manage the Library) with it, as Apple's criteria
+ask. When a change adds or removes one, update the JSON in the same PR and
+`ACCESSIBILITY.md` with it. What the file says today, and why:
+
+| Feature | Claimed | Why |
+| --- | --- | --- |
+| VoiceOver | yes | Labeled controls, page turns and chapter jumps as VoiceOver actions, an accessible Listen player and widgets; `NonReaderAccessibilityTests` checks icon-only buttons. |
+| Voice Control | no | Not yet tested with Voice Control on a device. |
+| Larger Text | no | Story text stops at 30 pt (167% of the 18 pt default) and ignores the system text size; #174 fixes it. |
+| Dark Interface | yes | System colors follow Dark Mode, plus the Dark, OLED Black and Dracula Navy reading themes. |
+| Differentiate Without Color Alone | yes | Status always has a symbol or text with its color (Finished, Starred, Downloaded, errors). |
+| Sufficient Contrast | yes | Reading themes are 10:1 to 18:1; everything else uses system colors, which follow Increase Contrast. |
+| Reduced Motion | yes | Page-turn animations and the Undo toast's slide follow Reduce Motion; the rest are short fades. |
+| Captions, Audio Descriptions | no | The app has no video or recorded audio (Listen speaks the story text shown on screen). |
+
 ## Regenerating the store art
 
 Run **Store assets**:
