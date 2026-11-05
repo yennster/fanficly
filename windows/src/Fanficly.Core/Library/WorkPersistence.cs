@@ -28,6 +28,24 @@ public static class WorkPersistence
         return work;
     }
 
+    /// <summary>Saves a work opened from a shared, dropped or pasted link (#176):
+    /// its metadata and every chapter, so it reads offline. The work is
+    /// followed; one already followed keeps when it was saved and followed
+    /// (re-sharing a saved story used to move it to the top as if new).</summary>
+    public static Work SaveImported(AO3WorkPayload payload, LibraryStore store)
+    {
+        var work = Upsert(payload, store);
+        if (!work.IsFollowed)
+        {
+            work.IsFollowed = true;
+            work.FollowedAt = DateTimeOffset.Now;
+            // Following now isn't news: alert only for chapters after this.
+            work.LastSeenChapterCount = payload.Summary.ChapterCount;
+            store.TrySave();
+        }
+        return work;
+    }
+
     /// <summary>Upsert just the metadata (no chapter bodies). Used by the local
     /// follow action, which doesn't need to download the full work.</summary>
     public static Work UpsertMetadata(AO3WorkSummary summary, LibraryStore store, bool save = true)

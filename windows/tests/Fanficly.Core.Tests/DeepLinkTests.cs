@@ -50,8 +50,37 @@ public class DeepLinkTests
     {
         Assert.Equal(new DeepLink.Import(77), Parse("fanficly://works/77"));
         Assert.Equal(new DeepLink.Import(77), Parse("fanficly://work/77"));
-        Assert.Equal(new DeepLink.Import(77), Parse("fanficly://anything/77"));
         Assert.Equal(new DeepLink.Import(31), Parse("https://archiveofourown.org/Works/31?view_adult=true"));
+        Assert.Equal(new DeepLink.Import(123), Parse("https://archiveofourown.org/works/123/chapters/456?view_adult=true#workskin"));
+        Assert.Equal(new DeepLink.Import(9), Parse("https://www.archiveofourown.org/collections/fest/works/9"));
+        Assert.Equal(new DeepLink.Import(7), Parse("http://ao3.org/works/7"));
+    }
+
+    [Fact]
+    public void Import_OnlyAO3WorkLinks()
+    {
+        // #176: a series, author or tag page, another site, or a look-alike
+        // host is not a work.
+        Assert.Null(Parse("https://archiveofourown.org/series/1"));
+        Assert.Null(Parse("https://archiveofourown.org/users/someone/works"));
+        Assert.Null(Parse("https://archiveofourown.org/tags/Fluff/works"));
+        Assert.Null(Parse("https://archiveofourown.org/works/search?work_search%5Bquery%5D=x"));
+        Assert.Null(Parse("https://archiveofourown.org/chapters/456"));
+        Assert.Null(Parse("https://example.com/works/123"));
+        Assert.Null(Parse("https://archiveofourown.org.example.com/works/1"));
+        Assert.Null(Parse("fanficly://anything/77"));
+        // The app's own widget links never import, whatever their query says.
+        Assert.Equal(new DeepLink.Search("works/5"), Parse("fanficly://search?query=works/5"));
+        Assert.Equal(new DeepLink.LibraryFolder("works/5"), Parse("fanficly://library?folder=works/5"));
+    }
+
+    [Fact]
+    public void OnlySharedLinksWarnWhenTheyArentAWork()
+    {
+        Assert.True(DeepLink.IsLinkToImport(new Uri("https://example.com/")));
+        Assert.True(DeepLink.IsLinkToImport(new Uri("fanficly://import?url=https%3A%2F%2Fexample.com")));
+        Assert.False(DeepLink.IsLinkToImport(new Uri("fanficly://search?query=x")));
+        Assert.False(DeepLink.IsLinkToImport(new Uri("fanficly://settings")));
     }
 
     [Fact]
@@ -81,6 +110,9 @@ public class DeepLinkTests
     {
         Assert.Equal(12, DeepLink.WorkIdFromText("  https://archiveofourown.org/works/12/chapters/3 \n"));
         Assert.Equal(12, DeepLink.WorkIdFromText("archiveofourown.org/works/12"));
+        Assert.Equal(12, DeepLink.WorkIdFromText("fanficly://works/12"));
+        Assert.Null(DeepLink.WorkIdFromText("example.com/works/12"));
+        Assert.Null(DeepLink.WorkIdFromText("works/12"));
         Assert.Null(DeepLink.WorkIdFromText("hello"));
         Assert.Null(DeepLink.WorkIdFromText("   "));
     }

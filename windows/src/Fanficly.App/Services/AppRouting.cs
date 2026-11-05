@@ -37,7 +37,12 @@ public static partial class AppHost
                 Routes.RequestSearch(s.Query);
                 break;
             default:
-                Log($"Unhandled link: {uri}");
+                // A shared web link or fanficly://import that isn't an AO3 work
+                // (a series, an author, a tag, another site) says so (#176).
+                if (DeepLink.IsLinkToImport(uri))
+                    window.ShowMessage("That isn't an AO3 work link", "Share or drop the page of a story on archiveofourown.org/works/…", Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning);
+                else
+                    Log($"Unhandled link: {uri}");
                 break;
         }
     }

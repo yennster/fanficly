@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
 
 namespace Fanficly.Core;
 
@@ -9,7 +8,7 @@ namespace Fanficly.Core;
 /// provider and drag-and-drop/paste share this one pure parser:
 /// <list type="bullet">
 /// <item><c>fanficly://resume/&lt;id&gt;?chapter=&lt;n&gt;&amp;paragraph=&lt;m&gt;</c> — the last-read widget → <see cref="Resume"/></item>
-/// <item><c>fanficly://import?url=&lt;AO3 url&gt;</c> (the share target), <c>fanficly://works/&lt;id&gt;</c>, or any URL containing <c>works/&lt;id&gt;</c> → <see cref="Import"/></item>
+/// <item><c>fanficly://import?url=&lt;AO3 url&gt;</c> (the share target), <c>fanficly://works/&lt;id&gt;</c>, or an AO3 work link → <see cref="Import"/></item>
 /// <item><c>fanficly://library?folder=&lt;name&gt;</c> — a folder widget → <see cref="LibraryFolder"/></item>
 /// <item><c>fanficly://search?query=&lt;prompt&gt;</c> — a saved-search widget → <see cref="Search"/></item>
 /// </list>
@@ -63,42 +62,77 @@ public abstract record DeepLink
         return new ResumeWorkRoute(id, anchor);
     }
 
-    /// <summary>The AO3 work a link points at: <c>fanficly://import?url=…</c> (the
-    /// embedded URL), <c>fanficly://works/&lt;id&gt;</c> or <c>fanficly://work/&lt;id&gt;</c>,
-    /// any other <c>fanficly://&lt;host&gt;/&lt;id&gt;</c>, and otherwise the first
-    /// <c>works/&lt;id&gt;</c> anywhere in the URL (an AO3 link dropped or pasted on
-    /// the window). Note the last rule, as in the Swift app, also matches inside
-    /// a query: <c>fanficly://search?query=works/5</c> imports work 5.</summary>
+    /// <summary>The AO3 work a link points at (RootView's <c>ImportLink</c>, #176):
+    /// <c>fanficly://import?url=…</c> (the embedded URL), <c>fanficly://works/&lt;id&gt;</c>
+    /// or <c>fanficly://work/&lt;id&gt;</c>, or an AO3 work link itself. Only
+    /// <c>works/&lt;id&gt;</c> on an AO3 host counts: a series, author or tag page,
+    /// another site's <c>/works/&lt;n&gt;</c>, and the app's own widget links
+    /// (<c>fanficly://search?query=works/5</c>) are not works.</summary>
     public static int? ParseWorkId(Uri url)
     {
-        var target = url.OriginalString;
         if (IsFanficly(url))
         {
-            if (url.Host == "import")
+            switch (url.Host.ToLowerInvariant())
             {
-                if (QueryValue(url, "url") is { Length: > 0 } embedded) target = embedded;
-            }
-            else if (FirstPathComponent(url) is { } first && ParseInt(first) is { } id)
-            {
-                // fanficly://works/<id>, fanficly://work/<id>, or any host.
-                return id;
+                case "import":
+                    return QueryValue(url, "url") is { Length: > 0 } embedded ? WorkIdFromWebLink(embedded) : null;
+                case "works" or "work":
+                    return FirstPathComponent(url) is { } first ? PositiveInt(first) : null;
+                default:
+                    return null;
             }
         }
-        var match = WorksPath.Match(target);
-        return match.Success ? ParseInt(match.Groups[1].Value) : null;
+        return WorkIdFromWebLink(url.OriginalString);
     }
 
-    /// <summary>A work id from dropped or pasted text (trimmed, read as a URL).</summary>
+    /// <summary>A work id from dropped or pasted text (trimmed, read as a URL;
+    /// <c>archiveofourown.org/works/1</c> with no scheme reads as https).</summary>
     public static int? WorkIdFromText(string text)
     {
         var trimmed = text.Trim();
         if (trimmed.Length == 0) return null;
-        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri)) return ParseWorkId(uri);
-        // A relative reference ("archiveofourown.org/works/1"): no scheme, so only
-        // the works/<id> rule can apply.
-        var match = WorksPath.Match(trimmed);
-        return match.Success ? ParseInt(match.Groups[1].Value) : null;
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) && IsFanficly(uri)) return ParseWorkId(uri);
+        return WorkIdFromWebLink(trimmed);
     }
+
+    /// <summary>Whether a link was meant as something to import: a web link, or
+    /// the share target's <c>fanficly://import</c>. Those say "That isn't an AO3
+    /// work link" when they aren't a work; widget links don't.</summary>
+    public static bool IsLinkToImport(Uri url) =>
+        url.IsAbsoluteUri && (url.Scheme.ToLowerInvariant() switch
+        {
+            "http" or "https" => true,
+            Scheme => url.Host.Equals("import", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        });
+
+    /// <summary>AO3's own hosts (and their subdomains, such as <c>www.</c>).</summary>
+    public static readonly IReadOnlyList<string> AO3Hosts = ["archiveofourown.org", "archiveofourown.com", "archiveofourown.net", "ao3.org"];
+
+    public static bool IsAO3Host(string host)
+    {
+        var h = host.ToLowerInvariant();
+        return AO3Hosts.Any(a => h == a || h.EndsWith("." + a, StringComparison.Ordinal));
+    }
+
+    /// <summary>An http(s) link on an AO3 host whose path has <c>works/&lt;id&gt;</c>:
+    /// <c>/works/1</c>, <c>/works/1/chapters/2</c>, <c>/collections/x/works/1</c>.</summary>
+    private static int? WorkIdFromWebLink(string text)
+    {
+        var trimmed = text.Trim();
+        var absolute = trimmed.Contains("://", StringComparison.Ordinal) ? trimmed : "https://" + trimmed;
+        if (!Uri.TryCreate(absolute, UriKind.Absolute, out var uri)) return null;
+        if (uri.Scheme is not ("http" or "https") || !IsAO3Host(uri.Host)) return null;
+        var parts = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length - 1; i++)
+        {
+            if (parts[i].Equals("works", StringComparison.OrdinalIgnoreCase) && PositiveInt(parts[i + 1]) is { } id)
+                return id;
+        }
+        return null;
+    }
+
+    private static int? PositiveInt(string s) => ParseInt(s) is int v && v > 0 ? v : null;
 
     // MARK: - Building links (the widget provider and share target)
 
@@ -133,8 +167,6 @@ public abstract record DeepLink
     }
 
     // MARK: - Helpers
-
-    private static readonly Regex WorksPath = new(@"works/(\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static bool IsFanficly(Uri url) =>
         url.IsAbsoluteUri && url.Scheme.Equals(Scheme, StringComparison.OrdinalIgnoreCase);

@@ -92,13 +92,9 @@ public static class ImportOverlay
 
                 SetStatus("Saving to library...");
                 var library = AppHost.Library;
-                var work = WorkPersistence.Upsert(payload, library); // metadata + every chapter, for offline reading
-                var now = DateTimeOffset.Now;
-                if (!work.IsFollowed) work.LastSeenChapterCount = payload.Summary.ChapterCount;
-                work.IsFollowed = true;
-                work.FollowedAt = now;
-                work.SavedAt = now;
-                library.TrySave();
+                // Metadata + every chapter, for offline reading; a saved work
+                // keeps its saved and followed dates (#176).
+                var work = WorkPersistence.SaveImported(payload, library);
                 LibrarySyncManager.QueueBackupShared(library);
                 saved = work;
 
