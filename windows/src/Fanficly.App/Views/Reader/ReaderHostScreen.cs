@@ -79,11 +79,15 @@ internal abstract class ReaderHostScreen : Screen
 
     /// <summary>Fetches the whole work behind a reader that opened on one chapter,
     /// retrying while AO3 is struggling, and waits for narration to stop before
-    /// handing it over, so Listen isn't cut off. Null when the screen closed or
-    /// AO3 never answered (the open chapter stays readable).</summary>
-    protected async Task<AO3WorkPayload?> FetchRestAsync(int workId)
+    /// handing it over, so Listen isn't cut off. The reader's top bar says the
+    /// other chapters are loading meanwhile; when AO3 never answers it says so,
+    /// with Try again calling <paramref name="retry"/> (#177). Null when the
+    /// screen closed or AO3 never answered (the open chapter stays readable).</summary>
+    protected async Task<AO3WorkPayload?> FetchRestAsync(int workId, Action retry)
     {
         var ct = _lifetime.Token;
+        var partial = Reader;
+        if (partial is not null) partial.IsLoadingRest = true;
         AO3WorkPayload? full = null;
         for (var attempt = 0; full is null; attempt++)
         {
@@ -92,7 +96,11 @@ internal abstract class ReaderHostScreen : Screen
             catch (Exception e)
             {
                 AppHost.Log($"Loading the rest of work {workId} failed: {e.Message}");
-                if (attempt >= 2) return null;
+                if (attempt >= 2)
+                {
+                    if (!_removed && Reader is { } reader && reader == partial) reader.ShowRestFailed(retry);
+                    return null;
+                }
                 try { await Task.Delay(TimeSpan.FromSeconds(30), ct); }
                 catch (OperationCanceledException) { return null; }
             }

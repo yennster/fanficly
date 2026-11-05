@@ -164,6 +164,25 @@ internal sealed partial class ReaderView
         new(page.Payload.Summary.Title, page.Payload.Summary.Author, page.Payload.Summary.AuthorUsername, page.Payload.Chapters,
             page.Payload.Summary, Math.Max(page.ChapterIds.Count, page.Payload.Summary.ChapterCount));
 
+    /// <summary>Holds fewer chapters than the work has (opened on one chapter;
+    /// the rest come in a new reader).</summary>
+    public bool IsPartial => _totalChapters > _chapters.Count;
+
+    private bool _isLoadingRest;
+
+    /// <summary>The rest of the work is being fetched: the top bar says so
+    /// beside "Chapter n of m" while <see cref="IsPartial"/>.</summary>
+    public bool IsLoadingRest
+    {
+        get => _isLoadingRest;
+        set
+        {
+            if (_isLoadingRest == value) return;
+            _isLoadingRest = value;
+            UpdateHeaderChapter();
+        }
+    }
+
     /// <summary>Narration is playing (a reader with more chapters waits for it to stop).</summary>
     public bool IsListening => _speech.IsActive;
 
@@ -929,7 +948,7 @@ internal sealed partial class ReaderView
     {
         if (ChapterTracking.AdjacentChapter(_chapterOrder, EffectiveChapter, forward) is not { } target) return;
         SelectChapter(target);
-        MainWindow.Current.Announce($"Chapter {target} of {_chapters.Count}");
+        MainWindow.Current.Announce($"Chapter {target} of {_totalChapters}");
     }
 
     // MARK: - Accessibility equivalents of the invisible tap zones
@@ -967,7 +986,7 @@ internal sealed partial class ReaderView
         var target = EffectiveChapter + (forward ? 1 : -1);
         if (ChapterAt(target) is null) return;
         SelectChapter(target);
-        MainWindow.Current.Announce($"Chapter {target} of {_chapters.Count}");
+        MainWindow.Current.Announce($"Chapter {target} of {_totalChapters}");
     }
 
     private void AccessibilityTurnPage(bool forward)
