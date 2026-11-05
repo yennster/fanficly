@@ -119,9 +119,10 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     private async Task LoadRestAsync()
     {
-        // Swap even when Save Offline stored the text meanwhile: otherwise the
-        // reader stayed on its one chapter, still saying the rest was loading.
-        if (await FetchRestAsync(_work.Ao3Id, () => _ = LoadRestAsync()) is not { } full || IsRemoved) return;
+        // Swap even when Save Offline got the whole work meanwhile (then it's
+        // used as is): otherwise the reader stayed on its one chapter.
+        if (await FetchRestAsync(_work.Ao3Id, () => _isWholeWork ? _payload : null, () => _ = LoadRestAsync()) is not { } full
+            || IsRemoved) return;
         _payload = full;
         _isWholeWork = true;
         SwapReader(MakeReader(ReaderView.FromPayload(full)));

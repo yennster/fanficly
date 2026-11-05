@@ -164,7 +164,9 @@ internal sealed partial class ReaderView
         // Opened on one chapter while the rest loads (#177): say how many there
         // are, and that they're coming, since the chapter list isn't there yet.
         if (_isLoadingRest && IsPartial) subtitle = $"Chapter {index} of {_totalChapters} · loading the other chapters…";
-        else if (_chapters.Count > 1 || IsPartial) subtitle = ChapterIndicatorLabel(chapter, index, _totalChapters);
+        // Still partial (the load failed): keep "of m" even beside a chapter title.
+        else if (IsPartial) subtitle = chapter is { Title.Length: > 0 } ? $"Chapter {index} of {_totalChapters} · {chapter.Title}" : $"Chapter {index} of {_totalChapters}";
+        else if (_chapters.Count > 1) subtitle = ChapterIndicatorLabel(chapter, index, _totalChapters);
         else subtitle = chapter?.Title ?? "";
         _headerChapter.Text = subtitle;
         _headerChapter.Visibility = subtitle.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -202,7 +204,8 @@ internal sealed partial class ReaderView
         bar.Closed += (_, _) => { if (_restFailedBar == bar) HideRestFailed(); };
         _restFailedBar = bar;
         Root.Children.Add(bar.Row(2));
-        MainWindow.Current.Announce($"{bar.Title}. {bar.Message}");
+        // Not over another screen (Comments pushed on top, say).
+        if (_visible) MainWindow.Current.Announce($"{bar.Title}. {bar.Message}");
     }
 
     private void HideRestFailed()
