@@ -31,6 +31,7 @@ Every screen can be used from the keyboard. Settings → Input → Keyboard shor
 - **Getting around:**
   - Alt+Left, Esc or the mouse's back button go back.
   - Tab and Shift+Tab move focus; Enter or Space activate.
+  - Opening a page moves focus into it and Narrator reads the page's name; going back puts focus on the item you opened it from. The reader is the exception: opening a story, or coming back to it, keeps focus off its buttons so the keys and page turners turn pages straight away.
   - Shift+F10 or the Menu key open a context menu.
 - **Search:** Ctrl+F or F3 jump to the search box.
 - **Open a link:** Ctrl+V outside a text box opens a copied AO3 work link (so does dropping one on the window).
