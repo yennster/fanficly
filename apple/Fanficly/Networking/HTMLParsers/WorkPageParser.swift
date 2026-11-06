@@ -72,9 +72,12 @@ enum WorkPageParser {
         let (chapterCount, totalChapters) = parseChapterFraction(chaptersText)
         let isComplete = (totalChapters != nil && chapterCount == totalChapters)
 
-        let summary = try doc.select("#workskin .summary blockquote.userstuff, .summary blockquote.userstuff").first()?.html() ?? ""
+        // The work's own summary, never a chapter's: AO3 leaves the work's
+        // out when it's blank, and the first `.summary` is then chapter 1's.
+        let summary = try doc.select("#workskin .summary blockquote.userstuff, .summary blockquote.userstuff")
+            .array().first(where: { !isInsideChapter($0) })?.html() ?? ""
 
-        let chapters = try parseChapters(doc: doc, totalDeclared: chapterCount)
+        let chapters = withWorkNotes(try parseChapters(doc: doc, totalDeclared: chapterCount), doc: doc)
 
         let publishedAt = parseAO3Date(try statsDl?.select("dd.published").first()?.text() ?? "")
         let updatedAt = parseAO3Date(try statsDl?.select("dd.status").first()?.text() ?? "") ?? publishedAt
@@ -119,10 +122,14 @@ enum WorkPageParser {
                 let rawTitle = try div.select("h3.title").first()?.text() ?? ""
                 let bodyEl = try div.select("div.userstuff").first()
                 let body = try bodyEl?.html() ?? ""
+                let notes = chapterNotes(in: div)
                 return AO3ChapterPayload(index: index + 1,
                                          title: cleanChapterTitle(rawTitle, index: index + 1),
                                          bodyHTML: body,
-                                         aoId: chapterAoId(in: div) ?? idAt(index))
+                                         aoId: chapterAoId(in: div) ?? idAt(index),
+                                         summaryHTML: notes.summary,
+                                         notesHTML: notes.notes,
+                                         endNotesHTML: notes.endNotes)
             }
         }
 
@@ -131,10 +138,14 @@ enum WorkPageParser {
             return try workskinChapters.array().enumerated().map { index, div in
                 let rawTitle = try div.select("h3.title, h2.title").first()?.text() ?? ""
                 let body = try (div.select("div.userstuff").first()?.html()) ?? ""
+                let notes = chapterNotes(in: div)
                 return AO3ChapterPayload(index: index + 1,
                                          title: cleanChapterTitle(rawTitle, index: index + 1),
                                          bodyHTML: body,
-                                         aoId: chapterAoId(in: div) ?? idAt(index))
+                                         aoId: chapterAoId(in: div) ?? idAt(index),
+                                         summaryHTML: notes.summary,
+                                         notesHTML: notes.notes,
+                                         endNotesHTML: notes.endNotes)
             }
         }
 
@@ -143,6 +154,100 @@ enum WorkPageParser {
         }
 
         return []
+    }
+
+    /// A chapter's own summary, beginning notes and end notes. AO3 puts them
+    /// in `blockquote.userstuff`s inside the chapter's `div.chapter.preface`
+    /// groups (`.summary`, `.notes`, and `.end.notes` after the text), never
+    /// in the chapter's `div.userstuff`, so the body above never holds them.
+    static func chapterNotes(in chapter: Element) -> (summary: String?, notes: String?, endNotes: String?) {
+        var summary: String?
+        var notes: String?
+        var endNotes: String?
+        let modules = (try? chapter.select("div.preface .summary, div.preface .notes").array()) ?? []
+        for module in modules {
+            let html = noteHTML(in: module)
+            if module.hasClass("summary") {
+                summary = summary ?? html
+            } else if module.hasClass("end") {
+                endNotes = endNotes ?? html
+            } else {
+                notes = notes ?? html
+            }
+        }
+        return (summary, notes, endNotes)
+    }
+
+    /// The work's own beginning and end notes, from its preface (the
+    /// `div.preface.group` holding the title, outside every chapter) and its
+    /// afterword (`#work_endnotes`).
+    static func workNotes(in doc: Document) -> (notes: String?, endNotes: String?) {
+        var notes: String?
+        for module in (try? doc.select("div.preface.group .notes").array()) ?? [] {
+            guard !module.hasClass("end"), !isInsideChapter(module), !isInsideAfterword(module) else { continue }
+            if let html = noteHTML(in: module) { notes = html; break }
+        }
+        var endNotes: String?
+        for module in (try? doc.select("#work_endnotes, div.afterword .end.notes").array()) ?? [] {
+            if let html = noteHTML(in: module) { endNotes = html; break }
+        }
+        return (notes, endNotes)
+    }
+
+    /// Adds the work's notes where AO3's chapter-by-chapter view shows them:
+    /// its beginning notes before the first chapter's, its end notes after
+    /// the last chapter's.
+    static func withWorkNotes(_ chapters: [AO3ChapterPayload], doc: Document) -> [AO3ChapterPayload] {
+        guard !chapters.isEmpty else { return chapters }
+        let work = workNotes(in: doc)
+        guard work.notes != nil || work.endNotes != nil else { return chapters }
+        var result = chapters
+        let first = result[0]
+        result[0] = first.with(notesHTML: joinedNotes(work.notes, first.notesHTML))
+        let lastIndex = result.count - 1
+        let last = result[lastIndex]
+        result[lastIndex] = last.with(endNotesHTML: joinedNotes(last.endNotesHTML, work.endNotes))
+        return result
+    }
+
+    private static func joinedNotes(_ a: String?, _ b: String?) -> String? {
+        switch (a, b) {
+        case let (a?, b?): return a + "\n" + b
+        case let (a?, nil): return a
+        case let (nil, b?): return b
+        case (nil, nil): return nil
+        }
+    }
+
+    /// The module's `blockquote.userstuff`, or nil when it has none or it has
+    /// no text (AO3's "See the end of the chapter for notes" stub has none;
+    /// notes render without images, so an image-only note would be blank).
+    private static func noteHTML(in module: Element) -> String? {
+        guard let quote = try? module.select("blockquote.userstuff").first(),
+              let html = try? quote.html().trimmingCharacters(in: .whitespacesAndNewlines),
+              !html.isEmpty,
+              let text = try? quote.text().trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty
+        else { return nil }
+        return html
+    }
+
+    private static func isInsideChapter(_ el: Element) -> Bool {
+        var node = el.parent()
+        while let n = node {
+            if n.tagName() == "div", n.hasClass("chapter") { return true }
+            node = n.parent()
+        }
+        return false
+    }
+
+    private static func isInsideAfterword(_ el: Element) -> Bool {
+        var node = el.parent()
+        while let n = node {
+            if n.hasClass("afterword") || n.id() == "work_endnotes" { return true }
+            node = n.parent()
+        }
+        return false
     }
 
     /// A chapter's AO3 id from its heading link — full-work view links each

@@ -11,7 +11,8 @@ enum WorkPersistence {
         for ch in work.chapters { context.delete(ch) }
         work.chapters.removeAll()
         for ch in payload.chapters {
-            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId,
+                                  summaryHTML: ch.summaryHTML, notesHTML: ch.notesHTML, endNotesHTML: ch.endNotesHTML)
             context.insert(chapter)
         }
 

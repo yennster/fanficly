@@ -165,13 +165,29 @@ final class Chapter {
     /// comments. Optional (older saved chapters predate this / single-chapter
     /// works may lack it) → callers fall back to work-level comments.
     var aoId: Int?
+    /// The author's chapter summary, beginning notes and end notes (HTML; see
+    /// `AO3ChapterPayload`). Optional: chapters saved before #181 have none
+    /// until the work is downloaded again.
+    var summaryHTML: String?
+    var notesHTML: String?
+    var endNotesHTML: String?
 
-    init(work: Work? = nil, index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
+    init(work: Work? = nil, index: Int, title: String, bodyHTML: String, aoId: Int? = nil,
+         summaryHTML: String? = nil, notesHTML: String? = nil, endNotesHTML: String? = nil) {
         self.work = work
         self.index = index
         self.title = title
         self.bodyHTML = bodyHTML
         self.aoId = aoId
+        self.summaryHTML = summaryHTML
+        self.notesHTML = notesHTML
+        self.endNotesHTML = endNotesHTML
+    }
+
+    /// This chapter as the reader shows it.
+    var payload: AO3ChapterPayload {
+        AO3ChapterPayload(index: index, title: title, bodyHTML: bodyHTML, aoId: aoId,
+                          summaryHTML: summaryHTML, notesHTML: notesHTML, endNotesHTML: endNotesHTML)
     }
 }
 

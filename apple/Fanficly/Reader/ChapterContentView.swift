@@ -157,3 +157,172 @@ struct ReaderInlineImage: View {
         .frame(height: Self.slotHeight)
     }
 }
+
+// MARK: - Author's notes (#181)
+
+/// One labeled part of a chapter's notes: its summary, the author's notes
+/// before it, or their notes after it.
+struct ReaderNote: Identifiable, Equatable {
+    enum Kind: String { case summary, notes, endNotes }
+    let kind: Kind
+    let html: String
+    var id: String { kind.rawValue }
+
+    var label: LocalizedStringKey {
+        switch kind {
+        case .summary: "Chapter Summary"
+        case .notes: "Notes"
+        case .endNotes: "End Notes"
+        }
+    }
+}
+
+extension AO3ChapterPayload {
+    /// What AO3 shows before the chapter text: its summary and notes.
+    var notesBefore: [ReaderNote] {
+        [summaryHTML.map { ReaderNote(kind: .summary, html: $0) },
+         notesHTML.map { ReaderNote(kind: .notes, html: $0) }].compactMap { $0 }
+    }
+
+    /// What AO3 shows after the chapter text: its end notes.
+    var notesAfter: [ReaderNote] {
+        endNotesHTML.map { [ReaderNote(kind: .endNotes, html: $0)] } ?? []
+    }
+}
+
+/// The labeled notes, each rendered from its HTML in the reader's colors.
+struct ReaderNotesContent: View {
+    let notes: [ReaderNote]
+    let foreground: Color
+    let font: Font
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            ForEach(notes) { note in
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    if notes.count > 1 {
+                        Text(note.label)
+                            .font(.caption.smallCaps())
+                            .foregroundStyle(foreground.opacity(0.55))
+                    }
+                    HTMLText(html: note.html)
+                        .font(font)
+                        .foregroundStyle(foreground.opacity(0.85))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+}
+
+/// A collapsed, themed "Notes" section shown before or after a chapter in the
+/// scrolling reading modes. It sits outside `ChapterContentView`, so it never
+/// adds a paragraph: positions, progress and Listen count only story text.
+struct ReaderNotesDisclosure: View {
+    let title: LocalizedStringKey
+    let notes: [ReaderNote]
+    let foreground: Color
+    let font: Font
+    /// Owned by the reader, so a section the lazy stack recycles comes back
+    /// as it was.
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: Spacing.sm) {
+                    Image(systemName: "note.text")
+                        .accessibilityHidden(true)
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(foreground.opacity(0.75))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(isExpanded ? Text("Expanded") : Text("Collapsed"))
+            .accessibilityHint(isExpanded ? Text("Hides the author's notes.") : Text("Shows the author's notes."))
+            .accessibilityIdentifier("reader.notes")
+
+            if isExpanded {
+                ReaderNotesContent(notes: notes, foreground: foreground, font: font)
+            }
+        }
+        .padding(Spacing.md)
+        .background(foreground.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+/// Page-by-page mode's "Notes" button, on the chapter's first page. Expanding
+/// notes inline would push text off a page the paginator already measured,
+/// so the button has a fixed height (`height`, budgeted by
+/// `ReaderPaginator.estimateChapterHeaderHeight`) and opens a sheet with all
+/// of the chapter's notes.
+struct ReaderNotesButton: View {
+    nonisolated static let height: CGFloat = 32
+
+    let chapter: AO3ChapterPayload
+    /// The sheet's title.
+    let title: Text
+    let foreground: Color
+    let background: Color
+    /// The reader theme's scheme, so the sheet's bars match its colors.
+    let colorScheme: ColorScheme
+    let font: Font
+    @State private var isPresented = false
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            HStack(spacing: Spacing.xs) {
+                Image(systemName: "note.text")
+                    .accessibilityHidden(true)
+                Text("Notes")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(foreground.opacity(0.75))
+            .padding(.horizontal, Spacing.md)
+            .frame(height: Self.height)
+            .background(foreground.opacity(0.06), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityHint(Text("Shows the author's notes for this chapter."))
+        .accessibilityIdentifier("reader.notes")
+        .sheet(isPresented: $isPresented) {
+            NavigationStack {
+                ScrollView {
+                    ReaderNotesContent(notes: chapter.notesBefore + chapter.notesAfter,
+                                       foreground: foreground, font: font)
+                        .padding()
+                }
+                .background(background)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                // Never `.preferredColorScheme`: it reaches the whole window
+                // and would flip the app when the sheet closes.
+                .toolbarBackground(background, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { isPresented = false }
+                    }
+                }
+            }
+            .environment(\.colorScheme, colorScheme)
+            .presentationBackground(background)
+            .presentationDetents([.medium, .large])
+        }
+    }
+}

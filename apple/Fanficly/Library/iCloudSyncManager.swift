@@ -461,7 +461,8 @@ final class iCloudSyncManager {
             personalTags: work.personalTags,
             notesUpdatedAt: work.notesUpdatedAt,
             chapters: includeChapters ? work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
-                ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+                ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId,
+                              summaryHTML: ch.summaryHTML, notesHTML: ch.notesHTML, endNotesHTML: ch.endNotesHTML)
             } : [],
             // Sorted: a to-many relationship's order can change between
             // fetches, and a new order would make an unchanged library look
@@ -960,10 +961,29 @@ final class iCloudSyncManager {
             note: notes.note,
             personalTags: notes.personalTags,
             notesUpdatedAt: notes.updatedAt,
-            chapters: other.chapters.count > local.chapters.count ? other.chapters : local.chapters,
+            chapters: mergedChapters(local: local.chapters, other: other.chapters),
             folderName: folders.first,
             folderNames: folders
         )
+    }
+
+    /// The chapters a merge keeps: the copy with more chapters, else local's
+    /// with each missing note (#181) filled from the other copy's chapter of
+    /// the same index. Without the fill, a device holding an older download
+    /// (no notes) and one holding a newer one would each write their own
+    /// chapters over the other's on every backup.
+    nonisolated static func mergedChapters(local: [ChapterBackup], other: [ChapterBackup]) -> [ChapterBackup] {
+        if other.count > local.count { return other }
+        guard other.count == local.count, !other.isEmpty else { return local }
+        let byIndex = Dictionary(other.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+        return local.map { chapter in
+            guard let match = byIndex[chapter.index] else { return chapter }
+            var filled = chapter
+            filled.summaryHTML = chapter.summaryHTML ?? match.summaryHTML
+            filled.notesHTML = chapter.notesHTML ?? match.notesHTML
+            filled.endNotesHTML = chapter.endNotesHTML ?? match.endNotesHTML
+            return filled
+        }
     }
 
     /// Whether `other` carries newer AO3 metadata than `local`: a later
@@ -1324,8 +1344,19 @@ final class iCloudSyncManager {
                     work.chapters.removeAll()
 
                     for ch in w.chapters {
-                        let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+                        let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId,
+                                              summaryHTML: ch.summaryHTML, notesHTML: ch.notesHTML,
+                                              endNotesHTML: ch.endNotesHTML)
                         context.insert(chapter)
+                    }
+                } else if w.chapters.count == work.chapters.count {
+                    // Same download: bring over notes this copy lacks (#181).
+                    let backupByIndex = Dictionary(w.chapters.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                    for chapter in work.chapters {
+                        guard let match = backupByIndex[chapter.index] else { continue }
+                        if chapter.summaryHTML == nil, let html = match.summaryHTML { chapter.summaryHTML = html }
+                        if chapter.notesHTML == nil, let html = match.notesHTML { chapter.notesHTML = html }
+                        if chapter.endNotesHTML == nil, let html = match.endNotesHTML { chapter.endNotesHTML = html }
                     }
                 }
             }
@@ -1970,6 +2001,11 @@ struct ChapterBackup: Codable {
     /// AO3 chapter id (drives per-chapter comments). Optional so backups
     /// written before this field still decode.
     let aoId: Int?
+    /// The author's chapter summary and notes (#181). Optional so older
+    /// backups, and the Windows app's before it knew them, still decode.
+    var summaryHTML: String? = nil
+    var notesHTML: String? = nil
+    var endNotesHTML: String? = nil
 }
 
 struct BookmarkBackup: Codable {
