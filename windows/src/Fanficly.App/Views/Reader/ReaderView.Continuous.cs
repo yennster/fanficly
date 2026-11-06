@@ -105,6 +105,8 @@ internal sealed partial class ReaderView
             Padding = new Thickness(0, 16, 0, 16),
             Children = { _contRepeater },
         };
+        // AO3 has more than the saved copy (#180): the note after the last chapter.
+        if (NewChapters is { } notice) _contPanel.Children.Add(NewChaptersBanner(notice));
         _contScroll = new ScrollViewer
         {
             Content = _contPanel,

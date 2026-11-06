@@ -12,7 +12,10 @@ namespace Fanficly.App.Views.Reader;
 /// on the device) read fully offline; bookmarked-only works have no saved text,
 /// so it's fetched from AO3 on demand, and can be saved offline from here.
 /// Toolbar: Comments, and a "More" menu with Bookmark on AO3, share &amp; export
-/// and Save Offline.
+/// and Save Offline (Update Download once it's downloaded).
+/// A download behind AO3 (a work in progress with new chapters the app knows of)
+/// shows "3 new chapters on AO3 · Update" after its last saved chapter (#180):
+/// one fetch, saved over the old copy, and the reader keeps its place.
 /// </summary>
 internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 {
@@ -23,6 +26,9 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private bool _isLoading;
     private bool _isSavingOffline;
     private bool _isDownloaded;
+    private bool _isUpdating;
+    /// <summary>The banner's state while AO3 is known to be ahead; null otherwise.</summary>
+    private NewChaptersNotice? _newChapters;
     private bool _isResolvingComments;
     private int _currentChapter = 1;
     private readonly WorkExporter _exporter = new();
@@ -63,8 +69,23 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         try { WorkPersistence.RecordView(_work, AppHost.Library); }
         catch (Exception e) { AppHost.Log($"Recording the view failed: {e.Message}"); }
 
-        if (HasOfflineText) ShowReader(MakeReader(ReaderView.FromWork(_work, OfflineChapters)));
+        if (HasOfflineText) ShowReader(MakeReader(OfflineReader()));
         else _ = LoadAsync();
+    }
+
+    /// <summary>The reader of the saved chapters, with the new-chapters banner
+    /// when AO3 is known to be ahead.</summary>
+    private ReaderView OfflineReader(int? fetchedChapterCount = null)
+    {
+        var reader = ReaderView.FromWork(_work, OfflineChapters);
+        // Just updated: AO3's own count now, so a higher baseline (chapters since
+        // deleted on AO3) doesn't keep offering an update that brings nothing.
+        var count = EpubImport.IsLocalWork(_work.Ao3Id) ? 0
+            : fetchedChapterCount is { } fetched ? DownloadUpdate.NewChapterCount(OfflineChapters.Count, [fetched])
+            : DownloadUpdate.NewChapterCount(_work, AppHost.Library);
+        _newChapters = count > 0 ? new NewChaptersNotice(count, () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = UpdateDownloadAsync())) : null;
+        reader.NewChapters = _newChapters;
+        return reader;
     }
 
     private ReaderView MakeReader(ReaderView reader)
@@ -188,7 +209,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     private void UpdateMoreButton()
     {
         if (_moreButton is null) return;
-        _moreButton.Content = _isSavingOffline || _exporter.IsExporting || _kudos.IsSending || _subscribe.IsSending
+        _moreButton.Content = _isSavingOffline || _isUpdating || _exporter.IsExporting || _kudos.IsSending || _subscribe.IsSending
             ? new ProgressRing { IsActive = true, Width = 16, Height = 16 }
             : Symbols.Icon("book.circle", 16).A11yHidden();
     }
@@ -204,10 +225,24 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         AutomationProperties.SetAutomationId(bookmark, "work.options.bookmark");
         menu.Items.Add(bookmark);
         menu.Items.Add(_exporter.Menu(_work.Ao3Id, () => title));
-        var save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Saving Offline…" : "Save Offline",
-            () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = SaveOfflineAsync()),
-            _isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle");
-        save.IsEnabled = !_isSavingOffline && !_isDownloaded;
+        MenuFlyoutItem save;
+        if (CanUpdate)
+        {
+            // Downloaded: refresh it from AO3 rather than a disabled "Downloaded" (#180).
+            var known = _newChapters?.Count ?? 0;
+            save = UI.UI.MenuItem(_isUpdating ? "Updating Download…" : known > 0 ? $"Update Download ({known} new)" : "Update Download",
+                () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = UpdateDownloadAsync()),
+                "arrow.clockwise");
+            save.IsEnabled = !_isUpdating;
+        }
+        else
+        {
+            // Downloaded with a live payload: AO3's current copy, nothing to update.
+            save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Saving Offline…" : "Save Offline",
+                () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = SaveOfflineAsync()),
+                _isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle");
+            save.IsEnabled = !_isSavingOffline && !_isDownloaded;
+        }
         AutomationProperties.SetAutomationId(save, "work.options.download");
         menu.Items.Add(save);
         // A saved copy can be behind AO3, so only a live payload sets the baseline.
@@ -256,6 +291,65 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         finally
         {
             _isSavingOffline = false;
+            UpdateMoreButton();
+        }
+    }
+
+    // MARK: - Update download (#180)
+
+    /// <summary>Saved text and the EPUB are both here, read from the saved copy:
+    /// the menu offers an update instead of Save Offline.</summary>
+    private bool CanUpdate => HasOfflineText && _isDownloaded && _payload is null;
+
+    /// <summary>Brings the saved copy up to date: one throttled fetch of the whole
+    /// work, saved over the old chapters, then the EPUB again when one was
+    /// downloaded. The reader is swapped for one with the new chapters that opens
+    /// where this one is. When the fetch fails the old copy stays as it was.</summary>
+    private async Task UpdateDownloadAsync()
+    {
+        if (_isUpdating || !HasOfflineText) return;
+        _isUpdating = true;
+        if (_newChapters is { } notice) notice.IsUpdating = true;
+        UpdateMoreButton();
+        MainWindow.Current.Announce("Updating download");
+        try
+        {
+            AO3WorkPayload fetched;
+            try { fetched = await AppHost.Client.FetchWorkAsync(_work.Ao3Id); }
+            catch (Exception e)
+            {
+                AppHost.Log($"Updating download {_work.Ao3Id} failed: {e.Message}");
+                if (!IsRemoved)
+                    await Dialogs.AlertAsync("Couldn't update the download",
+                        $"Couldn't get the new chapters from AO3, so the saved copy is unchanged: {e.Message}");
+                return;
+            }
+            var before = OfflineChapters.Count;
+            WorkPersistence.Upsert(fetched, AppHost.Library);
+            // The new chapters are saved. The reader showing them takes over where
+            // this one is (ContinueFrom), once Listen stops, so it isn't cut off:
+            // as when the rest of a work finishes loading.
+            while (Reader is { IsListening: true } && !IsRemoved) await Task.Delay(TimeSpan.FromSeconds(2));
+            if (IsRemoved) return;
+            SwapReader(MakeReader(OfflineReader(fetched.Summary.ChapterCount)));
+            var added = OfflineChapters.Count - before;
+            MainWindow.Current.Announce(added > 0
+                ? $"Download updated: {added} new {(added == 1 ? "chapter" : "chapters")}"
+                : "Download updated");
+            if (!_isDownloaded) return;
+            try { await AppHost.Client.DownloadEpubAsync(_work.Ao3Id); }
+            catch (Exception e)
+            {
+                AppHost.Log($"Updating the EPUB of {_work.Ao3Id} failed: {e.Message}");
+                if (!IsRemoved)
+                    await Dialogs.AlertAsync("Couldn't update the download",
+                        $"The new chapters are saved for offline reading, but the EPUB download failed: {e.Message}");
+            }
+        }
+        finally
+        {
+            _isUpdating = false;
+            if (_newChapters is { } current) current.IsUpdating = false;
             UpdateMoreButton();
         }
     }
