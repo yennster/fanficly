@@ -108,7 +108,8 @@ the follow's and the AO3 subscription's `lastSeenChapterCount`), and when AO3
 is ahead `ReaderView` shows `NewChaptersBanner` after the last chapter (in
 page-by-page, in the last page's footer, so the page area never changes).
 Its Update, and the More menu's Update Download, fetch the work once and
-`upsert` it over the old chapters; the same reader stays up (#180). Both readers
+`DownloadUpdate.apply` it (never over more saved chapters than AO3 now has;
+the follow and subscription baselines move to AO3's count); the same reader stays up (#180). Both readers
 feed `ReaderView`. There is no EPUB rendering engine: chapter HTML is converted
 to attributed paragraphs and drawn natively. `ReaderPaginator` lives in
 `ReaderPaginator.swift` and `ReaderPageCell` in `ReaderPageCell.swift`; geometry policy lives in
