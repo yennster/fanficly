@@ -10,6 +10,9 @@ struct ReaderView: View {
     /// a parent's "Comments" action can scope to the right chapter. Written
     /// whenever the visible/selected chapter changes.
     var currentChapter: Binding<Int>? = nil
+    /// AO3 has chapters the saved copy doesn't (#180): shown after the last
+    /// chapter, with its Update button. nil for a live work or an up-to-date one.
+    var newChapters: NewChaptersNotice? = nil
 
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
@@ -273,9 +276,10 @@ struct ReaderView: View {
         self.summary = summary
     }
 
-    init(work: Work, currentChapter: Binding<Int>? = nil) {
+    init(work: Work, currentChapter: Binding<Int>? = nil, newChapters: NewChaptersNotice? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
         self.currentChapter = currentChapter
+        self.newChapters = newChapters
         self.title = work.title
         self.author = work.authorName
         self.authorUsername = work.authorUsername
@@ -853,6 +857,9 @@ struct ReaderView: View {
                             .id(chapter.index)
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
                         }
+                        if let newChapters {
+                            NewChaptersBanner(notice: newChapters, foreground: fg)
+                        }
                     }
                     .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.vertical, Spacing.lg)
@@ -1270,6 +1277,9 @@ struct ReaderView: View {
                             chapterHeader(chapter, fg: fg)
                         }
                         chapterBlock(chapter, fg: fg)
+                        if let newChapters, chapter.index == chapters.last?.index {
+                            NewChaptersBanner(notice: newChapters, foreground: fg)
+                        }
                     }
                     .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.top, Spacing.lg)
@@ -1444,6 +1454,7 @@ struct ReaderView: View {
                 kerning: kerningPt / zoomScale,
                 boldText: boldText,
                 showImages: showImages,
+                chapterCount: chapters.count,
                 size: CGSize(
                     width: spread?.pageWidth ?? geo.size.width,
                     // The page area on screen: the controls and the narration
@@ -2106,6 +2117,12 @@ struct ReaderView: View {
                 
             // The page number alone, for full screen: "3", or "3–4" in a spread.
             let pageNumber = onScreen?.right.map { "\(firstNum)–\($0.pageIndex + 1)" } ?? "\(firstNum)"
+            // The work's last page with AO3 ahead of the saved copy (#180):
+            // the footer offers the update in the chapter label's place, in
+            // the same row, so the page area (and the pages) never change.
+            let lastOnScreen = onScreen?.right ?? onScreen?.left ?? currentPage
+            let notice = (currentPage.chapterIndex == chapters.map(\.index).max()
+                          && chapterPages.last?.id == lastOnScreen.id) ? newChapters : nil
 
             let row = HStack {
                 Text(label)
@@ -2133,6 +2150,42 @@ struct ReaderView: View {
                             .accessibilityLabel("\(label), \(pageLabel.lowercased())")
                             .accessibilityIdentifier("reader.pageNumber")
                     }
+            } else if let notice {
+                // The plain row, hidden, keeps the bar's height exactly.
+                row.hidden()
+                    .overlay {
+                        HStack {
+                            if notice.isUpdating {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .accessibilityLabel("Updating download")
+                            } else {
+                                Button(action: notice.update) {
+                                    Text("\(notice.text) · Update")
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Color.accentColor)
+                                .accessibilityLabel("\(notice.text). Update download")
+                                .accessibilityHint("Saves the new chapters on this device. You stay where you are.")
+                                .accessibilityIdentifier("reader.newChapters.update")
+                            }
+                            Spacer()
+                            Text(pageLabel)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(fg.opacity(0.5))
+                                .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .background(bg)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("reader.pageFooter")
+                    .contentShape(Rectangle())
             } else {
                 row
                     .background(bg)
@@ -2505,6 +2558,9 @@ struct PaginationTrigger: Equatable {
     let kerning: Double
     let boldText: Bool
     let showImages: Bool
+    /// The chapters loaded: updating a download adds some (#180), and their
+    /// pages must be made.
+    let chapterCount: Int
     let size: CGSize
     /// The Duo's side column the text keeps clear of (none on a spread).
     let sideColumn: SideColumn

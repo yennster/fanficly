@@ -101,7 +101,14 @@ widget routes use their own paths described below.
 encode it, the client fetches, and SwiftSoup parsers produce typed results.
 Opening a live result uses `WorkDetailView` in `WorkDetailView.swift`; merely reading
 does not require creating a library `Work`. `SavedWorkReader` reads stored
-`Chapter.bodyHTML` when available, otherwise fetches a payload on demand. Both
+`Chapter.bodyHTML` when available, otherwise fetches a payload on demand.
+It never asks AO3 whether saved text is current: `DownloadUpdate` compares
+the saved chapters with the counts the app already has (`Work.chapterCount`,
+the follow's and the AO3 subscription's `lastSeenChapterCount`), and when AO3
+is ahead `ReaderView` shows `NewChaptersBanner` after the last chapter (in
+page-by-page, in the last page's footer, so the page area never changes).
+Its Update, and the More menu's Update Download, fetch the work once and
+`upsert` it over the old chapters; the same reader stays up (#180). Both readers
 feed `ReaderView`. There is no EPUB rendering engine: chapter HTML is converted
 to attributed paragraphs and drawn natively. `ReaderPaginator` lives in
 `ReaderPaginator.swift` and `ReaderPageCell` in `ReaderPageCell.swift`; geometry policy lives in
