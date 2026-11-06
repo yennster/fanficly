@@ -88,4 +88,43 @@ public sealed class DownloadUpdateTests
         Assert.Equal(0.9, updated.LastReadProgress);
         Assert.Equal(0, DownloadUpdate.NewChapterCount(updated, store));
     }
+
+    [Fact]
+    public void ApplySavesTheNewChaptersAndMovesTheBaselines()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.Upsert(Payload(4, 3), store);
+        work.IsFollowed = true;
+        work.LastSeenChapterCount = 6;
+        var record = new SubscriptionRecord("work:4", "work", "Work 4") { LastSeenChapterCount = 6 };
+        store.Insert(record);
+
+        // AO3 has 5 now (one of the 6 the poller saw was deleted).
+        var outcome = DownloadUpdate.Apply(Payload(4, 5), work, store);
+        Assert.True(outcome.Updated);
+        Assert.Equal(2, outcome.Added);
+        Assert.Equal(5, store.ChaptersOf(work).Count);
+        Assert.Equal(5, work.LastSeenChapterCount);
+        Assert.Equal(5, record.LastSeenChapterCount);
+        // So the banner doesn't come back offering a sixth.
+        Assert.Equal(0, DownloadUpdate.NewChapterCount(work, store));
+    }
+
+    [Fact]
+    public void ApplyNeverReplacesMoreSavedChaptersWithFewer()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.Upsert(Payload(5, 8), store);
+        Assert.Equal(new DownloadUpdate.Outcome(false, 0, 8, 5), DownloadUpdate.Apply(Payload(5, 5), work, store));
+        Assert.Equal(8, store.ChaptersOf(work).Count);
+    }
+
+    [Fact]
+    public void ApplyLeavesAnUnfollowedWorkWithoutABaseline()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = WorkPersistence.Upsert(Payload(6, 1), store);
+        Assert.Equal(1, DownloadUpdate.Apply(Payload(6, 2), work, store).Added);
+        Assert.Null(work.LastSeenChapterCount);
+    }
 }

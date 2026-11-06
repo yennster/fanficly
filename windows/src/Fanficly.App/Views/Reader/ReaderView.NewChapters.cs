@@ -118,8 +118,9 @@ internal sealed partial class ReaderView
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
         };
-        _footerUpdate.Inlines.Add(new Run());
+        // The link first, so a narrow footer trims the count, never the action.
         _footerUpdate.Inlines.Add(link);
+        _footerUpdate.Inlines.Add(new Run());
         return _footerUpdate;
     }
 
@@ -132,7 +133,7 @@ internal sealed partial class ReaderView
         var show = NewChapters is { IsUpdating: false } notice
             && current.ChapterIndex == _chapterOrder[^1]
             && _pages.LastOrDefault(p => p.ChapterIndex == current.ChapterIndex)?.Id == lastOnScreen.Id;
-        if (show) ((Run)footerUpdate.Inlines[0]).Text = $"{NewChapters!.Text} · ";
+        if (show) ((Run)footerUpdate.Inlines[1]).Text = $" · {NewChapters!.Text}";
         footerUpdate.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         _footerLabel.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
         return show;

@@ -28,6 +28,33 @@ public static class DownloadUpdate
     public static int NewChapterCount(Work work, LibraryStore store) =>
         NewChapterCount(store.ChaptersOf(work).Count, KnownChapterCounts(work, store));
 
+    /// <summary>How <see cref="Apply"/> went.</summary>
+    /// <param name="Updated">The saved copy now matches AO3.</param>
+    /// <param name="Added">Chapters that are new.</param>
+    /// <param name="Saved">Chapters saved before.</param>
+    /// <param name="OnAO3">Chapters AO3 has.</param>
+    public readonly record struct Outcome(bool Updated, int Added, int Saved, int OnAO3);
+
+    /// <summary>Saves <paramref name="fetched"/> over a library work's chapters,
+    /// unless AO3 now has fewer than are saved: an update never throws away offline
+    /// text. The follow's and the subscription's new-chapter baselines move to AO3's
+    /// count, as the poller's next check would set them: chapters already saved
+    /// don't alert, and a baseline above AO3's (chapters deleted there) doesn't keep
+    /// offering an update that brings nothing.</summary>
+    public static Outcome Apply(AO3WorkPayload fetched, Work work, LibraryStore store)
+    {
+        var saved = store.ChaptersOf(work).Count;
+        var onAO3 = fetched.Chapters.Count;
+        if (onAO3 < saved) return new Outcome(false, 0, saved, onAO3);
+        WorkPersistence.Upsert(fetched, store);
+        var count = fetched.Summary.ChapterCount;
+        if (work.LastSeenChapterCount is not null) work.LastSeenChapterCount = count;
+        if (store.GetSubscription($"work:{work.Ao3Id}") is { LastSeenChapterCount: not null } record)
+            record.LastSeenChapterCount = count;
+        store.TrySave();
+        return new Outcome(true, Math.Max(0, onAO3 - saved), saved, onAO3);
+    }
+
     /// <summary>"1 new chapter on AO3", "3 new chapters on AO3".</summary>
     public static string BannerText(int count) =>
         count == 1 ? "1 new chapter on AO3" : $"{count} new chapters on AO3";

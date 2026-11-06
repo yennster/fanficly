@@ -228,7 +228,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         MenuFlyoutItem save;
         if (CanUpdate)
         {
-            // Downloaded: refresh it from AO3 rather than a disabled "Downloaded" (#180).
+            // Saved text: refresh it from AO3 rather than a disabled "Downloaded" (#180).
             var known = _newChapters?.Count ?? 0;
             save = UI.UI.MenuItem(_isUpdating ? "Updating Download…" : known > 0 ? $"Update Download ({known} new)" : "Update Download",
                 () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = UpdateDownloadAsync()),
@@ -251,7 +251,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     private async Task SaveOfflineAsync()
     {
-        if (_isSavingOffline) return;
+        if (_isSavingOffline || _isUpdating) return;
         _isSavingOffline = true;
         UpdateMoreButton();
         MainWindow.Current.Announce("Saving for offline reading");
@@ -297,17 +297,19 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     // MARK: - Update download (#180)
 
-    /// <summary>Saved text and the EPUB are both here, read from the saved copy:
-    /// the menu offers an update instead of Save Offline.</summary>
-    private bool CanUpdate => HasOfflineText && _isDownloaded && _payload is null;
+    /// <summary>Saved text read from the device: the menu offers an update instead
+    /// of Save Offline (which would only fetch the EPUB and leave stale chapters).
+    /// A whole live payload is AO3's current copy.</summary>
+    private bool CanUpdate => HasOfflineText && _payload is null;
 
     /// <summary>Brings the saved copy up to date: one throttled fetch of the whole
-    /// work, saved over the old chapters, then the EPUB again when one was
-    /// downloaded. The reader is swapped for one with the new chapters that opens
-    /// where this one is. When the fetch fails the old copy stays as it was.</summary>
+    /// work, saved over the old chapters, then the EPUB again. The reader is swapped
+    /// for one with the new chapters that opens where this one is, once Listen
+    /// stops. When the fetch fails, or AO3 now has fewer chapters than are saved,
+    /// the old copy stays as it was.</summary>
     private async Task UpdateDownloadAsync()
     {
-        if (_isUpdating || !HasOfflineText) return;
+        if (_isUpdating || _isSavingOffline || !HasOfflineText) return;
         _isUpdating = true;
         if (_newChapters is { } notice) notice.IsUpdating = true;
         UpdateMoreButton();
@@ -324,33 +326,51 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
                         $"Couldn't get the new chapters from AO3, so the saved copy is unchanged: {e.Message}");
                 return;
             }
-            var before = OfflineChapters.Count;
-            WorkPersistence.Upsert(fetched, AppHost.Library);
-            // The new chapters are saved. The reader showing them takes over where
-            // this one is (ContinueFrom), once Listen stops, so it isn't cut off:
-            // as when the rest of a work finishes loading.
-            while (Reader is { IsListening: true } && !IsRemoved) await Task.Delay(TimeSpan.FromSeconds(2));
-            if (IsRemoved) return;
-            SwapReader(MakeReader(OfflineReader(fetched.Summary.ChapterCount)));
-            var added = OfflineChapters.Count - before;
-            MainWindow.Current.Announce(added > 0
-                ? $"Download updated: {added} new {(added == 1 ? "chapter" : "chapters")}"
-                : "Download updated");
-            if (!_isDownloaded) return;
-            try { await AppHost.Client.DownloadEpubAsync(_work.Ao3Id); }
-            catch (Exception e)
+            // Deleted from the Library while the fetch ran: don't bring it back.
+            if (AppHost.Library.GetWork(_work.Ao3Id) is null) return;
+            var outcome = DownloadUpdate.Apply(fetched, _work, AppHost.Library);
+            if (!outcome.Updated)
             {
-                AppHost.Log($"Updating the EPUB of {_work.Ao3Id} failed: {e.Message}");
                 if (!IsRemoved)
-                    await Dialogs.AlertAsync("Couldn't update the download",
-                        $"The new chapters are saved for offline reading, but the EPUB download failed: {e.Message}");
+                    await Dialogs.AlertAsync("Download kept as it is",
+                        $"AO3 now has {outcome.OnAO3} {(outcome.OnAO3 == 1 ? "chapter" : "chapters")}, fewer than the {outcome.Saved} saved on this device, so the saved copy was kept as it is.");
+                return;
             }
+            if (!IsRemoved)
+                MainWindow.Current.Announce(outcome.Added > 0
+                    ? $"Download updated: {outcome.Added} new {(outcome.Added == 1 ? "chapter" : "chapters")}"
+                    : "Download updated");
+            // The EPUB follows the text even when the reader has closed, so share
+            // and export never keep the old chapters.
+            var epub = UpdateEpubAsync();
+            // The reader showing the new chapters takes over where this one is
+            // (ContinueFrom), once Listen stops, so it isn't cut off: as when the
+            // rest of a work finishes loading.
+            while (Reader is { IsListening: true } && !IsRemoved) await Task.Delay(TimeSpan.FromSeconds(2));
+            if (!IsRemoved) SwapReader(MakeReader(OfflineReader(fetched.Summary.ChapterCount)));
+            await epub;
         }
         finally
         {
             _isUpdating = false;
             if (_newChapters is { } current) current.IsUpdating = false;
             UpdateMoreButton();
+        }
+    }
+
+    private async Task UpdateEpubAsync()
+    {
+        try
+        {
+            await AppHost.Client.DownloadEpubAsync(_work.Ao3Id);
+            _isDownloaded = true;
+        }
+        catch (Exception e)
+        {
+            AppHost.Log($"Updating the EPUB of {_work.Ao3Id} failed: {e.Message}");
+            if (!IsRemoved)
+                await Dialogs.AlertAsync("Couldn't update the download",
+                    $"The new chapters are saved for offline reading, but the EPUB download failed: {e.Message}");
         }
     }
 }
