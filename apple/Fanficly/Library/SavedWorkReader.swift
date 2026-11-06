@@ -1,4 +1,6 @@
 import SwiftUI
+import SwiftData
+import UIKit // UIAccessibility announcements
 
 /// Reader for a work in the Library.
 /// - Downloaded works (chapters saved on device) read fully offline.
@@ -130,7 +132,7 @@ struct SavedWorkReader: View {
                         WorkExportButton(workId: work.ao3Id, title: work.title,
                                          exporter: exporter, useTextLabel: true)
                         if canUpdate {
-                            // Downloaded: refresh it from AO3 rather than a
+                            // Saved: refresh it from AO3 rather than a
                             // disabled "Downloaded" (#180).
                             Button {
                                 Task { await updateDownload() }
@@ -186,10 +188,11 @@ struct SavedWorkReader: View {
         }
     }
 
-    /// Saved text and the EPUB are both here: the menu offers an update
-    /// instead of Save Offline. A fetched payload is AO3's current copy.
+    /// Saved text read from the device: the menu offers an update instead
+    /// of Save Offline (which would only fetch the EPUB and leave stale
+    /// chapters). A fetched payload is AO3's current copy.
     private var canUpdate: Bool {
-        hasOfflineText && isDownloaded && payload == nil
+        hasOfflineText && payload == nil
     }
 
     /// The banner after the last saved chapter, while AO3 is known to be ahead.
@@ -206,8 +209,9 @@ struct SavedWorkReader: View {
 
     /// Brings the saved copy up to date: one throttled fetch of the whole
     /// work, saved over the old chapters (the reader stays on this view and
-    /// keeps its place; new chapters join the end), then the EPUB again when
-    /// one was downloaded. When the fetch fails the old copy stays as it was.
+    /// keeps its place; new chapters join the end), then the EPUB again.
+    /// When the fetch fails, or AO3 now has fewer chapters than are saved,
+    /// the old copy stays as it was.
     private func updateDownload() async {
         guard !isUpdating else { return }
         isUpdating = true
@@ -219,20 +223,34 @@ struct SavedWorkReader: View {
             saveError = "Couldn't get the new chapters from AO3, so the saved copy is unchanged: \(error.localizedDescription)"
             return
         }
-        // Updating a work deleted a moment ago keeps it, like Save Offline (#169).
+        // Deleted while the fetch ran (its Undo toast gone): don't bring it back.
+        guard work.modelContext != nil, !work.isDeleted else { return }
+        // Updating a work whose delete is still behind Undo keeps it, like Save Offline (#169).
         UndoCenter.shared.cancel(UndoCenter.Key.work(work.ao3Id))
-        _ = WorkPersistence.upsert(payload: fetched, into: context)
+        let outcome = DownloadUpdate.apply(fetched, to: work, in: context)
         iCloudSyncManager.shared.queueBackup(context: context)
-        // AO3's own count now; a higher baseline (chapters since deleted on
-        // AO3) mustn't keep offering an update that brings nothing.
-        newChapterCount = DownloadUpdate.newChapterCount(saved: work.chapters.count,
-                                                         known: [fetched.summary.chapterCount])
-        guard isDownloaded else { return }
+        newChapterCount = 0
+        switch outcome {
+        case .keptLonger(let saved, let onAO3):
+            saveError = "AO3 now has \(onAO3) \(onAO3 == 1 ? "chapter" : "chapters"), fewer than the \(saved) saved on this device, so the saved copy was kept as it is."
+            return
+        case .updated(let added):
+            announce(added > 0
+                ? "Download updated: \(added) new \(added == 1 ? "chapter" : "chapters")"
+                : "Download updated")
+        }
         do {
             _ = try await client.downloadEPUB(workId: work.ao3Id)
+            isDownloaded = true
         } catch {
             saveError = "The new chapters are saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }
+    }
+
+    /// Tells VoiceOver how an update ended: its button has gone by then.
+    private func announce(_ message: String) {
+        UIAccessibility.post(notification: .announcement, argument: NSAttributedString(
+            string: message, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
     }
 
     /// Downloaded works saved before per-chapter comments have no chapter ids,

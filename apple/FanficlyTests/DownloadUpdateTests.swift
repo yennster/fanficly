@@ -93,4 +93,37 @@ final class DownloadUpdateTests: XCTestCase {
         XCTAssertEqual(updated.lastReadProgress, 0.9)
         XCTAssertEqual(DownloadUpdate.newChapterCount(for: updated, in: ctx), 0)
     }
+
+    func test_apply_savesTheNewChaptersAndMovesTheBaselines() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.upsert(payload: payload(id: 4, chapters: 3), into: ctx)
+        work.isFollowed = true
+        work.lastSeenChapterCount = 6
+        let record = SubscriptionRecord(key: "work:4", kind: "work", displayName: "Work 4")
+        record.lastSeenChapterCount = 6
+        ctx.insert(record)
+
+        // AO3 has 5 now (one of the 6 the poller saw was deleted).
+        XCTAssertEqual(DownloadUpdate.apply(payload(id: 4, chapters: 5), to: work, in: ctx), .updated(added: 2))
+        XCTAssertEqual(work.chapters.count, 5)
+        XCTAssertEqual(work.lastSeenChapterCount, 5)
+        XCTAssertEqual(record.lastSeenChapterCount, 5)
+        // So the banner doesn't come back offering a sixth.
+        XCTAssertEqual(DownloadUpdate.newChapterCount(for: work, in: ctx), 0)
+    }
+
+    func test_apply_neverReplacesMoreSavedChaptersWithFewer() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.upsert(payload: payload(id: 5, chapters: 8), into: ctx)
+        XCTAssertEqual(DownloadUpdate.apply(payload(id: 5, chapters: 5), to: work, in: ctx),
+                       .keptLonger(saved: 8, onAO3: 5))
+        XCTAssertEqual(work.chapters.count, 8)
+    }
+
+    func test_apply_leavesAnUnfollowedWorkWithoutABaseline() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.upsert(payload: payload(id: 6, chapters: 1), into: ctx)
+        XCTAssertEqual(DownloadUpdate.apply(payload(id: 6, chapters: 2), to: work, in: ctx), .updated(added: 1))
+        XCTAssertNil(work.lastSeenChapterCount)
+    }
 }

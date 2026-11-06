@@ -30,6 +30,38 @@ enum DownloadUpdate {
         newChapterCount(saved: work.chapters.count, known: knownChapterCounts(for: work, in: context))
     }
 
+    enum Outcome: Equatable {
+        /// The saved copy now matches AO3; `added` chapters are new.
+        case updated(added: Int)
+        /// AO3 has fewer chapters than the saved copy (the author deleted or
+        /// merged some): nothing is replaced, so no saved text is lost.
+        case keptLonger(saved: Int, onAO3: Int)
+    }
+
+    /// Saves `fetched` over a library work's chapters, unless AO3 now has
+    /// fewer than are saved: an update never throws away offline text
+    /// (as an EPUB import never replaces more chapters with fewer). The
+    /// follow's and the subscription's new-chapter baselines move to AO3's
+    /// count, as the poller's next check would set them: chapters already
+    /// saved don't alert, and a baseline above AO3's (chapters deleted
+    /// there) doesn't keep offering an update that brings nothing.
+    @MainActor
+    static func apply(_ fetched: AO3WorkPayload, to work: Work, in context: ModelContext) -> Outcome {
+        let saved = work.chapters.count
+        let onAO3 = fetched.chapters.count
+        if onAO3 < saved { return .keptLonger(saved: saved, onAO3: onAO3) }
+        _ = WorkPersistence.upsert(payload: fetched, into: context)
+        let count = fetched.summary.chapterCount
+        if work.lastSeenChapterCount != nil { work.lastSeenChapterCount = count }
+        let key = "work:\(work.ao3Id)"
+        let descriptor = FetchDescriptor<SubscriptionRecord>(predicate: #Predicate { $0.key == key })
+        if let record = (try? context.fetch(descriptor))?.first, record.lastSeenChapterCount != nil {
+            record.lastSeenChapterCount = count
+        }
+        try? context.save()
+        return .updated(added: max(0, onAO3 - saved))
+    }
+
     /// "1 new chapter on AO3", "3 new chapters on AO3".
     static func bannerText(count: Int) -> String {
         count == 1 ? "1 new chapter on AO3" : "\(count) new chapters on AO3"

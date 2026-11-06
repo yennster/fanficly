@@ -884,6 +884,14 @@ struct ReaderView: View {
                     isRestoring = true
                     Task { await reanchor(to: anchor, proxy: proxy) }
                 }
+                // A one-chapter download updated with its second chapter
+                // (#180) gains chapter headers above the text it shows: put
+                // the paragraph you were on back on top.
+                .onChange(of: chapters.count > 1) { _, _ in
+                    guard let anchor = currentAnchor else { return }
+                    isRestoring = true
+                    Task { await reanchor(to: anchor, proxy: proxy) }
+                }
                 .onPreferenceChange(ChapterOffsetKey.self) { offsets in
                     if let current = ChapterTracking.currentChapter(offsets: offsets) {
                         visibleChapterIndex = current
@@ -1454,7 +1462,7 @@ struct ReaderView: View {
                 kerning: kerningPt / zoomScale,
                 boldText: boldText,
                 showImages: showImages,
-                chapterCount: chapters.count,
+                content: ChapterContentSignature(chapters),
                 size: CGSize(
                     width: spread?.pageWidth ?? geo.size.width,
                     // The page area on screen: the controls and the narration
@@ -2160,8 +2168,10 @@ struct ReaderView: View {
                                     .controlSize(.mini)
                                     .accessibilityLabel("Updating download")
                             } else {
+                                // The action first, so a narrow footer at
+                                // a large text size never cuts it off.
                                 Button(action: notice.update) {
-                                    Text("\(notice.text) · Update")
+                                    Text("Update · \(notice.text)")
                                         .font(.caption.weight(.semibold))
                                         .lineLimit(1)
                                 }
@@ -2558,12 +2568,25 @@ struct PaginationTrigger: Equatable {
     let kerning: Double
     let boldText: Bool
     let showImages: Bool
-    /// The chapters loaded: updating a download adds some (#180), and their
-    /// pages must be made.
-    let chapterCount: Int
+    /// The chapters loaded: updating a download adds some or changes their
+    /// text (#180), and the pages must be made again.
+    let content: ChapterContentSignature
     let size: CGSize
     /// The Duo's side column the text keeps clear of (none on a spread).
     let sideColumn: SideColumn
+}
+
+/// Which chapters are loaded and how long each one's text is: cheap to
+/// compute (a native string's UTF-8 count is stored), and it changes when a
+/// download update adds chapters or brings edited text.
+struct ChapterContentSignature: Equatable {
+    let indices: [Int]
+    let lengths: [Int]
+
+    init(_ chapters: [AO3ChapterPayload]) {
+        indices = chapters.map(\.index)
+        lengths = chapters.map { $0.bodyHTML.utf8.count }
+    }
 }
 
 /// What page-by-page's settle task waits on: any change restarts the wait.
