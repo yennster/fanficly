@@ -134,7 +134,7 @@ Fanficly is not affiliated with AO3 or the Organization for Transformative Works
 
 ## Privacy
 
-We collect nothing. The app talks directly to AO3 from your device. Your AO3 session cookie lives in your iOS Keychain. Deleting the app erases everything. See [PRIVACY.md](../PRIVACY.md).
+We collect nothing. The app talks directly to AO3 from your device. Your AO3 username and AO3's sign-in cookies live in the Keychain; your password is never stored. Reader profiles, last-read progress and reading days sync through your own iCloud, and the library backup does too if you turn it on. To erase everything, log out, clear the iCloud backup in Settings, then delete the app. See [PRIVACY.md](../PRIVACY.md).
 
 ## Contributing
 

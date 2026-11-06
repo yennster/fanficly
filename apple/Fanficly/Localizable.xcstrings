@@ -151,16 +151,6 @@
         }
       }
     },
-    "Delete the app. iOS will erase all on-device storage including the session cookie. There's no server to wipe — there's no server." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete the app. iOS will erase all on-device storage including the session cookie. There's no server to wipe — there's no server."
-          }
-        }
-      }
-    },
     "Export Failed" : {
       "localizations" : {
         "en" : {
@@ -181,12 +171,12 @@
         }
       }
     },
-    "Fanficly has no servers. Everything happens on your phone." : {
+    "Fanficly has no servers. Everything happens on your device." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fanficly has no servers. Everything happens on your phone."
+            "value" : "Fanficly has no servers. Everything happens on your device."
           }
         }
       }
@@ -341,6 +331,16 @@
         }
       }
     },
+    "Log out of AO3 first, clear your iCloud backup in Settings → iCloud Sync if you turned it on, then delete the app. Your device's own iCloud backups can still hold a copy until they're replaced. There's no server to wipe — there's no server." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Log out of AO3 first, clear your iCloud backup in Settings → iCloud Sync if you turned it on, then delete the app. Your device's own iCloud backups can still hold a copy until they're replaced. There's no server to wipe — there's no server."
+          }
+        }
+      }
+    },
     "Never" : {
       "localizations" : {
         "en" : {
@@ -421,22 +421,22 @@
         }
       }
     },
+    "Read the full privacy policy" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read the full privacy policy"
+          }
+        }
+      }
+    },
     "Reader" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reader"
-          }
-        }
-      }
-    },
-    "Requests to archiveofourown.org so you can read, search, and log in. We never send your data anywhere else." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Requests to archiveofourown.org so you can read, search, and log in. We never send your data anywhere else."
           }
         }
       }
@@ -711,12 +711,12 @@
         }
       }
     },
-    "What goes off your phone" : {
+    "What goes off your device" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "What goes off your phone"
+            "value" : "What goes off your device"
           }
         }
       }
@@ -741,12 +741,12 @@
         }
       }
     },
-    "What's stored on your phone" : {
+    "What's stored on your device" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "What's stored on your phone"
+            "value" : "What's stored on your device"
           }
         }
       }
@@ -781,12 +781,22 @@
         }
       }
     },
-    "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled." : {
+    "• Requests to archiveofourown.org so you can read, search and log in, and so Fanficly can check works, authors and saved searches you follow for new chapters, sometimes in the background.\n• Your reader profiles, last-read progress and reading days, synced automatically through your own iCloud.\n• An optional backup of your library and settings in your private iCloud storage, if Sync Library to iCloud is on.\n• Images in stories, fetched from the author's image host, only if you turn on Show images in stories.\nNothing is ever sent to us." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "• Your AO3 session cookie (in iOS Keychain), so you stay logged in.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.\n• An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled."
+            "value" : "• Requests to archiveofourown.org so you can read, search and log in, and so Fanficly can check works, authors and saved searches you follow for new chapters, sometimes in the background.\n• Your reader profiles, last-read progress and reading days, synced automatically through your own iCloud.\n• An optional backup of your library and settings in your private iCloud storage, if Sync Library to iCloud is on.\n• Images in stories, fetched from the author's image host, only if you turn on Show images in stories.\nNothing is ever sent to us."
+          }
+        }
+      }
+    },
+    "• Your AO3 username and AO3's sign-in cookies (in the Keychain), so you stay logged in. Your password is never stored.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• What the widgets show: the story you read last, your reading streak, and short lists of saved searches, folders, subscriptions and recommendations.\n• The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "• Your AO3 username and AO3's sign-in cookies (in the Keychain), so you stay logged in. Your password is never stored.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• What the widgets show: the story you read last, your reading streak, and short lists of saved searches, folders, subscriptions and recommendations.\n• The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it."
           }
         }
       }

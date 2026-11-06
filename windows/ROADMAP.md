@@ -134,6 +134,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** `VolumeKeyTurnTests` pass; on Windows, with the setting on, a volume key turns the page and the volume and its overlay don't change.
 - **Touches:** `windows/src/Fanficly.App/Views/Reader/ReaderView.cs`, `ReaderPrefs.cs`, `Platform/VolumeKeyGate.cs`, `Fanficly.Core/Reader/VolumeKeyTurn.cs`, `Views/Settings/ReaderSettingsScreen.cs`.
 
+### RM-126 — Bring the in-app Privacy screen in line with the policy
+- **Status:** open · **Size:** S · **Validation:** windows
+- **Why:** Ports the Apple app's fix for #179. `windows/PRIVACY.md` is right, but Settings → Privacy (`PrivacyScreen.cs`) still says only "Your AO3 session cookie" is stored (the username is too), lists only AO3 under "What goes off your PC" ("We never send your data anywhere else"), and leaves out opt-in story images, the new-chapter checks and the settings sync file. The Apple screen now names the username and cookies, the widget data, the background checks, the automatic sync, opt-in image hosts, and links the full policy.
+- **Scope:** Rewrite the screen's blocks to match `windows/PRIVACY.md`: the username and cookies (DPAPI), widget data, AO3 requests including the background checks, the sync folder's files only when sync is on, story images only when the setting is on, and a "Read the full privacy policy" link to `windows/PRIVACY.md`. Keep the deletion advice (Clear Synced Data, then uninstall).
+- **Done when:** the screen's text says nothing `windows/PRIVACY.md` contradicts, and the Settings UI tests still pass.
+- **Touches:** `windows/src/Fanficly.App/Views/Settings/PrivacyScreen.cs`.
+
 ## Next
 
 ### RM-105 — Paste or drop an AO3 link to open it
