@@ -189,9 +189,12 @@ enum ReaderPaginator {
         title: String,
         width: CGFloat,
         fontSize: CGFloat,
-        fontFamily: ReaderFontFamily
+        fontFamily: ReaderFontFamily,
+        hasNotesButton: Bool = false
     ) -> CGFloat {
         var height: CGFloat = 42 + 15
+        // Page-by-page mode's "Notes" button and the stack's spacing above it.
+        if hasNotesButton { height += ReaderNotesButton.height + 10 }
         if !title.isEmpty {
             let titleFont = fontFamily.uiFont(size: fontSize + 5)
             let constraintSize = CGSize(width: width, height: .greatestFiniteMagnitude)

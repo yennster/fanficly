@@ -1403,6 +1403,60 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(chapters.map(\.aoId), [900, 901, 902])
     }
 
+    /// A chapter's summary and notes (#181) survive saving, the backup and a
+    /// restore on another device.
+    func test_chapterNotesSurviveSaveBackupAndRestore() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let base = payload(id: 1, chapters: 2)
+        let chapters = [
+            AO3ChapterPayload(index: 1, title: "Ch 1", bodyHTML: "<p>Body 1</p>", aoId: 900,
+                              summaryHTML: "<p>Sum</p>", notesHTML: "<p>CW: storm</p>"),
+            AO3ChapterPayload(index: 2, title: "Ch 2", bodyHTML: "<p>Body 2</p>", aoId: 901,
+                              endNotesHTML: "<p>Thanks</p>"),
+        ]
+        let full = try makeContext()
+        let saved = WorkPersistence.upsert(payload: AO3WorkPayload(summary: base.summary, chapters: chapters), into: full)
+        let savedChapters = saved.chapters.sorted { $0.index < $1.index }.map(\.payload)
+        XCTAssertEqual(savedChapters[0].summaryHTML, "<p>Sum</p>")
+        XCTAssertEqual(savedChapters[0].notesHTML, "<p>CW: storm</p>")
+        XCTAssertNil(savedChapters[0].endNotesHTML)
+        XCTAssertEqual(savedChapters[1].endNotesHTML, "<p>Thanks</p>")
+        iCloudSyncManager.shared.backupToiCloud(context: full)
+
+        let device = try makeContext()
+        device.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try device.save()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        let restored = work.chapters.sorted { $0.index < $1.index }
+        XCTAssertEqual(restored.map(\.summaryHTML), ["<p>Sum</p>", nil])
+        XCTAssertEqual(restored.map(\.notesHTML), ["<p>CW: storm</p>", nil])
+        XCTAssertEqual(restored.map(\.endNotesHTML), [nil, "<p>Thanks</p>"])
+    }
+
+    /// Backups from before #181 (and from a Windows app that doesn't know the
+    /// fields yet) carry chapters without notes; they still decode.
+    func test_chapterBackupWithoutNotesStillDecodes() throws {
+        let json = #"{"index":1,"title":"Ch 1","bodyHTML":"<p>x</p>","aoId":7}"#
+        let chapter = try JSONDecoder().decode(ChapterBackup.self, from: Data(json.utf8))
+        XCTAssertEqual(chapter.bodyHTML, "<p>x</p>")
+        XCTAssertEqual(chapter.aoId, 7)
+        XCTAssertNil(chapter.summaryHTML)
+        XCTAssertNil(chapter.notesHTML)
+        XCTAssertNil(chapter.endNotesHTML)
+        // And a chapter without notes writes none of the keys.
+        let encoded = try JSONEncoder().encode(chapter)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), ["index", "title", "bodyHTML", "aoId"])
+    }
+
     /// Restore also runs as a background launch sync now, so it must be a
     /// strictly forward merge: a cloud backup older than this device's state
     /// can never rewind a reading position — but a newer one still advances it.

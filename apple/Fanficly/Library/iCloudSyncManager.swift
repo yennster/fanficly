@@ -461,7 +461,8 @@ final class iCloudSyncManager {
             personalTags: work.personalTags,
             notesUpdatedAt: work.notesUpdatedAt,
             chapters: includeChapters ? work.chapters.sorted(by: { $0.index < $1.index }).map { ch in
-                ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+                ChapterBackup(index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId,
+                              summaryHTML: ch.summaryHTML, notesHTML: ch.notesHTML, endNotesHTML: ch.endNotesHTML)
             } : [],
             // Sorted: a to-many relationship's order can change between
             // fetches, and a new order would make an unchanged library look
@@ -1324,7 +1325,9 @@ final class iCloudSyncManager {
                     work.chapters.removeAll()
 
                     for ch in w.chapters {
-                        let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+                        let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId,
+                                              summaryHTML: ch.summaryHTML, notesHTML: ch.notesHTML,
+                                              endNotesHTML: ch.endNotesHTML)
                         context.insert(chapter)
                     }
                 }
@@ -1970,6 +1973,11 @@ struct ChapterBackup: Codable {
     /// AO3 chapter id (drives per-chapter comments). Optional so backups
     /// written before this field still decode.
     let aoId: Int?
+    /// The author's chapter summary and notes (#181). Optional so older
+    /// backups, and the Windows app's before it knew them, still decode.
+    var summaryHTML: String? = nil
+    var notesHTML: String? = nil
+    var endNotesHTML: String? = nil
 }
 
 struct BookmarkBackup: Codable {
