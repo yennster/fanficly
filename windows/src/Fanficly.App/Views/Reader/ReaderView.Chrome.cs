@@ -238,6 +238,9 @@ internal sealed partial class ReaderView
         _footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _footer.Children.Add(_footerLabel.Col(0));
         _footer.Children.Add(_footerPages.Col(1));
+        // A downloaded work behind AO3 offers its update on the last page (#180).
+        _footer.Children.Add(FooterUpdate().Col(0));
+        if (NewChapters is { } notice) notice.Changed += UpdateFooter;
         UpdateFooter();
         return _footer;
     }
@@ -251,6 +254,8 @@ internal sealed partial class ReaderView
             // Keep the bar's height while pages are laid out, or its arrival
             // would change the page area and lay them out again.
             _footerLabel.Text = " ";
+            _footerLabel.Visibility = Visibility.Visible;
+            if (_footerUpdate is not null) _footerUpdate.Visibility = Visibility.Collapsed;
             _footerPages.Text = "";
             AutomationProperties.SetName(_footer, "Laying out pages");
             return;
@@ -265,6 +270,7 @@ internal sealed partial class ReaderView
         var label = ChapterIndicatorLabel(ChapterAt(current.ChapterIndex), current.ChapterIndex, _chapters.Count);
         _footerLabel.Text = label;
         _footerPages.Text = pageLabel;
+        UpdateFooterNotice(current, onScreen?.Right ?? onScreen?.Left ?? current);
         AutomationProperties.SetName(_footer, $"{label}, {pageLabel.ToLower(CultureInfo.CurrentCulture)}");
     }
 

@@ -820,7 +820,8 @@ internal sealed partial class ReaderView
         var focused = FocusManager.GetFocusedElement(Root.XamlRoot);
         if (focused is MenuFlyoutItemBase or Slider or ComboBox or ComboBoxItem or ListViewItem or RadioButton or PipsPager)
             return false;
-        var activates = focused is ButtonBase or ToggleSwitch;
+        // A footer link (a download's update, #180) takes Space like a button.
+        var activates = focused is ButtonBase or ToggleSwitch or Microsoft.UI.Xaml.Documents.Hyperlink;
         // The D-pad moves focus between buttons (the toolbar, the Listen bar);
         // it turns pages only when the story itself has focus.
         if (activates && key is VirtualKey.GamepadDPadLeft or VirtualKey.GamepadDPadRight) return false;
