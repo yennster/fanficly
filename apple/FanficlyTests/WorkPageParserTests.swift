@@ -842,7 +842,7 @@ final class AuthorNotesParserTests: XCTestCase {
     """
 
     private let workAfterword = """
-    <div id="work_endnotes" class="afterword preface group">
+    <div class="afterword preface group">
       <div class="end notes module" role="complementary" id="work_endnotes">
         <h3 class="heading">Notes:</h3>
         <blockquote class="userstuff"><p>Work end note: more soon.</p></blockquote>
@@ -888,7 +888,7 @@ final class AuthorNotesParserTests: XCTestCase {
             """
         }
         return """
-        <div class="chapter" id="chapter-\(n)" role="article">
+        <div class="chapter" id="chapter-\(n)">
           <div class="chapter preface group" role="complementary">\(preface)</div>
           <div class="userstuff module" role="article">
             <h3 class="landmark heading" id="work">Chapter Text</h3>
@@ -986,6 +986,18 @@ final class AuthorNotesParserTests: XCTestCase {
         let chapters = try WorkPageParser.parse(html: html, workId: 1).chapters
         XCTAssertEqual(chapters.count, 2)
         XCTAssertFalse(chapters.contains(where: \.hasNotes))
+    }
+
+    /// AO3 leaves out a blank work summary, so the first `.summary` on the
+    /// page is chapter 1's: it stays the chapter's.
+    func test_chapterSummaryIsNeverTheWorkSummary() throws {
+        let html = page("""
+        <div class="preface group"><h2 class="title heading">Lighthouse</h2></div>
+        <div id="chapters" role="article">\(chapter(1, summary: "Only chapter 1's.")) \(chapter(2))</div>
+        """)
+        let payload = try WorkPageParser.parse(html: html, workId: 1)
+        XCTAssertEqual(payload.summary.summary, "")
+        XCTAssertEqual(payload.chapters[0].summaryHTML, "<p>Only chapter 1's.</p>")
     }
 
     func test_emptyNoteBlockquote_isIgnored() throws {

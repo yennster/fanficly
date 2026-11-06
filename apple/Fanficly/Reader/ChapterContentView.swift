@@ -223,7 +223,9 @@ struct ReaderNotesDisclosure: View {
     let notes: [ReaderNote]
     let foreground: Color
     let font: Font
-    @State private var isExpanded = false
+    /// Owned by the reader, so a section the lazy stack recycles comes back
+    /// as it was.
+    @Binding var isExpanded: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.md) {

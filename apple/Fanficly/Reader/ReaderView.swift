@@ -58,6 +58,8 @@ struct ReaderView: View {
     /// on `selectedChapterIndex`, which scrolling never updates there.
     @State private var continuousJump = 0
     @State private var currentAnchor: ReadingAnchor?
+    /// The author's notes sections open right now (#181).
+    @State private var openNotes: Set<String> = []
     @State private var loadedFromDisk = false
     /// Where a saved position past the loaded chapters was moved to (see
     /// `ChapterTracking.clampedAnchor`). Never saved: opening a shorter copy
@@ -2342,13 +2344,20 @@ struct ReaderView: View {
 
     private var notesFont: Font { fontFamily.font(size: fontSize - 1) }
 
+    /// Whether a chapter's notes section (`"<chapter>-before"` / `-after`) is open.
+    private func notesExpanded(_ key: String) -> Binding<Bool> {
+        Binding(get: { openNotes.contains(key) },
+                set: { open in if open { openNotes.insert(key) } else { openNotes.remove(key) } })
+    }
+
     /// The chapter's summary and notes, collapsed, above its text.
     @ViewBuilder
     private func notesBefore(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
         let notes = chapter.notesBefore
         if !notes.isEmpty {
             ReaderNotesDisclosure(title: notes.count == 1 ? notes[0].label : "Notes",
-                                  notes: notes, foreground: fg, font: notesFont)
+                                  notes: notes, foreground: fg, font: notesFont,
+                                  isExpanded: notesExpanded("\(chapter.index)-before"))
                 .padding(.top, Spacing.sm)
         }
     }
@@ -2358,7 +2367,8 @@ struct ReaderView: View {
     private func notesAfter(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
         let notes = chapter.notesAfter
         if !notes.isEmpty {
-            ReaderNotesDisclosure(title: "End Notes", notes: notes, foreground: fg, font: notesFont)
+            ReaderNotesDisclosure(title: "End Notes", notes: notes, foreground: fg, font: notesFont,
+                                  isExpanded: notesExpanded("\(chapter.index)-after"))
                 .padding(.bottom, Spacing.sm)
         }
     }

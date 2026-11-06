@@ -72,7 +72,10 @@ enum WorkPageParser {
         let (chapterCount, totalChapters) = parseChapterFraction(chaptersText)
         let isComplete = (totalChapters != nil && chapterCount == totalChapters)
 
-        let summary = try doc.select("#workskin .summary blockquote.userstuff, .summary blockquote.userstuff").first()?.html() ?? ""
+        // The work's own summary, never a chapter's: AO3 leaves the work's
+        // out when it's blank, and the first `.summary` is then chapter 1's.
+        let summary = try doc.select("#workskin .summary blockquote.userstuff, .summary blockquote.userstuff")
+            .array().first(where: { !isInsideChapter($0) })?.html() ?? ""
 
         let chapters = withWorkNotes(try parseChapters(doc: doc, totalDeclared: chapterCount), doc: doc)
 
@@ -216,14 +219,15 @@ enum WorkPageParser {
         }
     }
 
-    /// The module's `blockquote.userstuff`, or nil when it has none or it's
-    /// empty (AO3's "See the end of the chapter for notes" stub has none).
+    /// The module's `blockquote.userstuff`, or nil when it has none or it has
+    /// no text (AO3's "See the end of the chapter for notes" stub has none;
+    /// notes render without images, so an image-only note would be blank).
     private static func noteHTML(in module: Element) -> String? {
         guard let quote = try? module.select("blockquote.userstuff").first(),
               let html = try? quote.html().trimmingCharacters(in: .whitespacesAndNewlines),
               !html.isEmpty,
               let text = try? quote.text().trimmingCharacters(in: .whitespacesAndNewlines),
-              !text.isEmpty || html.contains("<img")
+              !text.isEmpty
         else { return nil }
         return html
     }

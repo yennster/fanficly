@@ -1441,6 +1441,23 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(restored.map(\.endNotesHTML), [nil, "<p>Thanks</p>"])
     }
 
+    /// Two devices holding the same chapters, one downloaded before #181 (no
+    /// notes): the merge keeps the notes either way round, so the two don't
+    /// rewrite each other's backup forever.
+    func test_backupMergeFillsMissingChapterNotes() {
+        let withNotes = [ChapterBackup(index: 1, title: "Ch 1", bodyHTML: "<p>a</p>", aoId: 1, notesHTML: "<p>CW</p>"),
+                         ChapterBackup(index: 2, title: "Ch 2", bodyHTML: "<p>b</p>", aoId: 2, endNotesHTML: "<p>End</p>")]
+        let without = withNotes.map { ChapterBackup(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
+        for merged in [iCloudSyncManager.mergedChapters(local: without, other: withNotes),
+                       iCloudSyncManager.mergedChapters(local: withNotes, other: without)] {
+            XCTAssertEqual(merged.map(\.notesHTML), ["<p>CW</p>", nil])
+            XCTAssertEqual(merged.map(\.endNotesHTML), [nil, "<p>End</p>"])
+        }
+        // More chapters still win whole.
+        let longer = without + [ChapterBackup(index: 3, title: "Ch 3", bodyHTML: "<p>c</p>", aoId: 3)]
+        XCTAssertEqual(iCloudSyncManager.mergedChapters(local: withNotes, other: longer).count, 3)
+    }
+
     /// Backups from before #181 (and from a Windows app that doesn't know the
     /// fields yet) carry chapters without notes; they still decode.
     func test_chapterBackupWithoutNotesStillDecodes() throws {
