@@ -258,7 +258,8 @@ internal sealed partial class ReaderView
         {
             AppHost.Log($"Pagination failed: {e}");
             if (_paginationRun == run) { _paginationRun = null; _runningTrigger = null; }
-            if (!repaginating) _isRestoring = false;
+            if (!repaginating || _findPageJump) _isRestoring = false;
+            _findPageJump = false;
             return;
         }
         // A newer trigger (a resize mid-pagination) cancelled this run: its pages

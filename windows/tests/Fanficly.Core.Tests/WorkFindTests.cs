@@ -48,6 +48,15 @@ public class WorkFindTests
     }
 
     [Fact]
+    public void QueryOfOnlyIgnorableMarksFindsNothing()
+    {
+        // A lone accent or a soft hyphen would otherwise match everywhere.
+        var chapters = new[] { Chapter(1, "The ring.", "Another line.") };
+        Assert.Empty(WorkFind.Search("\u0301", chapters).Matches);
+        Assert.Empty(WorkFind.Search("\u00AD", chapters).Matches);
+    }
+
+    [Fact]
     public void SkipsEmptySlots()
     {
         // Image slots and scene breaks are "" in SpeechParagraphs; they keep their index.

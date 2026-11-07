@@ -28,6 +28,9 @@ internal sealed partial class ReaderView
     private ReadingAnchor? _findHighlight;
     private DispatcherQueueTimer? _findHighlightTimer;
     private int _findGeneration;
+    /// <summary>Find set <c>_isRestoring</c> for a page-by-page chapter change; a
+    /// failed re-pagination clears it.</summary>
+    private bool _findPageJump;
 
     private static readonly TimeSpan FindDebounce = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan FindHighlightDuration = TimeSpan.FromSeconds(2.5);
@@ -144,6 +147,10 @@ internal sealed partial class ReaderView
             catch (Exception e)
             {
                 AppHost.Log($"Find failed: {e.Message}");
+                if (run != generation || _removed) return;
+                result = WorkFind.Result.Empty;
+                list.Children.Clear();
+                status.Text = "Couldn't search this work";
                 return;
             }
             if (run != generation || _removed) return;
@@ -154,6 +161,10 @@ internal sealed partial class ReaderView
         box.TextChanged += (_, _) =>
         {
             _findQuery = box.Text;
+            // The last query's rows go at once, so Enter or a click can't pick
+            // one of them while the new search runs.
+            result = WorkFind.Result.Empty;
+            list.Children.Clear();
             _ = SearchAsync(box.Text, ++generation);
         };
         // Enter shows the first match; Down moves into the list.
@@ -284,8 +295,10 @@ internal sealed partial class ReaderView
         }
         if (anchor.Chapter == _selectedChapter) return;
         // Not a jump to the chapter's top: keeps OnPageChapterChanged from
-        // replacing the place with the chapter's first paragraph.
+        // replacing the place with the chapter's first paragraph. The next
+        // pagination's page selection clears it (or its failure, _findPageJump).
         _isRestoring = true;
+        _findPageJump = true;
         SelectChapter(anchor.Chapter);
     }
 

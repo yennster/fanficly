@@ -73,7 +73,11 @@ public static class WorkFind
     public static string? NormalizedQuery(string? query)
     {
         var trimmed = query?.Trim() ?? "";
-        return trimmed.Length == 0 ? null : Fold(trimmed);
+        // Only marks the search ignores (a lone accent, a soft hyphen) would
+        // match everywhere with nothing to show.
+        var findable = trimmed.Any(c => CharUnicodeInfo.GetUnicodeCategory(c) is not
+            (UnicodeCategory.NonSpacingMark or UnicodeCategory.EnclosingMark or UnicodeCategory.Format));
+        return findable ? Fold(trimmed) : null;
     }
 
     /// <summary>Case, accents and width don't matter (Swift's
@@ -107,7 +111,7 @@ public static class WorkFind
                 if (paragraph.Length == 0) continue;
                 var folded = Fold(paragraph);
                 var (start, length) = IndexOf(folded, needle, 0);
-                if (start < 0) continue;
+                if (start < 0 || length == 0) continue;
                 var count = 1;
                 var next = start + Math.Max(length, 1);
                 while (IndexOf(folded, needle, next) is { Start: >= 0 } more)

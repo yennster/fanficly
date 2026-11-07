@@ -176,6 +176,7 @@ internal sealed partial class ReaderView
         if (previous._currentAnchor is { } moved && moved == previous._clampedRestoreAnchor) return;
         _loadedFromDisk = true;
         _openedAnchorGate = previous._openedAnchorGate;
+        _findQuery = previous._findQuery;
         if (previous._currentAnchor is { } anchor && ChapterAt(anchor.Chapter) is not null)
         {
             _currentAnchor = anchor;
