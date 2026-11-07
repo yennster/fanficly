@@ -10,6 +10,9 @@ struct ReaderView: View {
     /// a parent's "Comments" action can scope to the right chapter. Written
     /// whenever the visible/selected chapter changes.
     var currentChapter: Binding<Int>? = nil
+    /// AO3 has chapters the saved copy doesn't (#180): shown after the last
+    /// chapter, with its Update button. nil for a live work or an up-to-date one.
+    var newChapters: NewChaptersNotice? = nil
 
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
@@ -78,6 +81,9 @@ struct ReaderView: View {
     @State private var isUIMinimized: Bool = false
     @Environment(StatusBarVisibility.self) private var statusBar: StatusBarVisibility?
     @State private var listeningChapter: Int?
+    /// Narration read on to the end of the work: the screen stays free to lock
+    /// until Listen starts again, as after a sleep pause (#182).
+    @State private var listenedToEnd = false
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
     /// Page-by-page selection is always a page id; with a spread on screen the
@@ -273,9 +279,10 @@ struct ReaderView: View {
         self.summary = summary
     }
 
-    init(work: Work, currentChapter: Binding<Int>? = nil) {
+    init(work: Work, currentChapter: Binding<Int>? = nil, newChapters: NewChaptersNotice? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
         self.currentChapter = currentChapter
+        self.newChapters = newChapters
         self.title = work.title
         self.author = work.authorName
         self.authorUsername = work.authorUsername
@@ -404,7 +411,10 @@ struct ReaderView: View {
                     applyKeepScreenAwake(keepScreenAwake)
                     startTimer()
                 }
-                .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
+                // Only while on screen: narration stopping as the reader
+                // leaves flips this, and a hidden reader mustn't hold the
+                // screen for the page pushed over it.
+                .onChange(of: keepScreenAwake) { _, on in if isVisible { applyKeepScreenAwake(on) } }
                 .onChange(of: scenePhase) { _, newPhase in
                     scenePhaseChanged(newPhase)
                     if newPhase == .active {
@@ -519,7 +529,7 @@ struct ReaderView: View {
         // in one ViewModifier so this long body chain stays within the
         // type-checker's budget (see ChapterReportModifier for the same reason).
         .modifier(ReaderLifecycleModifier(
-            keepScreenAwake: keepScreenAwake,
+            keepScreenAwake: holdsScreenAwake,
             scenePhase: scenePhase,
             applyKeepScreenAwake: { applyKeepScreenAwake($0) },
             startTimer: { startReadingTimer() },
@@ -611,6 +621,13 @@ struct ReaderView: View {
         iCloudSyncManager.shared.queueBackup(context: modelContext)
     }
 
+    /// "Keep screen awake", except while Listen plays (#182): bedtime
+    /// listening lets the screen lock, and a chapter the sleep timer paused
+    /// keeps it free to lock until you play again.
+    private var holdsScreenAwake: Bool {
+        keepScreenAwake && !speech.isPlaying && !speech.pausedBySleepTimer && !listenedToEnd
+    }
+
     /// Disables the system idle timer so the display stays awake while reading.
     /// Always passes `false` on exit to hand control back to the OS.
     private func applyKeepScreenAwake(_ enabled: Bool) {
@@ -654,6 +671,9 @@ struct ReaderView: View {
     /// page in sync so the reader follows along.
     private func narrate(toChapter index: Int) {
         guard index != listeningChapter else { return }
+        // Picking a chapter isn't the chapter running out: a sleep pause
+        // that's pending mustn't hold it paused at its start.
+        if speech.sleepPausePending { speech.setSleepTimer(nil) }
         jump(toChapter: index)
         narrate(chapter: index, from: 0)
     }
@@ -661,6 +681,7 @@ struct ReaderView: View {
     private func narrate(chapter index: Int, from paragraph: Int) {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
+        listenedToEnd = false
         listeningChapter = index
         wireNarrationCallbacks()
         // A chapter with nothing to speak (only images, with images off) rolls
@@ -717,6 +738,7 @@ struct ReaderView: View {
         guard let current = listeningChapter,
               let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
                                                            current: current, forward: true) else {
+            listenedToEnd = true
             speech.stop()
             listeningChapter = nil
             return
@@ -727,7 +749,7 @@ struct ReaderView: View {
     }
 
     private func narrationBar(fg: Color, bg: Color) -> some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             Button { speech.skipBackward() } label: { Image(systemName: "backward.fill") }
                 .accessibilityLabel("Previous paragraph")
             Button { speech.togglePlayPause() } label: {
@@ -782,6 +804,8 @@ struct ReaderView: View {
             .accessibilityLabel("Speaking rate")
             .accessibilityValue(String(format: "%.1f times normal speed", speech.rateMultiplier))
 
+            sleepTimerMenu
+
             Button {
                 speech.stop()
                 listeningChapter = nil
@@ -797,6 +821,41 @@ struct ReaderView: View {
         .overlay(alignment: .top) {
             Rectangle().fill(fg.opacity(0.12)).frame(height: 0.5)
         }
+    }
+
+    /// The narration bar's sleep timer (#182): pause after the paragraph being
+    /// spoken once 15, 30 or 60 minutes are up, or at the end of the chapter.
+    private var sleepTimerMenu: some View {
+        Menu {
+            Section {
+                Picker("Sleep timer", selection: Binding(
+                    get: { speech.sleepTimer },
+                    set: { speech.setSleepTimer($0) }
+                )) {
+                    Text("Off").tag(SleepTimer?.none)
+                    ForEach(SleepTimer.choices, id: \.self) { timer in
+                        Text(timer.title).tag(Optional(timer))
+                    }
+                }
+                .pickerStyle(.inline)
+            } header: {
+                Text(sleepTimerStatus ?? "Pause listening after")
+            }
+        } label: {
+            Image(systemName: speech.sleepTimer == nil ? "moon.zzz" : "moon.zzz.fill")
+        }
+        .accessibilityLabel("Sleep timer")
+        .accessibilityValue(sleepTimerStatus ?? "Off")
+    }
+
+    /// When the sleep timer will pause narration, for the menu and VoiceOver.
+    private var sleepTimerStatus: String? {
+        if speech.sleepPausePending { return "Pausing after this paragraph" }
+        if let deadline = speech.sleepDeadline {
+            return "Pauses at \(deadline.formatted(date: .omitted, time: .shortened))"
+        }
+        if speech.sleepTimer == .endOfChapter { return "Pauses at the end of the chapter" }
+        return nil
     }
 
     /// The chapter label + "¶ x / y" readout shown in the narration bar.
@@ -853,6 +912,9 @@ struct ReaderView: View {
                             .id(chapter.index)
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
                         }
+                        if let newChapters {
+                            NewChaptersBanner(notice: newChapters, foreground: fg)
+                        }
                     }
                     .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.vertical, Spacing.lg)
@@ -873,6 +935,14 @@ struct ReaderView: View {
                 .onChange(of: geo.size.width) { old, new in
                     guard abs(old - new) > 1 else { return }
                     beginResize(width: new)
+                    guard let anchor = currentAnchor else { return }
+                    isRestoring = true
+                    Task { await reanchor(to: anchor, proxy: proxy) }
+                }
+                // A one-chapter download updated with its second chapter
+                // (#180) gains chapter headers above the text it shows: put
+                // the paragraph you were on back on top.
+                .onChange(of: chapters.count > 1) { _, _ in
                     guard let anchor = currentAnchor else { return }
                     isRestoring = true
                     Task { await reanchor(to: anchor, proxy: proxy) }
@@ -1270,6 +1340,9 @@ struct ReaderView: View {
                             chapterHeader(chapter, fg: fg)
                         }
                         chapterBlock(chapter, fg: fg)
+                        if let newChapters, chapter.index == chapters.last?.index {
+                            NewChaptersBanner(notice: newChapters, foreground: fg)
+                        }
                     }
                     .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.top, Spacing.lg)
@@ -1444,6 +1517,7 @@ struct ReaderView: View {
                 kerning: kerningPt / zoomScale,
                 boldText: boldText,
                 showImages: showImages,
+                content: ChapterContentSignature(chapters),
                 size: CGSize(
                     width: spread?.pageWidth ?? geo.size.width,
                     // The page area on screen: the controls and the narration
@@ -2106,6 +2180,12 @@ struct ReaderView: View {
                 
             // The page number alone, for full screen: "3", or "3–4" in a spread.
             let pageNumber = onScreen?.right.map { "\(firstNum)–\($0.pageIndex + 1)" } ?? "\(firstNum)"
+            // The work's last page with AO3 ahead of the saved copy (#180):
+            // the footer offers the update in the chapter label's place, in
+            // the same row, so the page area (and the pages) never change.
+            let lastOnScreen = onScreen?.right ?? onScreen?.left ?? currentPage
+            let notice = (currentPage.chapterIndex == chapters.map(\.index).max()
+                          && chapterPages.last?.id == lastOnScreen.id) ? newChapters : nil
 
             let row = HStack {
                 Text(label)
@@ -2133,6 +2213,44 @@ struct ReaderView: View {
                             .accessibilityLabel("\(label), \(pageLabel.lowercased())")
                             .accessibilityIdentifier("reader.pageNumber")
                     }
+            } else if let notice {
+                // The plain row, hidden, keeps the bar's height exactly.
+                row.hidden()
+                    .overlay {
+                        HStack {
+                            if notice.isUpdating {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .accessibilityLabel("Updating download")
+                            } else {
+                                // The action first, so a narrow footer at
+                                // a large text size never cuts it off.
+                                Button(action: notice.update) {
+                                    Text("Update · \(notice.text)")
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Color.accentColor)
+                                .accessibilityLabel("\(notice.text). Update download")
+                                .accessibilityHint("Saves the new chapters on this device. You stay where you are.")
+                                .accessibilityIdentifier("reader.newChapters.update")
+                            }
+                            Spacer()
+                            Text(pageLabel)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(fg.opacity(0.5))
+                                .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .background(bg)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("reader.pageFooter")
+                    .contentShape(Rectangle())
             } else {
                 row
                     .background(bg)
@@ -2505,9 +2623,25 @@ struct PaginationTrigger: Equatable {
     let kerning: Double
     let boldText: Bool
     let showImages: Bool
+    /// The chapters loaded: updating a download adds some or changes their
+    /// text (#180), and the pages must be made again.
+    let content: ChapterContentSignature
     let size: CGSize
     /// The Duo's side column the text keeps clear of (none on a spread).
     let sideColumn: SideColumn
+}
+
+/// Which chapters are loaded and how long each one's text is: cheap to
+/// compute (a native string's UTF-8 count is stored), and it changes when a
+/// download update adds chapters or brings edited text.
+struct ChapterContentSignature: Equatable {
+    let indices: [Int]
+    let lengths: [Int]
+
+    init(_ chapters: [AO3ChapterPayload]) {
+        indices = chapters.map(\.index)
+        lengths = chapters.map { $0.bodyHTML.utf8.count }
+    }
 }
 
 /// What page-by-page's settle task waits on: any change restarts the wait.

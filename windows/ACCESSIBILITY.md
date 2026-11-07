@@ -31,6 +31,7 @@ Every screen can be used from the keyboard. Settings → Input → Keyboard shor
 - **Getting around:**
   - Alt+Left, Esc or the mouse's back button go back.
   - Tab and Shift+Tab move focus; Enter or Space activate.
+  - Opening a page moves focus into it and Narrator reads the page's name; going back puts focus on the item you opened it from. The reader is the exception: opening a story, or coming back to it, keeps focus off its buttons so the keys and page turners turn pages straight away.
   - Shift+F10 or the Menu key open a context menu.
 - **Search:** Ctrl+F or F3 jump to the search box.
 - **Open a link:** Ctrl+V outside a text box opens a copied AO3 work link (so does dropping one on the window).
@@ -64,9 +65,10 @@ Plug in or pair a controller and it works throughout the app. Settings → Input
 The reader's settings are in its Aa menu (quick presets) and in Settings → Theme & typography (sliders, with a live preview).
 
 - **Larger text:**
-  - Story text goes from 12 to 30 points.
+  - Story text goes from 12 to 60 points, more than three times the 18-point default.
+  - Windows' **Text size** setting (Settings → Accessibility → Text size) enlarges story text too, on top of the size you pick, and page by page lays its pages out at the enlarged size when you open the story.
   - Line spacing, paragraph spacing, character spacing and margins each have their own control.
-  - **Bold text** gives heavier strokes.
+  - **Bold text** gives heavier strokes. (Windows has no system-wide Bold Text setting like the iPhone's, so this is the switch to use.)
   - Zooming the interface with Ctrl+Shift+Plus doesn't change the story's text size, so you can set the two separately.
 - **Fonts:** a choice of serif, sans-serif, rounded and monospaced faces, including Sitka (designed for reading on screen), Georgia, Segoe UI and Cascadia Mono.
 - **Six reading themes:** Light, Sepia, Dark, OLED Black, Dracula Navy and Match System. They give you a low-glare or true-black page for reading in the dark.

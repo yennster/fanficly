@@ -173,6 +173,8 @@ internal sealed partial class ReaderView
         var column = ReaderText.Column(Paragraphs(chapter.Index), style, _brushes.Foreground, paragraphs);
         column.Padding = new Thickness(0, 8, 0, 8);
         panel.Children.Add(column);
+        // AO3 has more than the saved copy (#180): the note after the last chapter.
+        if (NewChapters is { } notice && chapter.Index == _chapterOrder[^1]) panel.Children.Add(NewChaptersBanner(notice));
         if (_chapRoot is { ActualWidth: > 0 } root) panel.Width = ColumnWidth(root.ActualWidth, ReaderPrefs.WidthPercent);
 
         var scroll = new ScrollViewer

@@ -274,6 +274,14 @@ public static partial class ReaderPaginator
         return SplitAtom(atom, breaks[lo] + 1);
     }
 
+    /// <summary>The atom's text up to its first space: the least of it a page can take
+    /// (see <see cref="SplitAtomToFit"/>).</summary>
+    public static ReaderRichText FirstWord(ParagraphAtom atom)
+    {
+        var space = atom.Text.Text.IndexOf(' ', 1);
+        return space > 0 ? atom.Text.Slice(0, space) : atom.Text;
+    }
+
     /// <summary>Splits <paramref name="atom"/> so its second part starts at character
     /// <paramref name="k"/>; a space just before <paramref name="k"/> is dropped, as at
     /// a line end. Null when either part would be empty.</summary>
@@ -816,13 +824,20 @@ public sealed class ChapterPagination
         var stop = _reachedKept ? null : _keptId;
         var endIndex = _startIndex;
         var includedAny = false;
-        if (pageMaxHeight > 40 && _drawnHeight is not null)
+        // Room under the chapter header for the first word: at the largest text
+        // sizes on a short page (a phone in landscape) the header can leave less,
+        // and a sentence that can't be split put under it ran far past the page.
+        // That header gets the page to itself (#174).
+        var hasRoom = pageMaxHeight > 40
+                      && (!displaysChapterHeader || _measure(ReaderPaginator.FirstWord(_atoms[_startIndex])) + 1
+                          <= pageMaxHeight - reserve);
+        if (hasRoom && _drawnHeight is not null)
         {
             endIndex = ReaderPaginator.FitPage(_atoms, _startIndex, pageMaxHeight, reserve, _paragraphSpacing, _oneLine,
                                                _measure, _drawnHeight, stop);
             includedAny = true;
         }
-        else if (pageMaxHeight > 40)
+        else if (hasRoom)
         {
             endIndex = ReaderPaginator.PackPage(_atoms, _startIndex, pageMaxHeight - reserve, _paragraphSpacing, _oneLine,
                                                 _measure, stop);
@@ -845,8 +860,8 @@ public sealed class ChapterPagination
             // right, so the kept page opens a spread of its own.
             StartsSpread: isKept && includedAny && _pageIndex % 2 == 1));
         _pageIndex += 1;
-        // A page area too short for any text (≤ 40) would loop forever; the Swift
-        // only ever gets here with a chapter header taller than the page.
+        // A page area too short for any text (≤ 40) would loop forever; otherwise
+        // only a chapter header with no room for a line under it gets here.
         if (!includedAny && _pageIndex > _atoms.Count + 2)
         {
             Finish();

@@ -24,7 +24,7 @@ PRIVACY.md    the Apple app's privacy policy; it stays at the root because the A
 .github/      ci.yml (apple/**), windows-ci.yml / windows-store.yml / windows-screenshots.yml
               (windows/**), release.yml / store-assets.yml / xcode-cloud.yml (Apple releases
               and Xcode Cloud upkeep, run by hand; apple/docs/RELEASING.md),
-              xcode-cloud-duo.yml (iPhone Duo tests in Xcode Cloud),
+              xcode-cloud-duo.yml (iPhone Duo tests in Xcode Cloud, by hand),
               xcode-cloud-setup.yml (the Xcode Cloud CI and release workflows), the PR template
 ```
 

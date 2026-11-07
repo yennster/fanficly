@@ -300,7 +300,7 @@ struct ReaderSettingsView: View {
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.\(volumeFooter)")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
             }
 
             Section {
@@ -345,7 +345,7 @@ struct ReaderSettingsView: View {
                 .padding(.vertical, 2)
                 .help("Drag to adjust the speech speed.")
             } footer: {
-                Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
+                Text("Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {

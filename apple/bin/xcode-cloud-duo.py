@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """ReaderLayoutTests on the iPhone Duo simulator, in Xcode Cloud.
 
-GitHub's macOS runners don't have an Xcode with the iPhone Duo yet, so the Duo
-runs in Xcode Cloud. Its "Duo tests" workflow tests the FanficlyReaderLayout
-scheme (ReaderLayoutTests only) on the Duo, in the pose the simulator boots
-in. To save Xcode Cloud's compute hours it starts on its own only for pull
-requests into main that change the reader's layout (LAYOUT_FILES), and
-otherwise by hand (xcode-cloud-duo.yml with a branch, or Start Build in App
-Store Connect). Xcode Cloud reports it on the PR as a check. Run by the workflows in
-xcode-cloud-duo.yml, no Mac needed:
+GitHub's ci.yml runs ReaderLayoutTests on the Duo for every pull request that
+changes the reader's layout, on its "xcode-27" runner (Xcode 27.1 has the Duo
+simulator). This Xcode Cloud "Duo tests" workflow is the fallback, started by
+hand only, to save Xcode Cloud's 100 compute hours a month: it never starts on
+its own. It tests the FanficlyReaderLayout scheme (ReaderLayoutTests only) on
+the Duo, in the pose the simulator boots in, on the newest Xcode Cloud Xcode
+with a Duo. Run by xcode-cloud-duo.yml (by hand, with a branch), no Mac needed:
 
   setup                makes or updates that Xcode Cloud workflow: the newest
                        Xcode that has a Duo simulator, and its start conditions
   run BRANCH OUT       setup, start it on BRANCH, wait, download the result
                        bundle to OUT
-  fetch SHA OUT        download the result bundle of the newest finished build
-                       of commit SHA to OUT (after Xcode Cloud's check ends)
 
 The screenshots are attachments in the result bundle.
 
 Auth: fastlane/api_key.json + the AuthKey .p8, as for the other uploaders.
-Run:  bin/.venv/bin/python bin/xcode-cloud-duo.py setup|run|fetch ...
+Run:  bin/.venv/bin/python bin/xcode-cloud-duo.py setup|run ...
 """
 from __future__ import annotations
 
@@ -36,27 +33,6 @@ from asc_assets import API, app_id, req
 NAME = "Duo tests"
 SCHEME = "FanficlyReaderLayout"
 PROJECT = "apple/Fanficly.xcodeproj"
-# What ReaderLayoutTests exercise: the reader and the views that host it
-# (WorkDetailView's toolbar and full screen, SavedWorkReader), the app's window
-# and layout, the reader's settings, the demo chapters they paginate, the
-# strings they match, the project and its schemes, ci_scripts, and the tests
-# themselves. A PR that changes none of them can't change the Duo's result.
-LAYOUT_FILES = {"mode": "START_IF_ANY_FILE_MATCHES", "matchers": [
-    {"directory": "apple/Fanficly/Reader"},
-    {"directory": "apple/Fanficly/DesignSystem"},
-    {"directory": "apple/Fanficly", "fileName": "RootView.swift"},
-    {"directory": "apple/Fanficly", "fileName": "FanficlyApp.swift"},
-    {"directory": "apple/Fanficly/Settings", "fileName": "ReaderSettingsView.swift"},
-    {"directory": "apple/Fanficly/Search", "fileName": "WorkDetailView.swift"},
-    {"directory": "apple/Fanficly/Library", "fileName": "SavedWorkReader.swift"},
-    {"directory": "apple/Fanficly/Networking", "fileName": "DemoAO3Client.swift"},
-    {"directory": "apple/Fanficly", "fileName": "Localizable.xcstrings"},
-    {"directory": "apple/Fanficly", "fileName": "Info.plist"},
-    {"directory": "apple", "fileName": "project.yml"},
-    {"directory": "apple/ci_scripts"},
-    {"directory": "apple/FanficlyUITests", "fileName": "FanficlyUITests.swift"},
-]}
-
 
 def all_pages(url: str, params: dict | None = None) -> list[dict]:
     out, params = [], dict(params or {}, limit=200)
@@ -120,18 +96,17 @@ def setup() -> tuple[dict, dict]:
     repo = req("GET", f"{API}/ciWorkflows/{workflows[0]['id']}/repository")["data"]
     attributes = {
         "name": NAME,
-        "description": "ReaderLayoutTests on the iPhone Duo simulator, for pull requests that change "
-                       "the reader's layout, or by hand. Kept up to date by xcode-cloud-duo.yml in GitHub.",
+        "description": "ReaderLayoutTests on the iPhone Duo simulator, started by hand only (GitHub's ci.yml "
+                       "runs them on PRs). Kept up to date by xcode-cloud-duo.yml in GitHub.",
         "isEnabled": True,
         "clean": False,
         "containerFilePath": PROJECT,
         "manualBranchStartCondition": {"source": {"isAllMatch": True}},
-        "pullRequestStartCondition": {
-            "source": {"isAllMatch": True},
-            "destination": {"isAllMatch": False, "patterns": [{"pattern": "main", "isPrefix": False}]},
-            "filesAndFoldersRule": LAYOUT_FILES,
-            "autoCancel": True,
-        },
+        # By hand only: GitHub's ci.yml runs the Duo on PRs.
+        "pullRequestStartCondition": None,
+        "branchStartCondition": None,
+        "tagStartCondition": None,
+        "scheduledStartCondition": None,
         "actions": [{
             "name": "Test on iPhone Duo",
             "actionType": "TEST",
@@ -218,38 +193,12 @@ def run(branch: str, out: Path) -> None:
     download(build["id"], out)
 
 
-def fetch(sha: str, out: Path) -> None:
-    _, workflows = product_and_workflows()
-    wf = next((w for w in workflows if w["attributes"].get("name") == NAME), None)
-    if not wf:
-        sys.exit(f"No Xcode Cloud workflow named {NAME}")
-    # The check can end a little before the API shows the build complete.
-    for _ in range(10):
-        # Every page: the API doesn't list the newest builds first.
-        builds = all_pages(f"{API}/ciWorkflows/{wf['id']}/buildRuns")
-        builds = sorted(builds, key=lambda b: b["attributes"].get("number") or 0, reverse=True)
-        build = next((b for b in builds
-                      if (b["attributes"].get("sourceCommit") or {}).get("commitSha") == sha), None)
-        if build and build["attributes"].get("executionProgress") == "COMPLETE":
-            status = build["attributes"].get("completionStatus")
-            print(f"==> Build {build['attributes'].get('number')}: {status}")
-            if status in ("CANCELED", "SKIPPED"):
-                print("Nothing to download")  # superseded by a newer push
-                return
-            download(build["id"], out)
-            return
-        time.sleep(30)
-    sys.exit(f"No finished {NAME} build of {sha}")
-
-
 def main() -> None:
     match sys.argv[1:]:
         case ["setup"]:
             setup()
         case ["run", branch, out]:
             run(branch, Path(out))
-        case ["fetch", sha, out]:
-            fetch(sha, Path(out))
         case _:
             sys.exit(__doc__)
 
