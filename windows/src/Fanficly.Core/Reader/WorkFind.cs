@@ -23,7 +23,9 @@ public static class WorkFind
     /// <param name="HighlightStart">Where the words start in <paramref name="Snippet"/> (UTF-16).</param>
     /// <param name="HighlightLength">Their length in <paramref name="Snippet"/>.</param>
     /// <param name="Count">How many times the words appear in this paragraph.</param>
-    public sealed record Match(int Chapter, int Paragraph, string Snippet, int HighlightStart, int HighlightLength, int Count)
+    /// <param name="Offset">Where the words start in the paragraph (UTF-16).</param>
+    public sealed record Match(int Chapter, int Paragraph, string Snippet, int HighlightStart, int HighlightLength, int Count,
+                               int Offset = 0)
     {
         public ReadingAnchor Anchor => new(Chapter, Paragraph);
     }
@@ -126,7 +128,7 @@ public static class WorkFind
                     continue;
                 }
                 var (snippet, highlightStart) = Snippet(paragraph, start, length);
-                matches.Add(new Match(chapter.Index, p, snippet, highlightStart, length, count));
+                matches.Add(new Match(chapter.Index, p, snippet, highlightStart, length, count, start));
             }
         }
         return new Result(matches, truncated, total);

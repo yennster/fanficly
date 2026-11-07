@@ -295,6 +295,15 @@ internal sealed partial class ReaderView
         _atoms = atoms;
         _pages = result.Pages.ToList();
 
+        // A Find match in this chapter: the page with the words, which in a
+        // paragraph over several pages needn't be the paragraph's first.
+        if (_findPage is { } findTarget && findTarget.Chapter == trigger.Chapter)
+        {
+            _findPage = null;
+            _findPageJump = false;
+            if (FindMatchPage(findTarget) is { } findPage) kept = findPage.Id;
+        }
+
         var before = _selectedPageId;
         RestoreOrValidatePageSelection(kept);
         // The page kept holds the place reached but needn't start there, and with an

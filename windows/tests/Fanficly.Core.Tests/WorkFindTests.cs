@@ -57,6 +57,14 @@ public class WorkFindTests
     }
 
     [Fact]
+    public void MatchKnowsWhereTheWordsStartInTheParagraph()
+    {
+        // Page by page uses it to show the page with the words.
+        var match = Assert.Single(WorkFind.Search("ring", [Chapter(1, "One. Two. The ring.")]).Matches);
+        Assert.Equal(14, match.Offset);
+    }
+
+    [Fact]
     public void SkipsEmptySlots()
     {
         // Image slots and scene breaks are "" in SpeechParagraphs; they keep their index.

@@ -31,9 +31,15 @@ internal sealed partial class ReaderView
     /// <summary>Find set <c>_isRestoring</c> for a page-by-page chapter change; a
     /// failed re-pagination clears it.</summary>
     private bool _findPageJump;
+    /// <summary>Page by page: a Find target in a chapter being paginated, shown
+    /// once its pages are in (see <c>RunPagination</c>).</summary>
+    private ReadingAnchor? _findPage;
+    /// <summary>Where the words start in the target paragraph.</summary>
+    private int _findOffset;
 
     private static readonly TimeSpan FindDebounce = TimeSpan.FromMilliseconds(250);
-    private static readonly TimeSpan FindHighlightDuration = TimeSpan.FromSeconds(2.5);
+    /// <summary>Long enough to outlast a chapter's pagination or the dialog closing.</summary>
+    private static readonly TimeSpan FindHighlightDuration = TimeSpan.FromSeconds(3.5);
 
     /// <summary>Opens Find (once the Aa menu has closed when it came from there).</summary>
     private async Task ShowFindAsync()
@@ -43,7 +49,7 @@ internal sealed partial class ReaderView
         try
         {
             var chosen = await RunFindDialogAsync();
-            if (chosen is { } anchor && !_removed) ShowFindMatch(anchor);
+            if (chosen is { } match && !_removed) ShowFindMatch(match.Anchor, match.Offset);
         }
         finally
         {
@@ -51,9 +57,9 @@ internal sealed partial class ReaderView
         }
     }
 
-    private async Task<ReadingAnchor?> RunFindDialogAsync()
+    private async Task<WorkFind.Match?> RunFindDialogAsync()
     {
-        ReadingAnchor? chosen = null;
+        WorkFind.Match? chosen = null;
         var box = new TextBox
         {
             PlaceholderText = "Words in this work",
@@ -97,7 +103,7 @@ internal sealed partial class ReaderView
 
         void Choose(WorkFind.Match match)
         {
-            chosen = match.Anchor;
+            chosen = match;
             dialog.Hide();
         }
 
@@ -224,8 +230,9 @@ internal sealed partial class ReaderView
 
     /// <summary>Shows a Find match in whichever mode is on screen (Swift:
     /// <c>showFindMatch</c>). The match becomes the reading place, saved at once.</summary>
-    private void ShowFindMatch(ReadingAnchor anchor)
+    private void ShowFindMatch(ReadingAnchor anchor, int offset = 0)
     {
+        _findOffset = offset;
         if (ChapterAt(anchor.Chapter) is not { } chapter || !_bodyBuilt) return;
         SetCurrentAnchor(anchor, force: true);
         FlashFindHighlight(anchor);
@@ -283,23 +290,39 @@ internal sealed partial class ReaderView
     /// (<see cref="RestoreOrValidatePageSelection"/> picks the page holding the anchor).</summary>
     private void ShowFindMatchPage(ReadingAnchor anchor)
     {
-        if (_atoms.TryGetValue(anchor.Chapter, out var atoms))
+        _findPage = null;
+        if (FindMatchPage(anchor) is { } page)
         {
-            var atomIndex = atoms.FindIndex(a => a.OriginalParagraphIndex == anchor.Paragraph);
-            if (atomIndex >= 0
-                && _pages.FirstOrDefault(p => p.ChapterIndex == anchor.Chapter && p.ParagraphIndices.Contains(atomIndex)) is { } page)
-            {
-                if (!IsShowing(page.Id)) UpdatePageSelection(page.Id);
-                return;
-            }
+            if (!IsShowing(page.Id)) UpdatePageSelection(page.Id);
+            return;
         }
         if (anchor.Chapter == _selectedChapter) return;
+        _findPage = anchor;
         // Not a jump to the chapter's top: keeps OnPageChapterChanged from
         // replacing the place with the chapter's first paragraph. The next
         // pagination's page selection clears it (or its failure, _findPageJump).
         _isRestoring = true;
         _findPageJump = true;
         SelectChapter(anchor.Chapter);
+    }
+
+    /// <summary>The page showing a Find match: a long paragraph runs over several
+    /// pages, so the one whose atoms cover the words' offset (the speech text Find
+    /// searched is the rendered text, give or take a trimmed space).</summary>
+    private ChapterPage? FindMatchPage(ReadingAnchor anchor)
+    {
+        if (!_atoms.TryGetValue(anchor.Chapter, out var atoms)) return null;
+        int? covering = null;
+        var end = 0;
+        for (var i = 0; i < atoms.Count; i++)
+        {
+            if (atoms[i].OriginalParagraphIndex != anchor.Paragraph) continue;
+            covering = i;
+            end += atoms[i].Text.Length;
+            if (end > _findOffset) break;
+        }
+        if (covering is not { } atomIndex) return null;
+        return _pages.FirstOrDefault(p => p.ChapterIndex == anchor.Chapter && p.ParagraphIndices.Contains(atomIndex));
     }
 
     private void FlashFindHighlight(ReadingAnchor anchor)
