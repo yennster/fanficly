@@ -41,6 +41,8 @@ internal sealed partial class ReaderView
     private TextBlock? _narrationPosition;
     private Button? _rateButton;
     private TextBlock? _rateText;
+    private Button? _sleepButton;
+    private FontIcon? _sleepIcon;
 
     private static readonly double[] SpeakingRates = [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0];
 
@@ -351,6 +353,30 @@ internal sealed partial class ReaderView
         };
         _rateButton.Flyout = rateMenu;
 
+        // The sleep timer (#182): pause after the paragraph being spoken once 15,
+        // 30 or 60 minutes are up, or at the end of the chapter.
+        _sleepIcon = (FontIcon)Symbols.Icon("moon.zzz", 15).A11yHidden();
+        _sleepButton = _brushes.BarButton(_sleepIcon, "Sleep timer");
+        AutomationProperties.SetAutomationId(_sleepButton, "speech.sleepTimer");
+        var sleepMenu = new MenuFlyout();
+        sleepMenu.Opening += (_, _) =>
+        {
+            sleepMenu.Items.Clear();
+            sleepMenu.Items.Add(new MenuFlyoutItem { Text = SleepTimerStatus ?? "Pause listening after", IsEnabled = false });
+            sleepMenu.Items.Add(new MenuFlyoutSeparator());
+            var off = new RadioMenuFlyoutItem { Text = "Off", GroupName = "sleepTimer", IsChecked = _speech.CurrentSleepTimer is null };
+            off.Click += (_, _) => SetSleepTimer(null);
+            sleepMenu.Items.Add(off);
+            foreach (var choice in SleepTimer.Choices)
+            {
+                var value = choice;
+                var item = new RadioMenuFlyoutItem { Text = value.Title, GroupName = "sleepTimer", IsChecked = _speech.CurrentSleepTimer == value };
+                item.Click += (_, _) => SetSleepTimer(value);
+                sleepMenu.Items.Add(item);
+            }
+        };
+        _sleepButton.Flyout = sleepMenu;
+
         var stopIcon = Symbols.Icon("xmark.circle.fill", 18).A11yHidden();
         stopIcon.Foreground = _brushes.Fg45;
         var stop = _brushes.BarButton(stopIcon, "Stop listening", () =>
@@ -372,7 +398,7 @@ internal sealed partial class ReaderView
         // The status takes the room between the transport buttons and the rate
         // and stop buttons (left-aligned, up to its MaxWidth), so all of them
         // fit at phone width.
-        foreach (var width in new[] { "Auto", "Auto", "Auto", "*", "Auto", "Auto" })
+        foreach (var width in new[] { "Auto", "Auto", "Auto", "*", "Auto", "Auto", "Auto" })
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = UI.UI.Length(width) });
         _narrationStatus.HorizontalAlignment = HorizontalAlignment.Left;
         bar.Children.Add(back.Col(0));
@@ -380,7 +406,8 @@ internal sealed partial class ReaderView
         bar.Children.Add(forward.Col(2));
         bar.Children.Add(_narrationStatus.Col(3));
         bar.Children.Add(_rateButton.Col(4));
-        bar.Children.Add(stop.Col(5));
+        bar.Children.Add(_sleepButton.Col(5));
+        bar.Children.Add(stop.Col(6));
         _narrationBar = bar;
         UpdateNarrationBar();
         return bar;
@@ -401,6 +428,30 @@ internal sealed partial class ReaderView
         var rate = _speech.RateMultiplier;
         _rateText!.Text = $"{rate.ToString("0.0", CultureInfo.CurrentCulture)}×";
         AutomationProperties.SetName(_rateButton!, $"Speaking rate, {rate.ToString("0.0", CultureInfo.CurrentCulture)} times normal speed");
+        var sleepStatus = SleepTimerStatus;
+        _sleepIcon!.Foreground = _speech.CurrentSleepTimer is null && !_speech.SleepPausePending ? _brushes.Fg60 : _brushes.Foreground;
+        AutomationProperties.SetName(_sleepButton!, sleepStatus is null ? "Sleep timer, off" : $"Sleep timer, {sleepStatus}");
+        ToolTipService.SetToolTip(_sleepButton!, sleepStatus ?? "Sleep timer");
+    }
+
+    private void SetSleepTimer(SleepTimer? timer)
+    {
+        _speech.SetSleepTimer(timer);
+        var status = SleepTimerStatus;
+        MainWindow.Current.Announce(status is null ? "Sleep timer off" : $"Sleep timer set. {status}");
+    }
+
+    /// <summary>When the sleep timer will pause narration, for the menu, tooltip and Narrator.</summary>
+    private string? SleepTimerStatus
+    {
+        get
+        {
+            if (_speech.SleepPausePending) return "Pausing after this paragraph";
+            if (_speech.SleepDeadline is { } deadline)
+                return $"Pauses at {deadline.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)}";
+            if (_speech.CurrentSleepTimer is { IsEndOfChapter: true }) return "Pauses at the end of the chapter";
+            return null;
+        }
     }
 
     // MARK: - Chapters menu
