@@ -11,7 +11,8 @@ import Observation
 /// leaves the device). Users can download higher-quality/natural voices in
 /// iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice
 /// under Settings → Accessibility → Personal Voice) and pick one in
-/// Reader settings; otherwise the platform default voice is used.
+/// Reader settings; otherwise a voice for the work's language is used (#184),
+/// or the platform default voice when the work is in the device's language.
 ///
 /// Paragraphs are enqueued up-front so playback is gapless. We map each
 /// utterance back to its paragraph index (via `ObjectIdentifier`) to drive
@@ -85,6 +86,8 @@ final class SpeechController: NSObject {
     private var indexOf: [ObjectIdentifier: Int] = [:]
     private var workTitle = ""
     private var author = ""
+    /// The work's language as AO3 names it ("Español"), for the voice.
+    private var workLanguage = ""
     private var commandTargets: [(MPRemoteCommand, Any)] = []
     /// Held while a chapter is loaded so macOS's App Nap doesn't throttle the
     /// app once its window is minimized or hidden: the synthesizer's callbacks
@@ -144,11 +147,31 @@ final class SpeechController: NSObject {
         Float(rateMultiplier * Double(Self.defaultRate))
     }
 
+    /// The voice picked in Settings; with none (or one that isn't installed
+    /// here, synced from another device), a voice for the work's language.
     private var voice: AVSpeechSynthesisVoice? {
-        if let id = UserDefaults.standard.string(forKey: Self.voiceKey), !id.isEmpty {
-            return AVSpeechSynthesisVoice(identifier: id)
+        if let id = UserDefaults.standard.string(forKey: Self.voiceKey), !id.isEmpty,
+           let picked = AVSpeechSynthesisVoice(identifier: id) {
+            return picked
         }
-        return nil  // nil → platform default voice for the current language
+        return Self.automaticVoice(forWorkLanguage: workLanguage)
+    }
+
+    /// An installed voice for the work's language (#184), or nil, which is the
+    /// system's voice for its own language: when the work is in that language,
+    /// its language is unknown, or no voice speaks it. Novelty voices and
+    /// Personal Voice are only ever used when picked.
+    static func automaticVoice(forWorkLanguage language: String) -> AVSpeechSynthesisVoice? {
+        guard let tag = SpeechLanguage.tag(forWorkLanguage: language) else { return nil }
+        let installed = AVSpeechSynthesisVoice.speechVoices().filter {
+            !$0.voiceTraits.contains(.isNoveltyVoice) && !$0.voiceTraits.contains(.isPersonalVoice)
+        }
+        let id = SpeechLanguage.voiceID(
+            forTag: tag,
+            voices: installed.map { .init(id: $0.identifier, language: $0.language, quality: $0.quality.rawValue) },
+            defaultLanguage: AVSpeechSynthesisVoice.currentLanguageCode(),
+            preferredID: AVSpeechSynthesisVoice(language: tag)?.identifier)
+        return id.flatMap { AVSpeechSynthesisVoice(identifier: $0) }
     }
 
     // MARK: - Control
@@ -156,7 +179,7 @@ final class SpeechController: NSObject {
     /// Loads a chapter's paragraphs and starts speaking from `paragraph`.
     /// False when the chapter has nothing to speak (nothing is loaded then).
     @discardableResult
-    func play(paragraphs: [String], workTitle: String, author: String,
+    func play(paragraphs: [String], workTitle: String, author: String, language: String = "",
               chapterLabel: String, from paragraph: Int = 0) -> Bool {
         let spoken = paragraphs.indices.filter {
             !paragraphs[$0].trimmingCharacters(in: .whitespaces).isEmpty
@@ -167,6 +190,7 @@ final class SpeechController: NSObject {
         self.spokenCount = spoken.count
         self.workTitle = workTitle
         self.author = author
+        self.workLanguage = language
         self.chapterLabel = chapterLabel
         isActive = true
         activateSession()
@@ -445,5 +469,156 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
                 finishChapter()
             }
         }
+    }
+}
+
+// MARK: - The work's language (#184)
+
+/// Which installed voice reads a work when no voice is picked in Settings:
+/// one for the work's language, so a Spanish work isn't read by an English
+/// voice. Pure, so `SpeechLanguageTests` covers it; the Windows app's
+/// `SpeechLanguage` (Fanficly.Core) is the same table and rules.
+enum SpeechLanguage {
+    /// AO3's language names as a work shows them (`dd.language`), plus their
+    /// English names and AO3's short codes, lowercased → a BCP-47 tag.
+    /// Chinese is handled in `tag(forWorkLanguage:)`: AO3 has several.
+    static let names: [String: String] = [
+        "english": "en",
+        "español": "es", "spanish": "es",
+        "français": "fr", "french": "fr",
+        "deutsch": "de", "german": "de",
+        "русский": "ru", "russian": "ru",
+        "日本語": "ja", "japanese": "ja",
+        "한국어": "ko", "korean": "ko",
+        "português brasileiro": "pt-BR", "ptbr": "pt-BR",
+        "português europeu": "pt-PT", "ptpt": "pt-PT",
+        "português": "pt", "portuguese": "pt",
+        "italiano": "it", "italian": "it",
+        "polski": "pl", "polish": "pl",
+        "nederlands": "nl", "dutch": "nl",
+        "türkçe": "tr", "turkish": "tr",
+        "tiếng việt": "vi", "vietnamese": "vi",
+        "bahasa indonesia": "id", "indonesian": "id",
+        "bahasa malaysia": "ms", "malay": "ms",
+        "català": "ca", "catalan": "ca",
+        "čeština": "cs", "czech": "cs",
+        "dansk": "da", "danish": "da",
+        "eesti keel": "et", "eesti": "et", "estonian": "et",
+        "suomi": "fi", "finnish": "fi",
+        "ελληνικά": "el", "greek": "el",
+        "עברית": "he", "hebrew": "he",
+        "हिन्दी": "hi", "hindi": "hi",
+        "magyar": "hu", "hungarian": "hu",
+        "íslenska": "is", "icelandic": "is",
+        "latviešu valoda": "lv", "latviešu": "lv", "latvian": "lv",
+        "lietuvių kalba": "lt", "lietuvių": "lt", "lithuanian": "lt",
+        "norsk": "nb", "norwegian": "nb", "no": "nb",
+        "română": "ro", "romanian": "ro",
+        "slovenčina": "sk", "slovak": "sk",
+        "slovenščina": "sl", "slovenian": "sl", "slv": "sl",
+        "svenska": "sv", "swedish": "sv",
+        "ไทย": "th", "thai": "th",
+        "українська": "uk", "ukrainian": "uk",
+        "العربية": "ar", "arabic": "ar",
+        "فارسی": "fa", "persian": "fa",
+        "filipino": "fil",
+        "hrvatski": "hr", "croatian": "hr",
+        "српски": "sr", "serbian": "sr",
+        "български": "bg", "bulgarian": "bg",
+        "gaeilge": "ga", "irish": "ga",
+        "cymraeg": "cy", "welsh": "cy",
+        "galego": "gl", "galician": "gl",
+        "euskara": "eu", "basque": "eu",
+        "esperanto": "eo",
+        "lingua latina": "la", "latin": "la",
+        "kiswahili": "sw", "swahili": "sw",
+        "বাংলা": "bn", "bengali": "bn",
+        "தமிழ்": "ta", "tamil": "ta",
+        "తెలుగు": "te", "telugu": "te",
+        "ಕನ್ನಡ": "kn", "kannada": "kn",
+        "മലയാളം": "ml", "malayalam": "ml",
+        "मराठी": "mr", "marathi": "mr",
+        "ગુજરાતી": "gu", "gujarati": "gu",
+        "ਪੰਜਾਬੀ": "pa", "punjabi": "pa",
+        "اردو": "ur", "urdu": "ur",
+        "afrikaans": "af",
+        "shqip": "sq", "albanian": "sq",
+        "bosanski": "bs", "bosnian": "bs", "bos": "bs",
+        "македонски": "mk", "macedonian": "mk",
+        "zh": "zh-CN", "yue": "zh-HK",
+    ]
+
+    /// The BCP-47 tag for a work's language: an AO3 name ("Español"), an
+    /// English one, or a code already (an imported EPUB's `dc:language`).
+    /// Nil when it's empty or unknown, which leaves the system's voice.
+    static func tag(forWorkLanguage raw: String) -> String? {
+        let v = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !v.isEmpty else { return nil }
+        // AO3's Chinese languages: 中文-普通话 國語 (Mandarin), 中文-广东话 粵語
+        // (Cantonese) and a few more, all written in Chinese characters.
+        if v.hasPrefix("中文") || v.hasPrefix("chinese") || v == "mandarin" || v == "cantonese" {
+            return v.contains("广东") || v.contains("粵") || v.contains("cantonese") ? "zh-HK" : "zh-CN"
+        }
+        if let tag = names[v] { return tag }
+        if v.range(of: #"^[a-z]{2,3}(?:[-_][a-z0-9]{2,8})*$"#, options: .regularExpression) != nil {
+            return v.replacingOccurrences(of: "_", with: "-")
+        }
+        return nil
+    }
+
+    /// An installed voice, as the pure picker sees it. `quality` ranks higher
+    /// for better voices (AVSpeechSynthesisVoiceQuality's raw value; the same
+    /// for every Windows voice).
+    struct Voice: Equatable, Sendable {
+        let id: String
+        let language: String
+        let quality: Int
+    }
+
+    /// The language part of a tag ("pt" for "pt-BR"), with Norwegian's two
+    /// codes as one.
+    static func base(_ tag: String) -> String {
+        let b = tag.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? ""
+        return b == "no" ? "nb" : b
+    }
+
+    /// The voice to read a work in `tag`'s language with, or nil for the
+    /// system's own voice: when the work is in the system voice's language
+    /// (`defaultLanguage`), or no installed voice speaks it. Prefers the
+    /// exact dialect (pt-BR over pt-PT), then the better voice, then
+    /// `preferredID` (the system's pick for that language), then the id.
+    /// A Mandarin work only falls back to a Cantonese voice when nothing
+    /// else speaks Chinese.
+    static func voiceID(forTag tag: String?, voices: [Voice], defaultLanguage: String,
+                        preferredID: String? = nil) -> String? {
+        guard let tag, !tag.isEmpty else { return nil }
+        let want = tag.lowercased()
+        let wantBase = base(want)
+        guard wantBase != base(defaultLanguage) else { return nil }
+        func dialect(_ v: Voice) -> Int {
+            let lang = v.language.lowercased().replacingOccurrences(of: "_", with: "-")
+            if lang == want { return 2 }
+            if wantBase == "zh", want != "zh-hk", lang == "zh-hk" { return 0 }
+            return 1
+        }
+        let best = voices.filter { base($0.language) == wantBase }.min { a, b in
+            let (da, db) = (dialect(a), dialect(b))
+            if da != db { return da > db }
+            if a.quality != b.quality { return a.quality > b.quality }
+            let (pa, pb) = (a.id == preferredID, b.id == preferredID)
+            if pa != pb { return pa }
+            return a.id < b.id
+        }
+        return best?.id
+    }
+
+    /// Settings' voice list order: the system language's voices first, then
+    /// the rest by their languages' names.
+    static func listsBefore(_ a: (tag: String, name: String), _ b: (tag: String, name: String),
+                            systemLanguage: String) -> Bool {
+        let (aSystem, bSystem) = (base(a.tag) == base(systemLanguage), base(b.tag) == base(systemLanguage))
+        if aSystem != bSystem { return aSystem }
+        let order = a.name.localizedStandardCompare(b.name)
+        return order == .orderedSame ? a.tag < b.tag : order == .orderedAscending
     }
 }

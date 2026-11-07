@@ -143,13 +143,24 @@ struct ReaderSettingsView: View {
         saveCurrentToActiveProfile()
     }
 
-    /// On-device voices for the current language (fall back to all installed
-    /// voices if the language has none), sorted by name.
-    private var voices: [AVSpeechSynthesisVoice] {
-        let all = AVSpeechSynthesisVoice.speechVoices()
-        let lang = Locale.current.language.languageCode?.identifier ?? "en"
-        let matching = all.filter { $0.language.hasPrefix(lang) }
-        return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
+    /// Every installed voice, grouped by language (#184): the system voice's
+    /// language first, then the rest by name, each group sorted by voice name.
+    private var voiceGroups: [VoiceGroup] {
+        let system = AVSpeechSynthesisVoice.currentLanguageCode()
+        return Dictionary(grouping: AVSpeechSynthesisVoice.speechVoices(), by: \.language)
+            .map { tag, voices in
+                VoiceGroup(tag: tag,
+                           name: Locale.current.localizedString(forIdentifier: tag) ?? tag,
+                           voices: voices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+            }
+            .sorted { SpeechLanguage.listsBefore(($0.tag, $0.name), ($1.tag, $1.name), systemLanguage: system) }
+    }
+
+    private struct VoiceGroup: Identifiable {
+        let tag: String
+        let name: String
+        let voices: [AVSpeechSynthesisVoice]
+        var id: String { tag }
     }
 
     /// The footer's line about volume buttons; there are none on the Mac.
@@ -316,9 +327,13 @@ struct ReaderSettingsView: View {
 
             Section {
                 Picker(selection: $ttsVoiceId) {
-                    Text("System default").tag("")
-                    ForEach(voices, id: \.identifier) { voice in
-                        Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                    Text("Automatic").tag("")
+                    ForEach(voiceGroups) { group in
+                        Section(group.name) {
+                            ForEach(group.voices, id: \.identifier) { voice in
+                                Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                            }
+                        }
                     }
                 } label: {
                     Label("Voice", systemImage: "person.wave.2")
@@ -345,7 +360,7 @@ struct ReaderSettingsView: View {
                 .padding(.vertical, 2)
                 .help("Drag to adjust the speech speed.")
             } footer: {
-                Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
+                Text("Tap the headphones in the reader to have a chapter read aloud. On Automatic, each work is read by a voice for its language, or by your system voice when the work is in your language or no voice for its language is installed. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {
