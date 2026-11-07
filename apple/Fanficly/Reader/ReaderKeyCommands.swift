@@ -168,7 +168,7 @@ struct ReaderKeyPressModifier: ViewModifier {
                 perform(action)
                 return .handled
             }
-            .onKeyPress("f") { press in
+            .onKeyPress("f", phases: .down) { press in
                 guard isReaderFocused,
                       press.modifiers.subtracting([.capsLock, .numericPad, .function]) == .command
                 else { return .ignored }
