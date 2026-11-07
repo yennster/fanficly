@@ -11,7 +11,7 @@ public static class WorkPersistence
 
     /// <summary>Saves a fully-fetched work: its metadata plus all its chapters,
     /// replacing any chapters already stored.</summary>
-    public static Work Upsert(AO3WorkPayload payload, LibraryStore store)
+    public static Work Upsert(AO3WorkPayload payload, LibraryStore store, bool save = true)
     {
         var work = UpsertMetadata(payload.Summary, store, save: false);
 
@@ -24,6 +24,24 @@ public static class WorkPersistence
         // Saved for offline again, so restores may update its chapters again.
         SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: false);
 
+        if (save) store.TrySave();
+        return work;
+    }
+
+    /// <summary>Saves a work opened from a shared, dropped or pasted link (#176):
+    /// its metadata and every chapter, so it reads offline. The work is
+    /// followed; one already followed keeps when it was saved and followed
+    /// (re-sharing a saved story used to move it to the top as if new).</summary>
+    public static Work SaveImported(AO3WorkPayload payload, LibraryStore store)
+    {
+        var work = Upsert(payload, store, save: false);
+        if (!work.IsFollowed)
+        {
+            work.IsFollowed = true;
+            work.FollowedAt = DateTimeOffset.Now;
+            // Following now isn't news: alert only for chapters after this.
+            work.LastSeenChapterCount = payload.Summary.ChapterCount;
+        }
         store.TrySave();
         return work;
     }

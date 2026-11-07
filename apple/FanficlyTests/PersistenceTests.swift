@@ -74,6 +74,33 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(all.count, 1)
     }
 
+    // MARK: - Importing a shared link (#176)
+
+    func test_saveImported_keepsEveryChapterAndFollows() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.saveImported(payload: payload(id: 30, chapters: 3), into: ctx)
+        XCTAssertEqual(work.chapters.count, 3, "the fetched text is kept for offline reading")
+        XCTAssertTrue(work.isFollowed)
+        XCTAssertNotNil(work.followedAt)
+        XCTAssertEqual(work.lastSeenChapterCount, 3)
+    }
+
+    func test_saveImported_keepsWhenASavedWorkWasSavedAndFollowed() throws {
+        let ctx = try makeContext()
+        let first = WorkPersistence.saveImported(payload: payload(id: 31, chapters: 2), into: ctx)
+        let savedAt = Date(timeIntervalSince1970: 1_000_000)
+        let followedAt = Date(timeIntervalSince1970: 2_000_000)
+        first.savedAt = savedAt
+        first.followedAt = followedAt
+        try ctx.save()
+
+        let again = WorkPersistence.saveImported(payload: payload(id: 31, chapters: 4), into: ctx)
+        XCTAssertEqual(again.savedAt, savedAt)
+        XCTAssertEqual(again.followedAt, followedAt)
+        XCTAssertEqual(again.chapters.count, 4)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Work>()).count, 1)
+    }
+
     // MARK: - Spotlight
 
     func test_spotlightIdentifier_roundTrips() {

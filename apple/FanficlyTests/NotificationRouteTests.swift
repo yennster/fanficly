@@ -112,3 +112,65 @@ final class NotificationRouteTests: XCTestCase {
         XCTAssertEqual(try delivered(content.userInfo), .savedSearch(name: "Slow burn", prompt: "tag:\"Slow Burn\""))
     }
 }
+
+/// Which shared, dropped, pasted or opened links import a work (#176).
+final class ImportLinkTests: XCTestCase {
+    private func id(_ link: String) -> Int? {
+        guard let url = URL(string: link) else { return nil }
+        return ImportLink.workId(from: url)
+    }
+
+    func test_ao3WorkLinks_giveTheWork() {
+        XCTAssertEqual(id("https://archiveofourown.org/works/123"), 123)
+        XCTAssertEqual(id("https://archiveofourown.org/works/123/chapters/456?view_adult=true#workskin"), 123)
+        XCTAssertEqual(id("https://www.archiveofourown.org/collections/fest/works/9"), 9)
+        XCTAssertEqual(id("http://ao3.org/works/7"), 7)
+        XCTAssertEqual(id("HTTPS://ArchiveOfOurOwn.org/Works/8"), 8)
+        // Pasted without https://.
+        XCTAssertEqual(id("archiveofourown.org/works/5"), 5)
+    }
+
+    func test_fanficlyLinks_giveTheWork() {
+        XCTAssertEqual(id("fanficly://import?url=https%3A%2F%2Farchiveofourown.org%2Fworks%2F42%3Fview_adult%3Dtrue"), 42)
+        XCTAssertEqual(id("fanficly://import?url=https://archiveofourown.org/works/43"), 43)
+        XCTAssertEqual(id("fanficly://works/8"), 8)
+        XCTAssertEqual(id("fanficly://work/9"), 9)
+    }
+
+    func test_otherLinks_giveNoWork() {
+        XCTAssertNil(id("https://archiveofourown.org/series/1"))
+        XCTAssertNil(id("https://archiveofourown.org/users/someone/works"))
+        XCTAssertNil(id("https://archiveofourown.org/tags/Fluff/works"))
+        XCTAssertNil(id("https://archiveofourown.org/works/search?work_search%5Bquery%5D=x"))
+        XCTAssertNil(id("https://archiveofourown.org/chapters/456"))
+        XCTAssertNil(id("https://example.com/works/123"))
+        XCTAssertNil(id("https://archiveofourown.org.example.com/works/1"))
+        XCTAssertNil(id("ftp://archiveofourown.org/works/1"))
+        XCTAssertNil(id("fanficly://import?url=https%3A%2F%2Fexample.com%2F"))
+        XCTAssertNil(id("fanficly://import"))
+        // The app's own widget links never import, whatever their query says.
+        XCTAssertNil(id("fanficly://search?query=works/5"))
+        XCTAssertNil(id("fanficly://library?folder=works/5"))
+        XCTAssertNil(id("fanficly://resume/5"))
+    }
+
+    func test_workInDroppedText() {
+        XCTAssertEqual(ImportLink.workId(fromText: "My fic: https://archiveofourown.org/works/123 enjoy!"), 123)
+        XCTAssertEqual(ImportLink.workId(fromText: "(archiveofourown.org/works/77)."), 77)
+        XCTAssertEqual(ImportLink.workId(fromText: "  https://archiveofourown.org/works/12/chapters/3 \n"), 12)
+        XCTAssertEqual(ImportLink.workId(fromText: "fanficly://works/8"), 8)
+        // No scheme, with "://" later in the query.
+        XCTAssertEqual(ImportLink.workId(fromText: "archiveofourown.org/works/5?return_to=https://x"), 5)
+        XCTAssertNil(ImportLink.workId(fromText: "see https://example.com/works/1"))
+        XCTAssertNil(ImportLink.workId(fromText: "a paragraph from Notes"))
+        XCTAssertFalse(ImportLink.hasWebLink("a paragraph from Notes"))
+        XCTAssertTrue(ImportLink.hasWebLink("see HTTPS://archiveofourown.org/series/1"))
+    }
+
+    func test_onlySharedLinks_warnWhenTheyArentAWork() throws {
+        XCTAssertTrue(ImportLink.isLinkToImport(try XCTUnwrap(URL(string: "https://example.com/"))))
+        XCTAssertTrue(ImportLink.isLinkToImport(try XCTUnwrap(URL(string: "fanficly://import?url=https%3A%2F%2Fexample.com"))))
+        XCTAssertFalse(ImportLink.isLinkToImport(try XCTUnwrap(URL(string: "fanficly://search?query=x"))))
+        XCTAssertFalse(ImportLink.isLinkToImport(try XCTUnwrap(URL(string: "fanficly://resume/5"))))
+    }
+}
