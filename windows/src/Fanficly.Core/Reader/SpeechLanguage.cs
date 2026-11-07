@@ -113,6 +113,15 @@ public static partial class SpeechLanguage
         return b == "no" ? "nb" : b;
     }
 
+    /// <summary>Whether one voice reads both tags: the same language, where Mandarin
+    /// and Cantonese (zh-HK) count as two.</summary>
+    public static bool SameSpokenLanguage(string a, string b)
+    {
+        if (Base(a) != Base(b)) return false;
+        static bool Cantonese(string t) => t.ToLowerInvariant().Replace('_', '-').StartsWith("zh-hk", StringComparison.Ordinal);
+        return Base(a) != "zh" || Cantonese(a) == Cantonese(b);
+    }
+
     /// <summary>The voice to read a work in <paramref name="tag"/>'s language with, or
     /// null for the system's own voice: when the work is in the system voice's
     /// language (<paramref name="defaultLanguage"/>), or no installed voice speaks it.
@@ -125,7 +134,7 @@ public static partial class SpeechLanguage
         if (string.IsNullOrEmpty(tag)) return null;
         var want = tag.ToLowerInvariant();
         var wantBase = Base(want);
-        if (wantBase == Base(defaultLanguage)) return null;
+        if (SameSpokenLanguage(want, defaultLanguage)) return null;
         int Dialect(Voice v)
         {
             var lang = v.Language.ToLowerInvariant().Replace('_', '-');

@@ -56,6 +56,14 @@ public class SpeechLanguageTests
     }
 
     [Fact]
+    public void MandarinAndCantoneseAreDifferentLanguages()
+    {
+        Assert.Equal("zh-tw", SpeechLanguage.VoiceId("zh-CN", Voices, "zh-HK"));
+        Assert.Equal("zh-hk", SpeechLanguage.VoiceId("zh-HK", Voices, "zh-CN"));
+        Assert.Null(SpeechLanguage.VoiceId("zh-CN", Voices, "zh-TW"));
+    }
+
+    [Fact]
     public void AnotherLanguageGetsItsBestVoice()
     {
         Assert.Equal("es-mx-enhanced", SpeechLanguage.VoiceId("es", Voices, "en-US"));

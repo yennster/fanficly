@@ -499,6 +499,13 @@ public sealed class ReaderSettingsScreen : Screen
             item.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
             AutomationProperties.SetHeadingLevel(item, Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel.Level2);
         }
+        // Keys on the closed box can land on a heading: go back to the voice before.
+        var lastVoiceIndex = voiceCombo.SelectedIndex;
+        voiceCombo.SelectionChanged += (_, _) =>
+        {
+            if (voiceCombo.SelectedItem is ComboBoxItem { Tag: string }) lastVoiceIndex = voiceCombo.SelectedIndex;
+            else if (voiceCombo.SelectedIndex >= 0) voiceCombo.SelectedIndex = lastVoiceIndex;
+        };
         AutomationProperties.SetAutomationId(voiceCombo, "settings.reader.voice");
         ToolTipService.SetToolTip(voiceCombo, "Select a voice for reading aloud.");
 
