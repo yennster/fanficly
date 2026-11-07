@@ -32,12 +32,14 @@ final class LocalizationTests: XCTestCase {
             "What we collect",
             "Nothing. No analytics, no crash reports, no device IDs, no telemetry.",
             """
-            • Your AO3 session cookie (in iOS Keychain), so you stay logged in.
+            • Your AO3 username and AO3's sign-in cookies (in the Keychain), so you stay logged in. Your password is never stored.
             • Works you've saved offline, your notes and tags on them, and your reading position (in app storage).
             • Your preferences (theme, font size).
+            • What the widgets show: the story you read last, your reading streak, and short lists of saved searches, folders, subscriptions and recommendations.
             • The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.
-            • An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled.
             """,
+            "What goes off your device",
+            "Read the full privacy policy",
         ]
         for key in keys {
             XCTAssertEqual(lookup(key), key)

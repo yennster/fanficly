@@ -33,7 +33,7 @@ _These are the App Store marketing screenshots. Regenerate with `bundle exec fas
 - **iCloud Library Sync** — automatically synchronize your library, reading positions, subscriptions, and preferences across devices using iCloud ubiquitous storage (a new device starts with your settings, then each device keeps its own reader settings and content filter), with options to manually backup/restore or purge backups. Settings → Library File also exports the library as a plain JSON file and imports one, from another device or Fanficly for Windows, with the same never-backwards merge.
 - **Import EPUBs** — the Library's Import button (or "Open in Fanficly" from Files, Books, Mail or Safari) adds EPUB files to the Library to read offline in the reader. An AO3 download keeps its tags, stats and AO3 link (it fills in the same Library entry a download would); any other e-book gets its own entry.
 - **Export in any format** — share the work as EPUB, MOBI, AZW3, PDF, or HTML through the iOS share sheet (AirDrop, Books, Files, …).
-- **AO3 account (optional)** — log in to subscribe on AO3 and sync your subscriptions, browse your AO3 bookmarks (including private ones), bookmark works on AO3 with your own notes and tags, post comments, and leave kudos. Credentials never stored; only the session cookie, in the Keychain.
+- **AO3 account (optional)** — log in to subscribe on AO3 and sync your subscriptions, browse your AO3 bookmarks (including private ones), bookmark works on AO3 with your own notes and tags, post comments, and leave kudos. Your password is never stored; only your AO3 username and AO3's sign-in cookies, in the Keychain.
 - **iPad- & Mac-native** — adaptive `NavigationSplitView` from day one, and a Mac app via Mac Catalyst with ⌘+ / ⌘− for the story's text size and a global interface zoom in the View menu (⇧⌘+ / ⇧⌘−; ⌘0 for actual size). Resizing never loses your place: rotating, iPad multitasking, or unfolding iPhone Duo keeps the story and paragraph you were on, and lines stay a comfortable length on wide screens.
 - **Zero tracking** — no analytics, no crash reporters, no telemetry, no ads.
 
@@ -136,7 +136,7 @@ Fanficly is not affiliated with AO3 or the Organization for Transformative Works
 
 ## Privacy
 
-We collect nothing. The app talks directly to AO3 from your device. Your AO3 session cookie lives in your iOS Keychain. Deleting the app erases everything. See [PRIVACY.md](../PRIVACY.md).
+We collect nothing. The app talks directly to AO3 from your device. Your AO3 username and AO3's sign-in cookies live in the Keychain; your password is never stored. Reader profiles, last-read progress and reading days sync through your own iCloud, and the library backup does too if you turn it on. To erase everything, log out, clear the iCloud backup in Settings, then delete the app. See [PRIVACY.md](../PRIVACY.md).
 
 ## Contributing
 

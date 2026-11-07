@@ -26,7 +26,7 @@ struct LoginView: View {
                     }
                     .disabled(auth.isSigningOut)
                 } footer: {
-                    Text("Logging out signs you out on AO3 and clears the session cookie from your Keychain. Your offline library stays on the device.")
+                    Text("Logging out signs you out on AO3 and clears your username and AO3's cookies from the Keychain. Your offline library stays on the device.")
                 }
             } else {
                 if auth.isSessionExpired {
@@ -43,7 +43,7 @@ struct LoginView: View {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                 } footer: {
-                    Text("Credentials go directly to AO3. We never store your password — only the resulting session cookie, in your iOS Keychain.")
+                    Text("Credentials go directly to AO3. We never store your password — only your AO3 username and AO3's sign-in cookies, in the Keychain.")
                 }
 
                 if let error = auth.lastError {
