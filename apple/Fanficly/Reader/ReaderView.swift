@@ -81,6 +81,9 @@ struct ReaderView: View {
     @State private var isUIMinimized: Bool = false
     @Environment(StatusBarVisibility.self) private var statusBar: StatusBarVisibility?
     @State private var listeningChapter: Int?
+    /// Narration read on to the end of the work: the screen stays free to lock
+    /// until Listen starts again, as after a sleep pause (#182).
+    @State private var listenedToEnd = false
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
     /// Page-by-page selection is always a page id; with a spread on screen the
@@ -622,7 +625,7 @@ struct ReaderView: View {
     /// listening lets the screen lock, and a chapter the sleep timer paused
     /// keeps it free to lock until you play again.
     private var holdsScreenAwake: Bool {
-        keepScreenAwake && !speech.isPlaying && !speech.pausedBySleepTimer
+        keepScreenAwake && !speech.isPlaying && !speech.pausedBySleepTimer && !listenedToEnd
     }
 
     /// Disables the system idle timer so the display stays awake while reading.
@@ -668,6 +671,9 @@ struct ReaderView: View {
     /// page in sync so the reader follows along.
     private func narrate(toChapter index: Int) {
         guard index != listeningChapter else { return }
+        // Picking a chapter isn't the chapter running out: a sleep pause
+        // that's pending mustn't hold it paused at its start.
+        if speech.sleepPausePending { speech.setSleepTimer(nil) }
         jump(toChapter: index)
         narrate(chapter: index, from: 0)
     }
@@ -675,6 +681,7 @@ struct ReaderView: View {
     private func narrate(chapter index: Int, from paragraph: Int) {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
+        listenedToEnd = false
         listeningChapter = index
         wireNarrationCallbacks()
         // A chapter with nothing to speak (only images, with images off) rolls
@@ -731,6 +738,7 @@ struct ReaderView: View {
         guard let current = listeningChapter,
               let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
                                                            current: current, forward: true) else {
+            listenedToEnd = true
             speech.stop()
             listeningChapter = nil
             return
