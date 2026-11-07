@@ -216,6 +216,10 @@ struct FanficlyApp: App {
             GoCommands()
 
             CommandMenu("Reader") {
+                FindInWorkMenuButton()
+
+                Divider()
+
                 Menu("Reading Mode") {
                     ForEach(ReadingMode.allCases) { mode in
                         Button(action: {

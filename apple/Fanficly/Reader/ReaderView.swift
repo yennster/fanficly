@@ -130,6 +130,17 @@ struct ReaderView: View {
     @State private var keyScrollViews = ReaderScrollViews()
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
+    // Find in this work (#183).
+    @State private var showingFind = false
+    /// Kept while the reader is open, so Find opens again on the last search.
+    @State private var findQuery = ""
+    /// The place Find is moving to; continuous scroll reads it on `findJump`.
+    @State private var findTarget: ReadingAnchor?
+    /// Bumped by `showFindMatch`, so choosing a match in the chapter already
+    /// on screen still moves there.
+    @State private var findJump = 0
+    /// The paragraph Find landed on, lit like the Listen highlight for a moment.
+    @State private var findHighlight: ReadingAnchor?
 
     private var profiles: [ReaderProfile] {
         ReaderProfile.loadProfiles(from: profilesJSON)
@@ -377,6 +388,26 @@ struct ReaderView: View {
         }
     }
 
+    /// Find in this work (#183): the sheet, and ⌘F from the Reader menu
+    /// through a focused scene value. Owned by the reader, not the Aa menu,
+    /// whose content is gone by the time a sheet would present.
+    private struct FindPresentationModifier: ViewModifier {
+        @Binding var showingFind: Bool
+        @Binding var query: String
+        let chapters: [AO3ChapterPayload]
+        let includeImages: Bool
+        let select: (WorkFind.Match) -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .focusedSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
+                .sheet(isPresented: $showingFind) {
+                    WorkFindView(chapters: chapters, includeImages: includeImages,
+                                 query: $query, onSelect: select)
+                }
+        }
+    }
+
     /// Reader lifecycle, lifted out of the main body chain so it type-checks
     /// independently. Keeps the screen awake while reading, tears down speech on
     /// exit, and drives the Stats active-reading timer: start on appear and when
@@ -556,7 +587,15 @@ struct ReaderView: View {
                 guard isUIMinimized else { return false }
                 toggleChromeAccessibly()
                 return true
-            }
+            },
+            find: { showingFind = true }
+        ))
+        .modifier(FindPresentationModifier(
+            showingFind: $showingFind,
+            query: $findQuery,
+            chapters: chapters,
+            includeImages: showImages,
+            select: { showFindMatch($0.anchor) }
         ))
         #if !targetEnvironment(macCatalyst)
         .modifier(VolumeButtonPageTurnModifier(
@@ -956,6 +995,11 @@ struct ReaderView: View {
                 .onChange(of: currentAnchor) { _, anchor in
                     if let anchor { saveProgress(anchor) }
                 }
+                .onChange(of: findJump) { _, _ in
+                    guard let anchor = findTarget else { return }
+                    isRestoring = true
+                    Task { await scrollToFindMatch(anchor, proxy: proxy) }
+                }
                 // Karaoke: keep the paragraph being read aloud in view.
                 .onChange(of: speech.currentParagraph) { _, _ in scrollToSpokenParagraph(proxy) }
                 .onChange(of: listeningChapter) { _, _ in scrollToSpokenParagraph(proxy) }
@@ -972,6 +1016,22 @@ struct ReaderView: View {
         let key = ChapterTracking.key(chapter: chapter, paragraph: speech.currentParagraph)
         withAnimation(.easeInOut(duration: 0.3)) {
             proxy.scrollTo(key, anchor: UnitPoint(x: 0.5, y: 0.32))
+        }
+    }
+
+    /// Continuous scroll to a Find match. A chapter far off isn't laid out
+    /// (the stack is lazy), so it's brought in first; its paragraphs render
+    /// asynchronously, so the paragraph's scroll retries until it lands.
+    private func scrollToFindMatch(_ anchor: ReadingAnchor, proxy: ScrollViewProxy) async {
+        defer { isRestoring = false }
+        if anchor.chapter != visibleChapterIndex {
+            proxy.scrollTo(anchor.chapter, anchor: .top)
+        }
+        let key = ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph)
+        for _ in 0..<6 {
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard findTarget == anchor else { return }
+            proxy.scrollTo(key, anchor: .top)
         }
     }
 
@@ -1336,7 +1396,7 @@ struct ReaderView: View {
                         saveProgress(updated)
                     }
                 }
-                .task(id: selectedChapterIndex) {
+                .task(id: [selectedChapterIndex, findJump]) {
                     await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
                 }
                 .onChange(of: geo.size.width) { old, new in
@@ -1420,8 +1480,7 @@ struct ReaderView: View {
     private func restorePaginatedParagraph(chapter: AO3ChapterPayload, proxy: ScrollViewProxy) async {
         guard chapter.index == selectedChapterIndex,
               let pending = pendingParagraphRestore,
-              pending.chapter == chapter.index,
-              pending.paragraph > 0 else { return }
+              pending.chapter == chapter.index else { return }
         pendingParagraphRestore = nil  // consume — one shot
         isRestoring = true
         let key = ChapterTracking.key(chapter: chapter.index, paragraph: pending.paragraph)
@@ -2388,8 +2447,62 @@ struct ReaderView: View {
     /// The paragraph to karaoke-highlight in `chapterIndex`, or nil when that
     /// chapter isn't the one currently being narrated.
     private func highlightedParagraph(for chapterIndex: Int) -> Int? {
+        // Find's landing, for a moment (#183).
+        if let findHighlight, findHighlight.chapter == chapterIndex { return findHighlight.paragraph }
         guard speech.isActive, listeningChapter == chapterIndex else { return nil }
         return speech.currentParagraph
+    }
+
+    // MARK: - Find in this work (#183)
+
+    /// Shows a Find match in whichever mode is on screen. The match becomes
+    /// the reading place (saved at once), and its paragraph is lit briefly
+    /// with the Listen highlight.
+    private func showFindMatch(_ anchor: ReadingAnchor) {
+        findTarget = anchor
+        currentAnchor = anchor
+        saveProgress(anchor, force: true)
+        flashFindHighlight(anchor)
+        switch mode {
+        case .continuous:
+            findJump &+= 1
+        case .paginated:
+            // The chapter's page scrolls to it (restorePaginatedParagraph),
+            // keyed on findJump too, for a match in the chapter on screen.
+            pendingParagraphRestore = anchor
+            selectedChapterIndex = anchor.chapter
+            findJump &+= 1
+        case .pageByPage:
+            showFindMatchPageByPage(anchor)
+        }
+        let chapterName = chapters.first { $0.index == anchor.chapter }
+            .map { WorkFind.chapterLabel(index: $0.index, title: $0.title) } ?? "Chapter \(anchor.chapter)"
+        UIAccessibility.post(notification: .announcement, argument: "Showing match in \(chapterName)")
+    }
+
+    /// Page by page: the page holding the paragraph when its chapter is
+    /// paginated already, else the chapter is paginated around the place
+    /// (`restoreOrValidatePageSelection` picks the page holding `currentAnchor`).
+    private func showFindMatchPageByPage(_ anchor: ReadingAnchor) {
+        if let atoms = parsedAtoms[anchor.chapter],
+           let atomIndex = atoms.firstIndex(where: { $0.originalParagraphIndex == anchor.paragraph }),
+           let page = paginatedPages.first(where: { $0.chapterIndex == anchor.chapter && $0.paragraphIndices.contains(atomIndex) }) {
+            if selectedPageId != page.id { updatePageSelection(page.id) }
+            return
+        }
+        guard anchor.chapter != selectedChapterIndex else { return }
+        // Not a chapter jump to its top: keeps handleChapterIndexChange from
+        // replacing the place with the chapter's first paragraph.
+        isRestoring = true
+        selectedChapterIndex = anchor.chapter
+    }
+
+    private func flashFindHighlight(_ anchor: ReadingAnchor) {
+        findHighlight = anchor
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if findHighlight == anchor { findHighlight = nil }
+        }
     }
 
     private var chaptersMenu: some View {
@@ -2420,6 +2533,12 @@ struct ReaderView: View {
     private var typographyMenu: some View {
         Menu {
             listenMenuButton
+            Button {
+                showingFind = true
+            } label: {
+                Label("Find in This Work", systemImage: "text.magnifyingglass")
+            }
+            .accessibilityIdentifier("reader_find_button")
             Divider()
 
             Menu {
