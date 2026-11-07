@@ -654,7 +654,8 @@ internal sealed partial class ReaderView
         // A chapter with nothing to speak (only images, with images off) rolls
         // on to the next, rather than leaving the last chapter's text loaded
         // under this chapter's number.
-        if (!_speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph))
+        if (!_speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph,
+                _summary?.Language ?? ""))
         {
             AdvanceNarration();
             return;
