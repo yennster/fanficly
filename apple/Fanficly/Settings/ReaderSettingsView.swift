@@ -156,6 +156,15 @@ struct ReaderSettingsView: View {
             .sorted { SpeechLanguage.listsBefore(($0.tag, $0.name), ($1.tag, $1.name), systemLanguage: system) }
     }
 
+    /// A stored voice that isn't installed here (removed, or synced from the
+    /// Windows app) shows as Automatic, which is what Listen falls back to.
+    private func voiceSelection(_ groups: [VoiceGroup]) -> Binding<String> {
+        let installed = Set(groups.flatMap { $0.voices.map(\.identifier) })
+        return Binding(
+            get: { installed.contains(ttsVoiceId) ? ttsVoiceId : "" },
+            set: { ttsVoiceId = $0 })
+    }
+
     private struct VoiceGroup: Identifiable {
         let tag: String
         let name: String
@@ -326,7 +335,7 @@ struct ReaderSettingsView: View {
             }
 
             Section {
-                Picker(selection: $ttsVoiceId) {
+                Picker(selection: voiceSelection(voiceGroups)) {
                     Text("Automatic").tag("")
                     ForEach(voiceGroups) { group in
                         Section(group.name) {

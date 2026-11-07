@@ -582,6 +582,14 @@ enum SpeechLanguage {
         return b == "no" ? "nb" : b
     }
 
+    /// Whether one voice reads both tags: the same language, where Mandarin and
+    /// Cantonese (zh-HK) count as two.
+    static func sameSpokenLanguage(_ a: String, _ b: String) -> Bool {
+        guard base(a) == base(b) else { return false }
+        func cantonese(_ t: String) -> Bool { t.lowercased().replacingOccurrences(of: "_", with: "-").hasPrefix("zh-hk") }
+        return base(a) != "zh" || cantonese(a) == cantonese(b)
+    }
+
     /// The voice to read a work in `tag`'s language with, or nil for the
     /// system's own voice: when the work is in the system voice's language
     /// (`defaultLanguage`), or no installed voice speaks it. Prefers the
@@ -594,7 +602,7 @@ enum SpeechLanguage {
         guard let tag, !tag.isEmpty else { return nil }
         let want = tag.lowercased()
         let wantBase = base(want)
-        guard wantBase != base(defaultLanguage) else { return nil }
+        guard !sameSpokenLanguage(want, defaultLanguage) else { return nil }
         func dialect(_ v: Voice) -> Int {
             let lang = v.language.lowercased().replacingOccurrences(of: "_", with: "-")
             if lang == want { return 2 }

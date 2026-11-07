@@ -80,6 +80,12 @@ final class SpeechLanguageTests: XCTestCase {
         XCTAssertNil(SpeechLanguage.voiceID(forTag: "es", voices: voices, defaultLanguage: "es-MX"))
     }
 
+    func test_mandarinAndCantoneseAreDifferentLanguages() {
+        XCTAssertEqual(SpeechLanguage.voiceID(forTag: "zh-CN", voices: voices, defaultLanguage: "zh-HK"), "zh-tw")
+        XCTAssertEqual(SpeechLanguage.voiceID(forTag: "zh-HK", voices: voices, defaultLanguage: "zh-CN"), "zh-hk")
+        XCTAssertNil(SpeechLanguage.voiceID(forTag: "zh-CN", voices: voices, defaultLanguage: "zh-TW"))
+    }
+
     func test_anotherLanguageGetsItsBestVoice() {
         XCTAssertEqual(SpeechLanguage.voiceID(forTag: "es", voices: voices, defaultLanguage: "en-US"), "es-mx-enhanced")
         XCTAssertEqual(SpeechLanguage.voiceID(forTag: "en", voices: voices, defaultLanguage: "fr-FR"), "en-us")
