@@ -232,7 +232,7 @@ internal sealed partial class ReaderView
     public void Appearing()
     {
         _visible = true;
-        ApplyKeepScreenAwake(ReaderPrefs.KeepScreenAwake);
+        ApplyKeepScreenAwake(HoldsScreenAwake);
         StartReadingTimer();
         if (MainWindow.Current.IsFullScreen) EnterImmersive();
         ReportCurrentChapter(force: true);
@@ -319,6 +319,12 @@ internal sealed partial class ReaderView
         PersistNow();
     }
 
+    /// <summary>"Keep screen awake", except while Listen plays (#182): bedtime
+    /// listening lets the display sleep, and a chapter the sleep timer paused
+    /// keeps it free to until something plays again.</summary>
+    private bool HoldsScreenAwake =>
+        SleepTimer.HoldsScreenAwake(ReaderPrefs.KeepScreenAwake, _speech.IsPlaying, _speech.PausedBySleepTimer);
+
     /// <summary>Keeps the display awake while reading (like a video player).</summary>
     private void ApplyKeepScreenAwake(bool enabled)
     {
@@ -366,7 +372,7 @@ internal sealed partial class ReaderView
         _pendingKeys.Clear();
 
         if (keys.Any(ReaderPrefs.IsProfileKey)) LibrarySyncManager.QueueBackupShared(AppHost.Library);
-        if (keys.Contains(ReaderPrefs.KeepScreenAwakeKey) && _visible) ApplyKeepScreenAwake(ReaderPrefs.KeepScreenAwake);
+        if (keys.Contains(ReaderPrefs.KeepScreenAwakeKey) && _visible) ApplyKeepScreenAwake(HoldsScreenAwake);
 
         var themeChanged = keys.Any(k => ReaderPrefs.Is(k, ReaderPrefs.ThemeBase));
         var modeChanged = keys.Any(k => ReaderPrefs.Is(k, ReaderPrefs.ModeBase)) && ReaderPrefs.Mode != _builtMode;
@@ -697,6 +703,7 @@ internal sealed partial class ReaderView
             _lastSpeechPlaying = _speech.IsPlaying;
             OnNarrationPlayingChanged();
         }
+        if (_visible) ApplyKeepScreenAwake(HoldsScreenAwake);
         UpdateNarrationBar();
         ApplyHighlight();
         if (_speech.IsActive && _speech.CurrentParagraph != _lastSpokenParagraph)
