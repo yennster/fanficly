@@ -81,6 +81,9 @@ struct ReaderView: View {
     @State private var isUIMinimized: Bool = false
     @Environment(StatusBarVisibility.self) private var statusBar: StatusBarVisibility?
     @State private var listeningChapter: Int?
+    /// Narration read on to the end of the work: the screen stays free to lock
+    /// until Listen starts again, as after a sleep pause (#182).
+    @State private var listenedToEnd = false
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
     /// Page-by-page selection is always a page id; with a spread on screen the
@@ -445,7 +448,10 @@ struct ReaderView: View {
                     applyKeepScreenAwake(keepScreenAwake)
                     startTimer()
                 }
-                .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
+                // Only while on screen: narration stopping as the reader
+                // leaves flips this, and a hidden reader mustn't hold the
+                // screen for the page pushed over it.
+                .onChange(of: keepScreenAwake) { _, on in if isVisible { applyKeepScreenAwake(on) } }
                 .onChange(of: scenePhase) { _, newPhase in
                     scenePhaseChanged(newPhase)
                     if newPhase == .active {
@@ -560,7 +566,7 @@ struct ReaderView: View {
         // in one ViewModifier so this long body chain stays within the
         // type-checker's budget (see ChapterReportModifier for the same reason).
         .modifier(ReaderLifecycleModifier(
-            keepScreenAwake: keepScreenAwake,
+            keepScreenAwake: holdsScreenAwake,
             scenePhase: scenePhase,
             applyKeepScreenAwake: { applyKeepScreenAwake($0) },
             startTimer: { startReadingTimer() },
@@ -660,6 +666,13 @@ struct ReaderView: View {
         iCloudSyncManager.shared.queueBackup(context: modelContext)
     }
 
+    /// "Keep screen awake", except while Listen plays (#182): bedtime
+    /// listening lets the screen lock, and a chapter the sleep timer paused
+    /// keeps it free to lock until you play again.
+    private var holdsScreenAwake: Bool {
+        keepScreenAwake && !speech.isPlaying && !speech.pausedBySleepTimer && !listenedToEnd
+    }
+
     /// Disables the system idle timer so the display stays awake while reading.
     /// Always passes `false` on exit to hand control back to the OS.
     private func applyKeepScreenAwake(_ enabled: Bool) {
@@ -703,6 +716,9 @@ struct ReaderView: View {
     /// page in sync so the reader follows along.
     private func narrate(toChapter index: Int) {
         guard index != listeningChapter else { return }
+        // Picking a chapter isn't the chapter running out: a sleep pause
+        // that's pending mustn't hold it paused at its start.
+        if speech.sleepPausePending { speech.setSleepTimer(nil) }
         jump(toChapter: index)
         narrate(chapter: index, from: 0)
     }
@@ -710,6 +726,7 @@ struct ReaderView: View {
     private func narrate(chapter index: Int, from paragraph: Int) {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
+        listenedToEnd = false
         listeningChapter = index
         wireNarrationCallbacks()
         // A chapter with nothing to speak (only images, with images off) rolls
@@ -766,6 +783,7 @@ struct ReaderView: View {
         guard let current = listeningChapter,
               let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
                                                            current: current, forward: true) else {
+            listenedToEnd = true
             speech.stop()
             listeningChapter = nil
             return
@@ -776,7 +794,7 @@ struct ReaderView: View {
     }
 
     private func narrationBar(fg: Color, bg: Color) -> some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             Button { speech.skipBackward() } label: { Image(systemName: "backward.fill") }
                 .accessibilityLabel("Previous paragraph")
             Button { speech.togglePlayPause() } label: {
@@ -831,6 +849,8 @@ struct ReaderView: View {
             .accessibilityLabel("Speaking rate")
             .accessibilityValue(String(format: "%.1f times normal speed", speech.rateMultiplier))
 
+            sleepTimerMenu
+
             Button {
                 speech.stop()
                 listeningChapter = nil
@@ -846,6 +866,41 @@ struct ReaderView: View {
         .overlay(alignment: .top) {
             Rectangle().fill(fg.opacity(0.12)).frame(height: 0.5)
         }
+    }
+
+    /// The narration bar's sleep timer (#182): pause after the paragraph being
+    /// spoken once 15, 30 or 60 minutes are up, or at the end of the chapter.
+    private var sleepTimerMenu: some View {
+        Menu {
+            Section {
+                Picker("Sleep timer", selection: Binding(
+                    get: { speech.sleepTimer },
+                    set: { speech.setSleepTimer($0) }
+                )) {
+                    Text("Off").tag(SleepTimer?.none)
+                    ForEach(SleepTimer.choices, id: \.self) { timer in
+                        Text(timer.title).tag(Optional(timer))
+                    }
+                }
+                .pickerStyle(.inline)
+            } header: {
+                Text(sleepTimerStatus ?? "Pause listening after")
+            }
+        } label: {
+            Image(systemName: speech.sleepTimer == nil ? "moon.zzz" : "moon.zzz.fill")
+        }
+        .accessibilityLabel("Sleep timer")
+        .accessibilityValue(sleepTimerStatus ?? "Off")
+    }
+
+    /// When the sleep timer will pause narration, for the menu and VoiceOver.
+    private var sleepTimerStatus: String? {
+        if speech.sleepPausePending { return "Pausing after this paragraph" }
+        if let deadline = speech.sleepDeadline {
+            return "Pauses at \(deadline.formatted(date: .omitted, time: .shortened))"
+        }
+        if speech.sleepTimer == .endOfChapter { return "Pauses at the end of the chapter" }
+        return nil
     }
 
     /// The chapter label + "¶ x / y" readout shown in the narration bar.
