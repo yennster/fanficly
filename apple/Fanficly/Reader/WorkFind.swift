@@ -24,6 +24,8 @@ enum WorkFind {
         let highlight: Range<Int>
         /// How many times the words appear in this paragraph.
         let count: Int
+        /// Where the words start in the paragraph, in characters.
+        var offset: Int = 0
 
         var id: String { ChapterTracking.key(chapter: chapter, paragraph: paragraph) }
         var anchor: ReadingAnchor { ReadingAnchor(chapter: chapter, paragraph: paragraph) }
@@ -80,7 +82,11 @@ enum WorkFind {
     /// The query as searched: trimmed and folded; nil when there's nothing to find.
     static func normalizedQuery(_ query: String) -> String? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : fold(trimmed)
+        // Only marks the search ignores (a lone accent, a soft hyphen) would
+        // match everywhere with nothing to show.
+        let ignorable: Set<Unicode.GeneralCategory> = [.nonspacingMark, .enclosingMark, .format]
+        let findable = trimmed.unicodeScalars.contains { !ignorable.contains($0.properties.generalCategory) }
+        return findable ? fold(trimmed) : nil
     }
 
     /// Every paragraph holding `query`, in reading order.
@@ -88,13 +94,16 @@ enum WorkFind {
         guard let needle = normalizedQuery(query) else { return Result() }
         var result = Result()
         for chapter in chapters.sorted(by: { $0.index < $1.index }) {
+            // A newer query superseded this one.
+            if Task.isCancelled { return result }
             for (index, paragraph) in chapter.paragraphs.enumerated() where !paragraph.isEmpty {
                 let folded = fold(paragraph)
-                guard let first = folded.range(of: needle, options: options) else { continue }
+                guard let first = folded.range(of: needle, options: options), !first.isEmpty else { continue }
                 var count = 1
                 var searchFrom = first.upperBound
                 while searchFrom < folded.endIndex,
-                      let next = folded.range(of: needle, options: options, range: searchFrom..<folded.endIndex) {
+                      let next = folded.range(of: needle, options: options, range: searchFrom..<folded.endIndex),
+                      next.upperBound > searchFrom {
                     count += 1
                     searchFrom = next.upperBound
                 }
@@ -107,7 +116,7 @@ enum WorkFind {
                 let length = folded.distance(from: first.lowerBound, to: first.upperBound)
                 let (snippet, highlight) = snippet(of: paragraph, matchStart: start, matchLength: length)
                 result.matches.append(Match(chapter: chapter.index, paragraph: index,
-                                            snippet: snippet, highlight: highlight, count: count))
+                                            snippet: snippet, highlight: highlight, count: count, offset: start))
             }
         }
         return result
@@ -153,6 +162,8 @@ struct WorkFindView: View {
     @State private var searchedQuery = ""
     @State private var searching = false
     @State private var fieldPresented = true
+    /// The chapters' text, made once per sheet on the first search.
+    @State private var searchable: [WorkFind.Chapter]?
 
     var body: some View {
         NavigationStack {
@@ -180,7 +191,9 @@ struct WorkFindView: View {
             ContentUnavailableView("Find in This Work",
                                    systemImage: "text.magnifyingglass",
                                    description: Text("Search every loaded chapter's text. Nothing leaves your device."))
-        } else if result.matches.isEmpty {
+        } else if result.matches.isEmpty || searchedQuery != query {
+            // The last query's rows go while a new search runs, so a tap
+            // can't pick one of them.
             if searching || searchedQuery != query {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -279,9 +292,19 @@ struct WorkFindView: View {
         guard !Task.isCancelled else { return }
         let payloads = chapters
         let include = includeImages
-        let found = await Task.detached(priority: .userInitiated) {
-            WorkFind.search(current, in: WorkFind.chapters(from: payloads, includeImages: include))
-        }.value
+        let cached = searchable
+        // Detached, so the main actor stays free; cancelled with this task
+        // when the query changes (search checks between chapters).
+        let work = Task.detached(priority: .userInitiated) { () -> ([WorkFind.Chapter], WorkFind.Result) in
+            let text = cached ?? WorkFind.chapters(from: payloads, includeImages: include)
+            return (text, WorkFind.search(current, in: text))
+        }
+        let (text, found) = await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
+        if searchable == nil { searchable = text }
         guard !Task.isCancelled else { return }
         result = found
         searchedQuery = current

@@ -136,6 +136,12 @@ struct ReaderView: View {
     @State private var findQuery = ""
     /// The place Find is moving to; continuous scroll reads it on `findJump`.
     @State private var findTarget: ReadingAnchor?
+    /// Where the words start in the target paragraph (characters), so page by
+    /// page shows the page with them when a long paragraph spans several.
+    @State private var findOffset = 0
+    /// Page by page: a Find target in a chapter being paginated, shown once
+    /// its pages are in (see handlePaginationTrigger).
+    @State private var pendingFindPage: ReadingAnchor?
     /// Bumped by `showFindMatch`, so choosing a match in the chapter already
     /// on screen still moves there.
     @State private var findJump = 0
@@ -595,7 +601,7 @@ struct ReaderView: View {
             query: $findQuery,
             chapters: chapters,
             includeImages: showImages,
-            select: { showFindMatch($0.anchor) }
+            select: { showFindMatch($0.anchor, offset: $0.offset) }
         ))
         #if !targetEnvironment(macCatalyst)
         .modifier(VolumeButtonPageTurnModifier(
@@ -998,7 +1004,8 @@ struct ReaderView: View {
                 .onChange(of: findJump) { _, _ in
                     guard let anchor = findTarget else { return }
                     isRestoring = true
-                    Task { await scrollToFindMatch(anchor, proxy: proxy) }
+                    let jump = findJump
+                    Task { await scrollToFindMatch(anchor, jump: jump, proxy: proxy) }
                 }
                 // Karaoke: keep the paragraph being read aloud in view.
                 .onChange(of: speech.currentParagraph) { _, _ in scrollToSpokenParagraph(proxy) }
@@ -1022,15 +1029,16 @@ struct ReaderView: View {
     /// Continuous scroll to a Find match. A chapter far off isn't laid out
     /// (the stack is lazy), so it's brought in first; its paragraphs render
     /// asynchronously, so the paragraph's scroll retries until it lands.
-    private func scrollToFindMatch(_ anchor: ReadingAnchor, proxy: ScrollViewProxy) async {
-        defer { isRestoring = false }
+    private func scrollToFindMatch(_ anchor: ReadingAnchor, jump: Int, proxy: ScrollViewProxy) async {
+        // A newer Find jump owns isRestoring from then on.
+        defer { if findJump == jump { isRestoring = false } }
         if anchor.chapter != visibleChapterIndex {
             proxy.scrollTo(anchor.chapter, anchor: .top)
         }
         let key = ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph)
-        for _ in 0..<6 {
-            try? await Task.sleep(nanoseconds: 120_000_000)
-            guard findTarget == anchor else { return }
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard findJump == jump else { return }
             proxy.scrollTo(key, anchor: .top)
         }
     }
@@ -1039,13 +1047,17 @@ struct ReaderView: View {
         let anchor = loadAnchorIfNeeded()
         guard let anchor, anchor.chapter > 1 || anchor.paragraph > 0 else { return }
         isRestoring = true
+        // A Find jump meanwhile (⌘F right after opening) takes over the scroll.
+        let jump = findJump
         try? await Task.sleep(nanoseconds: 250_000_000)
+        guard findJump == jump else { return }
         proxy.scrollTo(anchor.chapter, anchor: .top)
         // Paragraphs render asynchronously, so the exact paragraph id may
         // not exist yet — retry until it lands.
         let key = ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph)
         for _ in 0..<10 {
             try? await Task.sleep(nanoseconds: 180_000_000)
+            guard findJump == jump else { return }
             proxy.scrollTo(key, anchor: .top)
         }
         isRestoring = false
@@ -1307,6 +1319,10 @@ struct ReaderView: View {
             }
             .onChange(of: selectedChapterIndex) { _, chapter in
                 visibleChapterIndex = chapter
+                // Swiped on before a restore (a Find match's) reached its chapter.
+                if let pending = pendingParagraphRestore, pending.chapter != chapter {
+                    pendingParagraphRestore = nil
+                }
                 if !isRestoring && pendingParagraphRestore == nil {
                     let anchor = ReadingAnchor(chapter: chapter, paragraph: 0)
                     currentAnchor = anchor
@@ -1886,6 +1902,12 @@ struct ReaderView: View {
         paginatedWidth = trigger.size.width
 
         restoreOrValidatePageSelection(keeping: kept)
+        // A Find match in this chapter: the page with the words, which in a
+        // paragraph over several pages needn't be the paragraph's first.
+        if let target = pendingFindPage, target.chapter == trigger.chapter {
+            pendingFindPage = nil
+            if let page = findMatchPage(target), page.id != selectedPageId { selectedPageId = page.id }
+        }
         // The page kept holds the place reached but needn't start there, and
         // with an unchanged id selecting it doesn't update pageStart: do it
         // here, or the next re-pagination breaks a page mid-way through it.
@@ -2458,8 +2480,9 @@ struct ReaderView: View {
     /// Shows a Find match in whichever mode is on screen. The match becomes
     /// the reading place (saved at once), and its paragraph is lit briefly
     /// with the Listen highlight.
-    private func showFindMatch(_ anchor: ReadingAnchor) {
+    private func showFindMatch(_ anchor: ReadingAnchor, offset: Int = 0) {
         findTarget = anchor
+        findOffset = offset
         currentAnchor = anchor
         saveProgress(anchor, force: true)
         flashFindHighlight(anchor)
@@ -2484,23 +2507,40 @@ struct ReaderView: View {
     /// paginated already, else the chapter is paginated around the place
     /// (`restoreOrValidatePageSelection` picks the page holding `currentAnchor`).
     private func showFindMatchPageByPage(_ anchor: ReadingAnchor) {
-        if let atoms = parsedAtoms[anchor.chapter],
-           let atomIndex = atoms.firstIndex(where: { $0.originalParagraphIndex == anchor.paragraph }),
-           let page = paginatedPages.first(where: { $0.chapterIndex == anchor.chapter && $0.paragraphIndices.contains(atomIndex) }) {
+        pendingFindPage = nil
+        if let page = findMatchPage(anchor) {
             if selectedPageId != page.id { updatePageSelection(page.id) }
             return
         }
         guard anchor.chapter != selectedChapterIndex else { return }
         // Not a chapter jump to its top: keeps handleChapterIndexChange from
         // replacing the place with the chapter's first paragraph.
+        pendingFindPage = anchor
         isRestoring = true
         selectedChapterIndex = anchor.chapter
+    }
+
+    /// The page showing a Find match: a long paragraph runs over several
+    /// pages, so the one whose atoms cover the words' offset (the speech text
+    /// Find searched is the rendered text, give or take a trimmed space).
+    private func findMatchPage(_ anchor: ReadingAnchor) -> ChapterPage? {
+        guard let atoms = parsedAtoms[anchor.chapter] else { return nil }
+        var covering: Int?
+        var end = 0
+        for (index, atom) in atoms.enumerated() where atom.originalParagraphIndex == anchor.paragraph {
+            covering = index
+            end += atom.text.characters.count
+            if end > findOffset { break }
+        }
+        guard let atomIndex = covering else { return nil }
+        return paginatedPages.first { $0.chapterIndex == anchor.chapter && $0.paragraphIndices.contains(atomIndex) }
     }
 
     private func flashFindHighlight(_ anchor: ReadingAnchor) {
         findHighlight = anchor
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            // Long enough to outlast a chapter's pagination or the sheet closing.
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
             if findHighlight == anchor { findHighlight = nil }
         }
     }

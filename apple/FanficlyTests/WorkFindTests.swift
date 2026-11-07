@@ -37,6 +37,19 @@ final class WorkFindTests: XCTestCase {
         XCTAssertEqual(WorkFind.search("  zoë  ", in: chapters).matches.count, 1)
     }
 
+    func test_queryOfOnlyIgnorableMarksFindsNothing() {
+        // A lone accent or a soft hyphen would otherwise match everywhere.
+        let chapters = [chapter(1, ["The ring.", "Another line."])]
+        XCTAssertTrue(WorkFind.search("\u{0301}", in: chapters).matches.isEmpty)
+        XCTAssertTrue(WorkFind.search("\u{00AD}", in: chapters).matches.isEmpty)
+    }
+
+    func test_matchKnowsWhereTheWordsStartInTheParagraph() {
+        // Page by page uses it to show the page with the words.
+        let match = try! XCTUnwrap(WorkFind.search("ring", in: [chapter(1, ["One. Two. The ring."])]).matches.first)
+        XCTAssertEqual(match.offset, 14)
+    }
+
     func test_skipsImageSlots() {
         // Image slots are "" in speechParagraphs; they keep their index.
         let chapters = [chapter(1, ["", "a ring"])]
