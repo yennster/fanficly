@@ -688,7 +688,8 @@ struct ReaderView: View {
         // on to the next, rather than leaving the last chapter's text loaded
         // under this chapter's number.
         if !speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
-                        workTitle: title, author: author, chapterLabel: label, from: paragraph) {
+                        workTitle: title, author: author, language: summary?.language ?? "",
+                        chapterLabel: label, from: paragraph) {
             advanceNarration()
         }
     }
