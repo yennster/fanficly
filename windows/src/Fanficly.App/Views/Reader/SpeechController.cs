@@ -205,7 +205,7 @@ internal sealed class SpeechController : IDisposable
         if (!IsPlaying || _player is null) return;
         _player.Pause();
         // Pausing yourself takes over from a sleep timer that already ran out.
-        if (SleepPausePending) ClearSleepTimer();
+        if (SleepPausePending) CancelPendingSleepPause();
         IsPlaying = false;
         UpdateTransportControls();
         Changed?.Invoke();
@@ -436,7 +436,7 @@ internal sealed class SpeechController : IDisposable
     /// that's playing pauses at the end of the paragraph being spoken.</summary>
     public void SetSleepTimer(SleepTimer? timer)
     {
-        ClearSleepTimer();
+        CancelPendingSleepPause();
         CurrentSleepTimer = timer;
         if (timer?.Duration is { } duration)
         {
@@ -469,8 +469,15 @@ internal sealed class SpeechController : IDisposable
             return;
         }
         // Drop what's queued after the paragraph being spoken, so the list ends
-        // with it (OnMediaEnded then pauses); FeedAsync adds no more.
+        // with it (OnMediaEnded then pauses); FeedAsync adds no more. The list's
+        // own position, since CurrentParagraph follows it a dispatch later.
         var at = _itemParagraphs.IndexOf(CurrentParagraph);
+        if (_list is { } playing && playing.CurrentItemIndex < (uint)_items.Count && (int)playing.CurrentItemIndex > at)
+        {
+            at = (int)playing.CurrentItemIndex;
+            CurrentParagraph = _itemParagraphs[at];
+            SpokenPosition = _spokenIndices.IndexOf(CurrentParagraph) + 1;
+        }
         if (_list is { } list && at >= 0)
         {
             for (var k = _items.Count - 1; k > at; k--)
@@ -513,6 +520,15 @@ internal sealed class SpeechController : IDisposable
         IsPlaying = false;
         UpdateTransportControls();
         Changed?.Invoke();
+    }
+
+    /// <summary>Clears the timer; a pause it left pending had stopped feeding past
+    /// the current paragraph, so feeding picks up again (no gap at its end).</summary>
+    private void CancelPendingSleepPause()
+    {
+        var wasPending = SleepPausePending;
+        ClearSleepTimer();
+        if (wasPending && IsActive && _list is not null) _ = FeedAsync(_generation);
     }
 
     private void ClearSleepTimer()
