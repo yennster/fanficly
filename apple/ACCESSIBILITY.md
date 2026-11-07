@@ -52,8 +52,19 @@ to readers who need **larger text** or a **darker interface**.
 ## Native by design
 
 Fanficly is built with native SwiftUI, so it inherits system accessibility
-behaviors such as Dynamic Type, Bold Text, and Dark Mode. Improving support for
+behaviors such as Dynamic Type, Bold Text, and Dark Mode everywhere but the
+story text, which has its own size setting (12–30 pt) for now. Improving support for
 assistive technologies like VoiceOver is an ongoing effort.
+
+## On the App Store
+
+The App Store product page lists the accessibility features Fanficly claims on
+iPhone, iPad and Mac, by Apple's criteria for each: today VoiceOver, Dark
+Interface and Differentiate Without Color Alone. Larger Text isn't claimed yet,
+because story text stops at 30 pt and doesn't follow the system text size
+(#174). The answers live in `fastlane/accessibility.json`;
+[docs/RELEASING.md](docs/RELEASING.md#accessibility-declarations) explains each
+one and how they're published.
 
 ## Feedback
 

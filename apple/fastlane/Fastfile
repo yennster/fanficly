@@ -9,6 +9,7 @@
 
 require "json"
 require "fileutils"
+require_relative "accessibility_declarations"
 
 default_platform(:ios)
 
@@ -23,6 +24,7 @@ SCHEME = "Fanficly"
 API_KEY_JSON = File.join(FASTLANE_DIR, "api_key.json")
 SIGNING_XCCONFIG = File.join(ROOT, "Signing.xcconfig")
 BUILD_DIR = File.join(ROOT, "build", "release")
+ACCESSIBILITY_JSON = File.join(FASTLANE_DIR, "accessibility.json")
 
 # Targets that ship, and their bundle IDs (the Mac app is the same
 # universal-purchase app built with Mac Catalyst, so it shares them).
@@ -114,6 +116,20 @@ platform :ios do
       Dir.glob(File.join(METADATA[p], "review_information", "{first_name,last_name,email_address,phone_number,demo_user,demo_password}.txt"))
          .each { |f| File.delete(f) }
     end
+  end
+
+  desc "Publish the App Store accessibility declarations (Accessibility Nutrition Labels) for"
+  desc "iPhone, iPad and Mac from fastlane/accessibility.json. They go live on the product page"
+  desc "at once, with no App Review. dry_run:true only lists what would change."
+  lane :accessibility do |options|
+    asc_api_key
+    dry_run = options[:dry_run].to_s == "true"
+    app = Spaceship::ConnectAPI::App.find(TARGETS["Fanficly"])
+    UI.user_error!("No app #{TARGETS['Fanficly']} on App Store Connect") unless app
+    AccessibilityDeclarations.sync(Spaceship::ConnectAPI.client.tunes_request_client, app.id,
+                                   AccessibilityDeclarations.load(ACCESSIBILITY_JSON),
+                                   dry_run: dry_run, log: ->(line) { UI.message(line) })
+    UI.success(dry_run ? "Dry run: nothing published" : "Accessibility declarations match #{File.basename(ACCESSIBILITY_JSON)}")
   end
 
   # -------------------------------------------------------------- store art

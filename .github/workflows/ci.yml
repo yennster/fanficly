@@ -52,6 +52,7 @@ jobs:
             bin/xcode-cloud-store-art.py bin/xcode-cloud-duo.py bin/asc_assets.py bin/release-notes.py \
             bin/ci-simulator.py
           ruby -c fastlane/Fastfile
+          ruby fastlane/accessibility_declarations_test.rb
           sh -n ci_scripts/ci_post_clone.sh
           sh -n ci_scripts/ci_pre_xcodebuild.sh
 
