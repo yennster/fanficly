@@ -11,9 +11,11 @@ struct WorkRow: View {
     var showsBookmark = true
     @Environment(\.modelContext) private var context
     @Environment(\.readingWordsPerMinute) private var wordsPerMinute
-    // Reflects the local follow ("bookmark") state; seeded on appear and
-    // updated when the inline button is tapped.
-    @State private var isFollowed = false
+    @Environment(\.undoToastHost) private var undoHost
+    // Whether the story is in the Library (the bookmark's state); seeded on
+    // appear, updated when the inline button is tapped, and read again when
+    // a removal behind the Undo toast is undone or runs.
+    @State private var isInLibrary = false
     // Saving from the inline button puts the work in the Library before the
     // list's next lookup.
     @State private var savedHere = false
@@ -76,30 +78,42 @@ struct WorkRow: View {
         }
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
-        .onAppear { isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context) }
+        .onAppear { isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context) }
+        // The list's badge lookup runs after a save or removal elsewhere
+        // (the context menu, another row for the same story).
+        .onChange(of: badge) {
+            isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
+        }
+        .onChange(of: UndoCenter.shared.pending?.id) {
+            isInLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
+            if !isInLibrary { savedHere = false }
+        }
     }
 
-    /// Inline one-tap follow/unfollow, so a story can be saved to the Library
-    /// straight from a results list without opening it. `.borderless` keeps the
-    /// tap from also triggering the row's NavigationLink.
+    /// Inline one-tap Save to Library / Remove from Library, so a story can be
+    /// saved straight from a results list without opening it. Removing
+    /// deletes the saved story behind the Undo toast (#168). `.borderless`
+    /// keeps the tap from also triggering the row's NavigationLink.
     private var bookmarkButton: some View {
         Button {
-            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
+            // Acts on what the button shows (#168): a stale row never
+            // deletes a story it offered to save.
+            let newState = WorkPersistence.setInLibrary(!isInLibrary, summary: work, into: context, undoHost: undoHost)
             withAnimation(.easeInOut(duration: 0.2)) {
-                isFollowed = newState
-                savedHere = true  // toggling creates the Work; unfollowing keeps it
+                isInLibrary = newState
+                savedHere = newState
             }
         } label: {
-            Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
+            Image(systemName: isInLibrary ? "bookmark.fill" : "bookmark")
                 .font(.body)
-                .foregroundStyle(isFollowed ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isInLibrary ? Color.accentColor : Color.secondary)
                 .contentTransition(.symbolEffect(.replace))
                 .padding(.vertical, 4)
                 .padding(.leading, 6)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .accessibilityLabel(isFollowed ? "Remove \(work.title) from Library"
+        .accessibilityLabel(isInLibrary ? "Remove \(work.title) from Library"
                                        : "Save \(work.title) to Library")
     }
 }
@@ -150,6 +164,9 @@ private struct ResultBadgesModifier: ViewModifier {
         content
             .onAppear(perform: refresh)
             .onChange(of: works.map(\.id)) { refresh() }
+            // "In Library" goes as soon as a removal waits behind the Undo
+            // toast, and comes back on Undo (#168).
+            .onChange(of: UndoCenter.shared.pending?.id) { refresh() }
     }
 
     private func refresh() {

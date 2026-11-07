@@ -348,17 +348,9 @@ struct LibraryView: View {
 
     /// Waits behind the Undo toast (#169): the delete takes the offline
     /// text, EPUB, note, tags and folder links, and AO3 may no longer have it.
+    /// "Remove from Library" in search and on the work page does the same.
     private func delete(_ work: Work) {
-        let context = context
-        UndoCenter.shared.schedule(String(localized: "Deleted “\(work.title)”"),
-                                   keys: [UndoCenter.Key.work(work.ao3Id)],
-                                   host: undoHost) {
-            guard !work.isDeleted, work.modelContext != nil else { return }
-            iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
-            WorkPersistence.delete(work, in: context)
-            try? context.save()
-            iCloudSyncManager.shared.queueBackup(context: context)
-        }
+        WorkPersistence.scheduleRemoval(work, in: context, undoHost: undoHost)
     }
 
     private func deleteFolder(_ folder: CustomFolder) {

@@ -47,6 +47,9 @@ struct RecentlyViewedView: View {
                 .toolbar { EditButton() }
                 .onAppear(perform: refresh)
                 .onChange(of: recents.map(\.ao3Id)) { refresh() }
+                // A story removed from the Library (or put back with Undo)
+                // changes its "In Library" badge (#168).
+                .onChange(of: UndoCenter.shared.pending?.id) { refresh() }
             }
         }
         .navigationTitle("Recently Viewed")
