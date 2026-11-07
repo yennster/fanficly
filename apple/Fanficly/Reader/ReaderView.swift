@@ -408,7 +408,10 @@ struct ReaderView: View {
                     applyKeepScreenAwake(keepScreenAwake)
                     startTimer()
                 }
-                .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
+                // Only while on screen: narration stopping as the reader
+                // leaves flips this, and a hidden reader mustn't hold the
+                // screen for the page pushed over it.
+                .onChange(of: keepScreenAwake) { _, on in if isVisible { applyKeepScreenAwake(on) } }
                 .onChange(of: scenePhase) { _, newPhase in
                     scenePhaseChanged(newPhase)
                     if newPhase == .active {

@@ -384,9 +384,15 @@ final class SpeechController: NSObject {
     }
 
     private func sleepTimerRanOut() {
+        let overdue = sleepDeadline.map { Date().timeIntervalSince($0) > 30 } ?? false
         sleepTask = nil
         sleepDeadline = nil
-        if Self.sleepTimerRanOut(isPlaying: isPlaying) == .pauseAfterParagraph {
+        // An interruption (a call, an alarm) that resumes on its own counts as
+        // playing, so the timer isn't lost under it. A timer that fires long
+        // overdue ran out while the app was suspended, i.e. paused: it must
+        // not pause the next play.
+        let playing = (isPlaying || pausedByInterruption) && !overdue
+        if Self.sleepTimerRanOut(isPlaying: playing) == .pauseAfterParagraph {
             sleepPausePending = true
         } else {
             sleepTimer = nil
@@ -487,6 +493,8 @@ final class SpeechController: NSObject {
         Task { @MainActor in
             guard isActive else { return }
             pausedByInterruption = false
+            // As a pause by hand: it takes over from a sleep pause pending.
+            if sleepPausePending { clearSleepTimer() }
             // Not `pause()`, which finishes the word: not one more through the speaker.
             guard synthesizer.isSpeaking, !synthesizer.isPaused else { return }
             synthesizer.pauseSpeaking(at: .immediate)
@@ -577,7 +585,7 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
                 // The sleep timer ran out: stop before the next paragraph
                 // (the 0.15 s breath between them leaves time) and drop the
                 // queue, so playing again starts that paragraph afresh.
-                synthesizer.stopSpeaking(at: .immediate)
+                self.synthesizer.stopSpeaking(at: .immediate)
                 indexOf.removeAll()
                 if let next = spokenIndices.first(where: { $0 > i }) {
                     currentParagraph = next
