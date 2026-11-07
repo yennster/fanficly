@@ -176,6 +176,7 @@ internal sealed partial class ReaderView
         if (previous._currentAnchor is { } moved && moved == previous._clampedRestoreAnchor) return;
         _loadedFromDisk = true;
         _openedAnchorGate = previous._openedAnchorGate;
+        _findQuery = previous._findQuery;
         if (previous._currentAnchor is { } anchor && ChapterAt(anchor.Chapter) is not null)
         {
             _currentAnchor = anchor;
@@ -782,7 +783,9 @@ internal sealed partial class ReaderView
 
     /// <summary>The paragraph to karaoke-highlight in a chapter, or null.</summary>
     private int? HighlightedParagraph(int chapterIndex) =>
-        _speech.IsActive && _listeningChapter == chapterIndex ? _speech.CurrentParagraph : null;
+        // Find's landing, for a moment (#183).
+        _findHighlight is { } found && found.Chapter == chapterIndex ? found.Paragraph
+        : _speech.IsActive && _listeningChapter == chapterIndex ? _speech.CurrentParagraph : null;
 
     private void ApplyHighlight()
     {
@@ -870,6 +873,9 @@ internal sealed partial class ReaderView
                 return false;
             case VirtualKey.L when ctrl:
                 ToggleListening();
+                return true;
+            case VirtualKey.F when ctrl:
+                _ = ShowFindAsync();
                 return true;
             case VirtualKey.Left when ctrl:
             case VirtualKey.GamepadLeftShoulder:
@@ -992,6 +998,7 @@ internal sealed partial class ReaderView
                 _isUIMinimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"));
             menu.Items.Add(UI.UI.MenuItem(_speech.IsActive ? "Stop listening" : "Listen to chapter", ToggleListening,
                 _speech.IsActive ? "stop.circle" : "headphones"));
+            menu.Items.Add(UI.UI.MenuItem("Find in this work", () => PresentLater(ShowFindAsync), "magnifyingglass"));
         };
         return menu;
     }

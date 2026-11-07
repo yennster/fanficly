@@ -492,6 +492,10 @@ internal sealed partial class ReaderView
         listen.KeyboardAcceleratorTextOverride = "Ctrl+L";
         AutomationProperties.SetAutomationId(listen, "reader.listen");
         menu.Items.Add(listen);
+        var find = UI.UI.MenuItem("Find in this work", () => PresentLater(ShowFindAsync), "magnifyingglass");
+        find.KeyboardAcceleratorTextOverride = "Ctrl+F";
+        AutomationProperties.SetAutomationId(find, "reader.find");
+        menu.Items.Add(find);
         menu.Items.Add(new MenuFlyoutSeparator());
 
         menu.Items.Add(ProfilesMenu());
