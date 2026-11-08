@@ -23,6 +23,10 @@ struct SubscriptionsView: View {
     @State private var lastError: String?
     @State private var lastNotifyCount: Int?
     @State private var lastNewWorksCount: Int?
+    @State private var lastFailedChecks = 0
+    /// The Refresh in flight; an account change cancels it, so the new
+    /// account's list sync doesn't wait behind the old run's checks.
+    @State private var refreshTask: Task<Void, Never>?
     @State private var hasRequestedNotifications: Bool = false
     @State private var browserURL: ShareItem?
 
@@ -112,8 +116,8 @@ struct SubscriptionsView: View {
 
     @ViewBuilder
     private func followedWorkRow(_ work: Work) -> some View {
-        let stub = AO3WorkSummary.stub(id: work.ao3Id, title: work.title)
-        NavigationLink(value: stub) {
+        // Opens the saved copy, as the Library does (offline too).
+        NavigationLink(value: work) {
             LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil,
                        checkedAt: work.lastCheckedAt)
         }
@@ -126,7 +130,7 @@ struct SubscriptionsView: View {
             .tint(.orange)
         }
         .contextMenu {
-            NavigationLink(value: stub) {
+            NavigationLink(value: work) {
                 Label("Open", systemImage: "book")
             }
             if !EPUBImport.isLocalWork(work.ao3Id) {
@@ -243,6 +247,12 @@ struct SubscriptionsView: View {
         if let works = lastNewWorksCount, works > 0 {
             text += " \(works) new work\(works == 1 ? "" : "s") from authors you follow."
         }
+        // As Windows: a run that couldn't reach AO3 doesn't claim all is quiet.
+        if lastFailedChecks > 0 {
+            text = count == 0 && (lastNewWorksCount ?? 0) == 0
+                ? "Couldn't check \(lastFailedChecks) of them. AO3 may be down; try again later."
+                : "\(text) Couldn't check \(lastFailedChecks) more."
+        }
         return text
     }
 
@@ -256,7 +266,7 @@ struct SubscriptionsView: View {
                 } description: {
                     Text("Tap Refresh to fetch your subscriptions from AO3.")
                 } actions: {
-                    Button("Refresh") { Task { await refresh() } }
+                    Button("Refresh") { startRefresh() }
                 }
             } else {
                 List {
@@ -317,8 +327,16 @@ struct SubscriptionsView: View {
             lastError = nil
             lastNotifyCount = nil
             lastNewWorksCount = nil
-            syncIfNew()
+            lastFailedChecks = 0
+            if isBusy {
+                // The run in flight was the old account's; it starts the
+                // new one's sync once it has stopped.
+                refreshTask?.cancel()
+            } else {
+                syncIfNew()
+            }
         }
+        .navigationDestination(for: Work.self) { SavedWorkReader(work: $0) }
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
@@ -327,7 +345,7 @@ struct SubscriptionsView: View {
             if auth.username != nil || hasLocalFollows {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await refresh() }
+                        startRefresh()
                     } label: {
                         if isBusy { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
@@ -401,13 +419,22 @@ struct SubscriptionsView: View {
         let chapters = await poller.checkWorksForNewChapters()
         let newWorks = await poller.checkFollowedAuthors()
         isChecking = false
-        // Another account's results aren't this one's to show.
-        guard auth.username == username, !poller.accountChanged else {
+        // Cancelled, or another account's: the results aren't this one's to show.
+        guard !Task.isCancelled, auth.username == username, !poller.accountChanged else {
             syncIfNew()
             return
         }
         lastNotifyCount = chapters
         lastNewWorksCount = newWorks
+        lastFailedChecks = poller.tally.failed
+        if let notifySummary {
+            UIAccessibility.post(notification: .announcement, argument: notifySummary)
+        }
+    }
+
+    private func startRefresh() {
+        guard !isBusy else { return }
+        refreshTask = Task { await refresh() }
     }
 
     /// A new account's list syncs on its own (#159): just signed in, or the
@@ -416,7 +443,7 @@ struct SubscriptionsView: View {
         guard let username = auth.username, auth.hasSession, !isBusy, !FanficlyApp.isDemoMode,
               !SubscriptionPoller(client: client, context: context, username: username).hasSyncedList
         else { return }
-        Task { await refresh() }
+        startRefresh()
     }
 }
 

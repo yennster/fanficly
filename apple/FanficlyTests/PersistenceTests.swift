@@ -3133,6 +3133,26 @@ final class PersistenceTests: XCTestCase {
         XCTAssertNil(rec?.lastCheckedAt)
     }
 
+    // A Refresh that gets an error page counts the check as failed, so the
+    // tab doesn't report "No new chapters" for it (#186).
+    func test_subscriptionsTabCheck_countsFailedChecks() async throws {
+        let ctx = try makeContext()
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        followed.lastSeenChapterCount = 3
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body><h1>Retry later</h1></body></html>"
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil, defaults: scratchDefaults())
+        let alerts = await poller.checkWorksForNewChapters()
+
+        XCTAssertEqual(alerts, 0)
+        XCTAssertEqual(poller.tally.failed, 1)
+        XCTAssertEqual(followed.lastSeenChapterCount, 3)
+    }
+
     // MARK: - Saved search alerts (#309)
 
     private func searchWork(_ id: Int, chapters: Int = 1, updated: Date? = nil, rating: String = "") -> AO3WorkSummary {
