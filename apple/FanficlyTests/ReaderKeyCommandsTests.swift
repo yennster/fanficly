@@ -159,5 +159,14 @@ final class WorkLinkTests: XCTestCase {
         XCTAssertNil(WorkLink.workId(fromText: "hello there"))
         XCTAssertNil(WorkLink.workId(fromText: "https://archiveofourown.org/users/someone"))
         XCTAssertNil(WorkLink.workId(fromText: "https://archiveofourown.org/tags/Fluff/works"))
+        // Another archive running AO3's software: not an AO3 work.
+        XCTAssertNil(WorkLink.workId(fromText: "https://squidgeworld.org/works/12345"))
+        XCTAssertNil(WorkLink.workId(fromText: "https://notarchiveofourown.org/works/12345"))
+    }
+
+    func test_ao3Domains() {
+        XCTAssertEqual(WorkLink.workId(fromText: "https://ao3.org/works/9"), 9)
+        XCTAssertEqual(WorkLink.workId(fromText: "https://www.archiveofourown.org/works/10"), 10)
+        XCTAssertEqual(WorkLink.workId(fromText: "HTTPS://ArchiveOfOurOwn.org/works/11"), 11)
     }
 }

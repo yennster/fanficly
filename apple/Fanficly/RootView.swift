@@ -529,6 +529,10 @@ enum WorkLink {
             }
         }
 
+        // Only AO3's own links: another archive's /works/123 (an OTW-software
+        // site like SquidgeWorld) is a different work.
+        if let host = targetURL.host?.lowercased(), !isAO3(host) { return nil }
+
         let path = targetURL.absoluteString
         guard let regex = try? NSRegularExpression(pattern: #"works/(\d+)"#, options: .caseInsensitive) else { return nil }
         let range = NSRange(location: 0, length: path.utf16.count)
@@ -539,6 +543,13 @@ enum WorkLink {
             }
         }
         return nil
+    }
+
+    /// archiveofourown.org, its short and old domains, and their subdomains.
+    static func isAO3(_ host: String) -> Bool {
+        ["archiveofourown.org", "ao3.org", "archiveofourown.com", "archiveofourown.net"].contains {
+            host == $0 || host.hasSuffix("." + $0)
+        }
     }
 
     /// Typed or pasted text: a link, with the spaces and line breaks a copy
@@ -813,9 +824,8 @@ extension FocusedValues {
 
 extension View {
     /// ⌘V with an AO3 work link on the clipboard imports it, as dropping the
-    /// link on the window does (Windows' Ctrl+V). Only a work link is taken,
-    /// and never while a text field is being edited, so every other paste
-    /// goes where it always did. On iPad and the Mac, Open AO3 Link… in the
+    /// link on the window does (Windows' Ctrl+V). Never while a text field is
+    /// being edited, so pastes into a field go where they always did. On iPad and the Mac, Open AO3 Link… in the
     /// File menu does the same from the keyboard wherever focus is.
     @MainActor
     func onPasteWorkLink(perform action: @escaping @MainActor (Int) -> Void) -> some View {
@@ -824,11 +834,20 @@ extension View {
                   !FirstResponder.isEditingText,
                   UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs
             else { return .ignored }
-            let pasteboard = UIPasteboard.general
-            let candidates = (pasteboard.urls ?? []).compactMap { WorkLink.workId(from: $0) }
-                + (pasteboard.strings ?? []).compactMap { WorkLink.workId(fromText: $0) }
-            guard let workId = candidates.first else { return .ignored }
-            action(workId)
+            // Outside a text field nothing else takes ⌘V, so it's handled
+            // here either way. The clipboard is only read once it looks like
+            // a web link (`detectPatterns` doesn't read it): reading it from
+            // a key press shows iOS's Allow Paste prompt, which ordinary
+            // copied text shouldn't bring up.
+            UIPasteboard.general.detectPatterns(for: [\.probableWebURL]) { result in
+                guard case .success(let patterns) = result, patterns.contains(\.probableWebURL) else { return }
+                Task { @MainActor in
+                    let pasteboard = UIPasteboard.general
+                    let candidates = (pasteboard.urls ?? []).compactMap { WorkLink.workId(from: $0) }
+                        + (pasteboard.strings ?? []).compactMap { WorkLink.workId(fromText: $0) }
+                    if let workId = candidates.first { action(workId) }
+                }
+            }
             return .handled
         }
     }
@@ -903,6 +922,7 @@ extension FocusedValues {
 extension View {
     /// Offers `perform` to a menu-bar item while this screen is on screen
     /// (not while something is pushed over it or another tab is showing).
+    /// `enabled` false greys the item out.
     @MainActor
     func menuAction(_ keyPath: WritableKeyPath<FocusedValues, MenuAction?>, enabled: Bool = true,
                     perform: @escaping @MainActor () -> Void) -> some View {
@@ -937,13 +957,32 @@ private struct MenuActionModifier: ViewModifier {
     let keyPath: WritableKeyPath<FocusedValues, MenuAction?>
     let enabled: Bool
     let perform: @MainActor () -> Void
+
+    func body(content: Content) -> some View {
+        content.onScreenSceneValue(keyPath, MenuAction(isEnabled: enabled, perform: perform))
+    }
+}
+
+extension View {
+    /// `focusedSceneValue`, but only while this view is on screen: nil once
+    /// something is pushed over it, so a covered screen (or a reader under
+    /// an author page) never competes with the one on top for a menu item.
+    @MainActor
+    func onScreenSceneValue<T>(_ keyPath: WritableKeyPath<FocusedValues, T?>, _ value: T?) -> some View {
+        modifier(OnScreenSceneValue(keyPath: keyPath, value: value))
+    }
+}
+
+private struct OnScreenSceneValue<T>: ViewModifier {
+    let keyPath: WritableKeyPath<FocusedValues, T?>
+    let value: T?
     @State private var isOnScreen = false
 
     func body(content: Content) -> some View {
         content
             .onAppear { isOnScreen = true }
             .onDisappear { isOnScreen = false }
-            .focusedSceneValue(keyPath, MenuAction(isEnabled: enabled && isOnScreen, perform: perform))
+            .focusedSceneValue(keyPath, isOnScreen ? value : nil)
     }
 }
 

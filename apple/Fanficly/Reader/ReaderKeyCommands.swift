@@ -266,7 +266,7 @@ struct ReaderKeyPressModifier: ViewModifier {
                 perform(action)
                 return .handled
             }
-            .onKeyPress(keys: [.leftArrow, .rightArrow, "l"], phases: .down) { press in
+            .onKeyPress(keys: [.leftArrow, .rightArrow, "l", "L"], phases: .down) { press in
                 guard Self.handlesCommandKeys, isReaderFocused,
                       let key = ReaderCommandKey(key: press.key, modifiers: press.modifiers)
                 else { return .ignored }

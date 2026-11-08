@@ -413,7 +413,7 @@ struct ReaderView: View {
 
         func body(content: Content) -> some View {
             content
-                .focusedSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
+                .onScreenSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
                 .sheet(isPresented: $showingFind) {
                     WorkFindView(chapters: chapters, includeImages: includeImages,
                                  query: $query, onSelect: select)
@@ -607,8 +607,9 @@ struct ReaderView: View {
             find: { showingFind = true },
             command: { performCommandKey($0) }
         ))
-        // The Reader menu's Previous / Next Chapter and Listen (iPad, Mac).
-        .focusedSceneValue(\.readerMenu, readerMenuActions)
+        // The Reader menu's Previous / Next Chapter and Listen (iPad, Mac),
+        // not while Find's sheet is up (its field keeps ⌘← / ⌘→).
+        .onScreenSceneValue(\.readerMenu, showingFind ? nil : readerMenuActions)
         .modifier(FindPresentationModifier(
             showingFind: $showingFind,
             query: $findQuery,
@@ -1129,8 +1130,14 @@ struct ReaderView: View {
                     }
                 }
                 .onChange(of: continuousEndJump) { _, _ in
+                    let target = ChapterEndID(chapter: continuousEndChapter)
                     withAnimation(pageTurnAnimations && !reduceMotion ? .default : nil) {
-                        proxy.scrollTo(ChapterEndID(chapter: continuousEndChapter), anchor: .bottom)
+                        proxy.scrollTo(target, anchor: .bottom)
+                    }
+                    // Again once the layout settles, as a chapter jump does.
+                    Task {
+                        try? await Task.sleep(nanoseconds: 60_000_000)
+                        proxy.scrollTo(target, anchor: .bottom)
                     }
                 }
                 .onChange(of: currentAnchor) { _, anchor in
