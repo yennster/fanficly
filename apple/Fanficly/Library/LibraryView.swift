@@ -302,6 +302,7 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search titles, authors, tags, or notes")
+        .modifier(SearchableFindShortcut())
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -566,6 +567,7 @@ struct FolderDetailView: View {
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search stories in folder")
+        .modifier(SearchableFindShortcut())
         .sheet(item: $workEditingNotes) { work in
             WorkNotesSheet(work: work)
         }
@@ -905,6 +907,24 @@ private struct LibraryStatsStrip: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.2))
                 .frame(width: 1, height: 26)
+        }
+    }
+}
+
+/// ⌘F for a `.searchable` field (the Library, a folder): Edit → Find on iPad
+/// and the Mac, a hidden shortcut on iPhone. Focusing a search field from
+/// code takes iOS 18 (`searchFocused`); on iOS 17 ⌘F does nothing here.
+private struct SearchableFindShortcut: ViewModifier {
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .searchFocused($focused)
+                .menuAction(\.focusSearch) { focused = true }
+                .phoneOnlyShortcut("f") { focused = true }
+        } else {
+            content
         }
     }
 }

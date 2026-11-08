@@ -135,9 +135,14 @@ struct SubscriptionsView: View {
                         if isRefreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isRefreshing)
+                    .keyboardShortcut(KeyboardShortcut.phoneOnly("r"))
                     .accessibilityLabel("Refresh subscriptions")
                 }
             }
+        }
+        // ⌘R (F5 on Windows): View → Refresh on iPad and the Mac.
+        .menuAction(\.refreshList, enabled: auth.username != nil && !isRefreshing) {
+            Task { await refresh() }
         }
         .task {
             // Not in demo mode, so screenshot and UI-test runs never get the alert.
@@ -337,9 +342,14 @@ struct BookmarksView: View {
                         if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isLoading)
+                    .keyboardShortcut(KeyboardShortcut.phoneOnly("r"))
                     .accessibilityLabel("Refresh bookmarks")
                 }
             }
+        }
+        // ⌘R (F5 on Windows): View → Refresh on iPad and the Mac.
+        .menuAction(\.refreshList, enabled: auth.username != nil && !isLoading) {
+            Task { await refresh() }
         }
         .task { await loadFirst() }
         // Another account (or none): the list on screen isn't theirs (#159).
@@ -598,9 +608,14 @@ struct ReadingListView: View {
                         if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isLoading)
+                    .keyboardShortcut(KeyboardShortcut.phoneOnly("r"))
                     .accessibilityLabel("Refresh \(list.title)")
                 }
             }
+        }
+        // ⌘R (F5 on Windows): View → Refresh on iPad and the Mac.
+        .menuAction(\.refreshList, enabled: auth.username != nil && !isLoading) {
+            Task { await refresh() }
         }
         .task { await loadFirst() }
         // Another account (or none): the list on screen isn't theirs (#159).
