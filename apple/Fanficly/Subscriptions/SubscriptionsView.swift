@@ -381,8 +381,8 @@ struct SubscriptionsView: View {
         }
     }
 
+    /// Started only by `startRefresh`, which marks it busy first.
     private func refresh() async {
-        guard !isBusy else { return }
         let username = auth.username
         isRefreshing = true
         lastError = nil
@@ -434,6 +434,9 @@ struct SubscriptionsView: View {
 
     private func startRefresh() {
         guard !isBusy else { return }
+        // Busy at once, so a second start in the same turn can't replace
+        // the Task an account change must cancel.
+        isRefreshing = true
         refreshTask = Task { await refresh() }
     }
 

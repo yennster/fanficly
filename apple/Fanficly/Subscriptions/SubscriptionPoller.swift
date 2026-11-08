@@ -158,10 +158,7 @@ struct SubscriptionPoller {
                                   followed: followedWorks())
         for case .work(let id, let rec, let work) in targets {
             if Task.isCancelled { break }
-            // Unfollowed from the tab while this run was going (#186).
-            let followed = work.flatMap { $0.isFollowed && !$0.isDeleted ? $0 : nil }
-            if rec == nil, followed == nil { continue }
-            notifyCount += await checkWork(id: id, subscription: rec, followed: followed)
+            notifyCount += await checkWork(id: id, subscription: rec, followed: work)
         }
         try? context.save()
         WidgetDataStore.updateAll(context: context)
@@ -336,11 +333,16 @@ struct SubscriptionPoller {
     /// Check a work for new chapters with one throttled request of its light
     /// page, for its subscription, its follow or both, and post at most one
     /// alert. Returns the number of notifications posted.
-    private func checkWork(id workId: Int, subscription: SubscriptionRecord?, followed work: Work?) async -> Int {
+    private func checkWork(id workId: Int, subscription: SubscriptionRecord?, followed candidate: Work?) async -> Int {
         // A subscription whose account signed out (before or during the
         // request) was deleted with it (#159): don't touch it or alert for it.
         var rec: SubscriptionRecord? { accountChanged ? nil : subscription }
-        if subscription != nil, rec == nil, work == nil { return 0 }
+        // Likewise a work unfollowed or deleted before or during the request
+        // (the Subscriptions tab unfollows while Refresh runs, #186).
+        var work: Work? {
+            candidate.flatMap { $0.modelContext != nil && !$0.isDeleted && $0.isFollowed ? $0 : nil }
+        }
+        if rec == nil, work == nil { return 0 }
         // Stamp the attempt up front: a permanently-failing record (deleted
         // work, parse drift) must not stay "oldest" forever and hog the head
         // of the round-robin queue.
@@ -403,6 +405,7 @@ struct SubscriptionPoller {
                 )
                 notifyCount = newWorks.count
             }
+            if gone { return notifyCount }
             author.knownWorkIds = Array(known.union(latestIds).subtracting(undated))
             return notifyCount
         } catch {
