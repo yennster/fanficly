@@ -86,7 +86,8 @@ struct SearchView: View {
         .task {
             guard !FanficlyApp.isDemoMode else { return }
             let poller = SubscriptionPoller(client: client, context: context, username: auth.username)
-            _ = await poller.checkStaleSavedSearches()
+            // Not while a full check runs; it checks these searches too.
+            _ = await BackgroundRefresh.exclusive { await poller.checkStaleSavedSearches() }
         }
         .sheet(isPresented: $showingFilters) {
             WorkFilterSheet(filters: $active) {

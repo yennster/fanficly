@@ -8,10 +8,13 @@ import Foundation
 ///
 /// The first check waits a minute so it doesn't compete with launch work, then
 /// one runs every `interval`. Coming back to the app doesn't check again before
-/// `interval` has passed since the last check (in the background or here), so
+/// `interval` has passed since the last full check (in the background or here), so
 /// switching apps doesn't cost AO3 a poll each time. Each check is the same
 /// oldest-first `BackgroundRefresh.runPoll`, which skips itself when another
 /// check is already running.
+///
+/// iPhone and iPad stop the schedule in the background; the Mac keeps it
+/// running for as long as the app runs (see `FanficlyApp.updateInAppPolling`).
 @MainActor
 final class InAppPolling {
     static let shared = InAppPolling()
@@ -30,7 +33,7 @@ final class InAppPolling {
 
     init(
         sleep: @escaping Sleep = { try await Task.sleep(for: .seconds($0)) },
-        lastPoll: @escaping @MainActor () -> Date? = { BackgroundRefresh.lastPollStartedAt },
+        lastPoll: @escaping @MainActor () -> Date? = { BackgroundRefresh.lastPollCompletedAt },
         now: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.sleep = sleep

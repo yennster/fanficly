@@ -11,12 +11,27 @@ enum BackgroundRefresh {
     /// in-app schedule's interval (`InAppPolling`).
     static let defaultInterval: TimeInterval = 4 * 60 * 60
 
-    /// A check is running (in the background or in the app). Checks never
-    /// overlap: two at once would fetch the same works and could alert twice.
+    /// A check is running: a full one (background or in-app) or the
+    /// Subscriptions or Search tab's own. They never overlap (`exclusive`):
+    /// two at once would fetch the same works and could alert twice.
     @MainActor private(set) static var isPolling = false
-    /// When the last check in this process started, so a return to the app
-    /// doesn't check again too soon after a background check.
-    @MainActor private(set) static var lastPollStartedAt: Date?
+    /// When the last full check in this process finished without being cut
+    /// off, so a return to the app doesn't check again too soon after one.
+    /// A cut-off check doesn't count: most of its queue went unchecked.
+    @MainActor private(set) static var lastPollCompletedAt: Date?
+
+    /// Runs `check` unless another check is running, in which case it returns
+    /// nil without running it.
+    @MainActor
+    static func exclusive<T>(_ check: @MainActor () async -> T) async -> T? {
+        guard !isPolling else {
+            logger.debug("Skipped a check: one is already running")
+            return nil
+        }
+        isPolling = true
+        defer { isPolling = false }
+        return await check()
+    }
 
     static func scheduleNext(after seconds: TimeInterval = defaultInterval) {
         let request = BGAppRefreshTaskRequest(identifier: identifier)
@@ -36,20 +51,18 @@ enum BackgroundRefresh {
         client: any AO3ClientProtocol,
         container: ModelContainer
     ) async -> Bool {
-        guard !isPolling else {
-            logger.debug("Skipped a poll: one is already running")
-            return false
+        let notified: Int? = await exclusive {
+            let context = ModelContext(container)
+            // Repaired first: a stored email address (#144) can't build the
+            // subscriptions URL.
+            let username = await AuthState.repairedLogin(client: client)
+            // Run even when logged out: locally-followed works are still polled.
+            let poller = SubscriptionPoller(client: client, context: context, username: username)
+            let count = await poller.runFullPoll()
+            if !Task.isCancelled { lastPollCompletedAt = Date() }
+            return count
         }
-        isPolling = true
-        lastPollStartedAt = Date()
-        defer { isPolling = false }
-        let context = ModelContext(container)
-        // Repaired first: a stored email address (#144) can't build the
-        // subscriptions URL.
-        let username = await AuthState.repairedLogin(client: client)
-        // Run even when logged out: locally-followed works are still polled.
-        let poller = SubscriptionPoller(client: client, context: context, username: username)
-        let notified = await poller.runFullPoll()
+        guard let notified else { return false }
         logger.info("Poll posted \(notified, privacy: .public) notifications")
         return true
     }

@@ -271,9 +271,11 @@ struct FanficlyApp: App {
             BackgroundRefresh.scheduleNext()
             await BackgroundRefresh.runPoll(client: client, container: Self.sharedModelContainer)
         }
-        .onChange(of: scenePhase, initial: true) { _, newPhase in
+        .onChange(of: scenePhase, initial: true) { oldPhase, newPhase in
             updateInAppPolling(for: newPhase)
-            if newPhase == .background {
+            // A real move to the background, not the initial value: a launch
+            // into the background for a refresh mustn't back up meanwhile.
+            if newPhase == .background, oldPhase != newPhase {
                 // A delete waiting behind its Undo toast runs now, before the
                 // backup snapshot, so a suspended app doesn't hold it (#169).
                 UndoCenter.shared.commitPending()

@@ -119,7 +119,8 @@ final class NotificationTapHandler: NSObject, UNUserNotificationCenterDelegate, 
     }
 
     /// How an alert posted while the app is in front shows (#185): a banner,
-    /// kept in Notification Center, as when the app is in the background.
+    /// kept in Notification Center, without the sound it plays when the app
+    /// is in the background.
     /// Without `willPresent`, iOS doesn't show it, so a check made while
     /// the app is open (`InAppPolling`) would alert no one.
     static let foregroundPresentation: UNNotificationPresentationOptions = [.banner, .list]
