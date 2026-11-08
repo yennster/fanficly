@@ -178,7 +178,9 @@ struct SubscriptionsView: View {
         lastError = error
         // The per-work new-chapter check is throttled (1 req/sec) and only
         // feeds notifications, so run it after the list is already showing.
-        let count = await poller.checkForNewChapters()
+        // Skipped while a full check runs: it covers these works too, and
+        // two at once could alert twice for the same chapter.
+        guard let count = await BackgroundRefresh.exclusive({ await poller.checkForNewChapters() }) else { return }
         if auth.username == username { lastNotifyCount = count }
     }
 
