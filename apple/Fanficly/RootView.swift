@@ -258,9 +258,9 @@ struct RootView: View {
             .onDrop(of: [.url, .text], isTargeted: nil) { providers in
                 self.handleImportProviders(providers)
             }
-            .onPasteCommandIfAvailable { providers in
-                _ = self.handleImportProviders(providers)
-            }
+            // ⌘V with a work link, and File → Open AO3 Link… (⇧⌘O).
+            .onPasteWorkLink { importingWorkId = $0 }
+            .modifier(OpenAO3LinkModifier { importingWorkId = $0 })
             // Post-iCloud-restore "re-download offline stories?" prompt and
             // its progress banner — root-level so it shows on any tab.
             .restoreRedownloadUI()
@@ -472,35 +472,7 @@ struct RootView: View {
     }
     
     private func parseWorkId(from url: URL) -> Int? {
-        var targetURL = url
-        if url.scheme == "fanficly" {
-            if url.host == "import" {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let queryItem = components.queryItems?.first(where: { $0.name == "url" }),
-                   let urlString = queryItem.value,
-                   let decodedURL = URL(string: urlString) {
-                    targetURL = decodedURL
-                }
-            } else if let host = url.host, host == "works" || host == "work",
-                      let firstPath = url.pathComponents.dropFirst().first,
-                      let id = Int(firstPath) {
-                return id
-            } else if let firstPath = url.pathComponents.dropFirst().first,
-                      let id = Int(firstPath) {
-                return id
-            }
-        }
-        
-        let path = targetURL.absoluteString
-        guard let regex = try? NSRegularExpression(pattern: #"works/(\d+)"#, options: .caseInsensitive) else { return nil }
-        let range = NSRange(location: 0, length: path.utf16.count)
-        if let match = regex.firstMatch(in: path, range: range) {
-            if let idRange = Range(match.range(at: 1), in: path),
-               let id = Int(path[idRange]) {
-                return id
-            }
-        }
-        return nil
+        WorkLink.workId(from: url)
     }
 
     @discardableResult
@@ -531,6 +503,61 @@ struct RootView: View {
             return true
         }
         return false
+    }
+}
+
+/// A work's id from a link to it: an AO3 work URL (any page of it), or one
+/// of Fanficly's own `fanficly://` links. Drops, pastes and Open AO3 Link use it.
+enum WorkLink {
+    static func workId(from url: URL) -> Int? {
+        var targetURL = url
+        if url.scheme == "fanficly" {
+            if url.host == "import" {
+                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                   let queryItem = components.queryItems?.first(where: { $0.name == "url" }),
+                   let urlString = queryItem.value,
+                   let decodedURL = URL(string: urlString) {
+                    targetURL = decodedURL
+                }
+            } else if let host = url.host, host == "works" || host == "work",
+                      let firstPath = url.pathComponents.dropFirst().first,
+                      let id = Int(firstPath) {
+                return id
+            } else if let firstPath = url.pathComponents.dropFirst().first,
+                      let id = Int(firstPath) {
+                return id
+            }
+        }
+
+        // Only AO3's own links: another archive's /works/123 (an OTW-software
+        // site like SquidgeWorld) is a different work.
+        if let host = targetURL.host?.lowercased(), !isAO3(host) { return nil }
+
+        let path = targetURL.absoluteString
+        guard let regex = try? NSRegularExpression(pattern: #"works/(\d+)"#, options: .caseInsensitive) else { return nil }
+        let range = NSRange(location: 0, length: path.utf16.count)
+        if let match = regex.firstMatch(in: path, range: range) {
+            if let idRange = Range(match.range(at: 1), in: path),
+               let id = Int(path[idRange]) {
+                return id
+            }
+        }
+        return nil
+    }
+
+    /// archiveofourown.org, its short and old domains, and their subdomains.
+    static func isAO3(_ host: String) -> Bool {
+        ["archiveofourown.org", "ao3.org", "archiveofourown.com", "archiveofourown.net"].contains {
+            host == $0 || host.hasSuffix("." + $0)
+        }
+    }
+
+    /// Typed or pasted text: a link, with the spaces and line breaks a copy
+    /// picks up around it trimmed off.
+    static func workId(fromText text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return nil }
+        return workId(from: url)
     }
 }
 
@@ -796,23 +823,205 @@ extension FocusedValues {
 }
 
 extension View {
-    @ViewBuilder
-    func onPasteCommandIfAvailable(perform action: @escaping ([NSItemProvider]) -> Void) -> some View {
-        #if targetEnvironment(macCatalyst)
-        self.onKeyPress { press in
-            if press.key == KeyEquivalent("v"), press.modifiers.contains(.command) {
-                if UIPasteboard.general.hasStrings {
-                    let providers = UIPasteboard.general.strings?.map { NSItemProvider(object: $0 as NSString) } ?? []
-                    if !providers.isEmpty {
-                        action(providers)
-                        return .handled
-                    }
+    /// ⌘V with an AO3 work link on the clipboard imports it, as dropping the
+    /// link on the window does (Windows' Ctrl+V). Never while a text field is
+    /// being edited, so pastes into a field go where they always did. On iPad and the Mac, Open AO3 Link… in the
+    /// File menu does the same from the keyboard wherever focus is.
+    @MainActor
+    func onPasteWorkLink(perform action: @escaping @MainActor (Int) -> Void) -> some View {
+        onKeyPress("v", phases: .down) { press in
+            guard press.modifiers.subtracting([.capsLock, .numericPad, .function]) == .command,
+                  !FirstResponder.isEditingText,
+                  UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs
+            else { return .ignored }
+            // Outside a text field nothing else takes ⌘V, so it's handled
+            // here either way. The clipboard is only read once it looks like
+            // a web link (`detectPatterns` doesn't read it): reading it from
+            // a key press shows iOS's Allow Paste prompt, which ordinary
+            // copied text shouldn't bring up.
+            UIPasteboard.general.detectPatterns(for: [\.probableWebURL]) { result in
+                guard case .success(let patterns) = result, patterns.contains(\.probableWebURL) else { return }
+                Task { @MainActor in
+                    let pasteboard = UIPasteboard.general
+                    let candidates = (pasteboard.urls ?? []).compactMap { WorkLink.workId(from: $0) }
+                        + (pasteboard.strings ?? []).compactMap { WorkLink.workId(fromText: $0) }
+                    if let workId = candidates.first { action(workId) }
                 }
             }
-            return .ignored
+            return .handled
         }
-        #else
-        self
-        #endif
+    }
+}
+
+/// Whether a text field (or any text input) is the first responder, so a
+/// window-wide key like ⌘V leaves it to the field.
+@MainActor
+enum FirstResponder {
+    fileprivate static weak var found: UIResponder?
+
+    static var isEditingText: Bool {
+        found = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.fanficlyReportFirstResponder), to: nil, from: nil, for: nil)
+        defer { found = nil }
+        return found is UITextInput
+    }
+}
+
+extension UIResponder {
+    @objc fileprivate func fanficlyReportFirstResponder() {
+        FirstResponder.found = self
+    }
+}
+
+/// A menu-bar command a screen offers while it's the one on top: Find (⌘F)
+/// focusing its search field, Refresh (⌘R), Open AO3 Link…. Handed to the
+/// menus (`FanficlyApp`) as a focused scene value, so with two windows open
+/// it acts on the one in front.
+struct MenuAction {
+    let isEnabled: Bool
+    let perform: @MainActor () -> Void
+
+    @MainActor
+    func callAsFunction() {
+        if isEnabled { perform() }
+    }
+}
+
+private struct FocusSearchKey: FocusedValueKey {
+    typealias Value = MenuAction
+}
+
+private struct RefreshListKey: FocusedValueKey {
+    typealias Value = MenuAction
+}
+
+private struct OpenAO3LinkKey: FocusedValueKey {
+    typealias Value = MenuAction
+}
+
+extension FocusedValues {
+    /// ⌘F outside the reader: focuses the search field of the screen on top.
+    var focusSearch: MenuAction? {
+        get { self[FocusSearchKey.self] }
+        set { self[FocusSearchKey.self] = newValue }
+    }
+
+    /// ⌘R: reloads Subscriptions, Bookmarks, Marked for Later or AO3 History.
+    var refreshList: MenuAction? {
+        get { self[RefreshListKey.self] }
+        set { self[RefreshListKey.self] = newValue }
+    }
+
+    /// ⇧⌘O: Open AO3 Link….
+    var openAO3Link: MenuAction? {
+        get { self[OpenAO3LinkKey.self] }
+        set { self[OpenAO3LinkKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Offers `perform` to a menu-bar item while this screen is on screen
+    /// (not while something is pushed over it or another tab is showing).
+    /// `enabled` false greys the item out.
+    @MainActor
+    func menuAction(_ keyPath: WritableKeyPath<FocusedValues, MenuAction?>, enabled: Bool = true,
+                    perform: @escaping @MainActor () -> Void) -> some View {
+        modifier(MenuActionModifier(keyPath: keyPath, enabled: enabled, perform: perform))
+    }
+
+    /// A key that a menu-bar item has on iPad and the Mac, for iPhone, which
+    /// has no menu bar: a hidden button takes it there. Elsewhere the menu
+    /// item handles it, so it never acts twice.
+    @MainActor
+    func phoneOnlyShortcut(_ key: KeyEquivalent, modifiers: EventModifiers = .command,
+                           perform: @escaping @MainActor () -> Void) -> some View {
+        background {
+            Button(action: perform) { EmptyView() }
+                .keyboardShortcut(KeyboardShortcut.phoneOnly(key, modifiers: modifiers))
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+extension KeyboardShortcut {
+    /// `key` on iPhone, nil (no shortcut) on iPad and the Mac, whose menu bar
+    /// has the item with this key.
+    @MainActor
+    static func phoneOnly(_ key: KeyEquivalent, modifiers: EventModifiers = .command) -> KeyboardShortcut? {
+        UIDevice.current.userInterfaceIdiom == .phone ? KeyboardShortcut(key, modifiers: modifiers) : nil
+    }
+}
+
+private struct MenuActionModifier: ViewModifier {
+    let keyPath: WritableKeyPath<FocusedValues, MenuAction?>
+    let enabled: Bool
+    let perform: @MainActor () -> Void
+
+    func body(content: Content) -> some View {
+        content.onScreenSceneValue(keyPath, MenuAction(isEnabled: enabled, perform: perform))
+    }
+}
+
+extension View {
+    /// `focusedSceneValue`, but only while this view is on screen: nil once
+    /// something is pushed over it, so a covered screen (or a reader under
+    /// an author page) never competes with the one on top for a menu item.
+    @MainActor
+    func onScreenSceneValue<T>(_ keyPath: WritableKeyPath<FocusedValues, T?>, _ value: T?) -> some View {
+        modifier(OnScreenSceneValue(keyPath: keyPath, value: value))
+    }
+}
+
+private struct OnScreenSceneValue<T>: ViewModifier {
+    let keyPath: WritableKeyPath<FocusedValues, T?>
+    let value: T?
+    @State private var isOnScreen = false
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { isOnScreen = true }
+            .onDisappear { isOnScreen = false }
+            .focusedSceneValue(keyPath, isOnScreen ? value : nil)
+    }
+}
+
+/// File → Open AO3 Link… (⇧⌘O): a prompt for a work's link, which is then
+/// imported as a dropped or pasted link is. The way in from the keyboard on
+/// iPad, where ⌘V outside a text field may not reach the app.
+struct OpenAO3LinkModifier: ViewModifier {
+    let open: (Int) -> Void
+    @State private var showingPrompt = false
+    @State private var showingNotAWork = false
+    @State private var text = ""
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.openAO3Link, MenuAction(isEnabled: true) {
+                text = ""
+                showingPrompt = true
+            })
+            .alert("Open AO3 Link", isPresented: $showingPrompt) {
+                TextField("archiveofourown.org/works/…", text: $text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                Button("Open") {
+                    if let workId = WorkLink.workId(fromText: text) {
+                        open(workId)
+                    } else {
+                        showingNotAWork = true
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Paste the link to an AO3 work to add it to your Library.")
+            }
+            .alert("Not a Work Link", isPresented: $showingNotAWork) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Fanficly opens links to AO3 works, like archiveofourown.org/works/123456.")
+            }
     }
 }

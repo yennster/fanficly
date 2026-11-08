@@ -216,6 +216,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no volume buttons for a remote to press, so the setting is hidden there.
 - **Windows counterpart:** RM-124 (#305).
 
+### RM-027 — Delete key for Library rows (iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** mac
+- **Why:** On Windows, Delete removes the focused Library or folder row (behind Undo, #169). The Apple Library's rows can't take keyboard focus outside Edit mode, so there's no row for Delete to act on (#188).
+- **Scope:** Let a hardware keyboard select a Library and folder row (List selection outside Edit mode, without breaking a tap opening the work), then Delete (and ⌘⌫) deletes it through `UndoCenter.schedule`, as the swipe action does.
+- **Done when:** a person tries it on an iPad with a keyboard and on the Mac; tapping a row still opens it on iPhone.
+- **Touches:** `Library/LibraryView.swift`.
+- **Windows counterpart:** none needed; Windows has it.
+
 ## Engineering health (any release)
 
 Not features, but worth doing; add as items when started.

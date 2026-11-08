@@ -99,6 +99,10 @@ struct SearchView: View {
         }
         .onAppear(perform: consumePendingQuery)
         .onChange(of: pendingQuery) { _, _ in consumePendingQuery() }
+        // ⌘F (Ctrl+F on Windows): Edit → Find on iPad and the Mac, a hidden
+        // shortcut on iPhone.
+        .menuAction(\.focusSearch) { searchFocused = true }
+        .phoneOnlyShortcut("f") { searchFocused = true }
         // Debounced AO3 tag suggestions for the words being typed; restarts
         // (cancelling the last lookup) whenever those words change.
         .task(id: suggestionKey) { await loadTagSuggestions() }

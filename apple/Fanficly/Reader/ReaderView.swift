@@ -60,6 +60,10 @@ struct ReaderView: View {
     /// Bumped by `jump(toChapter:)`; continuous scroll jumps on it rather than
     /// on `selectedChapterIndex`, which scrolling never updates there.
     @State private var continuousJump = 0
+    /// Bumped by End in continuous scroll: scrolls the end of
+    /// `continuousEndChapter` to the bottom of the screen.
+    @State private var continuousEndJump = 0
+    @State private var continuousEndChapter = 1
     @State private var currentAnchor: ReadingAnchor?
     @State private var loadedFromDisk = false
     /// Where a saved position past the loaded chapters was moved to (see
@@ -409,7 +413,7 @@ struct ReaderView: View {
 
         func body(content: Content) -> some View {
             content
-                .focusedSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
+                .onScreenSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
                 .sheet(isPresented: $showingFind) {
                     WorkFindView(chapters: chapters, includeImages: includeImages,
                                  query: $query, onSelect: select)
@@ -600,8 +604,12 @@ struct ReaderView: View {
                 toggleChromeAccessibly()
                 return true
             },
-            find: { showingFind = true }
+            find: { showingFind = true },
+            command: { performCommandKey($0) }
         ))
+        // The Reader menu's Previous / Next Chapter and Listen (iPad, Mac),
+        // not while Find's sheet is up (its field keeps ⌘← / ⌘→).
+        .onScreenSceneValue(\.readerMenu, showingFind ? nil : readerMenuActions)
         .modifier(FindPresentationModifier(
             showingFind: $showingFind,
             query: $findQuery,
@@ -636,6 +644,73 @@ struct ReaderView: View {
         case .turnChapter(let forward): turnPage(forward: forward)
         case .scrollScreen(let forward): keyScroll(forward: forward, screenful: true)
         case .scrollLine(let forward): keyScroll(forward: forward, screenful: false)
+        case .chapterEdge(let end): goToChapterEdge(end: end)
+        }
+    }
+
+    /// ⌘← / ⌘→ and ⌘L, from the reader's own keys on iPhone or the Reader
+    /// menu on iPad and the Mac.
+    private func performCommandKey(_ key: ReaderCommandKey) {
+        switch key {
+        case .chapter(let forward): turnChapterAnnounced(forward: forward)
+        case .listen: toggleListening()
+        }
+    }
+
+    private var readerMenuActions: ReaderMenuActions {
+        let order = chapters.map(\.index)
+        let current = effectiveChapterIndex
+        return ReaderMenuActions(
+            hasPreviousChapter: ChapterTracking.adjacentChapter(in: order, current: current, forward: false) != nil,
+            hasNextChapter: ChapterTracking.adjacentChapter(in: order, current: current, forward: true) != nil,
+            isListening: speech.isActive,
+            turnChapter: { turnChapterAnnounced(forward: $0) },
+            toggleListening: { toggleListening() })
+    }
+
+    /// The next or previous chapter from its top, in every reading mode (as
+    /// the Chapters menu does), announced for VoiceOver as on Windows.
+    private func turnChapterAnnounced(forward: Bool) {
+        guard let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
+                                                           current: effectiveChapterIndex, forward: forward)
+        else { return }
+        jump(toChapter: target)
+        UIAccessibility.post(notification: .pageScrolled,
+                             argument: "Chapter \(target) of \(chapters.count)")
+    }
+
+    /// Home / End: the first or last page of the chapter (page-by-page), or
+    /// the top or bottom of it (the scrolling modes), as on Windows.
+    private func goToChapterEdge(end: Bool) {
+        switch mode {
+        case .pageByPage:
+            guard let target = ReaderChapterEdge.pageId(in: paginatedPages, selected: selectedPageId,
+                                                        end: end, spreads: spreadLayout != nil)
+            else { return }
+            updatePageSelection(target)
+        case .paginated:
+            guard let scrollView = keyScrollViews[selectedChapterIndex] else { return }
+            let inset = scrollView.adjustedContentInset
+            let top = -inset.top
+            let y = end ? max(scrollView.contentSize.height + inset.bottom - scrollView.bounds.height, top) : top
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: pageTurnAnimations)
+        case .continuous:
+            if end {
+                continuousEndChapter = visibleChapterIndex
+                continuousEndJump &+= 1
+            } else {
+                jump(toChapter: visibleChapterIndex)
+            }
+        }
+    }
+
+    /// Listen to the chapter, or stop: the Aa menu's Listen item, ⌘L.
+    private func toggleListening() {
+        if speech.isActive {
+            speech.stop()
+            listeningChapter = nil
+        } else {
+            startNarration()
         }
     }
 
@@ -687,12 +762,7 @@ struct ReaderView: View {
     @ViewBuilder
     private var listenMenuButton: some View {
         Button {
-            if speech.isActive {
-                speech.stop()
-                listeningChapter = nil
-            } else {
-                startNarration()
-            }
+            toggleListening()
         } label: {
             Label(speech.isActive ? "Stop listening" : "Listen to chapter",
                   systemImage: speech.isActive ? "stop.circle" : "headphones")
@@ -953,6 +1023,12 @@ struct ReaderView: View {
                                     chapterHeader(chapter, fg: fg)
                                 }
                                 chapterBlock(chapter, fg: fg)
+                                    // End's target in continuous scroll.
+                                    .overlay(alignment: .bottom) {
+                                        Color.clear.frame(height: 1)
+                                            .id(ChapterEndID(chapter: chapter.index))
+                                            .accessibilityHidden(true)
+                                    }
                             }
                             .id(chapter.index)
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
@@ -1051,6 +1127,17 @@ struct ReaderView: View {
                     Task {
                         try? await Task.sleep(nanoseconds: 60_000_000)
                         proxy.scrollTo(newIndex, anchor: .top)
+                    }
+                }
+                .onChange(of: continuousEndJump) { _, _ in
+                    let target = ChapterEndID(chapter: continuousEndChapter)
+                    withAnimation(pageTurnAnimations && !reduceMotion ? .default : nil) {
+                        proxy.scrollTo(target, anchor: .bottom)
+                    }
+                    // Again once the layout settles, as a chapter jump does.
+                    Task {
+                        try? await Task.sleep(nanoseconds: 60_000_000)
+                        proxy.scrollTo(target, anchor: .bottom)
                     }
                 }
                 .onChange(of: currentAnchor) { _, anchor in
