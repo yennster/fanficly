@@ -26,6 +26,13 @@ enum AccountData {
     }
 }
 
+/// A poller run's failed checks; a class so the poller's non-mutating
+/// checks can count them.
+@MainActor
+final class CheckTally {
+    var failed = 0
+}
+
 @MainActor
 struct SubscriptionPoller {
     let client: any AO3ClientProtocol
@@ -38,6 +45,10 @@ struct SubscriptionPoller {
     var defaults: UserDefaults = .standard
     /// `AccountData.generation` when this poller was made.
     private let accountGeneration = AccountData.generation
+    /// How many work and author checks failed (an error page, no network),
+    /// so the Subscriptions tab doesn't report "No new chapters" for a run
+    /// that couldn't reach AO3 (#186).
+    let tally = CheckTally()
     private let logger = Logger(subsystem: "io.github.yennster.fanficly", category: "SubscriptionPoller")
 
     /// How often a background poll re-reads the subscriptions list. The walk
@@ -137,6 +148,23 @@ struct SubscriptionPoller {
         return notifyCount
     }
 
+    /// The Subscriptions tab's chapter check (#186): the account's work
+    /// subscriptions (signed in) and the locally followed works, each work
+    /// fetched once even when it's both, as the full poll does (#148).
+    /// Subscriptions of an account that signs out meanwhile are skipped.
+    func checkWorksForNewChapters() async -> Int {
+        var notifyCount = 0
+        let targets = workTargets(subscriptions: username != nil ? workSubscriptionRecords() : [],
+                                  followed: followedWorks())
+        for case .work(let id, let rec, let work) in targets {
+            if Task.isCancelled { break }
+            notifyCount += await checkWork(id: id, subscription: rec, followed: work)
+        }
+        try? context.save()
+        WidgetDataStore.updateAll(context: context)
+        return notifyCount
+    }
+
     /// Poll locally-followed works (no AO3 login required) for new chapters.
     func checkFollowedWorks() async -> Int {
         var notifyCount = 0
@@ -152,6 +180,10 @@ struct SubscriptionPoller {
     func checkFollowedAuthors() async -> Int {
         var notifyCount = 0
         for author in followedAuthors() {
+            if Task.isCancelled { break }
+            // Unfollowed meanwhile, or waiting behind its Undo toast (#186).
+            if author.isDeleted || author.modelContext == nil
+                || UndoCenter.shared.isPending(UndoCenter.Key.author(author.username)) { continue }
             notifyCount += await checkFollowedAuthor(author)
         }
         try? context.save()
@@ -301,11 +333,16 @@ struct SubscriptionPoller {
     /// Check a work for new chapters with one throttled request of its light
     /// page, for its subscription, its follow or both, and post at most one
     /// alert. Returns the number of notifications posted.
-    private func checkWork(id workId: Int, subscription: SubscriptionRecord?, followed work: Work?) async -> Int {
+    private func checkWork(id workId: Int, subscription: SubscriptionRecord?, followed candidate: Work?) async -> Int {
         // A subscription whose account signed out (before or during the
         // request) was deleted with it (#159): don't touch it or alert for it.
         var rec: SubscriptionRecord? { accountChanged ? nil : subscription }
-        if subscription != nil, rec == nil, work == nil { return 0 }
+        // Likewise a work unfollowed or deleted before or during the request
+        // (the Subscriptions tab unfollows while Refresh runs, #186).
+        var work: Work? {
+            candidate.flatMap { $0.modelContext != nil && !$0.isDeleted && $0.isFollowed ? $0 : nil }
+        }
+        if rec == nil, work == nil { return 0 }
         // Stamp the attempt up front: a permanently-failing record (deleted
         // work, parse drift) must not stay "oldest" forever and hog the head
         // of the round-robin queue.
@@ -332,15 +369,20 @@ struct SubscriptionPoller {
             work?.lastSeenChapterCount = meta.chapterCount
             return notifyCount
         } catch {
+            tally.failed += 1
             logger.warning("Skipping work \(workId): \(error.localizedDescription, privacy: .public)")
             return 0
         }
     }
 
     private func checkFollowedAuthor(_ author: FollowedAuthor) async -> Int {
-        defer { author.lastCheckedAt = .now }
+        // An author unfollowed while AO3 answered was deleted from the store:
+        // don't write to it or alert for it.
+        var gone: Bool { author.isDeleted || author.modelContext == nil }
+        defer { if !gone { author.lastCheckedAt = .now } }
         do {
             let result = try await client.fetchAuthorWorks(username: author.username, page: 1)
+            if gone { return 0 }
             // Signed in but served the guest page: the session expired. The
             // public works still alert; restricted ones aren't in the baseline
             // yet, so they alert once a signed-in poll sees them.
@@ -354,6 +396,7 @@ struct SubscriptionPoller {
             var undated: Set<Int> = []
             if known.isEmpty {
                 (newWorks, undated) = await worksPostedSinceFollow(result.works, followedAt: author.followedAt)
+                if gone { return 0 }
             }
             if !newWorks.isEmpty {
                 await postNewWorkNotification(
@@ -362,9 +405,11 @@ struct SubscriptionPoller {
                 )
                 notifyCount = newWorks.count
             }
+            if gone { return notifyCount }
             author.knownWorkIds = Array(known.union(latestIds).subtracting(undated))
             return notifyCount
         } catch {
+            if !gone { tally.failed += 1 }
             logger.warning("Skipping author \(author.username, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return 0
         }

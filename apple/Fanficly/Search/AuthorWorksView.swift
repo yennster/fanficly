@@ -225,7 +225,7 @@ struct FollowedAuthorsView: View {
     }
 }
 
-private struct FollowedAuthorRow: View {
+struct FollowedAuthorRow: View {
     let author: FollowedAuthor
 
     var body: some View {

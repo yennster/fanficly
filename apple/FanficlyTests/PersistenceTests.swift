@@ -3081,6 +3081,78 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(followed.lastSeenChapterCount, 6)
     }
 
+    // The Subscriptions tab's Refresh (#186): subscriptions and follows in one
+    // pass, each work fetched once, alerting once.
+    func test_subscriptionsTabCheck_fetchesEachWorkOnce() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let both = Work(ao3Id: 1, title: "Fic One", authorName: "A")
+        both.isFollowed = true
+        both.lastSeenChapterCount = 4
+        ctx.insert(both)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">6/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+        let alerts = await poller.checkWorksForNewChapters()
+
+        XCTAssertEqual(alerts, 1)
+        XCTAssertEqual(client.workMetadataCalls.sorted(), [1, 2])
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 6)
+        XCTAssertEqual(both.lastSeenChapterCount, 6)
+        XCTAssertEqual(followed.lastSeenChapterCount, 6)
+        XCTAssertNotNil(followed.lastCheckedAt)
+    }
+
+    // Signed out, Refresh still checks the followed works (#186), and leaves
+    // any subscription record alone.
+    func test_subscriptionsTabCheck_signedOutChecksOnlyFollowedWorks() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        followed.lastSeenChapterCount = 3
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">4/?</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil, defaults: scratchDefaults())
+        let alerts = await poller.checkWorksForNewChapters()
+
+        XCTAssertEqual(alerts, 1)
+        XCTAssertEqual(client.workMetadataCalls, [2])
+        XCTAssertEqual(followed.lastSeenChapterCount, 4)
+        let rec = try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" })
+        XCTAssertEqual(rec?.lastSeenChapterCount, 5)
+        XCTAssertNil(rec?.lastCheckedAt)
+    }
+
+    // A Refresh that gets an error page counts the check as failed, so the
+    // tab doesn't report "No new chapters" for it (#186).
+    func test_subscriptionsTabCheck_countsFailedChecks() async throws {
+        let ctx = try makeContext()
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A")
+        followed.isFollowed = true
+        followed.lastSeenChapterCount = 3
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body><h1>Retry later</h1></body></html>"
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil, defaults: scratchDefaults())
+        let alerts = await poller.checkWorksForNewChapters()
+
+        XCTAssertEqual(alerts, 0)
+        XCTAssertEqual(poller.tally.failed, 1)
+        XCTAssertEqual(followed.lastSeenChapterCount, 3)
+    }
+
     // MARK: - Saved search alerts (#309)
 
     private func searchWork(_ id: Int, chapters: Int = 1, updated: Date? = nil, rating: String = "") -> AO3WorkSummary {

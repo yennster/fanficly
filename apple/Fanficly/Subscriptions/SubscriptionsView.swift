@@ -1,16 +1,52 @@
 import SwiftUI
 import SwiftData
 
+/// The Subscriptions tab: everything the background poller checks. The
+/// account's AO3 subscriptions (synced from AO3 when logged in), plus the
+/// works and authors followed locally, which need no login (#186). Refresh
+/// syncs the AO3 list first (fast, so it shows at once), then checks for new
+/// chapters and new works, posting notifications as it goes.
 struct SubscriptionsView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(AuthState.self) private var auth
     @Query(sort: [SortDescriptor<SubscriptionRecord>(\.displayName, order: .forward)]) private var subs: [SubscriptionRecord]
+    @Query(filter: #Predicate<Work> { $0.isFollowed == true }, sort: [SortDescriptor(\Work.title, order: .forward)])
+    private var allFollowedWorks: [Work]
+    @Query(sort: [SortDescriptor<FollowedAuthor>(\.displayName, order: .forward)])
+    private var allFollowedAuthors: [FollowedAuthor]
     @State private var isRefreshing: Bool = false
+    /// The new-chapter and new-work checks after the list sync (one throttled
+    /// request per work or author), so Refresh can't start a second run.
+    @State private var isChecking: Bool = false
     @State private var lastError: String?
     @State private var lastNotifyCount: Int?
+    @State private var lastNewWorksCount: Int?
+    @State private var lastFailedChecks = 0
+    /// The Refresh in flight; an account change cancels it, so the new
+    /// account's list sync doesn't wait behind the old run's checks.
+    @State private var refreshTask: Task<Void, Never>?
     @State private var hasRequestedNotifications: Bool = false
     @State private var browserURL: ShareItem?
+
+    private static let ao3 = "https://archiveofourown.org"
+
+    /// Without a work deleted a moment ago, still behind its Undo toast (#169).
+    private var followedWorks: [Work] {
+        allFollowedWorks.filter { !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id)) }
+    }
+
+    /// Without an author unfollowed a moment ago, still behind its Undo toast (#169).
+    private var followedAuthors: [FollowedAuthor] {
+        allFollowedAuthors.filter {
+            !$0.username.isEmpty && !UndoCenter.shared.isPending(UndoCenter.Key.author($0.username))
+        }
+    }
+
+    private var hasLocalFollows: Bool { !followedWorks.isEmpty || !followedAuthors.isEmpty }
+
+    private var isBusy: Bool { isRefreshing || isChecking }
 
     @ViewBuilder
     private func subscriptionRow(_ sub: SubscriptionRecord) -> some View {
@@ -25,6 +61,13 @@ struct SubscriptionsView: View {
                     SubscriptionRow(sub: sub)
                 }
             }
+            .contextMenu {
+                NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+                    Label("Open", systemImage: "book")
+                }
+                openOnAO3Button(ao3Page(for: sub))
+                unsubscribeButton
+            }
         } else {
             // Series / author → open the AO3 page.
             Button {
@@ -34,6 +77,125 @@ struct SubscriptionsView: View {
             }
             .buttonStyle(.plain)
             .accessibilityHint("Opens on AO3")
+            .contextMenu {
+                openOnAO3Button(ao3Page(for: sub))
+                unsubscribeButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func openOnAO3Button(_ page: ShareItem?) -> some View {
+        if let page {
+            Button {
+                browserURL = page
+            } label: {
+                Label("Open on AO3", systemImage: "globe")
+            }
+        }
+    }
+
+    /// Unsubscribing happens on AO3 (the app never changes the account beyond
+    /// subscribing), so this opens the account's subscriptions page there.
+    @ViewBuilder
+    private var unsubscribeButton: some View {
+        if let page = manageSubscriptionsPage {
+            Button {
+                browserURL = page
+            } label: {
+                Label("Unsubscribe on AO3…", systemImage: "bell.slash")
+            }
+        }
+    }
+
+    private var manageSubscriptionsPage: ShareItem? {
+        guard let username = auth.username,
+              let name = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: "\(Self.ao3)/users/\(name)/subscriptions").map { ShareItem(url: $0) }
+    }
+
+    @ViewBuilder
+    private func followedWorkRow(_ work: Work) -> some View {
+        // Opens the saved copy, as the Library does (offline too).
+        NavigationLink(value: work) {
+            LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil,
+                       checkedAt: work.lastCheckedAt)
+        }
+        .swipeActions(edge: .trailing) {
+            Button {
+                unfollow(work)
+            } label: {
+                Label("Unfollow", systemImage: "bookmark.slash")
+            }
+            .tint(.orange)
+        }
+        .contextMenu {
+            NavigationLink(value: work) {
+                Label("Open", systemImage: "book")
+            }
+            if !EPUBImport.isLocalWork(work.ao3Id) {
+                openOnAO3Button(URL(string: "\(Self.ao3)/works/\(work.ao3Id)").map { ShareItem(url: $0) })
+            }
+            Divider()
+            Button(role: .destructive) {
+                unfollow(work)
+            } label: {
+                Label("Unfollow", systemImage: "bookmark.slash")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func followedAuthorRow(_ author: FollowedAuthor) -> some View {
+        let ref = AuthorRef(username: author.username, displayName: author.displayName)
+        NavigationLink(value: ref) {
+            FollowedAuthorRow(author: author)
+                .accessibilityElement(children: .combine)
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                unfollow(author)
+            } label: {
+                Label("Unfollow", systemImage: "person.slash")
+            }
+        }
+        .contextMenu {
+            NavigationLink(value: ref) {
+                Label("Open", systemImage: "person")
+            }
+            if let name = author.username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+                openOnAO3Button(URL(string: "\(Self.ao3)/users/\(name)").map { ShareItem(url: $0) })
+            }
+            Divider()
+            Button(role: .destructive) {
+                unfollow(author)
+            } label: {
+                Label("Unfollow", systemImage: "person.slash")
+            }
+        }
+    }
+
+    /// As the Library's Unfollow: the work stays saved, and stops being checked.
+    private func unfollow(_ work: Work) {
+        work.isFollowed = false
+        work.followedAt = nil
+        try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
+        UIAccessibility.post(notification: .announcement, argument: String(localized: "Unfollowed \(work.title)"))
+    }
+
+    /// As the Authors tab's: waits behind the Undo toast (#169), since the
+    /// follow's record holds the works already seen.
+    private func unfollow(_ author: FollowedAuthor) {
+        let context = context
+        UndoCenter.shared.schedule(String(localized: "Unfollowed \(author.displayName)"),
+                                   keys: [UndoCenter.Key.author(author.username)],
+                                   host: undoHost) {
+            if !author.isDeleted && author.modelContext != nil {
+                context.delete(author)
+            }
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
         }
     }
 
@@ -54,37 +216,69 @@ struct SubscriptionsView: View {
         let id = String(parts[1])
         let path: String
         switch parts[0] {
+        case "work":   path = "/works/\(id)"
         case "series": path = "/series/\(id)"
         case "user":   path = "/users/\(id)"
         default:       return nil
         }
-        return URL(string: "https://archiveofourown.org\(path)").map { ShareItem(url: $0) }
+        return URL(string: "\(Self.ao3)\(path)").map { ShareItem(url: $0) }
+    }
+
+    private var loginPrompt: some View {
+        ContentUnavailableView {
+            Label("Log in to AO3", systemImage: "person.crop.circle.badge.questionmark")
+        } description: {
+            Text("Your AO3 subscriptions sync here once you log in. We'll notify you locally when subscribed works post new chapters.")
+        } actions: {
+            NavigationLink {
+                LoginView()
+            } label: {
+                Text("Open Settings → AO3 Login").font(.callout)
+            }
+        }
+    }
+
+    /// The line under the list after a Refresh: what the checks found.
+    private var notifySummary: String? {
+        guard let count = lastNotifyCount else { return nil }
+        var text = count == 0
+            ? "No new chapters."
+            : "\(count) work\(count == 1 ? "" : "s") have new chapters."
+        if let works = lastNewWorksCount, works > 0 {
+            text += " \(works) new work\(works == 1 ? "" : "s") from authors you follow."
+        }
+        // As Windows: a run that couldn't reach AO3 doesn't claim all is quiet.
+        if lastFailedChecks > 0 {
+            text = count == 0 && (lastNewWorksCount ?? 0) == 0
+                ? "Couldn't check \(lastFailedChecks) of them. AO3 may be down; try again later."
+                : "\(text) Couldn't check \(lastFailedChecks) more."
+        }
+        return text
     }
 
     var body: some View {
         Group {
-            if auth.username == nil {
-                ContentUnavailableView {
-                    Label("Log in to AO3", systemImage: "person.crop.circle.badge.questionmark")
-                } description: {
-                    Text("Your AO3 subscriptions sync here once you log in. We'll notify you locally when subscribed works post new chapters.")
-                } actions: {
-                    NavigationLink {
-                        LoginView()
-                    } label: {
-                        Text("Open Settings → AO3 Login").font(.callout)
-                    }
-                }
-            } else if subs.isEmpty && !isRefreshing && !auth.isSessionExpired {
+            if auth.username == nil && !hasLocalFollows {
+                loginPrompt
+            } else if auth.username != nil, subs.isEmpty, !isBusy, !auth.isSessionExpired, !hasLocalFollows {
                 ContentUnavailableView {
                     Label("No subscriptions yet", systemImage: "bell")
                 } description: {
                     Text("Tap Refresh to fetch your subscriptions from AO3.")
                 } actions: {
-                    Button("Refresh") { Task { await refresh() } }
+                    Button("Refresh") { startRefresh() }
                 }
             } else {
                 List {
+                    if isBusy {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text(isRefreshing ? "Fetching your subscriptions…" : "Checking for new chapters…")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
                     if let lastError {
                         Label(lastError, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
@@ -95,15 +289,27 @@ struct SubscriptionsView: View {
                             Label(SessionExpiry.actionTitle, systemImage: "person.crop.circle.badge.questionmark")
                         }
                     }
-                    if let count = lastNotifyCount {
-                        Text(count == 0
-                             ? "No new chapters."
-                             : "\(count) work\(count == 1 ? "" : "s") have new chapters.")
+                    if let notifySummary {
+                        Text(notifySummary)
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(subs) { sub in
-                        subscriptionRow(sub)
+                    if hasLocalFollows {
+                        Section("AO3 Subscriptions") {
+                            ao3SubscriptionRows
+                        }
+                    } else {
+                        ao3SubscriptionRows
+                    }
+                    if !followedWorks.isEmpty {
+                        Section("Followed Works") {
+                            ForEach(followedWorks) { followedWorkRow($0) }
+                        }
+                    }
+                    if !followedAuthors.isEmpty {
+                        Section("Followed Authors") {
+                            ForEach(followedAuthors) { followedAuthorRow($0) }
+                        }
                     }
                 }
                 .listStyle(.plain)
@@ -120,21 +326,30 @@ struct SubscriptionsView: View {
         .onChange(of: auth.username) { _, _ in
             lastError = nil
             lastNotifyCount = nil
-            syncIfNew()
+            lastNewWorksCount = nil
+            lastFailedChecks = 0
+            if isBusy {
+                // The run in flight was the old account's; it starts the
+                // new one's sync once it has stopped.
+                refreshTask?.cancel()
+            } else {
+                syncIfNew()
+            }
         }
+        .navigationDestination(for: Work.self) { SavedWorkReader(work: $0) }
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
             SafariView(url: item.url).ignoresSafeArea()
         }
         .toolbar {
-            if auth.username != nil {
+            if auth.username != nil || hasLocalFollows {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        Task { await refresh() }
+                        startRefresh()
                     } label: {
-                        if isRefreshing { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                        if isBusy { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
-                    .disabled(isRefreshing)
+                    .disabled(isBusy)
                     .accessibilityLabel("Refresh subscriptions")
                 }
             }
@@ -148,24 +363,45 @@ struct SubscriptionsView: View {
         }
     }
 
+    /// The AO3 Subscriptions section. Signed out, it says how to get them;
+    /// signed in with none, how to fetch them.
+    @ViewBuilder
+    private var ao3SubscriptionRows: some View {
+        if auth.username == nil {
+            NavigationLink { LoginView() } label: {
+                Label("Log in to AO3 to sync your subscriptions", systemImage: "person.crop.circle.badge.questionmark")
+            }
+        } else if subs.isEmpty && !isBusy {
+            Text("No AO3 subscriptions yet. Tap Refresh to fetch them.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        ForEach(subs) { sub in
+            subscriptionRow(sub)
+        }
+    }
+
+    /// Started only by `startRefresh`, which marks it busy first.
     private func refresh() async {
-        guard let username = auth.username else { return }
+        let username = auth.username
         isRefreshing = true
         lastError = nil
         let poller = SubscriptionPoller(client: client, context: context, username: username)
         var error: String?
-        do {
-            // Fetch the subscription list first — this is fast and updates
-            // the UI immediately.
-            _ = try await poller.syncSubscriptionList()
-        } catch AO3Error.unauthorized {
-            // Signed in here, so AO3 dropped the session (#131).
-            // Not when the account changed meanwhile: signing out ended the
-            // session this request used, not the one signed in now.
-            if auth.username == username, !poller.accountChanged { auth.markSessionExpired() }
-            error = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
-        } catch let failure {
-            error = failure.localizedDescription
+        if let username {
+            do {
+                // Fetch the subscription list first — this is fast and updates
+                // the UI immediately.
+                _ = try await poller.syncSubscriptionList()
+            } catch AO3Error.unauthorized {
+                // Signed in here, so AO3 dropped the session (#131).
+                // Not when the account changed meanwhile: signing out ended the
+                // session this request used, not the one signed in now.
+                if auth.username == username, !poller.accountChanged { auth.markSessionExpired() }
+                error = "\(SessionExpiry.title). Sign in again to sync your subscriptions."
+            } catch let failure {
+                error = failure.localizedDescription
+            }
         }
         isRefreshing = false
         // Signed out or in as someone else meanwhile (even back as the same
@@ -176,19 +412,41 @@ struct SubscriptionsView: View {
             return
         }
         lastError = error
-        // The per-work new-chapter check is throttled (1 req/sec) and only
-        // feeds notifications, so run it after the list is already showing.
-        let count = await poller.checkForNewChapters()
-        if auth.username == username { lastNotifyCount = count }
+        // The per-work and per-author checks are throttled (1 req/sec) and
+        // only feed notifications, so run them after the list is showing.
+        // Followed works and authors need no login (#186).
+        isChecking = true
+        let chapters = await poller.checkWorksForNewChapters()
+        let newWorks = await poller.checkFollowedAuthors()
+        isChecking = false
+        // Cancelled, or another account's: the results aren't this one's to show.
+        guard !Task.isCancelled, auth.username == username, !poller.accountChanged else {
+            syncIfNew()
+            return
+        }
+        lastNotifyCount = chapters
+        lastNewWorksCount = newWorks
+        lastFailedChecks = poller.tally.failed
+        if let notifySummary {
+            UIAccessibility.post(notification: .announcement, argument: notifySummary)
+        }
+    }
+
+    private func startRefresh() {
+        guard !isBusy else { return }
+        // Busy at once, so a second start in the same turn can't replace
+        // the Task an account change must cancel.
+        isRefreshing = true
+        refreshTask = Task { await refresh() }
     }
 
     /// A new account's list syncs on its own (#159): just signed in, or the
     /// first visit since. After that, Refresh and the background poll keep it.
     private func syncIfNew() {
-        guard let username = auth.username, auth.hasSession, !isRefreshing, !FanficlyApp.isDemoMode,
+        guard let username = auth.username, auth.hasSession, !isBusy, !FanficlyApp.isDemoMode,
               !SubscriptionPoller(client: client, context: context, username: username).hasSyncedList
         else { return }
-        Task { await refresh() }
+        startRefresh()
     }
 }
 
