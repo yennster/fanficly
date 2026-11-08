@@ -137,6 +137,23 @@ struct SubscriptionPoller {
         return notifyCount
     }
 
+    /// The Subscriptions tab's chapter check (#186): the account's work
+    /// subscriptions (signed in) and the locally followed works, each work
+    /// fetched once even when it's both, as the full poll does (#148).
+    /// Subscriptions of an account that signs out meanwhile are skipped.
+    func checkWorksForNewChapters() async -> Int {
+        var notifyCount = 0
+        let targets = workTargets(subscriptions: username != nil ? workSubscriptionRecords() : [],
+                                  followed: followedWorks())
+        for case .work(let id, let rec, let work) in targets {
+            if Task.isCancelled { break }
+            notifyCount += await checkWork(id: id, subscription: rec, followed: work)
+        }
+        try? context.save()
+        WidgetDataStore.updateAll(context: context)
+        return notifyCount
+    }
+
     /// Poll locally-followed works (no AO3 login required) for new chapters.
     func checkFollowedWorks() async -> Int {
         var notifyCount = 0
