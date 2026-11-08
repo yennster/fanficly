@@ -118,6 +118,20 @@ final class NotificationTapHandler: NSObject, UNUserNotificationCenterDelegate, 
         UNUserNotificationCenter.current().delegate = shared
     }
 
+    /// How an alert posted while the app is in front shows (#185): a banner,
+    /// kept in Notification Center, as when the app is in the background.
+    /// Without `willPresent`, iOS doesn't show it, so a check made while
+    /// the app is open (`InAppPolling`) would alert no one.
+    static let foregroundPresentation: UNNotificationPresentationOptions = [.banner, .list]
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler(Self.foregroundPresentation)
+    }
+
     /// Called off the main actor: decode the payload into a Sendable route
     /// here, then hop to the main actor with only that.
     func userNotificationCenter(

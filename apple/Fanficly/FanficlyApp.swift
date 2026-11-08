@@ -271,7 +271,8 @@ struct FanficlyApp: App {
             BackgroundRefresh.scheduleNext()
             await BackgroundRefresh.runPoll(client: client, container: Self.sharedModelContainer)
         }
-        .onChange(of: scenePhase) { _, newPhase in
+        .onChange(of: scenePhase, initial: true) { _, newPhase in
+            updateInAppPolling(for: newPhase)
             if newPhase == .background {
                 // A delete waiting behind its Undo toast runs now, before the
                 // backup snapshot, so a suspended app doesn't hold it (#169).
@@ -287,6 +288,26 @@ struct FanficlyApp: App {
                     iCloudSyncManager.shared.startBackgroundBackup(context: Self.sharedModelContainer.mainContext)
                 }
             }
+        }
+    }
+
+    /// Checks for new chapters while the app is open (#185), never in demo
+    /// mode or unit tests. On iPhone and iPad the schedule stops in the
+    /// background, where iOS suspends the app and background refresh takes
+    /// over. A Mac app keeps running with its window minimized or behind
+    /// others, and background refresh isn't something to count on there, so
+    /// on the Mac it runs for as long as the app does, like on Windows.
+    private func updateInAppPolling(for phase: ScenePhase) {
+        guard !Self.isDemoMode, !Self.isTestMode else { return }
+        #if !targetEnvironment(macCatalyst)
+        if phase == .background {
+            InAppPolling.shared.stop()
+            return
+        }
+        #endif
+        let client = client
+        InAppPolling.shared.start {
+            await BackgroundRefresh.runPoll(client: client, container: Self.sharedModelContainer)
         }
     }
 }
