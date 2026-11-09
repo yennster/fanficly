@@ -1631,6 +1631,154 @@ final class PersistenceTests: XCTestCase {
         }
     }
 
+    // MARK: - Library row actions (#191)
+
+    /// Runs `body` with no work marked as a removed download, putting back
+    /// whatever was there before.
+    private func withRemovedDownloadsCleared(_ body: () async throws -> Void) async rethrows {
+        let defaults = UserDefaults.standard
+        let key = WorkPersistence.removedDownloadsKey
+        let original = defaults.object(forKey: key)
+        defaults.removeObject(forKey: key)
+        defer { defaults.set(original, forKey: key) }
+        try await body()
+    }
+
+    func test_removedDownloadsRoundTrip() {
+        let defaults = UserDefaults(suiteName: "test.removedDownloads.\(UUID().uuidString)")!
+        XCTAssertEqual(WorkPersistence.removedDownloads(defaults: defaults), [])
+        WorkPersistence.setDownloadRemoved(7, removed: true, defaults: defaults)
+        WorkPersistence.setDownloadRemoved(3, removed: true, defaults: defaults)
+        // The Windows app's format: ids in order, comma-separated.
+        XCTAssertEqual(defaults.string(forKey: WorkPersistence.removedDownloadsKey), "3,7")
+        WorkPersistence.setDownloadRemoved(7, removed: false, defaults: defaults)
+        XCTAssertEqual(WorkPersistence.removedDownloads(defaults: defaults), [3])
+        WorkPersistence.setDownloadRemoved(3, removed: false, defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: WorkPersistence.removedDownloadsKey))
+    }
+
+    /// Remove Download deletes the EPUB and the saved text but keeps the
+    /// work, its flags and its place; saving the text again unmarks it.
+    func test_removeDownloadKeepsTheWorkAndSavingAgainUnmarksIt() async throws {
+        try await withRemovedDownloadsCleared {
+            let context = try makeContext()
+            let work = WorkPersistence.upsert(payload: payload(id: 42, chapters: 3), into: context)
+            work.isStarred = true
+            let epub = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).epub")
+            try Data("PK".utf8).write(to: epub)
+
+            WorkPersistence.removeDownload(work, in: context, epubURL: epub)
+
+            XCTAssertFalse(FileManager.default.fileExists(atPath: epub.path))
+            let kept = try XCTUnwrap(self.work(42, in: context))
+            XCTAssertTrue(kept.chapters.isEmpty)
+            XCTAssertEqual(try context.fetchCount(FetchDescriptor<Chapter>()), 0)
+            XCTAssertTrue(kept.isStarred)
+            XCTAssertEqual(WorkPersistence.removedDownloads(), [42])
+
+            _ = WorkPersistence.upsert(payload: payload(id: 42, chapters: 3), into: context)
+            XCTAssertEqual(WorkPersistence.removedDownloads(), [])
+        }
+    }
+
+    /// A download removed on this device stays removed when another
+    /// device's backup, which still has the chapters, is restored here.
+    func test_removedDownloadStaysRemovedAfterRestore() async throws {
+        try await withRemovedDownloadsCleared {
+            try await withDeletionTest { url in
+                let devices = try await twoSyncedDevices()
+                let sync = iCloudSyncManager.shared
+
+                devices.use(devices.phone)
+                WorkPersistence.removeDownload(try XCTUnwrap(work(1, in: devices.phone)), in: devices.phone)
+                sync.backupToiCloud(context: devices.phone)
+                // The file keeps the iPad's (and the earlier) chapters.
+                XCTAssertEqual(try decodeBackup(at: url).works.first { $0.ao3Id == 1 }?.chapters.count, 2)
+
+                devices.use(devices.pad)
+                sync.backupToiCloud(context: devices.pad)
+
+                devices.use(devices.phone)
+                let restored = await sync.restoreFromiCloud(context: devices.phone)
+                XCTAssertTrue(restored)
+                XCTAssertEqual(try work(1, in: devices.phone)?.chapters.count, 0)
+                XCTAssertEqual(try work(2, in: devices.phone)?.chapters.count, 2)
+            }
+        }
+    }
+
+    func test_renameFolderRefusesATakenOrUnchangedName() throws {
+        let context = try makeContext()
+        let faves = CustomFolder(name: "Faves", createdAt: Self.anHourAgo)
+        context.insert(faves)
+        context.insert(CustomFolder(name: "Later"))
+        try context.save()
+
+        XCTAssertEqual(WorkPersistence.renameFolder(faves, to: "Later", in: context), .taken)
+        XCTAssertEqual(WorkPersistence.renameFolder(faves, to: "  Faves ", in: context), .unchanged)
+        XCTAssertEqual(WorkPersistence.renameFolder(faves, to: "   ", in: context), .unchanged)
+        XCTAssertEqual(faves.name, "Faves")
+        XCTAssertEqual(faves.createdAt, Self.anHourAgo)
+    }
+
+    /// Renaming onto a name deleted a moment ago (its marker stamped this
+    /// second) stamps the folder after the marker, so sync keeps it.
+    func test_renameOntoAJustDeletedNameOutlivesItsMarker() async throws {
+        try await withDeletionTest { _ in
+            let context = try makeContext()
+            let faves = CustomFolder(name: "Faves", createdAt: Self.anHourAgo)
+            context.insert(faves)
+            try context.save()
+            let now = Date.now
+            iCloudSyncManager.recordDeletion(.folder, key: "Later", at: now)
+
+            XCTAssertEqual(WorkPersistence.renameFolder(faves, to: "Later", in: context, now: now), .renamed)
+            let index = DeletionIndex(iCloudSyncManager.localDeletions())
+            XCTAssertFalse(index.removes(.folder, "Later", stamp: faves.createdAt))
+            XCTAssertTrue(index.removes(.folder, "Faves", stamp: Self.anHourAgo))
+        }
+    }
+
+    /// A rename keeps the folder's works, and syncs like the Windows app's:
+    /// the old name's marker removes the other device's copy, and the new
+    /// name arrives there with the same works.
+    func test_renamedFolderKeepsItsWorksAndReplacesTheOldNameOnOtherDevices() async throws {
+        try await withDeletionTest { url in
+            let devices = try await twoSyncedDevices()
+            let sync = iCloudSyncManager.shared
+
+            // Work 1 goes into Faves on the phone, and the iPad catches up.
+            devices.use(devices.phone)
+            let faves = try XCTUnwrap(devices.phone.fetch(FetchDescriptor<CustomFolder>()).first)
+            try XCTUnwrap(work(1, in: devices.phone)).folders.append(faves)
+            try devices.phone.save()
+            sync.backupToiCloud(context: devices.phone)
+            devices.use(devices.pad)
+            let caughtUp = await sync.restoreFromiCloud(context: devices.pad)
+            XCTAssertTrue(caughtUp)
+
+            // The phone renames it.
+            devices.use(devices.phone)
+            XCTAssertEqual(WorkPersistence.renameFolder(faves, to: " Loved ", in: devices.phone), .renamed)
+            XCTAssertEqual(faves.name, "Loved")
+            XCTAssertEqual(try work(1, in: devices.phone)?.folders.map(\.name), ["Loved"])
+            sync.backupToiCloud(context: devices.phone)
+
+            // The iPad backs up its old copy before it restores.
+            devices.use(devices.pad)
+            sync.backupToiCloud(context: devices.pad)
+            XCTAssertEqual(try decodeBackup(at: url).folders?.map(\.name), ["Loved"])
+
+            for device in [devices.phone, devices.pad] {
+                devices.use(device)
+                let restored = await sync.restoreFromiCloud(context: device)
+                XCTAssertTrue(restored)
+                XCTAssertEqual(try device.fetch(FetchDescriptor<CustomFolder>()).map(\.name), ["Loved"])
+                XCTAssertEqual(try work(1, in: device)?.folders.map(\.name), ["Loved"])
+            }
+        }
+    }
+
     /// A record saved again after the delete is newer than the marker, so
     /// it comes back everywhere, and a restore doesn't delete it.
     func test_workSavedAgainAfterADeleteComesBack() async throws {
