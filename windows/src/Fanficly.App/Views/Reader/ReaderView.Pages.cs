@@ -258,7 +258,8 @@ internal sealed partial class ReaderView
         {
             AppHost.Log($"Pagination failed: {e}");
             if (_paginationRun == run) { _paginationRun = null; _runningTrigger = null; }
-            if (!repaginating) _isRestoring = false;
+            if (!repaginating || _findPageJump) _isRestoring = false;
+            _findPageJump = false;
             return;
         }
         // A newer trigger (a resize mid-pagination) cancelled this run: its pages
@@ -293,6 +294,15 @@ internal sealed partial class ReaderView
         foreach (var (chapter, list) in result.Atoms) atoms[chapter] = list;
         _atoms = atoms;
         _pages = result.Pages.ToList();
+
+        // A Find match in this chapter: the page with the words, which in a
+        // paragraph over several pages needn't be the paragraph's first.
+        if (_findPage is { } findTarget && findTarget.Chapter == trigger.Chapter)
+        {
+            _findPage = null;
+            _findPageJump = false;
+            if (FindMatchPage(findTarget) is { } findPage) kept = findPage.Id;
+        }
 
         var before = _selectedPageId;
         RestoreOrValidatePageSelection(kept);

@@ -10,6 +10,9 @@ struct ReaderView: View {
     /// a parent's "Comments" action can scope to the right chapter. Written
     /// whenever the visible/selected chapter changes.
     var currentChapter: Binding<Int>? = nil
+    /// AO3 has chapters the saved copy doesn't (#180): shown after the last
+    /// chapter, with its Update button. nil for a live work or an up-to-date one.
+    var newChapters: NewChaptersNotice? = nil
 
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
@@ -78,6 +81,9 @@ struct ReaderView: View {
     @State private var isUIMinimized: Bool = false
     @Environment(StatusBarVisibility.self) private var statusBar: StatusBarVisibility?
     @State private var listeningChapter: Int?
+    /// Narration read on to the end of the work: the screen stays free to lock
+    /// until Listen starts again, as after a sleep pause (#182).
+    @State private var listenedToEnd = false
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
     /// Page-by-page selection is always a page id; with a spread on screen the
@@ -127,6 +133,23 @@ struct ReaderView: View {
     @State private var keyScrollViews = ReaderScrollViews()
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
+    // Find in this work (#183).
+    @State private var showingFind = false
+    /// Kept while the reader is open, so Find opens again on the last search.
+    @State private var findQuery = ""
+    /// The place Find is moving to; continuous scroll reads it on `findJump`.
+    @State private var findTarget: ReadingAnchor?
+    /// Where the words start in the target paragraph (characters), so page by
+    /// page shows the page with them when a long paragraph spans several.
+    @State private var findOffset = 0
+    /// Page by page: a Find target in a chapter being paginated, shown once
+    /// its pages are in (see handlePaginationTrigger).
+    @State private var pendingFindPage: ReadingAnchor?
+    /// Bumped by `showFindMatch`, so choosing a match in the chapter already
+    /// on screen still moves there.
+    @State private var findJump = 0
+    /// The paragraph Find landed on, lit like the Listen highlight for a moment.
+    @State private var findHighlight: ReadingAnchor?
 
     private var profiles: [ReaderProfile] {
         ReaderProfile.loadProfiles(from: profilesJSON)
@@ -273,9 +296,10 @@ struct ReaderView: View {
         self.summary = summary
     }
 
-    init(work: Work, currentChapter: Binding<Int>? = nil) {
+    init(work: Work, currentChapter: Binding<Int>? = nil, newChapters: NewChaptersNotice? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
         self.currentChapter = currentChapter
+        self.newChapters = newChapters
         self.title = work.title
         self.author = work.authorName
         self.authorUsername = work.authorUsername
@@ -373,6 +397,26 @@ struct ReaderView: View {
         }
     }
 
+    /// Find in this work (#183): the sheet, and ⌘F from the Reader menu
+    /// through a focused scene value. Owned by the reader, not the Aa menu,
+    /// whose content is gone by the time a sheet would present.
+    private struct FindPresentationModifier: ViewModifier {
+        @Binding var showingFind: Bool
+        @Binding var query: String
+        let chapters: [AO3ChapterPayload]
+        let includeImages: Bool
+        let select: (WorkFind.Match) -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .focusedSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
+                .sheet(isPresented: $showingFind) {
+                    WorkFindView(chapters: chapters, includeImages: includeImages,
+                                 query: $query, onSelect: select)
+                }
+        }
+    }
+
     /// Reader lifecycle, lifted out of the main body chain so it type-checks
     /// independently. Keeps the screen awake while reading, tears down speech on
     /// exit, and drives the Stats active-reading timer: start on appear and when
@@ -404,7 +448,10 @@ struct ReaderView: View {
                     applyKeepScreenAwake(keepScreenAwake)
                     startTimer()
                 }
-                .onChange(of: keepScreenAwake) { _, on in applyKeepScreenAwake(on) }
+                // Only while on screen: narration stopping as the reader
+                // leaves flips this, and a hidden reader mustn't hold the
+                // screen for the page pushed over it.
+                .onChange(of: keepScreenAwake) { _, on in if isVisible { applyKeepScreenAwake(on) } }
                 .onChange(of: scenePhase) { _, newPhase in
                     scenePhaseChanged(newPhase)
                     if newPhase == .active {
@@ -519,7 +566,7 @@ struct ReaderView: View {
         // in one ViewModifier so this long body chain stays within the
         // type-checker's budget (see ChapterReportModifier for the same reason).
         .modifier(ReaderLifecycleModifier(
-            keepScreenAwake: keepScreenAwake,
+            keepScreenAwake: holdsScreenAwake,
             scenePhase: scenePhase,
             applyKeepScreenAwake: { applyKeepScreenAwake($0) },
             startTimer: { startReadingTimer() },
@@ -552,7 +599,15 @@ struct ReaderView: View {
                 guard isUIMinimized else { return false }
                 toggleChromeAccessibly()
                 return true
-            }
+            },
+            find: { showingFind = true }
+        ))
+        .modifier(FindPresentationModifier(
+            showingFind: $showingFind,
+            query: $findQuery,
+            chapters: chapters,
+            includeImages: showImages,
+            select: { showFindMatch($0.anchor, offset: $0.offset) }
         ))
         #if !targetEnvironment(macCatalyst)
         .modifier(VolumeButtonPageTurnModifier(
@@ -611,6 +666,13 @@ struct ReaderView: View {
         iCloudSyncManager.shared.queueBackup(context: modelContext)
     }
 
+    /// "Keep screen awake", except while Listen plays (#182): bedtime
+    /// listening lets the screen lock, and a chapter the sleep timer paused
+    /// keeps it free to lock until you play again.
+    private var holdsScreenAwake: Bool {
+        keepScreenAwake && !speech.isPlaying && !speech.pausedBySleepTimer && !listenedToEnd
+    }
+
     /// Disables the system idle timer so the display stays awake while reading.
     /// Always passes `false` on exit to hand control back to the OS.
     private func applyKeepScreenAwake(_ enabled: Bool) {
@@ -654,6 +716,9 @@ struct ReaderView: View {
     /// page in sync so the reader follows along.
     private func narrate(toChapter index: Int) {
         guard index != listeningChapter else { return }
+        // Picking a chapter isn't the chapter running out: a sleep pause
+        // that's pending mustn't hold it paused at its start.
+        if speech.sleepPausePending { speech.setSleepTimer(nil) }
         jump(toChapter: index)
         narrate(chapter: index, from: 0)
     }
@@ -661,6 +726,7 @@ struct ReaderView: View {
     private func narrate(chapter index: Int, from paragraph: Int) {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
+        listenedToEnd = false
         listeningChapter = index
         wireNarrationCallbacks()
         // A chapter with nothing to speak (only images, with images off) rolls
@@ -717,6 +783,7 @@ struct ReaderView: View {
         guard let current = listeningChapter,
               let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
                                                            current: current, forward: true) else {
+            listenedToEnd = true
             speech.stop()
             listeningChapter = nil
             return
@@ -727,7 +794,7 @@ struct ReaderView: View {
     }
 
     private func narrationBar(fg: Color, bg: Color) -> some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             Button { speech.skipBackward() } label: { Image(systemName: "backward.fill") }
                 .accessibilityLabel("Previous paragraph")
             Button { speech.togglePlayPause() } label: {
@@ -782,6 +849,8 @@ struct ReaderView: View {
             .accessibilityLabel("Speaking rate")
             .accessibilityValue(String(format: "%.1f times normal speed", speech.rateMultiplier))
 
+            sleepTimerMenu
+
             Button {
                 speech.stop()
                 listeningChapter = nil
@@ -797,6 +866,41 @@ struct ReaderView: View {
         .overlay(alignment: .top) {
             Rectangle().fill(fg.opacity(0.12)).frame(height: 0.5)
         }
+    }
+
+    /// The narration bar's sleep timer (#182): pause after the paragraph being
+    /// spoken once 15, 30 or 60 minutes are up, or at the end of the chapter.
+    private var sleepTimerMenu: some View {
+        Menu {
+            Section {
+                Picker("Sleep timer", selection: Binding(
+                    get: { speech.sleepTimer },
+                    set: { speech.setSleepTimer($0) }
+                )) {
+                    Text("Off").tag(SleepTimer?.none)
+                    ForEach(SleepTimer.choices, id: \.self) { timer in
+                        Text(timer.title).tag(Optional(timer))
+                    }
+                }
+                .pickerStyle(.inline)
+            } header: {
+                Text(sleepTimerStatus ?? "Pause listening after")
+            }
+        } label: {
+            Image(systemName: speech.sleepTimer == nil ? "moon.zzz" : "moon.zzz.fill")
+        }
+        .accessibilityLabel("Sleep timer")
+        .accessibilityValue(sleepTimerStatus ?? "Off")
+    }
+
+    /// When the sleep timer will pause narration, for the menu and VoiceOver.
+    private var sleepTimerStatus: String? {
+        if speech.sleepPausePending { return "Pausing after this paragraph" }
+        if let deadline = speech.sleepDeadline {
+            return "Pauses at \(deadline.formatted(date: .omitted, time: .shortened))"
+        }
+        if speech.sleepTimer == .endOfChapter { return "Pauses at the end of the chapter" }
+        return nil
     }
 
     /// The chapter label + "¶ x / y" readout shown in the narration bar.
@@ -853,6 +957,9 @@ struct ReaderView: View {
                             .id(chapter.index)
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
                         }
+                        if let newChapters {
+                            NewChaptersBanner(notice: newChapters, foreground: fg)
+                        }
                     }
                     .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.vertical, Spacing.lg)
@@ -873,6 +980,14 @@ struct ReaderView: View {
                 .onChange(of: geo.size.width) { old, new in
                     guard abs(old - new) > 1 else { return }
                     beginResize(width: new)
+                    guard let anchor = currentAnchor else { return }
+                    isRestoring = true
+                    Task { await reanchor(to: anchor, proxy: proxy) }
+                }
+                // A one-chapter download updated with its second chapter
+                // (#180) gains chapter headers above the text it shows: put
+                // the paragraph you were on back on top.
+                .onChange(of: chapters.count > 1) { _, _ in
                     guard let anchor = currentAnchor else { return }
                     isRestoring = true
                     Task { await reanchor(to: anchor, proxy: proxy) }
@@ -941,6 +1056,12 @@ struct ReaderView: View {
                 .onChange(of: currentAnchor) { _, anchor in
                     if let anchor { saveProgress(anchor) }
                 }
+                .onChange(of: findJump) { _, _ in
+                    guard let anchor = findTarget else { return }
+                    isRestoring = true
+                    let jump = findJump
+                    Task { await scrollToFindMatch(anchor, jump: jump, proxy: proxy) }
+                }
                 // Karaoke: keep the paragraph being read aloud in view.
                 .onChange(of: speech.currentParagraph) { _, _ in scrollToSpokenParagraph(proxy) }
                 .onChange(of: listeningChapter) { _, _ in scrollToSpokenParagraph(proxy) }
@@ -960,17 +1081,38 @@ struct ReaderView: View {
         }
     }
 
+    /// Continuous scroll to a Find match. A chapter far off isn't laid out
+    /// (the stack is lazy), so it's brought in first; its paragraphs render
+    /// asynchronously, so the paragraph's scroll retries until it lands.
+    private func scrollToFindMatch(_ anchor: ReadingAnchor, jump: Int, proxy: ScrollViewProxy) async {
+        // A newer Find jump owns isRestoring from then on.
+        defer { if findJump == jump { isRestoring = false } }
+        if anchor.chapter != visibleChapterIndex {
+            proxy.scrollTo(anchor.chapter, anchor: .top)
+        }
+        let key = ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph)
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard findJump == jump else { return }
+            proxy.scrollTo(key, anchor: .top)
+        }
+    }
+
     private func restoreContinuous(proxy: ScrollViewProxy) async {
         let anchor = loadAnchorIfNeeded()
         guard let anchor, anchor.chapter > 1 || anchor.paragraph > 0 else { return }
         isRestoring = true
+        // A Find jump meanwhile (⌘F right after opening) takes over the scroll.
+        let jump = findJump
         try? await Task.sleep(nanoseconds: 250_000_000)
+        guard findJump == jump else { return }
         proxy.scrollTo(anchor.chapter, anchor: .top)
         // Paragraphs render asynchronously, so the exact paragraph id may
         // not exist yet — retry until it lands.
         let key = ChapterTracking.key(chapter: anchor.chapter, paragraph: anchor.paragraph)
         for _ in 0..<10 {
             try? await Task.sleep(nanoseconds: 180_000_000)
+            guard findJump == jump else { return }
             proxy.scrollTo(key, anchor: .top)
         }
         isRestoring = false
@@ -1232,6 +1374,10 @@ struct ReaderView: View {
             }
             .onChange(of: selectedChapterIndex) { _, chapter in
                 visibleChapterIndex = chapter
+                // Swiped on before a restore (a Find match's) reached its chapter.
+                if let pending = pendingParagraphRestore, pending.chapter != chapter {
+                    pendingParagraphRestore = nil
+                }
                 if !isRestoring && pendingParagraphRestore == nil {
                     let anchor = ReadingAnchor(chapter: chapter, paragraph: 0)
                     currentAnchor = anchor
@@ -1270,6 +1416,9 @@ struct ReaderView: View {
                             chapterHeader(chapter, fg: fg)
                         }
                         chapterBlock(chapter, fg: fg)
+                        if let newChapters, chapter.index == chapters.last?.index {
+                            NewChaptersBanner(notice: newChapters, foreground: fg)
+                        }
                     }
                     .textColumn(placement(geo.size.width), in: geo.size.width)
                     .padding(.top, Spacing.lg)
@@ -1318,7 +1467,7 @@ struct ReaderView: View {
                         saveProgress(updated)
                     }
                 }
-                .task(id: selectedChapterIndex) {
+                .task(id: [selectedChapterIndex, findJump]) {
                     await restorePaginatedParagraph(chapter: chapter, proxy: pageProxy)
                 }
                 .onChange(of: geo.size.width) { old, new in
@@ -1409,8 +1558,7 @@ struct ReaderView: View {
     private func restorePaginatedParagraph(chapter: AO3ChapterPayload, proxy: ScrollViewProxy) async {
         guard chapter.index == selectedChapterIndex,
               let pending = pendingParagraphRestore,
-              pending.chapter == chapter.index,
-              pending.paragraph > 0 else { return }
+              pending.chapter == chapter.index else { return }
         pendingParagraphRestore = nil  // consume — one shot
         isRestoring = true
         let key = ChapterTracking.key(chapter: chapter.index, paragraph: pending.paragraph)
@@ -1451,6 +1599,7 @@ struct ReaderView: View {
                 kerning: kerningPt / zoomScale,
                 boldText: boldText,
                 showImages: showImages,
+                content: ChapterContentSignature(chapters),
                 size: CGSize(
                     width: spread?.pageWidth ?? geo.size.width,
                     // The page area on screen: the controls and the narration
@@ -1882,6 +2031,12 @@ struct ReaderView: View {
         paginatedWidth = trigger.size.width
 
         restoreOrValidatePageSelection(keeping: kept)
+        // A Find match in this chapter: the page with the words, which in a
+        // paragraph over several pages needn't be the paragraph's first.
+        if let target = pendingFindPage, target.chapter == trigger.chapter {
+            pendingFindPage = nil
+            if let page = findMatchPage(target), page.id != selectedPageId { selectedPageId = page.id }
+        }
         // The page kept holds the place reached but needn't start there, and
         // with an unchanged id selecting it doesn't update pageStart: do it
         // here, or the next re-pagination breaks a page mid-way through it.
@@ -2180,6 +2335,12 @@ struct ReaderView: View {
                 
             // The page number alone, for full screen: "3", or "3–4" in a spread.
             let pageNumber = onScreen?.right.map { "\(firstNum)–\($0.pageIndex + 1)" } ?? "\(firstNum)"
+            // The work's last page with AO3 ahead of the saved copy (#180):
+            // the footer offers the update in the chapter label's place, in
+            // the same row, so the page area (and the pages) never change.
+            let lastOnScreen = onScreen?.right ?? onScreen?.left ?? currentPage
+            let notice = (currentPage.chapterIndex == chapters.map(\.index).max()
+                          && chapterPages.last?.id == lastOnScreen.id) ? newChapters : nil
 
             let row = HStack {
                 Text(label)
@@ -2221,6 +2382,44 @@ struct ReaderView: View {
                         .accessibilityLabel("\(label), \(pageLabel.lowercased())")
                         .accessibilityIdentifier("reader.pageNumber")
                     }
+            } else if let notice {
+                // The plain row, hidden, keeps the bar's height exactly.
+                row.hidden()
+                    .overlay {
+                        HStack {
+                            if notice.isUpdating {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .accessibilityLabel("Updating download")
+                            } else {
+                                // The action first, so a narrow footer at
+                                // a large text size never cuts it off.
+                                Button(action: notice.update) {
+                                    Text("Update · \(notice.text)")
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Color.accentColor)
+                                .accessibilityLabel("\(notice.text). Update download")
+                                .accessibilityHint("Saves the new chapters on this device. You stay where you are.")
+                                .accessibilityIdentifier("reader.newChapters.update")
+                            }
+                            Spacer()
+                            Text(pageLabel)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(fg.opacity(0.5))
+                                .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .background(bg)
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(fg.opacity(0.1)).frame(height: 0.5)
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("reader.pageFooter")
+                    .contentShape(Rectangle())
             } else {
                 row
                     .background(bg)
@@ -2421,8 +2620,80 @@ struct ReaderView: View {
     /// The paragraph to karaoke-highlight in `chapterIndex`, or nil when that
     /// chapter isn't the one currently being narrated.
     private func highlightedParagraph(for chapterIndex: Int) -> Int? {
+        // Find's landing, for a moment (#183).
+        if let findHighlight, findHighlight.chapter == chapterIndex { return findHighlight.paragraph }
         guard speech.isActive, listeningChapter == chapterIndex else { return nil }
         return speech.currentParagraph
+    }
+
+    // MARK: - Find in this work (#183)
+
+    /// Shows a Find match in whichever mode is on screen. The match becomes
+    /// the reading place (saved at once), and its paragraph is lit briefly
+    /// with the Listen highlight.
+    private func showFindMatch(_ anchor: ReadingAnchor, offset: Int = 0) {
+        findTarget = anchor
+        findOffset = offset
+        currentAnchor = anchor
+        saveProgress(anchor, force: true)
+        flashFindHighlight(anchor)
+        switch mode {
+        case .continuous:
+            findJump &+= 1
+        case .paginated:
+            // The chapter's page scrolls to it (restorePaginatedParagraph),
+            // keyed on findJump too, for a match in the chapter on screen.
+            pendingParagraphRestore = anchor
+            selectedChapterIndex = anchor.chapter
+            findJump &+= 1
+        case .pageByPage:
+            showFindMatchPageByPage(anchor)
+        }
+        let chapterName = chapters.first { $0.index == anchor.chapter }
+            .map { WorkFind.chapterLabel(index: $0.index, title: $0.title) } ?? "Chapter \(anchor.chapter)"
+        UIAccessibility.post(notification: .announcement, argument: "Showing match in \(chapterName)")
+    }
+
+    /// Page by page: the page holding the paragraph when its chapter is
+    /// paginated already, else the chapter is paginated around the place
+    /// (`restoreOrValidatePageSelection` picks the page holding `currentAnchor`).
+    private func showFindMatchPageByPage(_ anchor: ReadingAnchor) {
+        pendingFindPage = nil
+        if let page = findMatchPage(anchor) {
+            if selectedPageId != page.id { updatePageSelection(page.id) }
+            return
+        }
+        guard anchor.chapter != selectedChapterIndex else { return }
+        // Not a chapter jump to its top: keeps handleChapterIndexChange from
+        // replacing the place with the chapter's first paragraph.
+        pendingFindPage = anchor
+        isRestoring = true
+        selectedChapterIndex = anchor.chapter
+    }
+
+    /// The page showing a Find match: a long paragraph runs over several
+    /// pages, so the one whose atoms cover the words' offset (the speech text
+    /// Find searched is the rendered text, give or take a trimmed space).
+    private func findMatchPage(_ anchor: ReadingAnchor) -> ChapterPage? {
+        guard let atoms = parsedAtoms[anchor.chapter] else { return nil }
+        var covering: Int?
+        var end = 0
+        for (index, atom) in atoms.enumerated() where atom.originalParagraphIndex == anchor.paragraph {
+            covering = index
+            end += atom.text.characters.count
+            if end > findOffset { break }
+        }
+        guard let atomIndex = covering else { return nil }
+        return paginatedPages.first { $0.chapterIndex == anchor.chapter && $0.paragraphIndices.contains(atomIndex) }
+    }
+
+    private func flashFindHighlight(_ anchor: ReadingAnchor) {
+        findHighlight = anchor
+        Task { @MainActor in
+            // Long enough to outlast a chapter's pagination or the sheet closing.
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            if findHighlight == anchor { findHighlight = nil }
+        }
     }
 
     private var chaptersMenu: some View {
@@ -2453,6 +2724,12 @@ struct ReaderView: View {
     private var typographyMenu: some View {
         Menu {
             listenMenuButton
+            Button {
+                showingFind = true
+            } label: {
+                Label("Find in This Work", systemImage: "text.magnifyingglass")
+            }
+            .accessibilityIdentifier("reader_find_button")
             Divider()
 
             Menu {
@@ -2601,9 +2878,25 @@ struct PaginationTrigger: Equatable {
     let kerning: Double
     let boldText: Bool
     let showImages: Bool
+    /// The chapters loaded: updating a download adds some or changes their
+    /// text (#180), and the pages must be made again.
+    let content: ChapterContentSignature
     let size: CGSize
     /// The Duo's side column the text keeps clear of (none on a spread).
     let sideColumn: SideColumn
+}
+
+/// Which chapters are loaded and how long each one's text is: cheap to
+/// compute (a native string's UTF-8 count is stored), and it changes when a
+/// download update adds chapters or brings edited text.
+struct ChapterContentSignature: Equatable {
+    let indices: [Int]
+    let lengths: [Int]
+
+    init(_ chapters: [AO3ChapterPayload]) {
+        indices = chapters.map(\.index)
+        lengths = chapters.map { $0.bodyHTML.utf8.count }
+    }
 }
 
 /// What page-by-page's settle task waits on: any change restarts the wait.

@@ -1,9 +1,15 @@
 import SwiftUI
+import SwiftData
+import UIKit // UIAccessibility announcements
 
 /// Reader for a work in the Library.
 /// - Downloaded works (chapters saved on device) read fully offline.
 /// - Bookmarked-only works have no saved chapter text, so we fetch it from
 ///   AO3 on demand. From here you can also download it for offline reading.
+/// - A download behind AO3 (a work in progress with new chapters the app
+///   knows of) shows "3 new chapters on AO3 · Update" after its last saved
+///   chapter, and the More menu's "Update Download" refreshes it any time
+///   (#180): one fetch, saved over the old copy, the reader staying put.
 struct SavedWorkReader: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
@@ -21,6 +27,10 @@ struct SavedWorkReader: View {
     @State private var saveError: String?
     @State private var isSavingOffline = false
     @State private var isDownloaded = false
+    /// An update of the saved copy is running (the banner's or the menu's).
+    @State private var isUpdating = false
+    /// Chapters AO3 has beyond the saved ones, as far as the app knows.
+    @State private var newChapterCount = 0
     @State private var showingComments = false
     @State private var showingBookmark = false
     @State private var currentChapterIndex = 1
@@ -65,7 +75,7 @@ struct SavedWorkReader: View {
             if let payload {
                 ReaderView(payload: payload, currentChapter: $currentChapterIndex)
             } else if hasOfflineText {
-                ReaderView(work: work, currentChapter: $currentChapterIndex)
+                ReaderView(work: work, currentChapter: $currentChapterIndex, newChapters: newChaptersNotice)
             } else if isLoading {
                 VStack(spacing: 12) {
                     ProgressView()
@@ -121,18 +131,32 @@ struct SavedWorkReader: View {
                         }
                         WorkExportButton(workId: work.ao3Id, title: work.title,
                                          exporter: exporter, useTextLabel: true)
-                        Button {
-                            Task { await saveOffline() }
-                        } label: {
-                            Label(isDownloaded ? "Downloaded" : "Save Offline",
-                                  systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                        if canUpdate {
+                            // Saved: refresh it from AO3 rather than a
+                            // disabled "Downloaded" (#180).
+                            Button {
+                                Task { await updateDownload() }
+                            } label: {
+                                Label(newChapterCount > 0 ? "Update Download (\(newChapterCount) new)" : "Update Download",
+                                      systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            .disabled(isUpdating)
+                        } else {
+                            // Downloaded with a fetched payload: that is
+                            // AO3's current copy, so there's nothing to update.
+                            Button {
+                                Task { await saveOffline() }
+                            } label: {
+                                Label(isDownloaded ? "Downloaded" : "Save Offline",
+                                      systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
+                            }
+                            .disabled(isSavingOffline || isDownloaded)
                         }
-                        .disabled(isSavingOffline || isDownloaded)
                         SubscribeMenuButton(workId: work.ao3Id, title: work.title, author: work.authorName,
                                             chapterCount: payload?.summary.chapterCount,
                                             subscriber: subscriber)
                     } label: {
-                        if isSavingOffline || exporter.isExporting || kudos.isSending || subscriber.isSending {
+                        if isSavingOffline || isUpdating || exporter.isExporting || kudos.isSending || subscriber.isSending {
                             ProgressView()
                         } else {
                             Label("More", systemImage: "book.circle")
@@ -159,8 +183,74 @@ struct SavedWorkReader: View {
         .task { await load() }
         .onAppear {
             isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
+            refreshNewChapterCount()
             WorkPersistence.recordView(work: work, into: context)
         }
+    }
+
+    /// Saved text read from the device: the menu offers an update instead
+    /// of Save Offline (which would only fetch the EPUB and leave stale
+    /// chapters). A fetched payload is AO3's current copy.
+    private var canUpdate: Bool {
+        hasOfflineText && payload == nil
+    }
+
+    /// The banner after the last saved chapter, while AO3 is known to be ahead.
+    private var newChaptersNotice: NewChaptersNotice? {
+        guard newChapterCount > 0, !isLocalBook else { return nil }
+        return NewChaptersNotice(count: newChapterCount, isUpdating: isUpdating) {
+            Task { await updateDownload() }
+        }
+    }
+
+    private func refreshNewChapterCount() {
+        newChapterCount = isLocalBook ? 0 : DownloadUpdate.newChapterCount(for: work, in: context)
+    }
+
+    /// Brings the saved copy up to date: one throttled fetch of the whole
+    /// work, saved over the old chapters (the reader stays on this view and
+    /// keeps its place; new chapters join the end), then the EPUB again.
+    /// When the fetch fails, or AO3 now has fewer chapters than are saved,
+    /// the old copy stays as it was.
+    private func updateDownload() async {
+        guard !isUpdating else { return }
+        isUpdating = true
+        defer { isUpdating = false }
+        let fetched: AO3WorkPayload
+        do {
+            fetched = try await client.fetchWork(id: work.ao3Id)
+        } catch {
+            saveError = "Couldn't get the new chapters from AO3, so the saved copy is unchanged: \(error.localizedDescription)"
+            return
+        }
+        // Deleted while the fetch ran (its Undo toast gone): don't bring it back.
+        guard work.modelContext != nil, !work.isDeleted else { return }
+        // Updating a work whose delete is still behind Undo keeps it, like Save Offline (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.work(work.ao3Id))
+        let outcome = DownloadUpdate.apply(fetched, to: work, in: context)
+        iCloudSyncManager.shared.queueBackup(context: context)
+        newChapterCount = 0
+        switch outcome {
+        case .keptLonger(let saved, let onAO3):
+            saveError = "AO3 now has \(onAO3) \(onAO3 == 1 ? "chapter" : "chapters"), fewer than the \(saved) saved on this device, so the saved copy was kept as it is."
+            return
+        case .updated(let added):
+            announce(added > 0
+                ? "Download updated: \(added) new \(added == 1 ? "chapter" : "chapters")"
+                : "Download updated")
+        }
+        do {
+            _ = try await client.downloadEPUB(workId: work.ao3Id)
+            isDownloaded = true
+        } catch {
+            saveError = "The new chapters are saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Tells VoiceOver how an update ended: its button has gone by then.
+    private func announce(_ message: String) {
+        UIAccessibility.post(notification: .announcement, argument: NSAttributedString(
+            string: message, attributes: [.accessibilitySpeechQueueAnnouncement: true]))
     }
 
     /// Downloaded works saved before per-chapter comments have no chapter ids,

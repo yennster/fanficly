@@ -468,6 +468,14 @@ struct SearchView: View {
                                     Label("Remove", systemImage: "trash")
                                 }
                             }
+                            // A mouse can't swipe (#189).
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    recentRaw = RecentSearches.removing(prompt, from: recentRaw)
+                                } label: {
+                                    Label("Remove from Recent", systemImage: "trash")
+                                }
+                            }
                         }
                     } header: {
                         HStack {

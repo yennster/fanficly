@@ -55,6 +55,11 @@ def setup() -> tuple[dict, dict]:
         "description": "The App Store screenshots (ScreenshotTests) on the newest Xcode 27+. Started "
                        "only by store-assets.yml in GitHub, which keeps this workflow up to date.",
         "clean": False,
+        # Never on its own, even if a start condition was added in App Store Connect.
+        "pullRequestStartCondition": None,
+        "branchStartCondition": None,
+        "tagStartCondition": None,
+        "scheduledStartCondition": None,
         "manualBranchStartCondition": {"source": {"isAllMatch": True}},
         # One action per device, so each runs and reports on its own and
         # leaves its own result bundle: with all three in one action, the

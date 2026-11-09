@@ -176,6 +176,7 @@ internal sealed partial class ReaderView
         if (previous._currentAnchor is { } moved && moved == previous._clampedRestoreAnchor) return;
         _loadedFromDisk = true;
         _openedAnchorGate = previous._openedAnchorGate;
+        _findQuery = previous._findQuery;
         if (previous._currentAnchor is { } anchor && ChapterAt(anchor.Chapter) is not null)
         {
             _currentAnchor = anchor;
@@ -232,7 +233,8 @@ internal sealed partial class ReaderView
     public void Appearing()
     {
         _visible = true;
-        ApplyKeepScreenAwake(ReaderPrefs.KeepScreenAwake);
+        _listenedToEnd = false;
+        ApplyKeepScreenAwake(HoldsScreenAwake);
         StartReadingTimer();
         if (MainWindow.Current.IsFullScreen) EnterImmersive();
         ReportCurrentChapter(force: true);
@@ -319,6 +321,32 @@ internal sealed partial class ReaderView
         PersistNow();
     }
 
+    /// <summary>"Keep screen awake", except while Listen plays (#182): bedtime
+    /// listening lets the display sleep, and a chapter the sleep timer paused
+    /// keeps it free to until something plays again.</summary>
+    private bool HoldsScreenAwake =>
+        SleepTimer.HoldsScreenAwake(ReaderPrefs.KeepScreenAwake, _speech.IsPlaying, _speech.PausedBySleepTimer || _listenedToEnd);
+
+    /// <summary>Narration read on to the end of the work (or the sleep timer's
+    /// pause landed there): the display stays free to sleep until Listen starts
+    /// again, as it does after a sleep pause.</summary>
+    private bool _listenedToEnd;
+    private bool _screenHoldQueued;
+
+    /// <summary>A chapter's end reports "not playing" and the next chapter's start
+    /// "playing" in one call stack: apply the hold once that settles, so the
+    /// display request isn't taken and dropped at every chapter.</summary>
+    private void QueueScreenHold()
+    {
+        if (_screenHoldQueued) return;
+        _screenHoldQueued = true;
+        _dispatcher.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            _screenHoldQueued = false;
+            if (!_removed && _visible) ApplyKeepScreenAwake(HoldsScreenAwake);
+        });
+    }
+
     /// <summary>Keeps the display awake while reading (like a video player).</summary>
     private void ApplyKeepScreenAwake(bool enabled)
     {
@@ -366,7 +394,7 @@ internal sealed partial class ReaderView
         _pendingKeys.Clear();
 
         if (keys.Any(ReaderPrefs.IsProfileKey)) LibrarySyncManager.QueueBackupShared(AppHost.Library);
-        if (keys.Contains(ReaderPrefs.KeepScreenAwakeKey) && _visible) ApplyKeepScreenAwake(ReaderPrefs.KeepScreenAwake);
+        if (keys.Contains(ReaderPrefs.KeepScreenAwakeKey) && _visible) ApplyKeepScreenAwake(HoldsScreenAwake);
 
         var themeChanged = keys.Any(k => ReaderPrefs.Is(k, ReaderPrefs.ThemeBase));
         var modeChanged = keys.Any(k => ReaderPrefs.Is(k, ReaderPrefs.ModeBase)) && ReaderPrefs.Mode != _builtMode;
@@ -640,6 +668,9 @@ internal sealed partial class ReaderView
     private void NarrateToChapter(int index)
     {
         if (index == _listeningChapter) return;
+        // Picking a chapter isn't the chapter running out: a sleep pause that's
+        // pending mustn't hold it paused at its start.
+        if (_speech.SleepPausePending) _speech.SetSleepTimer(null);
         SelectChapter(index, userInitiated: false);
         _visibleChapter = index;
         Narrate(index, 0);
@@ -648,6 +679,7 @@ internal sealed partial class ReaderView
     private void Narrate(int chapterIndex, int paragraph)
     {
         if (ChapterAt(chapterIndex) is not { } chapter) return;
+        _listenedToEnd = false;
         var label = chapter.Title.Length == 0 ? $"Chapter {chapterIndex}" : $"Chapter {chapterIndex}: {chapter.Title}";
         var previous = _listeningChapter;
         _listeningChapter = chapterIndex;
@@ -668,6 +700,7 @@ internal sealed partial class ReaderView
         if (_listeningChapter is not { } current
             || ChapterTracking.AdjacentChapter(_chapterOrder, current, forward: true) is not { } target)
         {
+            _listenedToEnd = true;
             _speech.Stop();
             _listeningChapter = null;
             RefreshChrome();
@@ -697,6 +730,7 @@ internal sealed partial class ReaderView
             _lastSpeechPlaying = _speech.IsPlaying;
             OnNarrationPlayingChanged();
         }
+        if (_visible) QueueScreenHold();
         UpdateNarrationBar();
         ApplyHighlight();
         if (_speech.IsActive && _speech.CurrentParagraph != _lastSpokenParagraph)
@@ -749,7 +783,9 @@ internal sealed partial class ReaderView
 
     /// <summary>The paragraph to karaoke-highlight in a chapter, or null.</summary>
     private int? HighlightedParagraph(int chapterIndex) =>
-        _speech.IsActive && _listeningChapter == chapterIndex ? _speech.CurrentParagraph : null;
+        // Find's landing, for a moment (#183).
+        _findHighlight is { } found && found.Chapter == chapterIndex ? found.Paragraph
+        : _speech.IsActive && _listeningChapter == chapterIndex ? _speech.CurrentParagraph : null;
 
     private void ApplyHighlight()
     {
@@ -820,7 +856,8 @@ internal sealed partial class ReaderView
         var focused = FocusManager.GetFocusedElement(Root.XamlRoot);
         if (focused is MenuFlyoutItemBase or Slider or ComboBox or ComboBoxItem or ListViewItem or RadioButton or PipsPager)
             return false;
-        var activates = focused is ButtonBase or ToggleSwitch;
+        // A footer link (a download's update, #180) takes Space like a button.
+        var activates = focused is ButtonBase or ToggleSwitch or Microsoft.UI.Xaml.Documents.Hyperlink;
         // The D-pad moves focus between buttons (the toolbar, the Listen bar);
         // it turns pages only when the story itself has focus.
         if (activates && key is VirtualKey.GamepadDPadLeft or VirtualKey.GamepadDPadRight) return false;
@@ -836,6 +873,9 @@ internal sealed partial class ReaderView
                 return false;
             case VirtualKey.L when ctrl:
                 ToggleListening();
+                return true;
+            case VirtualKey.F when ctrl:
+                _ = ShowFindAsync();
                 return true;
             case VirtualKey.Left when ctrl:
             case VirtualKey.GamepadLeftShoulder:
@@ -958,6 +998,7 @@ internal sealed partial class ReaderView
                 _isUIMinimized ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"));
             menu.Items.Add(UI.UI.MenuItem(_speech.IsActive ? "Stop listening" : "Listen to chapter", ToggleListening,
                 _speech.IsActive ? "stop.circle" : "headphones"));
+            menu.Items.Add(UI.UI.MenuItem("Find in this work", () => PresentLater(ShowFindAsync), "magnifyingglass"));
         };
         return menu;
     }
