@@ -253,12 +253,14 @@ extension View {
     /// Push destinations shared by every stack that can reach a work, an
     /// author or a series: a work summary (or a series' next work) opens the
     /// reader; an `AuthorRef` opens that author's works; a `SeriesRef` opens
-    /// the series page. Apply once per `NavigationStack` root.
+    /// the series page; a `TagRef` (a work header's tag chip) opens that tag's
+    /// works. Apply once per `NavigationStack` root.
     func workAndAuthorDestinations() -> some View {
         self
             .navigationDestination(for: AO3WorkSummary.self) { WorkDetailView(workId: $0.id) }
             .navigationDestination(for: AuthorRef.self) { AuthorWorksView(author: $0) }
             .navigationDestination(for: SeriesRef.self) { SeriesView(series: $0) }
+            .navigationDestination(for: TagRef.self) { FandomWorksView(tag: $0) }
             .navigationDestination(for: SeriesWorkRef.self) { WorkDetailView(workId: $0.workId) }
     }
 }

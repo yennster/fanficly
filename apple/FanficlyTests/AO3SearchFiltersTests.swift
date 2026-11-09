@@ -329,3 +329,34 @@ final class WorkFilterSheetTests: XCTestCase {
         XCTAssertEqual(WorkFilterSheet.wordCount(from: " 10 ", to: ""), ">10")
     }
 }
+
+/// A work header's tag chip → that tag's works, by kudos (#190, as on Windows).
+final class TagRefTests: XCTestCase {
+    func test_eachChipKindSearchesItsOwnField() {
+        XCTAssertEqual(TagRef(name: "Teen Wolf (TV)", kind: .fandom).filters.fandomNames, ["Teen Wolf (TV)"])
+        XCTAssertEqual(TagRef(name: "Derek Hale/Stiles Stilinski", kind: .relationship).filters.relationshipNames,
+                       ["Derek Hale/Stiles Stilinski"])
+        XCTAssertEqual(TagRef(name: "Stiles Stilinski", kind: .character).filters.characterNames, ["Stiles Stilinski"])
+        XCTAssertEqual(TagRef(name: "Fluff", kind: .tag).filters.freeformNames, ["Fluff"])
+        // Warnings and categories are tags too; other_tag_names matches every type.
+        XCTAssertEqual(TagRef(name: "Major Character Death", kind: .warning).filters.otherTagNames, ["Major Character Death"])
+        XCTAssertEqual(TagRef(name: "M/M", kind: .category).filters.otherTagNames, ["M/M"])
+    }
+
+    func test_sortedByKudosWithNothingElseSet() {
+        let filters = TagRef(name: "Fluff", kind: .tag).filters
+        XCTAssertEqual(filters.sortColumn, .kudosCount)
+        XCTAssertEqual(filters.sortDirection, .desc)
+        var expected = AO3SearchFilters()
+        expected.freeformNames = ["Fluff"]
+        expected.sortColumn = .kudosCount
+        expected.sortDirection = .desc
+        XCTAssertEqual(filters, expected)
+    }
+
+    /// The screen is titled with the tag, so the tag gets no removable chip.
+    func test_theTagIsTheScreensSubject() {
+        let ref = TagRef(name: "Fluff", kind: .tag)
+        XCTAssertTrue(FilterChip.all(in: ref.filters, subject: ref.name).isEmpty)
+    }
+}

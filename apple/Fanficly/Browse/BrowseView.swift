@@ -346,6 +346,11 @@ struct FandomWorksView: View {
         self.init(filters: initial, title: tag.name, subject: tag.name)
     }
 
+    /// A tag chip tapped in a work's header: that tag's works, by kudos.
+    init(tag: TagRef) {
+        self.init(filters: tag.filters, title: tag.name, subject: tag.name)
+    }
+
     /// Works minus hidden ones, blocked tags and authors (except the ones
     /// being browsed) and (optionally) Mature/Explicit-rated ones.
     private var visibleWorks: [AO3WorkSummary] {
@@ -629,6 +634,30 @@ struct FandomWorksView: View {
 struct SeriesRef: Hashable {
     let id: Int
     let title: String
+}
+
+/// Navigation value for a tag chip in a work's header (`WorkHeaderMetadata`):
+/// opens the works with that tag, most-kudosed first (#190, as on Windows).
+struct TagRef: Hashable {
+    let name: String
+    let kind: ChipKind
+
+    /// The search for this tag: fandoms, ships, characters and freeforms use
+    /// their own field; warnings and categories are tags too, and AO3 matches
+    /// `other_tag_names` against every tag type.
+    var filters: AO3SearchFilters {
+        var filters = AO3SearchFilters()
+        switch kind {
+        case .fandom:       filters.fandomNames = [name]
+        case .relationship: filters.relationshipNames = [name]
+        case .character:    filters.characterNames = [name]
+        case .tag:          filters.freeformNames = [name]
+        case .rating, .warning, .category: filters.otherTagNames = [name]
+        }
+        filters.sortColumn = .kudosCount
+        filters.sortDirection = .desc
+        return filters
+    }
 }
 
 /// Navigation value for the work after this one in a series. Only its id is

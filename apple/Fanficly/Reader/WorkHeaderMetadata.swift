@@ -16,11 +16,11 @@ struct WorkHeaderMetadata: View {
             FlowLayout(spacing: 6, lineSpacing: 6) {
                 RatingBadge(rating: summary.rating)
                 ForEach(summary.warnings, id: \.self) { warning in
-                    SmallChip(text: warning, kind: .warning)
+                    TagChip(text: warning, kind: .warning)
                         .blockTermMenu(.tag, warning)
                 }
                 ForEach(summary.categories, id: \.self) { category in
-                    SmallChip(text: category, kind: .category)
+                    TagChip(text: category, kind: .category)
                         .blockTermMenu(.tag, category)
                 }
             }
@@ -125,7 +125,7 @@ private struct MetadataRow: View {
                 .foregroundStyle(foreground.opacity(0.55))
             FlowLayout(spacing: 6, lineSpacing: 6) {
                 ForEach(values, id: \.self) { value in
-                    SmallChip(text: value, kind: kind)
+                    TagChip(text: value, kind: kind)
                         .blockTermMenu(.tag, value)
                 }
             }
@@ -170,6 +170,22 @@ enum ChipKind {
     }
 }
 
+/// A tag chip: tapping it opens the works with that tag (`TagRef`), the way
+/// a chip does on Windows (#190); long-pressing it blocks the tag.
+private struct TagChip: View {
+    let text: String
+    let kind: ChipKind
+
+    var body: some View {
+        NavigationLink(value: TagRef(name: text, kind: kind)) {
+            SmallChip(text: text, kind: kind)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(kind.accessibilityName): \(text)")
+        .accessibilityHint("Shows works with this tag.")
+    }
+}
+
 private struct SmallChip: View {
     let text: String
     let kind: ChipKind
@@ -185,7 +201,6 @@ private struct SmallChip: View {
             .background(kind.background)
             .foregroundStyle(kind.foreground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .accessibilityLabel("\(kind.accessibilityName): \(text)")
     }
 }
 
