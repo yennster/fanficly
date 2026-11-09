@@ -96,15 +96,19 @@ final class ReaderLayoutTests: XCTestCase {
             // column, it left the column's room blank once the controls hid.
             // The strip floats over the text while the controls show.
             let texts = try storyTextFrames(above: footer.frame)
+            // Any other iPhone's controls sit in the navigation bar, clear of the text.
+            let buttons = isDuo ? [] : app.navigationBars.buttons.allElementsBoundByIndex.map { $0.frame }.filter { !$0.isEmpty }
             for text in texts {
                 XCTAssertGreaterThanOrEqual(text.minX, window.minX + 15, "text at \(text) touches the left edge")
                 XCTAssertLessThanOrEqual(text.maxX, window.maxX - 15, "text at \(text) touches the right edge")
+                for button in buttons where button.intersects(text) {
+                    XCTFail("the control at \(button) covers text at \(text)")
+                }
             }
             // The page (reader.page, the text column's scroll view) is the column.
-            if let column = pageFrames().first {
-                XCTAssertEqual(column.minX - window.minX, window.maxX - column.maxX, accuracy: 2,
-                               "the text column \(column.minX)–\(column.maxX) isn't centred on the \(window.width) pt screen")
-            }
+            let column = try XCTUnwrap(pageFrames().first, "no page on screen")
+            XCTAssertEqual(column.minX - window.minX, window.maxX - column.maxX, accuracy: 2,
+                           "the text column \(column.minX)–\(column.maxX) isn't centred on the \(window.width) pt screen")
         }
         #endif
     }
@@ -639,6 +643,11 @@ final class ReaderLayoutTests: XCTestCase {
     private var readerToolbarItem: XCUIElement {
         app.buttons.matching(NSPredicate(
             format: "identifier IN {'reader_settings_button', 'BottomOverflowBarButtonItem'}")).firstMatch
+    }
+
+    /// iPhone Duo, folded or not: the simulator the tests run on is named for it.
+    private var isDuo: Bool {
+        ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true || isDuoUnfolded
     }
 
     /// iPhone Duo unfolded: phone idiom, but no other iPhone is 600 pt across.

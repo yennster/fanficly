@@ -118,7 +118,8 @@ struct ReaderView: View {
     /// hidden for as long as the page area keeps its size.
     @State private var heldTopShift: HeldTopShift?
     /// The sides the page runs under iPhone Duo's column, and its width there
-    /// (RunUnderSideColumn); the text keeps clear of it.
+    /// (RunUnderSideColumn). The scrolling modes' text keeps clear of it;
+    /// page-by-page's runs under it, as in Apple Books.
     @State private var sideColumn = SideColumn.empty
     private let scrollSpace = "readerScroll"
 
@@ -2893,7 +2894,8 @@ struct PaginationTrigger: Equatable {
     /// text (#180), and the pages must be made again.
     let content: ChapterContentSignature
     let size: CGSize
-    /// The Duo's side column the text keeps clear of (none on a spread).
+    /// The Duo's side column the text keeps clear of. Always empty now that
+    /// page-by-page's text runs under the column, as in Apple Books.
     let sideColumn: SideColumn
 }
 
