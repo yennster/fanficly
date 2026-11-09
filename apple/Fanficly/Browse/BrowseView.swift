@@ -21,7 +21,7 @@ struct BrowseView: View {
                         .swipeActions {
                             SavedFilterDeleteButton(saved: saved)
                         }
-                                // A mouse can't swipe (#189).
+                        // A mouse can't swipe (#189).
                         .contextMenu {
                             SavedFilterDeleteButton(saved: saved)
                         }
