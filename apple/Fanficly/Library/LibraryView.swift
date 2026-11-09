@@ -181,6 +181,18 @@ struct LibraryView: View {
                                         Label("Delete", systemImage: "trash")
                                     }
                                 }
+                                // A mouse can't swipe, so the same actions are here too (#189).
+                                .contextMenu {
+                                    NavigationLink(value: folder) {
+                                        Label("Open", systemImage: "folder")
+                                    }
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        deleteFolder(folder)
+                                    } label: {
+                                        Label("Delete Folder", systemImage: "trash")
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -201,10 +213,7 @@ struct LibraryView: View {
                                 // on completed ones (nothing new will ever drop).
                                 if work.isFollowed && !work.isComplete {
                                     Button {
-                                        work.isFollowed = false
-                                        work.followedAt = nil
-                                        try? context.save()
-                                        iCloudSyncManager.shared.queueBackup(context: context)
+                                        unfollow(work)
                                     } label: {
                                         Label("Unfollow", systemImage: "bookmark.slash")
                                     }
@@ -267,6 +276,15 @@ struct LibraryView: View {
                                     workEditingNotes = work
                                 } label: {
                                     Label("Note & Tags...", systemImage: "note.text")
+                                }
+
+                                // The swipe's Unfollow, for a mouse (#189).
+                                if work.isFollowed && !work.isComplete {
+                                    Button {
+                                        unfollow(work)
+                                    } label: {
+                                        Label("Unfollow", systemImage: "bookmark.slash")
+                                    }
                                 }
                                 
                                 if !EPUBImport.isLocalWork(work.ao3Id),
@@ -359,6 +377,14 @@ struct LibraryView: View {
             try? context.save()
             iCloudSyncManager.shared.queueBackup(context: context)
         }
+    }
+
+    /// Stops following a work's new chapters; it stays in the Library.
+    private func unfollow(_ work: Work) {
+        work.isFollowed = false
+        work.followedAt = nil
+        try? context.save()
+        iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     private func deleteFolder(_ folder: CustomFolder) {
