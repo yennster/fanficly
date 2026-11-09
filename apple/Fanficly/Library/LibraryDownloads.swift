@@ -27,7 +27,7 @@ final class LibraryDownloads {
         Self.announce(String(localized: "Downloading \(title) for offline reading"))
         let hadText = !work.chapters.isEmpty
         do {
-            try await WorkPersistence.saveOffline(workId: id, client: client, context: context)
+            guard try await WorkPersistence.saveOffline(workId: id, client: client, context: context) else { return nil }
         } catch {
             let textSaved = hadText || (!work.isDeleted && work.modelContext != nil && !work.chapters.isEmpty)
             return textSaved
@@ -70,6 +70,9 @@ struct LibraryDownloadMenuItem: View {
             Button(action: download) {
                 Label("Download for Offline", systemImage: "arrow.down.circle")
             }
+            // A folder's Download All (or the restore's re-download) may
+            // have this work queued: one download at a time, never twice.
+            .disabled(RestoreDownloadCenter.shared.progress.map { !$0.finished } ?? false)
         }
     }
 }

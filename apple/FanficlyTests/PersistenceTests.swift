@@ -1721,6 +1721,24 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(faves.createdAt, Self.anHourAgo)
     }
 
+    /// Renaming onto a name deleted a moment ago (its marker stamped this
+    /// second) stamps the folder after the marker, so sync keeps it.
+    func test_renameOntoAJustDeletedNameOutlivesItsMarker() async throws {
+        try await withDeletionTest { _ in
+            let context = try makeContext()
+            let faves = CustomFolder(name: "Faves", createdAt: Self.anHourAgo)
+            context.insert(faves)
+            try context.save()
+            let now = Date.now
+            iCloudSyncManager.recordDeletion(.folder, key: "Later", at: now)
+
+            XCTAssertEqual(WorkPersistence.renameFolder(faves, to: "Later", in: context, now: now), .renamed)
+            let index = DeletionIndex(iCloudSyncManager.localDeletions())
+            XCTAssertFalse(index.removes(.folder, "Later", stamp: faves.createdAt))
+            XCTAssertTrue(index.removes(.folder, "Faves", stamp: Self.anHourAgo))
+        }
+    }
+
     /// A rename keeps the folder's works, and syncs like the Windows app's:
     /// the old name's marker removes the other device's copy, and the new
     /// name arrives there with the same works.

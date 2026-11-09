@@ -661,7 +661,7 @@ struct FolderDetailView: View {
                 let client = client
                 let context = context
                 RestoreDownloadCenter.shared.startFolderDownload(ids: ids, signedIn: auth.isLoggedIn) { id in
-                    try await WorkPersistence.saveOffline(workId: id, client: client, context: context)
+                    _ = try await WorkPersistence.saveOffline(workId: id, client: client, context: context)
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -678,6 +678,7 @@ struct FolderDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     let downloadIds = RestoreDownloadCenter.folderDownloadCandidates(
                         LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folderWorks))
+                        .filter { !downloads.isDownloading($0) } // a row menu's download (#191)
                     Button {
                         pendingDownloadIds = downloadIds
                     } label: {

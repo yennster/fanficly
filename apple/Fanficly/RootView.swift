@@ -13,6 +13,9 @@ struct PinnedFolderRoute: Hashable, Sendable {
 struct FolderRouteDetailLoader: View {
     let folderName: String
     @Query private var folders: [CustomFolder]
+    /// The folder once found, so renaming it on its screen (#191) doesn't
+    /// turn the screen into Folder Not Found.
+    @State private var found: CustomFolder?
     
     init(folderName: String) {
         self.folderName = folderName
@@ -21,8 +24,10 @@ struct FolderRouteDetailLoader: View {
     }
     
     var body: some View {
-        if let folder = folders.first {
+        let kept = found.flatMap { $0.modelContext != nil && !$0.isDeleted ? $0 : nil }
+        if let folder = kept ?? folders.first {
             FolderDetailView(folder: folder, initialSearchText: "")
+                .onAppear { found = folder }
         } else {
             ContentUnavailableView("Folder Not Found", systemImage: "folder.badge.questionmark", description: Text("The folder '\(folderName)' could not be found."))
         }

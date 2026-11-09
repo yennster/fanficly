@@ -138,6 +138,8 @@ enum WorkPersistence {
             try? FileManager.default.removeItem(at: url)
         }
         deindexWork(ao3Id: work.ao3Id)
+        // Saved again later, it starts without an earlier Remove Download.
+        setDownloadRemoved(work.ao3Id, removed: false)
         context.delete(work)
     }
 
@@ -186,22 +188,25 @@ enum WorkPersistence {
     /// Offline: the chapter text first when it isn't stored yet, then the
     /// EPUB. When the text can't be fetched nothing is downloaded, so the
     /// work is never marked Downloaded without text to read offline.
+    /// Returns false when there was nothing to save it for.
     @MainActor
-    static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
+    @discardableResult
+    static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws -> Bool {
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
         // Removed from the library mid-run, or waiting to be (#169): nothing
         // to save it for. A download never cancels the user's delete.
         guard !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)),
-              let work = try? context.fetch(descriptor).first else { return }
+              let work = try? context.fetch(descriptor).first else { return false }
         if work.chapters.isEmpty {
             let payload = try await client.fetchWork(id: workId)
             // Deleted while the fetch ran: don't bring it back.
             guard work.modelContext != nil, !work.isDeleted,
-                  !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)) else { return }
+                  !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)) else { return false }
             _ = upsert(payload: payload, into: context)
             iCloudSyncManager.shared.queueBackup(context: context)
         }
         _ = try await client.downloadEPUB(workId: workId)
+        return true
     }
 
     // MARK: - Renaming a folder
@@ -234,9 +239,17 @@ enum WorkPersistence {
             UndoCenter.shared.commitPending()
             if (try? context.fetch(descriptor))?.first != nil { return .taken }
         }
-        iCloudSyncManager.recordDeletion(.folder, key: oldName, at: now)
+        // Stamped after any marker this device holds for the new name (one
+        // just written by the delete above, or a rename away from it in the
+        // same second): a tie goes to the marker, which would drop the folder
+        // at the next sync.
+        let marker = iCloudSyncManager.localDeletions()
+            .filter { $0.kind == DeletionKind.folder.rawValue && $0.key == name }
+            .map(\.deletedAt).max()
+        let stamp = marker.map { max(now, $0.addingTimeInterval(1)) } ?? now
+        iCloudSyncManager.recordDeletion(.folder, key: oldName, at: stamp)
         folder.name = name
-        folder.createdAt = now
+        folder.createdAt = stamp
         try? context.save()
         return .renamed
     }
