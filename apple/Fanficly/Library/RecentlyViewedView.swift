@@ -39,6 +39,12 @@ struct RecentlyViewedView: View {
                                 remove(item)
                             } label: { Label("Remove", systemImage: "trash") }
                         }
+                        // A mouse can't swipe (#189).
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                remove(item)
+                            } label: { Label("Remove from Recently Viewed", systemImage: "trash") }
+                        }
                     }
                     // Enables Edit-mode multi-select delete in addition to swipe.
                     .onDelete(perform: removeAt)
