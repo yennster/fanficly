@@ -105,10 +105,14 @@ final class ReaderLayoutTests: XCTestCase {
                     XCTFail("the control at \(button) covers text at \(text)")
                 }
             }
-            // The page (reader.page, the text column's scroll view) is the column.
-            let column = try XCTUnwrap(pageFrames().first, "no page on screen")
-            XCTAssertEqual(column.minX - window.minX, window.maxX - column.maxX, accuracy: 2,
-                           "the text column \(column.minX)–\(column.maxX) isn't centred on the \(window.width) pt screen")
+            // The lines run as far right as the left margin allows, a word
+            // short at most: on the Duo too, under its side column, rather
+            // than stopping beside it (which left the column's room blank in
+            // full screen).
+            let left = try XCTUnwrap(texts.map(\.minX).min(), "no story text on the page")
+            let right = try XCTUnwrap(texts.map(\.maxX).max())
+            XCTAssertGreaterThanOrEqual(right, window.maxX - (left - window.minX) - 60,
+                                        "the lines end at \(right) though the text starts at \(left) on a \(window.width) pt screen")
         }
         #endif
     }
@@ -303,7 +307,8 @@ final class ReaderLayoutTests: XCTestCase {
             XCTAssertTrue(footer.waitForExistence(timeout: 5), "round \(round): a tap brought the controls back")
             XCTAssertTrue(systemBack.waitForExistence(timeout: 5), "round \(round): the toolbar came back with its back button")
             XCTAssertTrue(readerItems.waitForExistence(timeout: 5), "round \(round): the toolbar came back with its items")
-            XCTAssertTrue(waitForAbsence(pageNumber), "round \(round): the bare page number went with full screen")
+            // CI's simulators can take seconds to answer a query here.
+            XCTAssertTrue(waitForAbsence(pageNumber, timeout: 15), "round \(round): the bare page number went with full screen")
             settle()
         }
         systemBack.tap()

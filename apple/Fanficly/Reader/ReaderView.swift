@@ -514,11 +514,11 @@ struct ReaderView: View {
         // The home-indicator inset is unaffected.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // On iPhone Duo the page runs under the side column of status bar
-        // and toolbar strip, which floats over it, as in Apple Books: one page
-        // or a two-page spread (see RunUnderSideColumn). Page-by-page's text
-        // runs under it too, as Books' does, so it fills the screen once the
-        // controls hide (the strip covers line ends while they show).
-        .modifier(RunUnderSideColumn(enabled: true,
+        // and toolbar strip, which floats over it, as in Apple Books (one page
+        // on screen: see RunUnderSideColumn). Page-by-page's text runs under
+        // it too, as Books' does, so it fills the screen once the controls
+        // hide (the strip covers line ends while they show).
+        .modifier(RunUnderSideColumn(enabled: mode != .pageByPage || spreadLayout == nil,
                                      controlsHidden: isUIMinimized, column: $sideColumn))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
@@ -1859,10 +1859,6 @@ struct ReaderView: View {
         // under the bar) that pushed the text down and ran the last line ~29 pt
         // past the page, where it was cut off (1.12.0, seen at 100% margins).
         .ignoresSafeArea(.container)
-        // Run under the Duo's side column, the paging view's UIKit content
-        // inset would scroll the spread a column's width to the left (see
-        // PagingInsetsOff, as for one page).
-        .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())
