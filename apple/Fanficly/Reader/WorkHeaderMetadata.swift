@@ -5,6 +5,10 @@ struct WorkHeaderMetadata: View {
     let foreground: Color
     @State private var showDetails = false
 
+    /// An imported non-AO3 book's chips are its EPUB subjects, not AO3 tags,
+    /// so they don't search AO3.
+    private var tagsOpenWorks: Bool { !EPUBImport.isLocalWork(summary.id) }
+
     private var hasDetails: Bool {
         !summary.fandoms.isEmpty || !summary.relationships.isEmpty
             || !summary.characters.isEmpty || !summary.freeforms.isEmpty
@@ -16,11 +20,11 @@ struct WorkHeaderMetadata: View {
             FlowLayout(spacing: 6, lineSpacing: 6) {
                 RatingBadge(rating: summary.rating)
                 ForEach(summary.warnings, id: \.self) { warning in
-                    TagChip(text: warning, kind: .warning)
+                    TagChip(text: warning, kind: .warning, opensWorks: tagsOpenWorks)
                         .blockTermMenu(.tag, warning)
                 }
                 ForEach(summary.categories, id: \.self) { category in
-                    TagChip(text: category, kind: .category)
+                    TagChip(text: category, kind: .category, opensWorks: tagsOpenWorks)
                         .blockTermMenu(.tag, category)
                 }
             }
@@ -51,16 +55,16 @@ struct WorkHeaderMetadata: View {
                 if showDetails {
                     VStack(alignment: .leading, spacing: 10) {
                         if !summary.fandoms.isEmpty {
-                            MetadataRow(label: "Fandom", values: summary.fandoms, kind: .fandom, foreground: foreground)
+                            MetadataRow(label: "Fandom", values: summary.fandoms, kind: .fandom, opensWorks: tagsOpenWorks, foreground: foreground)
                         }
                         if !summary.relationships.isEmpty {
-                            MetadataRow(label: "Relationship", values: summary.relationships, kind: .relationship, foreground: foreground)
+                            MetadataRow(label: "Relationship", values: summary.relationships, kind: .relationship, opensWorks: tagsOpenWorks, foreground: foreground)
                         }
                         if !summary.characters.isEmpty {
-                            MetadataRow(label: "Characters", values: summary.characters, kind: .character, foreground: foreground)
+                            MetadataRow(label: "Characters", values: summary.characters, kind: .character, opensWorks: tagsOpenWorks, foreground: foreground)
                         }
                         if !summary.freeforms.isEmpty {
-                            MetadataRow(label: "Tags", values: summary.freeforms, kind: .tag, foreground: foreground)
+                            MetadataRow(label: "Tags", values: summary.freeforms, kind: .tag, opensWorks: tagsOpenWorks, foreground: foreground)
                         }
                     }
                     // A plain fade — no `.move`, which would slide the chips up
@@ -116,6 +120,7 @@ private struct MetadataRow: View {
     let label: String
     let values: [String]
     let kind: ChipKind
+    let opensWorks: Bool
     let foreground: Color
 
     var body: some View {
@@ -125,7 +130,7 @@ private struct MetadataRow: View {
                 .foregroundStyle(foreground.opacity(0.55))
             FlowLayout(spacing: 6, lineSpacing: 6) {
                 ForEach(values, id: \.self) { value in
-                    TagChip(text: value, kind: kind)
+                    TagChip(text: value, kind: kind, opensWorks: opensWorks)
                         .blockTermMenu(.tag, value)
                 }
             }
@@ -175,14 +180,21 @@ enum ChipKind {
 private struct TagChip: View {
     let text: String
     let kind: ChipKind
+    /// False for an imported non-AO3 book, whose chips stay plain text.
+    let opensWorks: Bool
 
     var body: some View {
-        NavigationLink(value: TagRef(name: text, kind: kind)) {
+        if opensWorks {
+            NavigationLink(value: TagRef(name: text, kind: kind)) {
+                SmallChip(text: text, kind: kind)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(kind.accessibilityName): \(text)")
+            .accessibilityHint("Shows works with this tag.")
+        } else {
             SmallChip(text: text, kind: kind)
+                .accessibilityLabel("\(kind.accessibilityName): \(text)")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(kind.accessibilityName): \(text)")
-        .accessibilityHint("Shows works with this tag.")
     }
 }
 
