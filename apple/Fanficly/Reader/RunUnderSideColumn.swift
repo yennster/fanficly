@@ -6,19 +6,23 @@ import UIKit
 /// the screen, which comes in as a safe-area inset on that side only. Kept
 /// clear, it was blank beside the page (and stayed blank in full screen,
 /// since the page holds still); Books runs its page under it and lets the
-/// controls float over the page's margin. The text itself stays clear of
-/// the column (`SideColumn`'s widths, see ReaderMetrics.textColumnPlacement):
-/// run under it, the clock and the strip covered the ends of lines.
+/// controls float over the page. In the scrolling modes the text stays
+/// clear of the column (`SideColumn`'s widths, see
+/// ReaderMetrics.textColumnPlacement). Page-by-page's text runs under it, as
+/// Books' does: kept clear, full screen left the column's room blank beside
+/// the text (#360), and the strip covers line ends only while the controls
+/// show.
 ///
 /// Only on the phone idiom (the Duo is one on both displays) at a regular
 /// height, and only a side whose inset the other side doesn't match. An
 /// iPhone in landscape (a compact height) keeps the insets around its sensor
 /// housing, which needn't match on both sides. A sidebar's inset is wider
-/// than any strip and is kept too. Not while an open book (a two-page
-/// spread, the Duo unfolded) shows: its pages are placed from the fold, and
-/// run under the column the spread came out a column's width to the left.
+/// than any strip and is kept too. An open book (a two-page spread, the Duo
+/// unfolded) runs under it too, so its pages sit evenly about the fold as in
+/// Books; its cells need PagingInsetsOff like one page's, or the paging
+/// view's content inset moves the spread a column's width to the left.
 struct RunUnderSideColumn: ViewModifier {
-    /// False keeps every inset (a two-page spread is showing).
+    /// False keeps every inset.
     let enabled: Bool
     /// The controls are hidden: hiding the status bar may take the column's
     /// inset away, so the page keeps running under it until they're back, or

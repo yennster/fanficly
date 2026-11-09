@@ -513,9 +513,11 @@ struct ReaderView: View {
         // The home-indicator inset is unaffected.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // On iPhone Duo the page runs under the side column of status bar
-        // and toolbar strip, which floats over it, as in Apple Books (one page
-        // on screen: see RunUnderSideColumn).
-        .modifier(RunUnderSideColumn(enabled: mode != .pageByPage || spreadLayout == nil,
+        // and toolbar strip, which floats over it, as in Apple Books: one page
+        // or a two-page spread (see RunUnderSideColumn). Page-by-page's text
+        // runs under it too, as Books' does, so it fills the screen once the
+        // controls hide (the strip covers line ends while they show).
+        .modifier(RunUnderSideColumn(enabled: true,
                                      controlsHidden: isUIMinimized, column: $sideColumn))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
@@ -1607,7 +1609,9 @@ struct ReaderView: View {
                     // re-paginates, keeping the page on screen in place.
                     height: readingHeight
                 ),
-                sideColumn: spread == nil ? sideColumn : .empty
+                // Page-by-page's text ignores the Duo's side column (see
+                // makePageCell), so it's paginated for the whole width.
+                sideColumn: .empty
             )
             
             let content = Group {
@@ -1736,7 +1740,10 @@ struct ReaderView: View {
     }
 
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
-        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: sideColumn,
+        // The text is centred on the whole page, under the Duo's side column
+        // as in Apple Books, rather than kept beside it: kept beside it, full
+        // screen left the column's room blank on the right (#360).
+        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: .empty,
                         side: .single)
             .ignoresSafeArea(.container)  // see makeSpreadCell
             .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
@@ -1851,6 +1858,10 @@ struct ReaderView: View {
         // under the bar) that pushed the text down and ran the last line ~29 pt
         // past the page, where it was cut off (1.12.0, seen at 100% margins).
         .ignoresSafeArea(.container)
+        // Run under the Duo's side column, the paging view's UIKit content
+        // inset would scroll the spread a column's width to the left (see
+        // PagingInsetsOff, as for one page).
+        .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())
