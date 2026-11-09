@@ -244,6 +244,7 @@ struct BlockedTermsView: View {
                                 }
                                 .tint(.accentColor)
                             }
+                            // A mouse can't swipe (#189).
                             .contextMenu {
                                 Button {
                                     unblock(item)

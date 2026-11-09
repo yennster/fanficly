@@ -197,7 +197,7 @@ struct FollowedAuthorsView: View {
                             Button(role: .destructive) {
                                 unfollow([author])
                             } label: {
-                                Label("Unfollow", systemImage: "person.badge.minus")
+                                Label("Unfollow", systemImage: "person.slash")
                             }
                         }
                     }
