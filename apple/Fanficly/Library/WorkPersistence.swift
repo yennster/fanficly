@@ -14,6 +14,8 @@ enum WorkPersistence {
             let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
             context.insert(chapter)
         }
+        // Saving the text again undoes an earlier Remove Download.
+        setDownloadRemoved(work.ao3Id, removed: false)
 
         try? context.save()
         return work
@@ -137,6 +139,106 @@ enum WorkPersistence {
         }
         deindexWork(ao3Id: work.ao3Id)
         context.delete(work)
+    }
+
+    // MARK: - Removing a download
+
+    /// Per device: works whose download was removed here, so a restore
+    /// doesn't put their chapters back from another device's copy (and offer
+    /// to re-download them). Removing a download here leaves it on the other
+    /// devices. Same key and comma-separated format as the Windows app.
+    static let removedDownloadsKey = "sync.removedDownloads"
+
+    static func removedDownloads(defaults: UserDefaults = .standard) -> Set<Int> {
+        Set((defaults.string(forKey: removedDownloadsKey) ?? "")
+            .split(separator: ",")
+            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) })
+    }
+
+    /// Marks (or, with `removed` false, unmarks) a work's download as removed
+    /// on this device.
+    static func setDownloadRemoved(_ ao3Id: Int, removed: Bool, defaults: UserDefaults = .standard) {
+        var ids = removedDownloads(defaults: defaults)
+        guard removed ? ids.insert(ao3Id).inserted : ids.remove(ao3Id) != nil else { return }
+        if ids.isEmpty {
+            defaults.removeObject(forKey: removedDownloadsKey)
+        } else {
+            defaults.set(ids.sorted().map(String.init).joined(separator: ","), forKey: removedDownloadsKey)
+        }
+    }
+
+    /// Deletes the offline copy, the EPUB file and the saved chapter text,
+    /// and saves. The work stays in the Library and loads from AO3 when it's
+    /// read. Queuing the backup is the caller's job.
+    @MainActor
+    static func removeDownload(_ work: Work, in context: ModelContext, defaults: UserDefaults = .standard,
+                               epubURL: URL? = nil) {
+        if let url = epubURL ?? Self.epubURL(workId: work.ao3Id) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        for ch in work.chapters { context.delete(ch) }
+        work.chapters.removeAll()
+        setDownloadRemoved(work.ao3Id, removed: true, defaults: defaults)
+        try? context.save()
+    }
+
+    /// Saves a library work for offline reading, like the reader's Save
+    /// Offline: the chapter text first when it isn't stored yet, then the
+    /// EPUB. When the text can't be fetched nothing is downloaded, so the
+    /// work is never marked Downloaded without text to read offline.
+    @MainActor
+    static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        // Removed from the library mid-run, or waiting to be (#169): nothing
+        // to save it for. A download never cancels the user's delete.
+        guard !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)),
+              let work = try? context.fetch(descriptor).first else { return }
+        if work.chapters.isEmpty {
+            let payload = try await client.fetchWork(id: workId)
+            // Deleted while the fetch ran: don't bring it back.
+            guard work.modelContext != nil, !work.isDeleted,
+                  !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)) else { return }
+            _ = upsert(payload: payload, into: context)
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
+        _ = try await client.downloadEPUB(workId: workId)
+    }
+
+    // MARK: - Renaming a folder
+
+    enum FolderRename: Equatable {
+        case renamed
+        /// Blank, or the same name: nothing to do.
+        case unchanged
+        /// Another folder already has the name.
+        case taken
+    }
+
+    /// Renames a folder in place, so its works and any open screen keep it.
+    /// For sync, a folder's name is its identity, so this is recorded the way
+    /// the Windows app's rename is: a deletion marker for the old name (or
+    /// another device's copy would bring it back beside the renamed one), and
+    /// the folder stamped now, so a name deleted before still wins over its
+    /// old marker. Saves; queuing the backup is the caller's job.
+    @MainActor
+    static func renameFolder(_ folder: CustomFolder, to newName: String, in context: ModelContext,
+                             now: Date = .now) -> FolderRename {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let oldName = folder.name
+        guard !name.isEmpty, name != oldName else { return .unchanged }
+        let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == name })
+        if (try? context.fetch(descriptor))?.first != nil {
+            // A folder with that name deleted a moment ago is still waiting
+            // behind Undo (#169): its delete runs now, and the name is free.
+            guard UndoCenter.shared.isPending(UndoCenter.Key.folder(name)) else { return .taken }
+            UndoCenter.shared.commitPending()
+            if (try? context.fetch(descriptor))?.first != nil { return .taken }
+        }
+        iCloudSyncManager.recordDeletion(.folder, key: oldName, at: now)
+        folder.name = name
+        folder.createdAt = now
+        try? context.save()
+        return .renamed
     }
 
     @MainActor

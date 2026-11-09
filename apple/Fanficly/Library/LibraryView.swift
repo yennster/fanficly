@@ -21,6 +21,13 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var showingEPUBImporter = false
     @State private var epubImport = EPUBImportCenter.shared
+    @Environment(\.ao3Client) private var client
+    @State private var downloads = LibraryDownloads.shared
+    @State private var workRemovingDownload: Work?
+    @State private var downloadError: String?
+    @State private var folderRenaming: CustomFolder?
+    @State private var folderRenameText = ""
+    @State private var folderRenameTaken: String?
 
     enum LibraryFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -93,6 +100,9 @@ struct LibraryView: View {
                         .disabled(epubImport.isImporting)
                 }
             } else {
+                // Read here so a row's Downloaded badge updates when its
+                // menu's download ends (#191).
+                let _ = downloads.inFlight
                 List {
                     if !readingStats.isEmpty {
                         Section {
@@ -185,6 +195,11 @@ struct LibraryView: View {
                                 .contextMenu {
                                     NavigationLink(value: folder) {
                                         Label("Open", systemImage: "folder")
+                                    }
+                                    Button {
+                                        startRenaming(folder)
+                                    } label: {
+                                        Label("Rename...", systemImage: "pencil")
                                     }
                                     Divider()
                                     Button(role: .destructive) {
@@ -286,6 +301,12 @@ struct LibraryView: View {
                                         Label("Unfollow", systemImage: "bookmark.slash")
                                     }
                                 }
+
+                                LibraryDownloadMenuItem(work: work) {
+                                    download(work)
+                                } removeDownload: {
+                                    workRemovingDownload = work
+                                }
                                 
                                 if !EPUBImport.isLocalWork(work.ao3Id),
                                    let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
@@ -361,6 +382,24 @@ struct LibraryView: View {
             }
         } message: {
             Text("Enter a name for the new folder.")
+        }
+        .folderRenameAlerts(folder: $folderRenaming, name: $folderRenameText,
+                            taken: $folderRenameTaken, context: context)
+        .libraryDownloadAlerts(removing: $workRemovingDownload, error: $downloadError, context: context)
+    }
+
+    private func startRenaming(_ folder: CustomFolder) {
+        folderRenameText = folder.name
+        folderRenaming = folder
+    }
+
+    private func download(_ work: Work) {
+        let client = client
+        let context = context
+        Task {
+            if let message = await downloads.download(work, client: client, context: context) {
+                downloadError = message
+            }
         }
     }
 
@@ -470,6 +509,12 @@ struct FolderDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(AuthState.self) private var auth
     @State private var pendingDownloadIds: [Int]?
+    @State private var downloads = LibraryDownloads.shared
+    @State private var workRemovingDownload: Work?
+    @State private var downloadError: String?
+    @State private var folderRenaming: CustomFolder?
+    @State private var folderRenameText = ""
+    @State private var folderRenameTaken: String?
 
     init(folder: CustomFolder, initialSearchText: String = "") {
         self.folder = folder
@@ -485,6 +530,8 @@ struct FolderDetailView: View {
         // Any run's progress (it also re-renders the rows as each download
         // lands, so their Downloaded badges update).
         let downloadProgress = RestoreDownloadCenter.shared.progress
+        // Likewise for a row menu's download (#191).
+        let _ = downloads.inFlight
 
         VStack(spacing: 0) {
             List(selection: $selectedWorkIds) {
@@ -541,6 +588,12 @@ struct FolderDetailView: View {
                             } label: {
                                 Label("Note & Tags...", systemImage: "note.text")
                             }
+
+                            LibraryDownloadMenuItem(work: work) {
+                                download(work)
+                            } removeDownload: {
+                                workRemovingDownload = work
+                            }
                             
                             if !EPUBImport.isLocalWork(work.ao3Id),
                                let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
@@ -595,6 +648,9 @@ struct FolderDetailView: View {
         .sheet(item: $workEditingNotes) { work in
             WorkNotesSheet(work: work)
         }
+        .folderRenameAlerts(folder: $folderRenaming, name: $folderRenameText,
+                            taken: $folderRenameTaken, context: context)
+        .libraryDownloadAlerts(removing: $workRemovingDownload, error: $downloadError, context: context)
         .confirmationDialog(downloadPromptTitle, isPresented: Binding(
             get: { pendingDownloadIds != nil },
             set: { if !$0 { pendingDownloadIds = nil } }), titleVisibility: .visible,
@@ -605,7 +661,7 @@ struct FolderDetailView: View {
                 let client = client
                 let context = context
                 RestoreDownloadCenter.shared.startFolderDownload(ids: ids, signedIn: auth.isLoggedIn) { id in
-                    try await Self.saveOffline(workId: id, client: client, context: context)
+                    try await WorkPersistence.saveOffline(workId: id, client: client, context: context)
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -634,6 +690,17 @@ struct FolderDetailView: View {
                         : "Saves \(downloadIds.count) \(downloadIds.count == 1 ? "story" : "stories") for offline reading, one at a time.")
                 }
             }
+            if editMode != .active {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        folderRenameText = folder.name
+                        folderRenaming = folder
+                    } label: {
+                        Label("Rename Folder", systemImage: "pencil")
+                    }
+                    .help("Rename this folder")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(editMode == .active ? "Done" : "Edit") {
                     withAnimation {
@@ -649,21 +716,14 @@ struct FolderDetailView: View {
         }
     }
 
-    /// Saves one folder story for offline reading, like the reader's Save
-    /// Offline: the chapter text first when it isn't stored yet, then the EPUB.
-    @MainActor
-    private static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
-        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
-        // Removed from the library mid-run, or waiting to be (#169): nothing
-        // to save it for. A download never cancels the user's delete.
-        guard !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)),
-              let work = try? context.fetch(descriptor).first else { return }
-        if work.chapters.isEmpty {
-            let payload = try await client.fetchWork(id: workId)
-            _ = WorkPersistence.upsert(payload: payload, into: context)
-            iCloudSyncManager.shared.queueBackup(context: context)
+    private func download(_ work: Work) {
+        let client = client
+        let context = context
+        Task {
+            if let message = await downloads.download(work, client: client, context: context) {
+                downloadError = message
+            }
         }
-        _ = try await client.downloadEPUB(workId: workId)
     }
 
     private var downloadPromptTitle: String {
@@ -931,6 +991,46 @@ private struct LibraryStatsStrip: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.2))
                 .frame(width: 1, height: 26)
+        }
+    }
+}
+
+extension View {
+    /// The Rename Folder prompt (#191), shared by the Folders list and a
+    /// folder's own screen: the name field, then an alert when another
+    /// folder already has the name.
+    func folderRenameAlerts(folder: Binding<CustomFolder?>, name: Binding<String>,
+                            taken: Binding<String?>, context: ModelContext) -> some View {
+        alert("Rename Folder", isPresented: Binding(
+            get: { folder.wrappedValue != nil },
+            set: { if !$0 { folder.wrappedValue = nil } }),
+            presenting: folder.wrappedValue
+        ) { target in
+            TextField("Folder Name", text: name)
+            Button("Rename") {
+                guard !target.isDeleted, target.modelContext != nil else { return }
+                let newName = name.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                switch WorkPersistence.renameFolder(target, to: newName, in: context) {
+                case .renamed:
+                    iCloudSyncManager.shared.queueBackup(context: context)
+                    LibraryDownloads.announce(String(localized: "Renamed folder to \(newName)"))
+                case .taken:
+                    taken.wrappedValue = newName
+                case .unchanged:
+                    break
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Enter a new name for the folder.")
+        }
+        .alert("Name Already Used", isPresented: Binding(
+            get: { taken.wrappedValue != nil },
+            set: { if !$0 { taken.wrappedValue = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("There's already a folder named “\(taken.wrappedValue ?? "")”.")
         }
     }
 }
