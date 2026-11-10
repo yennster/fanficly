@@ -535,7 +535,10 @@ final class ReaderLayoutTests: XCTestCase {
                                      "\(context): the \(which)'s text runs \(bottom - edge + pageMargin) pt past the page, where it's cut off (text \(top)–\(bottom), pages \(pageFrames()), window \(app.windows.firstMatch.frame))",
                                      file: file, line: line)
             XCTAssertGreaterThanOrEqual(bottom, edge - maxBlankBelowText,
-                                        "\(context): \(edge - bottom) pt blank under the \(which)'s text",
+                                        "\(context): \(edge - bottom) pt blank under the \(which)'s text (text \(top)–\(bottom) "
+                                        + "from x \(Int(onPage.map(\.frame.minX).min() ?? 0)), pages \(pageFrames()), spread "
+                                        + "\(app.otherElements.matching(identifier: "reader.spread").allElementsBoundByIndex.map(\.frame)), "
+                                        + "paging view \(app.collectionViews.firstMatch.frame), window \(app.windows.firstMatch.frame))",
                                         file: file, line: line)
         }
     }

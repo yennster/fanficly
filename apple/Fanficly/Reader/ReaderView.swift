@@ -1867,6 +1867,9 @@ struct ReaderView: View {
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())
+        // ReaderLayoutTests report where the spread sits.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("reader.spread")
         .tag(spread.id)
     }
 
