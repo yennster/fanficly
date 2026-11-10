@@ -443,13 +443,11 @@ final class SpeechController: NSObject {
     // MARK: - Audio session
 
     private func activateSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [])
-        try? session.setActive(true)
+        SpokenAudioSession.claim(self)
     }
 
     private func deactivateSession() {
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        SpokenAudioSession.release(self)
     }
 
     /// A phone call, Siri or another app's audio took over: the system pauses
@@ -596,5 +594,123 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
                 break
             }
         }
+    }
+}
+
+// MARK: - Shared audio session
+
+/// Listen and Settings' Play Sample (#193) share the app's audio session, and
+/// deactivating a session stops whatever else still plays in it, so it goes
+/// inactive only once the last of them lets go (a reader narrating in one
+/// window, the sample in another).
+@MainActor
+enum SpokenAudioSession {
+    private static var holders = Set<ObjectIdentifier>()
+
+    static func claim(_ owner: AnyObject) {
+        holders.insert(ObjectIdentifier(owner))
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio, options: [])
+        try? session.setActive(true)
+    }
+
+    static func release(_ owner: AnyObject) {
+        guard holders.remove(ObjectIdentifier(owner)) != nil, holders.isEmpty else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
+
+// MARK: - Play Sample
+
+/// Settings → Reader's Play Sample (#193): one short passage at the chosen
+/// voice and speaking rate, so picking among many voices doesn't mean opening
+/// a story each time. On-device like Listen. Its own synthesizer, so it never
+/// touches a chapter's narration queue; the Windows app's `SpeechSample`
+/// speaks the same passage.
+@MainActor
+@Observable
+final class SpeechSample: NSObject {
+    nonisolated static let text = "Bella poured the latte. It was hot. Edward looked up from the corner table and met her eyes."
+
+    private(set) var isPlaying = false
+    @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
+    /// The utterance playing, so a late callback from one already stopped
+    /// can't end the next.
+    @ObservationIgnored private var current: ObjectIdentifier?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+        // A call or Siri pauses the synthesizer without a didFinish or
+        // didCancel, which would leave the button on Stop.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc nonisolated private func handleAudioInterruption(_ note: Notification) {
+        guard let rawType = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
+        Task { @MainActor in stop() }
+    }
+
+    /// The utterance's rate for a stored `reader.ttsRate`, kept to the range
+    /// AVSpeech takes.
+    nonisolated static func utteranceRate(_ storedRate: Double) -> Float {
+        min(max(Float(storedRate), AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
+    }
+
+    /// Speaks the sample; `voiceId` "" is the platform default voice, as for Listen.
+    func play(voiceId: String, rate: Double) {
+        stop()
+        let utterance = AVSpeechUtterance(string: Self.text)
+        utterance.rate = Self.utteranceRate(rate)
+        if !voiceId.isEmpty { utterance.voice = AVSpeechSynthesisVoice(identifier: voiceId) }
+        // The same session as Listen, so the sample is heard with the
+        // ring/silent switch on silent, as narration is.
+        SpokenAudioSession.claim(self)
+        current = ObjectIdentifier(utterance)
+        isPlaying = true
+        synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        guard current != nil else { return }
+        current = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        finish()
+    }
+
+    private func finished(_ id: ObjectIdentifier) {
+        guard current == id else { return }
+        current = nil
+        finish()
+    }
+
+    private func finish() {
+        isPlaying = false
+        SpokenAudioSession.release(self)
+    }
+}
+
+extension SpeechSample: AVSpeechSynthesizerDelegate {
+    // Off the main actor: capture only the Sendable id, as SpeechController does.
+    @objc nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                             didFinish utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor in finished(id) }
+    }
+
+    @objc nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                             didCancel utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor in finished(id) }
     }
 }
