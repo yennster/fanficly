@@ -688,12 +688,15 @@ struct SubscriptionPoller {
 }
 
 enum NotificationsAuthorization {
-    static func request() async -> Bool {
+    /// `promptIfOff`: a follow asked, so if notifications are already off,
+    /// say so once (#192).
+    static func request(promptIfOff: Bool = false) async -> Bool {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
-        // Already off: say so, once (#192).
         let status = settings.authorizationStatus
-        await NotificationsOffPrompt.shared.noteRequest(statusBeforeAsking: status)
+        if promptIfOff {
+            await NotificationsOffPrompt.shared.noteRequest(statusBeforeAsking: status)
+        }
         switch status {
         case .authorized, .provisional, .ephemeral:
             return true
@@ -715,6 +718,6 @@ enum NotificationsAuthorization {
     @MainActor
     static func requestAfterFollow() {
         guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode else { return }
-        Task { _ = await request() }
+        Task { _ = await request(promptIfOff: true) }
     }
 }

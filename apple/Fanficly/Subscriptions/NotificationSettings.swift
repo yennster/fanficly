@@ -41,7 +41,11 @@ final class NotificationsOffPrompt {
     /// Set once the prompt has been shown; the Windows app's key.
     nonisolated static let shownKey = "notifications.permissionPromptShown"
 
-    var isShowing = false
+    /// A prompt is waiting for a window to show it.
+    private(set) var isPending = false
+    /// The window showing it (its `notificationsOffPrompt()`), so a second
+    /// window (iPad Split View, the Mac) doesn't show it too.
+    private(set) var presenter: UUID?
 
     /// Only when notifications were already off before this follow asked:
     /// right after the reader answers the system's own alert, a second
@@ -50,15 +54,27 @@ final class NotificationsOffPrompt {
         statusBeforeAsking == .denied && !alreadyShown
     }
 
-    /// Called by `NotificationsAuthorization.request()` with the status it
-    /// found before asking.
+    /// Called by `NotificationsAuthorization.request(promptIfOff: true)`
+    /// (a follow) with the status it found before asking.
     func noteRequest(statusBeforeAsking: UNAuthorizationStatus) {
-        let defaults = UserDefaults.standard
-        guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode else { return }
+        guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode, !isPending else { return }
         guard Self.shouldPrompt(statusBeforeAsking: statusBeforeAsking,
-                                alreadyShown: defaults.bool(forKey: Self.shownKey)) else { return }
-        defaults.set(true, forKey: Self.shownKey)
-        isShowing = true
+                                alreadyShown: UserDefaults.standard.bool(forKey: Self.shownKey)) else { return }
+        isPending = true
+        presenter = nil
+    }
+
+    /// The first active window to see the prompt takes it, and only then
+    /// does it count as shown.
+    func claim(by window: UUID) {
+        guard isPending, presenter == nil else { return }
+        presenter = window
+        UserDefaults.standard.set(true, forKey: Self.shownKey)
+    }
+
+    func dismiss() {
+        isPending = false
+        presenter = nil
     }
 }
 
@@ -96,6 +112,8 @@ struct NotificationsSettingsSection: View {
                 Text(statusText)
             }
             .accessibilityIdentifier("settings.notifications.status")
+            // No button until the status is known: Open Notification
+            // Settings before the app has asked would be the wrong one.
             if status == .notAsked {
                 Button("Turn On Notifications") {
                     Task {
@@ -104,7 +122,7 @@ struct NotificationsSettingsSection: View {
                     }
                 }
                 .accessibilityIdentifier("settings.notifications.turnOn")
-            } else {
+            } else if status != nil {
                 Button("Open Notification Settings") {
                     NotificationSystemSettings.open()
                 }
@@ -150,13 +168,25 @@ extension View {
 
 private struct NotificationsOffPromptModifier: ViewModifier {
     @State private var prompt = NotificationsOffPrompt.shared
+    @State private var window = UUID()
+    @Environment(\.scenePhase) private var scenePhase
 
     func body(content: Content) -> some View {
-        content.alert("Turn On Notifications?", isPresented: $prompt.isShowing) {
+        content
+            .onChange(of: prompt.isPending, initial: true) { claimIfActive() }
+            .onChange(of: scenePhase) { claimIfActive() }
+            .alert("Turn On Notifications?", isPresented: Binding(
+                get: { prompt.isPending && prompt.presenter == window },
+                set: { if !$0 { prompt.dismiss() } }
+            )) {
             Button("Open Settings") { NotificationSystemSettings.open() }
             Button("Not Now", role: .cancel) {}
         } message: {
             Text("Fanficly lets you know when stories and authors you follow post something new, but notifications for Fanficly are off.")
         }
+    }
+
+    private func claimIfActive() {
+        if scenePhase == .active { prompt.claim(by: window) }
     }
 }
