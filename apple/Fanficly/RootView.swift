@@ -271,6 +271,8 @@ struct RootView: View {
             .restoreRedownloadUI()
             // How an EPUB import went, from the Library or an opened file.
             .epubImportAlert()
+            // "Notifications are off" once, after a follow (#192).
+            .notificationsOffPrompt()
             // "Deleted 'X' · Undo" after a one-tap delete (#169).
             .undoToastHost()
             // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).

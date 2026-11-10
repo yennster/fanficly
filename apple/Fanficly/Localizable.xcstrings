@@ -181,12 +181,32 @@
         }
       }
     },
+    "Fanficly checks the works and authors you follow, your saved search alerts and your AO3 subscriptions in the background, and posts a notification when something new appears. Tap a notification to open what it's about." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fanficly checks the works and authors you follow, your saved search alerts and your AO3 subscriptions in the background, and posts a notification when something new appears. Tap a notification to open what it's about."
+          }
+        }
+      }
+    },
     "Fanficly has no servers. Everything happens on your phone." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fanficly has no servers. Everything happens on your phone."
+          }
+        }
+      }
+    },
+    "Fanficly lets you know when stories and authors you follow post something new, but notifications for Fanficly are off." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fanficly lets you know when stories and authors you follow post something new, but notifications for Fanficly are off."
           }
         }
       }
@@ -371,6 +391,26 @@
         }
       }
     },
+    "Not Now" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Now"
+          }
+        }
+      }
+    },
+    "Not Set Up" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Set Up"
+          }
+        }
+      }
+    },
     "Nothing to Clear" : {
       "localizations" : {
         "en" : {
@@ -391,12 +431,72 @@
         }
       }
     },
+    "Notifications" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notifications"
+          }
+        }
+      }
+    },
+    "Notifications for Fanficly are off, so you won't hear about new chapters and new works. Turn them on in Settings." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notifications for Fanficly are off, so you won't hear about new chapters and new works. Turn them on in Settings."
+          }
+        }
+      }
+    },
+    "Off" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off"
+          }
+        }
+      }
+    },
     "OK" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        }
+      }
+    },
+    "On" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On"
+          }
+        }
+      }
+    },
+    "Open Notification Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Notification Settings"
+          }
+        }
+      }
+    },
+    "Open Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Settings"
           }
         }
       }
@@ -697,6 +797,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "This deletes your library backup from iCloud. Your other devices that sync use the same backup, so they won't get changes from it until one of them backs up again. Your library on this device isn't affected. If sync stays on, this device starts a new backup with its next change."
+          }
+        }
+      }
+    },
+    "Turn On Notifications" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn On Notifications"
+          }
+        }
+      }
+    },
+    "Turn On Notifications?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn On Notifications?"
           }
         }
       }
