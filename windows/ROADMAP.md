@@ -325,10 +325,10 @@ The Apple app's roadmap on `main` has features that apply here too once they shi
 Features the Windows app has that the Apple app doesn't yet. Each has an Apple roadmap item (or, where an Apple device can't support it, a parity exception there with the reason):
 
 - App theme (Light, Dark or System; `AppearanceSettings`): Apple RM-028.
-- Game controller navigation (`Platform/GamepadInput.cs`): Apple RM-029, page turns in the reader; whole-app focus navigation is that item's open question.
+- Game controller navigation (`Platform/GamepadInput.cs`): Apple RM-029; moving focus with the D-pad is that item's open question.
 - The jump list's "Go to" tabs (`Platform/JumpListService.cs`): Apple RM-030, Home Screen quick actions.
 
-When a Windows PR adds a feature Apple lacks, it adds the Apple item and a line here in the same PR.
+When the Windows app gets a feature Apple lacks, add a line here and an Apple roadmap item in a separate roadmap PR (keep each app's PR to one app).
 
 ## Engineering health (any release)
 
