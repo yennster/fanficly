@@ -17,12 +17,13 @@ import UIKit
 /// height, and only a side whose inset the other side doesn't match. An
 /// iPhone in landscape (a compact height) keeps the insets around its sensor
 /// housing, which needn't match on both sides. A sidebar's inset is wider
-/// than any strip and is kept too. Not while an open book (a two-page
-/// spread, the Duo unfolded) shows: its pages are placed from the fold, and
-/// run under the column the spread came out a column's width to the left
-/// (PagingInsetsOff on its cells didn't move it back, #360).
+/// than any strip and is kept too. An open book (a two-page spread, the Duo
+/// unfolded) runs under it too, so its pages sit evenly about the fold as in
+/// Books; its cells need PagingInsetsOff like one page's, or the paging
+/// view's content inset leaves the spread a column's width to the left
+/// after a page turn.
 struct RunUnderSideColumn: ViewModifier {
-    /// False keeps every inset (a two-page spread is showing).
+    /// False keeps every inset.
     let enabled: Bool
     /// The controls are hidden: hiding the status bar may take the column's
     /// inset away, so the page keeps running under it until they're back, or
@@ -115,10 +116,47 @@ struct PagingInsetsOff: UIViewRepresentable {
         /// The scroll view's width at the last snap: a new one (a fold or
         /// unfold resizing the pages) is snapped again.
         private var snappedWidth: CGFloat = 0
+        /// Watches the paging view's offset: a page turn the TabView animates
+        /// itself (a tap) ends where it computed the page with the inset it
+        /// had, so once the offset has rested the page is snapped back. Seen
+        /// on the unfolded Duo's open book, which ended a column's width to
+        /// the left after a turn.
+        private var offsetObservation: NSKeyValueObservation?
+        private weak var observed: UIScrollView?
+        /// Counts offset changes, so only the last one's delayed snap runs.
+        private var moves = 0
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if window == nil { stopObserving() }
             apply()
+        }
+
+        private func stopObserving() {
+            offsetObservation?.invalidate()
+            offsetObservation = nil
+            observed = nil
+        }
+
+        private func observe(_ scroll: UIScrollView) {
+            guard observed !== scroll else { return }
+            stopObserving()
+            observed = scroll
+            offsetObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
+                MainActor.assumeIsolated { self?.offsetMoved(scroll) }
+            }
+        }
+
+        private func offsetMoved(_ scroll: UIScrollView) {
+            guard active else { return }
+            moves += 1
+            let move = moves
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak scroll] in
+                MainActor.assumeIsolated {
+                    guard let self, let scroll, self.moves == move, self.active else { return }
+                    Self.snap(scroll)
+                }
+            }
         }
 
         override func layoutSubviews() {
@@ -134,6 +172,7 @@ struct PagingInsetsOff: UIViewRepresentable {
                 view = current.superview
             }
             guard let scroll = view as? UIScrollView else { return }
+            observe(scroll)
             let width = scroll.bounds.width
             guard scroll.contentInsetAdjustmentBehavior != .never || abs(width - snappedWidth) >= 1 else { return }
             scroll.contentInsetAdjustmentBehavior = .never
