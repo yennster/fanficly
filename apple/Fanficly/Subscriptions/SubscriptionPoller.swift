@@ -691,7 +691,10 @@ enum NotificationsAuthorization {
     static func request() async -> Bool {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
-        switch settings.authorizationStatus {
+        // Already off: say so, once (#192).
+        let status = settings.authorizationStatus
+        await NotificationsOffPrompt.shared.noteRequest(statusBeforeAsking: status)
+        switch status {
         case .authorized, .provisional, .ephemeral:
             return true
         case .denied:
