@@ -320,6 +320,16 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 
 The Apple app's roadmap on `main` has features that apply here too once they ship there (kudos is RM-115, creating AO3 bookmarks RM-119, bulk download for a folder RM-116, notes and personal tags the RM-009 port, series pages RM-122). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
 
+## Built here first
+
+Features the Windows app has that the Apple app doesn't yet. Each has an Apple roadmap item (or, where an Apple device can't support it, a parity exception there with the reason):
+
+- App theme (Light, Dark or System; `AppearanceSettings`): Apple RM-028.
+- Game controller navigation (`Platform/GamepadInput.cs`): Apple RM-029; moving focus with the D-pad is that item's open question.
+- The jump list's "Go to" tabs (`Platform/JumpListService.cs`): Apple RM-030, Home Screen quick actions.
+
+When the Windows app gets a feature Apple lacks, add a line here and an Apple roadmap item in a separate roadmap PR (keep each app's PR to one app).
+
 ## Engineering health (any release)
 
 Not features, but worth doing. Add them as items when started.
