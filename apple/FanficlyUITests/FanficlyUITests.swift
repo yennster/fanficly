@@ -537,7 +537,7 @@ final class ReaderLayoutTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(bottom, edge - maxBlankBelowText,
                                         "\(context): \(edge - bottom) pt blank under the \(which)'s text (text \(top)–\(bottom) "
                                         + "from x \(Int(onPage.map(\.frame.minX).min() ?? 0)), pages \(pageFrames()), spread "
-                                        + "\(app.otherElements.matching(identifier: "reader.spread").allElementsBoundByIndex.map(\.frame)), "
+                                        + "\(app.otherElements.matching(identifier: "reader.spread").allElementsBoundByIndex.map { $0.frame }), "
                                         + "paging view \(app.collectionViews.firstMatch.frame), window \(app.windows.firstMatch.frame))",
                                         file: file, line: line)
         }
