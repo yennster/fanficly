@@ -39,10 +39,8 @@ struct ReaderSettingsView: View {
     @State private var errorMessage = ""
     @State private var renamingProfile: String?
     @State private var renameText = ""
-    /// The name a rename just gave the active profile: the picker's onChange
-    /// skips applying it, so a rename keeps the settings on screen (#193).
-    @State private var renamedActiveProfile: String?
-    @State private var sample = SpeechSample()
+    /// Made on the first Play Sample, not every time the view is built.
+    @State private var sample: SpeechSample?
 
     init() {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -159,10 +157,7 @@ struct ReaderSettingsView: View {
             showingErrorAlert = true
         case .renamed(let list, let name):
             saveProfiles(list)
-            if activeProfileName == current {
-                renamedActiveProfile = name
-                activeProfileName = name
-            }
+            if activeProfileName == current { activeProfileName = name }
             queueBackup()
             UIAccessibility.post(notification: .announcement, argument: "Renamed to \(name)")
         }
@@ -208,18 +203,18 @@ struct ReaderSettingsView: View {
             }
 
             Section("Reader Profile") {
-                Picker("Active Profile", selection: $activeProfileName) {
+                // Only a pick here applies a profile's settings: the active
+                // name also changes when a profile is renamed (here or in a
+                // reader), which keeps the settings on screen (#193).
+                Picker("Active Profile", selection: Binding(
+                    get: { activeProfileName },
+                    set: { newName in
+                        if let profile = profiles.first(where: { $0.name == newName }) {
+                            selectProfile(profile)
+                        }
+                    })) {
                     ForEach(profiles) { profile in
                         Text(profile.name).tag(profile.name)
-                    }
-                }
-                .onChange(of: activeProfileName) { _, newName in
-                    if newName == renamedActiveProfile {
-                        renamedActiveProfile = nil
-                        return
-                    }
-                    if let profile = profiles.first(where: { $0.name == newName }) {
-                        selectProfile(profile)
                     }
                 }
                 .help("Select a reader settings profile to apply or edit.")
@@ -230,7 +225,9 @@ struct ReaderSettingsView: View {
                 }
                 .help("Save these settings as a reusable configuration profile.")
                 
-                if activeProfileName != "Default" {
+                // Not for a name renamed or deleted on another device, which
+                // saving would bring back beside the new one.
+                if activeProfileName != "Default", profiles.contains(where: { $0.name == activeProfileName }) {
                     Button("Save Current Settings to \"\(activeProfileName)\"") {
                         saveCurrentToActiveProfile()
                     }
@@ -384,15 +381,18 @@ struct ReaderSettingsView: View {
                 .padding(.vertical, 2)
                 .help("Drag to adjust the speech speed.")
 
+                let samplePlaying = sample?.isPlaying ?? false
                 Button {
-                    if sample.isPlaying {
-                        sample.stop()
+                    if samplePlaying {
+                        sample?.stop()
                     } else {
-                        sample.play(voiceId: ttsVoiceId, rate: ttsRate)
+                        let player = sample ?? SpeechSample()
+                        sample = player
+                        player.play(voiceId: ttsVoiceId, rate: ttsRate)
                     }
                 } label: {
-                    Label(sample.isPlaying ? "Stop" : "Play Sample",
-                          systemImage: sample.isPlaying ? "stop.fill" : "play.fill")
+                    Label(samplePlaying ? "Stop" : "Play Sample",
+                          systemImage: samplePlaying ? "stop.fill" : "play.fill")
                 }
                 .accessibilityIdentifier("settings.reader.playSample")
                 .help("Hear the selected voice at this speed.")
@@ -466,7 +466,7 @@ struct ReaderSettingsView: View {
         .alert(errorMessage, isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) { }
         }
-        .onDisappear { sample.stop() }
+        .onDisappear { sample?.stop() }
     }
 
     private func queueBackup() {
