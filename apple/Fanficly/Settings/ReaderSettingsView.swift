@@ -37,6 +37,12 @@ struct ReaderSettingsView: View {
     @State private var newProfileName = ""
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
+    @State private var renamingProfile: String?
+    @State private var renameText = ""
+    /// The name a rename just gave the active profile: the picker's onChange
+    /// skips applying it, so a rename keeps the settings on screen (#193).
+    @State private var renamedActiveProfile: String?
+    @State private var sample = SpeechSample()
 
     init() {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -143,6 +149,29 @@ struct ReaderSettingsView: View {
         saveCurrentToActiveProfile()
     }
 
+    /// Renames a profile in place (#193); the old name syncs as a tombstone.
+    private func renameProfile(_ current: String, to newName: String) {
+        switch ReaderProfile.renaming(current, to: newName, in: profiles) {
+        case .unchanged:
+            return
+        case .nameTaken(let name):
+            errorMessage = "A profile named \"\(name)\" already exists."
+            showingErrorAlert = true
+        case .renamed(let list, let name):
+            saveProfiles(list)
+            if activeProfileName == current {
+                renamedActiveProfile = name
+                activeProfileName = name
+            }
+            queueBackup()
+            UIAccessibility.post(notification: .announcement, argument: "Renamed to \(name)")
+        }
+    }
+
+    private var showingRenameAlert: Binding<Bool> {
+        Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } })
+    }
+
     /// On-device voices for the current language (fall back to all installed
     /// voices if the language has none), sorted by name.
     private var voices: [AVSpeechSynthesisVoice] {
@@ -185,6 +214,10 @@ struct ReaderSettingsView: View {
                     }
                 }
                 .onChange(of: activeProfileName) { _, newName in
+                    if newName == renamedActiveProfile {
+                        renamedActiveProfile = nil
+                        return
+                    }
                     if let profile = profiles.first(where: { $0.name == newName }) {
                         selectProfile(profile)
                     }
@@ -202,6 +235,12 @@ struct ReaderSettingsView: View {
                         saveCurrentToActiveProfile()
                     }
                     .help("Overwrite the selected profile with your current settings.")
+
+                    Button("Rename Profile \"\(activeProfileName)\"...") {
+                        renameText = activeProfileName
+                        renamingProfile = activeProfileName
+                    }
+                    .help("Give the selected profile a new name.")
 
                     Button("Delete Profile \"\(activeProfileName)\"", role: .destructive) {
                         deleteProfile(activeProfileName)
@@ -344,8 +383,21 @@ struct ReaderSettingsView: View {
                 }
                 .padding(.vertical, 2)
                 .help("Drag to adjust the speech speed.")
+
+                Button {
+                    if sample.isPlaying {
+                        sample.stop()
+                    } else {
+                        sample.play(voiceId: ttsVoiceId, rate: ttsRate)
+                    }
+                } label: {
+                    Label(sample.isPlaying ? "Stop" : "Play Sample",
+                          systemImage: sample.isPlaying ? "stop.fill" : "play.fill")
+                }
+                .accessibilityIdentifier("settings.reader.playSample")
+                .help("Hear the selected voice at this speed.")
             } footer: {
-                Text("Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
+                Text("Play Sample reads a few lines in the chosen voice at this speed. Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {
@@ -404,9 +456,17 @@ struct ReaderSettingsView: View {
         } message: {
             Text("Enter a name for this reader settings configuration profile.")
         }
+        .alert("Rename Profile", isPresented: showingRenameAlert, presenting: renamingProfile) { current in
+            TextField("Profile Name", text: $renameText)
+            Button("Cancel", role: .cancel) { }
+            Button("Rename") { renameProfile(current, to: renameText) }
+        } message: { current in
+            Text("Enter a new name for \"\(current)\".")
+        }
         .alert(errorMessage, isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) { }
         }
+        .onDisappear { sample.stop() }
     }
 
     private func queueBackup() {

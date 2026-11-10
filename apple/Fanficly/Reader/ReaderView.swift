@@ -128,6 +128,9 @@ struct ReaderView: View {
     @AppStorage("reader.profiles") private var profilesJSON: String = ""
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
+    /// The profile the Aa menu's Rename… is renaming (#193), and the name typed.
+    @State private var renamingProfile: String?
+    @State private var renameText = ""
     @FocusState private var isReaderFocused: Bool
     /// The scroll views key scrolls move (see ReaderKeyCommands).
     @State private var keyScrollViews = ReaderScrollViews()
@@ -252,6 +255,23 @@ struct ReaderView: View {
         saveCurrentToActiveProfile()
     }
 
+    /// Renames a profile in place (#193); the old name syncs as a tombstone.
+    /// Unlike selecting a profile, it leaves the settings on screen alone.
+    private func renameProfile(_ current: String, to newName: String) {
+        switch ReaderProfile.renaming(current, to: newName, in: profiles) {
+        case .unchanged:
+            return
+        case .nameTaken(let name):
+            errorMessage = "A profile named \"\(name)\" already exists."
+            showingErrorAlert = true
+        case .renamed(let list, let name):
+            saveProfiles(list)
+            if activeProfileName == current { activeProfileName = name }
+            queueBackup()
+            UIAccessibility.post(notification: .announcement, argument: "Renamed to \(name)")
+        }
+    }
+
     private func overwriteProfile(_ name: String) {
         var list = profiles
         if let idx = list.firstIndex(where: { $0.name == name }) {
@@ -340,7 +360,7 @@ struct ReaderView: View {
         currentChapter?.wrappedValue = effectiveChapterIndex
     }
 
-    /// The Aa menu's New Profile prompt and its error, presented from the
+    /// The Aa menu's New Profile and Rename prompts and their error, presented from the
     /// reader itself rather than the menu's toolbar item: anchored there, the
     /// prompt never appeared on iPhone Duo's vertical toolbar strip. Kept off
     /// the main reader chain so the SwiftUI type-checker stays within budget.
@@ -350,6 +370,9 @@ struct ReaderView: View {
         @Binding var showingError: Bool
         let errorMessage: String
         let save: (String) -> Void
+        @Binding var renamingProfile: String?
+        @Binding var renameText: String
+        let rename: (String, String) -> Void
         /// ReaderLayoutTests' way to the prompt where the Aa menu won't open
         /// under XCUITest (Xcode Cloud's folded iPhone Duo, though it opens
         /// there by hand): demo mode with -demoNewProfileButton only.
@@ -378,6 +401,16 @@ struct ReaderView: View {
                     Button("Save") { save(newProfileName) }
                 } message: {
                     Text("Enter a name for this reader settings configuration profile.")
+                }
+                .alert("Rename Profile",
+                       isPresented: Binding(get: { renamingProfile != nil },
+                                            set: { if !$0 { renamingProfile = nil } }),
+                       presenting: renamingProfile) { current in
+                    TextField("Profile Name", text: $renameText)
+                    Button("Cancel", role: .cancel) { }
+                    Button("Rename") { rename(current, renameText) }
+                } message: { current in
+                    Text("Enter a new name for \"\(current)\".")
                 }
                 .alert(errorMessage, isPresented: $showingError) {
                     Button("OK", role: .cancel) { }
@@ -560,7 +593,10 @@ struct ReaderView: View {
             newProfileName: $newProfileName,
             showingError: $showingErrorAlert,
             errorMessage: errorMessage,
-            save: { saveNewProfile(name: $0) }
+            save: { saveNewProfile(name: $0) },
+            renamingProfile: $renamingProfile,
+            renameText: $renameText,
+            rename: { renameProfile($0, to: $1) }
         ))
         // Screen-awake + speech teardown + the Stats active-reading timer, all
         // in one ViewModifier so this long body chain stays within the
@@ -2645,6 +2681,10 @@ struct ReaderView: View {
                         if profile.name != "Default" {
                             Button("Save Current Settings Here") {
                                 overwriteProfile(profile.name)
+                            }
+                            Button("Rename...") {
+                                renameText = profile.name
+                                renamingProfile = profile.name
                             }
                             Button("Delete", role: .destructive) {
                                 deleteProfile(profile.name)
