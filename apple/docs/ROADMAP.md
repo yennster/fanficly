@@ -216,6 +216,33 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no volume buttons for a remote to press, so the setting is hidden there.
 - **Windows counterpart:** RM-124 (#305).
 
+### RM-028 — Light, Dark or System for the app (iPhone, iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Why:** Windows has Settings → Appearance → App theme (Light, Dark, or follow Windows; key `app.theme`, `AppearanceSettings`). The Apple app always follows the system appearance, and neither roadmap recorded the gap (#194).
+- **Scope:** An "App theme" picker (System, Light, Dark; default System) in Settings, stored as `app.theme` with the Windows raw values so a library file or backup carries the same key. `FanficlyApp` applies it as `.preferredColorScheme` on the root scene (nil for System; demo mode keeps forcing light). Reader page themes are unchanged: the reader keeps painting its own background and theming its bar with `.toolbarColorScheme`, never its own `.preferredColorScheme` (see AGENTS.md). Every platform including iPhone Duo; no exception needed.
+- **Overlap:** #271 (color themes with matching alternate icons) adds an Appearance section to Settings too. Put this picker in that section, whichever lands first, and keep the two settings separate: #271 picks the accent color, this one light or dark.
+- **Done when:** a pure mapping from the stored value to a `ColorScheme?` with tests (unknown values fall back to System); the PR lists what to check on a device: switching the theme with a light and a dark reader theme open, and after a relaunch.
+- **Touches:** `FanficlyApp.swift`, `Settings/SettingsView.swift`, `Localizable.xcstrings`.
+- **Windows counterpart:** already built (`windows/src/Fanficly.App/Views/Settings/SettingsScreen.cs`, `AppearanceSettings`).
+
+### RM-029 — Game controller page turns (iPhone, iPad, Mac)
+- **Status:** open · **Size:** M · **Validation:** mac
+- **Why:** Windows reads Xbox and other XInput controllers (`Platform/GamepadInput.cs`, Settings → Input): in the reader, LT/RT and D-pad left/right turn pages and LB/RB change chapter; elsewhere the D-pad moves focus, A activates and B goes back. iPhone, iPad and the Mac all pair MFi, Xbox and PlayStation controllers through the GameController framework, and the app does nothing with them (#194).
+- **Scope:** In the reader, observe `GCController` connections and map the extended gamepad to the existing `ReaderKeyAction` actions, so each button does what its key does per reading mode: LT/RT and D-pad left/right as ←/→, LB/RB as previous/next chapter, the right stick scrolling the scrolling modes, B as the back button, View/Options toggling the controls (full screen). Handle input only while the reader is on screen and the app is active, and make sure nothing fires twice when the system also turns a button into a key press (Windows steps aside the same way when XAML delivers controller keys itself). Show "Controller connected" in Settings → Reader as Windows' Input section does.
+- **Open question:** moving focus through the other screens with the D-pad. Outside tvOS, iOS and Mac Catalyst don't route controller input to the focus system, so Windows' whole-app navigation may not be possible. Check on the current SDK; if it isn't, write it here as a parity exception with that reason rather than faking focus.
+- **Done when:** a pure button-to-`ReaderKeyAction` mapping with tests for each reading mode; the PR lists what to try with a controller on an iPhone, an iPad and a Mac.
+- **Touches:** `Reader/ReaderKeyCommands.swift`, `Reader/ReaderView.swift`, `Settings/ReaderSettingsView.swift`, `ReaderKeyCommandsTests`.
+- **Windows counterpart:** already built (`GamepadInput`, see `windows/AGENTS.md`, Gamepad).
+
+### RM-030 — Home Screen quick actions for tabs (iPhone, iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** mac
+- **Why:** The Windows jump list has a "Go to" group (Search, Library, Popular, Subscriptions) under its "Continue “<title>”" entry (`Platform/JumpListService.cs`). RM-016 matched only the continue half, as an App Shortcut; a long press on the Apple app's icon offers no shortcuts (#194).
+- **Scope:** Static `UIApplicationShortcutItems` in `project.yml`'s Info.plist for Search, Library, Popular and Subscriptions (the Windows list, same order and SF Symbols as the sidebar), plus a dynamic "Continue reading" item set from the last-read entry when the app goes to the background. Handle them in a scene delegate's `windowScene(_:performActionFor:)` and at launch (`connectionOptions.shortcutItem`), routing through `RootView.select(_:)` the way the Go menu does, and the continue item through `openResumeRoute`. Put the story's title in the continue item only if a locked device can't show it; otherwise say "Continue reading" without it (the privacy rule of #141, and Windows' RM-121).
+- **Mac:** Catalyst shows an app's shortcut items in its Dock menu; confirm it on a Mac. If it doesn't, write the Mac here as a parity exception (the Go menu already reaches every tab).
+- **Done when:** a pure shortcut-type-to-`SidebarItem` mapping with tests; the PR lists what to try: each action from a cold launch and with the app already open, on an iPhone (and the Duo folded and unfolded), an iPad and the Mac's Dock.
+- **Touches:** `project.yml`, `FanficlyApp.swift`, `RootView.swift`.
+- **Windows counterpart:** already built (`JumpListService`).
+
 ## Engineering health (any release)
 
 Not features, but worth doing; add as items when started.
