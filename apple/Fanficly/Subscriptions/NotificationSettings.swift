@@ -39,7 +39,7 @@ final class NotificationsOffPrompt {
     static let shared = NotificationsOffPrompt()
 
     /// Set once the prompt has been shown; the Windows app's key.
-    static let shownKey = "notifications.permissionPromptShown"
+    nonisolated static let shownKey = "notifications.permissionPromptShown"
 
     var isShowing = false
 
