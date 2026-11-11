@@ -972,10 +972,15 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task AutocompleteMalformedJsonIsNoSuggestions()
+    public async Task AutocompleteUnreadableAnswerThrowsInsteadOfNoMatch()
     {
-        _handler.Respond(_ => FakeHandler.Json("<html>not json</html>"));
-        Assert.Empty(await MakeClient().AutocompleteAsync(AO3AutocompleteField.Tag, "x"));
+        // #196: an HTML challenge or error page served with a 200 must not read
+        // as "no match", which TagSuggestionCache and TagResolver would memoize.
+        _handler.Respond(_ => FakeHandler.Html("<html>not json</html>"));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().AutocompleteAsync(AO3AutocompleteField.Tag, "x"));
+        Assert.Equal(AO3ErrorKind.ParseFailed, e.Kind);
+        Assert.Throws<AO3Exception>(() => AO3Client.DecodeAutocomplete("""{"error":"x"}"""u8.ToArray()));
+        Assert.Empty(AO3Client.DecodeAutocomplete("[]"u8.ToArray()));
     }
 
     [Fact]
@@ -1675,14 +1680,73 @@ public sealed class AO3ClientTests : IDisposable
         Assert.Equal("x", AO3Client.SanitizeFilename("  x  "));
     }
 
+    /// <summary>#196: a snapshot with nothing live in it throws, so
+    /// <see cref="PopularStore"/> keeps its last good one instead of caching the
+    /// curated seed as fresh for a day.</summary>
     [Fact]
-    public async Task PopularSnapshotFallsBackToCuratedListsWhenAO3Fails()
+    public async Task PopularSnapshotThrowsWhenAO3Fails()
     {
         _handler.Respond(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchPopularSnapshotAsync());
+        Assert.Equal(AO3ErrorKind.Http, e.Kind);
+        Assert.Equal(FandomCatalog.All.Count, _handler.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, AO3ErrorKind.RateLimited)]
+    [InlineData(HttpStatusCode.Unauthorized, AO3ErrorKind.Unauthorized)]
+    public async Task PopularSnapshotStopsAtARateLimitOrSignIn(HttpStatusCode status, AO3ErrorKind expected)
+    {
+        _handler.Respond(_ => new HttpResponseMessage(status));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchPopularSnapshotAsync());
+        Assert.Equal(expected, e.Kind);
+        Assert.Single(_handler.Requests);
+    }
+
+    [Fact]
+    public async Task PopularSnapshotStopsWhenRateLimitedPartWay()
+    {
+        _handler.Respond(req => req.RequestUri!.AbsolutePath.StartsWith("/media/", StringComparison.Ordinal)
+            ? FakeHandler.Html("""<ol><li><a href="/tags/Big/works">Big</a> (900)</li></ol>""")
+            : new HttpResponseMessage(HttpStatusCode.TooManyRequests));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchPopularSnapshotAsync());
+        Assert.Equal(AO3ErrorKind.RateLimited, e.Kind);
+        Assert.Equal(FandomCatalog.All.Count + 1, _handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task PopularSnapshotThrowsWhenEveryFacetRequestFails()
+    {
+        _handler.Respond(req => req.RequestUri!.AbsolutePath.StartsWith("/media/", StringComparison.Ordinal)
+            ? FakeHandler.Html("""<ol><li><a href="/tags/Big/works">Big</a> (900)</li></ol>""")
+            : new HttpResponseMessage(HttpStatusCode.NotFound));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().FetchPopularSnapshotAsync());
+        Assert.Equal(AO3ErrorKind.Http, e.Kind);
+    }
+
+    /// <summary>A list AO3 answered but left empty (markup drift) still falls
+    /// back to the curated seed; only failed requests make the snapshot throw.</summary>
+    [Fact]
+    public async Task PopularSnapshotFallsBackPerListWhenAO3AnswersEmpty()
+    {
+        _handler.Respond(req => req.RequestUri!.AbsolutePath.StartsWith("/media/", StringComparison.Ordinal)
+            ? FakeHandler.Html("""<ol><li><a href="/tags/Big/works">Big</a> (900)</li></ol>""")
+            : FakeHandler.Html("""<label for="include_work_search_relationship_ids_1"><span>A/B (5)</span></label>"""));
         var snapshot = await MakeClient().FetchPopularSnapshotAsync();
-        Assert.Equal(PopularTags.Fandoms, snapshot.Fandoms);
-        Assert.Equal(PopularTags.Ships, snapshot.Ships);
+        Assert.Equal(["Big"], snapshot.Fandoms);
+        Assert.Equal(["A/B"], snapshot.Ships);
         Assert.Equal(PopularTags.Characters, snapshot.Characters);
+    }
+
+    [Fact]
+    public void StopsPopularCrawlOnlyForErrorsEveryLaterRequestWouldHitToo()
+    {
+        Assert.True(AO3Client.StopsPopularCrawl(AO3Exception.RateLimited()));
+        Assert.True(AO3Client.StopsPopularCrawl(AO3Exception.Unauthorized()));
+        Assert.True(AO3Client.StopsPopularCrawl(AO3Exception.BlockedByProtection()));
+        Assert.False(AO3Client.StopsPopularCrawl(AO3Exception.Http(404)));
+        Assert.False(AO3Client.StopsPopularCrawl(AO3Exception.ParseFailed("x")));
+        Assert.False(AO3Client.StopsPopularCrawl(new HttpRequestException("offline")));
     }
 
     [Fact]

@@ -853,37 +853,74 @@ public actor AO3Client: AO3ClientProtocol {
 
     /// Builds a live popular snapshot: fandoms ranked by AO3's media-page work
     /// counts, then ships/characters aggregated from the facet sidebars of the
-    /// top few fandoms. Each list falls back to the curated `PopularTags` seed
-    /// when AO3 yields nothing (offline / markup drift), so the tab is never
-    /// empty. ~10–13 throttled requests — meant to run in the background and be
-    /// cached for a day (see `PopularStore`).
+    /// top few fandoms. ~10–15 throttled requests — meant to run in the
+    /// background and be cached for a day (see `PopularStore`).
+    ///
+    /// Throws rather than return a snapshot that isn't live, so the cache keeps
+    /// the last good one (#196): a rate limit, sign-in or Cloudflare block stops
+    /// the crawl at once (more requests would only go into a window AO3 has
+    /// closed), and so does no fandom coming back, or a ship or character list
+    /// left empty because its requests failed. A list AO3 answered but left
+    /// empty (markup drift) still falls back to the curated `PopularTags` seed.
     public func fetchPopularSnapshot() async throws -> PopularSnapshot {
+        var lastError: Error?
         var fandomCounts: [String: Int] = [:]
         for category in FandomCatalog.all {
-            guard let fandoms = try? await fetchFandomsInCategory(categoryName: category.ao3CanonicalName) else { continue }
+            let fandoms: [BrowseFandom]
+            do {
+                fandoms = try await fetchFandomsInCategory(categoryName: category.ao3CanonicalName)
+            } catch {
+                if Self.stopsPopularCrawl(error) { throw error }
+                lastError = error
+                continue
+            }
             for fandom in fandoms where (fandom.workCount ?? 0) > 0 {
                 fandomCounts[fandom.canonicalName] = max(fandomCounts[fandom.canonicalName] ?? 0, fandom.workCount ?? 0)
             }
         }
         let topFandoms = fandomCounts.sorted { $0.value > $1.value }.map(\.key)
+        guard !topFandoms.isEmpty else {
+            throw lastError ?? AO3Error.parseFailed(reason: "AO3 listed no fandoms")
+        }
 
         var shipCounts: [String: Int] = [:]
         var charCounts: [String: Int] = [:]
+        var facetFailed = false
         // Aggregate ship/character facets from the top few fandoms — enough
         // fandoms to surface ~30 unique ships/characters for the Popular lists.
         for fandom in topFandoms.prefix(5) {
-            guard let filters = try? await fetchWorkFilters(tagName: fandom) else { continue }
+            let filters: AO3WorkFilters
+            do {
+                filters = try await fetchWorkFilters(tagName: fandom)
+            } catch {
+                if Self.stopsPopularCrawl(error) { throw error }
+                lastError = error
+                facetFailed = true
+                continue
+            }
             for r in filters.relationships { shipCounts[r.name, default: 0] += max(r.count, 1) }
             for c in filters.characters { charCounts[c.name, default: 0] += max(c.count, 1) }
         }
         let topShips = shipCounts.sorted { $0.value > $1.value }.map(\.key)
         let topChars = charCounts.sorted { $0.value > $1.value }.map(\.key)
+        if facetFailed, topShips.isEmpty || topChars.isEmpty, let lastError { throw lastError }
 
         return PopularSnapshot(
-            fandoms: topFandoms.isEmpty ? PopularTags.fandoms : Array(topFandoms.prefix(30)),
+            fandoms: Array(topFandoms.prefix(30)),
             ships: topShips.isEmpty ? PopularTags.ships : Array(topShips.prefix(30)),
             characters: topChars.isEmpty ? PopularTags.characters : Array(topChars.prefix(30))
         )
+    }
+
+    /// Errors after which no more Popular requests should go out: AO3 asked us
+    /// to slow down, wants a sign-in, or Cloudflare is blocking us, so every
+    /// later request would fail the same way. Cancellation ends it too.
+    static func stopsPopularCrawl(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        switch error as? AO3Error {
+        case .rateLimited, .unauthorized, .blockedByProtection: return true
+        default: return false
+        }
     }
 
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
@@ -897,9 +934,19 @@ public actor AO3Client: AO3ClientProtocol {
         request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
         request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         let (data, _) = try await performRequest(request)
+        return try Self.decodeAutocomplete(data)
+    }
+
+    /// Reads AO3's `[{id, name}]` autocomplete JSON. Anything else (an HTML
+    /// challenge or error page served with a 200) throws `parseFailed`, so it
+    /// is never mistaken, and cached, as "no match" (#196).
+    static func decodeAutocomplete(_ data: Data) throws -> [String] {
         struct Item: Decodable { let id: String?; let name: String? }
-        let items = (try? JSONDecoder().decode([Item].self, from: data)) ?? []
-        return items.compactMap { $0.name ?? $0.id }
+        do {
+            return try JSONDecoder().decode([Item].self, from: data).compactMap { $0.name ?? $0.id }
+        } catch {
+            throw AO3Error.parseFailed(reason: "AO3's tag suggestions weren't readable")
+        }
     }
 
     public func downloadEPUB(workId: Int) async throws -> URL {
