@@ -108,6 +108,38 @@ public class PopularStoreTests
         Assert.Null(PopularStore.Cached(empty));
     }
 
+    /// <summary>#196: a failed refresh waits an hour before the next one, so an
+    /// AO3 outage isn't re-crawled on every visit to Popular.</summary>
+    [Fact]
+    public async Task FailedFetchWaitsBeforeTryingAgain()
+    {
+        var store = new InMemoryKeyValueStore();
+        store.SetString(PopularStore.Key, PopularStore.Encode(Snapshot(Now.AddDays(-2), "Old")));
+        var fail = true;
+        var client = new SnapshotClient(() => fail ? throw AO3Exception.Http(503) : Snapshot(Now, "Fetched"));
+
+        await PopularStore.RefreshIfStaleAsync(client, store, Now);
+        Assert.Equal(1, client.Calls);
+        var held = await PopularStore.RefreshIfStaleAsync(client, store, Now.AddMinutes(59));
+        Assert.Equal(1, client.Calls);
+        Assert.Equal("Old", held!.Fandoms[0]);
+
+        fail = false;
+        var result = await PopularStore.RefreshIfStaleAsync(client, store, Now.AddMinutes(61));
+        Assert.Equal(2, client.Calls);
+        Assert.Equal("Fetched", result!.Fandoms[0]);
+    }
+
+    [Fact]
+    public async Task CancelledFetchDoesNotHoldOffTheNextOne()
+    {
+        var store = new InMemoryKeyValueStore();
+        using var cts = new CancellationTokenSource();
+        var client = new SnapshotClient(() => { cts.Cancel(); cts.Token.ThrowIfCancellationRequested(); return Snapshot(Now); });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => PopularStore.RefreshIfStaleAsync(client, store, Now, cts.Token));
+        Assert.Null(store.GetString(PopularStore.AttemptKey));
+    }
+
     [Fact]
     public void EmptyLiveListsFallBackToCuratedSeed()
     {

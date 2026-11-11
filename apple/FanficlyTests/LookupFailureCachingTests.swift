@@ -10,10 +10,13 @@ import XCTest
 final class LookupFailureCachingTests: XCTestCase {
     private static let popularKey = "popular.snapshot.v1"
     private var savedPopular: Data?
+    private var savedAttempt: Any?
 
     override func setUp() {
         super.setUp()
         savedPopular = UserDefaults.standard.data(forKey: Self.popularKey)
+        savedAttempt = UserDefaults.standard.object(forKey: PopularStore.attemptKey)
+        UserDefaults.standard.removeObject(forKey: PopularStore.attemptKey)
     }
 
     override func tearDown() {
@@ -24,6 +27,7 @@ final class LookupFailureCachingTests: XCTestCase {
         } else {
             UserDefaults.standard.removeObject(forKey: Self.popularKey)
         }
+        UserDefaults.standard.set(savedAttempt, forKey: PopularStore.attemptKey)
         super.tearDown()
     }
 
@@ -64,7 +68,18 @@ final class LookupFailureCachingTests: XCTestCase {
 
         XCTAssertEqual(shown, old)
         XCTAssertEqual(PopularStore.cached(), old, "the failed refresh must not replace the last good snapshot")
-        XCTAssertTrue(PopularStore.isStale(PopularStore.cached()), "so the next visit tries again")
+        XCTAssertTrue(PopularStore.isStale(PopularStore.cached()), "so a later visit tries again")
+
+        // …but not straight away: an outage isn't re-crawled on every visit.
+        client.popularResult = .success(PopularSnapshot(fandoms: ["New"], ships: [], characters: []))
+        let held = await PopularStore.refreshIfStale(client: client)
+        XCTAssertEqual(held, old)
+        XCTAssertEqual(client.popularFetchCount, 1)
+
+        UserDefaults.standard.set(Date.now.addingTimeInterval(-PopularStore.retryAfterFailure - 1), forKey: PopularStore.attemptKey)
+        let retried = await PopularStore.refreshIfStale(client: client)
+        XCTAssertEqual(retried?.fandoms, ["New"])
+        XCTAssertEqual(client.popularFetchCount, 2)
     }
 
     func test_popularStore_cachesASuccessfulRefresh() async {

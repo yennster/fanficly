@@ -498,8 +498,8 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// <see cref="PopularStore"/> keeps the last good one (#196, the Swift
     /// <c>fetchPopularSnapshot</c>): a rate limit, sign-in or Cloudflare block stops
     /// the crawl at once (more requests would only go into a window AO3 has
-    /// closed), and so does no fandom coming back, or a ship or character list
-    /// left empty because its requests failed. A list AO3 answered but left empty
+    /// closed), and so does no fandom coming back, or no ship or character
+    /// because the facet requests failed. A list AO3 answered but left empty
     /// (markup drift) still falls back to the curated <see cref="PopularTags"/>.</para></summary>
     public async Task<PopularSnapshot> FetchPopularSnapshotAsync(CancellationToken ct = default)
     {
@@ -534,7 +534,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
         }
         var topShips = Ranked(shipCounts);
         var topChars = Ranked(charCounts);
-        if (facetFailed && (topShips.Count == 0 || topChars.Count == 0) && lastError is not null) throw lastError;
+        if (facetFailed && topShips.Count == 0 && topChars.Count == 0 && lastError is not null) throw lastError;
 
         return new PopularSnapshot(
             topFandoms.Take(30).ToList(),

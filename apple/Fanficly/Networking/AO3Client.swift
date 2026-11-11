@@ -859,13 +859,14 @@ public actor AO3Client: AO3ClientProtocol {
     /// Throws rather than return a snapshot that isn't live, so the cache keeps
     /// the last good one (#196): a rate limit, sign-in or Cloudflare block stops
     /// the crawl at once (more requests would only go into a window AO3 has
-    /// closed), and so does no fandom coming back, or a ship or character list
-    /// left empty because its requests failed. A list AO3 answered but left
+    /// closed), and so does no fandom coming back, or no ship or character
+    /// because the facet requests failed. A list AO3 answered but left
     /// empty (markup drift) still falls back to the curated `PopularTags` seed.
     public func fetchPopularSnapshot() async throws -> PopularSnapshot {
         var lastError: Error?
         var fandomCounts: [String: Int] = [:]
         for category in FandomCatalog.all {
+            try Task.checkCancellation()
             let fandoms: [BrowseFandom]
             do {
                 fandoms = try await fetchFandomsInCategory(categoryName: category.ao3CanonicalName)
@@ -889,6 +890,7 @@ public actor AO3Client: AO3ClientProtocol {
         // Aggregate ship/character facets from the top few fandoms — enough
         // fandoms to surface ~30 unique ships/characters for the Popular lists.
         for fandom in topFandoms.prefix(5) {
+            try Task.checkCancellation()
             let filters: AO3WorkFilters
             do {
                 filters = try await fetchWorkFilters(tagName: fandom)
@@ -903,7 +905,7 @@ public actor AO3Client: AO3ClientProtocol {
         }
         let topShips = shipCounts.sorted { $0.value > $1.value }.map(\.key)
         let topChars = charCounts.sorted { $0.value > $1.value }.map(\.key)
-        if facetFailed, topShips.isEmpty || topChars.isEmpty, let lastError { throw lastError }
+        if facetFailed, topShips.isEmpty, topChars.isEmpty, let lastError { throw lastError }
 
         return PopularSnapshot(
             fandoms: Array(topFandoms.prefix(30)),
@@ -914,7 +916,8 @@ public actor AO3Client: AO3ClientProtocol {
 
     /// Errors after which no more Popular requests should go out: AO3 asked us
     /// to slow down, wants a sign-in, or Cloudflare is blocking us, so every
-    /// later request would fail the same way. Cancellation ends it too.
+    /// later request would fail the same way. (Cancellation is checked before
+    /// each request: `performRequest` reports it as `.network`.)
     static func stopsPopularCrawl(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         switch error as? AO3Error {

@@ -103,8 +103,10 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchFandomsInCategory(categoryName: String) async throws -> [BrowseFandom] { [] }
     /// Scripted Popular snapshot result (PopularStore tests).
     var popularResult: Result<PopularSnapshot, Error> = .success(PopularSnapshot(fandoms: [], ships: [], characters: []))
+    private(set) var popularFetchCount = 0
     func fetchPopularSnapshot() async throws -> PopularSnapshot {
-        try popularResult.get()
+        popularFetchCount += 1
+        return try popularResult.get()
     }
     func downloadEPUB(workId: Int) async throws -> URL {
         if let error = downloadEPUBErrors[workId] { throw error }
