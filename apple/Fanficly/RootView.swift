@@ -721,6 +721,9 @@ struct ImportOverlay: View {
                 work.isFollowed = true
                 work.followedAt = .now
                 work.savedAt = .now
+                // AO3 just answered for it, so an earlier follow's failed
+                // checks are over (#195).
+                work.noteCheckSucceeded()
                 status = "Done!"
                 try? context.save()
                 iCloudSyncManager.shared.queueBackup(context: context)
