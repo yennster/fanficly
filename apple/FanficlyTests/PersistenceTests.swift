@@ -3290,6 +3290,23 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(followed.checkStatus, .checked(try XCTUnwrap(followed.lastSucceededAt)))
     }
 
+    // Following a work again starts it unchecked: the last follow's failures
+    // don't carry over (#195).
+    func test_refollow_clearsCheckStatus() throws {
+        let ctx = try makeContext()
+        let summary = AO3WorkSummary.stub(id: 3, title: "Again")
+        let work = WorkPersistence.upsertMetadata(summary: summary, into: ctx, save: false)
+        work.isFollowed = true
+        work.lastCheckedAt = .now
+        work.noteCheckFailed(.signIn)
+        work.noteCheckFailed(.signIn)
+        XCTAssertEqual(work.checkStatus, .failing(.signIn))
+        XCTAssertFalse(WorkPersistence.toggleFollow(summary: summary, into: ctx))
+        XCTAssertTrue(WorkPersistence.toggleFollow(summary: summary, into: ctx))
+        XCTAssertNil(work.checkStatus)
+        XCTAssertNil(work.lastCheckedAt)
+    }
+
     // A subscription's failures are counted like a follow's, and a record
     // from before #195 (an attempt stamp, nothing else) still shows it.
     func test_checkStatus_subscriptionsAndOlderRecords() async throws {
