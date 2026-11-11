@@ -187,6 +187,9 @@ struct PagingInsetsOff: UIViewRepresentable {
             }
             guard let scroll = view as? UIScrollView else { return }
             cell = below
+            #if DEBUG
+            describe(scroll)
+            #endif
             observe(scroll)
             let width = scroll.bounds.width
             guard scroll.contentInsetAdjustmentBehavior != .never || abs(width - snappedWidth) >= 1 else { return }
@@ -200,6 +203,35 @@ struct PagingInsetsOff: UIViewRepresentable {
                 }
             }
         }
+
+        #if DEBUG
+        /// Where the paging view, this page's cell and this view really are,
+        /// for ReaderLayoutTests' failure messages (`reader.pagingInfo`).
+        private func describe(_ scroll: UIScrollView) {
+            func r(_ rect: CGRect) -> String {
+                "(\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)))"
+            }
+            func i(_ e: UIEdgeInsets) -> String { "[\(Int(e.left)) \(Int(e.right)) t\(Int(e.top))]" }
+            var parts = ["sel \(selected)", "offset \(Int(scroll.contentOffset.x))",
+                         "inset \(i(scroll.contentInset))", "adjusted \(i(scroll.adjustedContentInset))",
+                         "scroll \(r(scroll.convert(scroll.bounds, to: nil)))",
+                         "content \(Int(scroll.contentSize.width))",
+                         "me \(r(convert(bounds, to: nil))) safe \(i(safeAreaInsets))"]
+            if let cell {
+                parts.append("cell \(r(cell.frame)) at \(r(cell.convert(cell.bounds, to: nil))) safe \(i(cell.safeAreaInsets)) t \(cell.transform.a)")
+                var chain: [String] = []
+                var v: UIView? = superview
+                while let current = v, current !== cell {
+                    chain.append("\(type(of: current)) \(r(current.frame)) s\(i(current.safeAreaInsets))")
+                    v = current.superview
+                }
+                parts.append("chain " + chain.suffix(4).joined(separator: " < "))
+            }
+            isAccessibilityElement = true
+            accessibilityIdentifier = "reader.pagingInfo"
+            accessibilityLabel = parts.joined(separator: "; ")
+        }
+        #endif
 
         /// Scrolls the selected page's cell to the paging view's edge. Only
         /// that page's view moves the scroll, so the pages beside it, laid out
