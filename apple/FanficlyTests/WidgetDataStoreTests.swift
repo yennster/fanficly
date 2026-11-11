@@ -119,6 +119,37 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertTrue(WidgetDataStore.loadLocalSavedSearches().isEmpty)
     }
 
+    /// The Subscriptions widget orders by AO3's Updated date: a subscription
+    /// polled a minute ago but last updated in March sorts below a followed
+    /// work updated yesterday, and one never checked sorts last (#197).
+    func test_subscriptions_sortByUpdatedDateNotLastCheck() throws {
+        let context = try makeContext()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let followed = Work(ao3Id: 1, title: "Followed", authorName: "A", chapterCount: 12,
+                            updatedAt: now.addingTimeInterval(-86_400))
+        followed.isFollowed = true
+        context.insert(followed)
+        let stale = SubscriptionRecord(key: "work:2", kind: "work", displayName: "Old")
+        stale.lastCheckedAt = now
+        stale.updatedAt = now.addingTimeInterval(-200 * 86_400)
+        stale.lastSeenChapterCount = 3
+        context.insert(stale)
+        let fresh = SubscriptionRecord(key: "work:3", kind: "work", displayName: "Fresh")
+        fresh.lastCheckedAt = now.addingTimeInterval(-3_600)
+        fresh.updatedAt = now
+        context.insert(fresh)
+        let unchecked = SubscriptionRecord(key: "work:4", kind: "work", displayName: "Unchecked")
+        context.insert(unchecked)
+        try context.save()
+        defer { clearLibrarySnapshots() }
+
+        WidgetDataStore.updateSubscriptions(context: context)
+
+        let list = WidgetDataStore.loadLocalSubscriptions()
+        XCTAssertEqual(list.map(\.workId), [3, 1, 2, 4])
+        XCTAssertEqual(list.first(where: { $0.workId == 1 })?.chapterCount, 12)
+    }
+
     func test_recommendations_keepTheTopTwenty() throws {
         let context = try makeContext()
         let base = Date(timeIntervalSince1970: 1_700_000_000)

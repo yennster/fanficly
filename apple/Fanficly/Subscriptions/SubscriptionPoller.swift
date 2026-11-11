@@ -172,6 +172,7 @@ struct SubscriptionPoller {
             notifyCount += await checkFollowedWork(work)
         }
         try? context.save()
+        WidgetDataStore.updateAll(context: context)
         return notifyCount
     }
 
@@ -367,12 +368,36 @@ struct SubscriptionPoller {
             }
             rec?.lastSeenChapterCount = meta.chapterCount
             work?.lastSeenChapterCount = meta.chapterCount
+            // The Library row and the widgets read these, so they must move
+            // with the baseline, or the alert says 12 while they say 11 (#197).
+            rec?.updatedAt = meta.updatedAt ?? meta.publishedAt ?? rec?.updatedAt
+            if let saved = work ?? libraryWork(ao3Id: workId) {
+                Self.applyCounts(meta, to: saved)
+            }
             return notifyCount
         } catch {
             tally.failed += 1
             logger.warning("Skipping work \(workId): \(error.localizedDescription, privacy: .public)")
             return 0
         }
+    }
+
+    /// The Library's copy of a work only subscribed on AO3 (not followed),
+    /// so its row's chapter count moves too. Nil when it isn't saved.
+    private func libraryWork(ao3Id: Int) -> Work? {
+        var descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first.flatMap { $0.isDeleted ? nil : $0 }
+    }
+
+    /// A poll's chapter counts and Updated date on a library work (#197). The
+    /// metadata parser fails closed (#130), so these come from a real work
+    /// page. A one-shot has no Updated date, so its Published date stands in.
+    static func applyCounts(_ meta: AO3WorkMetadata, to work: Work) {
+        work.chapterCount = meta.chapterCount
+        work.totalChapters = meta.totalChapters
+        work.isComplete = meta.totalChapters == meta.chapterCount
+        if let updatedAt = meta.updatedAt ?? meta.publishedAt { work.updatedAt = updatedAt }
     }
 
     private func checkFollowedAuthor(_ author: FollowedAuthor) async -> Int {

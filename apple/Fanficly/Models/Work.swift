@@ -418,6 +418,11 @@ final class SubscriptionRecord {
     var authorName: String = ""
     var lastSeenChapterCount: Int?
     var lastCheckedAt: Date?
+    /// AO3's Updated date for the work, from the poller's last good check
+    /// (#197); the Subscriptions widget sorts by it. Nil until then. Additive
+    /// (optional) so SwiftData migrates existing stores automatically; not
+    /// backed up, since the next check fills it in.
+    var updatedAt: Date?
 
     init(key: String, kind: String, displayName: String, authorName: String = "") {
         self.key = key

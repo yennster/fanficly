@@ -383,6 +383,18 @@ public sealed class SubscriptionPoller
 
     private Task<int> CheckFollowedWorkAsync(Work work, CancellationToken ct) => CheckWorkAsync(work.Ao3Id, null, work, ct);
 
+    /// <summary>A poll's chapter counts and Updated date on a library work,
+    /// followed or only subscribed (#197; Swift's <c>applyCounts</c>). The
+    /// metadata parser fails closed, so these come from a real work page. A
+    /// one-shot has no Updated date, so its Published date stands in.</summary>
+    internal static void ApplyCounts(AO3WorkMetadata meta, Work work)
+    {
+        work.ChapterCount = meta.ChapterCount;
+        work.TotalChapters = meta.TotalChapters;
+        work.IsComplete = meta.TotalChapters == meta.ChapterCount;
+        if ((meta.UpdatedAt ?? meta.PublishedAt) is { } updatedAt) work.UpdatedAt = updatedAt;
+    }
+
     /// <summary>Check a work for new chapters with one throttled request of its
     /// light page, for its subscription, its follow or both, and post at most one
     /// notification. The attempt is stamped whatever happens: a permanently-failing
@@ -405,6 +417,10 @@ public sealed class SubscriptionPoller
                 var seen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
                 if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
                 if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
+                // The Library row and the widgets read these, so they move with
+                // the baseline, or the toast says 12 while they say 11 (#197).
+                if (rec is not null) rec.UpdatedAt = meta.UpdatedAt ?? meta.PublishedAt ?? rec.UpdatedAt;
+                if ((work ?? _store.GetWork(workId)) is { } saved) ApplyCounts(meta, saved);
                 return (seen, work?.Title ?? rec?.DisplayName ?? "");
             }).ConfigureAwait(false);
             if (lastSeen is not { } seenCount || meta.ChapterCount <= seenCount) return 0;

@@ -180,7 +180,7 @@ public static partial class AppHost
             ChapterCount = w.ChapterCount, IsFollowed = w.IsFollowed, IsStarred = w.IsStarred, IsPinned = w.IsPinned,
             SavedAt = w.SavedAt, UpdatedAt = w.UpdatedAt,
         }).ToList(),
-        store.Subscriptions().Select(s => new WidgetSubscriptionSource(s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt)).ToList());
+        store.Subscriptions().Select(s => new WidgetSubscriptionSource(s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt, s.UpdatedAt)).ToList());
 
     /// <summary>Says so when settings.json was damaged or couldn't be read at
     /// launch, so a run on fallback settings is never silent.</summary>
