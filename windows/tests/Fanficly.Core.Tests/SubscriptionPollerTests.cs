@@ -147,6 +147,94 @@ public sealed class SubscriptionPollerTests
         Assert.Equal(1, store.Count<SubscriptionRecord>());
     }
 
+    /// <summary>A follow that can never be checked (a restricted work followed
+    /// while signed out) must not read "checked just now" (#195): every attempt
+    /// still moves the rotation stamp, but the row goes by the last check that
+    /// worked and, after two failures in a row, says why.</summary>
+    [Fact]
+    public async Task FailedChecksKeepTheLastSuccessAndSayWhy()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var work = new Work(7, "Locked", "A") { IsFollowed = true };
+        var author = new FollowedAuthor("gone", "Gone");
+        store.Insert(work);
+        store.Insert(author);
+        store.Save();
+        var client = new PollerFakeClient();
+        client.ChapterCounts[7] = 3;
+        client.AuthorWorks["gone"] = [];
+        var poller = new SubscriptionPoller(client, store, null);
+
+        await poller.CheckFollowedWorksAsync();
+        await poller.CheckFollowedAuthorsAsync();
+        var worked = Assert.IsType<DateTimeOffset>(work.LastSucceededAt);
+        Assert.Equal(CheckStatus.Checked(worked), work.CurrentCheckStatus());
+        Assert.Equal(CheckStatus.Checked(author.LastSucceededAt!.Value), author.CurrentCheckStatus());
+
+        client.WorkErrors[7] = AO3Exception.Unauthorized();
+        client.AuthorWorks.Remove("gone"); // a 404
+        await poller.CheckFollowedWorksAsync();
+        await poller.CheckFollowedAuthorsAsync();
+        // One failure is just AO3 having a bad minute.
+        Assert.Equal(1, work.CheckFailures);
+        Assert.Equal(CheckStatus.Checked(worked), work.CurrentCheckStatus());
+        Assert.True(work.LastCheckedAt >= worked);
+
+        await poller.CheckFollowedWorksAsync();
+        await poller.CheckFollowedAuthorsAsync();
+        Assert.Equal(CheckStatus.Failing(CheckFailure.SignIn), work.CurrentCheckStatus());
+        Assert.Equal(CheckStatus.Failing(CheckFailure.NotFound), author.CurrentCheckStatus());
+        Assert.Equal(worked, work.LastSucceededAt);
+
+        // The next check that works clears it.
+        client.WorkErrors.Clear();
+        await poller.CheckFollowedWorksAsync();
+        Assert.Equal(0, work.CheckFailures);
+        Assert.Null(work.LastCheckFailure);
+        Assert.Equal(CheckStatus.Checked(work.LastSucceededAt!.Value), work.CurrentCheckStatus());
+    }
+
+    /// <summary>Following a work again starts it unchecked (#195).</summary>
+    [Fact]
+    public void RefollowClearsCheckStatus()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var summary = new AO3WorkSummary { Id = 3, Title = "Again" };
+        WorkPersistence.ToggleFollow(summary, store);
+        var work = store.GetWork(3)!;
+        work.LastCheckedAt = T0;
+        work.NoteCheckFailed(CheckFailure.SignIn);
+        work.NoteCheckFailed(CheckFailure.SignIn);
+        Assert.False(WorkPersistence.ToggleFollow(summary, store));
+        Assert.True(WorkPersistence.ToggleFollow(summary, store));
+        Assert.Null(work.CurrentCheckStatus());
+        Assert.Null(work.LastCheckedAt);
+    }
+
+    /// <summary>A subscription's failures are counted like a follow's, and a record
+    /// from before #195 (an attempt stamp, nothing else) still shows it.</summary>
+    [Fact]
+    public async Task CheckStatus_SubscriptionsAndOlderRecords()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:5", "work", "Fic"));
+        store.Save();
+        var client = new PollerFakeClient();
+        client.WorkErrors[5] = AO3Exception.Http(503);
+        var poller = new SubscriptionPoller(client, store, "reader", syncStamps: new InMemoryKeyValueStore());
+        await poller.CheckForNewChaptersAsync();
+        await poller.CheckForNewChaptersAsync();
+        Assert.Equal(CheckStatus.Failing(CheckFailure.Other), store.GetSubscription("work:5")!.CurrentCheckStatus());
+
+        var attempted = T0;
+        Assert.Equal(CheckStatus.Checked(attempted), CheckStatus.Of(attempted, null, 0, null));
+        // One failure with no success on record: nothing to vouch for.
+        Assert.Null(CheckStatus.Of(attempted, null, 1, "signIn"));
+        Assert.Null(CheckStatus.Of(null, null, 0, null));
+        // An unknown kind (a newer app's) reads as a plain failure.
+        Assert.Equal(CheckStatus.Failing(CheckFailure.Other), CheckStatus.Of(attempted, attempted, 3, "later"));
+    }
+
     /// <summary>A run with the list synced in the last day goes straight to the
     /// checks (#150): with hundreds of subscriptions the list walk was the whole
     /// background run.</summary>

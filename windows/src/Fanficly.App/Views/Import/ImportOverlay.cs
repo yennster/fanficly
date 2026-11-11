@@ -98,6 +98,8 @@ public static class ImportOverlay
                 work.IsFollowed = true;
                 work.FollowedAt = now;
                 work.SavedAt = now;
+                // AO3 just answered for it, so an earlier follow's failed checks are over (#195).
+                work.NoteCheckSucceeded(now);
                 library.TrySave();
                 LibrarySyncManager.QueueBackupShared(library);
                 saved = work;

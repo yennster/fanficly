@@ -52,6 +52,25 @@ internal static class AccountKit
     /// <summary>"checked 5 minutes ago" caption (SubscriptionRow / FollowedAuthorRow).</summary>
     public static string CheckedAgo(DateTimeOffset checkedAt) => $"checked {RelativeSpan(checkedAt)} ago";
 
+    /// <summary>A follow's or subscription's check caption (#195): "checked 5
+    /// minutes ago" from the last check that worked, or, after repeated
+    /// failures, why checks fail. Null when there's nothing to say.</summary>
+    public static string? CheckCaption(ICheckedRecord record) => record.CurrentCheckStatus() switch
+    {
+        { Failure: { } failure } => CheckStatus.Message(failure),
+        { CheckedAt: { } at } => CheckedAgo(at),
+        _ => null,
+    };
+
+    /// <summary><see cref="CheckCaption"/> as a caption, in the warning colour when failing.</summary>
+    public static TextBlock? CheckCaptionText(ICheckedRecord record)
+    {
+        if (CheckCaption(record) is not { } text) return null;
+        var caption = UI.UI.Caption(text);
+        if (record.CurrentCheckStatus()?.Failure is not null) caption.Foreground = Theme.Warning;
+        return caption;
+    }
+
     /// <summary>A caption with a decorative leading symbol ("person  Author").</summary>
     public static Grid KindLabel(string sfSymbol, string text)
     {

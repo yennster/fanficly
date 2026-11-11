@@ -251,6 +251,16 @@ internal static class LibrarySchema
             AddColumnIfMissing(conn, "saved_searches", "alert_new_work_ids", "TEXT NOT NULL DEFAULT '[]'");
             AddColumnIfMissing(conn, "saved_searches", "alerts_attempted_at", "INTEGER");
         },
+        // Version 6: the last check that worked, and failed checks in a row (#195).
+        conn =>
+        {
+            foreach (var table in new[] { "works", "subscriptions", "followed_authors" })
+            {
+                AddColumnIfMissing(conn, table, "last_succeeded_at", "INTEGER");
+                AddColumnIfMissing(conn, table, "check_failures", "INTEGER NOT NULL DEFAULT 0");
+                AddColumnIfMissing(conn, table, "last_check_failure", "TEXT");
+            }
+        },
     ];
 
     internal static int CurrentVersion => Migrations.Length;
