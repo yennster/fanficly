@@ -101,7 +101,7 @@ public sealed class FollowedAuthorsScreen : Screen
     private UIElement BuildRow(FollowedAuthor author)
     {
         var meta = UI.UI.Flow(8, 2, AccountKit.KindLabel("person", "Author"));
-        if (author.LastCheckedAt is { } checkedAt) meta.Children.Add(UI.UI.Caption(AccountKit.CheckedAgo(checkedAt)));
+        if (AccountKit.CheckCaptionText(author) is { } caption) meta.Children.Add(caption);
         var content = UI.UI.VStack(4, UI.UI.Text(author.DisplayName, Theme.Style.Headline), meta);
 
         void Open() => Routes.OpenAuthor(new AuthorRef(author.Username, author.DisplayName));
@@ -109,8 +109,8 @@ public sealed class FollowedAuthorsScreen : Screen
             UI.UI.MenuItem("Open", Open, "person"),
             new MenuFlyoutSeparator(),
             UI.UI.MenuItem("Unfollow", () => Unfollow(author), "person.slash", isDestructive: true));
-        var name = author.LastCheckedAt is { } c
-            ? $"{author.DisplayName}, Author, {AccountKit.CheckedAgo(c)}"
+        var name = AccountKit.CheckCaption(author) is { } c
+            ? $"{author.DisplayName}, Author, {c}"
             : $"{author.DisplayName}, Author";
         var row = AccountKit.ListRow(content, Open, name, menu).Id($"author.{author.Username}");
         row.KeyDown += (_, e) =>
