@@ -3246,6 +3246,91 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(followed.lastSeenChapterCount, 11)
     }
 
+    // A follow that can never be checked (a restricted work followed while
+    // signed out) must not read "checked just now" (#195): every attempt
+    // still moves the rotation stamp, but the row goes by the last check that
+    // worked and, after two failures in a row, says why.
+    func test_failedChecks_keepTheLastSuccessAndSayWhy() async throws {
+        let ctx = try makeContext()
+        let followed = Work(ao3Id: 2, title: "Locked", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        let author = FollowedAuthor(username: "gone", displayName: "Gone")
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+
+        _ = await poller.checkFollowedWorks()
+        _ = await poller.checkFollowedAuthors()
+        let worked = try XCTUnwrap(followed.lastSucceededAt)
+        XCTAssertEqual(followed.checkStatus, .checked(worked))
+        XCTAssertEqual(author.checkStatus, .checked(try XCTUnwrap(author.lastSucceededAt)))
+
+        client.workMetadataError = AO3Error.unauthorized
+        client.authorWorksError = AO3Error.http(status: 404)
+        _ = await poller.checkFollowedWorks()
+        _ = await poller.checkFollowedAuthors()
+        // One failure is just AO3 having a bad minute.
+        XCTAssertEqual(followed.checkFailures, 1)
+        XCTAssertEqual(followed.checkStatus, .checked(worked))
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(followed.lastCheckedAt), worked)
+
+        _ = await poller.checkFollowedWorks()
+        _ = await poller.checkFollowedAuthors()
+        XCTAssertEqual(followed.checkStatus, .failing(.signIn))
+        XCTAssertEqual(author.checkStatus, .failing(.notFound))
+        XCTAssertEqual(followed.lastSucceededAt, worked)
+
+        // The next check that works clears it.
+        client.workMetadataError = nil
+        _ = await poller.checkFollowedWorks()
+        XCTAssertEqual(followed.checkFailures, 0)
+        XCTAssertNil(followed.lastCheckFailure)
+        XCTAssertEqual(followed.checkStatus, .checked(try XCTUnwrap(followed.lastSucceededAt)))
+    }
+
+    // Following a work again starts it unchecked: the last follow's failures
+    // don't carry over (#195).
+    func test_refollow_clearsCheckStatus() throws {
+        let ctx = try makeContext()
+        let summary = AO3WorkSummary.stub(id: 3, title: "Again")
+        let work = WorkPersistence.upsertMetadata(summary: summary, into: ctx, save: false)
+        work.isFollowed = true
+        work.lastCheckedAt = .now
+        work.noteCheckFailed(.signIn)
+        work.noteCheckFailed(.signIn)
+        XCTAssertEqual(work.checkStatus, .failing(.signIn))
+        XCTAssertFalse(WorkPersistence.toggleFollow(summary: summary, into: ctx))
+        XCTAssertTrue(WorkPersistence.toggleFollow(summary: summary, into: ctx))
+        XCTAssertNil(work.checkStatus)
+        XCTAssertNil(work.lastCheckedAt)
+    }
+
+    // A subscription's failures are counted like a follow's, and a record
+    // from before #195 (an attempt stamp, nothing else) still shows it.
+    func test_checkStatus_subscriptionsAndOlderRecords() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let client = StubAO3Client()
+        client.workMetadataError = AO3Error.http(status: 503)
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+        _ = await poller.checkForNewChapters()
+        _ = await poller.checkForNewChapters()
+        let rec = try XCTUnwrap(try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" }))
+        XCTAssertEqual(rec.checkStatus, .failing(.other))
+
+        let attempted = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(CheckStatus.of(lastCheckedAt: attempted, lastSucceededAt: nil, failures: 0, failure: nil),
+                       .checked(attempted))
+        // One failure with no success on record: nothing to vouch for.
+        XCTAssertNil(CheckStatus.of(lastCheckedAt: attempted, lastSucceededAt: nil, failures: 1, failure: "signIn"))
+        XCTAssertNil(CheckStatus.of(lastCheckedAt: nil, lastSucceededAt: nil, failures: 0, failure: nil))
+        // An unknown kind (a newer app's) reads as a plain failure.
+        XCTAssertEqual(CheckStatus.of(lastCheckedAt: attempted, lastSucceededAt: attempted, failures: 3, failure: "later"),
+                       .failing(.other))
+    }
+
     // A real work page still moves the baseline forward.
     func test_pollOfWorkPage_updatesChapterBaseline() async throws {
         let ctx = try makeContext()

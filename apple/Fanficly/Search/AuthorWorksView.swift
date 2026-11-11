@@ -249,9 +249,8 @@ struct FollowedAuthorRow: View {
                     Text("Author").font(.caption)
                 }
                 .foregroundStyle(.secondary)
-                if let checked = author.lastCheckedAt {
-                    Text("checked \(checked, style: .relative) ago")
-                        .font(.caption).foregroundStyle(.secondary)
+                if let status = author.checkStatus {
+                    CheckStatusText(status: status)
                 }
             }
         }

@@ -43,6 +43,12 @@ final class Work {
     /// work — drives the oldest-first rotation in `runFullPoll`. Additive
     /// (optional) so SwiftData migrates existing stores automatically.
     var lastCheckedAt: Date?
+    /// The poller's last check that read AO3's answer, the failed checks
+    /// since then and what the last one ran into (#195): rows show these,
+    /// not `lastCheckedAt`. This device only, not backed up.
+    var lastSucceededAt: Date?
+    var checkFailures: Int = 0
+    var lastCheckFailure: String?
 
     var isStarred: Bool = false
     var isPinned: Bool = false
@@ -417,7 +423,12 @@ final class SubscriptionRecord {
     var displayName: String
     var authorName: String = ""
     var lastSeenChapterCount: Int?
+    /// When the poller last tried this record (drives the rotation).
     var lastCheckedAt: Date?
+    /// See `Work.lastSucceededAt` (#195). This device only, not backed up.
+    var lastSucceededAt: Date?
+    var checkFailures: Int = 0
+    var lastCheckFailure: String?
 
     init(key: String, kind: String, displayName: String, authorName: String = "") {
         self.key = key
@@ -439,8 +450,13 @@ final class FollowedAuthor {
     @Attribute(.unique) var username: String
     var displayName: String
     var followedAt: Date
+    /// When the poller last tried this author (drives the rotation).
     var lastCheckedAt: Date?
     var knownWorkIds: [Int]
+    /// See `Work.lastSucceededAt` (#195). This device only, not backed up.
+    var lastSucceededAt: Date?
+    var checkFailures: Int = 0
+    var lastCheckFailure: String?
 
     init(username: String, displayName: String, followedAt: Date = .now,
          lastCheckedAt: Date? = nil, knownWorkIds: [Int] = []) {

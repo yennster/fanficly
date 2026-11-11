@@ -310,6 +310,12 @@ enum WorkPersistence {
             UndoCenter.shared.cancel(UndoCenter.Key.work(work.ao3Id))
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
+            // A follow starts unchecked: an earlier follow's failed checks
+            // (or one that worked months ago) say nothing about this one (#195).
+            work.lastCheckedAt = nil
+            work.lastSucceededAt = nil
+            work.checkFailures = 0
+            work.lastCheckFailure = nil
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is
             // the moment to ask for permission, not the login-gated
