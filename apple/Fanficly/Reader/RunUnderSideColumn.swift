@@ -95,24 +95,36 @@ struct SideColumn: Equatable {
 /// SwiftUI: under the column it scrolled each page to end at the column's
 /// edge, leaving the page a column's width to the left (text from -42 pt).
 /// Placed in a page's background, it finds that scroll view among the page's
-/// superviews and snaps the scroll back to the page.
+/// superviews and snaps the scroll back to the page on screen: the selected
+/// page's cell, wherever the paging view put it. Its cells needn't sit a
+/// whole scroll-view width apart (on the unfolded Duo's open book the second
+/// spread's cell started 41.67 pt, the column's width, short of one width),
+/// so a snap to a multiple of the width left that spread a column's width to
+/// the left, its left page cut off (#360).
 struct PagingInsetsOff: UIViewRepresentable {
     let active: Bool
+    /// This page (or spread) is the one on screen: only its cell snaps.
+    var selected = false
 
     func makeUIView(context: Context) -> FinderView {
         let view = FinderView()
         view.isUserInteractionEnabled = false
         view.active = active
+        view.selected = selected
         return view
     }
 
     func updateUIView(_ uiView: FinderView, context: Context) {
         uiView.active = active
+        uiView.selected = selected
         uiView.apply()
     }
 
     final class FinderView: UIView {
         var active = false
+        var selected = false
+        /// The paging view's subview this page sits in (its cell).
+        private weak var cell: UIView?
         /// The scroll view's width at the last snap: a new one (a fold or
         /// unfold resizing the pages) is snapped again.
         private var snappedWidth: CGFloat = 0
@@ -154,7 +166,7 @@ struct PagingInsetsOff: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak scroll] in
                 MainActor.assumeIsolated {
                     guard let self, let scroll, self.moves == move, self.active else { return }
-                    Self.snap(scroll)
+                    self.snap(scroll)
                 }
             }
         }
@@ -167,28 +179,36 @@ struct PagingInsetsOff: UIViewRepresentable {
         func apply() {
             guard active, window != nil else { return }
             var view = superview
+            var below: UIView = self
             while let current = view {
                 if let scroll = current as? UIScrollView, scroll.isPagingEnabled { break }
+                below = current
                 view = current.superview
             }
             guard let scroll = view as? UIScrollView else { return }
+            cell = below
             observe(scroll)
             let width = scroll.bounds.width
             guard scroll.contentInsetAdjustmentBehavior != .never || abs(width - snappedWidth) >= 1 else { return }
             scroll.contentInsetAdjustmentBehavior = .never
             snappedWidth = width
-            Self.snap(scroll)
+            snap(scroll)
             // Again once the TabView has placed its page for this size.
-            DispatchQueue.main.async { [weak scroll] in
-                if let scroll { Self.snap(scroll) }
+            DispatchQueue.main.async { [weak self, weak scroll] in
+                MainActor.assumeIsolated {
+                    if let self, let scroll { self.snap(scroll) }
+                }
             }
         }
 
-        private static func snap(_ scroll: UIScrollView) {
-            let width = scroll.bounds.width
-            guard width > 0, !scroll.isTracking, !scroll.isDecelerating else { return }
-            let snapped = (scroll.contentOffset.x / width).rounded() * width
-            if abs(snapped - scroll.contentOffset.x) >= 0.5 { scroll.contentOffset.x = snapped }
+        /// Scrolls the selected page's cell to the paging view's edge. Only
+        /// that page's view moves the scroll, so the pages beside it, laid out
+        /// too, don't fight over it.
+        private func snap(_ scroll: UIScrollView) {
+            guard selected, let cell, cell.superview === scroll, scroll.bounds.width > 0,
+                  !scroll.isTracking, !scroll.isDecelerating else { return }
+            let target = cell.frame.minX
+            if abs(target - scroll.contentOffset.x) >= 0.5 { scroll.contentOffset.x = target }
         }
     }
 }

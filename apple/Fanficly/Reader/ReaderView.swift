@@ -1748,7 +1748,7 @@ struct ReaderView: View {
         pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: .empty,
                         side: .single)
             .ignoresSafeArea(.container)  // see makeSpreadCell
-            .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
+            .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty, selected: page.id == selectedPageId))
             .contentShape(Rectangle())
             .tag(page.id)
     }
@@ -1863,7 +1863,7 @@ struct ReaderView: View {
         // Run under the Duo's side column, the paging view's UIKit content
         // inset would leave the spread a column's width to the left (see
         // PagingInsetsOff, as for one page).
-        .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
+        .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty, selected: spread.contains(selectedPageId)))
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())
