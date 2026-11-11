@@ -104,7 +104,9 @@ extension WidgetDataStore {
                         author: s.authorName,
                         chapterCount: s.lastSeenChapterCount ?? 0,
                         isFollowed: false,
-                        updatedAt: s.lastCheckedAt ?? .now
+                        // AO3's Updated date, not when it was polled: a
+                        // check isn't an update (#197). Never checked sorts last.
+                        updatedAt: s.updatedAt ?? .distantPast
                     ))
                 }
             }
