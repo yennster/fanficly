@@ -492,18 +492,24 @@ public sealed class AO3Client : IAO3Client, IDisposable
 
     /// <summary>Builds a live popular snapshot: fandoms ranked by AO3's media-page
     /// work counts, then ships/characters aggregated from the facet sidebars of
-    /// the top few fandoms. Each list falls back to the curated
-    /// <see cref="PopularTags"/> seed when AO3 yields nothing (offline / markup
-    /// drift), so the tab is never empty. ~10–13 throttled requests — meant to run
-    /// in the background and be cached for a day.</summary>
+    /// the top few fandoms. ~10–15 throttled requests — meant to run in the
+    /// background and be cached for a day.
+    /// <para>Throws rather than return a snapshot that isn't live, so
+    /// <see cref="PopularStore"/> keeps the last good one (#196, the Swift
+    /// <c>fetchPopularSnapshot</c>): a rate limit, sign-in or Cloudflare block stops
+    /// the crawl at once (more requests would only go into a window AO3 has
+    /// closed), and so does no fandom coming back, or no ship or character
+    /// because the facet requests failed. A list AO3 answered but left empty
+    /// (markup drift) still falls back to the curated <see cref="PopularTags"/>.</para></summary>
     public async Task<PopularSnapshot> FetchPopularSnapshotAsync(CancellationToken ct = default)
     {
+        Exception? lastError = null;
         var fandomCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var category in FandomCatalog.All)
         {
             IReadOnlyList<BrowseFandom> fandoms;
             try { fandoms = await FetchFandomsInCategoryAsync(category.AO3CanonicalName, ct).ConfigureAwait(false); }
-            catch (Exception e) when (!IsCallerCancellation(e, ct)) { continue; }
+            catch (Exception e) when (!IsCallerCancellation(e, ct) && !StopsPopularCrawl(e)) { lastError = e; continue; }
             foreach (var fandom in fandoms)
             {
                 if ((fandom.WorkCount ?? 0) <= 0) continue;
@@ -511,24 +517,27 @@ public sealed class AO3Client : IAO3Client, IDisposable
             }
         }
         var topFandoms = Ranked(fandomCounts);
+        if (topFandoms.Count == 0) throw lastError ?? AO3Exception.ParseFailed("AO3 listed no fandoms");
 
         var shipCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         var charCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var facetFailed = false;
         // Aggregate ship/character facets from the top few fandoms — enough
         // fandoms to surface ~30 unique ships/characters for the Popular lists.
         foreach (var fandom in topFandoms.Take(5))
         {
             AO3WorkFilters filters;
             try { filters = await FetchWorkFiltersAsync(fandom, ct).ConfigureAwait(false); }
-            catch (Exception e) when (!IsCallerCancellation(e, ct)) { continue; }
+            catch (Exception e) when (!IsCallerCancellation(e, ct) && !StopsPopularCrawl(e)) { lastError = e; facetFailed = true; continue; }
             foreach (var r in filters.Relationships) shipCounts[r.Name] = shipCounts.GetValueOrDefault(r.Name) + Math.Max(r.Count, 1);
             foreach (var c in filters.Characters) charCounts[c.Name] = charCounts.GetValueOrDefault(c.Name) + Math.Max(c.Count, 1);
         }
         var topShips = Ranked(shipCounts);
         var topChars = Ranked(charCounts);
+        if (facetFailed && topShips.Count == 0 && topChars.Count == 0 && lastError is not null) throw lastError;
 
         return new PopularSnapshot(
-            topFandoms.Count == 0 ? PopularTags.Fandoms : topFandoms.Take(30).ToList(),
+            topFandoms.Take(30).ToList(),
             topShips.Count == 0 ? PopularTags.Ships : topShips.Take(30).ToList(),
             topChars.Count == 0 ? PopularTags.Characters : topChars.Take(30).ToList(),
             DateTimeOffset.Now);
@@ -536,6 +545,12 @@ public sealed class AO3Client : IAO3Client, IDisposable
         static List<string> Ranked(Dictionary<string, int> counts) =>
             counts.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Key).ToList();
     }
+
+    /// <summary>Errors after which no more Popular requests should go out (the
+    /// Swift <c>stopsPopularCrawl</c>): AO3 asked us to slow down, wants a sign-in,
+    /// or Cloudflare is blocking us, so every later request would fail the same way.</summary>
+    internal static bool StopsPopularCrawl(Exception e) =>
+        e is AO3Exception { Kind: AO3ErrorKind.RateLimited or AO3ErrorKind.Unauthorized or AO3ErrorKind.BlockedByProtection };
 
     // MARK: - Autocomplete
 
@@ -554,13 +569,15 @@ public sealed class AO3Client : IAO3Client, IDisposable
     }
 
     /// <summary>Reads AO3's <c>[{id, name}]</c> autocomplete JSON: each item's name,
-    /// else its id. Anything malformed reads as no suggestions.</summary>
+    /// else its id. Anything that isn't a JSON array (an HTML challenge or error
+    /// page served with a 200) throws <c>ParseFailed</c>, so it is never mistaken,
+    /// and cached, as "no match" (#196).</summary>
     internal static IReadOnlyList<string> DecodeAutocomplete(byte[] body)
     {
         try
         {
             using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.ValueKind != JsonValueKind.Array) return [];
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) throw Unreadable();
             var result = new List<string>();
             foreach (var item in doc.RootElement.EnumerateArray())
             {
@@ -571,9 +588,10 @@ public sealed class AO3Client : IAO3Client, IDisposable
         }
         catch (JsonException)
         {
-            return [];
+            throw Unreadable();
         }
 
+        static AO3Exception Unreadable() => AO3Exception.ParseFailed("AO3's tag suggestions weren't readable");
         static string? StringProp(JsonElement o, string key) =>
             o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     }
