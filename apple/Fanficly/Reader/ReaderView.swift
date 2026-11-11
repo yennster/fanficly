@@ -1747,7 +1747,7 @@ struct ReaderView: View {
         // screen left the column's room blank on the right (#360).
         pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: .empty,
                         side: .single)
-            .ignoresSafeArea(.container)  // see makeSpreadCell
+            .fillingPagingCell()  // see makeSpreadCell
             .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
             .contentShape(Rectangle())
             .tag(page.id)
@@ -1852,29 +1852,16 @@ struct ReaderView: View {
             .frame(width: layout.pageWidth)
             Spacer(minLength: 0)
         }
-        // The spread is laid out for the whole page area, the Duo's side
-        // column and the bar above included, so it must fill the TabView
-        // page the same way. ignoresSafeArea alone doesn't do it here: the
-        // page's hosting view keeps its safe area (the column's 84 pt and
-        // the bar's 50 pt on the unfolded Duo), and the spread, wider than
-        // what's left, was centred in it: 41.67 pt to the left of the fold,
-        // its left page cut off (#360). So the
-        // spread takes the insets back itself; where ignoresSafeArea works,
-        // they read 0 and this changes nothing.
-        return GeometryReader { cell in
-            let insets = cell.safeAreaInsets
-            book
-                .frame(width: cell.size.width + insets.leading + insets.trailing,
-                       height: cell.size.height + insets.top + insets.bottom, alignment: .topLeading)
-                .offset(x: -insets.leading, y: -insets.top)
-        }
+        return book
+            .fillingPagingCell()
         // The pages fill the TabView page they sit in, the area they were
         // paginated for, whatever safe area it overlaps. The TabView is
         // UIKit-hosted, so each page takes its safe area from where it really
         // is on screen, and on iPhone Duo's open book (bookTopShift moves it up
         // under the bar) that pushed the text down and ran the last line ~29 pt
         // past the page, where it was cut off (1.12.0, seen at 100% margins).
-        .ignoresSafeArea(.container)
+        // fillingPagingCell ignores it (and takes it back where that alone
+        // doesn't, see there).
         // Run under the Duo's side column, the paging view's UIKit content
         // inset would leave the spread a column's width to the left (see
         // PagingInsetsOff, as for one page).

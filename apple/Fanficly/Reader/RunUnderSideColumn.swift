@@ -19,9 +19,9 @@ import UIKit
 /// housing, which needn't match on both sides. A sidebar's inset is wider
 /// than any strip and is kept too. An open book (a two-page spread, the Duo
 /// unfolded) runs under it too, so its pages sit evenly about the fold as in
-/// Books; its cells need PagingInsetsOff like one page's, or the paging
-/// view's content inset leaves the spread a column's width to the left
-/// after a page turn.
+/// Books. Its cells, like one page's, need PagingInsetsOff and
+/// fillingPagingCell, or the paging view's content inset and the page's own
+/// safe area leave the page a column's width (or half of one) to the left.
 struct RunUnderSideColumn: ViewModifier {
     /// False keeps every inset.
     let enabled: Bool
@@ -116,47 +116,10 @@ struct PagingInsetsOff: UIViewRepresentable {
         /// The scroll view's width at the last snap: a new one (a fold or
         /// unfold resizing the pages) is snapped again.
         private var snappedWidth: CGFloat = 0
-        /// Watches the paging view's offset: a page turn the TabView animates
-        /// itself (a tap) ends where it computed the page with the inset it
-        /// had, so once the offset has rested the page is snapped back. Seen
-        /// on the unfolded Duo's open book, which ended a column's width to
-        /// the left after a turn.
-        private var offsetObservation: NSKeyValueObservation?
-        private weak var observed: UIScrollView?
-        /// Counts offset changes, so only the last one's delayed snap runs.
-        private var moves = 0
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            if window == nil { stopObserving() }
             apply()
-        }
-
-        private func stopObserving() {
-            offsetObservation?.invalidate()
-            offsetObservation = nil
-            observed = nil
-        }
-
-        private func observe(_ scroll: UIScrollView) {
-            guard observed !== scroll else { return }
-            stopObserving()
-            observed = scroll
-            offsetObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
-                MainActor.assumeIsolated { self?.offsetMoved(scroll) }
-            }
-        }
-
-        private func offsetMoved(_ scroll: UIScrollView) {
-            guard active else { return }
-            moves += 1
-            let move = moves
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak scroll] in
-                MainActor.assumeIsolated {
-                    guard let self, let scroll, self.moves == move, self.active else { return }
-                    Self.snap(scroll)
-                }
-            }
         }
 
         override func layoutSubviews() {
@@ -172,7 +135,6 @@ struct PagingInsetsOff: UIViewRepresentable {
                 view = current.superview
             }
             guard let scroll = view as? UIScrollView else { return }
-            observe(scroll)
             let width = scroll.bounds.width
             guard scroll.contentInsetAdjustmentBehavior != .never || abs(width - snappedWidth) >= 1 else { return }
             scroll.contentInsetAdjustmentBehavior = .never
@@ -200,5 +162,26 @@ extension View {
         frame(maxWidth: placement.width, alignment: .leading)
             .padding(.leading, placement.leading)
             .padding(.trailing, max(0, containerWidth - placement.leading - placement.width))
+    }
+}
+
+extension View {
+    /// Fills the TabView page (paging cell) this page sits in, the area it was
+    /// paginated for, safe area included. `.ignoresSafeArea` alone doesn't do
+    /// it there on the unfolded iPhone Duo: the page's hosting view keeps its
+    /// safe area (the side column's 84 pt, the bar's 50 pt), and an open book,
+    /// wider than what's left, was centred in it, 41.67 pt left of the fold
+    /// with its left page cut off (#360). So the page takes the insets back
+    /// itself; where `.ignoresSafeArea` works they read 0 and this changes
+    /// nothing.
+    func fillingPagingCell() -> some View {
+        GeometryReader { cell in
+            let insets = cell.safeAreaInsets
+            self
+                .frame(width: cell.size.width + insets.leading + insets.trailing,
+                       height: cell.size.height + insets.top + insets.bottom, alignment: .topLeading)
+                .offset(x: -insets.leading, y: -insets.top)
+        }
+        .ignoresSafeArea(.container)
     }
 }
