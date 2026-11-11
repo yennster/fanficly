@@ -77,7 +77,9 @@ enum ReaderMetrics {
     /// Where the text column sits in a page `containerWidth` wide whose
     /// sides are covered by `reservedLeading` / `reservedTrailing` points of
     /// iPhone Duo's side column (the page runs under it, see
-    /// RunUnderSideColumn; the text must not). The text gets the Margins
+    /// RunUnderSideColumn; in the scrolling modes the text must not, while
+    /// page-by-page passes no column and its text runs under it, as in
+    /// Apple Books). The text gets the Margins
     /// share of the page beside the column, centred there, so every Margins
     /// setting still changes it. Centred on the whole screen instead, both
     /// margins had to clear the 84 pt column: 100 pt each side, the same

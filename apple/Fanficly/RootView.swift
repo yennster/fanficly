@@ -97,6 +97,12 @@ struct RootView: View {
             }
             .navigationTitle("Fanficly")
             .navigationBarTitleDisplayMode(.large)
+            // The reader's full screen leaves only the page, as Apple Books
+            // does: the split view's sidebar button floated over the page
+            // (on iPhone Duo unfolded and iPad). The reader hides the status
+            // bar exactly while it's in full screen. The split view takes
+            // this from its sidebar column, not from the detail's views.
+            .toolbar(removing: statusBar.hidden ? .sidebarToggle : nil)
         } detail: {
             NavigationStack(path: $detailPath) {
                 Group {

@@ -90,10 +90,14 @@ final class ReaderLayoutTests: XCTestCase {
             let window = app.windows.firstMatch.frame
             XCTAssertEqual(footer.frame.minX, window.minX, accuracy: 1, "the page left room on the left")
             XCTAssertEqual(footer.frame.maxX, window.maxX, accuracy: 1, "the page left room on the right")
-            // The text doesn't: it keeps a gutter from the screen's edges, and
-            // the controls (the Duo's toolbar strip) float over margin only.
+            // The text doesn't: it keeps a gutter from the screen's edges.
+            // As in Apple Books it's centred on the whole screen, the Duo's
+            // side column included, so full screen fills it: kept beside the
+            // column, it left the column's room blank once the controls hid.
+            // The strip floats over the text while the controls show.
             let texts = try storyTextFrames(above: footer.frame)
-            let buttons = app.navigationBars.buttons.allElementsBoundByIndex.map { $0.frame }.filter { !$0.isEmpty }
+            // Any other iPhone's controls sit in the navigation bar, clear of the text.
+            let buttons = isDuo ? [] : app.navigationBars.buttons.allElementsBoundByIndex.map { $0.frame }.filter { !$0.isEmpty }
             for text in texts {
                 XCTAssertGreaterThanOrEqual(text.minX, window.minX + 15, "text at \(text) touches the left edge")
                 XCTAssertLessThanOrEqual(text.maxX, window.maxX - 15, "text at \(text) touches the right edge")
@@ -101,6 +105,14 @@ final class ReaderLayoutTests: XCTestCase {
                     XCTFail("the control at \(button) covers text at \(text)")
                 }
             }
+            // The lines run as far right as the left margin allows, a word
+            // short at most: on the Duo too, under its side column, rather
+            // than stopping beside it (which left the column's room blank in
+            // full screen).
+            let left = try XCTUnwrap(texts.map(\.minX).min(), "no story text on the page")
+            let right = try XCTUnwrap(texts.map(\.maxX).max())
+            XCTAssertGreaterThanOrEqual(right, window.maxX - (left - window.minX) - 60,
+                                        "the lines end at \(right) though the text starts at \(left) on a \(window.width) pt screen")
         }
         #endif
     }
@@ -285,12 +297,18 @@ final class ReaderLayoutTests: XCTestCase {
             XCTAssertFalse(readerItems.exists, "round \(round): full screen hides the reader's items")
             XCTAssertEqual(hostItems.count, 0, "round \(round): full screen hides the work page's items")
             XCTAssertFalse(app.buttons["reader.fullScreenBack"].exists, "round \(round): no back arrow stays behind")
+            // iPad and iPhone Duo unfolded: the split view's sidebar button
+            // floated over the page.
+            let sidebarButtons = app.buttons.matching(NSPredicate(format: "label IN {'Show Sidebar', 'Hide Sidebar'}"))
+            XCTAssertFalse(sidebarButtons.allElementsBoundByIndex.contains { $0.isHittable },
+                           "round \(round): full screen hides the sidebar button")
             XCTAssertTrue(pageNumber.exists, "round \(round): full screen keeps the page number")
             tap(middle)
             XCTAssertTrue(footer.waitForExistence(timeout: 5), "round \(round): a tap brought the controls back")
             XCTAssertTrue(systemBack.waitForExistence(timeout: 5), "round \(round): the toolbar came back with its back button")
             XCTAssertTrue(readerItems.waitForExistence(timeout: 5), "round \(round): the toolbar came back with its items")
-            XCTAssertTrue(waitForAbsence(pageNumber), "round \(round): the bare page number went with full screen")
+            // CI's simulators can take seconds to answer a query here.
+            XCTAssertTrue(waitForAbsence(pageNumber, timeout: 15), "round \(round): the bare page number went with full screen")
             settle()
         }
         systemBack.tap()
@@ -517,7 +535,10 @@ final class ReaderLayoutTests: XCTestCase {
                                      "\(context): the \(which)'s text runs \(bottom - edge + pageMargin) pt past the page, where it's cut off (text \(top)–\(bottom), pages \(pageFrames()), window \(app.windows.firstMatch.frame))",
                                      file: file, line: line)
             XCTAssertGreaterThanOrEqual(bottom, edge - maxBlankBelowText,
-                                        "\(context): \(edge - bottom) pt blank under the \(which)'s text",
+                                        "\(context): \(edge - bottom) pt blank under the \(which)'s text (text \(top)–\(bottom) "
+                                        + "from x \(Int(onPage.map(\.frame.minX).min() ?? 0)), pages \(pageFrames()), spread "
+                                        + "\(app.otherElements.matching(identifier: "reader.spread").allElementsBoundByIndex.map { $0.frame }), "
+                                        + "paging view \(app.collectionViews.firstMatch.frame), window \(app.windows.firstMatch.frame))",
                                         file: file, line: line)
         }
     }
@@ -630,6 +651,11 @@ final class ReaderLayoutTests: XCTestCase {
     private var readerToolbarItem: XCUIElement {
         app.buttons.matching(NSPredicate(
             format: "identifier IN {'reader_settings_button', 'BottomOverflowBarButtonItem'}")).firstMatch
+    }
+
+    /// iPhone Duo, folded or not: the simulator the tests run on is named for it.
+    private var isDuo: Bool {
+        ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"]?.contains("Duo") == true || isDuoUnfolded
     }
 
     /// iPhone Duo unfolded: phone idiom, but no other iPhone is 600 pt across.

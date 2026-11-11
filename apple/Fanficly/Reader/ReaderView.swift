@@ -118,7 +118,8 @@ struct ReaderView: View {
     /// hidden for as long as the page area keeps its size.
     @State private var heldTopShift: HeldTopShift?
     /// The sides the page runs under iPhone Duo's column, and its width there
-    /// (RunUnderSideColumn); the text keeps clear of it.
+    /// (RunUnderSideColumn). The scrolling modes' text keeps clear of it;
+    /// page-by-page's runs under it, as in Apple Books.
     @State private var sideColumn = SideColumn.empty
     private let scrollSpace = "readerScroll"
 
@@ -312,7 +313,7 @@ struct ReaderView: View {
         self.title = title
         self.author = author
         self.authorUsername = summary?.authorUsername ?? ""
-        self.chapters = chapters
+        self.chapters = chapters.map(ReaderChapterText.cleaned)
         self.summary = summary
     }
 
@@ -325,7 +326,7 @@ struct ReaderView: View {
         self.authorUsername = work.authorUsername
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
-            .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
+            .map { ReaderChapterText.cleaned(AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId)) }
         self.summary = work.workSummary
     }
 
@@ -335,7 +336,7 @@ struct ReaderView: View {
         self.title = payload.summary.title
         self.author = payload.summary.author
         self.authorUsername = payload.summary.authorUsername
-        self.chapters = payload.chapters
+        self.chapters = payload.chapters.map(ReaderChapterText.cleaned)
         self.summary = payload.summary
     }
 
@@ -546,9 +547,12 @@ struct ReaderView: View {
         // The home-indicator inset is unaffected.
         .ignoresSafeArea(.keyboard, edges: .bottom)
         // On iPhone Duo the page runs under the side column of status bar
-        // and toolbar strip, which floats over it, as in Apple Books (one page
-        // on screen: see RunUnderSideColumn).
-        .modifier(RunUnderSideColumn(enabled: mode != .pageByPage || spreadLayout == nil,
+        // and toolbar strip, which floats over it, as in Apple Books: one page
+        // or the unfolded Duo's open book (see RunUnderSideColumn).
+        // Page-by-page's text runs under it too, as Books' does, so it fills
+        // the screen once the controls hide (the strip covers line ends while
+        // they show).
+        .modifier(RunUnderSideColumn(enabled: true,
                                      controlsHidden: isUIMinimized, column: $sideColumn))
         // Paint the nav bar with the reader's own background so it blends into
         // the page instead of showing the default translucent gray material.
@@ -1559,6 +1563,13 @@ struct ReaderView: View {
     /// bars. Pagination subtracts exactly this, so measured pages match drawn ones.
     static let pageVerticalMargin: CGFloat = 12
 
+    /// The height a page-by-page page has for its text in a page area
+    /// `area` tall: its margins and the running header's row come off (a
+    /// chapter's opening page gets the row back, see ReaderPaginator).
+    static func pageTextHeight(area: CGFloat) -> CGFloat {
+        area - 2 * pageVerticalMargin - ReaderPaginator.runningHeaderHeight
+    }
+
     /// The text column in a page `containerWidth` wide, clear of the Duo's
     /// side column (`column`; the reader's own unless given).
     private func placement(_ containerWidth: CGFloat, widthPercent percent: Double? = nil,
@@ -1636,7 +1647,9 @@ struct ReaderView: View {
                     // re-paginates, keeping the page on screen in place.
                     height: readingHeight
                 ),
-                sideColumn: spread == nil ? sideColumn : .empty
+                // Page-by-page's text ignores the Duo's side column (see
+                // makePageCell), so it's paginated for the whole width.
+                sideColumn: .empty
             )
             
             let content = Group {
@@ -1765,8 +1778,12 @@ struct ReaderView: View {
     }
 
     private func makePageCell(page: ChapterPage, fg: Color, containerWidth: CGFloat) -> some View {
-        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: sideColumn)
-            .ignoresSafeArea(.container)  // see makeSpreadCell
+        // The text is centred on the whole page, under the Duo's side column
+        // as in Apple Books, rather than kept beside it: kept beside it, full
+        // screen left the column's room blank on the right (#360).
+        pageCellContent(page: page, fg: fg, containerWidth: containerWidth, widthPercent: widthPercent, column: .empty,
+                        side: .single)
+            .fillingPagingCell()  // see makeSpreadCell
             .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
             .contentShape(Rectangle())
             .tag(page.id)
@@ -1852,16 +1869,18 @@ struct ReaderView: View {
 
     private func makeSpreadCell(_ spread: ReaderSpread.Spread, layout: ReaderSpread.Layout, fg: Color) -> some View {
         let percent = spreadWidthPercent
-        return HStack(spacing: 0) {
+        let book = HStack(spacing: 0) {
             Color.clear.frame(width: max(0, layout.leftX))
-            pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty)
+            pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty,
+                            side: .left)
                 .frame(width: layout.pageWidth)
             // The gutter: blank space on the fold. No drawn crease — the
             // hardware fold is the only seam, even lying flat.
             Color.clear.frame(width: layout.gutter.upperBound - layout.gutter.lowerBound)
             Group {
                 if let right = spread.right {
-                    pageCellContent(page: right, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty)
+                    pageCellContent(page: right, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty,
+                                    side: .right)
                 } else {
                     Color.clear
                 }
@@ -1869,17 +1888,26 @@ struct ReaderView: View {
             .frame(width: layout.pageWidth)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        return book
+            .fillingPagingCell()
         // The pages fill the TabView page they sit in, the area they were
         // paginated for, whatever safe area it overlaps. The TabView is
         // UIKit-hosted, so each page takes its safe area from where it really
         // is on screen, and on iPhone Duo's open book (bookTopShift moves it up
         // under the bar) that pushed the text down and ran the last line ~29 pt
         // past the page, where it was cut off (1.12.0, seen at 100% margins).
-        .ignoresSafeArea(.container)
+        // fillingPagingCell ignores it (and takes it back where that alone
+        // doesn't, see there).
+        // Run under the Duo's side column, the paging view's UIKit content
+        // inset would leave the spread a column's width to the left (see
+        // PagingInsetsOff, as for one page).
+        .background(PagingInsetsOff(active: !sideColumn.edges.isEmpty))
         // Blank areas (margins, gutter, below the text) take taps too, so the
         // tap-to-turn and show/hide-controls zones work anywhere on the page.
         .contentShape(Rectangle())
+        // ReaderLayoutTests report where the spread sits.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("reader.spread")
         .tag(spread.id)
     }
 
@@ -1891,9 +1919,67 @@ struct ReaderView: View {
         return Set(spreads[max(0, i - radius)...min(spreads.count - 1, i + radius)].map(\.id))
     }
 
+    /// Where a page sits on screen, for its running header.
+    private enum PageSide { case single, left, right }
+
+    /// Whether `page` opens the work (its title page).
+    private func showsTitleHeader(_ page: ChapterPage) -> Bool {
+        page.pageIndex == 0 && page.chapterIndex == chapters.first?.index
+    }
+
+    /// Whether `page` opens a chapter (its heading).
+    private func showsChapterHeader(_ page: ChapterPage) -> Bool {
+        guard chapters.count > 1 else { return false }
+        return (page.pageIndex == 0 && page.chapterIndex != chapters.first?.index)
+            || (page.pageIndex == 1 && page.chapterIndex == chapters.first?.index)
+    }
+
+    /// The running header over a page, as in Apple Books: the work's title
+    /// over the left page of a spread and the chapter over the right (a
+    /// one-shot's author there), the chapter over a lone page (a one-shot's
+    /// title). None over a page that opens the work or a chapter, whose own
+    /// heading says it.
+    private func runningHeader(for page: ChapterPage, side: PageSide) -> String? {
+        guard !page.paragraphIndices.isEmpty, !showsTitleHeader(page), !showsChapterHeader(page) else { return nil }
+        var chapterLine: String?
+        if chapters.count > 1 {
+            let chapterTitle = chapters.first(where: { $0.index == page.chapterIndex })?.title ?? ""
+            chapterLine = chapterTitle.isEmpty ? "Chapter \(page.chapterIndex)" : "Chapter \(page.chapterIndex): \(chapterTitle)"
+        }
+        let line: String
+        switch side {
+        case .left: line = ReaderChapterText.decodingLeftoverEntities(title)
+        case .right: line = chapterLine ?? author
+        case .single: line = chapterLine ?? ReaderChapterText.decodingLeftoverEntities(title)
+        }
+        return line.isEmpty ? nil : line
+    }
+
+    /// The running header's row above the page's text. It keeps its height
+    /// on every page but one that opens the work or a chapter (pagination
+    /// counts on exactly that), and stays with the controls up or hidden,
+    /// so nothing re-flows.
+    private func runningHeaderRow(_ text: String?, fg: Color) -> some View {
+        // A fixed size, not Dynamic Type: the row is a fixed height that
+        // pagination takes off every page, and a caption grown past it ran
+        // over the first lines. VoiceOver skips it (below).
+        Text(text ?? " ")
+            .font(.system(size: 12))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .foregroundStyle(fg.opacity(0.5))
+            .opacity(text == nil ? 0 : 1)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(height: ReaderPaginator.runningHeaderHeight, alignment: .top)
+            // The page number's label in the footer says where you are; the
+            // header is the page's decoration (and layout tests read every
+            // other text above the footer as story text).
+            .accessibilityHidden(true)
+    }
+
     @ViewBuilder
     private func pageCellContent(page: ChapterPage, fg: Color, containerWidth: CGFloat, widthPercent requested: Double,
-                                 column: SideColumn) -> some View {
+                                 column: SideColumn, side: PageSide) -> some View {
         // The title page holds only the work header (no story text, so nothing
         // is paginated against its width): keep it at least the standard width
         // so narrow margins don't crush its metadata row.
@@ -1901,23 +1987,29 @@ struct ReaderView: View {
         if let chapter = chapters.first(where: { $0.index == page.chapterIndex }),
            let atoms = parsedAtoms[page.chapterIndex] {
             
-            ReaderPageCell(
-                page: page,
-                chapter: chapter,
-                atoms: atoms,
-                showTitleHeader: page.pageIndex == 0 && page.chapterIndex == chapters.first?.index,
-                showChapterHeader: (page.pageIndex == 0 && page.chapterIndex != chapters.first?.index && chapters.count > 1) ||
-                                   (page.pageIndex == 1 && page.chapterIndex == chapters.first?.index && chapters.count > 1),
-                titleHeaderView: AnyView(titleHeader(fg: fg)),
-                chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg)),
-                font: fontFamily.font(size: fontSize),
-                lineSpacing: lineSpacing,
-                paragraphSpacing: paragraphSpacing,
-                kerning: kerning,
-                boldText: boldText,
-                foreground: fg,
-                highlightParagraph: highlightedParagraph(for: page.chapterIndex)
-            )
+            VStack(spacing: 0) {
+                // A page that opens the work or a chapter has no header: its
+                // heading takes the row.
+                if !showsTitleHeader(page) && !showsChapterHeader(page) {
+                    runningHeaderRow(runningHeader(for: page, side: side), fg: fg)
+                }
+                ReaderPageCell(
+                    page: page,
+                    chapter: chapter,
+                    atoms: atoms,
+                    showTitleHeader: showsTitleHeader(page),
+                    showChapterHeader: showsChapterHeader(page),
+                    titleHeaderView: AnyView(titleHeader(fg: fg)),
+                    chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg)),
+                    font: fontFamily.font(size: fontSize),
+                    lineSpacing: lineSpacing,
+                    paragraphSpacing: paragraphSpacing,
+                    kerning: kerning,
+                    boldText: boldText,
+                    foreground: fg,
+                    highlightParagraph: highlightedParagraph(for: page.chapterIndex)
+                )
+            }
             .textColumn(placement(containerWidth, widthPercent: percent, column: column), in: containerWidth)
             .padding(.vertical, Self.pageVerticalMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -2319,16 +2411,30 @@ struct ReaderView: View {
 
             if isUIMinimized {
                 // Full screen: the bar keeps its height (the row, hidden) and
-                // shows only the page number, as Apple Books does.
+                // shows only the page number, as Apple Books does: centered
+                // under each page of a spread, which sit around the fold (or
+                // the middle), not under the bar's middle.
                 row.hidden()
                     .background(bg)
                     .overlay {
-                        Text(pageNumber)
-                            .font(.caption2.weight(.medium))
-                            .monospacedDigit()
-                            .foregroundStyle(fg.opacity(0.5))
-                            .accessibilityLabel("\(label), \(pageLabel.lowercased())")
-                            .accessibilityIdentifier("reader.pageNumber")
+                        Group {
+                            if let onScreen, let layout = spreadLayout {
+                                GeometryReader { bar in
+                                    pageNumberText("\(firstNum)", fg: fg)
+                                        .position(x: layout.leftX + layout.pageWidth / 2, y: bar.size.height / 2)
+                                    if let right = onScreen.right {
+                                        pageNumberText("\(right.pageIndex + 1)", fg: fg)
+                                            .position(x: layout.gutter.upperBound + layout.pageWidth / 2,
+                                                      y: bar.size.height / 2)
+                                    }
+                                }
+                            } else {
+                                pageNumberText(pageNumber, fg: fg)
+                            }
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(label), \(pageLabel.lowercased())")
+                        .accessibilityIdentifier("reader.pageNumber")
                     }
             } else if let notice {
                 // The plain row, hidden, keeps the bar's height exactly.
@@ -2386,6 +2492,14 @@ struct ReaderView: View {
         }
     }
 
+    /// A page number in full screen's footer.
+    private func pageNumberText(_ number: String, fg: Color) -> some View {
+        Text(number)
+            .font(.caption2.weight(.medium))
+            .monospacedDigit()
+            .foregroundStyle(fg.opacity(0.5))
+    }
+
     // MARK: - Pagination algorithm helpers
 
     /// The height a page fills once the reader chrome is hidden: the device
@@ -2417,7 +2531,7 @@ struct ReaderView: View {
                                                   limitLineLength: Self.limitsLineLength,
                                                   reservedLeading: trigger.sideColumn.leading,
                                                   reservedTrailing: trigger.sideColumn.trailing).width
-        let h = trigger.size.height - 2 * Self.pageVerticalMargin
+        let h = Self.pageTextHeight(area: trigger.size.height)
         
         guard w > 50 && h > 100 else {
             return PaginationResult(pages: [], atoms: [:])
@@ -2826,7 +2940,8 @@ struct PaginationTrigger: Equatable {
     /// text (#180), and the pages must be made again.
     let content: ChapterContentSignature
     let size: CGSize
-    /// The Duo's side column the text keeps clear of (none on a spread).
+    /// The Duo's side column the text keeps clear of. Always empty now that
+    /// page-by-page's text runs under the column, as in Apple Books.
     let sideColumn: SideColumn
 }
 
