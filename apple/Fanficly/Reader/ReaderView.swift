@@ -1833,7 +1833,7 @@ struct ReaderView: View {
 
     private func makeSpreadCell(_ spread: ReaderSpread.Spread, layout: ReaderSpread.Layout, fg: Color) -> some View {
         let percent = spreadWidthPercent
-        return HStack(spacing: 0) {
+        let book = HStack(spacing: 0) {
             Color.clear.frame(width: max(0, layout.leftX))
             pageCellContent(page: spread.left, fg: fg, containerWidth: layout.pageWidth, widthPercent: percent, column: .empty,
                             side: .left)
@@ -1852,7 +1852,22 @@ struct ReaderView: View {
             .frame(width: layout.pageWidth)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The spread is laid out for the whole page area, the Duo's side
+        // column and the bar above included, so it must fill the TabView
+        // page the same way. ignoresSafeArea alone doesn't do it here: the
+        // page's hosting view keeps its safe area (the column's 84 pt and
+        // the bar's 50 pt on the unfolded Duo), and the spread, wider than
+        // what's left, was centred in it: 41.67 pt to the left of the fold,
+        // its left page cut off (#360). So the
+        // spread takes the insets back itself; where ignoresSafeArea works,
+        // they read 0 and this changes nothing.
+        return GeometryReader { cell in
+            let insets = cell.safeAreaInsets
+            book
+                .frame(width: cell.size.width + insets.leading + insets.trailing,
+                       height: cell.size.height + insets.top + insets.bottom, alignment: .topLeading)
+                .offset(x: -insets.leading, y: -insets.top)
+        }
         // The pages fill the TabView page they sit in, the area they were
         // paginated for, whatever safe area it overlaps. The TabView is
         // UIKit-hosted, so each page takes its safe area from where it really
