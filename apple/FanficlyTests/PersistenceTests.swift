@@ -3294,6 +3294,27 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(rec.updatedAt, day)
     }
 
+    /// A one-shot's work page has no Updated date, so its Published date
+    /// stands in, on the saved work and the subscription alike (#197).
+    func test_pollOfOneShot_usesPublishedDate() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let saved = Work(ao3Id: 1, title: "Fic One", authorName: "A", chapterCount: 1, totalChapters: 1)
+        ctx.insert(saved)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="published">Published:</dt><dd class="published">2026-10-05</dd><dt class="chapters">Chapters:</dt><dd class="chapters">1/1</dd></dl></body></html>"#
+
+        _ = await SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+            .checkForNewChapters()
+
+        let day = try XCTUnwrap(Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 10, day: 5)))
+        XCTAssertEqual(saved.updatedAt, day)
+        XCTAssertTrue(saved.isComplete)
+        let rec = try XCTUnwrap(ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" }))
+        XCTAssertEqual(rec.updatedAt, day)
+    }
+
     /// A failed check leaves the Library's counts alone (the parser fails
     /// closed, so nothing reads as 1/1).
     func test_pollOfErrorPage_keepsLibraryCounts() async throws {
