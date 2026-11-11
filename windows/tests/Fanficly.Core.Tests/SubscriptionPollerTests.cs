@@ -194,6 +194,23 @@ public sealed class SubscriptionPollerTests
         Assert.Equal(CheckStatus.Checked(work.LastSucceededAt!.Value), work.CurrentCheckStatus());
     }
 
+    /// <summary>Following a work again starts it unchecked (#195).</summary>
+    [Fact]
+    public void RefollowClearsCheckStatus()
+    {
+        using var store = LibraryStore.OpenInMemory();
+        var summary = new AO3WorkSummary { Id = 3, Title = "Again" };
+        WorkPersistence.ToggleFollow(summary, store);
+        var work = store.GetWork(3)!;
+        work.LastCheckedAt = T0;
+        work.NoteCheckFailed(CheckFailure.SignIn);
+        work.NoteCheckFailed(CheckFailure.SignIn);
+        Assert.False(WorkPersistence.ToggleFollow(summary, store));
+        Assert.True(WorkPersistence.ToggleFollow(summary, store));
+        Assert.Null(work.CurrentCheckStatus());
+        Assert.Null(work.LastCheckedAt);
+    }
+
     /// <summary>A subscription's failures are counted like a follow's, and a record
     /// from before #195 (an attempt stamp, nothing else) still shows it.</summary>
     [Fact]
