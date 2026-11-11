@@ -119,7 +119,7 @@ struct SubscriptionsView: View {
         // Opens the saved copy, as the Library does (offline too).
         NavigationLink(value: work) {
             LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil,
-                       checkedAt: work.lastCheckedAt)
+                       checkStatus: work.checkStatus)
         }
         .swipeActions(edge: .trailing) {
             Button {
@@ -450,6 +450,22 @@ struct SubscriptionsView: View {
     }
 }
 
+/// A row's "checked … ago", or why checks keep failing (#195).
+struct CheckStatusText: View {
+    let status: CheckStatus
+
+    var body: some View {
+        switch status {
+        case .checked(let date):
+            Text("checked \(date, style: .relative) ago")
+                .font(.caption).foregroundStyle(.secondary)
+        case .failing(let failure):
+            Label(CheckStatus.message(for: failure), systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        }
+    }
+}
+
 /// Visually mirrors `LibraryRow` so subscriptions and the library feel like
 /// the same list. We don't have full work metadata for uncached subs (no
 /// fandom/rating/wordcount), so those rows show kind + chapter/checked stats
@@ -475,9 +491,8 @@ struct SubscriptionRow: View {
                     Text("\(count) chapter\(count == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                if let checked = sub.lastCheckedAt {
-                    Text("checked \(checked, style: .relative) ago")
-                        .font(.caption).foregroundStyle(.secondary)
+                if let status = sub.checkStatus {
+                    CheckStatusText(status: status)
                 }
             }
         }
