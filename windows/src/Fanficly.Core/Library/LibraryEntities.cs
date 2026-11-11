@@ -978,10 +978,10 @@ public sealed class BlockedTerm : LibraryEntity
 /// "user:name"), plus the new-chapter baseline the poller compares against.</summary>
 public sealed class SubscriptionRecord : LibraryEntity
 {
-    internal static readonly string[] Columns = ["key", "kind", "display_name", "author_name", "last_seen_chapter_count", "last_checked_at"];
+    internal static readonly string[] Columns = ["key", "kind", "display_name", "author_name", "last_seen_chapter_count", "last_checked_at", "updated_at"];
     private string _kind, _displayName, _authorName;
     private int? _lastSeenChapterCount;
-    private DateTimeOffset? _lastCheckedAt;
+    private DateTimeOffset? _lastCheckedAt, _updatedAt;
 
     public SubscriptionRecord(string key, string kind, string displayName, string authorName = "")
     {
@@ -1001,14 +1001,20 @@ public sealed class SubscriptionRecord : LibraryEntity
     public string AuthorName { get => _authorName; set => Set(ref _authorName, value); }
     public int? LastSeenChapterCount { get => _lastSeenChapterCount; set => Set(ref _lastSeenChapterCount, value); }
     public DateTimeOffset? LastCheckedAt { get => _lastCheckedAt; set => Set(ref _lastCheckedAt, value); }
+    /// <summary>AO3's Updated date for the work, from the poller's last good
+    /// check (#197); the Subscriptions widget sorts by it. Null until then. Not
+    /// backed up (the Swift <c>SubscriptionRecord.updatedAt</c> isn't either),
+    /// since the next check fills it in.</summary>
+    public DateTimeOffset? UpdatedAt { get => _updatedAt; set => Set(ref _updatedAt, value); }
 
     internal override object?[] ToRow() =>
-        [Key, Kind, DisplayName, AuthorName, Db.I(LastSeenChapterCount), Db.D(LastCheckedAt)];
+        [Key, Kind, DisplayName, AuthorName, Db.I(LastSeenChapterCount), Db.D(LastCheckedAt), Db.D(UpdatedAt)];
     internal static SubscriptionRecord Read(SqliteDataReader r) =>
         new(Db.Str(r, 1), Db.Str(r, 2), Db.Str(r, 3), Db.Str(r, 4))
         {
             _lastSeenChapterCount = Db.IntN(r, 5),
             _lastCheckedAt = Db.DateN(r, 6),
+            _updatedAt = Db.DateN(r, 7),
         };
 }
 

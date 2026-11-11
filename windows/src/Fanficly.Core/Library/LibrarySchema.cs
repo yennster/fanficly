@@ -251,6 +251,8 @@ internal static class LibrarySchema
             AddColumnIfMissing(conn, "saved_searches", "alert_new_work_ids", "TEXT NOT NULL DEFAULT '[]'");
             AddColumnIfMissing(conn, "saved_searches", "alerts_attempted_at", "INTEGER");
         },
+        // Version 6: AO3's Updated date on a subscription, for the widget (#197).
+        conn => AddColumnIfMissing(conn, "subscriptions", "updated_at", "INTEGER"),
     ];
 
     internal static int CurrentVersion => Migrations.Length;

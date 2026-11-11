@@ -54,7 +54,7 @@ public sealed class LibraryStoreTests : IDisposable
             store.Insert(new RecentlyViewed(1, "Title", "Author", "Harry Potter - J. K. Rowling", saved));
             store.Insert(new SavedSearch("S", "prompt", "kudos_count", "asc", saved));
             store.Insert(new HiddenWork(6, "Hidden", saved));
-            store.Insert(new SubscriptionRecord("work:1", "work", "Title", "Author") { LastSeenChapterCount = 3, LastCheckedAt = saved });
+            store.Insert(new SubscriptionRecord("work:1", "work", "Title", "Author") { LastSeenChapterCount = 3, LastCheckedAt = saved, UpdatedAt = saved });
             store.Insert(new FollowedAuthor("auth", "Auth", saved, saved, [1, 2]));
             store.Insert(new ReadingStat(1, "Title", "Author", ["F"], ["F/M"], ["R"], "Teen", 1234, saved, saved, 60,
                                          new Dictionary<string, double> { ["2026-05-04"] = 60 }, 0.5, true));
@@ -87,6 +87,7 @@ public sealed class LibraryStoreTests : IDisposable
             Assert.Equal("asc", store.GetSavedSearch("S")?.SortDirection);
             Assert.Equal("Hidden", store.GetHiddenWork(6)?.Title);
             Assert.Equal(3, store.GetSubscription("work:1")?.LastSeenChapterCount);
+            Assert.Equal(saved, store.GetSubscription("work:1")?.UpdatedAt);
             Assert.Equal([1, 2], store.GetFollowedAuthor("auth")!.KnownWorkIds);
             var stat = store.GetReadingStat(1)!;
             Assert.Equal(60, stat.DaySeconds["2026-05-04"]);
@@ -512,6 +513,39 @@ public sealed class LibraryStoreTests : IDisposable
             Assert.Empty(migrated.AlertKnownWorkIds);
             Assert.Null(migrated.AlertsBaselineAt);
         }
+    }
+
+    /// <summary>A version 5 library gains the subscription's Updated date
+    /// (#197), empty until the next check.</summary>
+    [Fact]
+    public void VersionFiveLibraryMigratesToSubscriptionUpdatedDate()
+    {
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            store.Insert(new SubscriptionRecord("work:1", "work", "Fic") { LastSeenChapterCount = 3 });
+            store.Save();
+        }
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath};Pooling=False"))
+        {
+            conn.Open();
+            foreach (var sql in new[] { "ALTER TABLE subscriptions DROP COLUMN updated_at", "PRAGMA user_version = 5" })
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+        }
+        var at = new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            Assert.Equal(LibrarySchema.CurrentVersion, store.SchemaVersion);
+            var sub = store.GetSubscription("work:1")!;
+            Assert.Equal((3, (DateTimeOffset?)null), (sub.LastSeenChapterCount, sub.UpdatedAt));
+            sub.UpdatedAt = at;
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+            Assert.Equal(at, store.GetSubscription("work:1")!.UpdatedAt);
     }
 
     [Fact]

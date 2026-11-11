@@ -15,6 +15,8 @@ internal sealed class PollerFakeClient : IAO3Client
     public Action? OnFetchSubscriptions { get; set; }
     /// <summary>Chapter counts by work id; a missing id fails the fetch.</summary>
     public Dictionary<int, int> ChapterCounts { get; } = new();
+    /// <summary>Whole metadata by work id, ahead of <see cref="ChapterCounts"/>.</summary>
+    public Dictionary<int, AO3WorkMetadata> Metadata { get; } = new();
     /// <summary>Published days by work id, returned with the chapter count.</summary>
     public Dictionary<int, DateTimeOffset> PublishedDates { get; } = new();
     /// <summary>Works pages by author username; a missing author fails the fetch.</summary>
@@ -50,6 +52,7 @@ internal sealed class PollerFakeClient : IAO3Client
     public Task<AO3WorkMetadata> FetchWorkMetadataAsync(int id, CancellationToken ct = default)
     {
         Log($"work:{id}");
+        if (Metadata.TryGetValue(id, out var meta)) return Task.FromResult(meta);
         return ChapterCounts.TryGetValue(id, out var count)
             ? Task.FromResult(new AO3WorkMetadata(id, count, null, null, PublishedDates.TryGetValue(id, out var published) ? published : null))
             : Task.FromException<AO3WorkMetadata>(AO3Exception.Http(404));

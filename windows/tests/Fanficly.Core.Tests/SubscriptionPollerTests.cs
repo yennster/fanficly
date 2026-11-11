@@ -94,6 +94,40 @@ public sealed class SubscriptionPollerTests
     }
 
     [Fact]
+    public async Task ACheckRefreshesLibraryCountsAndUpdatedDates()
+    {
+        // #197: the Library row and the widget follow the toast. A followed
+        // work and a saved work only subscribed both take AO3's counts and
+        // Updated date; the subscription keeps the date for the widget's order.
+        using var store = LibraryStore.OpenInMemory();
+        store.Insert(new SubscriptionRecord("work:10", "work", "Sub") { LastSeenChapterCount = 11 });
+        store.Insert(new Work(10, "Saved, subscribed", "A") { ChapterCount = 11, TotalChapters = 12 });
+        store.Insert(new Work(20, "Followed", "A") { IsFollowed = true, LastSeenChapterCount = 11, ChapterCount = 11, TotalChapters = 12 });
+        store.Insert(new Work(30, "Follows, check fails", "A") { IsFollowed = true, LastSeenChapterCount = 4, ChapterCount = 4 });
+        store.Save();
+        var updated = T0.AddDays(-1);
+        var client = new PollerFakeClient();
+        client.Metadata[10] = new AO3WorkMetadata(10, 12, 12, updated);
+        client.Metadata[20] = new AO3WorkMetadata(20, 12, 12, updated);
+        var notifier = new RecordingNotifier();
+
+        var posted = await new SubscriptionPoller(client, store, "reader", notifier, new InMemoryKeyValueStore())
+            .CheckWorksForNewChaptersAsync();
+
+        Assert.Equal(2, posted);
+        foreach (var id in new[] { 10, 20 })
+        {
+            var work = store.GetWork(id)!;
+            Assert.Equal((12, (int?)12, true, (DateTimeOffset?)updated),
+                         (work.ChapterCount, work.TotalChapters, work.IsComplete, work.UpdatedAt));
+        }
+        Assert.Equal(updated, store.GetSubscription("work:10")!.UpdatedAt);
+        // A failed check (here a 404) leaves the row alone.
+        Assert.Equal((4, (DateTimeOffset?)null), (store.GetWork(30)!.ChapterCount, store.GetWork(30)!.UpdatedAt));
+        Assert.False(store.HasChanges);
+    }
+
+    [Fact]
     public async Task ManualCheckFetchesAWorkThatsSubscribedAndFollowedOnce()
     {
         using var store = LibraryStore.OpenInMemory();
