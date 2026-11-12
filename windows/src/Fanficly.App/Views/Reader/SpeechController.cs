@@ -166,7 +166,7 @@ internal sealed class SpeechController : IDisposable
     /// False when the chapter has nothing to speak (nothing is loaded then).</summary>
     public bool Play(IReadOnlyList<string> paragraphs, string workTitle, string author, string chapterLabel, int paragraph = 0)
     {
-        var spoken = Enumerable.Range(0, paragraphs.Count).Where(i => paragraphs[i].Trim().Length > 0).ToList();
+        var spoken = HTMLToAttributed.SpokenIndices(paragraphs);
         if (spoken.Count == 0) return false;
         _paragraphs = paragraphs.ToList();
         _spokenIndices = spoken;

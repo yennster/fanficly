@@ -660,8 +660,8 @@ internal sealed partial class ReaderView
     /// index-aligned with the rendered ones).</summary>
     private void StartNarration()
     {
-        if (_currentAnchor is { } anchor) Narrate(anchor.Chapter, anchor.Paragraph);
-        else Narrate(EffectiveChapter, 0);
+        if (_currentAnchor is { } anchor) Narrate(anchor.Chapter, anchor.Paragraph, byHand: true);
+        else Narrate(EffectiveChapter, 0, byHand: true);
     }
 
     /// <summary>Jumps narration to a chapter (from its top), keeping the page in sync.</summary>
@@ -676,17 +676,27 @@ internal sealed partial class ReaderView
         Narrate(index, 0);
     }
 
-    private void Narrate(int chapterIndex, int paragraph)
+    private void Narrate(int chapterIndex, int paragraph, bool byHand = false)
     {
         if (ChapterAt(chapterIndex) is not { } chapter) return;
+        var paragraphs = HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages);
+        // Started by hand on a chapter with nothing to speak (only images): say
+        // so and stay on this page, rather than doing nothing or carrying the
+        // reader off to a later chapter (#199).
+        if (byHand && HTMLToAttributed.SpokenIndices(paragraphs).Count == 0)
+        {
+            MainWindow.Current.ShowMessage("Nothing to read aloud in this chapter", severity: InfoBarSeverity.Informational);
+            return;
+        }
         _listenedToEnd = false;
         var label = chapter.Title.Length == 0 ? $"Chapter {chapterIndex}" : $"Chapter {chapterIndex}: {chapter.Title}";
         var previous = _listeningChapter;
         _listeningChapter = chapterIndex;
-        // A chapter with nothing to speak (only images, with images off) rolls
-        // on to the next, rather than leaving the last chapter's text loaded
+        // Reached while listening (the last chapter ran out, or picked from the
+        // Listen bar), a chapter with nothing to speak (only images) rolls on
+        // to the next, rather than leaving the last chapter's text loaded
         // under this chapter's number.
-        if (!_speech.Play(HTMLToAttributed.SpeechParagraphs(chapter.BodyHtml, ShowImages), _title, _author, label, paragraph))
+        if (!_speech.Play(paragraphs, _title, _author, label, paragraph))
         {
             AdvanceNarration();
             return;

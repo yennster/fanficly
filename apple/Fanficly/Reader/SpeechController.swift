@@ -197,9 +197,7 @@ final class SpeechController: NSObject {
     @discardableResult
     func play(paragraphs: [String], workTitle: String, author: String,
               chapterLabel: String, from paragraph: Int = 0) -> Bool {
-        let spoken = paragraphs.indices.filter {
-            !paragraphs[$0].trimmingCharacters(in: .whitespaces).isEmpty
-        }
+        let spoken = HTMLToAttributed.spokenIndices(paragraphs)
         guard !spoken.isEmpty else { return false }
         self.paragraphs = paragraphs
         self.spokenIndices = spoken

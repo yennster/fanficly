@@ -166,6 +166,12 @@ public static partial class HTMLToAttributed
             return s == SceneBreakText ? "" : s;
         }).ToArray();
 
+    /// <summary>The indices of <see cref="SpeechParagraphs"/> that are read aloud:
+    /// the non-empty ones. Empty for a chapter with nothing to speak, such as one
+    /// with only images (#199).</summary>
+    public static List<int> SpokenIndices(IReadOnlyList<string> paragraphs) =>
+        Enumerable.Range(0, paragraphs.Count).Where(i => paragraphs[i].Trim().Length > 0).ToList();
+
     /// <summary>Splits rich text into sentence slices (Unicode sentence boundaries,
     /// like Foundation's <c>.bySentences</c>), keeping their formatting. Each slice
     /// keeps its trailing spaces; whitespace-only slices are dropped. Text with no

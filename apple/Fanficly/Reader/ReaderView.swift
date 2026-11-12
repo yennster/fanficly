@@ -84,6 +84,9 @@ struct ReaderView: View {
     /// Narration read on to the end of the work: the screen stays free to lock
     /// until Listen starts again, as after a sleep pause (#182).
     @State private var listenedToEnd = false
+    /// Listen was started by hand on a chapter with nothing to read aloud
+    /// (only images or scene breaks): says so instead of doing nothing (#199).
+    @State private var showingNothingToReadAloud = false
     // Page-by-page mode
     @State private var paginatedPages: [ChapterPage] = []
     /// Page-by-page selection is always a page id; with a spread on screen the
@@ -450,6 +453,20 @@ struct ReaderView: View {
         }
     }
 
+    /// "Nothing to read aloud in this chapter" (#199), owned by the reader
+    /// rather than the Aa menu that starts Listen, whose content is gone by
+    /// the time an alert would present.
+    private struct NothingToReadAloudAlert: ViewModifier {
+        @Binding var isPresented: Bool
+
+        func body(content: Content) -> some View {
+            content
+                .alert("Nothing to read aloud in this chapter", isPresented: $isPresented) {
+                    Button("OK", role: .cancel) { }
+                }
+        }
+    }
+
     /// Reader lifecycle, lifted out of the main body chain so it type-checks
     /// independently. Keeps the screen awake while reading, tears down speech on
     /// exit, and drives the Stats active-reading timer: start on appear and when
@@ -645,6 +662,7 @@ struct ReaderView: View {
             includeImages: showImages,
             select: { showFindMatch($0.anchor, offset: $0.offset) }
         ))
+        .modifier(NothingToReadAloudAlert(isPresented: $showingNothingToReadAloud))
         #if !targetEnvironment(macCatalyst)
         .modifier(VolumeButtonPageTurnModifier(
             enabled: volumeButtonsTurnPages,
@@ -742,9 +760,9 @@ struct ReaderView: View {
         // prefer it; fall back to the effective chapter from the top when no
         // anchor has been sampled yet.
         if let anchor = currentAnchor {
-            narrate(chapter: anchor.chapter, from: anchor.paragraph)
+            narrate(chapter: anchor.chapter, from: anchor.paragraph, byHand: true)
         } else {
-            narrate(chapter: effectiveChapterIndex, from: 0)
+            narrate(chapter: effectiveChapterIndex, from: 0, byHand: true)
         }
     }
 
@@ -759,16 +777,25 @@ struct ReaderView: View {
         narrate(chapter: index, from: 0)
     }
 
-    private func narrate(chapter index: Int, from paragraph: Int) {
+    private func narrate(chapter index: Int, from paragraph: Int, byHand: Bool = false) {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return }
+        let paragraphs = HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages)
+        // Started by hand on a chapter with nothing to speak (only images):
+        // say so and stay on this page, rather than doing nothing or carrying
+        // the reader off to a later chapter (#199).
+        if byHand, HTMLToAttributed.spokenIndices(paragraphs).isEmpty {
+            showingNothingToReadAloud = true
+            return
+        }
         let label = chapter.title.isEmpty ? "Chapter \(index)" : "Chapter \(index): \(chapter.title)"
         listenedToEnd = false
         listeningChapter = index
         wireNarrationCallbacks()
-        // A chapter with nothing to speak (only images, with images off) rolls
-        // on to the next, rather than leaving the last chapter's text loaded
+        // Reached while listening (the last chapter ran out, or picked from the
+        // Listen bar), a chapter with nothing to speak (only images) rolls on
+        // to the next, rather than leaving the last chapter's text loaded
         // under this chapter's number.
-        if !speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
+        if !speech.play(paragraphs: paragraphs,
                         workTitle: title, author: author, chapterLabel: label, from: paragraph) {
             advanceNarration()
         }
