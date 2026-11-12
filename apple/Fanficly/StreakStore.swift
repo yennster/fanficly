@@ -17,10 +17,10 @@ public struct WeekdayActivity: Identifiable, Equatable, Sendable {
     public let isToday: Bool
     public let isRead: Bool
     
-    public init(id: UUID = UUID(), name: String, fullName: String = "", isToday: Bool, isRead: Bool) {
+    public init(id: UUID = UUID(), name: String, fullName: String, isToday: Bool, isRead: Bool) {
         self.id = id
         self.name = name
-        self.fullName = fullName.isEmpty ? name : fullName
+        self.fullName = fullName
         self.isToday = isToday
         self.isRead = isRead
     }
@@ -131,10 +131,6 @@ public enum StreakStore {
         dayNameFormatter.dateFormat = "EEEEE"
         dayNameFormatter.timeZone = TimeZone.current
         
-        let fullNameFormatter = DateFormatter()
-        fullNameFormatter.dateFormat = "EEEE"
-        fullNameFormatter.timeZone = TimeZone.current
-        
         // Noon avoids a DST change skipping or repeating a day.
         let today = calendar.startOfDay(for: referenceDate)
         let anchor = calendar.date(byAdding: .hour, value: 12, to: today) ?? today
@@ -144,7 +140,7 @@ public enum StreakStore {
             let dateStr = formatter.string(from: date)
             activities.append(WeekdayActivity(
                 name: dayNameFormatter.string(from: date),
-                fullName: fullNameFormatter.string(from: date),
+                fullName: calendar.standaloneWeekdaySymbols[calendar.component(.weekday, from: date) - 1],
                 isToday: offset == 0,
                 isRead: dateSet.contains(dateStr)
             ))

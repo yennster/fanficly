@@ -6,7 +6,9 @@ namespace Fanficly.App.Platform.Widgets;
 /// <summary>
 /// "Reading Streak" (FanficlyStreakWidget on iOS): the current day-streak and
 /// the last seven days as dots, today ringed on the right. Like the Swift widget it has
-/// no destination of its own, so a tap just opens Fanficly.
+/// no destination of its own, so a tap just opens Fanficly. Unlike the Swift
+/// timeline there is no midnight entry: the board re-renders on
+/// <c>Activate</c>, and the streak and dots are recomputed then.
 /// </summary>
 public static class StreakWidget
 {
@@ -31,7 +33,7 @@ public static class StreakWidget
             w.WriteStartObject();
             w.WriteString("url", WidgetCards.OpenAppUrl);
             w.WriteString("streakText", $"{streak.ToString(culture)} {(streak == 1 ? "Day" : "Days")}");
-            w.WriteString("readSummary", $"Read {readCount.ToString(culture)} of last 7 days");
+            w.WriteString("readSummary", $"Read {readCount.ToString(culture)} of 7 days");
             w.WriteStartArray("days");
             for (var i = 0; i < days.Count; i++)
             {
@@ -77,7 +79,7 @@ public static class StreakWidget
         { "type": "TextBlock", "text": "Reading Streak", "isSubtle": true, "spacing": "None", "wrap": false },
         { "type": "ColumnSet", "spacing": "Large", "columns": [
           { "type": "Column", "width": "stretch", "verticalContentAlignment": "Bottom", "items": [
-            { "type": "TextBlock", "text": "Weekly progress", "size": "Small", "weight": "Bolder", "wrap": false } ] },
+            { "type": "TextBlock", "text": "Last 7 days", "size": "Small", "weight": "Bolder", "wrap": false } ] },
           { "type": "Column", "width": "auto", "verticalContentAlignment": "Bottom", "items": [
             { "type": "TextBlock", "text": "${readSummary}", "size": "Small", "isSubtle": true, "wrap": false } ] }
         ] },
@@ -88,7 +90,7 @@ public static class StreakWidget
         {{WidgetCards.Badge("STREAK")}},
         { "type": "TextBlock", "text": "${streakText}", "size": "Medium", "weight": "Bolder", "spacing": "Small", "wrap": false },
         { "type": "TextBlock", "text": "Reading Streak", "size": "Small", "isSubtle": true, "spacing": "None", "wrap": false },
-        { "type": "TextBlock", "text": "Weekly progress", "size": "Small", "weight": "Bolder", "spacing": "Medium", "wrap": false },
+        { "type": "TextBlock", "text": "Last 7 days", "size": "Small", "weight": "Bolder", "spacing": "Medium", "wrap": false },
         {{DayColumns(14, "Small")}}
         """);
 }

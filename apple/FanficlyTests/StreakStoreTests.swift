@@ -65,10 +65,11 @@ final class StreakStoreTests: XCTestCase {
         XCTAssertEqual(activities.count, 7)
         XCTAssertEqual(activities.map(\.isRead), [false, false, false, true, false, true, true])
         XCTAssertEqual(activities.map(\.isToday), [false, false, false, false, false, false, true])
-        XCTAssertEqual(activities.first?.fullName, "Friday")
-        XCTAssertEqual(activities.first?.name, "F")
-        XCTAssertEqual(activities.last?.fullName, "Thursday")
-        XCTAssertEqual(activities.last?.name, "T")
+        // Names follow the device's language: Friday is weekday 6, Thursday 5.
+        let symbols = Calendar.current.standaloneWeekdaySymbols
+        XCTAssertEqual(activities.first?.fullName, symbols[5])
+        XCTAssertEqual(activities.last?.fullName, symbols[4])
+        XCTAssertFalse(activities.contains { $0.name.isEmpty })
     }
     
     func test_getLast7DaysActivity_mondayCountsTheWholeWeek() {

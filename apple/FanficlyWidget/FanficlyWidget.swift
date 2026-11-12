@@ -354,7 +354,13 @@ struct StreakEntry: TimelineEntry {
 
 struct StreakProvider: TimelineProvider {
     func placeholder(in context: Context) -> StreakEntry {
-        StreakEntry(date: Date(), streak: 5, activityDates: ["2026-06-11", "2026-06-10", "2026-06-09", "2026-06-08", "2026-06-07"])
+        // Five days running up to today, so the gallery's dots match "5 Days".
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone.current
+        let dates = (0..<5).compactMap { Calendar.current.date(byAdding: .day, value: -$0, to: now) }.map(formatter.string(from:))
+        return StreakEntry(date: now, streak: 5, activityDates: dates)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StreakEntry) -> ()) {
@@ -434,13 +440,13 @@ struct StreakWidgetEntryView: View {
                 let readCount = days.filter(\.isRead).count
                 
                 HStack {
-                    Text("Weekly progress")
+                    Text("Last 7 days")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.72))
                     
                     if !isSmall {
                         Spacer()
-                        Text("Read \(readCount) of last 7 days")
+                        Text("Read \(readCount) of 7 days")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white.opacity(0.55))
                     }
