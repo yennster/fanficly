@@ -50,14 +50,24 @@ public static class ChapterTracking
     /// paragraph's index matches the rendered one.</summary>
     public static ReadingAnchor? EndOfContentAnchor(IReadOnlyDictionary<string, double> offsets,
                                                     IReadOnlyList<AO3ChapterPayload> chapters,
-                                                    double viewportHeight, bool includeImages = false)
+                                                    double viewportHeight, bool includeImages = false) =>
+        EndOfContentAnchor(offsets, chapters, viewportHeight,
+                           c => HTMLToAttributed.ConvertParagraphs(c.BodyHtml, includeImages).Count);
+
+    /// <summary>The same check with the reader's own paragraph count for a chapter
+    /// (<paramref name="paragraphCount"/>, counted with its images setting). This
+    /// runs on every scroll sample before the throttle, so the reader passes its
+    /// per-chapter memo rather than asking the shared conversion cache, whose key
+    /// is the whole chapter's HTML (#198).</summary>
+    public static ReadingAnchor? EndOfContentAnchor(IReadOnlyDictionary<string, double> offsets,
+                                                    IReadOnlyList<AO3ChapterPayload> chapters,
+                                                    double viewportHeight, Func<AO3ChapterPayload, int> paragraphCount)
     {
         if (chapters.Count == 0) return null;
         var last = chapters.MaxBy(c => c.Index)!;
         var prefix = $"c{last.Index}-p";
         if (!offsets.Keys.Any(k => k.StartsWith(prefix, StringComparison.Ordinal))) return null;
-        var lastParagraph = HTMLToAttributed.ConvertParagraphs(last.BodyHtml, includeImages).Count - 1;
-        return EndOfContentAnchor(offsets, last.Index, lastParagraph, viewportHeight);
+        return EndOfContentAnchor(offsets, last.Index, paragraphCount(last) - 1, viewportHeight);
     }
 
     /// <summary><paramref name="anchor"/> moved onto the chapters actually loaded

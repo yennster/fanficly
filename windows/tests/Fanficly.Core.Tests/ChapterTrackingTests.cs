@@ -150,6 +150,22 @@ public class ChapterTrackingTests
     }
 
     [Fact]
+    public void EndOfContentAnchorUsesTheReadersOwnParagraphCount()
+    {
+        AO3ChapterPayload[] chapters = [new(1, "", "<p>a</p>"), new(2, "", "<p>b</p>")];
+        var offsets = new Dictionary<string, double> { ["c2-p4"] = 300 };
+        var counted = new List<int>();
+        var end = ChapterTracking.EndOfContentAnchor(offsets, chapters, 800, c => { counted.Add(c.Index); return 5; });
+        Assert.Equal(new ReadingAnchor(2, 4), end);
+        Assert.Equal(new[] { 2 }, counted);
+        // The last chapter not laid out yet: it isn't counted at all.
+        counted.Clear();
+        Assert.Null(ChapterTracking.EndOfContentAnchor(new Dictionary<string, double> { ["c1-p0"] = 0 }, chapters, 800,
+                                                       c => { counted.Add(c.Index); return 5; }));
+        Assert.Empty(counted);
+    }
+
+    [Fact]
     public void SamplerIgnoresReflowAtAnotherWidth()
     {
         var sampler = new ReaderAnchorSampler();

@@ -65,6 +65,28 @@ final class ChapterTrackingTests: XCTestCase {
 
     // MARK: - Anchor stride
 
+    /// #198: with images on, an image in the last chapter takes a paragraph
+    /// slot, so the end-of-work check must count with the same setting or
+    /// the final index misses the rendered anchor and Finished is never hit.
+    @MainActor
+    func test_paragraphCountsFollowTheImagesSetting() {
+        let chapter = AO3ChapterPayload(
+            index: 2, title: "",
+            bodyHTML: "<p>One.</p><img src=\"https://example.com/a.png\"><p>Two.</p>")
+        let counts = ChapterParagraphCounts()
+        XCTAssertEqual(counts.count(for: chapter, includeImages: true), 3)
+        XCTAssertEqual(counts.count(for: chapter, includeImages: false), 2)
+        // Flipping back reconverts rather than returning the other setting's count.
+        XCTAssertEqual(counts.count(for: chapter, includeImages: true), 3)
+        let lastParagraph = counts.count(for: chapter, includeImages: true) - 1
+        XCTAssertEqual(ChapterTracking.endOfContentAnchor(
+            ["c2-p2": 300], lastChapter: 2, lastParagraph: lastParagraph, viewportHeight: 800),
+            ReadingAnchor(chapter: 2, paragraph: 2))
+        // An edited chapter (a refreshed download) is counted again.
+        let edited = AO3ChapterPayload(index: 2, title: "", bodyHTML: "<p>Only.</p>")
+        XCTAssertEqual(counts.count(for: edited, includeImages: true), 1)
+    }
+
     func test_finalParagraphAlwaysCarriesAnchor() {
         // Every 6th paragraph is anchored — plus always the final one, or a
         // fully-read chapter could never report its true end.
