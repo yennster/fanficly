@@ -5,7 +5,7 @@ namespace Fanficly.App.Platform.Widgets;
 
 /// <summary>
 /// "Reading Streak" (FanficlyStreakWidget on iOS): the current day-streak and
-/// this week's reading days as dots, today ringed. Like the Swift widget it has
+/// the last seven days as dots, today ringed on the right. Like the Swift widget it has
 /// no destination of its own, so a tap just opens Fanficly.
 /// </summary>
 public static class StreakWidget
@@ -26,7 +26,6 @@ public static class StreakWidget
         var streak = StreakStore.CalculateStreak(activityDates, now);
         var days = StreakStore.GetLast7DaysActivity(activityDates, now, culture);
         var readCount = days.Count(d => d.IsRead);
-        var firstDay = (int)culture.DateTimeFormat.FirstDayOfWeek;
         return WidgetCards.Json(w =>
         {
             w.WriteStartObject();
@@ -38,8 +37,7 @@ public static class StreakWidget
             {
                 var day = days[i];
                 // Full weekday names for Narrator — the one-letter labels are ambiguous.
-                var fullName = culture.DateTimeFormat.DayNames[(firstDay + i) % 7];
-                var alt = $"{fullName}, {(day.IsRead ? "read" : "not read")}{(day.IsToday ? ", today" : "")}";
+                var alt = $"{day.FullName}, {(day.IsRead ? "read" : "not read")}{(day.IsToday ? ", today" : "")}";
                 w.WriteStartObject();
                 w.WriteString("name", day.Name);
                 w.WriteBoolean("subtle", !day.IsToday);

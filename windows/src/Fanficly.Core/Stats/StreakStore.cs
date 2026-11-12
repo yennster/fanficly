@@ -11,9 +11,10 @@ public sealed record StreakInfo(int CurrentStreak, IReadOnlyList<string> Activit
     public override int GetHashCode() => HashCode.Combine(CurrentStreak, ActivityDates.Count);
 }
 
-/// <summary>One day of the current week in the streak strip.</summary>
+/// <summary>One of the last seven days in the streak strip.</summary>
 /// <param name="Name">The day's narrow name ("M", "T", …).</param>
-public sealed record WeekdayActivity(string Name, bool IsToday, bool IsRead)
+/// <param name="FullName">The day's full name ("Monday"), for Narrator.</param>
+public sealed record WeekdayActivity(string Name, string FullName, bool IsToday, bool IsRead)
 {
     public Guid Id { get; init; } = Guid.NewGuid();
 }
@@ -99,8 +100,10 @@ public static class StreakStore
         return streak;
     }
 
-    /// <summary>The seven days of the week containing <paramref name="relativeTo"/>,
-    /// starting on the culture's first day of the week.</summary>
+    /// <summary>The seven days ending on <paramref name="relativeTo"/>'s day, oldest
+    /// first, so today is the last dot. A rolling window rather than the calendar
+    /// week, so "Read N of last 7 days" counts what it says (Swift's
+    /// <c>getLast7DaysActivity</c>, #200).</summary>
     public static IReadOnlyList<WeekdayActivity> GetLast7DaysActivity(
         IEnumerable<string> dates, DateTimeOffset? relativeTo = null,
         CultureInfo? culture = null, TimeZoneInfo? timeZone = null)
@@ -108,16 +111,14 @@ public static class StreakStore
         var format = (culture ?? CultureInfo.CurrentCulture).DateTimeFormat;
         var dateSet = new HashSet<string>(dates, StringComparer.Ordinal);
         var today = LocalDay(relativeTo ?? DateTimeOffset.Now, timeZone);
-        var todayStr = Format(today);
-        var offset = ((int)today.DayOfWeek - (int)format.FirstDayOfWeek + 7) % 7;
-        var startOfWeek = today.AddDays(-offset);
 
         var activities = new List<WeekdayActivity>();
-        for (var i = 0; i < 7; i++)
+        for (var offset = -6; offset <= 0; offset++)
         {
-            var day = startOfWeek.AddDays(i);
-            var dayStr = Format(day);
-            activities.Add(new WeekdayActivity(NarrowDayName(format, day.DayOfWeek), dayStr == todayStr, dateSet.Contains(dayStr)));
+            var day = today.AddDays(offset);
+            activities.Add(new WeekdayActivity(
+                NarrowDayName(format, day.DayOfWeek), format.GetDayName(day.DayOfWeek),
+                offset == 0, dateSet.Contains(Format(day))));
         }
         return activities;
     }
