@@ -96,6 +96,9 @@ struct ReaderView: View {
     /// any: a re-pagination (the controls toggling, a resize) reuses them
     /// instead of parsing a long one-shot's HTML again (#164).
     @State private var sourceAtoms = ChapterAtomsCache()
+    /// Rendered paragraph counts for progress and the end-of-work check,
+    /// which run on every scroll-preference change (#198).
+    @State private var paragraphCounts = ChapterParagraphCounts()
     /// The page width the pages on screen were made for; see the
     /// live-resize wait in handlePaginationTrigger.
     @State private var paginatedWidth: CGFloat?
@@ -1258,10 +1261,12 @@ struct ReaderView: View {
     /// stride-sampled topmost anchors alone top out a viewport short of the
     /// end, leaving fully-read works stuck below the Finished threshold.
     private func endOfContentAnchor(_ offsets: [String: CGFloat], viewportHeight: CGFloat) -> ReadingAnchor? {
-        guard let last = chapters.max(by: { $0.index < $1.index }),
-              // Only convert (cached, but not free) once the last chapter's
-              // anchors are actually being laid out near the viewport.
-              offsets.keys.contains(where: { $0.hasPrefix("c\(last.index)-p") }) else { return nil }
+        guard let last = chapters.max(by: { $0.index < $1.index }) else { return nil }
+        // Only count (memoized, but the first count converts the chapter)
+        // once the last chapter's anchors are actually being laid out near
+        // the viewport.
+        let prefix = "c\(last.index)-p"
+        guard offsets.keys.contains(where: { $0.hasPrefix(prefix) }) else { return nil }
         let lastParagraph = paragraphCount(ofChapter: last.index) - 1
         return ChapterTracking.endOfContentAnchor(
             offsets,
@@ -1280,7 +1285,7 @@ struct ReaderView: View {
     /// isn't loaded); the conversion is cached.
     private func paragraphCount(ofChapter index: Int) -> Int {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return 0 }
-        return HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: showImages).count
+        return paragraphCounts.count(for: chapter, includeImages: showImages)
     }
 
     private func nearbyChapterIndexes(current: Int) -> Set<Int> {
