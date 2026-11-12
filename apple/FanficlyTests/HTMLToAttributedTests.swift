@@ -145,6 +145,18 @@ final class HTMLToAttributedTests: XCTestCase {
         XCTAssertEqual(speech, ["Before.", "", "After."], "image slots are unspoken")
     }
 
+    func test_imageOnlyChapterHasNothingToSpeak() {
+        // An art-only chapter (#199): with images off it renders nothing, and
+        // with them on only unspoken image slots and scene breaks.
+        let html = "<p><img src=\"https://example.com/a.png\"></p><hr><p><img src=\"https://example.com/b.png\"></p>"
+        XCTAssertEqual(HTMLToAttributed.spokenIndices(HTMLToAttributed.speechParagraphs(html)), [])
+        XCTAssertEqual(HTMLToAttributed.spokenIndices(HTMLToAttributed.speechParagraphs(html, includeImages: true)), [])
+    }
+
+    func test_spokenIndicesSkipEmptySlots() {
+        XCTAssertEqual(HTMLToAttributed.spokenIndices(["One.", "", " \n", "Two."]), [0, 3])
+    }
+
     func test_imageCacheKeysDoNotCollide() {
         // The same HTML converted with and without images must not share a
         // cache entry (regression: keying the cache on the HTML alone).
