@@ -354,7 +354,13 @@ struct StreakEntry: TimelineEntry {
 
 struct StreakProvider: TimelineProvider {
     func placeholder(in context: Context) -> StreakEntry {
-        StreakEntry(date: Date(), streak: 5, activityDates: ["2026-06-11", "2026-06-10", "2026-06-09", "2026-06-08", "2026-06-07"])
+        // Five days running up to today, so the gallery's dots match "5 Days".
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone.current
+        let dates = (0..<5).compactMap { Calendar.current.date(byAdding: .day, value: -$0, to: now) }.map(formatter.string(from:))
+        return StreakEntry(date: now, streak: 5, activityDates: dates)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StreakEntry) -> ()) {
@@ -363,9 +369,19 @@ struct StreakProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<StreakEntry>) -> ()) {
-        let info = StreakStore.loadStreakInfo()
-        let entry = StreakEntry(date: Date(), streak: info.currentStreak, activityDates: info.activityDates)
-        let timeline = Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60)))
+        let now = Date()
+        let info = StreakStore.loadStreakInfo(relativeTo: now)
+        let entry = StreakEntry(date: now, streak: info.currentStreak, activityDates: info.activityDates)
+        // A second entry at the next local midnight, so "today" moves on and a
+        // lapsed streak drops to 0 on time even if WidgetKit's reload budget
+        // delays the 15-minute refresh.
+        let midnight = StreakStore.nextMidnight(after: now)
+        let midnightEntry = StreakEntry(
+            date: midnight,
+            streak: StreakStore.calculateStreak(from: info.activityDates, relativeTo: midnight),
+            activityDates: info.activityDates
+        )
+        let timeline = Timeline(entries: [entry, midnightEntry], policy: .after(now.addingTimeInterval(15 * 60)))
         completion(timeline)
     }
 }
@@ -424,13 +440,13 @@ struct StreakWidgetEntryView: View {
                 let readCount = days.filter(\.isRead).count
                 
                 HStack {
-                    Text("Weekly progress")
+                    Text("Last 7 days")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.72))
                     
                     if !isSmall {
                         Spacer()
-                        Text("Read \(readCount) of last 7 days")
+                        Text("Read \(readCount) of 7 days")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white.opacity(0.55))
                     }
@@ -477,7 +493,7 @@ struct StreakWidgetEntryView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(dayAccessibilityLabel(for: day, in: days))
+                        .accessibilityLabel(dayAccessibilityLabel(for: day))
                     }
                 }
                 .padding(.vertical, isSmall ? 4 : 3)
@@ -499,14 +515,9 @@ struct StreakWidgetEntryView: View {
     }
 
     /// Full weekday name for VoiceOver — the one-letter labels are ambiguous.
-    /// The dots run from the calendar's first weekday (see `getLast7DaysActivity`).
-    private func dayAccessibilityLabel(for day: WeekdayActivity, in days: [WeekdayActivity]) -> String {
-        let calendar = Calendar.current
-        var name = day.name
-        if let index = days.firstIndex(where: { $0.id == day.id }) {
-            name = calendar.standaloneWeekdaySymbols[(calendar.firstWeekday - 1 + index) % 7]
-        }
-        var label = "\(name), \(day.isRead ? "read" : "not read")"
+    /// The dots are the last seven days, ending today (see `getLast7DaysActivity`).
+    private func dayAccessibilityLabel(for day: WeekdayActivity) -> String {
+        var label = "\(day.fullName), \(day.isRead ? "read" : "not read")"
         if day.isToday { label += ", today" }
         return label
     }

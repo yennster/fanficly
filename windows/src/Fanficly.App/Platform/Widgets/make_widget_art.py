@@ -159,16 +159,17 @@ def streak_shot(glyphs):
     label(d, "STREAK")
     d.text((40, 96), "5 Days", font=font(46, True), fill=TITLE)
     d.text((40, 160), "Reading Streak", font=font(28), fill=SUBTLE)
-    d.text((40, 400), "Weekly progress", font=font(22, True), fill=TITLE)
+    d.text((40, 400), "Last 7 days", font=font(22, True), fill=TITLE)
     f = font(20)
-    t = "Read 5 of last 7 days"
+    t = "Read 5 of 7 days"
     d.text((560 - d.textlength(t, font=f), 402), t, font=f, fill=SUBTLE)
     d.rounded_rectangle((40, 440, 560, 560), radius=18, fill=CHIP)
-    names = ["M", "T", "W", "T", "F", "S", "S"]
-    reads = [True, True, True, False, True, True, False]
+    # The last seven days, today last (the Swift placeholder's five-day run).
+    names = ["S", "M", "T", "W", "T", "F", "S"]
+    reads = [False, False, True, True, True, True, True]
     for i, n in enumerate(names):
         cx = 40 + 520 * (i + 0.5) / 7
-        today = i == 5
+        today = i == 6
         d.text((cx, 472), n, font=font(20, True), fill=TITLE if today else SUBTLE, anchor="mm")
         key = ("DotRead" if reads[i] else "DotUnread") + ("Today" if today else "")
         g = glyphs[key].resize((48, 48), Image.LANCZOS)

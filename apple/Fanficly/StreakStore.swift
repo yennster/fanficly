@@ -10,13 +10,17 @@ public struct StreakInfo: Codable, Equatable, Sendable {
 
 public struct WeekdayActivity: Identifiable, Equatable, Sendable {
     public let id: UUID
+    /// The one-letter weekday ("M").
     public let name: String
+    /// The full weekday name ("Monday"), for VoiceOver.
+    public let fullName: String
     public let isToday: Bool
     public let isRead: Bool
     
-    public init(id: UUID = UUID(), name: String, isToday: Bool, isRead: Bool) {
+    public init(id: UUID = UUID(), name: String, fullName: String, isToday: Bool, isRead: Bool) {
         self.id = id
         self.name = name
+        self.fullName = fullName
         self.isToday = isToday
         self.isRead = isRead
     }
@@ -111,41 +115,46 @@ public enum StreakStore {
         return streak
     }
 
+    /// The seven days ending on `referenceDate`'s day, oldest first, so today is
+    /// the last dot. A rolling window rather than the calendar week, so "Read N
+    /// of last 7 days" counts what it says and never shows future days.
     public static func getLast7DaysActivity(from dates: [String], relativeTo referenceDate: Date = .now) -> [WeekdayActivity] {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone.current
         
         let calendar = Calendar.current
+        let dateSet = Set(dates)
         var activities: [WeekdayActivity] = []
         
         let dayNameFormatter = DateFormatter()
         dayNameFormatter.dateFormat = "EEEEE"
         dayNameFormatter.timeZone = TimeZone.current
         
-        let todayStr = formatter.string(from: referenceDate)
+        // Noon avoids a DST change skipping or repeating a day.
+        let today = calendar.startOfDay(for: referenceDate)
+        let anchor = calendar.date(byAdding: .hour, value: 12, to: today) ?? today
         
-        // Find the start of the week for the referenceDate respecting the calendar settings (firstWeekday)
-        var startOfWeek = referenceDate
-        var interval: TimeInterval = 0
-        if !calendar.dateInterval(of: .weekOfYear, start: &startOfWeek, interval: &interval, for: referenceDate) {
-            // Fallback: manually calculate start of week based on firstWeekday
-            let currentWeekday = calendar.component(.weekday, from: referenceDate)
-            let firstWeekday = calendar.firstWeekday
-            let offset = (currentWeekday - firstWeekday + 7) % 7
-            startOfWeek = calendar.date(byAdding: .day, value: -offset, to: referenceDate) ?? referenceDate
-        }
-        
-        for offset in 0..<7 {
-            guard let date = calendar.date(byAdding: .day, value: offset, to: startOfWeek) else { continue }
+        for offset in -6...0 {
+            guard let date = calendar.date(byAdding: .day, value: offset, to: anchor) else { continue }
             let dateStr = formatter.string(from: date)
-            let isRead = dates.contains(dateStr)
-            let isToday = (dateStr == todayStr)
-            let name = dayNameFormatter.string(from: date)
-            activities.append(WeekdayActivity(name: name, isToday: isToday, isRead: isRead))
+            activities.append(WeekdayActivity(
+                name: dayNameFormatter.string(from: date),
+                fullName: calendar.standaloneWeekdaySymbols[calendar.component(.weekday, from: date) - 1],
+                isToday: offset == 0,
+                isRead: dateSet.contains(dateStr)
+            ))
         }
         
         return activities
+    }
+
+    /// The start of the day after `date`, when the widget's "today" and
+    /// streak next change.
+    public static func nextMidnight(after date: Date = .now) -> Date {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: date)
+        return calendar.date(byAdding: .day, value: 1, to: today) ?? date.addingTimeInterval(24 * 60 * 60)
     }
     
     public static func installCloudSyncObserver() {
