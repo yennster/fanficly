@@ -609,6 +609,11 @@ searches, and recommendations. `project.yml` compiles `WidgetProgressStore.swift
 `StreakStore.swift`, and `WidgetDataStore.swift` into **both** app and extension.
 Keep those shared files free of app-only models/UI dependencies;
 `WidgetDataUpdater.swift` is the app-only SwiftData projection layer.
+The streak widget's dots are the rolling seven days ending today
+(`StreakStore.getLast7DaysActivity`), not the calendar week, and its timeline
+adds a second entry at the next local midnight with the streak recomputed for
+that moment, so "today" and a lapsed streak roll over without waiting for a
+WidgetKit reload (#200).
 
 - `WidgetDataStore.updateAll(context:)` writes snapshots to app-group defaults
   (and standard defaults as fallback), then reloads timelines. The extension
