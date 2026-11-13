@@ -50,6 +50,9 @@ struct RootView: View {
     @State private var pendingResumeRoute: ResumeWorkRoute?
     @State private var pendingFolderRoute: PinnedFolderRoute?
     @State private var pendingNotificationRoute: NotificationRoute?
+    /// Links, opened files, shares, notification taps and shortcuts that
+    /// arrived while the 17+ gate was up; they run once it's confirmed (#203).
+    @State private var afterAgeGate: [@MainActor () -> Void] = []
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
     /// Set by the reader for its full screen (see StatusBarVisibility).
@@ -211,29 +214,38 @@ struct RootView: View {
             .fullScreenCover(isPresented: .constant(!ageConfirmed && !FanficlyApp.isDemoMode)) {
                 AgeGateView()
             }
+            // Nothing behind the cover runs before the 17+ confirmation:
+            // a shared link, opened EPUB, notification tap or shortcut waits
+            // for it (#203), then runs in the order it arrived.
+            .onChange(of: ageConfirmed) { _, confirmed in
+                guard confirmed else { return }
+                let actions = afterAgeGate
+                afterAgeGate = []
+                actions.forEach { $0() }
+            }
             .onOpenURL { url in
-                handleIncomingURL(url)
+                runAfterAgeGate { handleIncomingURL(url) }
             }
             // A tapped Spotlight result (`work-<id>`, from
             // `WorkPersistence.indexWork`) opens the work like a widget tap.
             .onContinueUserActivity(CSSearchableItemActionType) { activity in
                 guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
                       let workId = WorkPersistence.workId(fromSpotlightIdentifier: identifier) else { return }
-                openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil))
+                runAfterAgeGate { openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil)) }
             }
             // The "Continue Reading" App Shortcut. `initial: true` catches a run
             // that launched the app before this view existed.
             .onChange(of: ContinueReadingRouter.shared.pendingRequest, initial: true) { _, pending in
                 guard pending else { return }
                 ContinueReadingRouter.shared.pendingRequest = false
-                openContinueReading()
+                runAfterAgeGate { openContinueReading() }
             }
             // `initial: true` catches a tap that cold-launched the app and
             // landed before this view existed.
             .onChange(of: NotificationRouter.shared.pendingRoute, initial: true) { _, route in
                 guard let route else { return }
                 NotificationRouter.shared.pendingRoute = nil
-                openNotificationRoute(route)
+                runAfterAgeGate { openNotificationRoute(route) }
             }
             // The rating prompt, shown just after a reader closes on a finished
             // story; the short delay lets the pop settle so it lands over the
@@ -274,7 +286,24 @@ struct RootView: View {
             // "Deleted 'X' · Undo" after a one-tap delete (#169).
             .undoToastHost()
             // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).
-            .focusedSceneValue(\.selectTab, SelectTabAction { select($0) })
+            // They do nothing behind the 17+ gate (#203).
+            .focusedSceneValue(\.selectTab, SelectTabAction { item in
+                if !isAgeGateUp { select(item) }
+            })
+    }
+
+    /// The 17+ confirmation is on screen (skipped in demo mode).
+    private var isAgeGateUp: Bool {
+        !ageConfirmed && !FanficlyApp.isDemoMode
+    }
+
+    /// Runs `action` now, or once the 17+ gate is confirmed if it's up (#203).
+    private func runAfterAgeGate(_ action: @escaping @MainActor () -> Void) {
+        if isAgeGateUp {
+            afterAgeGate.append(action)
+        } else {
+            action()
+        }
     }
 
     private var isCompactNavigation: Bool {
@@ -516,7 +545,7 @@ struct RootView: View {
                 if let url = url {
                     Task { @MainActor in
                         if let workId = self.parseWorkId(from: url) {
-                            self.importingWorkId = workId
+                            self.runAfterAgeGate { self.importingWorkId = workId }
                         }
                     }
                 }
@@ -528,7 +557,7 @@ struct RootView: View {
                    let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
                     Task { @MainActor in
                         if let workId = self.parseWorkId(from: url) {
-                            self.importingWorkId = workId
+                            self.runAfterAgeGate { self.importingWorkId = workId }
                         }
                     }
                 }

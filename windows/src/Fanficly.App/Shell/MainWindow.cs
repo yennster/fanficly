@@ -213,7 +213,7 @@ public sealed partial class MainWindow : Window
         {
             // Mouse "back" button.
             var props = e.GetCurrentPoint(RootElement).Properties;
-            if (props.IsXButton1Pressed) { e.Handled = GoBack(); }
+            if (props.IsXButton1Pressed && !Views.Account.ContentSafetyViews.AgeGateActive) { e.Handled = GoBack(); }
         };
 
         _zoom = UiZoom.Clamped(KeyValueStores.Default.GetDouble(ZoomKey, UiZoom.ActualSize));
@@ -495,10 +495,17 @@ public sealed partial class MainWindow : Window
     private void InstallKeyboard()
     {
         RootElement.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
-        void Add(VirtualKey key, VirtualKeyModifiers mods, Action action)
+        // While the 17+ gate is up only the shortcuts that change how the window
+        // looks (zoom, full screen) work; the rest would open tabs, go back or
+        // change reader settings behind it (#203).
+        void Add(VirtualKey key, VirtualKeyModifiers mods, Action action, bool duringAgeGate = false)
         {
             var accel = new KeyboardAccelerator { Key = key, Modifiers = mods };
-            accel.Invoked += (_, a) => { a.Handled = true; action(); };
+            accel.Invoked += (_, a) =>
+            {
+                a.Handled = true;
+                if (duringAgeGate || !Views.Account.ContentSafetyViews.AgeGateActive) action();
+            };
             RootElement.KeyboardAccelerators.Add(accel);
         }
         foreach (var item in SidebarItems.All)
@@ -514,20 +521,22 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.Add, VirtualKeyModifiers.Control, BiggerText);
         Add((VirtualKey)189, VirtualKeyModifiers.Control, SmallerText);  // Ctrl+-
         Add(VirtualKey.Subtract, VirtualKeyModifiers.Control, SmallerText);
-        Add((VirtualKey)187, ctrlShift, ZoomIn);
-        Add(VirtualKey.Add, ctrlShift, ZoomIn);
-        Add((VirtualKey)189, ctrlShift, ZoomOut);
-        Add(VirtualKey.Subtract, ctrlShift, ZoomOut);
-        Add(VirtualKey.Number0, VirtualKeyModifiers.Control, ResetZoom);
-        Add(VirtualKey.NumberPad0, VirtualKeyModifiers.Control, ResetZoom);
+        Add((VirtualKey)187, ctrlShift, ZoomIn, duringAgeGate: true);
+        Add(VirtualKey.Add, ctrlShift, ZoomIn, duringAgeGate: true);
+        Add((VirtualKey)189, ctrlShift, ZoomOut, duringAgeGate: true);
+        Add(VirtualKey.Subtract, ctrlShift, ZoomOut, duringAgeGate: true);
+        Add(VirtualKey.Number0, VirtualKeyModifiers.Control, ResetZoom, duringAgeGate: true);
+        Add(VirtualKey.NumberPad0, VirtualKeyModifiers.Control, ResetZoom, duringAgeGate: true);
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => GoBack());
         Add(VirtualKey.GoBack, VirtualKeyModifiers.None, () => GoBack());
-        Add(VirtualKey.F11, VirtualKeyModifiers.None, ToggleFullScreen);
+        Add(VirtualKey.F11, VirtualKeyModifiers.None, ToggleFullScreen, duringAgeGate: true);
 
         // Keys offered to the screen on top first (reader page turns), unless
         // a text box has focus.
         RootElement.PreviewKeyDown += (_, e) =>
         {
+            // Behind the 17+ gate keys only reach the gate itself (#203).
+            if (Views.Account.ContentSafetyViews.AgeGateActive) return;
             if (FocusManager.GetFocusedElement(RootElement.XamlRoot) is TextBox or PasswordBox or AutoSuggestBox or RichEditBox) return;
             var mods = CurrentModifiers();
             if (Navigator.Current?.HandleKey(e.Key, mods) == true) { e.Handled = true; return; }

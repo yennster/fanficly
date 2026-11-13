@@ -102,6 +102,17 @@ public static partial class AppHost
 
     public static void HandleActivation(AppActivationArguments args, bool isLaunch)
     {
+        // A share is read now, while Windows waits on it; the import it starts
+        // waits for the 17+ gate through OpenUri. Everything else (links, files,
+        // jump lists, notification taps) waits for the gate here (#203).
+        if (args.Kind == ExtendedActivationKind.ShareTarget || !Views.Account.ContentSafetyViews.AgeGateRequired)
+            HandleActivationNow(args, isLaunch);
+        else
+            Views.Account.ContentSafetyViews.RunAfterAgeGate(() => HandleActivationNow(args, isLaunch));
+    }
+
+    private static void HandleActivationNow(AppActivationArguments args, bool isLaunch)
+    {
         try
         {
             switch (args.Kind)
@@ -133,7 +144,9 @@ public static partial class AppHost
 
     /// <summary>fanficly://resume/…, fanficly://import?url=…, fanficly://search?query=…,
     /// and plain AO3 work links.</summary>
-    public static void OpenUri(Uri uri) => OpenUriCore(uri);
+    /// <remarks>Waits for the 17+ gate: a pasted, dropped or shared link opens
+    /// nothing before it's confirmed (#203).</remarks>
+    public static void OpenUri(Uri uri) => Views.Account.ContentSafetyViews.RunAfterAgeGate(() => OpenUriCore(uri));
 
     static partial void OpenUriCore(Uri uri);
     static partial void HandleShare(Windows.ApplicationModel.DataTransfer.ShareTarget.ShareOperation operation);

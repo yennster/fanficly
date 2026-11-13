@@ -805,7 +805,12 @@ or remote logging. See `../PRIVACY.md` and `Fanficly/PrivacyInfo.xcprivacy`.
 ## Content safety and accessibility
 
 `RootView` presents the 17+ confirmation until `ContentControl.ageConfirmedKey`
-is set (demo mode bypasses it). `ContentFilter.apply` removes local hidden work
+is set (demo mode bypasses it). The views under the cover still run, so
+anything arriving from outside goes through `runAfterAgeGate` (#203): links and
+shares (`onOpenURL`, the share extension's `fanficly://import`), opened EPUBs,
+Spotlight taps, the Continue Reading shortcut, notification taps, and pasted or
+dropped links queue in `afterAgeGate` and run once it's confirmed; the Go
+menu's tab switch does nothing until then. `ContentFilter.apply` removes local hidden work
 IDs, blocked tags and authors (`BlockedTerm` → `Blocklist`), and, by default,
 Mature/Explicit ratings from result lists. This is
 **display-layer filtering**, not an AO3 query filter or a universal reader access
