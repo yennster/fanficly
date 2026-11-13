@@ -120,7 +120,7 @@ struct SearchView: View {
                     ForEach(activeChips) { chip in
                         Button {
                             chip.remove(&active)
-                            if hasSearched { startSearch() }
+                            if hasSearched { searchOrClear() }
                         } label: {
                             ChipView(text: chip.label, kind: chip.kind, removable: true)
                         }
@@ -352,7 +352,7 @@ struct SearchView: View {
                 if !activeChips.isEmpty {
                     Button("Remove All Filters") {
                         clearFilters()
-                        startSearch()
+                        searchOrClear()
                     }
                 }
             }
@@ -642,21 +642,59 @@ struct SearchView: View {
         active = active.merging(parsed)
         text = parsed.query
         searchFocused = false
-        startSearch()
+        searchOrClear(recordingRecent: true)
     }
 
-    private func startSearch() {
+    /// After the filters or the box changed: runs what's left, or, when
+    /// nothing is left (the last chip went with nothing typed), goes back to
+    /// the start view instead of leaving the old results under an empty
+    /// header (#201). Only these paths clear: a sort change or Try Again
+    /// with the box emptied leaves the results alone.
+    private func searchOrClear(recordingRecent: Bool = false) {
+        if currentFilters.isEmpty {
+            if hasSearched || isSearching || errorMessage != nil { clearResults() }
+        } else {
+            startSearch(recordingRecent: recordingRecent)
+        }
+    }
+
+    /// Runs the current search. Only a deliberate search (submitting the box
+    /// or the Filters sheet, or loading a stored search) is recorded as a
+    /// recent; refining it with chips, suggestions or the sort isn't, so one
+    /// session can't push real history out of the list (#201).
+    private func startSearch(recordingRecent: Bool = false) {
         guard !currentFilters.isEmpty else { return }
         if !userPickedSort {
             active.sortColumn = SearchSyntax.automaticSort(hasKeywords: !currentFilters.query.isEmpty)
             active.sortDirection = .desc
         }
         let filters = currentFilters
-        recentRaw = RecentSearches.adding(filters.promptText(), to: recentRaw)
+        if recordingRecent {
+            recentRaw = RecentSearches.adding(filters.promptText(), to: recentRaw)
+        }
         // A newer search replaces an in-flight one, so a slow earlier
         // response can never overwrite the results you asked for last.
         searchTask?.cancel()
         searchTask = Task { await performSearch(filters) }
+    }
+
+    /// Back to the start view: no search, no results.
+    private func clearResults() {
+        searchTask?.cancel()
+        searchTask = nil
+        searchStartedAt = nil
+        paging.restart()
+        results = []
+        badges = [:]
+        totalFound = nil
+        currentPage = 1
+        totalPages = 1
+        searched = nil
+        errorMessage = nil
+        sessionExpired = false
+        hasSearched = false
+        isLoadingMore = false
+        withAnimation { isSearching = false }
     }
 
     private func cancelSearch() {
@@ -770,7 +808,7 @@ struct SearchView: View {
         active = filters
         text = parsed.query
         searchFocused = false
-        startSearch()
+        startSearch(recordingRecent: true)
     }
 
     private func load(_ saved: SavedSearch) {
@@ -795,7 +833,7 @@ struct SearchView: View {
         active = saved
         text = saved.query
         searchFocused = false
-        startSearch()
+        startSearch(recordingRecent: true)
     }
 
     private func suggestName() -> String {

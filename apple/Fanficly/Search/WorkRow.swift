@@ -12,7 +12,7 @@ struct WorkRow: View {
     @Environment(\.modelContext) private var context
     @Environment(\.readingWordsPerMinute) private var wordsPerMinute
     // Reflects the local follow ("bookmark") state; seeded on appear and
-    // updated when the inline button is tapped.
+    // updated whenever `toggleFollow` changes it, from any button or menu.
     @State private var isFollowed = false
     // Saving from the inline button puts the work in the Library before the
     // list's next lookup.
@@ -77,6 +77,17 @@ struct WorkRow: View {
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
         .onAppear { isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context) }
+        // A list's long-press Save / Remove (or the work page's bookmark)
+        // changes the follow without this button: keep the icon, and its
+        // VoiceOver label, in step (#201).
+        .onReceive(NotificationCenter.default.publisher(for: .workFollowChanged)) { note in
+            guard (note.userInfo?[workFollowChangedIdKey] as? Int) == work.id else { return }
+            // This row's own button already set it, animated.
+            let followed = WorkPersistence.isFollowed(workId: work.id, in: context)
+            guard followed != isFollowed else { return }
+            isFollowed = followed
+            savedHere = true
+        }
     }
 
     /// Inline one-tap follow/unfollow, so a story can be saved to the Library
@@ -84,11 +95,14 @@ struct WorkRow: View {
     /// tap from also triggering the row's NavigationLink.
     private var bookmarkButton: some View {
         Button {
-            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
+            // Set first, animated, so the change notice toggleFollow posts
+            // finds nothing left to do here.
             withAnimation(.easeInOut(duration: 0.2)) {
-                isFollowed = newState
+                isFollowed.toggle()
                 savedHere = true  // toggling creates the Work; unfollowing keeps it
             }
+            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
+            if newState != isFollowed { isFollowed = newState }
         } label: {
             Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
                 .font(.body)

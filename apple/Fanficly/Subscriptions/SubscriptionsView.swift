@@ -28,6 +28,9 @@ struct SubscriptionsView: View {
     /// account's list sync doesn't wait behind the old run's checks.
     @State private var refreshTask: Task<Void, Never>?
     @State private var hasRequestedNotifications: Bool = false
+    /// The tab is showing: an automatic sync starts only then, never after
+    /// leaving it (#201).
+    @State private var isOnScreen = false
     @State private var browserURL: ShareItem?
 
     private static let ao3 = "https://archiveofourown.org"
@@ -181,6 +184,7 @@ struct SubscriptionsView: View {
         work.followedAt = nil
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
+        WorkPersistence.noteFollowChanged(workId: work.ao3Id)
         UIAccessibility.post(notification: .announcement, argument: String(localized: "Unfollowed \(work.title)"))
     }
 
@@ -243,7 +247,7 @@ struct SubscriptionsView: View {
         guard let count = lastNotifyCount else { return nil }
         var text = count == 0
             ? "No new chapters."
-            : "\(count) work\(count == 1 ? "" : "s") have new chapters."
+            : count == 1 ? "1 story has new chapters." : "\(count) stories have new chapters."
         if let works = lastNewWorksCount, works > 0 {
             text += " \(works) new work\(works == 1 ? "" : "s") from authors you follow."
         }
@@ -257,7 +261,11 @@ struct SubscriptionsView: View {
     }
 
     var body: some View {
-        Group {
+        // A ZStack, not a Group: a Group hands its modifiers to whichever
+        // branch shows, so onAppear/onDisappear fired on every switch between
+        // the empty state and the list, and the disappear cancelled the
+        // refresh the empty state had just started (#201).
+        ZStack {
             if auth.username == nil && !hasLocalFollows {
                 loginPrompt
             } else if auth.username != nil, subs.isEmpty, !isBusy, !auth.isSessionExpired, !hasLocalFollows {
@@ -321,7 +329,17 @@ struct SubscriptionsView: View {
             // Signed in again: the expired-session error no longer stands.
             if !expired, lastError?.hasPrefix(SessionExpiry.title) == true { lastError = nil }
         }
-        .onAppear { syncIfNew() }
+        .onAppear {
+            isOnScreen = true
+            syncIfNew()
+        }
+        // A full check is one throttled request per work and author; it stops
+        // when the tab goes rather than running on unseen behind other
+        // screens' requests (#201). Refresh stays off until it has ended.
+        .onDisappear {
+            isOnScreen = false
+            refreshTask?.cancel()
+        }
         // Another account (or none): the last run's messages were the old one's.
         .onChange(of: auth.username) { _, _ in
             lastError = nil
@@ -411,6 +429,8 @@ struct SubscriptionsView: View {
             syncIfNew()
             return
         }
+        // Left the tab (#201): no checks for a screen that's gone.
+        guard !Task.isCancelled else { return }
         lastError = error
         // The per-work and per-author checks are throttled (1 req/sec) and
         // only feed notifications, so run them after the list is showing.
@@ -419,11 +439,13 @@ struct SubscriptionsView: View {
         let chapters = await poller.checkWorksForNewChapters()
         let newWorks = await poller.checkFollowedAuthors()
         isChecking = false
-        // Cancelled, or another account's: the results aren't this one's to show.
-        guard !Task.isCancelled, auth.username == username, !poller.accountChanged else {
+        // Another account's: the results aren't this one's to show.
+        guard auth.username == username, !poller.accountChanged else {
             syncIfNew()
             return
         }
+        // Cancelled by leaving the tab: the checks stopped part way.
+        guard !Task.isCancelled else { return }
         lastNotifyCount = chapters
         lastNewWorksCount = newWorks
         lastFailedChecks = poller.tally.failed
@@ -443,7 +465,7 @@ struct SubscriptionsView: View {
     /// A new account's list syncs on its own (#159): just signed in, or the
     /// first visit since. After that, Refresh and the background poll keep it.
     private func syncIfNew() {
-        guard let username = auth.username, auth.hasSession, !isBusy, !FanficlyApp.isDemoMode,
+        guard isOnScreen, let username = auth.username, auth.hasSession, !isBusy, !FanficlyApp.isDemoMode,
               !SubscriptionPoller(client: client, context: context, username: username).hasSyncedList
         else { return }
         startRefresh()

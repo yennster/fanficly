@@ -167,6 +167,22 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
     }
 
+    /// A result row's bookmark follows changes made elsewhere (a list's
+    /// long-press Save / Remove) through this notification (#201).
+    func test_toggleFollow_announcesTheChangedWork() throws {
+        let ctx = try makeContext()
+        let summary = payload(id: 11, chapters: 1).summary
+        // Once for the follow, once for the unfollow.
+        let announced = expectation(forNotification: .workFollowChanged, object: nil) { note in
+            (note.userInfo?[workFollowChangedIdKey] as? Int) == 11
+        }
+        announced.expectedFulfillmentCount = 2
+        WorkPersistence.toggleFollow(summary: summary, into: ctx)
+        WorkPersistence.toggleFollow(summary: summary, into: ctx)
+        wait(for: [announced], timeout: 1)
+        XCTAssertFalse(WorkPersistence.isFollowed(workId: 11, in: ctx))
+    }
+
     // MARK: Result-row badges (RM-002)
 
     func test_resultBadge_unknownWorkHasNone() {

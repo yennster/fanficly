@@ -424,6 +424,7 @@ struct LibraryView: View {
         work.followedAt = nil
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
+        WorkPersistence.noteFollowChanged(workId: work.ao3Id)
     }
 
     private func deleteFolder(_ folder: CustomFolder) {
@@ -669,7 +670,15 @@ struct FolderDetailView: View {
             Text("Stories download one at a time. You can cancel anytime, and the ones already downloaded stay.")
         }
         .overlay {
-            if !query.isEmpty && filteredWorks.isEmpty {
+            if folderWorks.isEmpty {
+                // An empty folder isn't a search miss: say so, rather than
+                // leaving a blank list (#201).
+                ContentUnavailableView {
+                    Label("No stories in this folder yet", systemImage: "folder")
+                } description: {
+                    Text("In the Library, open a story's menu and choose Folders... to add it here.")
+                }
+            } else if !query.isEmpty && filteredWorks.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
         }
@@ -702,16 +711,23 @@ struct FolderDetailView: View {
                     .help("Rename this folder")
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(editMode == .active ? "Done" : "Edit") {
-                    withAnimation {
-                        if editMode == .active {
-                            editMode = .inactive
-                            selectedWorkIds.removeAll()
-                        } else {
-                            editMode = .active
-                        }
-                    }
+            // Nothing to select in an empty folder (#201).
+            if !folderWorks.isEmpty || editMode == .active {
+                ToolbarItem(placement: .topBarTrailing) {
+                    editButton
+                }
+            }
+        }
+    }
+
+    private var editButton: some View {
+        Button(editMode == .active ? "Done" : "Edit") {
+            withAnimation {
+                if editMode == .active {
+                    editMode = .inactive
+                    selectedWorkIds.removeAll()
+                } else {
+                    editMode = .active
                 }
             }
         }

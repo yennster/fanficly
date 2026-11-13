@@ -66,7 +66,21 @@ public sealed class SubscriptionsScreen : Screen
         _ = RequestNotificationsOnceAsync();
     }
 
-    public override void OnDisappearing() => _isVisible = false;
+    public override void OnDisappearing()
+    {
+        _isVisible = false;
+        // A full check is one throttled request per work and author; it stops
+        // when the screen goes rather than running on unseen behind other
+        // screens' requests (#201, as the Apple app). Checked a turn later:
+        // clicking the tab already showing re-roots the same screen
+        // (OnDisappearing, then OnAppearing at once), which isn't leaving.
+        var cts = _cts;
+        if (cts is null) return;
+        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()?.TryEnqueue(() =>
+        {
+            if (!_isVisible && ReferenceEquals(_cts, cts)) cts.Cancel();
+        });
+    }
 
     private static string? Username => AppHost.Auth.Username;
 
@@ -181,7 +195,28 @@ public sealed class SubscriptionsScreen : Screen
         if (_isRefreshing || _isChecking) return;
         _cts?.Cancel();
         var cts = _cts = new CancellationTokenSource();
-        var ct = cts.Token;
+        try
+        {
+            await RunRefreshAsync(cts.Token);
+        }
+        finally
+        {
+            // Stopped by leaving the screen (#201): busy until the run has
+            // really ended, so a Refresh on return can't overlap it. (An
+            // account change clears the flags itself and may have started
+            // the new account's run, which this leaves alone.)
+            if (ReferenceEquals(_cts, cts) && cts.IsCancellationRequested)
+            {
+                _isRefreshing = false;
+                _isChecking = false;
+                UpdateRefreshButton();
+                if (_isVisible) Render();
+            }
+        }
+    }
+
+    private async Task RunRefreshAsync(CancellationToken ct)
+    {
         var poller = new SubscriptionPoller(AppHost.Client, AppHost.Library, Username, new AppHost.ToastNotifier());
         _isRefreshing = true;
         _lastError = null;
@@ -251,7 +286,12 @@ public sealed class SubscriptionsScreen : Screen
     private string NotifySummary()
     {
         var count = _lastNotifyCount ?? 0;
-        var text = count == 0 ? "No new chapters." : $"{count} work{(count == 1 ? "" : "s")} have new chapters.";
+        var text = count switch
+        {
+            0 => "No new chapters.",
+            1 => "1 story has new chapters.",
+            _ => $"{count} stories have new chapters.",
+        };
         if (_lastNewWorksCount is > 0 and var works)
             text += $" {works} new work{(works == 1 ? "" : "s")} from authors you follow.";
         if (_lastFailedChecks is > 0 and var failed)
