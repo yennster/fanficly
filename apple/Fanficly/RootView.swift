@@ -221,7 +221,10 @@ struct RootView: View {
                 guard confirmed else { return }
                 let actions = afterAgeGate
                 afterAgeGate = []
-                actions.forEach { $0() }
+                guard !actions.isEmpty else { return }
+                // One hop later, so a route's push doesn't land in the same
+                // update that dismisses the cover (SwiftUI can drop it).
+                Task { @MainActor in actions.forEach { $0() } }
             }
             .onOpenURL { url in
                 runAfterAgeGate { handleIncomingURL(url) }

@@ -274,6 +274,9 @@ public sealed partial class MainWindow : Window
 
     public bool GoBack()
     {
+        // Nothing goes back behind the 17+ gate, whatever asked (the title
+        // bar's back button included) (#203).
+        if (Views.Account.ContentSafetyViews.AgeGateActive) return false;
         if (Navigator.Current?.HandleBack() == true) return true;
         return Navigator.GoBack();
     }

@@ -104,8 +104,11 @@ public static class ContentSafetyViews
     /// notification taps, jump lists) waits on it through
     /// <see cref="RunAfterAgeGate"/>.
     /// </summary>
+    /// <remarks>True while the overlay is up even if the setting turned true
+    /// underneath it (a library backup restored at launch carries it): the
+    /// overlay still stands until it's pressed.</remarks>
     public static bool AgeGateRequired =>
-        !AppHost.IsDemoMode && !KeyValueStores.Default.GetBool(ContentControl.AgeConfirmedKey);
+        AgeGateActive || (!AppHost.IsDemoMode && !KeyValueStores.Default.GetBool(ContentControl.AgeConfirmedKey));
 
     /// <summary>
     /// Whether the 17+ overlay is on screen now. Keyboard shortcuts, screen
@@ -133,8 +136,11 @@ public static class ContentSafetyViews
 
     private static async Task RunAfterAgeGateAsync(Action action)
     {
-        await EnsureAgeGateAsync();
-        try { action(); }
+        try
+        {
+            await (AgeGateActive ? _gate! : EnsureAgeGateAsync());
+            action();
+        }
         catch (Exception e) { AppHost.Log($"Activation after the age gate failed: {e}"); }
     }
 
