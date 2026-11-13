@@ -562,11 +562,11 @@ public sealed class SearchScreen : Screen
         else if (_errorMessage is not null && _sessionExpired)
         {
             // Signed in again since: the expiry note no longer stands.
-            view = UI.UI.EmptyState("magnifyingglass", "Signed in again", "Search again to see every result, restricted works included.", "Try Again", StartSearch);
+            view = UI.UI.EmptyState("magnifyingglass", "Signed in again", "Search again to see every result, restricted works included.", "Try Again", () => StartSearch());
         }
         else if (_errorMessage is { } error)
         {
-            view = UI.UI.EmptyState("exclamationmark.triangle", "Search failed", error, "Try Again", StartSearch);
+            view = UI.UI.EmptyState("exclamationmark.triangle", "Search failed", error, "Try Again", () => StartSearch());
         }
         else if (!_hasSearched)
         {
@@ -1034,26 +1034,62 @@ public sealed class SearchScreen : Screen
         SetText(parsed.Query);
         _suggestionsDismissed = true;
         UpdateSuggestionKey();
-        StartSearch();
+        StartSearch(recordingRecent: true);
         RenderHeader();
     }
 
-    private void StartSearch()
+    /// <summary>Runs the current search. Only a deliberate search (submitting the
+    /// box or the Filters sheet, or loading a stored search) is recorded as a
+    /// recent; refining it with chips, suggestions or the sort isn't, so one
+    /// session can't push real history out of the list (#201).</summary>
+    private void StartSearch(bool recordingRecent = false)
     {
-        if (CurrentFilters.IsEmpty) return;
+        if (CurrentFilters.IsEmpty)
+        {
+            // The last chip went with nothing typed: there's no search left, so
+            // go back to the start view instead of leaving the old results
+            // under an empty header (#201).
+            ClearResults();
+            return;
+        }
         if (!_userPickedSort)
         {
             _active.SortColumn = SearchSyntax.AutomaticSort(hasKeywords: CurrentFilters.Query.Length > 0);
             _active.SortDirection = SortDirection.Desc;
         }
         var filters = CurrentFilters;
-        RecentSearches.Record(filters.PromptText());
+        if (recordingRecent) RecentSearches.Record(filters.PromptText());
         // A newer search replaces an in-flight one, so a slow earlier response
         // can never overwrite the results you asked for last.
         _searchCts?.Cancel();
         _searchCts = new CancellationTokenSource();
         var generation = ++_searchGeneration;
         _ = PerformSearchAsync(filters, generation, _searchCts.Token);
+    }
+
+    /// <summary>Back to the start view: no search, no results (Swift's
+    /// <c>clearResults</c>).</summary>
+    private void ClearResults()
+    {
+        _searchCts?.Cancel();
+        _searchCts = null;
+        _searchGeneration++;
+        _slowTimer?.Stop();
+        _isSearching = false;
+        _slowNoteVisible = false;
+        _results = [];
+        _totalFound = null;
+        _currentPage = 1;
+        _totalPages = 1;
+        _searched = null;
+        _errorMessage = null;
+        _sessionExpired = false;
+        _loadMoreError = null;
+        _loadMoreSessionExpired = false;
+        _stoppedOnHiddenPages = false;
+        _hasSearched = false;
+        ResetList();
+        RenderAll();
     }
 
     private void CancelSearch()
@@ -1218,7 +1254,7 @@ public sealed class SearchScreen : Screen
         SetText(parsed.Query);
         _suggestionsDismissed = true;
         UpdateSuggestionKey();
-        StartSearch();
+        StartSearch(recordingRecent: true);
         RenderHeader();
     }
 
@@ -1248,7 +1284,7 @@ public sealed class SearchScreen : Screen
         SetText(saved.Query);
         _suggestionsDismissed = true;
         UpdateSuggestionKey();
-        StartSearch();
+        StartSearch(recordingRecent: true);
         RenderHeader();
     }
 

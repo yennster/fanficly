@@ -243,7 +243,7 @@ struct SubscriptionsView: View {
         guard let count = lastNotifyCount else { return nil }
         var text = count == 0
             ? "No new chapters."
-            : "\(count) work\(count == 1 ? "" : "s") have new chapters."
+            : count == 1 ? "1 story has new chapters." : "\(count) stories have new chapters."
         if let works = lastNewWorksCount, works > 0 {
             text += " \(works) new work\(works == 1 ? "" : "s") from authors you follow."
         }
@@ -322,6 +322,10 @@ struct SubscriptionsView: View {
             if !expired, lastError?.hasPrefix(SessionExpiry.title) == true { lastError = nil }
         }
         .onAppear { syncIfNew() }
+        // A full check is one throttled request per work and author; it stops
+        // when the tab goes rather than running on unseen behind other
+        // screens' requests (#201). Refresh stays off until it has ended.
+        .onDisappear { refreshTask?.cancel() }
         // Another account (or none): the last run's messages were the old one's.
         .onChange(of: auth.username) { _, _ in
             lastError = nil
@@ -411,6 +415,8 @@ struct SubscriptionsView: View {
             syncIfNew()
             return
         }
+        // Left the tab (#201): no checks for a screen that's gone.
+        guard !Task.isCancelled else { return }
         lastError = error
         // The per-work and per-author checks are throttled (1 req/sec) and
         // only feed notifications, so run them after the list is showing.
@@ -419,11 +425,13 @@ struct SubscriptionsView: View {
         let chapters = await poller.checkWorksForNewChapters()
         let newWorks = await poller.checkFollowedAuthors()
         isChecking = false
-        // Cancelled, or another account's: the results aren't this one's to show.
-        guard !Task.isCancelled, auth.username == username, !poller.accountChanged else {
+        // Another account's: the results aren't this one's to show.
+        guard auth.username == username, !poller.accountChanged else {
             syncIfNew()
             return
         }
+        // Cancelled by leaving the tab: the checks stopped part way.
+        guard !Task.isCancelled else { return }
         lastNotifyCount = chapters
         lastNewWorksCount = newWorks
         lastFailedChecks = poller.tally.failed

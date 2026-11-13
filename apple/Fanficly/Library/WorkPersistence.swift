@@ -320,6 +320,10 @@ enum WorkPersistence {
         }
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
+        // Rows showing this work (a result's bookmark button) re-read their
+        // state, whichever menu or screen made the change (#201).
+        NotificationCenter.default.post(name: .workFollowChanged, object: nil,
+                                        userInfo: [workFollowChangedIdKey: work.ao3Id])
         return work.isFollowed
     }
 
@@ -505,6 +509,14 @@ enum KudosStore {
 }
 
 /// The small status badge on a search or browse result row (RM-002).
+extension Notification.Name {
+    /// Posted by `WorkPersistence.toggleFollow` after a work's follow state
+    /// changes; `userInfo[workFollowChangedIdKey]` is its AO3 id.
+    static let workFollowChanged = Notification.Name("WorkPersistence.workFollowChanged")
+}
+
+let workFollowChangedIdKey = "workId"
+
 enum ResultBadge: Equatable, Sendable {
     case finished
     case percent(Int)

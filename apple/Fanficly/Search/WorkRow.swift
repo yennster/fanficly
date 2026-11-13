@@ -12,7 +12,7 @@ struct WorkRow: View {
     @Environment(\.modelContext) private var context
     @Environment(\.readingWordsPerMinute) private var wordsPerMinute
     // Reflects the local follow ("bookmark") state; seeded on appear and
-    // updated when the inline button is tapped.
+    // updated whenever `toggleFollow` changes it, from any button or menu.
     @State private var isFollowed = false
     // Saving from the inline button puts the work in the Library before the
     // list's next lookup.
@@ -77,6 +77,14 @@ struct WorkRow: View {
         .padding(.vertical, 4)
         .alignmentGuide(.listRowSeparatorLeading) { d in d[.leading] }
         .onAppear { isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context) }
+        // A list's long-press Save / Remove (or the work page's bookmark)
+        // changes the follow without this button: keep the icon, and its
+        // VoiceOver label, in step (#201).
+        .onReceive(NotificationCenter.default.publisher(for: .workFollowChanged)) { note in
+            guard (note.userInfo?[workFollowChangedIdKey] as? Int) == work.id else { return }
+            isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context)
+            savedHere = true
+        }
     }
 
     /// Inline one-tap follow/unfollow, so a story can be saved to the Library

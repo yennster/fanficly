@@ -642,21 +642,52 @@ struct SearchView: View {
         active = active.merging(parsed)
         text = parsed.query
         searchFocused = false
-        startSearch()
+        startSearch(recordingRecent: true)
     }
 
-    private func startSearch() {
-        guard !currentFilters.isEmpty else { return }
+    /// Runs the current search. Only a deliberate search (submitting the box
+    /// or the Filters sheet, or loading a stored search) is recorded as a
+    /// recent; refining it with chips, suggestions or the sort isn't, so one
+    /// session can't push real history out of the list (#201).
+    private func startSearch(recordingRecent: Bool = false) {
+        guard !currentFilters.isEmpty else {
+            // The last chip went with nothing typed: there's no search left,
+            // so go back to the start view instead of leaving the old
+            // results under an empty header (#201).
+            clearResults()
+            return
+        }
         if !userPickedSort {
             active.sortColumn = SearchSyntax.automaticSort(hasKeywords: !currentFilters.query.isEmpty)
             active.sortDirection = .desc
         }
         let filters = currentFilters
-        recentRaw = RecentSearches.adding(filters.promptText(), to: recentRaw)
+        if recordingRecent {
+            recentRaw = RecentSearches.adding(filters.promptText(), to: recentRaw)
+        }
         // A newer search replaces an in-flight one, so a slow earlier
         // response can never overwrite the results you asked for last.
         searchTask?.cancel()
         searchTask = Task { await performSearch(filters) }
+    }
+
+    /// Back to the start view: no search, no results.
+    private func clearResults() {
+        searchTask?.cancel()
+        searchTask = nil
+        searchStartedAt = nil
+        paging.restart()
+        results = []
+        badges = [:]
+        totalFound = nil
+        currentPage = 1
+        totalPages = 1
+        searched = nil
+        errorMessage = nil
+        sessionExpired = false
+        hasSearched = false
+        isLoadingMore = false
+        withAnimation { isSearching = false }
     }
 
     private func cancelSearch() {
@@ -770,7 +801,7 @@ struct SearchView: View {
         active = filters
         text = parsed.query
         searchFocused = false
-        startSearch()
+        startSearch(recordingRecent: true)
     }
 
     private func load(_ saved: SavedSearch) {
@@ -795,7 +826,7 @@ struct SearchView: View {
         active = saved
         text = saved.query
         searchFocused = false
-        startSearch()
+        startSearch(recordingRecent: true)
     }
 
     private func suggestName() -> String {
