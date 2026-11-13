@@ -226,11 +226,11 @@ internal static class LibraryActions
                 AppHost.Log($"Fetching {id} before download failed: {e.Message}");
             }
             await AppHost.Client.DownloadEpubAsync(id);
-            MainWindow.Current?.ShowMessage("Downloaded for offline reading", title);
+            MainWindow.Current?.ShowMessage("Downloaded", title);
         }
         catch (Exception e)
         {
-            MainWindow.Current?.ShowMessage("Couldn't download for offline", textSaved
+            MainWindow.Current?.ShowMessage("Download failed", textSaved
                 ? $"The text is saved for offline reading, but the EPUB download failed: {e.Message}"
                 : e.Message, InfoBarSeverity.Error);
         }

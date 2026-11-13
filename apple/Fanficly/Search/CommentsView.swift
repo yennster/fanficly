@@ -31,6 +31,7 @@ struct CommentsView: View {
     @State private var isPosting = false
     @State private var postError: String?
     @FocusState private var composerFocused: Bool
+    @State private var didLoad = false
 
     /// Show the chapter only for multi-chapter works; single-chapter works read
     /// plainly as "Comments".
@@ -93,7 +94,12 @@ struct CommentsView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { composer }
-            .task { await load() }
+            // Once: coming back from Log In to AO3 keeps the pages loaded.
+            .task {
+                guard !didLoad else { return }
+                didLoad = true
+                await load()
+            }
         }
     }
 

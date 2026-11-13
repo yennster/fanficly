@@ -100,7 +100,7 @@ extension View {
         } message: { _ in
             Text("The story stays in your Library and loads from AO3 when you read it.")
         }
-        .alert("Couldn't Download for Offline", isPresented: Binding(
+        .alert("Download failed", isPresented: Binding(
             get: { error.wrappedValue != nil },
             set: { if !$0 { error.wrappedValue = nil } })
         ) {

@@ -24,12 +24,12 @@ public sealed class LibraryScreen : Screen
 {
     internal enum LibraryFilter { All, Starred, Downloaded, Folders }
 
-    private static readonly (LibraryFilter Filter, string Title, string Compact, string Symbol, string Id)[] FilterInfo =
+    private static readonly (LibraryFilter Filter, string Title, string Symbol, string Id)[] FilterInfo =
     [
-        (LibraryFilter.All, "All", "All", "books.vertical", "library.filter.all"),
-        (LibraryFilter.Starred, "Starred", "Starred", "star", "library.filter.starred"),
-        (LibraryFilter.Downloaded, "Downloaded", "Downloaded", "arrow.down.circle", "library.filter.downloaded"),
-        (LibraryFilter.Folders, "Folders", "Folders", "folder", "library.filter.folders"),
+        (LibraryFilter.All, "All", "books.vertical", "library.filter.all"),
+        (LibraryFilter.Starred, "Starred", "star", "library.filter.starred"),
+        (LibraryFilter.Downloaded, "Downloaded", "arrow.down.circle", "library.filter.downloaded"),
+        (LibraryFilter.Folders, "Folders", "folder", "library.filter.folders"),
     ];
 
     private LibraryFilter _filter = LibraryFilter.All;
@@ -138,17 +138,12 @@ public sealed class LibraryScreen : Screen
         };
         _root.Children.Add(_emptyHost.Row(2));
 
-        // Narrow windows use the compact filter titles.
+        // Narrow windows drop the icons so all four filters fit.
         _root.SizeChanged += (_, e) =>
         {
-            var compact = e.NewSize.Width < 560;
-            // Phone-width windows drop the icons so all four filters fit.
-            var tight = e.NewSize.Width < 440;
+            var tight = e.NewSize.Width < 560;
             for (var i = 0; i < FilterInfo.Length; i++)
-            {
-                _filterItems[i].Text = compact ? FilterInfo[i].Compact : FilterInfo[i].Title;
                 if (_filterItems[i].Icon is { } icon) icon.Visibility = tight ? Visibility.Collapsed : Visibility.Visible;
-            }
         };
 
         _debounce = MainWindow.Current.DispatcherQueue.CreateTimer();
