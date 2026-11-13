@@ -114,7 +114,7 @@ public sealed class ReadingListScreen : Screen
 
         if (_works is null)
         {
-            Show(UI.UI.EmptyState(_spec.Tab.SystemImage(), "Log in to AO3", _spec.LoginPrompt, "Log In", Routes.OpenLogin)
+            Show(UI.UI.EmptyState(_spec.Tab.SystemImage(), "Log in to AO3", _spec.LoginPrompt, "Log In to AO3", Routes.OpenLogin)
                 .Id($"{Raw}.login"));
             return;
         }

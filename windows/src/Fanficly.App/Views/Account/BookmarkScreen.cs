@@ -139,7 +139,7 @@ public sealed class BookmarkScreen : Screen
         FrameworkElement content;
         if (AppHost.Auth.Username is null)
             content = UI.UI.EmptyState("person.crop.circle.badge.questionmark", "Log in to bookmark",
-                "Log in to AO3 to bookmark this work on AO3.", "Log In", Routes.OpenLogin).Id("bookmark.login");
+                "Log in to AO3 to bookmark this work on AO3.", "Log In to AO3", Routes.OpenLogin).Id("bookmark.login");
         else if (_form is { } form && _formUser == AppHost.Auth.Username)
             content = Editor(form);
         else if (_loadError is not null && !_isLoading)

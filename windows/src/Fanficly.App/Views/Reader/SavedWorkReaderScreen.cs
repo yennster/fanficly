@@ -129,7 +129,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             if (IsRemoved) return;
             AppHost.Log($"Loading saved work {_work.Ao3Id} failed: {e.Message}");
             ShowError("wifi.exclamationmark", "Couldn't load",
-                "This bookmarked work loads on demand. Connect to the internet to read it, then choose Save Offline in the More menu to keep it on this device.",
+                "This bookmarked work loads on demand. Connect to the internet to read it, then choose Download in the More menu to keep it on this device.",
                 () => _ = LoadAsync());
         }
         finally
@@ -238,7 +238,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         else
         {
             // Downloaded with a live payload: AO3's current copy, nothing to update.
-            save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Saving Offline…" : "Save Offline",
+            save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Downloading…" : "Download",
                 () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = SaveOfflineAsync()),
                 _isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle");
             save.IsEnabled = !_isSavingOffline && !_isDownloaded;
@@ -254,7 +254,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         if (_isSavingOffline || _isUpdating) return;
         _isSavingOffline = true;
         UpdateMoreButton();
-        MainWindow.Current.Announce("Saving for offline reading");
+        MainWindow.Current.Announce("Downloading for offline reading");
         var textSaved = false;
         try
         {
@@ -279,12 +279,12 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             }
             await AppHost.Client.DownloadEpubAsync(_work.Ao3Id);
             _isDownloaded = true;
-            MainWindow.Current.ShowMessage("Saved offline", "This work is available offline.");
+            MainWindow.Current.ShowMessage("Downloaded", "This work is available offline.");
         }
         catch (Exception e)
         {
             AppHost.Log($"Save offline failed: {e}");
-            await Dialogs.AlertAsync("Couldn't download for offline", textSaved
+            await Dialogs.AlertAsync("Download failed", textSaved
                 ? $"The text is saved for offline reading, but the EPUB download failed: {e.Message}"
                 : e.Message);
         }

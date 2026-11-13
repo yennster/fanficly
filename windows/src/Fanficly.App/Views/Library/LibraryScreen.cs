@@ -28,7 +28,7 @@ public sealed class LibraryScreen : Screen
     [
         (LibraryFilter.All, "All", "All", "books.vertical", "library.filter.all"),
         (LibraryFilter.Starred, "Starred", "Starred", "star", "library.filter.starred"),
-        (LibraryFilter.Downloaded, "Downloaded", "Offline", "arrow.down.circle", "library.filter.downloaded"),
+        (LibraryFilter.Downloaded, "Downloaded", "Downloaded", "arrow.down.circle", "library.filter.downloaded"),
         (LibraryFilter.Folders, "Folders", "Folders", "folder", "library.filter.folders"),
     ];
 
@@ -138,7 +138,7 @@ public sealed class LibraryScreen : Screen
         };
         _root.Children.Add(_emptyHost.Row(2));
 
-        // Narrow windows use the compact filter titles ("Offline").
+        // Narrow windows use the compact filter titles.
         _root.SizeChanged += (_, e) =>
         {
             var compact = e.NewSize.Width < 560;
@@ -270,7 +270,7 @@ public sealed class LibraryScreen : Screen
         {
             _list.Element.Visibility = Visibility.Collapsed;
             _emptyHost.Content = UI.UI.EmptyState("books.vertical", "Nothing saved yet",
-                "Click the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.",
+                "Click the bookmark to follow a story, or Download to read it without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.",
                 "Import EPUB...", () => _ = EpubImporter.PickAndImportAsync());
             _list.Reset([]);
             return;
