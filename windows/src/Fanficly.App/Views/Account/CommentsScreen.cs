@@ -318,7 +318,7 @@ public sealed class CommentsScreen : Screen
                 .Also(i => i.VerticalAlignment = VerticalAlignment.Center).Col(0));
             row.Children.Add(UI.UI.Secondary("Log in to AO3 to post a comment.", Theme.Style.Footnote)
                 .Also(t => t.VerticalAlignment = VerticalAlignment.Center).Col(1));
-            row.Children.Add(UI.UI.Button("Log In", Routes.OpenLogin).Id("comments.login").Col(2));
+            row.Children.Add(UI.UI.Button("Log In to AO3", Routes.OpenLogin).Id("comments.login").Col(2));
             bar.Child = row;
         }
         else

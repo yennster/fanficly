@@ -314,7 +314,7 @@ private struct SaveOfflineAlert: ViewModifier {
                     string: message,
                     attributes: [.accessibilitySpeechQueueAnnouncement: true]))
             }
-            .alert("Couldn't finish saving offline", isPresented: Binding(
+            .alert("Download failed", isPresented: Binding(
                 get: { message != nil },
                 set: { if !$0 { message = nil } })) {
                 Button("OK", role: .cancel) {}

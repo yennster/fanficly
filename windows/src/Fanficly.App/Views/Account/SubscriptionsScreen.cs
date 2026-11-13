@@ -354,7 +354,7 @@ public sealed class SubscriptionsScreen : Screen
     private static FrameworkElement LoginPrompt() =>
         UI.UI.EmptyState("person.crop.circle.badge.questionmark", "Log in to AO3",
             "Your AO3 subscriptions sync here once you log in. We'll notify you when subscribed works post new chapters.",
-            "Log In", Routes.OpenLogin)
+            "Log In to AO3", Routes.OpenLogin)
         .Id("subscriptions.login");
 
     private FrameworkElement NoSubscriptions() =>

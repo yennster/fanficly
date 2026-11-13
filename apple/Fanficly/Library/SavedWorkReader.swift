@@ -147,7 +147,7 @@ struct SavedWorkReader: View {
                             Button {
                                 Task { await saveOffline() }
                             } label: {
-                                Label(isDownloaded ? "Downloaded" : "Save Offline",
+                                Label(isDownloaded ? "Downloaded" : "Download",
                                       systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
                             }
                             .disabled(isSavingOffline || isDownloaded)
@@ -281,7 +281,7 @@ struct SavedWorkReader: View {
         do {
             payload = try await client.fetchWork(id: work.ao3Id)
         } catch {
-            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, then choose Save Offline in the More menu to keep it on this device."
+            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, then choose Download in the More menu to keep it on this device."
         }
     }
 

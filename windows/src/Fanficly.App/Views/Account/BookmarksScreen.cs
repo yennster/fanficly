@@ -73,7 +73,7 @@ public sealed class BookmarksScreen : Screen
         {
             Show(UI.UI.EmptyState("bookmark.circle", "Log in to AO3",
                     "Your AO3 bookmarks show here once you log in, including private ones.",
-                    "Log In", Routes.OpenLogin)
+                    "Log In to AO3", Routes.OpenLogin)
                 .Id("bookmarks.login"));
             return;
         }

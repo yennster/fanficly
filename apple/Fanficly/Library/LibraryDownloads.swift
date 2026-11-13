@@ -68,7 +68,7 @@ struct LibraryDownloadMenuItem: View {
             }
         } else {
             Button(action: download) {
-                Label("Download for Offline", systemImage: "arrow.down.circle")
+                Label("Download", systemImage: "arrow.down.circle")
             }
             // A folder's Download All (or the restore's re-download) may
             // have this work queued: one download at a time, never twice.
@@ -100,7 +100,7 @@ extension View {
         } message: { _ in
             Text("The story stays in your Library and loads from AO3 when you read it.")
         }
-        .alert("Couldn't Download for Offline", isPresented: Binding(
+        .alert("Download failed", isPresented: Binding(
             get: { error.wrappedValue != nil },
             set: { if !$0 { error.wrappedValue = nil } })
         ) {

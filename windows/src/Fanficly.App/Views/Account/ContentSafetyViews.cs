@@ -230,7 +230,7 @@ public static class ContentSafetyViews
             Part("No objectionable content",
                 "We do not tolerate content that is illegal or that sexualizes minors. Works are rated by their authors; Fanficly lets you filter Mature and Explicit ratings, hide any individual work, and block tags and authors."),
             Part("Reporting",
-                "Every work has a “Report this work” action (in the … menu) that opens AO3's official abuse-report form — AO3 is the host and can remove content. You can also email us, and we review reports about the app within 24 hours."),
+                "Every work has a “Report this work” action (in its Work options menu) that opens AO3's official abuse-report form — AO3 is the host and can remove content. You can also email us, and we review reports about the app within 24 hours."),
             Part("Your controls",
                 "• Mature/Explicit filtering (Settings → Content & Safety).\n• Hide any work from your results.\n• You confirmed you are 17 or older on first launch."),
             email);
@@ -283,7 +283,7 @@ public sealed class HiddenWorksScreen : Screen
         if (hidden.Count == 0)
         {
             content = UI.UI.EmptyState("eye", "Nothing hidden",
-                "Use the … menu on a work and choose “Hide this work” to keep it out of your search and browse results.");
+                "Use the Work options menu on a work and choose “Hide this work” to keep it out of your search and browse results.");
         }
         else
         {

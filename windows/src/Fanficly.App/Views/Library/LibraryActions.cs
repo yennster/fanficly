@@ -82,7 +82,7 @@ internal static class LibraryActions
             else if (WorkPersistence.EpubPath(work.Ao3Id) is not null)
                 flyout.Items.Add(Item("Remove Download", "xmark.circle", () => AfterMenu(() => RemoveDownloadAsync(work))));
             else
-                flyout.Items.Add(Item("Download for Offline", "arrow.down.circle", () => _ = DownloadAsync(work)));
+                flyout.Items.Add(Item("Download", "arrow.down.circle", () => _ = DownloadAsync(work)));
             if (!EpubImport.IsLocalWork(work.Ao3Id))
                 flyout.Items.Add(Item("Share Story...", "square.and.arrow.up", () => ShareService.ShareWork(work.Ao3Id, work.Title)));
             flyout.Items.Add(new MenuFlyoutSeparator());
@@ -226,11 +226,11 @@ internal static class LibraryActions
                 AppHost.Log($"Fetching {id} before download failed: {e.Message}");
             }
             await AppHost.Client.DownloadEpubAsync(id);
-            MainWindow.Current?.ShowMessage("Downloaded for offline reading", title);
+            MainWindow.Current?.ShowMessage("Downloaded", title);
         }
         catch (Exception e)
         {
-            MainWindow.Current?.ShowMessage("Couldn't download for offline", textSaved
+            MainWindow.Current?.ShowMessage("Download failed", textSaved
                 ? $"The text is saved for offline reading, but the EPUB download failed: {e.Message}"
                 : e.Message, InfoBarSeverity.Error);
         }
