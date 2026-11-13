@@ -126,10 +126,13 @@ struct CommentsView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "person.crop.circle.badge.questionmark")
                         .accessibilityHidden(true)
-                    Text("Log in to AO3 (Settings) to post a comment.")
+                    Text("Log in to AO3 to post a comment.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Spacer()
+                    NavigationLink { LoginView() } label: {
+                        Text("Log In to AO3").font(.footnote.weight(.semibold))
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)

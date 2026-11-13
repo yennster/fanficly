@@ -176,6 +176,20 @@ struct ReaderSettingsView: View {
         return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
     }
 
+    /// Only an iPhone has the Taptic Engine page-turn haptics play on: an
+    /// iPad has none and Catalyst ignores them, so the toggle shows only
+    /// there. The setting itself stays in profiles and backups either way.
+    @MainActor private static var hasPageTurnHaptics: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
+    /// The footer's line about page-turn options.
+    private var pageTurnFooter: String {
+        Self.hasPageTurnHaptics
+            ? "Page-turn options configure haptic feedback and animations."
+            : "Page-turn animation adds a curl or slide to page flips."
+    }
+
     /// The footer's line about volume buttons; there are none on the Mac.
     private var volumeFooter: String {
         #if targetEnvironment(macCatalyst)
@@ -312,10 +326,12 @@ struct ReaderSettingsView: View {
                     }
                 }
 
-                Toggle(isOn: $pageTurnHaptics) {
-                    Label("Page-turn haptics", systemImage: "hand.tap")
+                if Self.hasPageTurnHaptics {
+                    Toggle(isOn: $pageTurnHaptics) {
+                        Label("Page-turn haptics", systemImage: "hand.tap")
+                    }
+                    .help("Enable small vibrations on page flips.")
                 }
-                .help("Enable small vibrations on page flips.")
 
                 Toggle(isOn: $pageTurnAnimations) {
                     Label("Page-turn animation", systemImage: "square.2.layers.3d")
@@ -336,7 +352,7 @@ struct ReaderSettingsView: View {
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). \(pageTurnFooter) “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
             }
 
             Section {

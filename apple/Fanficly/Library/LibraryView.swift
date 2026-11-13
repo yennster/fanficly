@@ -38,13 +38,6 @@ struct LibraryView: View {
 
         var title: String { rawValue }
 
-        var compactTitle: String {
-            switch self {
-            case .downloaded: "Offline"
-            default: rawValue
-            }
-        }
-
         var symbol: String {
             switch self {
             case .all:        "books.vertical"
@@ -94,7 +87,7 @@ struct LibraryView: View {
                 ContentUnavailableView {
                     Label("Nothing saved yet", systemImage: "books.vertical")
                 } description: {
-                    Text("Tap the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.")
+                    Text("Tap the bookmark to follow a story, or Download to read it without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.")
                 } actions: {
                     Button("Import EPUB…") { showingEPUBImporter = true }
                         .disabled(epubImport.isImporting)
@@ -468,7 +461,7 @@ private struct LibraryFilterBar: View {
                     Button {
                         selection = filter
                     } label: {
-                        Label(filter.compactTitle, systemImage: filter.symbol)
+                        Label(filter.title, systemImage: filter.symbol)
                             .font(.subheadline.weight(selection == filter ? .semibold : .medium))
                             .labelStyle(.titleAndIcon)
                             .lineLimit(1)

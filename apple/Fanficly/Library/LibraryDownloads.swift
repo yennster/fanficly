@@ -68,7 +68,7 @@ struct LibraryDownloadMenuItem: View {
             }
         } else {
             Button(action: download) {
-                Label("Download for Offline", systemImage: "arrow.down.circle")
+                Label("Download", systemImage: "arrow.down.circle")
             }
             // A folder's Download All (or the restore's re-download) may
             // have this work queued: one download at a time, never twice.

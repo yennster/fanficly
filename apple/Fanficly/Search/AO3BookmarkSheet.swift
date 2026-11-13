@@ -23,8 +23,15 @@ struct AO3BookmarkSheet: View {
         NavigationStack {
             Group {
                 if auth.username == nil {
-                    ContentUnavailableView("Log in to bookmark", systemImage: "person.crop.circle.badge.questionmark",
-                        description: Text("Log in to AO3 (Settings) to bookmark this work on AO3."))
+                    ContentUnavailableView {
+                        Label("Log in to bookmark", systemImage: "person.crop.circle.badge.questionmark")
+                    } description: {
+                        Text("Log in to AO3 to bookmark this work on AO3.")
+                    } actions: {
+                        NavigationLink { LoginView() } label: {
+                            Text("Log In to AO3").font(.callout)
+                        }
+                    }
                 } else if let binding = Binding($form) {
                     editor(binding)
                 } else if let loadError, loadSessionExpired, !auth.hasSession {
@@ -59,7 +66,8 @@ struct AO3BookmarkSheet: View {
                     }
                 }
             }
-            .task { await load() }
+            // Again after logging in from the prompt above.
+            .task(id: auth.username) { await load() }
         }
     }
 
