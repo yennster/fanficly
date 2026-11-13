@@ -172,17 +172,14 @@ final class PersistenceTests: XCTestCase {
     func test_toggleFollow_announcesTheChangedWork() throws {
         let ctx = try makeContext()
         let summary = payload(id: 11, chapters: 1).summary
-        let followed = expectation(forNotification: .workFollowChanged, object: nil) { note in
+        // Once for the follow, once for the unfollow.
+        let announced = expectation(forNotification: .workFollowChanged, object: nil) { note in
             (note.userInfo?[workFollowChangedIdKey] as? Int) == 11
         }
+        announced.expectedFulfillmentCount = 2
         WorkPersistence.toggleFollow(summary: summary, into: ctx)
-        wait(for: [followed], timeout: 1)
-
-        let unfollowed = expectation(forNotification: .workFollowChanged, object: nil) { note in
-            (note.userInfo?[workFollowChangedIdKey] as? Int) == 11
-        }
         WorkPersistence.toggleFollow(summary: summary, into: ctx)
-        wait(for: [unfollowed], timeout: 1)
+        wait(for: [announced], timeout: 1)
         XCTAssertFalse(WorkPersistence.isFollowed(workId: 11, in: ctx))
     }
 

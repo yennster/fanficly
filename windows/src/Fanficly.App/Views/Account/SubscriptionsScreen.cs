@@ -71,8 +71,15 @@ public sealed class SubscriptionsScreen : Screen
         _isVisible = false;
         // A full check is one throttled request per work and author; it stops
         // when the screen goes rather than running on unseen behind other
-        // screens' requests (#201, as the Apple app).
-        _cts?.Cancel();
+        // screens' requests (#201, as the Apple app). Checked a turn later:
+        // clicking the tab already showing re-roots the same screen
+        // (OnDisappearing, then OnAppearing at once), which isn't leaving.
+        var cts = _cts;
+        if (cts is null) return;
+        Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()?.TryEnqueue(() =>
+        {
+            if (!_isVisible && ReferenceEquals(_cts, cts)) cts.Cancel();
+        });
     }
 
     private static string? Username => AppHost.Auth.Username;

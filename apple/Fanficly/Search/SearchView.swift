@@ -120,7 +120,7 @@ struct SearchView: View {
                     ForEach(activeChips) { chip in
                         Button {
                             chip.remove(&active)
-                            if hasSearched { startSearch() }
+                            if hasSearched { searchOrClear() }
                         } label: {
                             ChipView(text: chip.label, kind: chip.kind, removable: true)
                         }
@@ -352,7 +352,7 @@ struct SearchView: View {
                 if !activeChips.isEmpty {
                     Button("Remove All Filters") {
                         clearFilters()
-                        startSearch()
+                        searchOrClear()
                     }
                 }
             }
@@ -642,7 +642,20 @@ struct SearchView: View {
         active = active.merging(parsed)
         text = parsed.query
         searchFocused = false
-        startSearch(recordingRecent: true)
+        searchOrClear(recordingRecent: true)
+    }
+
+    /// After the filters or the box changed: runs what's left, or, when
+    /// nothing is left (the last chip went with nothing typed), goes back to
+    /// the start view instead of leaving the old results under an empty
+    /// header (#201). Only these paths clear: a sort change or Try Again
+    /// with the box emptied leaves the results alone.
+    private func searchOrClear(recordingRecent: Bool = false) {
+        if currentFilters.isEmpty {
+            if hasSearched || isSearching || errorMessage != nil { clearResults() }
+        } else {
+            startSearch(recordingRecent: recordingRecent)
+        }
     }
 
     /// Runs the current search. Only a deliberate search (submitting the box
@@ -650,13 +663,7 @@ struct SearchView: View {
     /// recent; refining it with chips, suggestions or the sort isn't, so one
     /// session can't push real history out of the list (#201).
     private func startSearch(recordingRecent: Bool = false) {
-        guard !currentFilters.isEmpty else {
-            // The last chip went with nothing typed: there's no search left,
-            // so go back to the start view instead of leaving the old
-            // results under an empty header (#201).
-            clearResults()
-            return
-        }
+        guard !currentFilters.isEmpty else { return }
         if !userPickedSort {
             active.sortColumn = SearchSyntax.automaticSort(hasKeywords: !currentFilters.query.isEmpty)
             active.sortDirection = .desc

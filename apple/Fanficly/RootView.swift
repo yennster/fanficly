@@ -724,6 +724,7 @@ struct ImportOverlay: View {
                 status = "Done!"
                 try? context.save()
                 iCloudSyncManager.shared.queueBackup(context: context)
+                WorkPersistence.noteFollowChanged(workId: workId)
                 try? await Task.sleep(for: .seconds(1))
                 onComplete(work)
             } catch {

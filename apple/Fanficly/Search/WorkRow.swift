@@ -82,7 +82,10 @@ struct WorkRow: View {
         // VoiceOver label, in step (#201).
         .onReceive(NotificationCenter.default.publisher(for: .workFollowChanged)) { note in
             guard (note.userInfo?[workFollowChangedIdKey] as? Int) == work.id else { return }
-            isFollowed = WorkPersistence.isFollowed(workId: work.id, in: context)
+            // This row's own button already set it, animated.
+            let followed = WorkPersistence.isFollowed(workId: work.id, in: context)
+            guard followed != isFollowed else { return }
+            isFollowed = followed
             savedHere = true
         }
     }
@@ -92,11 +95,14 @@ struct WorkRow: View {
     /// tap from also triggering the row's NavigationLink.
     private var bookmarkButton: some View {
         Button {
-            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
+            // Set first, animated, so the change notice toggleFollow posts
+            // finds nothing left to do here.
             withAnimation(.easeInOut(duration: 0.2)) {
-                isFollowed = newState
+                isFollowed.toggle()
                 savedHere = true  // toggling creates the Work; unfollowing keeps it
             }
+            let newState = WorkPersistence.toggleFollow(summary: work, into: context)
+            if newState != isFollowed { isFollowed = newState }
         } label: {
             Image(systemName: isFollowed ? "bookmark.fill" : "bookmark")
                 .font(.body)

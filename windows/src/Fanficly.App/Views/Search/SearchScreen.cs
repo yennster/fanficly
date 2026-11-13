@@ -500,7 +500,7 @@ public sealed class SearchScreen : Screen
     {
         chip.Remove(_active);
         MainWindow.Current.Announce($"Removed filter: {chip.Label}");
-        if (_hasSearched) StartSearch();
+        if (_hasSearched) SearchOrClear();
         RenderAll();
         // Keep the keyboard where it was: the chip that took this one's place,
         // the one before it, or the box.
@@ -580,7 +580,7 @@ public sealed class SearchScreen : Screen
                     ? "Try removing a filter, or fewer keywords — AO3 matches every word."
                     : "Try different keywords, or fewer of them — AO3 matches every word.",
                 hasChips ? "Remove All Filters" : null,
-                hasChips ? () => { ClearFilters(); StartSearch(); RenderAll(); } : null);
+                hasChips ? () => { ClearFilters(); SearchOrClear(); RenderAll(); } : null);
         }
         else if (_list.Items.Count == 0)
         {
@@ -1034,8 +1034,25 @@ public sealed class SearchScreen : Screen
         SetText(parsed.Query);
         _suggestionsDismissed = true;
         UpdateSuggestionKey();
-        StartSearch(recordingRecent: true);
+        SearchOrClear(recordingRecent: true);
         RenderHeader();
+    }
+
+    /// <summary>After the filters or the box changed: runs what's left, or, when
+    /// nothing is left (the last chip went with nothing typed), goes back to the
+    /// start view instead of leaving the old results under an empty header
+    /// (#201, Swift's <c>searchOrClear</c>). Only these paths clear: a sort change
+    /// or Try Again with the box emptied leaves the results alone.</summary>
+    private void SearchOrClear(bool recordingRecent = false)
+    {
+        if (CurrentFilters.IsEmpty)
+        {
+            if (_hasSearched || _isSearching || _errorMessage is not null) ClearResults();
+        }
+        else
+        {
+            StartSearch(recordingRecent);
+        }
     }
 
     /// <summary>Runs the current search. Only a deliberate search (submitting the
@@ -1044,14 +1061,7 @@ public sealed class SearchScreen : Screen
     /// session can't push real history out of the list (#201).</summary>
     private void StartSearch(bool recordingRecent = false)
     {
-        if (CurrentFilters.IsEmpty)
-        {
-            // The last chip went with nothing typed: there's no search left, so
-            // go back to the start view instead of leaving the old results
-            // under an empty header (#201).
-            ClearResults();
-            return;
-        }
+        if (CurrentFilters.IsEmpty) return;
         if (!_userPickedSort)
         {
             _active.SortColumn = SearchSyntax.AutomaticSort(hasKeywords: CurrentFilters.Query.Length > 0);

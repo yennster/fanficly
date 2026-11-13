@@ -424,6 +424,7 @@ struct LibraryView: View {
         work.followedAt = nil
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
+        WorkPersistence.noteFollowChanged(workId: work.ao3Id)
     }
 
     private func deleteFolder(_ folder: CustomFolder) {
