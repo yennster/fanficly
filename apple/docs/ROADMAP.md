@@ -152,6 +152,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** parser tests on a real-page fixture (works listed, empty list, login page fails closed), endpoint tests for the URL and pagination, `MockAO3Client`/`DemoAO3Client`/`StubAO3Client` support, and the PR lists what to check on a device: the tab logged out (sign-in prompt) and logged in, on iPhone, iPad and the Mac.
 - **Touches:** `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`, `Networking/DemoAO3Client.swift`, `Subscriptions/SubscriptionsView.swift`, `RootView.swift`, `FanficlyApp.swift`, `FanficlyTests/` (incl. `StubAO3Client.swift`).
 
+### RM-027 — Download count and saved-reader error wording (Windows #205 parity)
+- **Status:** open · **Size:** S · **Validation:** unit
+- **Why:** Windows fixed these in #205 (PR #396). The restore and folder download banner reads "Downloaded 1 stories", and a bookmarked work that fails to load in `SavedWorkReader` always says to connect to the internet, dropping the real reason (rate limited, signed out, AO3 down). Errors themselves already stay up on Apple, since they're alerts that wait for OK.
+- **Scope:** `RestoreDownloadCenter.DownloadProgress`'s finished title and announcement say "1 story" / "N stories"; `SavedWorkReader.load()` leads with the error's message, then how to save the work offline, as `WorkDetailView` does.
+- **Done when:** a test of the singular and plural wording.
+- **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/SavedWorkReader.swift`, `FanficlyTests/`.
+
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos

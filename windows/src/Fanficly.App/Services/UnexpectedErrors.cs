@@ -65,7 +65,7 @@ internal static class UnexpectedErrors
                 window.ShowMessage(
                     "Something went wrong",
                     $"{error.Message} Fanficly carried on, and the details are in its log.",
-                    InfoBarSeverity.Error, seconds: 10);
+                    InfoBarSeverity.Error);
             }
             catch (Exception e)
             {
