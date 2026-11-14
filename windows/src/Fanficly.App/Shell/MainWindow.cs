@@ -49,7 +49,17 @@ public sealed partial class MainWindow : Window
     private const string SelectedTabKey = "app.selectedTabRaw";
     private const string ZoomKey = "app.zoomScale";
     private const string BoundsKey = "app.windowBounds";
+    private const string MaximizedKey = "app.windowMaximized";
 
+    // Kept alive for its change event (a collected instance stops raising it).
+    private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
+    /// <summary>The window's last normal (not maximized, minimized or full screen)
+    /// bounds, which are what a maximized window reopens to when un-maximized.</summary>
+    private RectInt32? _restoredBounds;
+    /// <summary>Whether the window was last maximized (minimized and full screen
+    /// leave it as it was); saved on close.</summary>
+    private bool _isMaximized;
+    private bool _maximizeWhenShown;
     private readonly TitleBar _titleBar;
     private readonly NavigationView _nav;
     private readonly Dictionary<SidebarItem, NavigationViewItem> _navItems = [];
@@ -203,6 +213,20 @@ public sealed partial class MainWindow : Window
         if (Platform.CaptureMode.IsOn) _titleBar.RightHeader = Platform.CaptureMode.CaptionGlyphs();
 
         RootElement.ActualThemeChanged += (_, _) => Theme.Apply(RootElement.ActualTheme);
+        // Turning high contrast on or off (or switching between contrast themes)
+        // while the app runs doesn't always change ActualTheme, so re-apply the
+        // palette when the system colours change too; it arrives off the UI
+        // thread (#206). Not AccessibilitySettings.HighContrastChanged: it needs
+        // a CoreWindow, which a WinUI 3 desktop window doesn't have, and
+        // subscribing to it crashed the app at launch.
+        try
+        {
+            _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Theme.Apply(RootElement.ActualTheme));
+        }
+        catch (Exception ex)
+        {
+            AppHost.Log($"Couldn't watch the system colours: {ex.Message}");
+        }
         RootElement.Loaded += (_, _) => Theme.Apply(RootElement.ActualTheme);
         Theme.Apply(Application.Current.RequestedTheme == ApplicationTheme.Dark ? ElementTheme.Dark : ElementTheme.Light);
 
@@ -223,6 +247,19 @@ public sealed partial class MainWindow : Window
             presenter.PreferredMinimumWidth = 360;
             presenter.PreferredMinimumHeight = 480;
         }
+        AppWindow.Changed += (_, e) =>
+        {
+            if (AppWindow.Presenter is not OverlappedPresenter overlapped) return;   // full screen keeps both
+            // Minimized keeps whether it was maximized, so closing from the
+            // taskbar reopens the window the way it was before.
+            if (overlapped.State == OverlappedPresenterState.Maximized) _isMaximized = true;
+            else if (overlapped.State == OverlappedPresenterState.Restored)
+            {
+                _isMaximized = false;
+                if (e.DidPositionChange || e.DidSizeChange)
+                    _restoredBounds = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+            }
+        };
         AppWindow.Closing += (_, _) => SaveBounds();
     }
 
@@ -544,7 +581,10 @@ public sealed partial class MainWindow : Window
             var mods = CurrentModifiers();
             if (Navigator.Current?.HandleKey(e.Key, mods) == true) { e.Handled = true; return; }
             if (e.Key == VirtualKey.V && mods == VirtualKeyModifiers.Control) { e.Handled = AppHost.PasteImport(); return; }
-            if (e.Key is VirtualKey.Escape or VirtualKey.GamepadB && mods == VirtualKeyModifiers.None && Navigator.CanGoBack)
+            // Esc goes back, and on a tab's root still lets the screen leave a
+            // mode first (Recently Viewed's edit mode); GoBack returns false when
+            // there's nothing to leave, so Esc then reaches whatever else wants it (#206).
+            if (e.Key is VirtualKey.Escape or VirtualKey.GamepadB && mods == VirtualKeyModifiers.None)
             {
                 e.Handled = GoBack();
             }
@@ -574,6 +614,10 @@ public sealed partial class MainWindow : Window
             if (DisplayArea.GetFromRect(rect, DisplayAreaFallback.None) is not null)
             {
                 AppWindow.MoveAndResize(rect);
+                _restoredBounds = rect;
+                // Reopen maximized when it closed maximized, on the display the
+                // normal bounds are on, and un-maximize to those bounds (#206).
+                _maximizeWhenShown = _isMaximized = KeyValueStores.Default.GetBool(MaximizedKey);
                 return;
             }
         }
@@ -581,17 +625,39 @@ public sealed partial class MainWindow : Window
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var width = Math.Min(1280, (int)(area.Width * 0.85));
         var height = Math.Min(860, (int)(area.Height * 0.85));
-        AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height));
+        var initial = new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height);
+        AppWindow.MoveAndResize(initial);
+        _restoredBounds = initial;
     }
 
+    /// <summary>Maximizes the window when it closed maximized last time. Called
+    /// by App.OnLaunched right after <c>Activate()</c>: Maximize() on a hidden
+    /// window would show it before then (#206).</summary>
+    public void MaximizeIfItWasMaximized()
+    {
+        if (!_maximizeWhenShown) return;
+        _maximizeWhenShown = false;
+        if (AppWindow.Presenter is OverlappedPresenter overlapped) overlapped.Maximize();
+    }
+
+    /// <summary>Saves the normal bounds, and whether the window was last
+    /// maximized (closing minimized or full screen keeps the state before).</summary>
     private void SaveBounds()
     {
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
         {
             var p = AppWindow.Position;
             var s = AppWindow.Size;
-            KeyValueStores.Default.SetString(BoundsKey, $"{p.X},{p.Y},{s.Width},{s.Height}");
+            _restoredBounds = new RectInt32(p.X, p.Y, s.Width, s.Height);
+            _isMaximized = false;
         }
+        else if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized })
+        {
+            _isMaximized = true;
+        }
+        KeyValueStores.Default.SetBool(MaximizedKey, _isMaximized);
+        if (_restoredBounds is { } r)
+            KeyValueStores.Default.SetString(BoundsKey, $"{r.X},{r.Y},{r.Width},{r.Height}");
     }
 }
 
