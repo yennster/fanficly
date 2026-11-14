@@ -38,26 +38,41 @@ final class CommentDraftsTests: XCTestCase {
         XCTAssertFalse(CommentPostError.message(for: AO3Error.commentRejected(message: "Nope")).contains("moderation"))
     }
 
-    func test_failuresAfterSendingWarnAgainstADoublePost() {
-        let errors: [Error] = [
-            AO3Error.network(underlying: "The request timed out."),
-            AO3Error.http(status: 503),
-            AO3Error.http(status: 500),
-            URLError(.timedOut),
-        ]
-        for error in errors {
-            let message = CommentPostError.message(for: error)
+    func test_keepsANewerDraftWhenAnOlderPostLands() {
+        let drafts = CommentDrafts()
+        drafts.set("First comment", workId: 1, chapterId: 10)
+        drafts.set("A newer comment", workId: 1, chapterId: 10)
+        drafts.clearIfPosted("First comment", workId: 1, chapterId: 10)
+        XCTAssertEqual(drafts.text(workId: 1, chapterId: 10), "A newer comment")
+
+        drafts.clearIfPosted("A newer comment", workId: 1, chapterId: 10)
+        XCTAssertEqual(drafts.text(workId: 1, chapterId: 10), "")
+    }
+
+    func test_aPostThatMayHaveReachedAO3WarnsAgainstADoublePost() {
+        for error in [AO3Error.network(underlying: "The request timed out."), .http(status: 503), .http(status: 500)] {
+            XCTAssertTrue(CommentPostUncertain.mayHaveReachedAO3(error))
+            let message = CommentPostError.message(for: CommentPostUncertain(underlying: error))
             XCTAssertTrue(message.hasPrefix("Couldn't post. "), message)
             XCTAssertTrue(message.hasSuffix(CommentPostError.mayHavePosted), message)
             XCTAssertFalse(message.contains(".."), message)
             XCTAssertFalse(message.contains("moderation"), message)
         }
-        XCTAssertEqual(CommentPostError.message(for: AO3Error.network(underlying: "The request timed out.")),
-                       "Couldn't post. Couldn't reach AO3: The request timed out. " + CommentPostError.mayHavePosted)
+        XCTAssertEqual(
+            CommentPostError.message(for: CommentPostUncertain(underlying: .network(underlying: "The request timed out."))),
+            "Couldn't post. Couldn't reach AO3: The request timed out. " + CommentPostError.mayHavePosted)
     }
 
-    func test_failuresBeforeAO3TakesItDontWarn() {
-        let errors: [AO3Error] = [.rateLimited, .forbidden, .blockedByProtection, .parseFailed(reason: "comment form not found")]
+    func test_aPOSTTurnedDownIsNotUncertain() {
+        for error in [AO3Error.http(status: 404), .http(status: 422), .rateLimited, .forbidden, .blockedByProtection, .unauthorized] {
+            XCTAssertFalse(CommentPostUncertain.mayHaveReachedAO3(error), "\(error)")
+        }
+    }
+
+    func test_failuresBeforeThePOSTDontWarn() {
+        // The comment page's GET failing: nothing was sent.
+        let errors: [AO3Error] = [.network(underlying: "The Internet connection appears to be offline."), .http(status: 503),
+                                  .rateLimited, .forbidden, .blockedByProtection, .parseFailed(reason: "comment form not found")]
         for error in errors {
             let message = CommentPostError.message(for: error)
             XCTAssertTrue(message.hasPrefix("Couldn't post. "), message)

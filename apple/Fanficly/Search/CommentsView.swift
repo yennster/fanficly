@@ -81,6 +81,8 @@ struct CommentsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
+                        // Closing mid-post would hide a late failure (#204).
+                        .disabled(isPosting)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -98,6 +100,7 @@ struct CommentsView: View {
             .onAppear {
                 if draft.isEmpty { draft = CommentDrafts.shared.text(workId: workId, chapterId: chapterId) }
             }
+            .interactiveDismissDisabled(isPosting)
             .onChange(of: draft) { _, text in
                 CommentDrafts.shared.set(text, workId: workId, chapterId: chapterId)
             }
@@ -224,7 +227,7 @@ struct CommentsView: View {
         do {
             try await client.postComment(workId: workId, chapterId: chapterId, text: text)
             // Here too, not only through onChange: the sheet may have closed meanwhile.
-            CommentDrafts.shared.clear(workId: workId, chapterId: chapterId)
+            CommentDrafts.shared.clearIfPosted(text, workId: workId, chapterId: chapterId)
             draft = ""
             composerFocused = false
             // Re-fetch so the new comment shows (AO3 may hold it for moderation).

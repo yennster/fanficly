@@ -80,6 +80,8 @@ public sealed class CommentsScreen : Screen
 
     protected override FrameworkElement Build()
     {
+        // A post that failed after its screen closed (#204).
+        _postError = CommentDrafts.Shared.TakeNotice(_workId, _chapterId);
         var root = UI.UI.Grid("*", "*,Auto");
         root.Children.Add(_content.Row(0));
         root.Children.Add(_composerHost.Row(1));
@@ -97,6 +99,15 @@ public sealed class CommentsScreen : Screen
     }
 
     public override void OnDisappearing() => _isVisible = false;
+
+    /// <summary>Back waits while a comment is posting, so a post that fails late
+    /// still shows its message here, with the draft (#204).</summary>
+    public override bool HandleBack()
+    {
+        if (!_isPosting) return false;
+        MainWindow.Current.ShowMessage("Posting your comment", "Go back once it's posted.", InfoBarSeverity.Informational);
+        return true;
+    }
 
     public override void OnRemoved()
     {
@@ -419,8 +430,8 @@ public sealed class CommentsScreen : Screen
         try
         {
             await AppHost.Client.PostCommentAsync(_workId, _chapterId, text, cts.Token);
-            CommentDrafts.Shared.Clear(_workId, _chapterId);
-            if (_draft is not null) _draft.Text = "";
+            CommentDrafts.Shared.ClearIfPosted(_workId, _chapterId, text);
+            if (!_isRemoved && _draft is not null) _draft.Text = "";
             _isPosting = false;
             UpdatePostButton();
             MainWindow.Current.Announce("Comment posted");
@@ -436,7 +447,8 @@ public sealed class CommentsScreen : Screen
             SessionExpiry.Explains(e);
             _postError = "Couldn't post: your AO3 session expired. Sign in again, then post again. Your comment is still here.";
             MainWindow.Current.Announce(_postError);
-            if (!_isRemoved && await Dialogs.ConfirmAsync("Sign in to AO3", _postError, SessionExpiry.ActionTitle)) Routes.OpenLogin();
+            if (_isRemoved) CommentDrafts.Shared.SetNotice(_workId, _chapterId, _postError);
+            else if (await Dialogs.ConfirmAsync("Sign in to AO3", _postError, SessionExpiry.ActionTitle)) Routes.OpenLogin();
         }
         catch (Exception e)
         {
@@ -444,6 +456,7 @@ public sealed class CommentsScreen : Screen
             // "It may have been posted anyway…", so a retry doesn't post it twice.
             _postError = CommentPostError.Message(e);
             MainWindow.Current.Announce(_postError);
+            if (_isRemoved) CommentDrafts.Shared.SetNotice(_workId, _chapterId, _postError);
         }
         finally
         {

@@ -818,9 +818,19 @@ public actor AO3Client: AO3ClientProtocol {
         fields["commit"] = "Comment"
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
+        // From here a failure can come after AO3 saved the comment (a timeout,
+        // a dropped connection, a 5xx), so it says so (#204): the composer
+        // warns against posting again before a refresh. Never retried.
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await performRequest(request)
+        } catch let error as AO3Error where CommentPostUncertain.mayHaveReachedAO3(error) {
+            throw CommentPostUncertain(underlying: error)
+        }
+
         // AO3 answers a refused comment with a 200 page (or a redirect that
         // URLSession follows), never an error status, so judge by the page.
-        let (data, response) = try await performRequest(request)
         let html = String(data: data, encoding: .utf8) ?? ""
         switch CommentsParser.postOutcome(html: html, finalURL: response.url, formAction: form.action) {
         case .posted: return

@@ -29,27 +29,78 @@ public sealed class CommentDrafts
     }
 
     public void Clear(int workId, int? chapterId) => Set(workId, chapterId, "");
+
+    /// <summary>Forgets the draft once <paramref name="posted"/> went up, unless the
+    /// stored text has changed since (a newer comment typed meanwhile).</summary>
+    public void ClearIfPosted(int workId, int? chapterId, string posted)
+    {
+        lock (_lock)
+        {
+            if (_drafts.TryGetValue((workId, chapterId), out var text) && text.Trim() == posted.Trim())
+                _drafts.Remove((workId, chapterId));
+        }
+    }
+
+    private readonly Dictionary<(int WorkId, int? ChapterId), string> _notices = [];
+
+    /// <summary>Keeps a post's failure for the next time the thread opens, when the
+    /// screen that posted it has already gone (Windows only: the Apple sheet can't
+    /// close mid-post).</summary>
+    public void SetNotice(int workId, int? chapterId, string? notice)
+    {
+        lock (_lock)
+        {
+            if (notice is null) _notices.Remove((workId, chapterId));
+            else _notices[(workId, chapterId)] = notice;
+        }
+    }
+
+    /// <summary>The kept failure, once: reading it forgets it.</summary>
+    public string? TakeNotice(int workId, int? chapterId)
+    {
+        lock (_lock) return _notices.Remove((workId, chapterId), out var notice) ? notice : null;
+    }
+}
+
+/// <summary>A comment POST that failed after it went out, so AO3 may have saved
+/// the comment anyway (Swift's <c>CommentPostUncertain</c>). Thrown only by
+/// <c>PostCommentAsync</c>'s POST step: the same failure on the comment page's GET
+/// before it is an ordinary error, since nothing was sent (#204).</summary>
+public sealed class CommentPostUncertainException(Exception inner) : Exception(inner.Message, inner)
+{
+    /// <summary>A timeout, a dropped connection or a server error. Not a failure to
+    /// reach AO3 at all (offline, DNS, refused), which happens before anything is sent.</summary>
+    public static bool MayHaveReachedAO3(Exception e) => e switch
+    {
+        AO3Exception { Kind: AO3ErrorKind.Network } => !NeverConnected(e.InnerException),
+        AO3Exception { Kind: AO3ErrorKind.Http, Status: >= 500 } => true,
+        AO3Exception => false,
+        TimeoutException or HttpRequestException or IOException => !NeverConnected(e),
+        _ => false,
+    };
+
+    private static bool NeverConnected(Exception? e)
+    {
+        for (var x = e; x is not null; x = x.InnerException)
+        {
+            if (x is HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError }) return true;
+            if (x is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.HostNotFound
+                    or System.Net.Sockets.SocketError.TryAgain or System.Net.Sockets.SocketError.NetworkDown
+                    or System.Net.Sockets.SocketError.NetworkUnreachable or System.Net.Sockets.SocketError.HostUnreachable
+                    or System.Net.Sockets.SocketError.ConnectionRefused }) return true;
+        }
+        return false;
+    }
 }
 
 /// <summary>The sentence the comment composer shows when posting fails, worded by
-/// what went wrong (Swift's <c>CommentPostError</c>, same words). An expired
-/// sign-in is the screen's own message, since each app says where to sign in.</summary>
+/// what went wrong (Swift's <c>CommentPostError</c>). An expired sign-in is the
+/// screen's own message, since each app says where to sign in.</summary>
 public static class CommentPostError
 {
     /// <summary>After a failure that can come once AO3 already has the comment, so
     /// posting again straight away could post it twice.</summary>
     public const string MayHavePosted = "It may have been posted anyway, so refresh the comments before trying again.";
-
-    /// <summary>Failures where the POST may have reached AO3: a timeout, a dropped
-    /// connection or an HTTP error. A rate limit, a block or a missing comment form
-    /// all stop the comment before AO3 takes it.</summary>
-    public static bool MayHaveBeenSent(Exception e) => e switch
-    {
-        AO3Exception { Kind: AO3ErrorKind.Network or AO3ErrorKind.Http } => true,
-        AO3Exception => false,
-        TimeoutException or HttpRequestException or IOException => true,
-        _ => false,
-    };
 
     public static string Message(Exception e)
     {
@@ -57,8 +108,9 @@ public static class CommentPostError
         // already a full sentence that says what to do.
         if (e is AO3Exception { Kind: AO3ErrorKind.Rejected } rejected)
             return Sentence(rejected.Reason is { Length: > 0 } reason ? reason : rejected.Message);
-        var message = $"Couldn't post. {Sentence(e.Message)}";
-        return MayHaveBeenSent(e) ? $"{message} {MayHavePosted}" : message;
+        return e is CommentPostUncertainException
+            ? $"Couldn't post. {Sentence(e.Message)} {MayHavePosted}"
+            : $"Couldn't post. {Sentence(e.Message)}";
     }
 
     /// <summary>Ends the text with one full stop, so "error." never reads "error..".</summary>

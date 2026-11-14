@@ -51,18 +51,42 @@ public class CommentDraftsTests
     }
 
     [Fact]
-    public void ATimeoutSaysItMayHaveBeenPosted()
+    public void KeepsANewerDraftWhenAnOlderPostLands()
     {
-        var message = CommentPostError.Message(new TimeoutException("The request timed out."));
-        Assert.Equal("Couldn't post. The request timed out. " + CommentPostError.MayHavePosted, message);
-        Assert.DoesNotContain("..", message);
+        var drafts = new CommentDrafts();
+        drafts.Set(1, 10, "First comment");
+        drafts.Set(1, 10, "A newer comment");
+        drafts.ClearIfPosted(1, 10, "First comment");
+        Assert.Equal("A newer comment", drafts.Get(1, 10));
+
+        drafts.ClearIfPosted(1, 10, "A newer comment");
+        Assert.Equal("", drafts.Get(1, 10));
+    }
+
+    [Fact]
+    public void ANoticeIsReadOnce()
+    {
+        var drafts = new CommentDrafts();
+        Assert.Null(drafts.TakeNotice(1, 10));
+        drafts.SetNotice(1, 10, "Couldn't post.");
+        Assert.Null(drafts.TakeNotice(1, 11));
+        Assert.Equal("Couldn't post.", drafts.TakeNotice(1, 10));
+        Assert.Null(drafts.TakeNotice(1, 10));
+    }
+
+    [Fact]
+    public void AnUncertainPostSaysItMayHaveBeenPosted()
+    {
+        var message = CommentPostError.Message(new CommentPostUncertainException(AO3Exception.Network("The request timed out.")));
+        Assert.Equal("Couldn't post. Couldn't reach AO3: The request timed out. " + CommentPostError.MayHavePosted, message);
     }
 
     [Theory]
     [MemberData(nameof(MaybeSent))]
     public void FailuresAfterSendingWarnAgainstADoublePost(Exception e)
     {
-        var message = CommentPostError.Message(e);
+        Assert.True(CommentPostUncertainException.MayHaveReachedAO3(e));
+        var message = CommentPostError.Message(new CommentPostUncertainException(e));
         Assert.StartsWith("Couldn't post. ", message);
         Assert.EndsWith(CommentPostError.MayHavePosted, message);
         Assert.DoesNotContain("..", message);
@@ -71,7 +95,8 @@ public class CommentDraftsTests
 
     public static TheoryData<Exception> MaybeSent() =>
     [
-        AO3Exception.Network("connection reset"),
+        AO3Exception.Network("connection reset", new IOException("reset")),
+        AO3Exception.Network("The request timed out.", new TimeoutException("The request timed out.")),
         AO3Exception.Http(503),
         AO3Exception.Http(500),
         new HttpRequestException("An error occurred while sending the request."),
@@ -79,9 +104,27 @@ public class CommentDraftsTests
     ];
 
     [Theory]
+    [MemberData(nameof(NeverSent))]
+    public void FailuresThatNeverReachedAO3AreNotUncertain(Exception e) =>
+        Assert.False(CommentPostUncertainException.MayHaveReachedAO3(e));
+
+    public static TheoryData<Exception> NeverSent() =>
+    [
+        AO3Exception.Network("No such host", new HttpRequestException(HttpRequestError.NameResolutionError, "No such host")),
+        AO3Exception.Network("refused", new HttpRequestException("refused",
+            new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.ConnectionRefused))),
+        AO3Exception.Http(404),
+        AO3Exception.Http(422),
+        AO3Exception.RateLimited(),
+        AO3Exception.Unauthorized(),
+        AO3Exception.Forbidden(),
+    ];
+
+    [Theory]
     [MemberData(nameof(NotSent))]
-    public void FailuresBeforeAO3TakesItDontWarn(Exception e)
+    public void FailuresBeforeThePostDontWarn(Exception e)
     {
+        // The comment page's GET failing, or AO3 turning the POST down.
         var message = CommentPostError.Message(e);
         Assert.Equal($"Couldn't post. {e.Message}", message);
         Assert.DoesNotContain(CommentPostError.MayHavePosted, message);
@@ -89,6 +132,8 @@ public class CommentDraftsTests
 
     public static TheoryData<Exception> NotSent() =>
     [
+        AO3Exception.Network("The request timed out."),
+        AO3Exception.Http(503),
         AO3Exception.RateLimited(),
         AO3Exception.Forbidden(),
         AO3Exception.BlockedByProtection(),

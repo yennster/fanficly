@@ -34,6 +34,34 @@ final class CommentDrafts {
     func clear(workId: Int, chapterId: Int?) {
         set("", workId: workId, chapterId: chapterId)
     }
+
+    /// Forgets the draft once `posted` went up, unless the stored text has
+    /// changed since (a newer comment typed meanwhile).
+    func clearIfPosted(_ posted: String, workId: Int, chapterId: Int?) {
+        let key = Key(workId: workId, chapterId: chapterId)
+        let trim = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let text = drafts[key], trim(text) == trim(posted) { drafts[key] = nil }
+    }
+}
+
+/// A comment POST that failed after it went out, so AO3 may have saved the
+/// comment anyway (the Windows app's `CommentPostUncertainException`). Thrown
+/// only by `postComment`'s POST step: the same failure on the comment page's
+/// GET before it is an ordinary `AO3Error`, since nothing was sent (#204).
+struct CommentPostUncertain: Error, LocalizedError, Equatable {
+    let underlying: AO3Error
+
+    var errorDescription: String? { underlying.localizedDescription }
+
+    /// A dropped connection or timeout, or a server error. A 4xx, a rate limit
+    /// or a block means AO3 turned the POST down.
+    static func mayHaveReachedAO3(_ error: AO3Error) -> Bool {
+        switch error {
+        case .network: true
+        case .http(let status): status >= 500
+        default: false
+        }
+    }
 }
 
 /// The sentence the comment composer shows when posting fails, worded by what
@@ -44,17 +72,6 @@ enum CommentPostError {
     /// posting again straight away could post it twice.
     static let mayHavePosted = "It may have been posted anyway, so refresh the comments before trying again."
 
-    /// Failures where the POST may have reached AO3: a timeout, a dropped
-    /// connection or an HTTP error. A rate limit, a block or a missing comment
-    /// form all stop the comment before AO3 takes it.
-    static func mayHaveBeenSent(_ error: Error) -> Bool {
-        switch error as? AO3Error {
-        case .network?, .http?: true
-        case .some: false
-        case nil: error is URLError
-        }
-    }
-
     static func message(for error: Error) -> String {
         // AO3's own reason ("Couldn't save comment! …") or "AO3 didn't
         // confirm…", already a full sentence that says what to do.
@@ -62,7 +79,7 @@ enum CommentPostError {
             return sentence(message)
         }
         let message = "Couldn't post. \(sentence(error.localizedDescription))"
-        return mayHaveBeenSent(error) ? "\(message) \(mayHavePosted)" : message
+        return error is CommentPostUncertain ? "\(message) \(mayHavePosted)" : message
     }
 
     /// Ends the text with one full stop, so "error." never reads "error..".
