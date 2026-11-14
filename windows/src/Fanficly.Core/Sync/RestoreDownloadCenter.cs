@@ -38,12 +38,15 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
         /// <summary>The same tally, marked finished (early, with <paramref name="stopped"/>).</summary>
         public DownloadProgress Finishing(StopReason? stopped = null) => this with { Finished = true, Stopped = stopped };
 
+        /// <summary>"1 story", "3 stories" (#205: never "1 stories").</summary>
+        internal static string Stories(int n) => n == 1 ? "1 story" : $"{n} stories";
+
         /// <summary>The finished banner's headline.</summary>
         public string FinishedTitle => Stopped switch
         {
             StopReason.RateLimited => "AO3 asked to slow down",
             StopReason.SignInNeeded => "Sign in to AO3 to download the rest",
-            _ => Failed == 0 ? $"Downloaded {Done} stories" : $"Downloaded {Done} of {Total} stories",
+            _ => Failed == 0 ? $"Downloaded {Stories(Done)}" : $"Downloaded {Done} of {Stories(Total)}",
         };
 
         /// <summary>The stories a stopped run didn't download: the one AO3
@@ -62,7 +65,7 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
         public string Announcement => StoppedDetail is { } detail
             ? $"Downloads stopped. {FinishedTitle}. {detail}"
             : Failed == 0
-                ? $"Downloaded {Done} stories for offline reading."
+                ? $"Downloaded {Stories(Done)} for offline reading."
                 : $"Downloads finished. {Done} succeeded, {Failed} failed.";
     }
 

@@ -58,8 +58,6 @@ public sealed class LibraryScreen : Screen
         Title = "Library";
         _root = UI.UI.Grid("*", "Auto,Auto,*");
 
-        RestoreBanner.Attach(_root).Row(0);
-
         _search = new AutoSuggestBox
         {
             PlaceholderText = "Search titles, authors, tags, or notes",

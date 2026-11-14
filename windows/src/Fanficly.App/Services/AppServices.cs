@@ -165,7 +165,7 @@ public static partial class AppHost
         MainWindow.Current?.DispatcherQueue.TryEnqueue(() => MainWindow.Current?.ShowMessage(
             "Couldn't save your library",
             $"Your latest change may be lost when Fanficly closes. {error}",
-            Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 10));
+            Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error));
     }
 
     /// <summary>The rows the widgets show, read from the library.</summary>
@@ -201,7 +201,7 @@ public static partial class AppHost
             _ => (null, null),
         };
         if (title is null) return;
-        MainWindow.Current?.ShowMessage(title, message, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning, seconds: 15);
+        MainWindow.Current?.ShowMessage(title, message, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning);
     }
 
     /// <summary>The launch task (FanficlyApp's .task): restore from the sync
@@ -214,7 +214,7 @@ public static partial class AppHost
         {
             MainWindow.Current?.ShowMessage("Couldn't open your library",
                 $"Fanficly can't save anything this time. Close other copies of Fanficly and restart it. {why}",
-                Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 20);
+                Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error);
             return;
         }
         // Older builds stored the email address a reader signed in with; swap

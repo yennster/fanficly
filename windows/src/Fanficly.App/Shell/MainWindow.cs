@@ -412,20 +412,43 @@ public sealed partial class MainWindow : Window
 
     // MARK: - In-app messages
 
-    /// <summary>A short, self-dismissing message at the bottom of the window
-    /// (and announced to Narrator).</summary>
-    public void ShowMessage(string title, string? message = null, InfoBarSeverity severity = InfoBarSeverity.Success, int seconds = 4)
+    /// <summary>A message at the bottom of the window, announced to Narrator.
+    /// A confirmation closes by itself after <paramref name="seconds"/> (4 by
+    /// default); an error or warning stays until closed (<see cref="MessageLifetime"/>, #205).</summary>
+    public void ShowMessage(string title, string? message = null, InfoBarSeverity severity = InfoBarSeverity.Success, int? seconds = null)
     {
+        // The same words again replace the bar already up rather than stacking a copy.
+        foreach (var existing in _messages.Children.OfType<InfoBar>().ToList())
+            if (existing.Title == title && existing.Message == (message ?? "") && existing.Severity == severity)
+                _messages.Children.Remove(existing);
         var bar = UI.UI.Banner(title, message, severity);
         bar.Background = Theme.CardBackground;
         bar.Shadow = new ThemeShadow();
         _messages.Children.Add(bar);
         Announce(message is null ? title : $"{title}. {message}");
+        bar.Closed += (_, _) => _messages.Children.Remove(bar);
+        if (MessageLifetime.Seconds(severity == InfoBarSeverity.Error || severity == InfoBarSeverity.Warning, seconds) is not { } lifetime) return;
+
+        // A confirmation closes by itself, but never while the pointer is over
+        // it or keyboard focus is inside it (WCAG 2.2.1): the countdown starts
+        // again when they leave.
         var timer = DispatcherQueue.CreateTimer();
-        timer.Interval = TimeSpan.FromSeconds(seconds);
+        timer.Interval = TimeSpan.FromSeconds(lifetime);
         timer.IsRepeating = false;
         timer.Tick += (_, _) => _messages.Children.Remove(bar);
-        bar.Closed += (_, _) => _messages.Children.Remove(bar);
+        var pointerOver = false;
+        var focusInside = false;
+        void Hold()
+        {
+            if (pointerOver || focusInside) timer.Stop();
+            else timer.Start();
+        }
+        bar.PointerEntered += (_, _) => { pointerOver = true; Hold(); };
+        bar.PointerExited += (_, _) => { pointerOver = false; Hold(); };
+        bar.PointerCanceled += (_, _) => { pointerOver = false; Hold(); };
+        bar.GotFocus += (_, _) => { focusInside = true; Hold(); };
+        bar.LostFocus += (_, _) => { focusInside = false; Hold(); };
+        bar.Closed += (_, _) => timer.Stop();
         timer.Start();
     }
 

@@ -128,8 +128,10 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         {
             if (IsRemoved) return;
             AppHost.Log($"Loading saved work {_work.Ao3Id} failed: {e.Message}");
-            ShowError("wifi.exclamationmark", "Couldn't load",
-                "This bookmarked work loads on demand. Connect to the internet to read it, then choose Save Offline in the More menu to keep it on this device.",
+            // AO3's own reason first (offline, rate limited, signed out…), as the
+            // live work page shows it, then how to keep the work offline (#205).
+            ShowError("exclamationmark.triangle", "Couldn't load work",
+                $"{e.Message} This work isn't saved offline yet, so it loads from AO3. Once it opens, choose Save Offline in the More menu to keep it on this device.",
                 () => _ = LoadAsync());
         }
         finally
