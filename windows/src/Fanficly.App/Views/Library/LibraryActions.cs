@@ -209,30 +209,36 @@ internal static class LibraryActions
         if (!Downloading.Add(id)) return;
         MainWindow.Current?.Announce($"Downloading {title} for offline reading.");
         FilesChanged?.Invoke();
+        // Which step failed decides the wording (#205).
         var textSaved = false;
+        var fetchingEpub = false;
         try
         {
             // Make sure the chapters are stored too, so it reads offline.
             try
             {
                 var payload = await AppHost.Client.FetchWorkAsync(id);
-                if (work.IsInserted) WorkPersistence.Upsert(payload, Store);
-                textSaved = true;
+                if (work.IsInserted)
+                {
+                    WorkPersistence.Upsert(payload, Store);
+                    textSaved = true;
+                }
             }
             catch (Exception e) when (e is not OperationCanceledException && Store.ChaptersOf(work).Count > 0)
             {
                 // The chapters saved earlier still read offline; without any,
                 // an EPUB alone wouldn't, so that failure stands.
                 AppHost.Log($"Fetching {id} before download failed: {e.Message}");
+                textSaved = true;
             }
+            fetchingEpub = true;
             await AppHost.Client.DownloadEpubAsync(id);
             MainWindow.Current?.ShowMessage("Downloaded for offline reading", title);
         }
         catch (Exception e)
         {
-            MainWindow.Current?.ShowMessage("Couldn't download for offline", textSaved
-                ? $"The text is saved for offline reading, but the EPUB download failed: {e.Message}"
-                : e.Message, InfoBarSeverity.Error);
+            MainWindow.Current?.ShowMessage("Couldn't download for offline", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message),
+                InfoBarSeverity.Error);
         }
         finally
         {

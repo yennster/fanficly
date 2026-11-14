@@ -55,7 +55,6 @@ public sealed class FolderScreen : Screen
     protected override FrameworkElement Build()
     {
         _root = UI.UI.Grid("*", "Auto,Auto,*,Auto");
-        RestoreBanner.Attach(_root).Row(0);
 
         _search = new AutoSuggestBox
         {
@@ -455,7 +454,7 @@ public sealed class FolderScreen : Screen
         foreach (var w in _list.Items) _selected.Add(w.Ao3Id);
         _list.Refresh();
         UpdateRemoveButton();
-        MainWindow.Current?.Announce($"Selected {_selected.Count} stories");
+        MainWindow.Current?.Announce($"Selected {Plural.Stories(_selected.Count)}");
     }
 
     private void RemoveSelected()

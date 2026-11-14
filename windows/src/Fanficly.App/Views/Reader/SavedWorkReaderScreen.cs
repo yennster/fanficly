@@ -131,7 +131,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             // AO3's own reason first (offline, rate limited, signed out…), as the
             // live work page shows it, then how to keep the work offline (#205).
             ShowError("exclamationmark.triangle", "Couldn't load work",
-                $"{e.Message} This work isn't saved offline yet, so it loads from AO3. Once it opens, choose Save Offline in the More menu to keep it on this device.",
+                $"{MessageLifetime.Sentence(e.Message)} This work isn't saved offline yet, so it loads from AO3. Once it opens, choose Save Offline in the More menu to keep it on this device.",
                 () => _ = LoadAsync());
         }
         finally
@@ -258,6 +258,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         UpdateMoreButton();
         MainWindow.Current.Announce("Saving for offline reading");
         var textSaved = false;
+        var fetchingEpub = false;
         try
         {
             // Make sure we have the whole work to keep its chapters (never
@@ -270,6 +271,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
                 {
                     // The chapters saved earlier still read offline.
                     AppHost.Log($"Fetching the work to save failed: {e.Message}");
+                    textSaved = true;
                 }
             }
             if (toSave is not null)
@@ -279,6 +281,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
                 _isWholeWork = true;
                 textSaved = true;
             }
+            fetchingEpub = true;
             await AppHost.Client.DownloadEpubAsync(_work.Ao3Id);
             _isDownloaded = true;
             MainWindow.Current.ShowMessage("Saved offline", "This work is available offline.");
@@ -286,9 +289,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         catch (Exception e)
         {
             AppHost.Log($"Save offline failed: {e}");
-            await Dialogs.AlertAsync("Couldn't download for offline", textSaved
-                ? $"The text is saved for offline reading, but the EPUB download failed: {e.Message}"
-                : e.Message);
+            await Dialogs.AlertAsync("Couldn't download for offline", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message));
         }
         finally
         {

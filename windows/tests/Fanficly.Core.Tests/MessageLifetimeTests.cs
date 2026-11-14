@@ -39,6 +39,36 @@ public class DownloadProgressWordingTests
     public void SeveralStoriesArePlural()
     {
         Assert.Equal("Downloaded 3 stories", new RestoreDownloadCenter.DownloadProgress(3, 0, 3, true).FinishedTitle);
-        Assert.Equal("Downloaded 0 of 1 story", new RestoreDownloadCenter.DownloadProgress(0, 1, 1, true).FinishedTitle);
+        Assert.Equal("Downloaded 1 of 2 stories", new RestoreDownloadCenter.DownloadProgress(1, 1, 2, true).FinishedTitle);
     }
+}
+
+/// <summary>Download failures name the step that failed (#205).</summary>
+public class DownloadFailureWordingTests
+{
+    [Fact]
+    public void TextStepFailingSavesNothing() =>
+        Assert.Equal("Couldn't get the story's text from AO3, so nothing was saved: offline",
+            DownloadFailureWording.For(textSaved: false, fetchingEpub: false, "offline"));
+
+    [Fact]
+    public void EpubStepAfterTextSaved() =>
+        Assert.Equal("The text is saved for offline reading, but the EPUB download failed: offline",
+            DownloadFailureWording.For(textSaved: true, fetchingEpub: true, "offline"));
+
+    [Fact]
+    public void EpubStepWithNoTextSavedNeverClaimsText() =>
+        Assert.Equal("The EPUB download failed: offline",
+            DownloadFailureWording.For(textSaved: false, fetchingEpub: true, "offline"));
+}
+
+public class MessageSentenceTests
+{
+    [Theory]
+    [InlineData("No connection", "No connection.")]
+    [InlineData("AO3 isn't responding right now.", "AO3 isn't responding right now.")]
+    [InlineData("Slow down! ", "Slow down!")]
+    [InlineData("", "")]
+    public void EndsWithAFullStop(string reason, string expected) =>
+        Assert.Equal(expected, MessageLifetime.Sentence(reason));
 }

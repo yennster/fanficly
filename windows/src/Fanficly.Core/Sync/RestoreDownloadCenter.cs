@@ -39,7 +39,7 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
         public DownloadProgress Finishing(StopReason? stopped = null) => this with { Finished = true, Stopped = stopped };
 
         /// <summary>"1 story", "3 stories" (#205: never "1 stories").</summary>
-        internal static string Stories(int n) => n == 1 ? "1 story" : $"{n} stories";
+        internal static string Stories(int n) => n == 1 ? "1 story" : $"{n.ToString("N0", System.Globalization.CultureInfo.CurrentCulture)} stories";
 
         /// <summary>The finished banner's headline.</summary>
         public string FinishedTitle => Stopped switch
@@ -280,7 +280,7 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
     {
         Kind = kind;
         Progress = new DownloadProgress(0, 0, ids.Count, false);
-        Announcement?.Invoke($"Downloading {ids.Count} stories for offline reading.");
+        Announcement?.Invoke($"Downloading {DownloadProgress.Stories(ids.Count)} for offline reading.");
         var cts = _downloadCts = new CancellationTokenSource();
         return RunAsync(ids, kind, signedIn, download, cts);
     }

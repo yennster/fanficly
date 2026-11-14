@@ -417,10 +417,17 @@ public sealed partial class MainWindow : Window
     /// default); an error or warning stays until closed (<see cref="MessageLifetime"/>, #205).</summary>
     public void ShowMessage(string title, string? message = null, InfoBarSeverity severity = InfoBarSeverity.Success, int? seconds = null)
     {
-        // The same words again replace the bar already up rather than stacking a copy.
-        foreach (var existing in _messages.Children.OfType<InfoBar>().ToList())
-            if (existing.Title == title && existing.Message == (message ?? "") && existing.Severity == severity)
-                _messages.Children.Remove(existing);
+        // The same words again keep the bar already up (and any focus on it)
+        // rather than stacking a copy.
+        var bars = _messages.Children.OfType<InfoBar>().ToList();
+        if (bars.Any(b => b.Title == title && b.Message == (message ?? "") && b.Severity == severity))
+        {
+            Announce(message is null ? title : $"{title}. {message}");
+            return;
+        }
+        // Errors stay until closed, so keep the stack from covering the window:
+        // past MaxMessages the oldest goes.
+        for (var i = 0; i <= bars.Count - MessageLifetime.MaxMessages; i++) _messages.Children.Remove(bars[i]);
         var bar = UI.UI.Banner(title, message, severity);
         bar.Background = Theme.CardBackground;
         bar.Shadow = new ThemeShadow();
