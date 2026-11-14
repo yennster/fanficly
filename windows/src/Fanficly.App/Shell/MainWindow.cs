@@ -49,7 +49,15 @@ public sealed partial class MainWindow : Window
     private const string SelectedTabKey = "app.selectedTabRaw";
     private const string ZoomKey = "app.zoomScale";
     private const string BoundsKey = "app.windowBounds";
+    private const string MaximizedKey = "app.windowMaximized";
 
+    // Kept alive for their change events (a collected instance stops raising them).
+    private readonly Windows.UI.ViewManagement.AccessibilitySettings _accessibility = new();
+    private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
+    /// <summary>The window's last normal (not maximized, minimized or full screen)
+    /// bounds, which are what a maximized window reopens to when un-maximized.</summary>
+    private RectInt32? _restoredBounds;
+    private bool _maximizeOnActivate;
     private readonly TitleBar _titleBar;
     private readonly NavigationView _nav;
     private readonly Dictionary<SidebarItem, NavigationViewItem> _navItems = [];
@@ -203,6 +211,11 @@ public sealed partial class MainWindow : Window
         if (Platform.CaptureMode.IsOn) _titleBar.RightHeader = Platform.CaptureMode.CaptionGlyphs();
 
         RootElement.ActualThemeChanged += (_, _) => Theme.Apply(RootElement.ActualTheme);
+        // Turning high contrast on or off (or switching between contrast themes)
+        // while the app runs doesn't always change ActualTheme, so re-apply the
+        // palette from the system's own events too. They arrive off the UI thread (#206).
+        _accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Theme.Apply(RootElement.ActualTheme));
+        _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Theme.Apply(RootElement.ActualTheme));
         RootElement.Loaded += (_, _) => Theme.Apply(RootElement.ActualTheme);
         Theme.Apply(Application.Current.RequestedTheme == ApplicationTheme.Dark ? ElementTheme.Dark : ElementTheme.Light);
 
@@ -223,7 +236,20 @@ public sealed partial class MainWindow : Window
             presenter.PreferredMinimumWidth = 360;
             presenter.PreferredMinimumHeight = 480;
         }
+        AppWindow.Changed += (_, e) =>
+        {
+            if ((e.DidPositionChange || e.DidSizeChange) && AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
+                _restoredBounds = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+        };
         AppWindow.Closing += (_, _) => SaveBounds();
+        // Maximize once the window is shown: Maximize() on a hidden window would
+        // show it before App.OnLaunched activates it.
+        Activated += (_, _) =>
+        {
+            if (!_maximizeOnActivate) return;
+            _maximizeOnActivate = false;
+            if (AppWindow.Presenter is OverlappedPresenter overlapped) overlapped.Maximize();
+        };
     }
 
     /// <summary>Opens the tab stored last time (or <paramref name="initial"/>).</summary>
@@ -544,7 +570,10 @@ public sealed partial class MainWindow : Window
             var mods = CurrentModifiers();
             if (Navigator.Current?.HandleKey(e.Key, mods) == true) { e.Handled = true; return; }
             if (e.Key == VirtualKey.V && mods == VirtualKeyModifiers.Control) { e.Handled = AppHost.PasteImport(); return; }
-            if (e.Key is VirtualKey.Escape or VirtualKey.GamepadB && mods == VirtualKeyModifiers.None && Navigator.CanGoBack)
+            // Esc goes back, and on a tab's root still lets the screen leave a
+            // mode first (Recently Viewed's edit mode); GoBack returns false when
+            // there's nothing to leave, so Esc then reaches whatever else wants it (#206).
+            if (e.Key is VirtualKey.Escape or VirtualKey.GamepadB && mods == VirtualKeyModifiers.None)
             {
                 e.Handled = GoBack();
             }
@@ -574,6 +603,10 @@ public sealed partial class MainWindow : Window
             if (DisplayArea.GetFromRect(rect, DisplayAreaFallback.None) is not null)
             {
                 AppWindow.MoveAndResize(rect);
+                _restoredBounds = rect;
+                // Reopen maximized when it closed maximized, on the display the
+                // normal bounds are on, and un-maximize to those bounds (#206).
+                _maximizeOnActivate = KeyValueStores.Default.GetBool(MaximizedKey);
                 return;
             }
         }
@@ -581,17 +614,28 @@ public sealed partial class MainWindow : Window
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var width = Math.Min(1280, (int)(area.Width * 0.85));
         var height = Math.Min(860, (int)(area.Height * 0.85));
-        AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height));
+        var initial = new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height);
+        AppWindow.MoveAndResize(initial);
+        _restoredBounds = initial;
     }
 
+    /// <summary>Saves the normal bounds, and whether the window was maximized.
+    /// Closing from full screen or minimized keeps the last saved state.</summary>
     private void SaveBounds()
     {
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
         {
             var p = AppWindow.Position;
             var s = AppWindow.Size;
-            KeyValueStores.Default.SetString(BoundsKey, $"{p.X},{p.Y},{s.Width},{s.Height}");
+            _restoredBounds = new RectInt32(p.X, p.Y, s.Width, s.Height);
+            KeyValueStores.Default.SetBool(MaximizedKey, false);
         }
+        else if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized })
+        {
+            KeyValueStores.Default.SetBool(MaximizedKey, true);
+        }
+        if (_restoredBounds is { } r)
+            KeyValueStores.Default.SetString(BoundsKey, $"{r.X},{r.Y},{r.Width},{r.Height}");
     }
 }
 
