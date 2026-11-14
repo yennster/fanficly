@@ -321,6 +321,7 @@ public sealed class AO3Exception : Exception
         AO3ErrorKind.Http when status is { } code && IsServerUnavailable(code) =>
             $"AO3 isn't responding right now (HTTP {code}). This is on AO3's side; try again in a minute.",
         AO3ErrorKind.Http => $"AO3 returned an error (HTTP {status}).",
-        _ => $"Network error: {reason}",
+        // Swift's wording, so a failure reads the same in both apps (#204).
+        _ => $"Couldn't reach AO3: {reason}" + (reason?.EndsWith('.') == true ? "" : "."),
     };
 }

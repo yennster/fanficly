@@ -136,4 +136,40 @@ final class CommentPostingTests: XCTestCase {
         XCTAssertEqual(error, .commentRejected(message: "The comment is empty."))
         XCTAssertTrue(CommentStubProtocol.requests.isEmpty)
     }
+
+    /// #204: a POST that fails once it went out may have been saved, so it
+    /// says so; the same failure on the comment page's GET doesn't.
+    private func anyPostError() async -> Error? {
+        do {
+            try await makeClient().postComment(workId: 12, chapterId: 34, text: "Loved it!")
+            return nil
+        } catch {
+            return error
+        }
+    }
+
+    func test_aPOSTThatFailsMayHaveBeenPosted() async {
+        // The page loads, then the POST gets no answer (the stub runs out).
+        CommentStubProtocol.answers = [answer("/works/12/chapters/34?show_comments=true", Self.signedInPage)]
+        let error = await anyPostError()
+        XCTAssertTrue(error is CommentPostUncertain, "\(String(describing: error))")
+        XCTAssertEqual(CommentStubProtocol.requests.map(\.httpMethod), ["GET", "POST"])
+    }
+
+    func test_aServerErrorOnThePOSTMayHaveBeenPosted() async {
+        CommentStubProtocol.answers = [
+            answer("/works/12/chapters/34?show_comments=true", Self.signedInPage),
+            .init(url: Self.base + Self.action, status: 503, html: "<html><body>Service Unavailable</body></html>"),
+        ]
+        let error = await anyPostError()
+        XCTAssertEqual(error as? CommentPostUncertain, CommentPostUncertain(underlying: .http(status: 503)))
+        XCTAssertEqual(CommentStubProtocol.requests.map(\.httpMethod), ["GET", "POST"], "a POST is never retried")
+    }
+
+    func test_aFailedPageLoadPostsNothingAndIsNotUncertain() async {
+        CommentStubProtocol.answers = []
+        let error = await anyPostError()
+        XCTAssertNotNil(error as? AO3Error, "\(String(describing: error))")
+        XCTAssertFalse(CommentStubProtocol.requests.contains { $0.httpMethod == "POST" })
+    }
 }

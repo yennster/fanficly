@@ -1176,6 +1176,37 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
+    public async Task APostThatFailsAfterSendingMayHaveBeenPosted()
+    {
+        // #204: a 5xx (or a timeout) once the POST went out may hide a saved comment.
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var e = await Assert.ThrowsAsync<CommentPostUncertainException>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Http, Assert.IsType<AO3Exception>(e.InnerException).Kind);
+        Assert.Equal(["GET", "POST"], _handler.Requests.Select(r => r.Method));
+    }
+
+    [Fact]
+    public async Task APostThatDropsMayHaveBeenPosted()
+    {
+        _handler.Respond(
+            _ => FakeHandler.Html(CommentFormHtml),
+            _ => throw new HttpRequestException(HttpRequestError.ResponseEnded, "The response ended prematurely."));
+        await Assert.ThrowsAsync<CommentPostUncertainException>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(2, _handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task AFailedCommentPageIsNotUncertain()
+    {
+        _handler.Respond(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, "hi"));
+        Assert.Equal(AO3ErrorKind.Http, e.Kind);
+        Assert.DoesNotContain(_handler.Requests, r => r.Method == "POST");
+    }
+
+    [Fact]
     public async Task PostCommentRefusesBlankText()
     {
         var e = await Assert.ThrowsAsync<AO3Exception>(() => MakeClient().PostCommentAsync(12, null, " \n "));
