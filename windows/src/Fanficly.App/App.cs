@@ -38,6 +38,7 @@ public sealed partial class App : Application, IXamlMetadataProvider
         Views.Library.RestoreBanner.Attach(Window.MessagesHost);
         Window.Start(AppHost.InitialTab);
         Window.Activate();
+        Window.MaximizeIfItWasMaximized();
         if (AppHost.IsIconGallery) Window.Navigator.Push(new Views.Shared.IconGalleryScreen());
         _ = Views.Account.ContentSafetyViews.EnsureAgeGateAsync();
 

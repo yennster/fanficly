@@ -51,13 +51,15 @@ public sealed partial class MainWindow : Window
     private const string BoundsKey = "app.windowBounds";
     private const string MaximizedKey = "app.windowMaximized";
 
-    // Kept alive for their change events (a collected instance stops raising them).
-    private readonly Windows.UI.ViewManagement.AccessibilitySettings _accessibility = new();
+    // Kept alive for its change event (a collected instance stops raising it).
     private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
     /// <summary>The window's last normal (not maximized, minimized or full screen)
     /// bounds, which are what a maximized window reopens to when un-maximized.</summary>
     private RectInt32? _restoredBounds;
-    private bool _maximizeOnActivate;
+    /// <summary>Whether the window was last maximized (minimized and full screen
+    /// leave it as it was); saved on close.</summary>
+    private bool _isMaximized;
+    private bool _maximizeWhenShown;
     private readonly TitleBar _titleBar;
     private readonly NavigationView _nav;
     private readonly Dictionary<SidebarItem, NavigationViewItem> _navItems = [];
@@ -213,9 +215,18 @@ public sealed partial class MainWindow : Window
         RootElement.ActualThemeChanged += (_, _) => Theme.Apply(RootElement.ActualTheme);
         // Turning high contrast on or off (or switching between contrast themes)
         // while the app runs doesn't always change ActualTheme, so re-apply the
-        // palette from the system's own events too. They arrive off the UI thread (#206).
-        _accessibility.HighContrastChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Theme.Apply(RootElement.ActualTheme));
-        _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Theme.Apply(RootElement.ActualTheme));
+        // palette when the system colours change too; it arrives off the UI
+        // thread (#206). Not AccessibilitySettings.HighContrastChanged: it needs
+        // a CoreWindow, which a WinUI 3 desktop window doesn't have, and
+        // subscribing to it crashed the app at launch.
+        try
+        {
+            _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Theme.Apply(RootElement.ActualTheme));
+        }
+        catch (Exception ex)
+        {
+            AppHost.Log($"Couldn't watch the system colours: {ex.Message}");
+        }
         RootElement.Loaded += (_, _) => Theme.Apply(RootElement.ActualTheme);
         Theme.Apply(Application.Current.RequestedTheme == ApplicationTheme.Dark ? ElementTheme.Dark : ElementTheme.Light);
 
@@ -238,18 +249,18 @@ public sealed partial class MainWindow : Window
         }
         AppWindow.Changed += (_, e) =>
         {
-            if ((e.DidPositionChange || e.DidSizeChange) && AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
-                _restoredBounds = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+            if (AppWindow.Presenter is not OverlappedPresenter overlapped) return;   // full screen keeps both
+            // Minimized keeps whether it was maximized, so closing from the
+            // taskbar reopens the window the way it was before.
+            if (overlapped.State == OverlappedPresenterState.Maximized) _isMaximized = true;
+            else if (overlapped.State == OverlappedPresenterState.Restored)
+            {
+                _isMaximized = false;
+                if (e.DidPositionChange || e.DidSizeChange)
+                    _restoredBounds = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+            }
         };
         AppWindow.Closing += (_, _) => SaveBounds();
-        // Maximize once the window is shown: Maximize() on a hidden window would
-        // show it before App.OnLaunched activates it.
-        Activated += (_, _) =>
-        {
-            if (!_maximizeOnActivate) return;
-            _maximizeOnActivate = false;
-            if (AppWindow.Presenter is OverlappedPresenter overlapped) overlapped.Maximize();
-        };
     }
 
     /// <summary>Opens the tab stored last time (or <paramref name="initial"/>).</summary>
@@ -606,7 +617,7 @@ public sealed partial class MainWindow : Window
                 _restoredBounds = rect;
                 // Reopen maximized when it closed maximized, on the display the
                 // normal bounds are on, and un-maximize to those bounds (#206).
-                _maximizeOnActivate = KeyValueStores.Default.GetBool(MaximizedKey);
+                _maximizeWhenShown = _isMaximized = KeyValueStores.Default.GetBool(MaximizedKey);
                 return;
             }
         }
@@ -619,8 +630,18 @@ public sealed partial class MainWindow : Window
         _restoredBounds = initial;
     }
 
-    /// <summary>Saves the normal bounds, and whether the window was maximized.
-    /// Closing from full screen or minimized keeps the last saved state.</summary>
+    /// <summary>Maximizes the window when it closed maximized last time. Called
+    /// by App.OnLaunched right after <c>Activate()</c>: Maximize() on a hidden
+    /// window would show it before then (#206).</summary>
+    public void MaximizeIfItWasMaximized()
+    {
+        if (!_maximizeWhenShown) return;
+        _maximizeWhenShown = false;
+        if (AppWindow.Presenter is OverlappedPresenter overlapped) overlapped.Maximize();
+    }
+
+    /// <summary>Saves the normal bounds, and whether the window was last
+    /// maximized (closing minimized or full screen keeps the state before).</summary>
     private void SaveBounds()
     {
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
@@ -628,12 +649,13 @@ public sealed partial class MainWindow : Window
             var p = AppWindow.Position;
             var s = AppWindow.Size;
             _restoredBounds = new RectInt32(p.X, p.Y, s.Width, s.Height);
-            KeyValueStores.Default.SetBool(MaximizedKey, false);
+            _isMaximized = false;
         }
         else if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized })
         {
-            KeyValueStores.Default.SetBool(MaximizedKey, true);
+            _isMaximized = true;
         }
+        KeyValueStores.Default.SetBool(MaximizedKey, _isMaximized);
         if (_restoredBounds is { } r)
             KeyValueStores.Default.SetString(BoundsKey, $"{r.X},{r.Y},{r.Width},{r.Height}");
     }
