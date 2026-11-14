@@ -471,7 +471,6 @@ public sealed class AO3Client : IAO3Client, IDisposable
         {
             throw new CommentPostUncertainException(e);
         }
-        if (response.Status >= 500) throw new CommentPostUncertainException(AO3Exception.Http(response.Status));
         if (response.Status >= 400) throw AO3Exception.Http(response.Status);
         // AO3 answers a refused comment with a 200 page (or a redirect the client
         // follows), never an error status, so judge by the page: reading a refusal
