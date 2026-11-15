@@ -90,6 +90,44 @@ public static class AO3Endpoints
     public static Uri TagWorks(string tagName, Uri baseUri) =>
         new(Root(baseUri) + $"/tags/{AO3PathEncode(tagName)}/works");
 
+    /// <summary>Path segments the log may keep as they are: AO3's own route words,
+    /// never anything a reader picked (#208).</summary>
+    private static readonly HashSet<string> RouteWords = new(StringComparer.Ordinal)
+    {
+        "works", "chapters", "comments", "bookmarks", "users", "pseuds", "readings",
+        "subscriptions", "series", "tags", "media", "fandoms", "downloads", "autocomplete",
+        "tag", "fandom", "relationship", "character", "freeform", "search", "login",
+        "logout", "kudos", "kudos.js", "auth_error", "collections", "menu", "people",
+    };
+
+    /// <summary>A request's path for the local log, as a route shape: AO3's route
+    /// words stay, a number becomes <c>{id}</c> and anything else (a username, tag,
+    /// fandom or category) becomes <c>{name}</c>, so the log shows that a work page
+    /// loaded, never which one, and never the query (#208). A download keeps its
+    /// <c>work.&lt;format&gt;</c> file name, which names only the format.</summary>
+    public static string RouteShape(Uri uri)
+    {
+        var path = uri.IsAbsoluteUri ? uri.AbsolutePath : uri.OriginalString.Split('?', '#')[0];
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0) return "/";
+        var shaped = new StringBuilder();
+        for (var i = 0; i < segments.Length; i++)
+        {
+            var segment = segments[i];
+            shaped.Append('/');
+            if (RouteWords.Contains(segment)) shaped.Append(segment);
+            else if (segment.All(char.IsAsciiDigit)) shaped.Append("{id}");
+            else if (segments[0] == "downloads" && i >= 2 && i == segments.Length - 1
+                     && IsDownloadFileName(segment)) shaped.Append(segment);
+            else shaped.Append("{name}");
+        }
+        return shaped.ToString();
+    }
+
+    private static bool IsDownloadFileName(string segment) =>
+        segment.StartsWith("work.", StringComparison.Ordinal)
+        && segment.Length > 5 && segment[5..].All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c));
+
     /// <summary>AO3's own path encoding for tag and category names: <c>&amp;</c>→<c>*a*</c>,
     /// <c>/</c>→<c>*s*</c>, <c>.</c>→<c>*d*</c>, <c>?</c>→<c>*q*</c>, <c>'</c>→<c>*at*</c>, space →
     /// <c>%20</c>, and anything else not allowed in a URL path percent-encoded.</summary>

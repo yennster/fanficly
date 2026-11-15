@@ -1,6 +1,6 @@
 # Privacy Policy: Fanficly for Windows
 
-Effective: 2026-10-18
+Effective: 2026-11-15
 
 This policy covers Fanficly for Windows, the app in the Microsoft Store. The iPhone, iPad and Mac app has its own policy, [`PRIVACY.md`](../PRIVACY.md) at the root of this repository.
 
@@ -28,7 +28,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
   - which works you've left kudos on, as work numbers only, deleted when you sign out;
   - the size and position of the window.
 - **Widget data.** The story you read last, your reading streak, your folders, saved searches, subscriptions and a recommendation are kept in a small file that Fanficly's own widgets read, so the Windows Widgets board can show them.
-- **A local diagnostic log** (`Logs\fanficly.log`). It records errors, which can include a work's title, a fandom name or a web address. It never records passwords or cookies. It's capped at 512 KB, and Fanficly never sends it anywhere.
+- **A local diagnostic log** (`Logs\fanficly.log`). It records errors, which can include a work's title or number, an author, a fandom or tag name, or a web address. It also records one line for each request to AO3 with only the kind of page (for example `/works/{id}`), the response code and how long it took, never which work, author, tag or search it was. It never records passwords or cookies. It's capped at 512 KB, Fanficly never sends it anywhere, and clearing Recently Viewed deletes it.
 - **The taskbar jump list.** Right-clicking Fanficly on the taskbar shows "Continue “title”" for the story you read last. Windows keeps that list on your PC.
 - **A cached Popular list.** This is the daily snapshot of popular fandoms, ships and characters.
 

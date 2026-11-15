@@ -21,6 +21,7 @@ public sealed class PrivacyScreen : Screen
                 "• Your AO3 session cookie (encrypted with Windows Data Protection, so only your Windows account can read it), so you stay logged in.\n"
                 + "• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n"
                 + "• Your preferences (theme, font size).\n"
+                + "• A diagnostic log of errors, and of which kinds of AO3 pages loaded (never which work, author, tag or search). It never leaves your PC, and clearing Recently Viewed deletes it.\n"
                 + "• An optional backup of your library and settings in a sync folder you choose (OneDrive, iCloud Drive or similar), if Sync across devices is on. That folder's own service uploads it under your account."),
             Block("What goes off your PC",
                 "Requests to archiveofourown.org so you can read, search, and log in. We never send your data anywhere else."),

@@ -31,6 +31,12 @@ public static partial class AppHost
 
     private static readonly object LogLock = new();
 
+    private static string LogFile => Path.Combine(AppPaths.Logs, "fanficly.log");
+
+    /// <summary>Appends a line to the local diagnostic log (<c>Logs\fanficly.log</c>),
+    /// which never leaves the PC. Errors, plus one line per AO3 request naming only
+    /// the route's shape (<c>/works/{id}</c>, <see cref="AO3Endpoints.RouteShape"/>),
+    /// never which work, author, tag or search (#208). Never log secrets.</summary>
     public static void Log(string message)
     {
         if (IsDemoMode) { System.Diagnostics.Debug.WriteLine(message); return; }
@@ -38,12 +44,27 @@ public static partial class AppHost
         {
             lock (LogLock)
             {
-                var file = Path.Combine(AppPaths.Logs, "fanficly.log");
+                var file = LogFile;
                 if (File.Exists(file) && new FileInfo(file).Length > 512 * 1024) File.Delete(file);
                 File.AppendAllText(file, $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
             }
         }
         catch { }
+    }
+
+    /// <summary>Deletes the diagnostic log; Recently Viewed's Clear runs it, since
+    /// an error line can name a work or a tag (#208).</summary>
+    public static void ClearLog()
+    {
+        if (IsDemoMode) return;
+        try
+        {
+            lock (LogLock)
+            {
+                if (File.Exists(LogFile)) File.Delete(LogFile);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     public static void Initialize()
