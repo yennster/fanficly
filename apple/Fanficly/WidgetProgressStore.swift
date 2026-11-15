@@ -68,6 +68,42 @@ enum WidgetProgressStore {
         return newest
     }
 
+    /// Forgets the last-read entry when it names `workId` (nil: whichever work
+    /// it names), in the app-group, standard and iCloud copies alike, so the
+    /// Continue reading widget stops showing a deleted or hidden work's title,
+    /// or what was read once the history is cleared (#209). A copy naming
+    /// another work stays. The iCloud copy goes too, or the next `load()` would
+    /// bring the entry straight back from it. Returns whether anything was
+    /// removed; the widget is reloaded then.
+    @discardableResult
+    static func clear(workId: Int? = nil) -> Bool {
+        func names(_ payload: WidgetStoryProgress?) -> Bool {
+            guard let payload else { return false }
+            return workId == nil || payload.id == workId
+        }
+
+        var removed = false
+        let shared = UserDefaults(suiteName: appGroupIdentifier)
+        if names(decode(shared?.data(forKey: lastReadProgressKey))) {
+            shared?.removeObject(forKey: lastReadProgressKey)
+            removed = true
+        }
+        if names(decode(UserDefaults.standard.data(forKey: lastReadProgressKey))) {
+            UserDefaults.standard.removeObject(forKey: lastReadProgressKey)
+            removed = true
+        }
+        // A pending mirror is the latest save, which a local copy above held:
+        // drop it so it can't write the entry back to iCloud.
+        if removed { cloudSaveTask?.cancel() }
+        if names(readCloud()) {
+            NSUbiquitousKeyValueStore.default.removeObject(forKey: lastReadProgressKey)
+            NSUbiquitousKeyValueStore.default.synchronize()
+            removed = true
+        }
+        if removed { reloadWidgetsNow() }
+        return removed
+    }
+
     static func installCloudSyncObserver() {
         guard cloudObserver == nil else { return }
 

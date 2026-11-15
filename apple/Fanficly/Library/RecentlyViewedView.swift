@@ -95,18 +95,26 @@ struct RecentlyViewedView: View {
         badges = WorkPersistence.resultBadges(for: recents.map(rowSummary(for:)), in: context)
     }
 
+    // Removing a story from the history, or clearing it, also forgets the
+    // last-read widget entry for it, so the widget doesn't keep the title (#209).
+
     private func remove(_ item: RecentlyViewed) {
+        WorkPersistence.clearLastRead(workId: item.ao3Id)
         context.delete(item)
         try? context.save()
     }
 
     private func removeAt(_ offsets: IndexSet) {
-        for index in offsets { context.delete(recents[index]) }
+        for index in offsets {
+            WorkPersistence.clearLastRead(workId: recents[index].ao3Id)
+            context.delete(recents[index])
+        }
         try? context.save()
     }
 
     private func clearAll() {
         for item in recents { context.delete(item) }
+        WorkPersistence.clearLastRead(workId: nil)
         try? context.save()
     }
 }

@@ -149,6 +149,8 @@ enum HiddenWorkStore {
         guard !isHidden(ao3Id: ao3Id, in: context) else { return }
         context.insert(HiddenWork(ao3Id: ao3Id, title: title))
         try? context.save()
+        // The Continue reading widget mustn't keep its title (#209).
+        WorkPersistence.clearLastRead(workId: ao3Id)
     }
 
     @MainActor

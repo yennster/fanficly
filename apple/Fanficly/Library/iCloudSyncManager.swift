@@ -1433,6 +1433,8 @@ final class iCloudSyncManager {
                     existing.hiddenAt = h.hiddenAt
                 } else {
                     context.insert(HiddenWork(ao3Id: h.ao3Id, title: h.title, hiddenAt: h.hiddenAt))
+                    // Hidden on another device: the last-read entry goes here too (#209).
+                    WorkPersistence.clearLastRead(workId: h.ao3Id)
                 }
             }
             
