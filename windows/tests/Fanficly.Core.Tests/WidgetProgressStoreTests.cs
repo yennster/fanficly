@@ -116,16 +116,40 @@ public sealed class WidgetProgressStoreTests : IDisposable
     }
 
     [Fact]
-    public void ClearMarks_RoundTrip_AndOldDatedOnesArePruned()
+    public void ClearMarks_RoundTrip_SkippingJunk()
     {
-        _local.SetString(WidgetProgressStore.ClearedKey, $"7:{Noon.ToUnixTimeSeconds()},*:{DateTimeOffset.Now.ToUnixTimeSeconds()},9:-,junk,x:1");
+        _local.SetString(WidgetProgressStore.ClearedKey,
+            $"7:{Noon.ToUnixTimeSeconds()},*:{DateTimeOffset.Now.ToUnixTimeSeconds()},9:-,junk,x:1,5:99999999999999999");
         WidgetProgressStore.Clear(8);
         var marks = WidgetProgressStore.LoadMarks();
-        Assert.DoesNotContain(marks, m => m.Id == 7); // older than 90 days
+        Assert.Contains(marks, m => m.Id == 7 && m.At == Noon); // dated marks don't expire by age
         Assert.Contains(marks, m => m.Id is null && m.At is not null);
         Assert.Contains(marks, m => m.Id == 9 && m.At is null);
         Assert.Contains(marks, m => m.Id == 8 && m.At is not null);
-        Assert.Equal(3, marks.Count);
+        Assert.Equal(4, marks.Count);
+    }
+
+    [Fact]
+    public void ClearMarks_KeepEveryHiddenWork_AndTheNewestDatedOnes()
+    {
+        for (var id = 1; id <= 250; id++) WidgetProgressStore.SetHidden(id, hidden: true);
+        for (var id = 1001; id <= 1250; id++) WidgetProgressStore.Clear(id);
+        var marks = WidgetProgressStore.LoadMarks();
+        Assert.Equal(250, marks.Count(m => m.At is null));
+        Assert.Equal(WidgetProgressStore.MaxDatedMarks, marks.Count(m => m.At is not null));
+        Assert.Contains(marks, m => m.Id == 1250); // the newest clear survives the cap
+    }
+
+    [Fact]
+    public void MatchHidden_MarksWorksHiddenBefore_AndDropsStaleMarks()
+    {
+        WidgetProgressStore.Save(3, "A", "B", 0.25, updatedAt: Noon, syncImmediately: true);
+        WidgetProgressStore.SetHidden(9, hidden: true);
+        Assert.True(WidgetProgressStore.MatchHidden([3, 4]));
+        Assert.Null(WidgetProgressStore.Load());
+        var hidden = WidgetProgressStore.LoadMarks().Where(m => m.At is null).Select(m => m.Id).ToHashSet();
+        Assert.Equal(new HashSet<int?> { 3, 4 }, hidden);
+        Assert.False(WidgetProgressStore.MatchHidden([4, 3]));
     }
 
     [Fact]

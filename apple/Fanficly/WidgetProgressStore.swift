@@ -73,9 +73,11 @@ enum WidgetProgressStore {
     /// iCloud key alone isn't enough: another device may still hold the entry,
     /// or still be reading the work, and save it back.
     static let clearedKey = "lastReadProgress.cleared"
-    /// How long a dated mark is kept, like deletion markers.
-    static let clearedMarkLifetime: TimeInterval = 90 * 24 * 60 * 60
-    private static let maxClearedMarks = 200
+    /// How many dated marks are kept (the newest). They don't expire by age:
+    /// a copy this device can't delete (the widget extension's own defaults,
+    /// another device's) may sit there for months. Hidden works' marks aren't
+    /// capped: there's one per `HiddenWork`.
+    static let maxDatedMarks = 200
 
     /// One mark: a nil `id` covers any work; a nil `at` covers every entry
     /// (the work is hidden), else entries saved no later than it.
@@ -120,6 +122,23 @@ enum WidgetProgressStore {
         return hidden && removeCopies(workId: workId)
     }
 
+    /// Makes the hidden marks match `hiddenIds`, the library's hidden works:
+    /// run at launch, so works hidden before marks existed (or by a restore
+    /// that rolled back) are covered, and a mark left for a work no longer
+    /// hidden goes (#209).
+    @discardableResult
+    static func matchHidden(_ hiddenIds: Set<Int>) -> Bool {
+        var marks = loadMarks()
+        let marked = Set(marks.compactMap { mark in mark.at == nil ? mark.id : nil })
+        guard marked != hiddenIds else { return false }
+        marks.removeAll { mark in mark.at == nil }
+        marks.append(contentsOf: hiddenIds.map { ClearedMark(id: $0, at: nil) })
+        saveMarks(marks)
+        var removed = false
+        for id in hiddenIds.subtracting(marked) where removeCopies(workId: id) { removed = true }
+        return removed
+    }
+
     private static func removeCopies(workId: Int?) -> Bool {
         func names(_ payload: WidgetStoryProgress?) -> Bool {
             guard let payload else { return false }
@@ -159,14 +178,21 @@ enum WidgetProgressStore {
     }
 
     private static func saveMarks(_ marks: [ClearedMark]) {
-        let cutoff = Date.now.addingTimeInterval(-clearedMarkLifetime)
-        let kept = marks
-            .filter { mark in mark.at.map { at in at > cutoff } ?? true }
-            .sorted { lhs, rhs in (lhs.at ?? .distantFuture) > (rhs.at ?? .distantFuture) }
-            .prefix(maxClearedMarks)
+        // Every hidden work's mark, then the newest dated ones (on a tie,
+        // the one added last).
+        var seenHidden = Set<Int?>()
+        let hidden = marks.filter { mark in mark.at == nil && seenHidden.insert(mark.id).inserted }
+        let dated = marks.enumerated()
+            .filter { pair in pair.element.at != nil }
+            .sorted { lhs, rhs in
+                lhs.element.at! != rhs.element.at! ? lhs.element.at! > rhs.element.at! : lhs.offset > rhs.offset
+            }
+            .prefix(maxDatedMarks)
+            .map(\.element)
+        let kept = hidden + dated
         if kept.isEmpty {
             markDefaults.removeObject(forKey: clearedKey)
-        } else if let data = try? JSONEncoder().encode(Array(kept)) {
+        } else if let data = try? JSONEncoder().encode(kept) {
             markDefaults.set(data, forKey: clearedKey)
         }
     }

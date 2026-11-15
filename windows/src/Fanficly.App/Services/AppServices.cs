@@ -88,6 +88,8 @@ public static partial class AppHost
 
         if (!IsDemoMode)
         {
+            // Works hidden before the last-read entry honoured hiding (#209).
+            WidgetProgressStore.MatchHidden(HiddenWorkStore.Ids(Library));
             WidgetProgressStore.InstallCloudSyncObserver();
             ReaderProfileSyncStore.InstallCloudSyncObserver();
             StreakStore.InstallCloudSyncObserver();

@@ -109,16 +109,23 @@ final class WidgetProgressClearTests: XCTestCase {
         XCTAssertEqual(WidgetProgressStore.load()?.id, 83007)
     }
 
-    func test_oldDatedMarksArePruned() {
-        let ancient = Date.now.addingTimeInterval(-WidgetProgressStore.clearedMarkLifetime - 60)
-        let marks = [WidgetProgressStore.ClearedMark(id: 1, at: ancient),
-                     WidgetProgressStore.ClearedMark(id: 2, at: nil)]
-        shared?.set(try? JSONEncoder().encode(marks), forKey: WidgetProgressStore.clearedKey)
-        WidgetProgressStore.clear(workId: 3)
-        let kept = WidgetProgressStore.loadMarks()
-        XCTAssertFalse(kept.contains { $0.id == 1 })
-        XCTAssertTrue(kept.contains(WidgetProgressStore.ClearedMark(id: 2, at: nil)))
-        XCTAssertTrue(kept.contains { $0.id == 3 && $0.at != nil })
+    func test_marks_keepEveryHiddenWork_andTheNewestDatedOnes() {
+        for id in 1...250 { WidgetProgressStore.setHidden(id, hidden: true) }
+        for id in 1001...1250 { WidgetProgressStore.clear(workId: id) }
+        let marks = WidgetProgressStore.loadMarks()
+        XCTAssertEqual(marks.filter { $0.at == nil }.count, 250)
+        XCTAssertEqual(marks.filter { $0.at != nil }.count, WidgetProgressStore.maxDatedMarks)
+        XCTAssertTrue(marks.contains { $0.id == 1250 }) // the newest clear survives the cap
+    }
+
+    func test_matchHidden_marksWorksHiddenBefore_andDropsStaleMarks() {
+        saveEntry(83008)
+        WidgetProgressStore.setHidden(9, hidden: true)
+        XCTAssertTrue(WidgetProgressStore.matchHidden([83008, 4]))
+        XCTAssertNil(WidgetProgressStore.load())
+        let hidden = Set(WidgetProgressStore.loadMarks().filter { $0.at == nil }.compactMap(\.id))
+        XCTAssertEqual(hidden, [83008, 4])
+        XCTAssertFalse(WidgetProgressStore.matchHidden([4, 83008]))
     }
 
     func test_deletingAWork_clearsItsEntry() throws {

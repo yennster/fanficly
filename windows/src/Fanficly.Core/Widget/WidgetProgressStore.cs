@@ -104,9 +104,11 @@ public static class WidgetProgressStore
     /// it back) and another device may still be reading the work.</summary>
     public const string ClearedKey = "lastReadProgress.cleared";
 
-    /// <summary>How long a dated mark is kept, like deletion markers.</summary>
-    internal static readonly TimeSpan ClearedMarkLifetime = TimeSpan.FromDays(90);
-    private const int MaxClearedMarks = 200;
+    /// <summary>How many dated marks are kept (the newest). They don't expire
+    /// by age: a copy this PC can't delete (the sync folder's) may sit there
+    /// for months. Hidden works' marks aren't capped: there's one per
+    /// <see cref="HiddenWork"/>.</summary>
+    internal const int MaxDatedMarks = 200;
 
     /// <summary>One mark: <see cref="Id"/> null covers any work; <see cref="At"/>
     /// null covers every entry (the work is hidden), else entries saved no
@@ -142,6 +144,24 @@ public static class WidgetProgressStore
         if (hidden) marks.Add(new ClearedMark(workId, null));
         SaveMarks(marks);
         return hidden && RemoveCopies(workId);
+    }
+
+    /// <summary>Makes the hidden marks match <paramref name="hiddenIds"/>, the
+    /// library's hidden works: run at launch, so works hidden before marks
+    /// existed (or by a restore that didn't save) are covered, and a mark left
+    /// for a work no longer hidden goes (#209).</summary>
+    public static bool MatchHidden(IEnumerable<int> hiddenIds)
+    {
+        var ids = hiddenIds.ToHashSet();
+        var marks = LoadMarks();
+        var marked = marks.Where(m => m.At is null && m.Id is not null).Select(m => m.Id!.Value).ToHashSet();
+        if (marked.SetEquals(ids)) return false;
+        marks.RemoveAll(m => m.At is null);
+        marks.AddRange(ids.Select(id => new ClearedMark(id, null)));
+        SaveMarks(marks);
+        var removed = false;
+        foreach (var id in ids.Except(marked)) removed |= RemoveCopies(id);
+        return removed;
     }
 
     private static bool RemoveCopies(int? workId)
@@ -199,7 +219,8 @@ public static class WidgetProgressStore
             DateTimeOffset? at = null;
             if (halves[1] != "-")
             {
-                if (!long.TryParse(halves[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var secs)) continue;
+                if (!long.TryParse(halves[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var secs)
+                    || secs < DateTimeOffset.MinValue.ToUnixTimeSeconds() || secs > DateTimeOffset.MaxValue.ToUnixTimeSeconds()) continue;
                 at = DateTimeOffset.FromUnixTimeSeconds(secs);
             }
             marks.Add(new ClearedMark(id, at));
@@ -209,10 +230,11 @@ public static class WidgetProgressStore
 
     private static void SaveMarks(List<ClearedMark> marks)
     {
-        var cutoff = DateTimeOffset.Now - ClearedMarkLifetime;
-        var kept = marks.Where(m => m.At is null || m.At > cutoff)
-            .OrderByDescending(m => m.At ?? DateTimeOffset.MaxValue)
-            .Take(MaxClearedMarks)
+        // Every hidden work's mark, then the newest dated ones.
+        var kept = marks.Where(m => m.At is null).DistinctBy(m => m.Id)
+            .Concat(marks.Select((m, i) => (m, i)).Where(x => x.m.At is not null)
+                .OrderByDescending(x => x.m.At).ThenByDescending(x => x.i) // a tie: the one added last
+                .Take(MaxDatedMarks).Select(x => x.m))
             .Select(m => $"{(m.Id is { } id ? id.ToString(CultureInfo.InvariantCulture) : "*")}:" +
                          $"{(m.At is { } at ? at.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) : "-")}")
             .ToList();
