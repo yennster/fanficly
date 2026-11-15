@@ -302,7 +302,6 @@ public sealed partial class MainWindow : Window
     public T? RootScreen<T>(SidebarItem item) where T : Screen =>
         _roots.TryGetValue(item, out var s) ? s as T : null;
 
-    /// <summary>Drops a tab's cached root so it rebuilds next time (sign-in changes).</summary>
     public bool GoBack()
     {
         // Nothing goes back behind the 17+ gate, whatever asked (the title
