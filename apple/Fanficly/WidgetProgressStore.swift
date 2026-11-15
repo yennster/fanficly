@@ -68,15 +68,59 @@ enum WidgetProgressStore {
         return newest
     }
 
+    /// This device's marks of entries that must not come back (#209), kept
+    /// in the app-group defaults so the widget honours them too. Removing the
+    /// iCloud key alone isn't enough: another device may still hold the entry,
+    /// or still be reading the work, and save it back.
+    static let clearedKey = "lastReadProgress.cleared"
+    /// How long a dated mark is kept, like deletion markers.
+    static let clearedMarkLifetime: TimeInterval = 90 * 24 * 60 * 60
+    private static let maxClearedMarks = 200
+
+    /// One mark: a nil `id` covers any work; a nil `at` covers every entry
+    /// (the work is hidden), else entries saved no later than it.
+    struct ClearedMark: Codable, Equatable, Sendable {
+        let id: Int?
+        let at: Date?
+
+        func covers(_ progress: WidgetStoryProgress) -> Bool {
+            (id == nil || id == progress.id) && (at.map { progress.freshnessDate <= $0 } ?? true)
+        }
+    }
+
+    /// Test seam: false keeps the store off iCloud key-value storage, so unit
+    /// tests never push entries to the developer's other devices.
+    nonisolated(unsafe) static var usesCloud = true
+
     /// Forgets the last-read entry when it names `workId` (nil: whichever work
     /// it names), in the app-group, standard and iCloud copies alike, so the
-    /// Continue reading widget stops showing a deleted or hidden work's title,
-    /// or what was read once the history is cleared (#209). A copy naming
-    /// another work stays. The iCloud copy goes too, or the next `load()` would
-    /// bring the entry straight back from it. Returns whether anything was
-    /// removed; the widget is reloaded then.
+    /// Continue reading widget stops showing a deleted work's title, or what
+    /// was read once the history is cleared (#209). A copy naming another work
+    /// stays. It also leaves a mark, so a copy saved before now can't come
+    /// back from iCloud. Returns whether anything was removed; the widget is
+    /// reloaded then.
     @discardableResult
     static func clear(workId: Int? = nil) -> Bool {
+        // Rounded up to a whole second, so the copy cleared now is always covered.
+        let now = Date(timeIntervalSince1970: (Date.now.timeIntervalSince1970 + 1).rounded(.down))
+        var marks = loadMarks().filter { !($0.at != nil && $0.id == workId) }
+        marks.append(ClearedMark(id: workId, at: now))
+        saveMarks(marks)
+        return removeCopies(workId: workId)
+    }
+
+    /// A hidden work never shows as the last-read entry on this device,
+    /// whenever its copy was saved (another device may still be reading it);
+    /// unhiding it lifts that (#209).
+    @discardableResult
+    static func setHidden(_ workId: Int, hidden: Bool) -> Bool {
+        var marks = loadMarks().filter { !($0.id == workId && $0.at == nil) }
+        if hidden { marks.append(ClearedMark(id: workId, at: nil)) }
+        saveMarks(marks)
+        return hidden && removeCopies(workId: workId)
+    }
+
+    private static func removeCopies(workId: Int?) -> Bool {
         func names(_ payload: WidgetStoryProgress?) -> Bool {
             guard let payload else { return false }
             return workId == nil || payload.id == workId
@@ -95,13 +139,42 @@ enum WidgetProgressStore {
         // A pending mirror is the latest save, which a local copy above held:
         // drop it so it can't write the entry back to iCloud.
         if removed { cloudSaveTask?.cancel() }
-        if names(readCloud()) {
+        if usesCloud, names(decode(NSUbiquitousKeyValueStore.default.data(forKey: lastReadProgressKey))) {
             NSUbiquitousKeyValueStore.default.removeObject(forKey: lastReadProgressKey)
             NSUbiquitousKeyValueStore.default.synchronize()
             removed = true
         }
         if removed { reloadWidgetsNow() }
         return removed
+    }
+
+    private static var markDefaults: UserDefaults {
+        UserDefaults(suiteName: appGroupIdentifier) ?? .standard
+    }
+
+    static func loadMarks() -> [ClearedMark] {
+        guard let data = markDefaults.data(forKey: clearedKey),
+              let marks = try? JSONDecoder().decode([ClearedMark].self, from: data) else { return [] }
+        return marks
+    }
+
+    private static func saveMarks(_ marks: [ClearedMark]) {
+        let cutoff = Date.now.addingTimeInterval(-clearedMarkLifetime)
+        let kept = marks
+            .filter { mark in mark.at.map { at in at > cutoff } ?? true }
+            .sorted { lhs, rhs in (lhs.at ?? .distantFuture) > (rhs.at ?? .distantFuture) }
+            .prefix(maxClearedMarks)
+        if kept.isEmpty {
+            markDefaults.removeObject(forKey: clearedKey)
+        } else if let data = try? JSONEncoder().encode(Array(kept)) {
+            markDefaults.set(data, forKey: clearedKey)
+        }
+    }
+
+    /// The copy, unless a mark covers it.
+    private static func allowed(_ progress: WidgetStoryProgress?, _ marks: [ClearedMark]) -> WidgetStoryProgress? {
+        guard let progress, !marks.contains(where: { $0.covers(progress) }) else { return nil }
+        return progress
     }
 
     static func installCloudSyncObserver() {
@@ -138,6 +211,7 @@ enum WidgetProgressStore {
 
     private static func writeCloud(_ payload: WidgetStoryProgress, syncImmediately: Bool) {
         cloudSaveTask?.cancel()
+        guard usesCloud else { return }
 
         if syncImmediately {
             writeCloudNow(payload)
@@ -167,22 +241,25 @@ enum WidgetProgressStore {
     }
 
     private static func writeCloudNow(_ payload: WidgetStoryProgress) {
-        guard let data = encode(payload) else { return }
+        guard usesCloud, let data = encode(payload) else { return }
         NSUbiquitousKeyValueStore.default.set(data, forKey: lastReadProgressKey)
         NSUbiquitousKeyValueStore.default.synchronize()
     }
 
+    // Reads skip any copy a cleared mark covers (#209).
     private static func readLocal() -> WidgetStoryProgress? {
         let sharedData = UserDefaults(suiteName: appGroupIdentifier)?.data(forKey: lastReadProgressKey)
         let standardData = UserDefaults.standard.data(forKey: lastReadProgressKey)
+        let marks = loadMarks()
 
-        return [decode(sharedData), decode(standardData)]
+        return [allowed(decode(sharedData), marks), allowed(decode(standardData), marks)]
             .compactMap { $0 }
             .max(by: { $0.freshnessDate < $1.freshnessDate })
     }
 
     private static func readCloud() -> WidgetStoryProgress? {
-        decode(NSUbiquitousKeyValueStore.default.data(forKey: lastReadProgressKey))
+        guard usesCloud else { return nil }
+        return allowed(decode(NSUbiquitousKeyValueStore.default.data(forKey: lastReadProgressKey)), loadMarks())
     }
 
     private static func writeLocal(_ payload: WidgetStoryProgress) {

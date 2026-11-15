@@ -10,16 +10,19 @@ public sealed class WidgetProgressClearTests : IDisposable
 {
     private readonly List<int?> _cleared = [];
     private readonly List<int> _saved = [];
+    private readonly List<(int, bool)> _hidden = [];
 
     public WidgetProgressClearTests()
     {
         LibraryHooks.ClearWidgetProgress = id => { lock (_cleared) _cleared.Add(id); };
+        LibraryHooks.SetWidgetProgressHidden = (id, hidden) => { lock (_hidden) _hidden.Add((id, hidden)); };
         LibraryHooks.SaveWidgetProgress = u => { lock (_saved) _saved.Add(u.Id); };
     }
 
     public void Dispose()
     {
         LibraryHooks.ClearWidgetProgress = null;
+        LibraryHooks.SetWidgetProgressHidden = null;
         LibraryHooks.SaveWidgetProgress = null;
     }
 
@@ -38,12 +41,13 @@ public sealed class WidgetProgressClearTests : IDisposable
     }
 
     [Fact]
-    public void HidingAWorkClearsItsEntry_OnceOnly()
+    public void HidingAWorkHidesItsEntry_AndUnhidingLiftsThat()
     {
         using var store = LibraryStore.OpenInMemory();
         HiddenWorkStore.Hide(82002, "Work 82002", store);
         HiddenWorkStore.Hide(82002, "Work 82002", store);
-        Assert.Equal([82002], _cleared);
+        HiddenWorkStore.Unhide(82002, store);
+        Assert.Equal([(82002, true), (82002, false)], _hidden);
     }
 
     [Fact]

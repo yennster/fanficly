@@ -39,10 +39,15 @@ public static class LibraryHooks
     public static Action<WidgetProgressUpdate>? SaveWidgetProgress { get; set; }
 
     /// <summary><c>WidgetProgressStore.clear(workId:)</c> — forgets the last-read
-    /// entry when its work is deleted or hidden (that work's id), or the history
-    /// is cleared (null: whichever work it names), so the Continue reading
-    /// widget and the jump list don't keep the title (#209).</summary>
+    /// entry when its work is deleted (that work's id) or the history is
+    /// cleared (null: whichever work it names), so the Continue reading widget
+    /// and the jump list don't keep the title (#209).</summary>
     public static Action<int?>? ClearWidgetProgress { get; set; }
+
+    /// <summary><c>WidgetProgressStore.setHidden(_:hidden:)</c> — a hidden work
+    /// never shows as the last-read entry, whenever its copy was saved, until
+    /// it's unhidden (#209).</summary>
+    public static Action<int, bool>? SetWidgetProgressHidden { get; set; }
 
     /// <summary>CoreSpotlight indexing of library works.</summary>
     public static IWorkSearchIndexer? SearchIndexer { get; set; }

@@ -57,8 +57,8 @@ public static class HiddenWorkStore
         if (IsHidden(ao3Id, store)) return;
         store.Insert(new HiddenWork(ao3Id, title));
         store.TrySave();
-        // The Continue reading widget and the jump list mustn't keep its title (#209).
-        LibraryHooks.ClearWidgetProgress?.Invoke(ao3Id);
+        // The Continue reading widget and the jump list mustn't show its title (#209).
+        LibraryHooks.SetWidgetProgressHidden?.Invoke(ao3Id, true);
     }
 
     public static void Unhide(int ao3Id, LibraryStore store)
@@ -68,6 +68,7 @@ public static class HiddenWorkStore
         LibrarySyncManager.RecordDeletionShared(DeletionKind.Hidden, ao3Id);
         foreach (var record in records) store.Delete(record);
         store.TrySave();
+        LibraryHooks.SetWidgetProgressHidden?.Invoke(ao3Id, false);
     }
 }
 

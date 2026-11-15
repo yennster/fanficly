@@ -149,8 +149,8 @@ enum HiddenWorkStore {
         guard !isHidden(ao3Id: ao3Id, in: context) else { return }
         context.insert(HiddenWork(ao3Id: ao3Id, title: title))
         try? context.save()
-        // The Continue reading widget mustn't keep its title (#209).
-        WorkPersistence.clearLastRead(workId: ao3Id)
+        // The Continue reading widget mustn't show its title (#209).
+        WorkPersistence.setLastReadHidden(ao3Id, hidden: true)
     }
 
     @MainActor
@@ -161,5 +161,6 @@ enum HiddenWorkStore {
         iCloudSyncManager.recordDeletion(.hidden, key: String(ao3Id))
         for record in records { context.delete(record) }
         try? context.save()
+        WorkPersistence.setLastReadHidden(ao3Id, hidden: false)
     }
 }

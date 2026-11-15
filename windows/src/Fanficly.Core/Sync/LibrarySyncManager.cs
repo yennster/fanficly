@@ -1277,7 +1277,7 @@ public sealed class LibrarySyncManager
             {
                 store.Insert(new HiddenWork(h.Ao3Id, h.Title, h.HiddenAt));
                 // Hidden on another device: the last-read entry goes here too (#209).
-                LibraryHooks.ClearWidgetProgress?.Invoke(h.Ao3Id);
+                LibraryHooks.SetWidgetProgressHidden?.Invoke(h.Ao3Id, true);
             }
         }
 
@@ -1403,7 +1403,10 @@ public sealed class LibrarySyncManager
         var liveHidden = backup.Hidden.Where(h => !tombstones.Removes(DeletionKind.Hidden, h.Ao3Id, h.HiddenAt)).Select(h => h.Ao3Id).ToHashSet();
         foreach (var hidden in store.All<HiddenWork>().ToList())
             if (!liveHidden.Contains(hidden.Ao3Id) && tombstones.Removes(DeletionKind.Hidden, hidden.Ao3Id, hidden.HiddenAt))
+            {
                 store.Delete(hidden);
+                LibraryHooks.SetWidgetProgressHidden?.Invoke(hidden.Ao3Id, false);
+            }
 
         var liveFolders = (backup.Folders ?? []).Where(f => !tombstones.Removes(DeletionKind.Folder, f.Name, f.CreatedAt))
             .Select(f => f.Name).ToHashSet(StringComparer.Ordinal);

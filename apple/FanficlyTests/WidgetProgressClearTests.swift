@@ -7,25 +7,31 @@ import SwiftData
 /// title; a hidden work's reader never writes it back.
 @MainActor
 final class WidgetProgressClearTests: XCTestCase {
-    private let key = WidgetProgressStore.lastReadProgressKey
-    private var savedShared: Data?
-    private var savedStandard: Data?
-    private var savedCloud: Data?
+    private let keys = [WidgetProgressStore.lastReadProgressKey, WidgetProgressStore.clearedKey]
+    private var saved: [String: (shared: Data?, standard: Data?)] = [:]
+    private var shared: UserDefaults? { UserDefaults(suiteName: WidgetProgressStore.appGroupIdentifier) }
 
     override func setUp() {
         super.setUp()
-        // The stores are the device's own: put back whatever was there.
-        savedShared = UserDefaults(suiteName: WidgetProgressStore.appGroupIdentifier)?.data(forKey: key)
-        savedStandard = UserDefaults.standard.data(forKey: key)
-        savedCloud = NSUbiquitousKeyValueStore.default.data(forKey: key)
-        WidgetProgressStore.clear()
+        // Never touch iCloud: it would push test entries to the developer's
+        // other devices. The defaults are the device's own: put back whatever
+        // was there.
+        WidgetProgressStore.usesCloud = false
+        for key in keys {
+            saved[key] = (shared?.data(forKey: key), UserDefaults.standard.data(forKey: key))
+            shared?.removeObject(forKey: key)
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     override func tearDown() {
-        WidgetProgressStore.clear()
-        if let savedShared { UserDefaults(suiteName: WidgetProgressStore.appGroupIdentifier)?.set(savedShared, forKey: key) }
-        if let savedStandard { UserDefaults.standard.set(savedStandard, forKey: key) }
-        if let savedCloud { NSUbiquitousKeyValueStore.default.set(savedCloud, forKey: key) }
+        for key in keys {
+            shared?.removeObject(forKey: key)
+            UserDefaults.standard.removeObject(forKey: key)
+            if let data = saved[key]?.shared { shared?.set(data, forKey: key) }
+            if let data = saved[key]?.standard { UserDefaults.standard.set(data, forKey: key) }
+        }
+        WidgetProgressStore.usesCloud = true
         super.tearDown()
     }
 
@@ -53,7 +59,7 @@ final class WidgetProgressClearTests: XCTestCase {
 
     private func saveEntry(_ id: Int) {
         WidgetProgressStore.save(id: id, title: "Work \(id)", author: "tester", progress: 0.5,
-                                 chapter: 1, paragraph: 0, syncImmediately: true)
+                                 chapter: 1, paragraph: 0)
     }
 
     func test_clear_removesOnlyTheNamedWork() {
@@ -70,11 +76,49 @@ final class WidgetProgressClearTests: XCTestCase {
         XCTAssertNil(WidgetProgressStore.load())
     }
 
-    func test_clear_dropsAPendingMirror() async throws {
-        WidgetProgressStore.save(id: 83004, title: "Work", author: "tester", progress: 0.5)
+    /// Puts a copy back as a synced or stale write would.
+    private func putBack(_ progress: WidgetStoryProgress) throws {
+        UserDefaults.standard.set(try JSONEncoder().encode(progress), forKey: WidgetProgressStore.lastReadProgressKey)
+    }
+
+    func test_clear_keepsACopyFromBeforeIt_fromComingBack() throws {
+        let old = Date.now.addingTimeInterval(-60)
+        WidgetProgressStore.save(id: 83004, title: "Work", author: "tester", progress: 0.5, updatedAt: old)
         XCTAssertTrue(WidgetProgressStore.clear(workId: 83004))
-        try await Task.sleep(nanoseconds: 1_500_000_000) // past the 1.2 s mirror
+        try putBack(WidgetStoryProgress(id: 83004, title: "Work", author: "tester", progress: 0.5,
+                                        chapter: nil, paragraph: nil, updatedAt: old))
         XCTAssertNil(WidgetProgressStore.load())
+
+        // Reading it again afterwards shows it again.
+        WidgetProgressStore.save(id: 83004, title: "Work", author: "tester", progress: 0.6,
+                                 updatedAt: Date.now.addingTimeInterval(60))
+        XCTAssertEqual(WidgetProgressStore.load()?.id, 83004)
+    }
+
+    func test_aHiddenWork_neverComesBack_evenFromANewerCopy_untilUnhidden() throws {
+        saveEntry(83007)
+        XCTAssertTrue(WidgetProgressStore.setHidden(83007, hidden: true))
+        XCTAssertNil(WidgetProgressStore.load())
+
+        // Another device still reading it saved a newer copy.
+        try putBack(WidgetStoryProgress(id: 83007, title: "Work", author: "tester", progress: 0.75,
+                                        chapter: nil, paragraph: nil, updatedAt: Date.now.addingTimeInterval(60)))
+        XCTAssertNil(WidgetProgressStore.load())
+
+        XCTAssertFalse(WidgetProgressStore.setHidden(83007, hidden: false))
+        XCTAssertEqual(WidgetProgressStore.load()?.id, 83007)
+    }
+
+    func test_oldDatedMarksArePruned() {
+        let ancient = Date.now.addingTimeInterval(-WidgetProgressStore.clearedMarkLifetime - 60)
+        let marks = [WidgetProgressStore.ClearedMark(id: 1, at: ancient),
+                     WidgetProgressStore.ClearedMark(id: 2, at: nil)]
+        shared?.set(try? JSONEncoder().encode(marks), forKey: WidgetProgressStore.clearedKey)
+        WidgetProgressStore.clear(workId: 3)
+        let kept = WidgetProgressStore.loadMarks()
+        XCTAssertFalse(kept.contains { $0.id == 1 })
+        XCTAssertTrue(kept.contains(WidgetProgressStore.ClearedMark(id: 2, at: nil)))
+        XCTAssertTrue(kept.contains { $0.id == 3 && $0.at != nil })
     }
 
     func test_deletingAWork_clearsItsEntry() throws {

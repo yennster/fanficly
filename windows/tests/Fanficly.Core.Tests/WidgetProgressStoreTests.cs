@@ -82,6 +82,53 @@ public sealed class WidgetProgressStoreTests : IDisposable
     }
 
     [Fact]
+    public void Clear_KeepsASyncedCopyFromBeforeIt_FromComingBack()
+    {
+        // Another PC sharing the sync folder pushes its older copy back after the clear.
+        WidgetProgressStore.Save(1, "A", "B", 0.25, updatedAt: Noon, syncImmediately: true);
+        var stale = _cloud.GetString(WidgetProgressStore.LastReadProgressKey);
+        Assert.True(WidgetProgressStore.Clear(1));
+        _cloud.SetString(WidgetProgressStore.LastReadProgressKey, stale);
+        WidgetProgressStore.SyncCloudToLocal();
+        Assert.Null(_shared.GetString(WidgetProgressStore.LastReadProgressKey));
+        Assert.Null(WidgetProgressStore.Load());
+
+        // Reading it again afterwards shows it again.
+        WidgetProgressStore.Save(1, "A", "B", 0.5, updatedAt: DateTimeOffset.Now.AddMinutes(1));
+        Assert.Equal(1, WidgetProgressStore.Load()?.Id);
+    }
+
+    [Fact]
+    public void AHiddenWork_NeverComesBack_EvenFromANewerCopy_UntilUnhidden()
+    {
+        WidgetProgressStore.Save(1, "A", "B", 0.25, updatedAt: Noon, syncImmediately: true);
+        Assert.True(WidgetProgressStore.SetHidden(1, hidden: true));
+        Assert.Null(WidgetProgressStore.Load());
+
+        // Another device still reading it saves a newer copy.
+        var newer = new WidgetStoryProgress(1, "A", "B", 0.75, null, null, DateTimeOffset.Now.AddMinutes(1));
+        _cloud.SetString(WidgetProgressStore.LastReadProgressKey, newer.Encode());
+        WidgetProgressStore.SyncCloudToLocal();
+        Assert.Null(WidgetProgressStore.Load());
+
+        Assert.False(WidgetProgressStore.SetHidden(1, hidden: false));
+        Assert.Equal(1, WidgetProgressStore.Load()?.Id);
+    }
+
+    [Fact]
+    public void ClearMarks_RoundTrip_AndOldDatedOnesArePruned()
+    {
+        _local.SetString(WidgetProgressStore.ClearedKey, $"7:{Noon.ToUnixTimeSeconds()},*:{DateTimeOffset.Now.ToUnixTimeSeconds()},9:-,junk,x:1");
+        WidgetProgressStore.Clear(8);
+        var marks = WidgetProgressStore.LoadMarks();
+        Assert.DoesNotContain(marks, m => m.Id == 7); // older than 90 days
+        Assert.Contains(marks, m => m.Id is null && m.At is not null);
+        Assert.Contains(marks, m => m.Id == 9 && m.At is null);
+        Assert.Contains(marks, m => m.Id == 8 && m.At is not null);
+        Assert.Equal(3, marks.Count);
+    }
+
+    [Fact]
     public void Clear_WithNoWork_RemovesWhicheverWorkItNames()
     {
         WidgetProgressStore.Save(1, "A", "B", 0.25, updatedAt: Noon, syncImmediately: true);

@@ -153,6 +153,11 @@ public static partial class AppHost
             if (WidgetProgressStore.Clear(workId))
                 MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: true));
         };
+        LibraryHooks.SetWidgetProgressHidden = (workId, hidden) =>
+        {
+            if (WidgetProgressStore.SetHidden(workId, hidden))
+                MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: true));
+        };
         LibraryHooks.UpdateWidgetData = store => WidgetDataStore.UpdateAll(WidgetSources(store));
         if (!IsDemoMode) Library.Changed += _ => LibrarySyncManager.QueueBackupShared(Library);
     }

@@ -266,6 +266,14 @@ enum WorkPersistence {
         WidgetProgressStore.clear(workId: workId)
     }
 
+    /// A hidden work never shows as the last-read widget entry, whenever its
+    /// copy was saved, until it's unhidden (#209). Not in demo mode.
+    @MainActor
+    static func setLastReadHidden(_ workId: Int, hidden: Bool) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.setHidden(workId, hidden: hidden)
+    }
+
     @MainActor
     static func deindexWork(ao3Id: Int) {
         CSSearchableIndex.default().deleteSearchableItems(
