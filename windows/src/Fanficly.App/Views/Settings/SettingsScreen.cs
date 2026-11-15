@@ -154,9 +154,8 @@ public sealed class SettingsScreen : Screen
         try
         {
             await AppHost.Auth.LogoutAsync(AppHost.Client);
-            // The login-gated tabs rebuild for the signed-out state next time they open.
-            MainWindow.Current.ResetRoot(SidebarItem.Bookmarks);
-            MainWindow.Current.ResetRoot(SidebarItem.Subscriptions);
+            // The login-gated tabs follow AuthState themselves: each drops the old
+            // account's list now and loads again only once it's on screen (#207).
             MainWindow.Current.Announce("Signed out of AO3");
         }
         catch (Exception e)
