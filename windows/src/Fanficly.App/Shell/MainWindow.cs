@@ -303,12 +303,6 @@ public sealed partial class MainWindow : Window
         _roots.TryGetValue(item, out var s) ? s as T : null;
 
     /// <summary>Drops a tab's cached root so it rebuilds next time (sign-in changes).</summary>
-    public void ResetRoot(SidebarItem item)
-    {
-        _roots.Remove(item);
-        if (SelectedItem == item && Navigator.Depth <= 1) ShowRoot(item);
-    }
-
     public bool GoBack()
     {
         // Nothing goes back behind the 17+ gate, whatever asked (the title
