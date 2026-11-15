@@ -207,8 +207,7 @@ internal sealed class RecentlyViewedScreen : Screen
     private void Remove(IReadOnlyList<RecentlyViewed> items)
     {
         var index = _recents.IndexOf(items[0]);
-        foreach (var item in items) AppHost.Library.Delete(item);
-        AppHost.Library.TrySave();
+        WorkPersistence.RemoveViews(items, AppHost.Library);
         Reload();
         MainWindow.Current.Announce(items.Count == 1 ? $"Removed {items[0].Title}" : $"Removed {items.Count} entries");
         // Keep keyboard focus in the list, on the row that took the removed one's place.
@@ -227,8 +226,7 @@ internal sealed class RecentlyViewedScreen : Screen
             $"This removes all {count} entries. It won't delete anything from AO3 or your library.",
             "Clear All", destructive: true);
         if (!confirmed) return;
-        foreach (var item in AppHost.Library.RecentlyViewedNewestFirst()) AppHost.Library.Delete(item);
-        AppHost.Library.TrySave();
+        WorkPersistence.ClearRecentlyViewed(AppHost.Library);
         _editing = false;
         _list.SelectionMode = ListViewSelectionMode.None;
         _list.IsItemClickEnabled = true;

@@ -57,6 +57,8 @@ public static class HiddenWorkStore
         if (IsHidden(ao3Id, store)) return;
         store.Insert(new HiddenWork(ao3Id, title));
         store.TrySave();
+        // The Continue reading widget and the jump list mustn't keep its title (#209).
+        LibraryHooks.ClearWidgetProgress?.Invoke(ao3Id);
     }
 
     public static void Unhide(int ao3Id, LibraryStore store)

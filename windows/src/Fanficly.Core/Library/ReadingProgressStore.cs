@@ -53,7 +53,10 @@ public static class ReadingProgressStore
 
         using (LibrarySyncManager.ReadingActivity()) store.TrySave();
 
-        if (progress is { } value)
+        // A hidden work never becomes the last-read entry: hiding it from the
+        // work page closes the reader, whose closing save would otherwise put
+        // its title straight back in the widget and the jump list (#209).
+        if (progress is { } value && !HiddenWorkStore.IsHidden(ao3Id, store))
         {
             LibraryHooks.SaveWidgetProgress?.Invoke(new WidgetProgressUpdate(
                 ao3Id, title, author, value, chapter, paragraph, now, syncWidgetImmediately));

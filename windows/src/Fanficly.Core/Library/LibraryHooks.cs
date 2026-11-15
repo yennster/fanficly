@@ -38,6 +38,12 @@ public static class LibraryHooks
     /// (app-group defaults + the synced key/value mirror).</summary>
     public static Action<WidgetProgressUpdate>? SaveWidgetProgress { get; set; }
 
+    /// <summary><c>WidgetProgressStore.clear(workId:)</c> — forgets the last-read
+    /// entry when its work is deleted or hidden (that work's id), or the history
+    /// is cleared (null: whichever work it names), so the Continue reading
+    /// widget and the jump list don't keep the title (#209).</summary>
+    public static Action<int?>? ClearWidgetProgress { get; set; }
+
     /// <summary>CoreSpotlight indexing of library works.</summary>
     public static IWorkSearchIndexer? SearchIndexer { get; set; }
 

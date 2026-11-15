@@ -57,6 +57,49 @@ public sealed class WidgetProgressStoreTests : IDisposable
     }
 
     [Fact]
+    public void Clear_RemovesEveryCopyNamingTheWork_AndLeavesOtherWorks()
+    {
+        WidgetProgressStore.Save(1, "A", "B", 0.25, updatedAt: Noon, syncImmediately: true);
+        Assert.False(WidgetProgressStore.Clear(2));
+        Assert.Equal(1, WidgetProgressStore.Load()?.Id);
+
+        Assert.True(WidgetProgressStore.Clear(1));
+        Assert.Null(_shared.GetString(WidgetProgressStore.LastReadProgressKey));
+        Assert.Null(_local.GetString(WidgetProgressStore.LastReadProgressKey));
+        Assert.Null(_cloud.GetString(WidgetProgressStore.LastReadProgressKey));
+        Assert.Null(WidgetProgressStore.Load());
+        Assert.False(WidgetProgressStore.Clear(1));
+    }
+
+    [Fact]
+    public void Clear_KeepsAnOlderEntryForAnotherWork()
+    {
+        // The synced copy still names the work read before; only the deleted one goes.
+        _cloud.SetString(WidgetProgressStore.LastReadProgressKey, new WidgetStoryProgress(2, "Old", "X", 0.5, null, null, Noon).Encode());
+        WidgetProgressStore.Save(1, "A", "B", 0.25, updatedAt: Noon.AddSeconds(5));
+        Assert.True(WidgetProgressStore.Clear(1));
+        Assert.Equal(2, WidgetProgressStore.Load()?.Id);
+    }
+
+    [Fact]
+    public void Clear_WithNoWork_RemovesWhicheverWorkItNames()
+    {
+        WidgetProgressStore.Save(1, "A", "B", 0.25, updatedAt: Noon, syncImmediately: true);
+        Assert.True(WidgetProgressStore.Clear());
+        Assert.Null(WidgetProgressStore.Load());
+    }
+
+    [Fact]
+    public void Clear_DropsAPendingMirror_SoItCantWriteTheEntryBack()
+    {
+        WidgetProgressStore.Save(1, "A", "B", 0.25, updatedAt: Noon); // mirror still debounced
+        Assert.True(WidgetProgressStore.Clear(1));
+        WidgetProgressStore.FlushPendingCloudWrite();
+        Assert.Null(_cloud.GetString(WidgetProgressStore.LastReadProgressKey));
+        Assert.Null(WidgetProgressStore.Load());
+    }
+
+    [Fact]
     public void Load_TakesTheFreshestCopy()
     {
         WidgetProgressStore.Save(1, "Local", "", 0.1, updatedAt: Noon, syncImmediately: true);

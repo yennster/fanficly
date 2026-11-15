@@ -93,6 +93,44 @@ public static class WidgetProgressStore
         return newest;
     }
 
+    /// <summary>Forgets the last-read entry when it names
+    /// <paramref name="workId"/> (null: whichever work it names), in the
+    /// app-group, local and synced copies alike, so the Continue reading widget
+    /// and the jump list stop showing a deleted or hidden work's title, or what
+    /// was read once the history is cleared (#209). A copy naming another work
+    /// stays. Returns whether anything was removed; the widget is reloaded then.
+    /// The synced copy goes too, or the next <see cref="Load"/> would bring the
+    /// entry straight back from it.</summary>
+    public static bool Clear(int? workId = null)
+    {
+        bool Names(WidgetStoryProgress? p) => p is not null && (workId is null || p.Id == workId);
+
+        var removed = false;
+        var shared = Shared;
+        if (shared is not null && Names(WidgetStoryProgress.Decode(shared.GetString(LastReadProgressKey))))
+        {
+            shared.Remove(LastReadProgressKey);
+            removed = true;
+        }
+        if (Names(WidgetStoryProgress.Decode(Local.GetString(LastReadProgressKey))))
+        {
+            Local.Remove(LastReadProgressKey);
+            removed = true;
+        }
+        // A pending mirror is the latest save, which a local copy above held:
+        // drop it so it can't write the entry back to the synced store.
+        if (removed) CloudSave.Cancel();
+        if (Names(ReadCloud()))
+        {
+            _writingCloud = true;
+            try { Cloud.Remove(LastReadProgressKey); }
+            finally { _writingCloud = false; }
+            removed = true;
+        }
+        if (removed) ReloadWidgetsNow();
+        return removed;
+    }
+
     /// <summary>Call once at launch (not in demo or unit-test runs): pulls in
     /// progress synced from another device now and whenever it changes.</summary>
     public static void InstallCloudSyncObserver()

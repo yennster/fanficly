@@ -1276,6 +1276,8 @@ public sealed class LibrarySyncManager
             else
             {
                 store.Insert(new HiddenWork(h.Ao3Id, h.Title, h.HiddenAt));
+                // Hidden on another device: the last-read entry goes here too (#209).
+                LibraryHooks.ClearWidgetProgress?.Invoke(h.Ao3Id);
             }
         }
 
