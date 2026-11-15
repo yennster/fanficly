@@ -67,6 +67,17 @@ public static partial class AppHost
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
+    /// <summary>Logs from before #208 name every work, author and tag a request
+    /// loaded, and clearing an already empty Recently Viewed can't reach them, so
+    /// the first launch of this version deletes the log once.</summary>
+    private static void DropLogWithRequestPathsOnce(IKeyValueStore settings)
+    {
+        const string key = "app.logRouteShapes";
+        if (settings.GetBool(key)) return;
+        ClearLog();
+        settings.SetBool(key, true);
+    }
+
     public static void Initialize()
     {
         var args = Environment.GetCommandLineArgs();
@@ -90,6 +101,7 @@ public static partial class AppHost
             LogSettingsProblem(settings, AppPaths.Settings);
             KeyValueStores.Default = settings;
             KeyValueStores.Synced = new SyncFolderKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json"));
+            DropLogWithRequestPathsOnce(settings);
         }
         InitializeServices();
     }

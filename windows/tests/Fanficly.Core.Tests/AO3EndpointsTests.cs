@@ -190,6 +190,8 @@ public class AO3EndpointsTests
     [InlineData("https://archiveofourown.org/series/9?page=2", "/series/{id}")]
     [InlineData("https://archiveofourown.org/kudos.js", "/kudos.js")]
     [InlineData("https://archiveofourown.org/", "/")]
+    [InlineData("https://archiveofourown.org/tags/search/works", "/tags/{name}/works")]
+    [InlineData("https://archiveofourown.org/users/people/works", "/users/{name}/works")]
     public void RouteShape_KeepsOnlyAO3sRouteWords(string url, string expected) =>
         Assert.Equal(expected, AO3Endpoints.RouteShape(new Uri(url)));
 

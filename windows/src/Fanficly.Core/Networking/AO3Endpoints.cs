@@ -100,6 +100,12 @@ public static class AO3Endpoints
         "logout", "kudos", "kudos.js", "auth_error", "collections", "menu", "people",
     };
 
+    /// <summary>Route words whose next segment names someone or something.</summary>
+    private static readonly HashSet<string> NamedAfter = new(StringComparer.Ordinal)
+    {
+        "users", "tags", "media", "pseuds", "collections",
+    };
+
     /// <summary>A request's path for the local log, as a route shape: AO3's route
     /// words stay, a number becomes <c>{id}</c> and anything else (a username, tag,
     /// fandom or category) becomes <c>{name}</c>, so the log shows that a work page
@@ -115,7 +121,12 @@ public static class AO3Endpoints
         {
             var segment = segments[i];
             shaped.Append('/');
-            if (RouteWords.Contains(segment)) shaped.Append(segment);
+            // The segment after users, tags, media, pseuds or collections is always a
+            // name, even one that happens to spell a route word ("search"), except
+            // AO3's own /users/login and /users/logout, which no account can be named.
+            if (i > 0 && NamedAfter.Contains(segments[i - 1])
+                && !(segments[i - 1] == "users" && segment is "login" or "logout")) shaped.Append("{name}");
+            else if (RouteWords.Contains(segment)) shaped.Append(segment);
             else if (segment.All(char.IsAsciiDigit)) shaped.Append("{id}");
             else if (segments[0] == "downloads" && i >= 2 && i == segments.Length - 1
                      && IsDownloadFileName(segment)) shaped.Append(segment);

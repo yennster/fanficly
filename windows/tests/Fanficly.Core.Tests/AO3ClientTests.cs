@@ -246,7 +246,7 @@ public sealed class AO3ClientTests : IDisposable
         var line = Assert.Single(lines);
         // Which work was opened stays out of the log (#208), and so does the query.
         Assert.StartsWith("GET /works/{id} → 200 over HTTP/", line);
-        Assert.DoesNotContain("7 ", line.Split('→')[0]);
+        Assert.Equal("GET /works/{id} ", line.Split('→')[0]);
         Assert.DoesNotContain("view_adult", line);
     }
 
