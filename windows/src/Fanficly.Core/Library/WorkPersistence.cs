@@ -159,6 +159,8 @@ public static class WorkPersistence
         DeindexWork(work.Ao3Id);
         // A work saved again later starts fresh: another device's chapters may restore.
         SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: false);
+        // The Continue reading widget and the jump list mustn't keep its title (#209).
+        LibraryHooks.ClearWidgetProgress?.Invoke(work.Ao3Id);
         store.Delete(work);
     }
 
@@ -269,16 +271,28 @@ public static class WorkPersistence
         store.TrySave();
     }
 
-    /// <summary>Removes entries from the history (swipe / Edit-mode delete).</summary>
+    /// <summary>Removes entries from the history (swipe / Edit-mode delete),
+    /// and the last-read entry when it's one of them (#209).</summary>
     public static void RemoveViews(IEnumerable<RecentlyViewed> items, LibraryStore store)
     {
-        foreach (var item in items) store.Delete(item);
+        foreach (var item in items.ToList())
+        {
+            LibraryHooks.ClearWidgetProgress?.Invoke(item.Ao3Id);
+            store.Delete(item);
+        }
         store.TrySave();
     }
 
-    /// <summary>Clears the whole history. Nothing is deleted from AO3 or the library.</summary>
-    public static void ClearRecentlyViewed(LibraryStore store) =>
-        RemoveViews(store.All<RecentlyViewed>(), store);
+    /// <summary>Clears the whole history, and the last-read entry with it
+    /// (whichever work it names), so the Continue reading widget and the jump
+    /// list don't keep showing what was read (#209). Nothing is deleted from
+    /// AO3 or the library, and saved reading places stay.</summary>
+    public static void ClearRecentlyViewed(LibraryStore store)
+    {
+        foreach (var item in store.All<RecentlyViewed>().ToList()) store.Delete(item);
+        LibraryHooks.ClearWidgetProgress?.Invoke(null);
+        store.TrySave();
+    }
 
     // MARK: - Followed authors
 

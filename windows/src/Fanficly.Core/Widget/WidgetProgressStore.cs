@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Fanficly.Core;
 
 /// <summary>The last-read story the widget shows. Encoded exactly as the Swift
@@ -93,6 +95,157 @@ public static class WidgetProgressStore
         return newest;
     }
 
+    /// <summary>This PC's marks of entries that must not come back (#209), in
+    /// the local store only: "id:seconds" pairs joined by commas, where id is
+    /// "*" for any work and seconds (Unix time) is "-" while the work is
+    /// hidden. A synced copy, or one another device saves later, can't bring
+    /// back an entry a mark covers: removing the synced key alone isn't enough,
+    /// because the sync folder never deletes a key (another PC's next push puts
+    /// it back) and another device may still be reading the work.</summary>
+    public const string ClearedKey = "lastReadProgress.cleared";
+
+    /// <summary>How many dated marks are kept (the newest). They don't expire
+    /// by age: a copy this PC can't delete (the sync folder's) may sit there
+    /// for months. Hidden works' marks aren't capped: there's one per
+    /// <see cref="HiddenWork"/>.</summary>
+    internal const int MaxDatedMarks = 200;
+
+    /// <summary>One mark: <see cref="Id"/> null covers any work; <see cref="At"/>
+    /// null covers every entry (the work is hidden), else entries saved no
+    /// later than it.</summary>
+    internal readonly record struct ClearedMark(int? Id, DateTimeOffset? At)
+    {
+        public bool Covers(WidgetStoryProgress p) =>
+            (Id is null || Id == p.Id) && (At is null || p.FreshnessDate <= At);
+    }
+
+    /// <summary>Forgets the last-read entry when it names
+    /// <paramref name="workId"/> (null: whichever work it names), in the
+    /// app-group, local and synced copies alike, so the Continue reading widget
+    /// and the jump list stop showing a deleted work's title, or what was read
+    /// once the history is cleared (#209). A copy naming another work stays.
+    /// It also leaves a mark, so a copy saved before now can't come back from
+    /// the synced store. Returns whether anything was removed; the widget is
+    /// reloaded then.</summary>
+    public static bool Clear(int? workId = null)
+    {
+        // Whole seconds, rounded up, so the copy cleared now is always covered.
+        var now = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.Now.AddSeconds(1).ToUnixTimeSeconds());
+        AddMark(new ClearedMark(workId, now));
+        return RemoveCopies(workId);
+    }
+
+    /// <summary>A hidden work never shows as the last-read entry on this PC,
+    /// whenever its copy was saved (another device may still be reading it);
+    /// unhiding it lifts that (#209).</summary>
+    public static bool SetHidden(int workId, bool hidden)
+    {
+        var marks = LoadMarks().Where(m => !(m.Id == workId && m.At is null)).ToList();
+        if (hidden) marks.Add(new ClearedMark(workId, null));
+        SaveMarks(marks);
+        return hidden && RemoveCopies(workId);
+    }
+
+    /// <summary>Makes the hidden marks match <paramref name="hiddenIds"/>, the
+    /// library's hidden works: run at launch, so works hidden before marks
+    /// existed (or by a restore that didn't save) are covered, and a mark left
+    /// for a work no longer hidden goes (#209).</summary>
+    public static bool MatchHidden(IEnumerable<int> hiddenIds)
+    {
+        var ids = hiddenIds.ToHashSet();
+        var marks = LoadMarks();
+        var marked = marks.Where(m => m.At is null && m.Id is not null).Select(m => m.Id!.Value).ToHashSet();
+        if (marked.SetEquals(ids)) return false;
+        marks.RemoveAll(m => m.At is null);
+        marks.AddRange(ids.Select(id => new ClearedMark(id, null)));
+        SaveMarks(marks);
+        var removed = false;
+        foreach (var id in ids.Except(marked)) removed |= RemoveCopies(id);
+        return removed;
+    }
+
+    private static bool RemoveCopies(int? workId)
+    {
+        bool Names(WidgetStoryProgress? p) => p is not null && (workId is null || p.Id == workId);
+
+        var removed = false;
+        var shared = Shared;
+        if (shared is not null && Names(WidgetStoryProgress.Decode(shared.GetString(LastReadProgressKey))))
+        {
+            shared.Remove(LastReadProgressKey);
+            removed = true;
+        }
+        if (Names(WidgetStoryProgress.Decode(Local.GetString(LastReadProgressKey))))
+        {
+            Local.Remove(LastReadProgressKey);
+            removed = true;
+        }
+        // A pending mirror is the latest save, which a local copy above held:
+        // drop it so it can't write the entry back to the synced store.
+        if (removed) CloudSave.Cancel();
+        if (Names(WidgetStoryProgress.Decode(Cloud.GetString(LastReadProgressKey))))
+        {
+            _writingCloud = true;
+            try { Cloud.Remove(LastReadProgressKey); }
+            finally { _writingCloud = false; }
+            removed = true;
+        }
+        if (removed) ReloadWidgetsNow();
+        return removed;
+    }
+
+    private static void AddMark(ClearedMark mark)
+    {
+        var marks = LoadMarks();
+        // A newer dated mark for the same work (or for any work) replaces older ones.
+        marks.RemoveAll(m => m.At is not null && m.Id == mark.Id);
+        marks.Add(mark);
+        SaveMarks(marks);
+    }
+
+    internal static List<ClearedMark> LoadMarks()
+    {
+        var marks = new List<ClearedMark>();
+        foreach (var part in (Local.GetString(ClearedKey) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var halves = part.Split(':');
+            if (halves.Length != 2) continue;
+            int? id = null;
+            if (halves[0] != "*")
+            {
+                if (!int.TryParse(halves[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var i)) continue;
+                id = i;
+            }
+            DateTimeOffset? at = null;
+            if (halves[1] != "-")
+            {
+                if (!long.TryParse(halves[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var secs)
+                    || secs < DateTimeOffset.MinValue.ToUnixTimeSeconds() || secs > DateTimeOffset.MaxValue.ToUnixTimeSeconds()) continue;
+                at = DateTimeOffset.FromUnixTimeSeconds(secs);
+            }
+            marks.Add(new ClearedMark(id, at));
+        }
+        return marks;
+    }
+
+    private static void SaveMarks(List<ClearedMark> marks)
+    {
+        // Every hidden work's mark, then the newest dated ones.
+        var kept = marks.Where(m => m.At is null).DistinctBy(m => m.Id)
+            .Concat(marks.Select((m, i) => (m, i)).Where(x => x.m.At is not null)
+                .OrderByDescending(x => x.m.At).ThenByDescending(x => x.i) // a tie: the one added last
+                .Take(MaxDatedMarks).Select(x => x.m))
+            .Select(m => $"{(m.Id is { } id ? id.ToString(CultureInfo.InvariantCulture) : "*")}:" +
+                         $"{(m.At is { } at ? at.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) : "-")}")
+            .ToList();
+        if (kept.Count == 0) Local.Remove(ClearedKey);
+        else Local.SetString(ClearedKey, string.Join(",", kept));
+    }
+
+    /// <summary>The copy, unless a mark covers it.</summary>
+    private static WidgetStoryProgress? Allowed(WidgetStoryProgress? p, List<ClearedMark> marks) =>
+        p is not null && !marks.Any(m => m.Covers(p)) ? p : null;
+
     /// <summary>Call once at launch (not in demo or unit-test runs): pulls in
     /// progress synced from another device now and whenever it changes.</summary>
     public static void InstallCloudSyncObserver()
@@ -170,11 +323,16 @@ public static class WidgetProgressStore
         finally { _writingCloud = false; }
     }
 
-    private static WidgetStoryProgress? ReadLocal() =>
-        Freshest(WidgetStoryProgress.Decode(Shared?.GetString(LastReadProgressKey)),
-                 WidgetStoryProgress.Decode(Local.GetString(LastReadProgressKey)));
+    // Reads skip any copy a cleared mark covers (#209).
+    private static WidgetStoryProgress? ReadLocal()
+    {
+        var marks = LoadMarks();
+        return Freshest(Allowed(WidgetStoryProgress.Decode(Shared?.GetString(LastReadProgressKey)), marks),
+                        Allowed(WidgetStoryProgress.Decode(Local.GetString(LastReadProgressKey)), marks));
+    }
 
-    private static WidgetStoryProgress? ReadCloud() => WidgetStoryProgress.Decode(Cloud.GetString(LastReadProgressKey));
+    private static WidgetStoryProgress? ReadCloud() =>
+        Allowed(WidgetStoryProgress.Decode(Cloud.GetString(LastReadProgressKey)), LoadMarks());
 
     private static void WriteLocal(WidgetStoryProgress payload)
     {

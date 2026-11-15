@@ -174,6 +174,9 @@ struct FanficlyApp: App {
                     // Stats tab isn't empty for existing readers. Runs after the
                     // restore above; demo mode seeds its own stats.
                     if !Self.isDemoMode {
+                        // Works hidden before the last-read widget honoured hiding (#209).
+                        let hidden = (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
+                        WidgetProgressStore.matchHidden(Set(hidden.map(\.ao3Id)))
                         ReadingStatsBackfill.runIfNeeded(in: context)
                         // One-time: index works saved before every library work
                         // was indexed (only followed ones were). Not every launch:

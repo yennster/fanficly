@@ -1433,6 +1433,8 @@ final class iCloudSyncManager {
                     existing.hiddenAt = h.hiddenAt
                 } else {
                     context.insert(HiddenWork(ao3Id: h.ao3Id, title: h.title, hiddenAt: h.hiddenAt))
+                    // Hidden on another device: the last-read entry goes here too (#209).
+                    WorkPersistence.setLastReadHidden(h.ao3Id, hidden: true)
                 }
             }
             
@@ -1512,6 +1514,7 @@ final class iCloudSyncManager {
         let liveHidden = Set(backup.hidden.filter { !tombstones.removes(.hidden, String($0.ao3Id), stamp: $0.hiddenAt) }.map(\.ao3Id))
         for hidden in (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
         where !liveHidden.contains(hidden.ao3Id) && tombstones.removes(.hidden, String(hidden.ao3Id), stamp: hidden.hiddenAt) {
+            WorkPersistence.setLastReadHidden(hidden.ao3Id, hidden: false)
             context.delete(hidden)
         }
         let liveFolders = Set((backup.folders ?? []).filter { !tombstones.removes(.folder, $0.name, stamp: $0.createdAt) }.map(\.name))

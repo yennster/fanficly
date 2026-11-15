@@ -88,6 +88,8 @@ public static partial class AppHost
 
         if (!IsDemoMode)
         {
+            // Works hidden before the last-read entry honoured hiding (#209).
+            WidgetProgressStore.MatchHidden(HiddenWorkStore.Ids(Library));
             WidgetProgressStore.InstallCloudSyncObserver();
             ReaderProfileSyncStore.InstallCloudSyncObserver();
             StreakStore.InstallCloudSyncObserver();
@@ -147,6 +149,16 @@ public static partial class AppHost
         {
             WidgetProgressStore.Save(u.Id, u.Title, u.Author, u.Progress, u.Chapter, u.Paragraph, u.UpdatedAt, u.SyncImmediately);
             MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: u.SyncImmediately));
+        };
+        LibraryHooks.ClearWidgetProgress = workId =>
+        {
+            if (WidgetProgressStore.Clear(workId))
+                MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: true));
+        };
+        LibraryHooks.SetWidgetProgressHidden = (workId, hidden) =>
+        {
+            if (WidgetProgressStore.SetHidden(workId, hidden))
+                MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: true));
         };
         LibraryHooks.UpdateWidgetData = store => WidgetDataStore.UpdateAll(WidgetSources(store));
         if (!IsDemoMode) Library.Changed += _ => LibrarySyncManager.QueueBackupShared(Library);

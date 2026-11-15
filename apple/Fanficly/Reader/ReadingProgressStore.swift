@@ -59,7 +59,10 @@ enum ReadingProgressStore {
 
         try? context.save()
 
-        if let progress {
+        // A hidden work never becomes the last-read entry: hiding it from the
+        // work page closes the reader, whose closing save would otherwise put
+        // its title straight back in the widget (#209).
+        if let progress, !HiddenWorkStore.isHidden(ao3Id: ao3Id, in: context) {
             WidgetProgressStore.save(
                 id: ao3Id,
                 title: title,
