@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective: 2026-10-18
+Effective: 2026-11-16
 
 This policy covers Fanficly for iPhone, iPad and Mac (the app in [`apple/`](apple/)). Fanficly for Windows has its own policy: [windows/PRIVACY.md](windows/PRIVACY.md).
 
