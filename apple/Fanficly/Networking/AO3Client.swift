@@ -637,7 +637,7 @@ public actor AO3Client: AO3ClientProtocol {
     public func search(filters: AO3SearchFilters, page: Int) async throws -> AO3SearchResults {
         await throttle.wait()
         let url = try AO3Endpoints.search(filters: filters, page: page, base: baseURL)
-        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        logger.debug("GET \(url.absoluteString, privacy: .private)")
         // AO3's search pages routinely take 20–30s to start responding (the
         // server is busy rendering, not stalled), so the default 30s idle
         // timeout failed searches on slow days, then retried them twice for
@@ -654,7 +654,7 @@ public actor AO3Client: AO3ClientProtocol {
     public func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
         await throttle.wait()
         let url = try AO3Endpoints.authorWorks(name: username, page: page, base: baseURL)
-        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        logger.debug("GET \(url.absoluteString, privacy: .private)")
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Author works response not UTF-8")
@@ -667,7 +667,7 @@ public actor AO3Client: AO3ClientProtocol {
     public func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
         await throttle.wait()
         let url = try AO3Endpoints.userBookmarks(name: username, page: page, base: baseURL)
-        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        logger.debug("GET \(url.absoluteString, privacy: .private)")
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Bookmarks response not UTF-8")
@@ -680,7 +680,7 @@ public actor AO3Client: AO3ClientProtocol {
     public func fetchMarkedForLater(username: String, page: Int) async throws -> AO3SearchResults {
         await throttle.wait()
         let url = try AO3Endpoints.userMarkedForLater(name: username, page: page, base: baseURL)
-        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        logger.debug("GET \(url.absoluteString, privacy: .private)")
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Marked for Later response not UTF-8")
@@ -691,7 +691,7 @@ public actor AO3Client: AO3ClientProtocol {
     public func fetchReadingHistory(username: String, page: Int) async throws -> AO3SearchResults {
         await throttle.wait()
         let url = try AO3Endpoints.userReadingHistory(name: username, page: page, base: baseURL)
-        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        logger.debug("GET \(url.absoluteString, privacy: .private)")
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "History response not UTF-8")
@@ -722,7 +722,7 @@ public actor AO3Client: AO3ClientProtocol {
     public func fetchSeries(id: Int, page: Int) async throws -> AO3Series {
         await throttle.wait()
         let url = try AO3Endpoints.series(id: id, page: page, base: baseURL)
-        logger.debug("GET \(url.absoluteString, privacy: .public)")
+        logger.debug("GET \(url.absoluteString, privacy: .private)")
         let (data, _) = try await performRequest(URLRequest(url: url))
         guard let html = String(data: data, encoding: .utf8) else {
             throw AO3Error.parseFailed(reason: "Series response not UTF-8")
@@ -747,7 +747,7 @@ public actor AO3Client: AO3ClientProtocol {
         while page <= min(totalPages, maxPages) {
             await throttle.wait()
             let url = try AO3Endpoints.userSubscriptions(name: username, page: page, base: baseURL)
-            logger.debug("GET \(url.absoluteString, privacy: .public)")
+            logger.debug("GET \(url.absoluteString, privacy: .private)")
             let (data, _) = try await performRequest(URLRequest(url: url))
             guard let html = String(data: data, encoding: .utf8) else {
                 throw AO3Error.parseFailed(reason: "Subscriptions response not UTF-8")
