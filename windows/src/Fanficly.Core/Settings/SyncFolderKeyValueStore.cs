@@ -28,6 +28,10 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
     // the push can't undo a change made a moment ago (#210).
     private readonly Dictionary<string, long> _unpushed = new(StringComparer.Ordinal);
     private long _changeCount;
+    // The keys changed on this thread while it holds the lock: the observers
+    // take locks of their own (the profile store's), so they must not run under it.
+    private readonly ThreadLocal<List<string>?> _deferred = new();
+    private bool _pushFailing;
 
     public event Action<string>? Changed;
 
@@ -46,7 +50,12 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
     {
         _localPath = localPath;
         _local = new JsonFileKeyValueStore(localPath);
-        _local.Changed += key => Changed?.Invoke(key);
+        // Changes made under the lock are announced once it's released (below).
+        _local.Changed += key =>
+        {
+            if (_deferred.Value is { } held) held.Add(key);
+            else Changed?.Invoke(key);
+        };
         _local.Written += () =>
         {
             if (!_pushAfterWrite) return;
@@ -99,22 +108,40 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
     // (the profile and streak observers) run on the same thread.
     public void SetString(string key, string? value)
     {
-        lock (_unpushed)
+        UnderLock(() =>
         {
             MarkUnpushedLocked(key);
             _local.SetString(key, value);
-        }
+        });
         SchedulePush();
     }
 
     public void Remove(string key)
     {
-        lock (_unpushed)
+        UnderLock(() =>
         {
             MarkUnpushedLocked(key);
             _local.Remove(key);
-        }
+        });
         SchedulePush();
+    }
+
+    /// <summary>Runs a change to the local copy under the lock, then raises
+    /// <see cref="Changed"/> for what it changed once the lock is released.</summary>
+    private void UnderLock(Action change)
+    {
+        var outer = _deferred.Value;
+        var changed = new List<string>();
+        _deferred.Value = changed;
+        try
+        {
+            lock (_unpushed) change();
+        }
+        finally
+        {
+            _deferred.Value = outer;
+        }
+        foreach (var key in changed) Changed?.Invoke(key);
     }
 
     private void MarkUnpushedLocked(string key)
@@ -167,13 +194,13 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            foreach (var p in doc.RootElement.EnumerateObject())
+            UnderLock(() =>
             {
-                if (p.Value.ValueKind != JsonValueKind.String) continue;
-                lock (_unpushed)
-                    if (!_unpushed.ContainsKey(p.Name) && _local.GetString(p.Name) != p.Value.GetString())
+                foreach (var p in doc.RootElement.EnumerateObject())
+                    if (p.Value.ValueKind == JsonValueKind.String && !_unpushed.ContainsKey(p.Name)
+                        && _local.GetString(p.Name) != p.Value.GetString())
                         _local.SetString(p.Name, p.Value.GetString());
-            }
+            });
             return true;
         }
         catch (JsonException)
@@ -220,6 +247,7 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
             File.Copy(_localPath, tmp, overwrite: true);
             lock (_gate) { if (_watcher is not null) _watcher.EnableRaisingEvents = false; }
             File.Move(tmp, path, overwrite: true);
+            _pushFailing = false;
             // Keys changed again since the copy stay unpushed for the next push.
             lock (_unpushed)
                 foreach (var (key, count) in pushing)
@@ -227,7 +255,9 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
         }
         catch (Exception e)
         {
-            Log?.Invoke($"Sync folder write failed: {e.Message}");
+            // Once until a push gets through: a folder that stays unwritable retries every 5 s.
+            if (!_pushFailing) Log?.Invoke($"Sync folder write failed: {e.Message}");
+            _pushFailing = true;
             // Usually the sync client holding the file mid-upload: try again, or
             // the unpushed keys would wait for the next change (#210).
             if (e is IOException or UnauthorizedAccessException) SchedulePush(BusyRetryMs);

@@ -123,4 +123,28 @@ public sealed class SyncFolderKeyValueStoreTests : IDisposable
 
         Assert.Equal("mine", ReadFolder()["profile"]);
     }
+
+    [Fact]
+    public void ChangeHandlersRunOutsideTheStoresLock()
+    {
+        // The profile observer takes its own lock in its handler while the UI
+        // thread, holding that lock, writes the store: the store's lock must be
+        // free by then, or the two threads wait on each other.
+        WriteFolder(("profile", "old"));
+        var store = MakeStore();
+        var otherThreadWrote = false;
+        store.Changed += key =>
+        {
+            if (key != "profile") return;
+            otherThreadWrote = Task.Run(() => store.SetString("echo", "x")).Wait(TimeSpan.FromSeconds(5));
+        };
+
+        WriteFolder(("profile", "theirs"));
+        store.PullNow();
+        Assert.True(otherThreadWrote);
+
+        otherThreadWrote = false;
+        store.SetString("profile", "mine");
+        Assert.True(otherThreadWrote);
+    }
 }
