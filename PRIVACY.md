@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective: 2026-10-18
+Effective: 2026-11-16
 
 This policy covers Fanficly for iPhone, iPad and Mac (the app in [`apple/`](apple/)). Fanficly for Windows has its own policy: [windows/PRIVACY.md](windows/PRIVACY.md).
 
@@ -25,7 +25,7 @@ None of this is ever sent to us — there is no Fanficly server. On its own, the
 
 If your device is signed into iCloud, Fanficly syncs some data between **your own devices** through Apple's iCloud:
 
-- **Library backups** (saved works with your notes and personal tags, folders, reading positions, preferences) — only if you turn on *Sync Library to iCloud* in Settings; the same screen lets you restore or delete the backup
+- **Library backups** (saved works with your notes and personal tags, folders, reading positions, preferences, and your AO3 subscriptions list tagged with the AO3 username it belongs to) — only if you turn on *Sync Library to iCloud* in Settings; the same screen lets you restore or delete the backup
 - **Reader settings profiles** and **last-read progress** (story, chapter, and paragraph — what the widget shows) — synced automatically via iCloud key-value storage
 
 This data lives in your private iCloud account and is covered by Apple's iCloud terms. We cannot access, read, or delete it — Fanficly has no servers and no access to your Apple ID. Signing out of iCloud on the device stops all syncing, and the library backup can be deleted from Fanficly's settings at any time.
