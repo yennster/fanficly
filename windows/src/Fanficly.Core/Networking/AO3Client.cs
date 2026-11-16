@@ -1119,16 +1119,17 @@ public sealed class AO3Client : IAO3Client, IDisposable
             }
             catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
             {
-                Log?.Invoke($"{method} {uri.AbsolutePath} timed out after {Elapsed(started)}");
+                Log?.Invoke($"{method} {AO3Endpoints.RouteShape(uri)} timed out after {Elapsed(started)}");
                 throw new TimeoutException("The request timed out.", e);
             }
             catch (HttpRequestException e)
             {
-                Log?.Invoke($"{method} {uri.AbsolutePath} failed after {Elapsed(started)}: {e.Message}");
+                Log?.Invoke($"{method} {AO3Endpoints.RouteShape(uri)} failed after {Elapsed(started)}: {e.Message}");
                 throw;
             }
-            // Path only: queries can hold search terms, and nothing here is a secret.
-            Log?.Invoke($"{method} {uri.AbsolutePath} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
+            // The route's shape only (/works/{id}): the path names the work, author or
+            // tag the reader opened, and the query can hold search terms (#208).
+            Log?.Invoke($"{method} {AO3Endpoints.RouteShape(uri)} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
             NoteAltSvc(uri, response);
 
             using (response)
