@@ -1,6 +1,6 @@
 # Privacy Policy: Fanficly for Windows
 
-Effective: 2026-10-18
+Effective: 2026-11-16
 
 This policy covers Fanficly for Windows, the app in the Microsoft Store. The iPhone, iPad and Mac app has its own policy, [`PRIVACY.md`](../PRIVACY.md) at the root of this repository.
 
