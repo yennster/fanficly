@@ -12,7 +12,7 @@ Fanficly has no servers. There is no analytics, no crash reporting, no telemetry
 
 ## What is stored on your device
 
-- **Your AO3 session cookie** (`_otwarchive_session`), kept in the iOS Keychain so you stay logged in between sessions
+- **Your AO3 session cookie** (`_otwarchive_session`) and **your AO3 username**, kept in the Keychain so you stay logged in between sessions; logging out deletes both
 - **Works you've saved offline**, your reading position, custom folders, your own notes and personal tags on saved works, followed authors, and your bookmark/history/subscription cache, kept in your app's private SwiftData store and Documents directory
 - **Your preferences** (theme, font size, reader profiles, library sort order, etc.) and which works you've left kudos on (forgotten when you log out), kept in app storage
 - **Your searches** — recent searches stay on this device only (never synced or backed up; clear them from the Search screen); saved searches, and for those with new-fic alerts on the ids of the works the alerts have already seen, are kept in app storage and included in the optional iCloud library backup
@@ -39,7 +39,7 @@ The app makes HTTP requests directly to `archiveofourown.org` on your behalf, th
 - To sync your account state, the app fetches your bookmarks, history, and subscriptions pages while logged in
 - To subscribe to a work, leave kudos, post a chapter comment, or save an AO3 bookmark — only when you're logged in and choose to (these are user-initiated and happen only when you tap the button) — the app POSTs that action to AO3 on your behalf; any comment text, and a bookmark's notes and tags, go only to AO3, which hosts them (and moderates comments)
 
-We never store your AO3 username or password. The session cookie is sufficient for authenticated requests.
+We never store your AO3 password. Only the session cookie and your username are kept, as described above.
 
 ## Embedded story images (optional)
 
