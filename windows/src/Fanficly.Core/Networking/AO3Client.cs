@@ -1264,8 +1264,14 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 // copy alone makes the next response save again (#210): AO3 sends
                 // remember_user_token only at sign-in, so skipping it would lose
                 // the sign-in at the next launch.
-                lock (_cookieGate) _cookieSaveFailed = true;
-                Log?.Invoke($"Couldn't save the AO3 sign-in ({e.GetType().Name}): {e.Message}");
+                bool first;
+                lock (_cookieGate)
+                {
+                    first = !_cookieSaveFailed;
+                    _cookieSaveFailed = true;
+                }
+                // Once until a save gets through, not on every retry.
+                if (first) Log?.Invoke($"Couldn't save the AO3 sign-in ({e.GetType().Name}): {e.Message}");
                 return;
             }
             lock (_cookieGate)

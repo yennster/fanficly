@@ -162,7 +162,9 @@ public static partial class AppHost
         var saved = !vault.IsSessionUnsaved;
         if (Auth.IsSessionSaved == saved) return;
         Auth.IsSessionSaved = saved;
-        if (!saved && Auth.IsLoggedIn)
+        // Not gated on IsLoggedIn: at a fresh sign-in the first cookie save
+        // fails before AuthState has stored the name.
+        if (!saved)
             MainWindow.Current?.ShowMessage("Couldn't save your AO3 sign-in", AuthState.SessionOnlyMessage,
                 Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning);
     }

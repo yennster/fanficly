@@ -93,24 +93,33 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
 
     public string? GetString(string key) => _local.GetString(key);
 
+    // Marking a key and writing it, and a pull's check and write, happen under
+    // the one (re-entrant) lock, so a pull can't slip the folder's value in
+    // between a change's mark and its write. Change handlers that write back
+    // (the profile and streak observers) run on the same thread.
     public void SetString(string key, string? value)
     {
-        MarkUnpushed(key);
-        _local.SetString(key, value);
+        lock (_unpushed)
+        {
+            MarkUnpushedLocked(key);
+            _local.SetString(key, value);
+        }
         SchedulePush();
     }
 
     public void Remove(string key)
     {
-        MarkUnpushed(key);
-        _local.Remove(key);
+        lock (_unpushed)
+        {
+            MarkUnpushedLocked(key);
+            _local.Remove(key);
+        }
         SchedulePush();
     }
 
-    private void MarkUnpushed(string key)
+    private void MarkUnpushedLocked(string key)
     {
-        if (_folder is null) return;
-        lock (_unpushed) _unpushed[key] = ++_changeCount;
+        if (_folder is not null) _unpushed[key] = ++_changeCount;
     }
 
     /// <summary>Keys changed here that haven't reached the folder yet (tests).</summary>
@@ -161,10 +170,9 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
             foreach (var p in doc.RootElement.EnumerateObject())
             {
                 if (p.Value.ValueKind != JsonValueKind.String) continue;
-                bool unpushed;
-                lock (_unpushed) unpushed = _unpushed.ContainsKey(p.Name);
-                if (!unpushed && _local.GetString(p.Name) != p.Value.GetString())
-                    _local.SetString(p.Name, p.Value.GetString());
+                lock (_unpushed)
+                    if (!_unpushed.ContainsKey(p.Name) && _local.GetString(p.Name) != p.Value.GetString())
+                        _local.SetString(p.Name, p.Value.GetString());
             }
             return true;
         }
@@ -220,6 +228,9 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
         catch (Exception e)
         {
             Log?.Invoke($"Sync folder write failed: {e.Message}");
+            // Usually the sync client holding the file mid-upload: try again, or
+            // the unpushed keys would wait for the next change (#210).
+            if (e is IOException or UnauthorizedAccessException) SchedulePush(BusyRetryMs);
         }
         finally
         {
