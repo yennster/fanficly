@@ -99,7 +99,7 @@ public sealed class SettingsScreen : Screen
 
     private void OnAuthChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(AuthState.Username) or nameof(AuthState.IsSessionExpired) or null)
+        if (e.PropertyName is nameof(AuthState.Username) or nameof(AuthState.IsSessionExpired) or nameof(AuthState.IsSessionSaved) or null)
             MainWindow.Current?.DispatcherQueue.TryEnqueue(RefreshAccount);
     }
 
@@ -137,12 +137,15 @@ public sealed class SettingsScreen : Screen
         var row = UI.UI.SettingsRow("AO3 Login", trailing,
             username is null ? "Not signed in"
                 : expired ? $"Session expired for {username}"
-                : $"Signed in as {username}", "person.crop.circle");
+                : AppHost.Auth.IsSessionSaved ? $"Signed in as {username}"
+                : $"Signed in as {username} for this session only", "person.crop.circle");
         _accountHost.Children.Add(UI.UI.Section("Account", [row],
             footer: username is null
                 ? "Sign in to subscribe to works on AO3, see your AO3 bookmarks and subscriptions, and comment. Credentials go directly to AO3 — Fanficly never stores your password, only the resulting session cookie, encrypted for your Windows account."
                 : expired
                 ? "AO3 signed you out. Sign in again to use your AO3 bookmarks, subscriptions and comments, and to see restricted works in search."
+                : !AppHost.Auth.IsSessionSaved
+                ? AuthState.SessionOnlyMessage
                 : "Signing out signs you out on AO3 and clears the session cookie from this PC. Your offline library stays on the device."));
     }
 

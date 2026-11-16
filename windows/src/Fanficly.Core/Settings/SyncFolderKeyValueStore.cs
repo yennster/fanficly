@@ -1,7 +1,6 @@
 using System.Text.Json;
-using Fanficly.Core;
 
-namespace Fanficly.App.Services;
+namespace Fanficly.Core;
 
 /// <summary>
 /// The iCloud key-value store's stand-in: a small JSON file in the sync folder
@@ -22,14 +21,31 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
     private readonly Lock _gate = new();
     private Timer? _pushTimer;
     private volatile bool _pushAfterWrite;
+    // Pulls and pushes run one at a time (timer threads).
+    private readonly Lock _syncGate = new();
+    // Keys changed here since they last reached the folder, each with a change
+    // count: a pull leaves them alone, so a watcher event in the second before
+    // the push can't undo a change made a moment ago (#210).
+    private readonly Dictionary<string, long> _unpushed = new(StringComparer.Ordinal);
+    private long _changeCount;
 
     public event Action<string>? Changed;
+
+    /// <summary>The app's local log (the folder write failures).</summary>
+    public Action<string>? Log { get; init; }
+
+    /// <summary>This PC's own copy (<c>synced.json</c>), for the launch's report
+    /// of a damaged or locked settings file.</summary>
+    public JsonFileKeyValueStore LocalStore => _local;
+
+    /// <summary>False in tests: pushes and pulls run only through
+    /// <see cref="PushNow"/> and <see cref="PullNow"/>.</summary>
+    internal bool AutoSync { get; init; } = true;
 
     public SyncFolderKeyValueStore(string localPath)
     {
         _localPath = localPath;
         _local = new JsonFileKeyValueStore(localPath);
-        AppHost.LogSettingsProblem(_local, localPath);
         _local.Changed += key => Changed?.Invoke(key);
         _local.Written += () =>
         {
@@ -51,11 +67,15 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
                 _watcher = null;
                 _folder = string.IsNullOrWhiteSpace(value) ? null : value;
             }
+            // Turning sync on adopts the folder's values first, as before: only
+            // changes made while it's on win over the folder's.
+            lock (_unpushed) _unpushed.Clear();
             if (_folder is null) return;
             PullFromFolder();
             PushToFolder();
             try
             {
+                if (!AutoSync) return;
                 _watcher = new FileSystemWatcher(_folder, FileName) { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
                 _watcher.Changed += (_, _) => SchedulePull();
                 _watcher.Created += (_, _) => SchedulePull();
@@ -64,7 +84,7 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
             }
             catch (Exception e)
             {
-                AppHost.Log($"Sync folder watch failed: {e.Message}");
+                Log?.Invoke($"Sync folder watch failed: {e.Message}");
             }
         }
     }
@@ -75,14 +95,28 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
 
     public void SetString(string key, string? value)
     {
+        MarkUnpushed(key);
         _local.SetString(key, value);
         SchedulePush();
     }
 
     public void Remove(string key)
     {
+        MarkUnpushed(key);
         _local.Remove(key);
         SchedulePush();
+    }
+
+    private void MarkUnpushed(string key)
+    {
+        if (_folder is null) return;
+        lock (_unpushed) _unpushed[key] = ++_changeCount;
+    }
+
+    /// <summary>Keys changed here that haven't reached the folder yet (tests).</summary>
+    internal IReadOnlyCollection<string> UnpushedKeys
+    {
+        get { lock (_unpushed) return _unpushed.Keys.ToList(); }
     }
 
     public bool Contains(string key) => _local.Contains(key);
@@ -93,41 +127,81 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
 
     private void SchedulePull()
     {
+        if (!AutoSync) return;
         _pullTimer?.Dispose();
         _pullTimer = new Timer(_ => PullFromFolder(), null, 500, Timeout.Infinite);
     }
 
-    private void SchedulePush()
+    private const int BusyRetryMs = 5000;
+
+    private void SchedulePush(int delayMs = 1000)
     {
-        if (_folder is null) return;
+        if (_folder is null || !AutoSync) return;
         _pushTimer?.Dispose();
-        _pushTimer = new Timer(_ => PushToFolder(), null, 1000, Timeout.Infinite);
+        _pushTimer = new Timer(_ => PushToFolder(), null, delayMs, Timeout.Infinite);
     }
 
-    /// <summary>Adopts the folder copy's values (last writer wins per key, as KVS does).</summary>
+    /// <summary>Adopts the folder copy's values (last writer wins per key, as KVS
+    /// does), except for keys changed here that haven't been pushed yet: those
+    /// are newer than anything the folder holds (#210).</summary>
     private void PullFromFolder()
     {
+        lock (_syncGate) PullLocked();
+    }
+
+    /// <summary>Returns false only when the sync client holds the folder's file:
+    /// one that doesn't parse is written over by the next push, as before.</summary>
+    private bool PullLocked()
+    {
         var path = SharedPath;
-        if (path is null || !File.Exists(path)) return;
+        if (path is null || !File.Exists(path)) return true;
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
             foreach (var p in doc.RootElement.EnumerateObject())
-                if (p.Value.ValueKind == JsonValueKind.String && _local.GetString(p.Name) != p.Value.GetString())
+            {
+                if (p.Value.ValueKind != JsonValueKind.String) continue;
+                bool unpushed;
+                lock (_unpushed) unpushed = _unpushed.ContainsKey(p.Name);
+                if (!unpushed && _local.GetString(p.Name) != p.Value.GetString())
                     _local.SetString(p.Name, p.Value.GetString());
+            }
+            return true;
         }
-        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
+        catch (JsonException)
         {
-            // Mid-sync or locked by the sync client; the next change event retries.
+            // Mid-upload or damaged: the next change event (or our push) fixes it.
+            return true;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Locked by the sync client; the next change event retries.
+            return false;
         }
     }
 
     private void PushToFolder()
     {
+        lock (_syncGate) PushLocked();
+    }
+
+    /// <summary>The debounced push and the watcher's pull, run at once (tests).</summary>
+    internal void PushNow() => PushToFolder();
+
+    internal void PullNow() => PullFromFolder();
+
+    private void PushLocked()
+    {
         var path = SharedPath;
         if (path is null) return;
         try
         {
+            // Take in what other devices wrote first (leaving this PC's unpushed
+            // keys alone), so copying the file over the folder's doesn't drop
+            // their changes. A file the sync client holds is retried later.
+            if (!PullLocked()) { SchedulePush(BusyRetryMs); return; }
+            Dictionary<string, long> pushing;
+            lock (_unpushed) pushing = new(_unpushed);
             // The local write failed (it retries itself, backing off): pushing
             // now would copy the old file over the folder's, so push once that
             // retry has written it.
@@ -138,10 +212,14 @@ public sealed class SyncFolderKeyValueStore : IKeyValueStore, IDisposable
             File.Copy(_localPath, tmp, overwrite: true);
             lock (_gate) { if (_watcher is not null) _watcher.EnableRaisingEvents = false; }
             File.Move(tmp, path, overwrite: true);
+            // Keys changed again since the copy stay unpushed for the next push.
+            lock (_unpushed)
+                foreach (var (key, count) in pushing)
+                    if (_unpushed.TryGetValue(key, out var now) && now == count) _unpushed.Remove(key);
         }
         catch (Exception e)
         {
-            AppHost.Log($"Sync folder write failed: {e.Message}");
+            Log?.Invoke($"Sync folder write failed: {e.Message}");
         }
         finally
         {
