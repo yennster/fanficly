@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective: 2026-10-18
+Effective: 2026-11-16
 
 This policy covers Fanficly for iPhone, iPad and Mac (the app in [`apple/`](apple/)). Fanficly for Windows has its own policy: [windows/PRIVACY.md](windows/PRIVACY.md).
 
@@ -12,7 +12,7 @@ Fanficly has no servers. There is no analytics, no crash reporting, no telemetry
 
 ## What is stored on your device
 
-- **Your AO3 session cookie** (`_otwarchive_session`), kept in the iOS Keychain so you stay logged in between sessions
+- **Your AO3 session cookie** (`_otwarchive_session`) and **your AO3 username**, kept in the Keychain so you stay logged in between sessions; logging out deletes both
 - **Works you've saved offline**, your reading position, custom folders, your own notes and personal tags on saved works, followed authors, and your bookmark/history/subscription cache, kept in your app's private SwiftData store and Documents directory
 - **Your preferences** (theme, font size, reader profiles, library sort order, etc.) and which works you've left kudos on (forgotten when you log out), kept in app storage
 - **Your searches** — recent searches stay on this device only (never synced or backed up; clear them from the Search screen); saved searches, and for those with new-fic alerts on the ids of the works the alerts have already seen, are kept in app storage and included in the optional iCloud library backup
@@ -25,7 +25,7 @@ None of this is ever sent to us — there is no Fanficly server. On its own, the
 
 If your device is signed into iCloud, Fanficly syncs some data between **your own devices** through Apple's iCloud:
 
-- **Library backups** (saved works with your notes and personal tags, folders, reading positions, preferences) — only if you turn on *Sync Library to iCloud* in Settings; the same screen lets you restore or delete the backup
+- **Library backups** (saved works with your notes and personal tags, folders, reading positions, preferences, and your AO3 subscriptions list tagged with the AO3 username it belongs to) — only if you turn on *Sync Library to iCloud* in Settings; the same screen lets you restore or delete the backup
 - **Reader settings profiles** and **last-read progress** (story, chapter, and paragraph — what the widget shows) — synced automatically via iCloud key-value storage
 
 This data lives in your private iCloud account and is covered by Apple's iCloud terms. We cannot access, read, or delete it — Fanficly has no servers and no access to your Apple ID. Signing out of iCloud on the device stops all syncing, and the library backup can be deleted from Fanficly's settings at any time.
@@ -39,7 +39,7 @@ The app makes HTTP requests directly to `archiveofourown.org` on your behalf, th
 - To sync your account state, the app fetches your bookmarks, history, and subscriptions pages while logged in
 - To subscribe to a work, leave kudos, post a chapter comment, or save an AO3 bookmark — only when you're logged in and choose to (these are user-initiated and happen only when you tap the button) — the app POSTs that action to AO3 on your behalf; any comment text, and a bookmark's notes and tags, go only to AO3, which hosts them (and moderates comments)
 
-We never store your AO3 username or password. The session cookie is sufficient for authenticated requests.
+We never store your AO3 password. Only the session cookie and your username are kept, as described above.
 
 ## Embedded story images (optional)
 
