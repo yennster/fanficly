@@ -43,6 +43,8 @@ Sync is **off** until you turn it on in Settings → Sync and choose a folder. T
   - folders, your notes and tags on saved works, reading positions and reading stats
   - your AO3 bookmarks and subscriptions lists
   - saved searches and filters, hidden works, and blocked tags and authors
+  - the authors you follow, with the works of theirs Fanficly has already seen so it only tells you about new ones
+  - a short record of what you deleted (work numbers and folder, saved search and filter names, with the date), kept for 90 days so a delete on one device reaches your others
   - your reader settings, your content settings, and whether you confirmed you're 17 or older
 - **`library_backup.prev.json`.** The previous `library_backup.json`, kept each time Fanficly replaces it, so a bad write can be undone.
 - **`fanficly-settings-sync.json`.** It holds:
