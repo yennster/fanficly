@@ -174,7 +174,7 @@ Fanficly is not affiliated with AO3 or the Organization for Transformative Works
 
 ## Privacy
 
-We collect nothing. The app talks directly to AO3 from your PC. Your AO3 session cookie is encrypted with Windows Data Protection for your Windows account. Uninstalling the app erases everything it stored on your PC; a backup in your sync folder stays until you delete it. See [PRIVACY.md](PRIVACY.md) and [ACCESSIBILITY.md](ACCESSIBILITY.md).
+We collect nothing. The app talks directly to AO3 from your PC. If you sign in, your AO3 username and session cookie are encrypted with Windows Data Protection for your Windows account; your password is never stored. Uninstalling the app erases everything it stored on your PC; a backup in your sync folder stays until you delete it. See [PRIVACY.md](PRIVACY.md) and [ACCESSIBILITY.md](ACCESSIBILITY.md).
 
 ## Contributing
 
