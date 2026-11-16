@@ -159,6 +159,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** a test of the singular and plural wording.
 - **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/SavedWorkReader.swift`, `FanficlyTests/`.
 
+### RM-028 — Say when the AO3 sign-in couldn't be saved (Windows #210 parity)
+- **Status:** open · **Size:** S · **Validation:** unit
+- **Why:** Windows fixed this in #210. On Apple, `CredentialStore.setUsername` and `saveCookies` drop Keychain errors (`try?`). Cookie saves already run again on every cookie change, so a failed one heals itself, but a failed username write is never retried: the reader stays signed in for the run and is signed out at the next launch without a word. The synced-settings half of #210 doesn't apply: `NSUbiquitousKeyValueStore` resolves its own conflicts and doesn't hand back a stale value over one just set.
+- **Scope:** `CredentialStore` notes a failed username or cookie write, keeps the username for the run and writes it again with the next cookie save; `AuthState` exposes it, and Settings' account row says "You're signed in for this session only" until a write gets through, as Windows does.
+- **Done when:** tests with a failing `LoginNameStore`/`CookieVault`: a failed username write is retried with the next cookie save, and sign-out clears the state.
+- **Touches:** `Auth/Credentials.swift`, `Settings/SettingsView.swift`, `FanficlyTests/`.
+
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos

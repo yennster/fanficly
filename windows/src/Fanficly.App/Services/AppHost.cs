@@ -100,7 +100,9 @@ public static partial class AppHost
             var settings = new JsonFileKeyValueStore(AppPaths.Settings);
             LogSettingsProblem(settings, AppPaths.Settings);
             KeyValueStores.Default = settings;
-            KeyValueStores.Synced = new SyncFolderKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json"));
+            var synced = new SyncFolderKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json")) { Log = Log };
+            LogSettingsProblem(synced.LocalStore, Path.Combine(AppPaths.Shared, "synced.json"));
+            KeyValueStores.Synced = synced;
             DropLogWithRequestPathsOnce(settings);
         }
         InitializeServices();
