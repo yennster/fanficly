@@ -378,7 +378,9 @@ struct ReaderView: View {
         let rename: (String, String) -> Void
         /// ReaderLayoutTests' way to the prompt where the Aa menu won't open
         /// under XCUITest (Xcode Cloud's folded iPhone Duo, though it opens
-        /// there by hand): demo mode with -demoNewProfileButton only.
+        /// there by hand, on the simulator and a real Duo; #279): demo mode with
+        /// -demoNewProfileButton only. Remove it once a newer iOS 27.x keeps
+        /// the menu open under XCUITest.
         private static let testButton = FanficlyApp.isDemoMode
             && ProcessInfo.processInfo.arguments.contains("-demoNewProfileButton")
         func body(content: Content) -> some View {
