@@ -396,15 +396,16 @@ final class ReaderLayoutTests: XCTestCase {
         }
         guard settings.waitForExistence(timeout: 4) else { throw XCTSkip("Couldn't find the reader settings menu.") }
         // On Xcode Cloud's folded iPhone Duo (iOS 27.1) XCTest's taps on the
-        // reader's strip menus (Aa, Chapters) open nothing, by tap, long
-        // press or a tap aimed from the window, while the work's own menu in
-        // the same strip opens; by hand Aa's menu opens there, on the
-        // simulator and the device. The tap also leaves the app busy for a
-        // minute, and an alert asked for then never shows. This test is about
-        // the keyboard, so in the strip it opens the prompt with demo mode's
-        // stand-in button and leaves Aa alone (#279: drop this once a newer
-        // iOS 27.x opens the menu under XCUITest). The strip stacks the items,
-        // so Chapters sits right above Aa.
+        // reader's strip menus (Aa, Chapters) leave no menu open (a keyboard
+        // comes up and closes it, #279), by tap, long press or a tap aimed
+        // from the window, while the work's own menu in the same strip opens;
+        // by hand Aa's menu opens there, on the simulator and the device. The
+        // tap also leaves the app busy for a minute, and an alert asked for
+        // then never shows. This test is about the keyboard, so in the strip
+        // it opens the prompt with demo mode's stand-in button and leaves Aa
+        // alone (drop this once a newer iOS 27.x keeps the menu open under
+        // XCUITest; history in #279). The strip stacks the items, so Chapters
+        // sits right above Aa.
         let chapters = app.buttons["Chapters"].firstMatch
         if chapters.exists, abs(chapters.frame.midX - settings.frame.midX) < 1,
            chapters.frame.midY < settings.frame.midY {
