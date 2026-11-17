@@ -162,6 +162,7 @@ windows/
                                #   RestoreDownloadCenter, SyncFolderSuggestions
     Widget/                    # DeepLink, ResumeRoute, WidgetCenter,
                                #   WidgetDataStore, WidgetProgressStore
+    Layout/FlowLines.cs        # FlowPanel's wrapping and line centering (pure)
   src/Fanficly.App/
     Program.cs                 # Main: COM-server modes, single instance, Start
     App.cs                     # OnLaunched, XAML metadata provider
@@ -258,14 +259,14 @@ Unpackaged runs have no package identity, so the Widgets board, the background t
 
 ## Tests
 
-**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 967 cases in 56 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
+**Core tests** (`tests/Fanficly.Core.Tests`, xUnit, 974 cases in 57 files, all fixture-based, no network). They pass on Linux, macOS and Windows.
 - **Parsers:** `SearchResultsParserTests` (incl. the bookmarks page), `WorkPageParserTests` (incl. login, comments and bookmark-form parsing), `KudosParserTests` and `KudosGiverTests` (in `KudosTests.cs`), `SubscriptionsParserTests` (fails closed), `MediaCategoryParserTests`, `WorkMetadataParserTests`, `SeriesParserTests` (series pages and a work's "Part N of" spans), `HtmlDomTests`.
 - **Networking:** `AO3ClientTests` (through a fake `HttpMessageHandler`: retries, cookies, redirects, timeouts, form posts, and what a 403 means: Cloudflare, the login page or AO3's own), `AO3EndpointsTests`, `ThrottleTests` (spacing, and concurrent waiters serialized), `DemoAO3ClientTests`.
 - **Search:** `SearchSyntaxTests`, `SearchSuggestionsTests`, `AO3SearchFiltersTests`, `TagResolverTests` (with `StubAO3Client`), `FandomCatalogTests`, `BrowseModelsTests`, `PopularStoreTests`.
 - **Library and sync:** `LibraryStoreTests` (identity map, save diffing, migrations, relationships), `PersistenceTests`, `LibraryBackupJsonTests` (the Swift backup format), `SyncThreadingTests` (backup, restore and the poller touch records only on the UI thread), `SyncFolderSuggestionsTests`, `LibrarySortTests`, `ReadingStatsRecordTests`, `ReadingSpeedTests`, `StreakStoreTests`, `CrossAreaTests`.
 - **Reader logic:** `HTMLToAttributedTests`, `ChapterTrackingTests`, `ReaderMetricsTests` (spread rule, page-area tracking, and `ReaderPaginator` across a device matrix with `FakeTextMeasurer`), `ReaderProfileTests` (merge, tombstones, per-device keys), `WorkFindTests` (Find in this work: order, folding, the cap, snippets).
 - **Routing and widgets:** `DeepLinkTests`, `NotificationRouteTests`, `ResumeProgressPolicyTests`, `WidgetDataStoreTests`, `WidgetProgressStoreTests`.
-- **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`; also the restore and folder download queue), `SavedSearchAlertsTests` (#309: the check's filters, the baseline, which works alert, the backup merge and JSON keys), `JsonFileKeyValueStoreTests` (locked and damaged settings files), `AuthStateTests` (incl. the expired session, which a Cloudflare or AO3 403 doesn't cause), `SessionSaveTests` (a sign-in the vault couldn't write is retried, #210), `ContentSafetyTests`, `ReviewPromptTests`.
+- **Other:** `SubscriptionPollerTests` (with `PollerFakeClient`; also the restore and folder download queue), `SavedSearchAlertsTests` (#309: the check's filters, the baseline, which works alert, the backup merge and JSON keys), `JsonFileKeyValueStoreTests` (locked and damaged settings files), `AuthStateTests` (incl. the expired session, which a Cloudflare or AO3 403 doesn't cause), `SessionSaveTests` (a sign-in the vault couldn't write is retried, #210), `ContentSafetyTests`, `ReviewPromptTests`, `FlowLinesTests` (`FlowPanel`'s wrapping, each item centered on its line unless it asks for the top, #246).
 
 Tests that touch the static stores (`KeyValueStores`, `AppGroupStore`, …) join `[Collection(GlobalStoreCollection.Name)]` so they don't run in parallel. Core's internals are visible to the test project, so make a helper `internal` (not `public`) when it needs direct testing.
 
