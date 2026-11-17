@@ -402,7 +402,8 @@ final class ReaderLayoutTests: XCTestCase {
         // simulator and the device. The tap also leaves the app busy for a
         // minute, and an alert asked for then never shows. This test is about
         // the keyboard, so in the strip it opens the prompt with demo mode's
-        // stand-in button and leaves Aa alone. The strip stacks the items,
+        // stand-in button and leaves Aa alone (#279: drop this once a newer
+        // iOS 27.x opens the menu under XCUITest). The strip stacks the items,
         // so Chapters sits right above Aa.
         let chapters = app.buttons["Chapters"].firstMatch
         if chapters.exists, abs(chapters.frame.midX - settings.frame.midX) < 1,
