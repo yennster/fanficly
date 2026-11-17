@@ -30,6 +30,10 @@ If your device is signed into iCloud, Fanficly syncs some data between **your ow
 
 This data lives in your private iCloud account and is covered by Apple's iCloud terms. We cannot access, read, or delete it — Fanficly has no servers and no access to your Apple ID. Signing out of iCloud on the device stops all syncing, and the library backup can be deleted from Fanficly's settings at any time.
 
+## The App Clip
+
+Opening a shared fanficly.app work link on an iPhone or iPad without Fanficly installed can open the **Fanficly App Clip**, which reads that one work. It handles data the same way as the app: it fetches the work directly from AO3, keeps your reading position and reading time on the device, and has no login, analytics or Fanficly server. It also keeps the work's id and your place in the app-group container described above, so that if you install the full app, it opens the same work where you left off. iOS removes the App Clip and its data after a period of not using it. On a device where the App Clip or the app opens the link, iOS reads the work's id from it and the link goes nowhere else. Opened in a browser instead, it loads a page from the fanficly.app website (hosted on Vercel, which, like any web host, receives the request); that page has no analytics or tracking and links to the work on AO3.
+
 ## What your device sends to AO3
 
 The app makes HTTP requests directly to `archiveofourown.org` on your behalf, the same way a web browser would:

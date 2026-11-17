@@ -1,0 +1,97 @@
+name: App Clip
+
+# The App Clip's setup outside Xcode (#292), through apple/bin/app-clip.py.
+# Started by hand only, from main, with the app-store secrets, so it waits for
+# the owner's approval. Without "apply" the App Store Connect steps only report
+# what they would change. apple/docs/RELEASING.md (App Clip) says when to run
+# which.
+#
+#   website-association  writes website/.well-known/apple-app-site-association
+#                        with the team ID and pushes it to an app-clip/aasa-run-N
+#                        branch to merge with a PR (Vercel then serves it)
+#   identifiers          the bundle IDs' capabilities (Associated Domains,
+#                        App Groups)
+#   experiences          the clip's default and advanced App Clip experiences,
+#                        from apple/appclip/experiences.json; needs a build with
+#                        the clip uploaded and an editable iOS version
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to set up
+        type: choice
+        options: [identifiers, experiences, website-association]
+        default: identifiers
+      apply:
+        description: Make the App Store Connect changes (unchecked = only report them)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apple
+
+jobs:
+  app-clip:
+    name: App Clip ${{ inputs.task }}
+    if: github.repository == 'yennster/fanficly' && github.actor == 'yennster' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: app-store
+    permissions:
+      contents: write   # only for website-association's branch push
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install the API client's Python packages
+        run: |
+          python -m venv bin/.venv
+          bin/.venv/bin/pip install --require-hashes -r bin/requirements.txt
+
+      - name: Identifiers or experiences
+        if: inputs.task != 'website-association'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          TASK: ${{ inputs.task }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          umask 077
+          printf '%s\n' "$ASC_KEY_P8" > "fastlane/AuthKey_${ASC_KEY_ID}.p8"
+          jq -n --arg k "$ASC_KEY_ID" --arg i "$ASC_ISSUER_ID" --arg p "$ASC_KEY_P8" \
+            '{key_id: $k, issuer_id: $i, key: $p, in_house: false}' > fastlane/api_key.json
+          if [ "$APPLY" = "true" ]; then
+            bin/.venv/bin/python bin/app-clip.py "$TASK" --apply
+          else
+            bin/.venv/bin/python bin/app-clip.py "$TASK"
+          fi
+
+      - name: Website association file
+        if: inputs.task == 'website-association'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          bin/.venv/bin/python bin/app-clip.py aasa --team "$APPLE_TEAM_ID"
+          bin/.venv/bin/python bin/app-clip.py aasa --check
+          git add ../website/.well-known/apple-app-site-association
+          if git diff --cached --quiet; then
+            echo "The committed file is already up to date." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="app-clip/aasa-run-${{ github.run_number }}"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Website: serve the App Clip's apple-app-site-association (#292)"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "Pushed $branch: open a PR from it to publish the file on fanficly.app." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the keys
+        if: always()
+        run: rm -f fastlane/api_key.json fastlane/AuthKey_*.p8

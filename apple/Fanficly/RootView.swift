@@ -236,6 +236,21 @@ struct RootView: View {
                       let workId = WorkPersistence.workId(fromSpotlightIdentifier: identifier) else { return }
                 runAfterAgeGate { openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil)) }
             }
+            // A fanficly.app work link (#292), as a universal link: the link the
+            // App Clip opens when the app isn't installed opens the app when
+            // it is, at the link's chapter if it names one.
+            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                guard let url = activity.webpageURL, let link = WorkLink(url: url) else { return }
+                runAfterAgeGate { openResumeRoute(ResumeWorkRoute(workId: link.workId, anchor: link.anchor)) }
+            }
+            // The work last opened in the App Clip, once, on the first launch
+            // after it (the app group outlives the clip into the installed
+            // app). Its place comes with it through `WidgetProgressStore`.
+            .task {
+                guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode,
+                      let workId = ClipHandoff.take() else { return }
+                runAfterAgeGate { openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil)) }
+            }
             // The "Continue Reading" App Shortcut. `initial: true` catches a run
             // that launched the app before this view existed.
             .onChange(of: ContinueReadingRouter.shared.pendingRequest, initial: true) { _, pending in
