@@ -9,7 +9,8 @@ namespace Fanficly.App.UI;
 /// Lays children out left to right and wraps to a new line when one won't fit
 /// — the Mac app's FlowLayout (tag chips, filter chips, metadata rows). Each
 /// child is centered vertically on its line (Core's <see cref="FlowLines"/>), so
-/// an icon lines up with the chips beside it (#246).
+/// an icon lines up with the chips beside it (#246); a child whose
+/// <c>VerticalAlignment</c> is <c>Top</c> stays at the top of its line.
 /// </summary>
 public sealed partial class FlowPanel : Panel
 {
@@ -26,7 +27,8 @@ public sealed partial class FlowPanel : Panel
 
     protected override Size ArrangeOverride(Size finalSize)
     {
-        var placements = FlowLines.Arrange(DesiredSizes(), finalSize.Width, Spacing, LineSpacing);
+        var placements = FlowLines.Arrange(DesiredSizes(), finalSize.Width, Spacing, LineSpacing,
+            i => Children[i] is FrameworkElement { VerticalAlignment: VerticalAlignment.Top });
         for (var i = 0; i < Children.Count; i++)
         {
             var p = placements[i];

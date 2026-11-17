@@ -10,6 +10,8 @@ public readonly record struct FlowPlacement(double X, double Y, double Width, do
 /// is centered vertically on its line, the way a SwiftUI <c>HStack</c> centers
 /// its children, so a short item (an icon, a small label) lines up with the
 /// taller chips beside it instead of sitting at the top of the line (#246).
+/// An item can ask for the top of its line instead (<c>alignTop</c>), as the
+/// series row's links do, matching the Mac's top-aligned FlowLayout there.
 /// Empty items (0×0, collapsed) take no room and get a 0×0 placement at the origin.
 /// </summary>
 public static class FlowLines
@@ -27,9 +29,11 @@ public static class FlowLines
     }
 
     /// <summary>Where each of <paramref name="sizes"/> goes in a panel
-    /// <paramref name="width"/> wide, in the same order.</summary>
+    /// <paramref name="width"/> wide, in the same order. Items for which
+    /// <paramref name="alignTop"/> is true sit at the top of their line.</summary>
     public static FlowPlacement[] Arrange(
-        IReadOnlyList<(double Width, double Height)> sizes, double width, double spacing, double lineSpacing)
+        IReadOnlyList<(double Width, double Height)> sizes, double width, double spacing, double lineSpacing,
+        Func<int, bool>? alignTop = null)
     {
         var placements = new FlowPlacement[sizes.Count];
         double y = 0;
@@ -41,7 +45,8 @@ public static class FlowLines
             {
                 var (w, h) = sizes[i];
                 if (!first) x += spacing;
-                placements[i] = new FlowPlacement(x, y + (line.Height - h) / 2, Math.Min(w, width), h);
+                var top = alignTop?.Invoke(i) == true ? y : y + (line.Height - h) / 2;
+                placements[i] = new FlowPlacement(x, top, Math.Min(w, width), h);
                 x += w;
                 first = false;
             }

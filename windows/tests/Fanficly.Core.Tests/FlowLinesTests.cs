@@ -33,6 +33,14 @@ public class FlowLinesTests
     }
 
     [Fact]
+    public void AnItemCanAskForTheTopOfItsLine()
+    {
+        // The series row: a two-line link, then "Next in series" level with its first line.
+        var p = FlowLines.Arrange([S(200, 34), S(90, 17)], 400, 14, 4, i => i == 1);
+        Assert.Equal(new FlowPlacement(214, 0, 90, 17), p[1]);
+    }
+
+    [Fact]
     public void WrapsOnlyWhenTheNextItemWontFit()
     {
         // 60 + 6 + 34 = 100 fits exactly; one more pixel wraps.
