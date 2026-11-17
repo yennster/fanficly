@@ -10,6 +10,7 @@ request, so merging never ships anything.
 | **Release** (`release.yml`) | Signed builds to TestFlight or the App Store version, metadata, signing setup | yes, after approval |
 | **Store assets** (`store-assets.yml`) | Regenerates screenshots (captured in Xcode Cloud), app previews and creative art; optionally uploads them | the Xcode Cloud capture and the optional upload |
 | **Restore the creative art** (`creative-restore.yml`) | Downloads the live iOS version's header and search-results art, keeps it in git, and puts it back on the editable version | yes, after approval |
+| **App Clip** (`app-clip.yml`) | The App Clip's capabilities, website association file and App Clip experiences (see App Clip) | yes, after approval |
 
 Every job that touches secrets runs in the **`app-store` environment**: it
 waits until the repo owner approves it, and only runs from `main`. The
@@ -176,6 +177,40 @@ log bundle. The app previews are simulator video
 recordings, which Xcode Cloud can't make, so they still record on GitHub's
 runner (they show the iPhone and iPad, not the Duo). The art needs Apple's SF Pro and New York fonts, which the workflow
 installs from developer.apple.com.
+
+## App Clip
+
+The App Clip (`FanficlyClip`, #292) ships inside the iOS app: the **Release**
+archive builds and embeds it, and nothing about it is set up by hand. Its
+setup outside the archive runs from the **App Clip** workflow
+(`app-clip.yml`, `bin/app-clip.py`), from `main`, with the `app-store`
+secrets; without "apply" each step only reports. In order, once:
+
+1. Task `identifiers`, with apply: turns on Associated Domains for the app's
+   bundle ID (its `applinks:fanficly.app` entitlement needs it). The clip's
+   own bundle ID (`io.github.yennster.fanficly.Clip`) can't be made an App
+   Clip ID through the public API, so Xcode Cloud's cloud-managed signing
+   registers it with its capabilities the first time **Release** archives the
+   app with the clip; run `identifiers` again afterwards to check. The
+   fastlane fallback build (`build_signed`) reads the clip's profile from
+   match, so run lane `signing_setup` once after that too.
+2. Task `website-association`: writes
+   `website/.well-known/apple-app-site-association` with the team ID and the
+   bundle IDs from `project.yml`, and pushes it to an `app-clip/aasa-run-N`
+   branch; merge it with a PR and Vercel serves it at fanficly.app.
+   CI (`ci.yml`'s tooling job) runs `bin/app-clip.py aasa --check`, so the
+   file can't drift from `project.yml` and the entitlements.
+3. After a **Release** (or `beta`) build with the clip is in App Store
+   Connect and the iOS version is editable, task `experiences`, with apply:
+   creates the default App Clip experience on that version and the advanced
+   experience for `https://fanficly.app/works` from
+   `appclip/experiences.json`, with the card image cut from
+   `screenshots/creative/header-3840x1646.png`. Run it again after editing
+   the file. Apple reviews advanced experiences before they go live.
+
+App Clip Codes aren't generated: a shared link is how the clip is meant to
+open. Apple's App Clip Code Generator runs only on a Mac, and a clip with
+physical invocations (codes, NFC) must stay under 15 MB instead of 100 MB.
 
 ## Xcode Cloud
 
