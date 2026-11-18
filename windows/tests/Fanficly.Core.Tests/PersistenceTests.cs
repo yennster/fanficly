@@ -316,16 +316,20 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(1, ctx.Count<ReadingProgress>());
     }
 
-    // #160: chapter 20 read on another device, this one last saw chapter 12.
-    // The reader opens at 20, and closing it without moving writes nothing.
+    // #160, #337: chapter 20 read on another device, this one last saw chapter 12.
+    // The reader opens at 20, and closing it without moving keeps 20 as this PC's
+    // own place, stamped with the synced entry's date (never now), so the Library
+    // row shows it and a later open finds it once the synced entry is for another
+    // story.
     [Fact]
-    public void OpeningWithFresherSyncedProgress_UnmovedCloseDoesNotWriteAnOlderPlace()
+    public void OpeningWithFresherSyncedProgress_KeepsItLocallyWithTheSyncedDate()
     {
         using var ctx = MakeContext();
+        var work = WorkPersistence.Upsert(Payload(42, 24), ctx);
         ReadingProgressStore.Save(42, chapter: 12, paragraph: 4, title: "T", author: "A", ctx);
-        var local = ctx.GetReadingProgress(42)!;
-        var savedAt = local.UpdatedAt;
-        var synced = new WidgetStoryProgress(42, "T", "A", 0.8, 20, 7, savedAt.AddMinutes(1));
+        var savedAt = ctx.GetReadingProgress(42)!.UpdatedAt;
+        var syncedAt = savedAt.AddMinutes(1);
+        var synced = new WidgetStoryProgress(42, "T", "A", 0.8, 20, 7, syncedAt);
 
         var opened = ReadingProgressStore.LoadForOpening(42, ctx, synced);
         Assert.Equal(new ReadingAnchor(20, 7), opened);
@@ -335,11 +339,38 @@ public sealed class PersistenceTests : IDisposable
         if (gate.AllowsSave(opened!.Value))
             ReadingProgressStore.Save(42, opened.Value.Chapter, opened.Value.Paragraph, "T", "A", ctx);
 
+        Assert.Equal(1, ctx.Count<ReadingProgress>());
         var after = ctx.GetReadingProgress(42)!;
-        Assert.Equal((12, 4), (after.ChapterIndex, after.ParagraphIndex));
-        Assert.Equal(savedAt, after.UpdatedAt);
-        // The synced place still wins the next open.
-        Assert.Equal(new ReadingAnchor(20, 7), ReadingProgressStore.LoadForOpening(42, ctx, synced));
+        Assert.Equal((20, 7), (after.ChapterIndex, after.ParagraphIndex));
+        Assert.Equal(syncedAt, after.UpdatedAt);
+        Assert.Equal(20, work.LastReadChapter);
+        Assert.Equal(0.8, work.LastReadProgress);
+        Assert.Equal(syncedAt, work.LastReadAt);
+
+        // The other device moves on to another story: this one still opens at 20.
+        var otherStory = new WidgetStoryProgress(7, "U", "B", 0.1, 2, 0, syncedAt.AddMinutes(1));
+        Assert.Equal(new ReadingAnchor(20, 7), ReadingProgressStore.LoadForOpening(42, ctx, otherStory));
+        Assert.Equal(new ReadingAnchor(20, 7), ReadingProgressStore.LoadForOpening(42, ctx, null));
+        Assert.Equal(syncedAt, ctx.GetReadingProgress(42)!.UpdatedAt);
+    }
+
+    // Never read here: the synced place becomes this PC's record, with its date.
+    [Fact]
+    public void OpeningAtSyncedPlaceWithNoLocalProgress_RecordsIt()
+    {
+        using var ctx = MakeContext();
+        var syncedAt = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
+        var synced = new WidgetStoryProgress(42, "T", "A", 0.3, 3, 2, syncedAt);
+        Assert.Equal(new ReadingAnchor(3, 2), ReadingProgressStore.LoadForOpening(42, ctx, synced));
+        var rec = ctx.GetReadingProgress(42)!;
+        Assert.Equal((3, 2), (rec.ChapterIndex, rec.ParagraphIndex));
+        Assert.Equal(syncedAt, rec.UpdatedAt);
+        Assert.Equal(new ReadingAnchor(3, 2), ReadingProgressStore.LoadForOpening(42, ctx, null));
+
+        // An undated entry still opens, but has no date of its own to keep.
+        using var undated = MakeContext();
+        Assert.Equal(new ReadingAnchor(3, 2), ReadingProgressStore.LoadForOpening(42, undated, synced with { UpdatedAt = null }));
+        Assert.Null(undated.GetReadingProgress(42));
     }
 
     [Fact]
@@ -355,6 +386,7 @@ public sealed class PersistenceTests : IDisposable
         Assert.Equal(new ReadingAnchor(12, 4), ReadingProgressStore.LoadForOpening(42, ctx, older));
         var otherWork = own with { Id = 7, Chapter = 30, UpdatedAt = savedAt.AddMinutes(1) };
         Assert.Equal(new ReadingAnchor(12, 4), ReadingProgressStore.LoadForOpening(42, ctx, otherWork));
+        Assert.Equal(savedAt, ctx.GetReadingProgress(42)!.UpdatedAt);
     }
 
     // MARK: - Reading stats
