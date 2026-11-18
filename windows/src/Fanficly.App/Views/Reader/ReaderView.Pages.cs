@@ -35,6 +35,9 @@ internal sealed partial class ReaderView
     private double _stableWindowHeight;
     private bool _settledControlsUp = true;
     private PaginationTrigger? _lastTrigger;
+    /// <summary>The pages on screen are a quick refit of the ones near the reader
+    /// (#349), and the full pagination for <see cref="_lastTrigger"/> hasn't landed.</summary>
+    private bool _pagesProvisional;
     /// <summary>The pagination in flight (see <see cref="RunPagination"/>), and what it's for.</summary>
     private CancellationTokenSource? _paginationRun;
     private PaginationTrigger? _runningTrigger;
@@ -72,6 +75,7 @@ internal sealed partial class ReaderView
         _pageStart = null;
         _spreadLayout = null;
         _lastTrigger = null;
+        _pagesProvisional = false;
         _stableWidth = 0;
         _stableWindowHeight = 0;
         _settledControlsUp = !_isUIMinimized;
@@ -121,6 +125,7 @@ internal sealed partial class ReaderView
         _pageStart = null;
         _spreadLayout = null;
         _lastTrigger = null;
+        _pagesProvisional = false;
     }
 
     // MARK: - The page area (PageAreaTracker)
@@ -232,7 +237,7 @@ internal sealed partial class ReaderView
         _paginationRun?.Cancel();
         _paginationRun = null;
         _runningTrigger = null;
-        if (_pages.Count > 0 && trigger == _lastTrigger && Equals(spread, _spreadLayout)) return;
+        if (_pages.Count > 0 && !_pagesProvisional && trigger == _lastTrigger && Equals(spread, _spreadLayout)) return;
 
         var run = new CancellationTokenSource();
         _paginationRun = run;
@@ -248,6 +253,18 @@ internal sealed partial class ReaderView
         PaginationResult? result;
         try
         {
+            // A long chapter whose page area changed (the controls, the Listen bar, a
+            // resize): refit the pages near the reader first, so the page on screen
+            // fits at once, then paginate the whole chapter (#349).
+            if (start is { } kept && _lastTrigger is { } previous && previous.DiffersOnlyInPageArea(trigger))
+            {
+                var refit = await ReaderPaginator.RefitNearbyAsync(
+                    trigger, kept, _pages, _atoms, _chapters, limitLineLength: false, _measurer, _atomsCache,
+                    pause: () => Task.Delay(1), slice: PaginationSlice, run.Token);
+                if (run.IsCancellationRequested || _paginationRun != run) return;
+                if (_removed || _builtMode != ReadingMode.PageByPage || _pageFlip is null) return;
+                if (refit is not null) ApplyPagination(refit, trigger, spread, repaginating, startedFrom, provisional: true);
+            }
             result = await ReaderPaginator.PerformPaginationAsync(
                 trigger, start, _chapters, limitLineLength: false, _measurer, _atomsCache,
                 // A timer's wait, so the window handles input and draws in between
@@ -268,7 +285,16 @@ internal sealed partial class ReaderView
         _paginationRun = null;
         _runningTrigger = null;
         if (_removed || _builtMode != ReadingMode.PageByPage || _pageFlip is null) return;
+        ApplyPagination(result, trigger, spread, repaginating, startedFrom, provisional: false);
+    }
 
+    /// <summary>Puts new pages on screen, keeping the reader on the page kept in place,
+    /// or the one they turned to since the pagination started.
+    /// <paramref name="provisional"/>: a refit of the pages near the reader, which the
+    /// full pagination will replace.</summary>
+    private void ApplyPagination(PaginationResult result, PaginationTrigger trigger, ReaderSpread.Layout? spread,
+                                 bool repaginating, PageStart? startedFrom, bool provisional)
+    {
         // Pages turned while a long chapter re-paginated: stay on the page reached,
         // not the one the pagination started from.
         var kept = result.KeptPageId;
@@ -285,6 +311,7 @@ internal sealed partial class ReaderView
         }
 
         _lastTrigger = trigger;
+        _pagesProvisional = provisional;
         _spreadLayout = spread;
         _isRestoring = true;
         var active = new HashSet<int> { _selectedChapter };
@@ -297,7 +324,7 @@ internal sealed partial class ReaderView
 
         // A Find match in this chapter: the page with the words, which in a
         // paragraph over several pages needn't be the paragraph's first.
-        if (_findPage is { } findTarget && findTarget.Chapter == trigger.Chapter)
+        if (!provisional && _findPage is { } findTarget && findTarget.Chapter == trigger.Chapter)
         {
             _findPage = null;
             _findPageJump = false;
