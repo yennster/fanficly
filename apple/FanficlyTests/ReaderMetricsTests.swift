@@ -586,6 +586,107 @@ final class ReaderPaginationTests: XCTestCase {
         }
     }
 
+    func test_refittingNearTheReader_makesThePagesTheFullPaginationMakesThere() throws {
+        // A long one-shot's page area changes (the controls, a resize): the
+        // pages near the one on screen are refitted first, the rest keep
+        // their old pages until the whole chapter is paginated again (#349).
+        try forEachLayout { _, type, layout, label in
+            let before = paginate(type, layout)
+            let page = before.pages[before.pages.count / 2]
+            let start = try XCTUnwrap(ReaderPaginator.start(of: page, atoms: before.atoms))
+            for change in [Self.controlsHeight, -Self.controlsHeight] {
+                let context = "\(label), \(change > 0 ? "controls hidden" : "controls shown")"
+                let resized = Layout(columnWidth: layout.columnWidth, viewportHeight: layout.viewportHeight + change,
+                                     pagesOnScreen: layout.pagesOnScreen)
+                let full = paginate(type, resized, startingAt: start)
+                var refit = try XCTUnwrap(NearbyRefit(
+                    chapterIndex: 2, oldPages: before.pages, oldAtoms: before.atoms,
+                    sourceAtoms: ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false),
+                    start: start, width: resized.columnWidth, viewportHeight: resized.viewportHeight,
+                    chapterHeaderHeight: before.chapterHeaderHeight, isFirstChapter: false, showChapterHeader: true,
+                    fontSize: type.fontSize, fontFamily: type.family, lineSpacing: type.lineSpacing,
+                    paragraphSpacing: type.paragraphSpacing, kerning: type.kerning, boldText: type.bold,
+                    drawnHeight: drawn(type, resized), pagesBefore: 1, pagesAfter: 2), "\(context): no refit")
+                while refit.packNextPage() {}
+                let result = Pagination(pages: refit.pages, atoms: refit.atoms,
+                                        chapterHeaderHeight: before.chapterHeaderHeight)
+
+                // Every sentence once, the chapter's text unchanged, and pages
+                // numbered from the chapter's start.
+                assertEverySentenceOnOnePage(result, context)
+                XCTAssertEqual(result.pages.map(\.pageIndex), Array(0..<result.pages.count), "\(context): page numbers")
+                XCTAssertEqual(result.pages.map(\.id), result.pages.map { "c2-p\($0.pageIndex)" }, "\(context): page ids")
+                XCTAssertEqual(paragraphTexts(result.atoms), paragraphTexts(full.atoms), "\(context): the text changed")
+
+                // The page on screen keeps its place, and from it on the
+                // refitted pages are the full pagination's (but the last,
+                // which stops short of the next old page).
+                let keptId = try XCTUnwrap(refit.keptPageId, "\(context): no page starts where the one on screen did")
+                let refitted = Array(refit.refittedPages.drop { $0.id != keptId })
+                let fullKept = try XCTUnwrap(full.pages.first { ReaderPaginator.start(of: $0, atoms: full.atoms) == start })
+                let fullFromKept = Array(full.pages.drop { $0.id != fullKept.id })
+                XCTAssertFalse(refitted.isEmpty, context)
+                for (mine, theirs) in zip(refitted.dropLast(), fullFromKept) {
+                    XCTAssertEqual(text(mine, result.atoms), text(theirs, full.atoms),
+                                   "\(context): refitted page \(mine.pageIndex) differs from the full pagination's")
+                }
+                assertPagesFit(Pagination(pages: refit.refittedPages, atoms: result.atoms,
+                                          chapterHeaderHeight: before.chapterHeaderHeight), type, resized, context)
+                assertPagesFull(refitted.dropLast(), in: result, type, resized, context)
+                if layout.pagesOnScreen == 2 {
+                    XCTAssertTrue(ReaderSpread.spreads(from: result.pages).contains { $0.left.id == keptId },
+                                  "\(context): the kept page stays on the left of its spread")
+                }
+            }
+        }
+    }
+
+    func test_refittingNearTheReader_needsThePageOnScreenToBeAPageBreak() {
+        let type = Self.typographies[0]
+        let layout = layout(Self.devices[1], type)
+        let before = paginate(type, layout)
+        let page = before.pages[before.pages.count / 2]
+        let atom = before.atoms[page.paragraphIndices.lowerBound]
+        // A place partway into the page: not where any old page starts.
+        let inside = PageStart(chapter: 2, paragraph: atom.originalParagraphIndex, sentence: atom.sentenceIndex,
+                               offset: atom.sentenceOffset + 1)
+        XCTAssertNil(NearbyRefit(
+            chapterIndex: 2, oldPages: before.pages, oldAtoms: before.atoms,
+            sourceAtoms: ReaderPaginator.atoms(fromChapterHTML: Self.chapterHTML, includeImages: false),
+            start: inside, width: layout.columnWidth, viewportHeight: layout.viewportHeight,
+            chapterHeaderHeight: before.chapterHeaderHeight, isFirstChapter: false, showChapterHeader: true,
+            fontSize: type.fontSize, fontFamily: type.family, lineSpacing: type.lineSpacing,
+            paragraphSpacing: type.paragraphSpacing, kerning: type.kerning, boldText: type.bold,
+            drawnHeight: nil))
+    }
+
+    func test_onlyAChangedPageArea_refitsNearTheReader() {
+        let content = ChapterContentSignature([AO3ChapterPayload(index: 1, title: "", bodyHTML: "<p>One.</p>")])
+        func trigger(fontSize: Double = 17, showImages: Bool = false, chapter: Int = 1,
+                     size: CGSize = CGSize(width: 400, height: 700), widthPercent: Double = 70) -> PaginationTrigger {
+            PaginationTrigger(chapter: chapter, fontSize: fontSize, fontFamily: "newYork", widthPercent: widthPercent,
+                              lineSpacing: 4, paragraphSpacing: 12, kerning: 0, boldText: false,
+                              showImages: showImages, content: content, size: size, sideColumn: .empty)
+        }
+        let base = trigger()
+        XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(size: CGSize(width: 400, height: 616))))
+        XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(size: CGSize(width: 900, height: 600), widthPercent: 88)))
+        XCTAssertFalse(base.differsOnlyInPageArea(from: trigger(fontSize: 20)))
+        XCTAssertFalse(base.differsOnlyInPageArea(from: trigger(showImages: true)), "images move paragraph indices")
+        XCTAssertFalse(base.differsOnlyInPageArea(from: trigger(chapter: 2)))
+    }
+
+    /// Each paragraph's text as its atoms make it.
+    private func paragraphTexts(_ atoms: [ParagraphAtom]) -> [String] {
+        Dictionary(grouping: atoms, by: \.originalParagraphIndex).sorted { $0.key < $1.key }
+            .map { String(ReaderPageCell.concatenateAtoms($0.value).characters) }
+    }
+
+    /// A page's text.
+    private func text(_ page: ChapterPage, _ atoms: [ParagraphAtom]) -> String {
+        String(ReaderPageCell.concatenateAtoms(Array(atoms[page.paragraphIndices])).characters)
+    }
+
     func test_steppingAChapter_paginatesItAsInOneGo() {
         // ReaderView runs a chapter's pagination a page at a time, pausing
         // between slices; that must make exactly the pages paginateChapter does.
