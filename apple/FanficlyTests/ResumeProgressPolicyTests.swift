@@ -165,6 +165,27 @@ final class OpeningProgressPolicyTests: XCTestCase {
             workId: 1, local: nil, localUpdatedAt: nil, synced: nil))
     }
 
+    // #337: the entry this device keeps as its own is exactly the dated one it opens at.
+    func test_adoptedEntry_onlyAStrictlyNewerDatedEntryForThisWork() {
+        let newer = synced(updatedAt: noon.addingTimeInterval(60))
+        XCTAssertEqual(OpeningProgressPolicy.adoptedEntry(
+            workId: 1, hasLocal: true, localUpdatedAt: noon, synced: newer), newer)
+        XCTAssertNil(OpeningProgressPolicy.adoptedEntry(
+            workId: 1, hasLocal: true, localUpdatedAt: noon, synced: synced(updatedAt: noon)))
+        XCTAssertNil(OpeningProgressPolicy.adoptedEntry(
+            workId: 1, hasLocal: true, localUpdatedAt: noon, synced: synced(updatedAt: noon.addingTimeInterval(-60))))
+        XCTAssertNil(OpeningProgressPolicy.adoptedEntry(
+            workId: 1, hasLocal: true, localUpdatedAt: noon, synced: synced(id: 2, updatedAt: noon.addingTimeInterval(60))))
+        XCTAssertNil(OpeningProgressPolicy.adoptedEntry(
+            workId: 1, hasLocal: true, localUpdatedAt: noon,
+            synced: synced(chapter: nil, paragraph: nil, updatedAt: noon.addingTimeInterval(60))))
+        XCTAssertEqual(OpeningProgressPolicy.adoptedEntry(
+            workId: 1, hasLocal: false, localUpdatedAt: nil, synced: newer), newer)
+        XCTAssertNil(OpeningProgressPolicy.adoptedEntry(
+            workId: 1, hasLocal: false, localUpdatedAt: nil, synced: synced(updatedAt: nil)),
+            "an undated entry has no date of its own to keep")
+    }
+
     func test_gate_movingSavesAndMovingBackSavesTheOpenedPlaceToo() {
         var gate = OpenedAnchorGate(openedAnchor: local)
         XCTAssertFalse(gate.allowsSave(of: local))
