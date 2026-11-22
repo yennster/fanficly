@@ -16,6 +16,9 @@ struct ClipRootView: View {
     @State private var statusBar = StatusBarVisibility()
     @State private var readerFullScreen = false
     @State private var wantsAppOverlay = false
+    /// A link's chapter, waiting for the 17+ confirmation before it becomes
+    /// the work's starting place.
+    @State private var pendingChapterLink: WorkLink?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -54,7 +57,9 @@ struct ClipRootView: View {
             open(activity.webpageURL)
         }
         .onChange(of: ageConfirmed) { _, confirmed in
-            if confirmed, link != nil { wantsAppOverlay = true }
+            guard confirmed else { return }
+            seedChapterIfNeeded()
+            if link != nil { wantsAppOverlay = true }
         }
         // Out of the way in full screen, where nothing but the page shows.
         .appStoreOverlay(isPresented: Binding(
@@ -70,16 +75,27 @@ struct ClipRootView: View {
             if link == nil { unsupportedLink = url != nil }
             return
         }
-        // A chapter in the link is where a first read starts; a place the
-        // reader already has in the clip wins, as a resume link's does.
-        if let anchor = parsed.anchor, ReadingProgressStore.load(ao3Id: parsed.workId, in: context) == nil {
-            ReadingProgressStore.save(ao3Id: parsed.workId, anchor: anchor, title: "", author: "", in: context)
-        }
         ClipHandoff.record(workId: parsed.workId)
+        pendingChapterLink = parsed.anchor == nil ? nil : parsed
+        if ageConfirmed { seedChapterIfNeeded() }
         path = NavigationPath()
         link = parsed
         unsupportedLink = false
         if ageConfirmed { wantsAppOverlay = true }
+    }
+
+    /// A chapter in the link is where a first read starts; a place the reader
+    /// already has in the clip wins, as a resume link's does. Only after the
+    /// 17+ confirmation, before the reader loads (it reads the place as it
+    /// opens), and as a bare progress row: not `ReadingProgressStore.save`,
+    /// which would also count a reading day nobody read.
+    private func seedChapterIfNeeded() {
+        guard let pending = pendingChapterLink, let anchor = pending.anchor else { return }
+        pendingChapterLink = nil
+        guard ReadingProgressStore.load(ao3Id: pending.workId, in: context) == nil else { return }
+        context.insert(ReadingProgress(ao3Id: pending.workId, chapterIndex: anchor.chapter,
+                                       paragraphIndex: anchor.paragraph))
+        try? context.save()
     }
 }
 

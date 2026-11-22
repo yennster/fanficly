@@ -193,7 +193,8 @@ secrets; without "apply" each step only reports. In order, once:
    registers it with its capabilities the first time **Release** archives the
    app with the clip; run `identifiers` again afterwards to check. The
    fastlane fallback build (`build_signed`) reads the clip's profile from
-   match, so run lane `signing_setup` once after that too.
+   match, so it fails for iOS from this change until lane `signing_setup` has
+   run once after that.
 2. Task `website-association`: writes
    `website/.well-known/apple-app-site-association` with the team ID and the
    bundle IDs from `project.yml`, and pushes it to an `app-clip/aasa-run-N`

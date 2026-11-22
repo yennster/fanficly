@@ -18,10 +18,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ['apple/**', '.github/workflows/ci.yml']
+    paths: ['apple/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
   pull_request:
     branches: [main]
-    paths: ['apple/**', '.github/workflows/ci.yml']
+    paths: ['apple/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
   workflow_dispatch:
 
 permissions:

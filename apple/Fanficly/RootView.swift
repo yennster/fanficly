@@ -56,6 +56,9 @@ struct RootView: View {
 
     @AppStorage("app.zoomScale") private var zoomScale: Double = 1.0
     /// Set by the reader for its full screen (see StatusBarVisibility).
+    /// A fanficly.app link opened the app this launch, so the App Clip's
+    /// handoff doesn't replace it (#292).
+    @State private var linkOpenedThisLaunch = false
     @State private var statusBar = StatusBarVisibility()
 
     var body: some View {
@@ -241,15 +244,25 @@ struct RootView: View {
             // it is, at the link's chapter if it names one.
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 guard let url = activity.webpageURL, let link = WorkLink(url: url) else { return }
+                // The link the reader just tapped wins over the clip's handoff.
+                linkOpenedThisLaunch = true
+                _ = ClipHandoff.take()
                 runAfterAgeGate { openResumeRoute(ResumeWorkRoute(workId: link.workId, anchor: link.anchor)) }
             }
             // The work last opened in the App Clip, once, on the first launch
             // after it (the app group outlives the clip into the installed
             // app). Its place comes with it through `WidgetProgressStore`.
+            // A second's wait lets a universal link that launched the app
+            // arrive first, and the handoff steps aside for any link that
+            // arrived before it runs (it may wait behind the 17+ cover).
             .task {
-                guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode,
-                      let workId = ClipHandoff.take() else { return }
-                runAfterAgeGate { openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil)) }
+                guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode else { return }
+                try? await Task.sleep(for: .seconds(1))
+                guard !linkOpenedThisLaunch, let workId = ClipHandoff.take() else { return }
+                runAfterAgeGate {
+                    guard !linkOpenedThisLaunch else { return }
+                    openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil))
+                }
             }
             // The "Continue Reading" App Shortcut. `initial: true` catches a run
             // that launched the app before this view existed.

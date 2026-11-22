@@ -42,7 +42,7 @@
   <script>
     // fanficly.app/works/<id>[?chapter=n], as the app's WorkLink parses it.
     (function () {
-      var match = location.pathname.match(/^\/works\/(\d+)\/?$/);
+      var match = location.pathname.match(/^\/works\/0*([1-9]\d*)\/?$/i);
       if (!match) {
         document.getElementById("about").textContent =
           "This link doesn't point to a story. Fanficly is a free, ad-free AO3 reader for iPhone, iPad, Mac and Windows.";

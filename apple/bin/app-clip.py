@@ -54,8 +54,12 @@ CLIP_ENTITLEMENTS = ROOT / "FanficlyClip" / "FanficlyClip.entitlements"
 
 APP_TARGET = "Fanficly"
 CLIP_TARGET = "FanficlyClip"
-# The paths the app opens as universal links; WorkLink parses them.
-APPLINK_PATHS = ["/works/*"]
+# The paths the app opens as universal links, in order (Apple takes the first
+# match): WorkLink accepts only /works/<id>, so deeper paths stay on the web.
+APPLINK_COMPONENTS = [
+    {"/": "/works/*/*", "exclude": True, "comment": "Not a work link: the web page"},
+    {"/": "/works/*", "comment": "A shared work (WorkLink.swift)"},
+]
 CARD_SIZE = (1800, 1200)
 TEAM_RE = re.compile(r"^[A-Z0-9]{10}$")
 
@@ -105,7 +109,7 @@ def aasa_document(team: str) -> dict:
         "applinks": {
             "details": [{
                 "appIDs": [f"{team}.{ids[APP_TARGET]}"],
-                "components": [{"/": p, "comment": "A shared work (WorkLink.swift)"} for p in APPLINK_PATHS],
+                "components": APPLINK_COMPONENTS,
             }],
         },
         "appclips": {"apps": [f"{team}.{ids[CLIP_TARGET]}"]},

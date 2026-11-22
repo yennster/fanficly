@@ -130,7 +130,7 @@ to attributed paragraphs and drawn natively. `ReaderPaginator` lives in
 | Widget snapshots | App-group defaults (`group.io.github.yennster.fanficly`) | Extension reads Codable snapshots, not the app's SwiftData database. |
 | Cross-device sync | `iCloudSyncManager` file backup; separate KVS stores for profiles, last-read progress, streak | Library backup is opt-in; its switch is not a master switch for the KVS channels. |
 
-All 14 SwiftData types are registered in `FanficlyApp.sharedModelContainer`.
+All 14 SwiftData types are registered in `AppSchema.schema` (`Models/AppSchema.swift`), which `FanficlyApp.sharedModelContainer` and the App Clip's container both use.
 Adding a model requires checking the test schema, backup DTOs and merge/restore,
 demo seed, deletion behavior, and any widget snapshot it affects. Registration
 alone does not add backup coverage: currently `TagRecord`, `RecentlyViewed`, and
@@ -506,7 +506,7 @@ The CoreData "Sandbox access to file-write-create denied" noise during test runs
 
 **Add a new HTML parser.** Put it in `Networking/HTMLParsers/`. Take a `String` of HTML, parse with SwiftSoup, return a Sendable struct. Add fixture-based tests in `FanficlyTests/`.
 
-**Add a new SwiftData model.** Define the `@Model` in `Models/Work.swift`. Add it to `FanficlyApp.sharedModelContainer`'s `Schema` (and the in-memory `Schema` in `PersistenceTests`). SwiftData will migrate automatically across additive schema changes; destructive changes need a versioned migration plan. `FollowedAuthor` is a recent example.
+**Add a new SwiftData model.** Define the `@Model` in `Models/Work.swift`. Add it to `AppSchema.schema` in `Models/AppSchema.swift` (and the in-memory `Schema` in `PersistenceTests`). SwiftData will migrate automatically across additive schema changes; destructive changes need a versioned migration plan. `FollowedAuthor` is a recent example.
 
 **Add a new sidebar tab.** Add a case to `SidebarItem` (in `RootView.swift`) — order in the enum drives the sidebar order — give it a `title` + `systemImage`, add it to the `switch selectedDetailItem` in `mainSplitView`, and add a `Button` to the "Go" `CommandMenu` in `FanficlyApp.swift` in sidebar order. ⌘1–⌘9 are all taken, so a new tab's Go item gets no ⌘-number shortcut and nothing is renumbered (the Windows app's Ctrl+number list matches). Recent examples: `popular`, `authors`, `bookmarks`. To keep the diff small, prefer adding the tab's view to an existing file (e.g. `PopularView` in `BrowseView.swift`, `BookmarksView` in `SubscriptionsView.swift`, `FollowedAuthorsView` in `AuthorWorksView.swift`) over a new file (a new file also works: CI regenerates the project).
 
@@ -579,7 +579,7 @@ All feed `SubscriptionPoller`; `username` is optional so the poller runs for fol
 ## App Clip (#292)
 
 - **What it is:** `FanficlyClip` (`application.on-demand-install-capable`, iPhone and iPad only, embedded in the iOS app and filtered out of Mac Catalyst) opens one shared work from `https://fanficly.app/works/<id>[?chapter=n]` without installing Fanficly. It compiles the app's own sources (everything in `Fanficly/` but `FanficlyApp.swift`, its Info.plist and entitlements; see `project.yml`) plus `FanficlyClip/`, with the `APP_CLIP` compilation condition. So the reader, the AO3 client and its throttle are the app's, and a change to shared code changes the clip too.
-- **Shared code and the clip:** `FanficlyClip/FanficlyClipApp.swift` is the clip's `@main` and also declares `enum FanficlyApp` with `isDemoMode` (always false) and `isTestMode`, because shared code reads those flags. Shared code may use only those two members of `FanficlyApp`. Code that the clip mustn't offer goes under `#if !APP_CLIP` (today only `WorkDetailView`'s toolbar: in the clip, one menu with Get Fanficly and Report this work). Views the clip shows need what `ClipRootView` provides in the environment: the client, `AuthState` (nobody signs in in the clip), `StatusBarVisibility`, the undo toast host and the model container (`AppSchema`, the clip's own store). Author and series links land on a "Get Fanficly" screen.
+- **Shared code and the clip:** `FanficlyClip/FanficlyClipApp.swift` is the clip's `@main` and also declares `enum FanficlyApp` with `isDemoMode` (always false) and `isTestMode`, because shared code reads those flags. Shared code may use only those two members of `FanficlyApp`. Code that the clip mustn't offer goes under `#if !APP_CLIP` (today only `WorkDetailView`'s toolbar: in the clip, one menu with Get Fanficly and Report this work). Views the clip shows need what `ClipRootView` provides in the environment: the client, `AuthState` (nobody signs in in the clip), `StatusBarVisibility`, the undo toast host and the model container (`AppSchema`, in the clip's own container: `groupContainer: .none`, since `.automatic` would open the app's library in the app group). Author and series links land on a "Get Fanficly" screen.
 - **Links:** `WorkLink` (`Fanficly/WorkLink.swift`) parses the link; anything but `/works/<positive id>` on fanficly.app (or www.) is refused. The clip gets it as `NSUserActivityTypeBrowsingWeb` (in Xcode, the scheme's `_XCAppClipURL`). The app takes the same link as a universal link (`applinks:fanficly.app`, on iOS and the Mac) in `RootView`, through `runAfterAgeGate`, as a `ResumeWorkRoute` with the link's chapter as its anchor (so the resume rules apply: it never moves saved progress back).
 - **Handoff:** the clip records the work it opened in the app group (`ClipHandoff`), and the reader's saves put its place in `WidgetProgressStore` (also the app group) as always. Installing the app keeps the clip's app-group container, so the app's first launch takes the handoff once (`ClipHandoff.take`, at most 30 days old) and opens that work, where `installResumeProgressIfAvailable` picks up the place.
 - **Both have their own 17+ confirmation:** the clip's `UserDefaults` aren't the app's.
@@ -791,7 +791,7 @@ are three such works. Nothing is stored; one `@Query` at
 the root (`.readingSpeedFromStats()` on `RootView`) puts the pace in the
 environment as `readingWordsPerMinute`, so rows don't each fetch every stat.
 
-`ReadingStat` is registered in `FanficlyApp.sharedModelContainer`'s `Schema`
+`ReadingStat` is registered in `AppSchema.schema`
 (and `PersistenceTests`' in-memory schema), included in `iCloudSyncManager`
 backup/restore (`StatBackup`; restore merges conservatively — max of totals,
 per-day maxima, and `maxProgress`, OR of `workIsComplete`, widest date span — so

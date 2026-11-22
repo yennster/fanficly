@@ -14,11 +14,14 @@ struct FanficlyClipApp: App {
     /// signed in here, and nothing in the clip offers a login.
     @State private var auth = AuthState()
 
-    /// The clip's own store, in its own container: reading progress and
-    /// stats for the work it opens. The app doesn't read it; the handoff goes
-    /// through the app group (`ClipHandoff`, `WidgetProgressStore`).
+    /// The clip's own store, in the clip's own container: reading progress
+    /// and stats for the work it opens. `groupContainer: .none` keeps it out
+    /// of the app group, where the app keeps its library (`.automatic` would
+    /// open that same database). The app never reads this one; the handoff
+    /// goes through the app group's defaults (`ClipHandoff`,
+    /// `WidgetProgressStore`).
     private static let sharedModelContainer: ModelContainer = {
-        let config = ModelConfiguration(isStoredInMemoryOnly: false, cloudKitDatabase: .none)
+        let config = ModelConfiguration(isStoredInMemoryOnly: false, groupContainer: .none, cloudKitDatabase: .none)
         return try! ModelContainer(for: AppSchema.schema, configurations: config)
     }()
 
