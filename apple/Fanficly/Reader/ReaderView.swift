@@ -102,6 +102,9 @@ struct ReaderView: View {
     /// The page width the pages on screen were made for; see the
     /// live-resize wait in handlePaginationTrigger.
     @State private var paginatedWidth: CGFloat?
+    /// What the pages on screen were made for: a re-pagination that changes
+    /// only the page area refits the pages near the reader first (#349).
+    @State private var paginatedTrigger: PaginationTrigger?
     @State private var stableWidth: CGFloat = 0
     @State private var stableHeight: CGFloat = 0
     /// The page area pages are measured for: the page container's height as
@@ -378,7 +381,9 @@ struct ReaderView: View {
         let rename: (String, String) -> Void
         /// ReaderLayoutTests' way to the prompt where the Aa menu won't open
         /// under XCUITest (Xcode Cloud's folded iPhone Duo, though it opens
-        /// there by hand): demo mode with -demoNewProfileButton only.
+        /// there by hand, on the simulator and a real Duo; #279): demo mode with
+        /// -demoNewProfileButton only. Remove it once a newer iOS 27.x keeps
+        /// the menu open under XCUITest.
         private static let testButton = FanficlyApp.isDemoMode
             && ProcessInfo.processInfo.arguments.contains("-demoNewProfileButton")
         func body(content: Content) -> some View {
@@ -1961,10 +1966,27 @@ struct ReaderView: View {
         // chapter jump re-paginates from the new chapter's start).
         let start = !repaginating ? nil : pageStart.flatMap { $0.chapter == trigger.chapter ? $0 : nil }
         let startedFrom = pageStart
+        // A long chapter whose page area changed (the controls, the narration
+        // bar, a resize): refit the pages near the reader first, so the page
+        // on screen fits at once, then paginate the whole chapter (#349).
+        if let start, let previous = paginatedTrigger, previous.differsOnlyInPageArea(from: trigger) {
+            let refit = await refitNearby(trigger: trigger, start: start)
+            guard !Task.isCancelled else { return }
+            if let refit {
+                applyPagination(refit, trigger: trigger, repaginating: repaginating, startedFrom: startedFrom)
+            }
+        }
         // A newer trigger (a resize mid-pagination, e.g. the sidebar
         // collapsing) cancels this task; applying its now-stale pages after
         // the newer ones produced pages taller than the screen.
         guard let result = await performPagination(trigger: trigger, start: start), !Task.isCancelled else { return }
+        applyPagination(result, trigger: trigger, repaginating: repaginating, startedFrom: startedFrom)
+    }
+
+    /// Puts new pages on screen, keeping the reader on the page kept in
+    /// place, or the one they turned to since the pagination started.
+    private func applyPagination(_ result: PaginationResult, trigger: PaginationTrigger, repaginating: Bool,
+                                 startedFrom: PageStart?) {
         var activeChapters = Set<Int>()
         activeChapters.insert(selectedChapterIndex)
         if let prev = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: false) {
@@ -1996,6 +2018,7 @@ struct ReaderView: View {
         self.parsedAtoms.merge(result.atoms) { _, new in new }
         self.paginatedPages = result.pages
         paginatedWidth = trigger.size.width
+        paginatedTrigger = trigger
 
         restoreOrValidatePageSelection(keeping: kept)
         // A Find match in this chapter: the page with the words, which in a
@@ -2413,16 +2436,65 @@ struct ReaderView: View {
             .first { $0.isKeyWindow }
     }
 
-    private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult? {
-        // Must match `makePageCell`'s column, or pages are measured at one
-        // width and drawn at another.
+    /// The text column's width and the page's height for text that pages
+    /// are measured for. Must match `makePageCell`'s column, or pages are
+    /// measured at one width and drawn at another.
+    private func pageTextArea(_ trigger: PaginationTrigger) -> (width: CGFloat, height: CGFloat) {
         let w = ReaderMetrics.textColumnPlacement(containerWidth: trigger.size.width,
                                                   widthPercent: trigger.widthPercent,
                                                   fontSize: trigger.fontSize,
                                                   limitLineLength: Self.limitsLineLength,
                                                   reservedLeading: trigger.sideColumn.leading,
                                                   reservedTrailing: trigger.sideColumn.trailing).width
-        let h = trigger.size.height - 2 * Self.pageVerticalMargin
+        return (w, trigger.size.height - 2 * Self.pageVerticalMargin)
+    }
+
+    /// The pages on screen with only the ones near the reader refitted for
+    /// the new page area (NearbyRefit), or nil when the chapter is short
+    /// enough to paginate in full straight away or the page on screen isn't
+    /// one of its page breaks.
+    private func refitNearby(trigger: PaginationTrigger, start: PageStart) async -> PaginationResult? {
+        let oldPages = paginatedPages.filter { $0.chapterIndex == trigger.chapter }
+        guard oldPages.count >= NearbyRefit.minimumPages,
+              let oldAtoms = parsedAtoms[trigger.chapter],
+              let chapter = chapters.first(where: { $0.index == trigger.chapter }) else { return nil }
+        let (w, h) = pageTextArea(trigger)
+        guard w > 50 && h > 100 else { return nil }
+        let fontSize = CGFloat(trigger.fontSize)
+        let drawnHeight = ReaderPaginator.drawnHeightMeasure(
+            width: w, fontSize: fontSize, fontFamily: fontFamily,
+            lineSpacing: CGFloat(trigger.lineSpacing), paragraphSpacing: CGFloat(trigger.paragraphSpacing),
+            kerning: CGFloat(trigger.kerning), boldText: trigger.boldText)
+        guard var refit = NearbyRefit(
+            chapterIndex: trigger.chapter, oldPages: oldPages, oldAtoms: oldAtoms,
+            sourceAtoms: sourceAtoms.atoms(for: chapter, includeImages: trigger.showImages), start: start,
+            width: w, viewportHeight: h,
+            chapterHeaderHeight: ReaderPaginator.estimateChapterHeaderHeight(
+                title: chapter.title, width: w, fontSize: fontSize, fontFamily: fontFamily),
+            isFirstChapter: trigger.chapter == chapters.first?.index, showChapterHeader: chapters.count > 1,
+            fontSize: fontSize, fontFamily: fontFamily, lineSpacing: CGFloat(trigger.lineSpacing),
+            paragraphSpacing: CGFloat(trigger.paragraphSpacing), kerning: CGFloat(trigger.kerning),
+            boldText: trigger.boldText, drawnHeight: drawnHeight)
+        else { return nil }
+        var pacer = PaginationPacer()
+        while refit.packNextPage() {
+            guard await pacer.pause() else { return nil }
+        }
+        // The chapters either side keep their pages.
+        let refitted = refit.pages
+        var pages: [ChapterPage] = []
+        for page in paginatedPages {
+            if page.chapterIndex != trigger.chapter {
+                pages.append(page)
+            } else if page.id == oldPages.first?.id {
+                pages.append(contentsOf: refitted)
+            }
+        }
+        return PaginationResult(pages: pages, atoms: [trigger.chapter: refit.atoms], keptPageId: refit.keptPageId)
+    }
+
+    private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult? {
+        let (w, h) = pageTextArea(trigger)
         
         guard w > 50 && h > 100 else {
             return PaginationResult(pages: [], atoms: [:])
@@ -2833,6 +2905,17 @@ struct PaginationTrigger: Equatable {
     let size: CGSize
     /// The Duo's side column the text keeps clear of (none on a spread).
     let sideColumn: SideColumn
+
+    /// Whether `other` lays out the same text in the same type, so only the
+    /// page area (the controls, the narration bar, a resize, the margins)
+    /// changed: the old page breaks are then still places in the text, and a
+    /// long chapter can refit the pages near the reader first (#349).
+    func differsOnlyInPageArea(from other: PaginationTrigger) -> Bool {
+        chapter == other.chapter && fontSize == other.fontSize && fontFamily == other.fontFamily
+            && lineSpacing == other.lineSpacing && paragraphSpacing == other.paragraphSpacing
+            && kerning == other.kerning && boldText == other.boldText && showImages == other.showImages
+            && content == other.content
+    }
 }
 
 /// Which chapters are loaded and how long each one's text is: cheap to
