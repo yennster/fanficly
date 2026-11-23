@@ -268,6 +268,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `FanficlyApp.swift`, `Settings/SettingsView.swift`, `Localizable.xcstrings`.
 - **Windows counterpart:** already built (`windows/src/Fanficly.App/Views/Settings/SettingsScreen.cs`, `AppearanceSettings`).
 
+### RM-035 — Import a whole folder of EPUBs (iPhone, iPad, Mac)
+- **Status:** done · **Size:** M · **Validation:** unit + mac
+- **Why:** Importing EPUBs went file by file. A backup from another reader, or the folder "Export All My Data" writes (#417), should go into the Library in one go (#418).
+- **Scope:** The Library's Import menu has "Folder of EPUBs…" (and the empty Library an Import Folder… button): a `fileImporter` for `.folder`, then every `.epub` in it and its subfolders (`EPUBImportCenter.epubFiles`), read inside the folder's security scope through `NSFileCoordinator` (which downloads iCloud-only files first), parsed off the main actor one file at a time and saved through the existing `EPUBImportCenter.save` merge. Two copies of one work keep the one with more chapters. A banner shows "Importing 37 of 212…" with Cancel, VoiceOver hears the count every tenth of the way, backup and widgets refresh once at the end, and the alert gives imported, updated, skipped and failed counts with the first five failures listed. Offline, no AO3 requests. Every platform including iPhone Duo; no exception needed.
+- **Done when:** `EPUBImportTests`' folder tests (nested subfolders, a text file, a broken EPUB, an unpacked EPUB folder, a work already in the Library and two copies of one work give the right counts and no duplicate works; Cancel keeps what was saved); a person imports a folder from Files on an iPhone and an iPad, from iCloud Drive with files not downloaded yet, and from Finder on the Mac.
+- **Touches:** `Library/EPUBImportCenter.swift`, `Library/LibraryView.swift`.
+- **Windows counterpart:** RM-129 in `windows/ROADMAP.md`.
+
 ## Engineering health (any release)
 
 Not features, but worth doing; add as items when started.

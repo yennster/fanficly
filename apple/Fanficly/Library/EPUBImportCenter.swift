@@ -2,10 +2,12 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
-/// Imports EPUB files into the Library: from the Library's Import button
-/// (`epubImporter`) or a file opened in Fanficly from Files, Books or Safari
-/// (`RootView`'s `onOpenURL`). Parsing (`EPUBImport.parse`) runs off the main
-/// actor; saving runs on it. The outcome is shown by `epubImportAlert()`.
+/// Imports EPUB files into the Library: from the Library's Import menu
+/// (`epubImporter`: picked files, or a whole folder with its subfolders, #418)
+/// or a file opened in Fanficly from Files, Books or Safari (`RootView`'s
+/// `onOpenURL`). Parsing (`EPUBImport.parse`) runs off the main actor; saving
+/// runs on it. The outcome is shown by `epubImportAlert()`, and a folder's
+/// progress ("Importing 37 of 212…", Cancel) by its banner.
 @MainActor
 @Observable
 final class EPUBImportCenter {
@@ -17,7 +19,19 @@ final class EPUBImportCenter {
         let message: String
     }
 
+    /// What the Library's Import menu picks.
+    enum Pick { case files, folder }
+
+    /// A folder import's place: files read so far of the EPUBs found.
+    struct FolderProgress: Equatable {
+        var done: Int
+        var total: Int
+    }
+
     private(set) var isImporting = false
+    /// Set while a folder import runs (nil otherwise); drives the banner.
+    private(set) var folderProgress: FolderProgress?
+    private var cancelRequested = false
     var outcome: Outcome?
 
     /// Imports each file in turn and returns the ids of the works saved.
@@ -47,6 +61,253 @@ final class EPUBImportCenter {
         }
         outcome = Self.outcome(saved: saved.map(\.title), failures: failures)
         return saved.map(\.id)
+    }
+
+    // MARK: - Folder import (#418)
+
+    /// Stops a folder import after the file it's on. What it saved stays.
+    func cancelFolderImport() {
+        cancelRequested = true
+    }
+
+    /// Imports every `.epub` in a picked folder and its subfolders, one file
+    /// at a time (so memory stays flat), with progress and Cancel. Two copies
+    /// of one work keep the one with more chapters; a work already in the
+    /// Library merges through `save`. Backup and widgets refresh once, at the end.
+    func importFolder(_ folder: URL, context: ModelContext) async {
+        guard !isImporting else { return }
+        isImporting = true
+        cancelRequested = false
+        folderProgress = FolderProgress(done: 0, total: 0)
+        defer {
+            isImporting = false
+            folderProgress = nil
+        }
+        // The folder's scope covers listing and reading every file under it.
+        let scoped = folder.startAccessingSecurityScopedResource()
+        defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+
+        announce(String(localized: "Looking for EPUB files"))
+        let found = await Task.detached(priority: .userInitiated) { Self.epubFiles(in: folder) }.value
+        let result = await Self.importEPUBs(found, context: context,
+                                            isCancelled: { [weak self] in self?.cancelRequested ?? true },
+                                            progress: { [weak self] done, total in
+                                                self?.reportProgress(done: done, total: total)
+                                            })
+        if result.imported + result.updated > 0 {
+            iCloudSyncManager.shared.queueBackup(context: context)
+            WidgetDataStore.updateAll(context: context)
+        }
+        let outcome = Self.folderOutcome(result)
+        self.outcome = outcome
+        announce("\(outcome.title). \(outcome.message)")
+    }
+
+    private func reportProgress(done: Int, total: Int) {
+        let previous = folderProgress?.done ?? 0
+        folderProgress = FolderProgress(done: done, total: total)
+        // VoiceOver hears the count at the start and every tenth of the way.
+        if total > 0 && (done == 0 || (total >= 10 && done * 10 / total > previous * 10 / total && done < total)) {
+            announce(String(localized: "Importing \(done) of \(total)"))
+        }
+    }
+
+    private func announce(_ text: String) {
+        guard !FanficlyApp.isTestMode else { return }
+        UIAccessibility.post(notification: .announcement, argument: text)
+    }
+
+    /// What a folder import did: new works, works already in the Library that
+    /// it updated, extra copies of a work it skipped, and files it couldn't read.
+    struct FolderResult: Equatable {
+        var found = 0
+        var processed = 0
+        var imported = 0
+        var updated = 0
+        var skipped = 0
+        var failures: [String] = []
+        var cancelled = false
+        var savedIds: [Int] = []
+    }
+
+    /// Decides which copy of each work a folder import keeps and counts the
+    /// outcome. Pure, so the rules are tested without files.
+    struct FolderTally {
+        private(set) var result = FolderResult()
+        /// Chapter count of the copy kept for each work id so far.
+        private var kept: [Int: Int] = [:]
+
+        /// Whether this copy should be saved: the first copy of a work, or a
+        /// later one with more chapters than the copy already kept.
+        func shouldSave(workId: Int, chapters: Int) -> Bool {
+            guard let previous = kept[workId] else { return true }
+            return chapters > previous
+        }
+
+        /// A copy was saved. A later copy that replaced an earlier one leaves
+        /// that one skipped; otherwise it's new or an update.
+        mutating func saved(workId: Int, chapters: Int, wasInLibrary: Bool) {
+            if kept[workId] != nil {
+                result.skipped += 1
+            } else if wasInLibrary {
+                result.updated += 1
+                result.savedIds.append(workId)
+            } else {
+                result.imported += 1
+                result.savedIds.append(workId)
+            }
+            kept[workId] = chapters
+        }
+
+        mutating func skippedCopy() { result.skipped += 1 }
+        mutating func failed(_ message: String) { result.failures.append(message) }
+        mutating func processedOne() { result.processed += 1 }
+        mutating func setFound(_ count: Int) { result.found = count }
+        mutating func setCancelled() { result.cancelled = true }
+    }
+
+    /// Reads, parses and saves each file in turn (parsing off the main actor),
+    /// checking `isCancelled` between files. No backup or widget refresh: the caller does that once.
+    static func importEPUBs(_ urls: [URL], context: ModelContext,
+                            isCancelled: () -> Bool = { false },
+                            progress: (Int, Int) -> Void = { _, _ in }) async -> FolderResult {
+        var tally = FolderTally()
+        tally.setFound(urls.count)
+        progress(0, urls.count)
+        for (offset, url) in urls.enumerated() {
+            if isCancelled() {
+                tally.setCancelled()
+                break
+            }
+            let name = url.lastPathComponent
+            do {
+                let (data, payload) = try await Task.detached(priority: .userInitiated) {
+                    let data = try Self.readDownloading(url)
+                    return (data, try EPUBImport.parse(data: data))
+                }.value
+                let id = payload.summary.id
+                if tally.shouldSave(workId: id, chapters: payload.chapters.count) {
+                    let inLibrary = (try? context.fetchCount(FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == id }))) ?? 0
+                    let wasInLibrary = inLibrary > 0
+                    // Importing a work deleted a moment ago keeps it (#169).
+                    UndoCenter.shared.cancel(UndoCenter.Key.work(id))
+                    _ = try save(payload, epub: data, into: context)
+                    tally.saved(workId: id, chapters: payload.chapters.count, wasInLibrary: wasInLibrary)
+                } else {
+                    tally.skippedCopy()
+                }
+            } catch {
+                tally.failed("\(name): \(error.localizedDescription)")
+            }
+            tally.processedOne()
+            progress(offset + 1, urls.count)
+        }
+        return tally.result
+    }
+
+    /// Every `.epub` file in `folder` and its subfolders, in name order. Other
+    /// files are left out. An iCloud file not downloaded yet (listed as
+    /// `.Name.epub.icloud`) is returned under its real name;
+    /// `readDownloading` downloads it.
+    nonisolated static func epubFiles(in folder: URL) -> [URL] {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys,
+                                                          options: [], errorHandler: { _, _ in true })
+        else { return [] }
+        var found: [URL] = []
+        for case let url as URL in walker {
+            let name = url.lastPathComponent
+            let lower = name.lowercased()
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            if values?.isDirectory == true {
+                // An unpacked .epub package (Apple Books keeps some that way)
+                // isn't a file Fanficly can read; don't look inside it.
+                if lower.hasSuffix(".epub") || name.hasPrefix(".") { walker.skipDescendants() }
+                continue
+            }
+            if name.hasPrefix(".") {
+                if lower.hasSuffix(".epub.icloud") {
+                    let real = String(name.dropFirst().dropLast(".icloud".count))
+                    found.append(url.deletingLastPathComponent().appendingPathComponent(real))
+                }
+                continue
+            }
+            if lower.hasSuffix(".epub") { found.append(url) }
+        }
+        return found.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    /// Whether a picked URL is a folder (asked inside its security scope).
+    nonisolated static func isFolder(_ url: URL) -> Bool {
+        if url.hasDirectoryPath { return true }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+    }
+
+    /// Reads a file through `NSFileCoordinator`, which downloads an iCloud
+    /// file that's only in the cloud before handing it over.
+    nonisolated static func readDownloading(_ url: URL) throws -> Data {
+        var coordinationError: NSError?
+        var result: Result<Data, Error> = .failure(CocoaError(.fileReadUnknown))
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readURL in
+            result = Result { try Data(contentsOf: readURL) }
+        }
+        if let coordinationError { throw coordinationError }
+        return try result.get()
+    }
+
+    /// How many failures the outcome names before summing up the rest.
+    static let listedFailures = 5
+
+    /// The alert a folder import ends with.
+    static func folderOutcome(_ r: FolderResult) -> Outcome {
+        if r.found == 0 {
+            return Outcome(title: String(localized: "No EPUBs found"),
+                           message: String(localized: "That folder and its subfolders have no EPUB files."))
+        }
+        let kept = r.imported + r.updated
+        let title: String
+        if r.cancelled {
+            title = String(localized: "Import stopped")
+        } else if kept == 0 && !r.failures.isEmpty {
+            title = String(localized: "Couldn't import")
+        } else {
+            title = String(localized: "Imported")
+        }
+        var lines: [String] = []
+        if r.cancelled {
+            lines.append(String(localized: "Stopped after \(r.processed) of \(r.found) files. What was imported stays in your Library."))
+        }
+        if r.imported > 0 {
+            lines.append(r.imported == 1
+                ? String(localized: "1 new story added to your Library.")
+                : String(localized: "\(r.imported) new stories added to your Library."))
+        }
+        if r.updated > 0 {
+            lines.append(r.updated == 1
+                ? String(localized: "1 story already in your Library updated.")
+                : String(localized: "\(r.updated) stories already in your Library updated."))
+        }
+        if r.skipped > 0 {
+            lines.append(r.skipped == 1
+                ? String(localized: "1 extra copy of a story skipped.")
+                : String(localized: "\(r.skipped) extra copies of stories skipped."))
+        }
+        if !r.failures.isEmpty {
+            lines.append(r.failures.count == 1
+                ? String(localized: "1 file couldn't be imported:")
+                : String(localized: "\(r.failures.count) files couldn't be imported:"))
+            lines.append(contentsOf: r.failures.prefix(listedFailures))
+            let rest = r.failures.count - listedFailures
+            if rest > 0 {
+                lines.append(rest == 1 ? String(localized: "…and 1 more.") : String(localized: "…and \(rest) more."))
+            }
+        }
+        if kept == 0 && r.failures.isEmpty && !r.cancelled {
+            lines.append(String(localized: "Nothing new to add."))
+        }
+        return Outcome(title: title, message: lines.joined(separator: "\n"))
     }
 
     static func outcome(saved: [String], failures: [String]) -> Outcome {
@@ -116,18 +377,63 @@ final class EPUBImportCenter {
 }
 
 extension View {
-    /// The Library's file picker for EPUBs; picked files are imported.
-    func epubImporter(isPresented: Binding<Bool>, context: ModelContext) -> some View {
-        fileImporter(isPresented: isPresented, allowedContentTypes: [.epub],
-                     allowsMultipleSelection: true) { result in
+    /// The Library's file picker: EPUB files, or a folder of them (#418).
+    /// Picked folders are imported with their subfolders; picked files as they are.
+    func epubImporter(picking: Binding<EPUBImportCenter.Pick?>, context: ModelContext) -> some View {
+        let folder = picking.wrappedValue == .folder
+        return fileImporter(isPresented: Binding(get: { picking.wrappedValue != nil },
+                                                 set: { if !$0 { picking.wrappedValue = nil } }),
+                            allowedContentTypes: folder ? [.folder] : [.epub],
+                            allowsMultipleSelection: !folder) { result in
             guard case .success(let urls) = result else { return }
-            Task { await EPUBImportCenter.shared.importFiles(urls, context: context) }
+            // Decided by what came back, not the menu item, since the picker's
+            // binding is already cleared when this runs.
+            let folders = urls.filter(EPUBImportCenter.isFolder)
+            let files = urls.filter { !EPUBImportCenter.isFolder($0) }
+            Task {
+                if let first = folders.first {
+                    await EPUBImportCenter.shared.importFolder(first, context: context)
+                } else {
+                    await EPUBImportCenter.shared.importFiles(files, context: context)
+                }
+            }
         }
     }
 
-    /// Shows how an EPUB import went.
+    /// Shows how an EPUB import went, and a folder import's progress.
     func epubImportAlert() -> some View {
         modifier(EPUBImportAlert())
+    }
+}
+
+/// "Importing 37 of 212…" with Cancel while a folder import runs.
+private struct EPUBFolderImportBanner: View {
+    let center: EPUBImportCenter
+
+    var body: some View {
+        if let p = center.folderProgress {
+            HStack(spacing: 12) {
+                ProgressView()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(p.total == 0 ? "Looking for EPUB files…" : "Importing \(p.done) of \(p.total)…")
+                        .font(.footnote.weight(.semibold))
+                    ProgressView(value: Double(p.done), total: Double(max(p.total, 1)))
+                        .progressViewStyle(.linear)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(p.total == 0 ? "Looking for EPUB files" : "Importing EPUBs, \(p.done) of \(p.total) done")
+                Button("Cancel") { center.cancelFolderImport() }
+                    .font(.footnote.weight(.semibold))
+                    .accessibilityHint("Stops the import. Stories already imported stay in your Library.")
+            }
+            .padding(14)
+            .frame(maxWidth: 420)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 }
 
@@ -143,6 +449,10 @@ private struct EPUBImportAlert: ViewModifier {
             Button("OK", role: .cancel) {}
         } message: { outcome in
             Text(outcome.message)
+        }
+        .overlay(alignment: .bottom) {
+            EPUBFolderImportBanner(center: center)
+                .animation(.easeInOut(duration: 0.25), value: center.folderProgress)
         }
     }
 }
