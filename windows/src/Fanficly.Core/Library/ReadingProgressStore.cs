@@ -12,19 +12,64 @@ public static class ReadingProgressStore
     /// <summary>Where the reader opens a work: this device's saved place, unless
     /// <paramref name="synced"/>, the last-read entry synced from another device
     /// (<see cref="WidgetProgressStore.Load"/>), is for this work and strictly
-    /// newer (see <see cref="OpeningProgressPolicy"/>, #160).</summary>
+    /// newer (see <see cref="OpeningProgressPolicy"/>, #160). When the synced entry
+    /// wins, this PC takes it as its own record (#337): the
+    /// <see cref="ReadingProgress"/> row and the saved work's <c>LastRead*</c> move
+    /// to the synced place, stamped with the synced entry's own date, not now. So
+    /// the Library row shows it, a later open finds it after the other device has
+    /// read a different story (the synced entry holds only one), and it isn't
+    /// stamped as newer than it is: the backup merge, which keeps the newer
+    /// <c>UpdatedAt</c>, still orders it correctly. Later calls tie and change
+    /// nothing. The Swift <c>ReadingProgressStore.openingAnchor</c>.</summary>
     public static ReadingAnchor? LoadForOpening(int ao3Id, LibraryStore store, WidgetStoryProgress? synced)
     {
         var rec = store.GetReadingProgress(ao3Id);
-        return OpeningProgressPolicy.Anchor(
+        var anchor = OpeningProgressPolicy.Anchor(
             ao3Id, rec is null ? null : new ReadingAnchor(rec.ChapterIndex, rec.ParagraphIndex), rec?.UpdatedAt, synced);
+        if (anchor is { } place
+            && OpeningProgressPolicy.AdoptedEntry(ao3Id, rec is not null, rec?.UpdatedAt, synced) is { UpdatedAt: { } syncedAt } entry)
+        {
+            Adopt(entry, place, syncedAt, rec, store);
+        }
+        return anchor;
+    }
+
+    /// <summary>Writes a synced place into this PC's records with its own date.
+    /// Nothing else a save does: the synced entry already holds it (no widget
+    /// write) and nothing was read here (no streak day).</summary>
+    private static void Adopt(WidgetStoryProgress entry, ReadingAnchor place, DateTimeOffset syncedAt,
+                              ReadingProgress? rec, LibraryStore store)
+    {
+        if (rec is not null)
+        {
+            rec.ChapterIndex = place.Chapter;
+            rec.ParagraphIndex = place.Paragraph;
+            if (entry.Title.Length > 0) rec.Title = entry.Title;
+            if (entry.Author.Length > 0) rec.Author = entry.Author;
+            rec.UpdatedAt = syncedAt;
+        }
+        else
+        {
+            store.Insert(new ReadingProgress(entry.Id, place.Chapter, place.Paragraph, entry.Title, entry.Author, syncedAt));
+        }
+
+        if (store.GetWork(entry.Id) is { } work && (work.LastReadAt is not { } lastRead || lastRead < syncedAt))
+        {
+            work.LastReadAt = syncedAt;
+            work.LastReadChapter = place.Chapter;
+            work.LastReadProgress = entry.ClampedProgress;
+        }
+
+        using (LibrarySyncManager.ReadingActivity()) store.TrySave();
     }
 
     /// <summary>Saves the reading position, stamps the saved work's
     /// <c>LastRead*</c> fields, and — when <paramref name="progress"/> is known —
     /// feeds the last-read widget store with the same timestamp (so a resume
     /// tap on this device always ties, never overrides). Also records a
-    /// reading event for the streak and refreshes the widget data.</summary>
+    /// reading event for the streak. It doesn't rebuild the library widgets'
+    /// data: saves come every 1.5 s while reading and those lists show nothing
+    /// a place changes (#165).</summary>
     public static void Save(int ao3Id, int chapter, int paragraph, string title, string author,
                             LibraryStore store, double? progress = null, bool syncWidgetImmediately = false)
     {
@@ -58,7 +103,6 @@ public static class ReadingProgressStore
         }
 
         LibraryHooks.RecordReadingEvent?.Invoke();
-        LibraryHooks.UpdateWidgetData?.Invoke(store);
     }
 }
 

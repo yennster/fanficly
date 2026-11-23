@@ -29,6 +29,8 @@ public static class StreakStore
     public const string AppGroupIdentifier = AppGroupStore.Identifier;
     public const string ActivityDatesKey = "streak.activityDates";
     public const string CurrentStreakKey = "streak.currentStreak";
+    /// <summary>The streak widget's kind (the Swift widget's).</summary>
+    public const string WidgetKind = "FanficlyStreakWidget";
 
     private const int HistoryLimit = 100;
 

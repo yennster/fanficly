@@ -26,6 +26,9 @@ struct WorkDetailView: View {
     @State private var exporter = WorkExporter()
     @State private var kudos = KudosGiver()
     @State private var subscriber = WorkSubscriber()
+    #if APP_CLIP
+    @Environment(\.showFullAppOffer) private var showFullAppOffer
+    #endif
 
     /// The reader's themed page colour, computed the same way `ReaderView`
     /// does, so the detail screen is opaque from the first frame.
@@ -42,6 +45,13 @@ struct WorkDetailView: View {
                     .onPreferenceChange(ReaderFullScreenKey.self) { readerFullScreen = $0 }
                     .toolbar {
                         if !readerFullScreen {
+                            #if APP_CLIP
+                            // The App Clip (#292): no library, account or
+                            // downloads, so its menu offers the full app.
+                            ToolbarItemGroup(placement: .topBarTrailing) {
+                                clipMenu
+                            }
+                            #else
                             ToolbarItemGroup(placement: .topBarTrailing) {
                                 Button {
                                     followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
@@ -53,6 +63,7 @@ struct WorkDetailView: View {
                             
                                 moreMenu(payload: payload)
                             }
+                            #endif
                         }
                     }
                     .sheet(isPresented: $showingReport) {
@@ -94,6 +105,31 @@ struct WorkDetailView: View {
     }
 
     // MARK: - Toolbar buttons
+
+    #if APP_CLIP
+    /// The App Clip's menu: the full app, and reporting the work to AO3 (the
+    /// App Store guideline 1.2 safeguard the app's menu has too).
+    private var clipMenu: some View {
+        Menu {
+            Button {
+                showFullAppOffer()
+            } label: {
+                Label("Get Fanficly", systemImage: "arrow.down.app")
+            }
+
+            Divider()
+
+            Button {
+                showingReport = true
+            } label: {
+                Label("Report this work", systemImage: "flag")
+            }
+        } label: {
+            Label("Work options", systemImage: "book.circle")
+        }
+        .accessibilityLabel("Work options")
+    }
+    #endif
 
     /// Overflow menu: save-to-library (follow), offline download, plus the
     /// UGC safeguards (App Store guideline 1.2) — report objectionable content
@@ -182,6 +218,9 @@ struct WorkDetailView: View {
     private func saveOffline(_ payload: AO3WorkPayload) async {
         isSavingOffline = true
         defer { isSavingOffline = false }
+        // Saving a work deleted a moment ago keeps it: its delete, still
+        // behind the Undo toast, never runs (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
         _ = WorkPersistence.upsert(payload: payload, into: context)
         iCloudSyncManager.shared.queueBackup(context: context)
         do {

@@ -4,6 +4,7 @@ import SwiftData
 
 struct ReaderSettingsView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
@@ -17,6 +18,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.twoPageSpread")) private var twoPageSpread: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.spreadWidthPercent")) private var spreadWidthPercent: Double = ReaderSpread.defaultWidthPercent
+    @AppStorage(ReaderProfile.deviceKey("reader.pageMarginPt")) private var pageMarginPt: Double = ReaderMetrics.defaultPageMargin
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
@@ -36,6 +38,10 @@ struct ReaderSettingsView: View {
     @State private var newProfileName = ""
     @State private var showingErrorAlert = false
     @State private var errorMessage = ""
+    @State private var renamingProfile: String?
+    @State private var renameText = ""
+    /// Made on the first Play Sample, not every time the view is built.
+    @State private var sample: SpeechSample?
 
     init() {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -97,7 +103,12 @@ struct ReaderSettingsView: View {
         queueBackup()
     }
 
+    /// Deletes at once (the deletion syncs as a tombstone) and offers Undo
+    /// (#169), which saves the profile again, newer than its tombstone, and
+    /// makes it active again if it was.
     private func deleteProfile(_ name: String) {
+        let deleted = profiles.first { $0.name == name }
+        let wasActive = activeProfileName == name
         var list = profiles
         list.removeAll { $0.name == name }
         if activeProfileName == name {
@@ -109,6 +120,19 @@ struct ReaderSettingsView: View {
             }
         }
         saveProfiles(list)
+        queueBackup()
+        guard let deleted else { return }
+        UndoCenter.shared.offer(String(localized: "Deleted profile “\(name)”"), host: undoHost) {
+            restoreProfile(deleted, makeActive: wasActive)
+        }
+    }
+
+    private func restoreProfile(_ profile: ReaderProfile, makeActive: Bool) {
+        var list = profiles
+        guard !list.contains(where: { $0.name.localizedCaseInsensitiveCompare(profile.name) == .orderedSame }) else { return }
+        list.append(profile)
+        saveProfiles(list)
+        if makeActive { selectProfile(profile) }
         queueBackup()
     }
 
@@ -122,6 +146,26 @@ struct ReaderSettingsView: View {
         }
         activeProfileName = trimmed
         saveCurrentToActiveProfile()
+    }
+
+    /// Renames a profile in place (#193); the old name syncs as a tombstone.
+    private func renameProfile(_ current: String, to newName: String) {
+        switch ReaderProfile.renaming(current, to: newName, in: profiles) {
+        case .unchanged:
+            return
+        case .nameTaken(let name):
+            errorMessage = "A profile named \"\(name)\" already exists."
+            showingErrorAlert = true
+        case .renamed(let list, let name):
+            saveProfiles(list)
+            if activeProfileName == current { activeProfileName = name }
+            queueBackup()
+            UIAccessibility.post(notification: .announcement, argument: "Renamed to \(name)")
+        }
+    }
+
+    private var showingRenameAlert: Binding<Bool> {
+        Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } })
     }
 
     /// On-device voices for the current language (fall back to all installed
@@ -160,14 +204,18 @@ struct ReaderSettingsView: View {
             }
 
             Section("Reader Profile") {
-                Picker("Active Profile", selection: $activeProfileName) {
+                // Only a pick here applies a profile's settings: the active
+                // name also changes when a profile is renamed (here or in a
+                // reader), which keeps the settings on screen (#193).
+                Picker("Active Profile", selection: Binding(
+                    get: { activeProfileName },
+                    set: { newName in
+                        if let profile = profiles.first(where: { $0.name == newName }) {
+                            selectProfile(profile)
+                        }
+                    })) {
                     ForEach(profiles) { profile in
                         Text(profile.name).tag(profile.name)
-                    }
-                }
-                .onChange(of: activeProfileName) { _, newName in
-                    if let profile = profiles.first(where: { $0.name == newName }) {
-                        selectProfile(profile)
                     }
                 }
                 .help("Select a reader settings profile to apply or edit.")
@@ -178,11 +226,19 @@ struct ReaderSettingsView: View {
                 }
                 .help("Save these settings as a reusable configuration profile.")
                 
-                if activeProfileName != "Default" {
+                // Not for a name renamed or deleted on another device, which
+                // saving would bring back beside the new one.
+                if activeProfileName != "Default", profiles.contains(where: { $0.name == activeProfileName }) {
                     Button("Save Current Settings to \"\(activeProfileName)\"") {
                         saveCurrentToActiveProfile()
                     }
                     .help("Overwrite the selected profile with your current settings.")
+
+                    Button("Rename Profile \"\(activeProfileName)\"...") {
+                        renameText = activeProfileName
+                        renamingProfile = activeProfileName
+                    }
+                    .help("Give the selected profile a new name.")
 
                     Button("Delete Profile \"\(activeProfileName)\"", role: .destructive) {
                         deleteProfile(activeProfileName)
@@ -255,6 +311,9 @@ struct ReaderSettingsView: View {
                                      range: ReaderSpread.widthPercentRange,
                                      step: 2.0, unit: "%", icon: "arrow.left.and.right.square")
                     }
+                    metricSlider("Top & bottom margins", value: $pageMarginPt,
+                                 range: ReaderMetrics.pageMarginRange,
+                                 step: 2.0, unit: "pt", icon: "arrow.up.and.down.square")
                 }
 
                 Toggle(isOn: $pageTurnHaptics) {
@@ -281,7 +340,7 @@ struct ReaderSettingsView: View {
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader.\(volumeFooter)")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
             }
 
             Section {
@@ -325,8 +384,24 @@ struct ReaderSettingsView: View {
                 }
                 .padding(.vertical, 2)
                 .help("Drag to adjust the speech speed.")
+
+                let samplePlaying = sample?.isPlaying ?? false
+                Button {
+                    if samplePlaying {
+                        sample?.stop()
+                    } else {
+                        let player = sample ?? SpeechSample()
+                        sample = player
+                        player.play(voiceId: ttsVoiceId, rate: ttsRate)
+                    }
+                } label: {
+                    Label(samplePlaying ? "Stop" : "Play Sample",
+                          systemImage: samplePlaying ? "stop.fill" : "play.fill")
+                }
+                .accessibilityIdentifier("settings.reader.playSample")
+                .help("Hear the selected voice at this speed.")
             } footer: {
-                Text("Tap the headphones in the reader to have a chapter read aloud. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
+                Text("Play Sample reads a few lines in the chosen voice at this speed. Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {
@@ -385,9 +460,17 @@ struct ReaderSettingsView: View {
         } message: {
             Text("Enter a name for this reader settings configuration profile.")
         }
+        .alert("Rename Profile", isPresented: showingRenameAlert, presenting: renamingProfile) { current in
+            TextField("Profile Name", text: $renameText)
+            Button("Cancel", role: .cancel) { }
+            Button("Rename") { renameProfile(current, to: renameText) }
+        } message: { current in
+            Text("Enter a new name for \"\(current)\".")
+        }
         .alert(errorMessage, isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) { }
         }
+        .onDisappear { sample?.stop() }
     }
 
     private func queueBackup() {

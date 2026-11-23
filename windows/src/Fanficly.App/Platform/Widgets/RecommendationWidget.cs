@@ -14,7 +14,7 @@ public static class RecommendationWidget
     public const string DefinitionId = "Recommendation";
 
     /// <summary>The Swift timeline keeps a pick for 30 minutes. Windows widgets
-    /// update whenever the app pushes (every reading-progress save), so the pick
+    /// update whenever the app pushes (every library change), so the pick
     /// is kept in the widget's custom state and only re-rolled once it's this old.</summary>
     public static readonly TimeSpan PickLifetime = TimeSpan.FromMinutes(30);
 

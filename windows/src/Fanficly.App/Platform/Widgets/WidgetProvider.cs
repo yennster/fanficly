@@ -117,10 +117,13 @@ public sealed partial class FanficlyWidgetProvider : IWidgetProvider
         }
     }
 
-    /// <summary>Refreshes every pinned Fanficly widget, of every kind (the app
-    /// calls it through <see cref="WidgetCenter.ReloadAllTimelines"/>, and so
-    /// does the background refresh task).</summary>
-    public static void UpdateAll()
+    /// <summary>Refreshes the pinned Fanficly widgets of one kind (a Swift
+    /// widget kind, as <see cref="WidgetCenter.ReloadTimelines"/> names it), or
+    /// of every kind when <paramref name="kind"/> is null
+    /// (<see cref="WidgetCenter.ReloadAllTimelines"/>). The app and the
+    /// background refresh task call it on <see cref="WidgetCenter.ReloadRequested"/>,
+    /// so a reading-position save redraws only Continue reading (#165).</summary>
+    public static void UpdateAll(string? kind = null)
     {
         // Demo mode's curated library lives in memory; it must not reach the
         // user's real pinned widgets.
@@ -132,6 +135,7 @@ public sealed partial class FanficlyWidgetProvider : IWidgetProvider
             foreach (var info in WidgetManager.GetDefault().GetWidgetInfos() ?? [])
             {
                 var ctx = info.WidgetContext;
+                if (kind is not null && WidgetCatalog.KindOf(ctx.DefinitionId) != kind) continue;
                 Update(ctx.Id, ctx.DefinitionId, SizeName(ctx.Size));
             }
         }
@@ -145,6 +149,19 @@ public sealed partial class FanficlyWidgetProvider : IWidgetProvider
 /// <summary>Which card each widget definition draws, with its data.</summary>
 internal static class WidgetCatalog
 {
+    /// <summary>The Swift widget kind a definition draws, which is what Core
+    /// asks to reload.</summary>
+    public static string KindOf(string definitionId) => definitionId switch
+    {
+        StreakWidget.DefinitionId => StreakStore.WidgetKind,
+        SubscriptionsWidget.DefinitionId => WidgetDataStore.SubscriptionsWidgetKind,
+        FolderShortcutsWidget.DefinitionId => WidgetDataStore.FolderShortcutWidgetKind,
+        SavedSearchesWidget.DefinitionId => WidgetDataStore.SavedSearchesWidgetKind,
+        RecommendationWidget.DefinitionId => WidgetDataStore.RecommendationWidgetKind,
+        // "LastRead", and anything an older manifest declared (drawn as LastRead).
+        _ => WidgetProgressStore.WidgetKind,
+    };
+
     /// <summary>Renders the definition (a Package.appxmanifest Definition Id).</summary>
     public static WidgetContent Render(string definitionId, string size, string? customState)
     {

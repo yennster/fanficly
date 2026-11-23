@@ -74,22 +74,7 @@ struct FanficlyApp: App {
     }
 
     private static let sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Work.self,
-            Chapter.self,
-            TagRecord.self,
-            BookmarkRecord.self,
-            SubscriptionRecord.self,
-            SavedSearch.self,
-            ReadingProgress.self,
-            SavedFilter.self,
-            RecentlyViewed.self,
-            HiddenWork.self,
-            CustomFolder.self,
-            FollowedAuthor.self,
-            ReadingStat.self,
-            BlockedTerm.self,
-        ])
+        let schema = AppSchema.schema
         let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
     }()
@@ -216,6 +201,10 @@ struct FanficlyApp: App {
             GoCommands()
 
             CommandMenu("Reader") {
+                FindInWorkMenuButton()
+
+                Divider()
+
                 Menu("Reading Mode") {
                     ForEach(ReadingMode.allCases) { mode in
                         Button(action: {
@@ -269,6 +258,9 @@ struct FanficlyApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
+                // A delete waiting behind its Undo toast runs now, before the
+                // backup snapshot, so a suspended app doesn't hold it (#169).
+                UndoCenter.shared.commitPending()
                 BackgroundRefresh.scheduleNext()
                 
                 let iCloudEnabled = UserDefaults.standard.bool(forKey: "settings.iCloudSyncEnabled")

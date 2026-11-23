@@ -72,8 +72,10 @@ enum ReadingProgressStore {
             )
         }
 
+        // No `WidgetDataStore.updateAll` here: saves come every 1.5 s while
+        // reading, and the library widgets show nothing a place changes. The
+        // last-read widget is refreshed by `WidgetProgressStore.save` above (#165).
         StreakStore.recordReadingEvent()
-        WidgetDataStore.updateAll(context: context)
     }
 }
 

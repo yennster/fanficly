@@ -700,7 +700,7 @@ struct SubscriptionsWidgetEntryView: View {
 }
 
 struct SubscriptionsWidget: Widget {
-    let kind: String = "FanficlySubscriptionsWidget"
+    let kind: String = WidgetDataStore.subscriptionsWidgetKind
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SubscriptionsProvider()) { entry in
@@ -855,7 +855,7 @@ struct FolderShortcutWidgetEntryView: View {
 }
 
 struct FolderShortcutWidget: Widget {
-    let kind: String = "FanficlyFolderShortcutWidget"
+    let kind: String = WidgetDataStore.folderShortcutWidgetKind
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: FolderShortcutProvider()) { entry in
@@ -1018,7 +1018,7 @@ struct SavedSearchesWidgetEntryView: View {
 }
 
 struct SavedSearchesWidget: Widget {
-    let kind: String = "FanficlySavedSearchesWidget"
+    let kind: String = WidgetDataStore.savedSearchesWidgetKind
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SavedSearchesProvider()) { entry in
@@ -1168,7 +1168,7 @@ struct RecommendationWidgetEntryView: View {
 }
 
 struct RecommendationWidget: Widget {
-    let kind: String = "FanficlyRecommendationWidget"
+    let kind: String = WidgetDataStore.recommendationWidgetKind
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: RecommendationProvider()) { entry in

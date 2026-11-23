@@ -9,6 +9,39 @@ namespace Fanficly.App.Platform;
 /// </summary>
 public static class JumpListService
 {
+    /// <summary>How long a reading-position save waits before the jump list
+    /// is rebuilt (#165).</summary>
+    private static readonly TimeSpan SaveRefreshDelay = TimeSpan.FromSeconds(5);
+
+    private static CancellationTokenSource? _pendingRefresh;
+
+    /// <summary>Rebuilds the jump list after a reading-position save: at most
+    /// once every <see cref="SaveRefreshDelay"/> while reading (saves come every
+    /// 1.5 s, and more reading doesn't push it back), or right away when
+    /// <paramref name="now"/> (leaving the reader, closing the window). Call it
+    /// on the UI thread.</summary>
+    public static void RefreshSoon(bool now = false)
+    {
+        if (now)
+        {
+            _pendingRefresh?.Cancel();
+            _pendingRefresh = null;
+            _ = RefreshAsync();
+            return;
+        }
+        if (_pendingRefresh is { IsCancellationRequested: false }) return;
+        var cts = _pendingRefresh = new CancellationTokenSource();
+        _ = RefreshAfterDelayAsync(cts);
+    }
+
+    private static async Task RefreshAfterDelayAsync(CancellationTokenSource cts)
+    {
+        try { await Task.Delay(SaveRefreshDelay, cts.Token); }
+        catch (OperationCanceledException) { return; }
+        if (_pendingRefresh == cts) _pendingRefresh = null;
+        await RefreshAsync();
+    }
+
     public static async Task RefreshAsync()
     {
         if (AppHost.IsDemoMode || !JumpList.IsSupported()) return;

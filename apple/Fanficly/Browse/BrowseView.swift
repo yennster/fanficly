@@ -3,7 +3,11 @@ import SwiftData
 
 struct BrowseView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var savedFilters: [SavedFilter]
+    @Query(sort: \SavedFilter.savedAt, order: .reverse) private var allSavedFilters: [SavedFilter]
+    /// Without a filter deleted a moment ago, still behind its Undo toast (#169).
+    private var savedFilters: [SavedFilter] {
+        allSavedFilters.filter { !UndoCenter.shared.isPending(UndoCenter.Key.filter($0.name)) }
+    }
 
     var body: some View {
         List {
@@ -15,10 +19,11 @@ struct BrowseView: View {
                                 .font(.body)
                         }
                         .swipeActions {
-                            Button(role: .destructive) {
-                                iCloudSyncManager.recordDeletion(.filter, key: saved.name)
-                                context.delete(saved); try? context.save()
-                            } label: { Label("Delete", systemImage: "trash") }
+                            SavedFilterDeleteButton(saved: saved)
+                        }
+                        // A mouse can't swipe (#189).
+                        .contextMenu {
+                            SavedFilterDeleteButton(saved: saved)
                         }
                     }
                 }
@@ -43,6 +48,32 @@ struct BrowseView: View {
             FandomWorksView(savedFilter: saved)
         }
         .workAndAuthorDestinations()
+    }
+}
+
+/// A saved filter's swipe Delete (Browse and the Filters sheet): deletes it
+/// once its Undo toast closes (#169). Its own view so it reads the toast host
+/// it sits in, the sheet's inside the Filters sheet. Browse used to skip
+/// `queueBackup`, so the delete only reached the widgets and iCloud later.
+struct SavedFilterDeleteButton: View {
+    let saved: SavedFilter
+    @Environment(\.modelContext) private var context
+    @Environment(\.undoToastHost) private var undoHost
+
+    var body: some View {
+        Button(role: .destructive) {
+            let saved = saved
+            let context = context
+            UndoCenter.shared.schedule(String(localized: "Deleted saved filter “\(saved.name)”"),
+                                       keys: [UndoCenter.Key.filter(saved.name)],
+                                       host: undoHost) {
+                guard !saved.isDeleted, saved.modelContext != nil else { return }
+                iCloudSyncManager.recordDeletion(.filter, key: saved.name)
+                context.delete(saved)
+                try? context.save()
+                iCloudSyncManager.shared.queueBackup(context: context)
+            }
+        } label: { Label("Delete", systemImage: "trash") }
     }
 }
 
@@ -77,6 +108,11 @@ struct PopularTag: Hashable {
 enum PopularStore {
     private static let key = "popular.snapshot.v1"
     private static let maxAge: TimeInterval = 24 * 60 * 60
+    /// When the last refresh started, so a failed one isn't retried on every
+    /// visit (#196).
+    static let attemptKey = "popular.lastAttemptAt"
+    /// How long after a failed refresh the next one waits.
+    static let retryAfterFailure: TimeInterval = 60 * 60
 
     static func cached() -> PopularSnapshot? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
@@ -90,12 +126,24 @@ enum PopularStore {
 
     /// Returns a fresh snapshot, fetching + caching only when the cache is
     /// missing or older than a day. Never throws — keeps the existing cache on
-    /// failure so the UI just keeps showing what it had (or the curated seed).
+    /// failure so the UI just keeps showing what it had (or the curated seed),
+    /// and waits `retryAfterFailure` before the next try, so an AO3 outage
+    /// doesn't re-crawl it on every visit (#196).
     @discardableResult
     static func refreshIfStale(client: any AO3ClientProtocol) async -> PopularSnapshot? {
         let current = cached()
         guard isStale(current) else { return current }
-        guard let fresh = try? await client.fetchPopularSnapshot() else { return current }
+        let defaults = UserDefaults.standard
+        if let attempted = defaults.object(forKey: attemptKey) as? Date,
+           attempted <= .now, Date.now.timeIntervalSince(attempted) < retryAfterFailure {
+            return current
+        }
+        defaults.set(Date.now, forKey: attemptKey)
+        guard let fresh = try? await client.fetchPopularSnapshot() else {
+            // Leaving the tab mid-crawl isn't a failure: try again next visit.
+            if Task.isCancelled { defaults.removeObject(forKey: attemptKey) }
+            return current
+        }
         if let data = try? JSONEncoder().encode(fresh) {
             UserDefaults.standard.set(data, forKey: key)
         }

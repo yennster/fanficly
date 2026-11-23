@@ -12,6 +12,7 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.undoToastHost) private var undoHost
     @State private var filter: LibraryFilter = .all
     @State private var showingCreateFolderAlert = false
     @State private var newFolderName = ""
@@ -20,6 +21,13 @@ struct LibraryView: View {
     @State private var searchText = ""
     @State private var showingEPUBImporter = false
     @State private var epubImport = EPUBImportCenter.shared
+    @Environment(\.ao3Client) private var client
+    @State private var downloads = LibraryDownloads.shared
+    @State private var workRemovingDownload: Work?
+    @State private var downloadError: String?
+    @State private var folderRenaming: CustomFolder?
+    @State private var folderRenameText = ""
+    @State private var folderRenameTaken: String?
 
     enum LibraryFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -53,7 +61,17 @@ struct LibraryView: View {
         horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
     }
 
+    /// The library without works or folders waiting behind the Undo toast.
+    private var visibleWorks: [Work] {
+        works.filter { !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id)) }
+    }
+
+    private var visibleFolders: [CustomFolder] {
+        folders.filter { !UndoCenter.shared.isPending(UndoCenter.Key.folder($0.name)) }
+    }
+
     private var filtered: [Work] {
+        let works = visibleWorks
         var base: [Work]
         switch filter {
         case .all:        base = works
@@ -72,7 +90,7 @@ struct LibraryView: View {
 
     var body: some View {
         Group {
-            if works.isEmpty {
+            if visibleWorks.isEmpty {
                 ContentUnavailableView {
                     Label("Nothing saved yet", systemImage: "books.vertical")
                 } description: {
@@ -82,6 +100,9 @@ struct LibraryView: View {
                         .disabled(epubImport.isImporting)
                 }
             } else {
+                // Read here so a row's Downloaded badge updates when its
+                // menu's download ends (#191).
+                let _ = downloads.inFlight
                 List {
                     if !readingStats.isEmpty {
                         Section {
@@ -127,8 +148,11 @@ struct LibraryView: View {
                             }
                             
                             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                            let folders = visibleFolders
                             let filteredFolders = query.isEmpty ? folders : folders.filter {
-                                $0.name.lowercased().contains(query) || $0.works.contains(where: { $0.matches(query: query) })
+                                $0.name.lowercased().contains(query) || $0.works.contains(where: {
+                                    $0.matches(query: query) && !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id))
+                                })
                             }
                             ForEach(filteredFolders) { folder in
                                 NavigationLink(value: folder) {
@@ -143,8 +167,9 @@ struct LibraryView: View {
                                             Text(folder.name).font(.headline)
                                         }
                                         if !dynamicTypeSize.isAccessibilitySize { Spacer() }
-                                        let totalCount = folder.works.count
-                                        let matchingCount = query.isEmpty ? totalCount : folder.works.filter { $0.matches(query: query) }.count
+                                        let folderWorks = folder.works.filter { !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id)) }
+                                        let totalCount = folderWorks.count
+                                        let matchingCount = query.isEmpty ? totalCount : folderWorks.filter { $0.matches(query: query) }.count
                                         if query.isEmpty {
                                             Text("\(totalCount) stories")
                                                 .font(.subheadline)
@@ -164,6 +189,23 @@ struct LibraryView: View {
                                         deleteFolder(folder)
                                     } label: {
                                         Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                                // A mouse can't swipe, so the same actions are here too (#189).
+                                .contextMenu {
+                                    NavigationLink(value: folder) {
+                                        Label("Open", systemImage: "folder")
+                                    }
+                                    Button {
+                                        startRenaming(folder)
+                                    } label: {
+                                        Label("Rename...", systemImage: "pencil")
+                                    }
+                                    Divider()
+                                    Button(role: .destructive) {
+                                        deleteFolder(folder)
+                                    } label: {
+                                        Label("Delete Folder", systemImage: "trash")
                                     }
                                 }
                             }
@@ -186,10 +228,7 @@ struct LibraryView: View {
                                 // on completed ones (nothing new will ever drop).
                                 if work.isFollowed && !work.isComplete {
                                     Button {
-                                        work.isFollowed = false
-                                        work.followedAt = nil
-                                        try? context.save()
-                                        iCloudSyncManager.shared.queueBackup(context: context)
+                                        unfollow(work)
                                     } label: {
                                         Label("Unfollow", systemImage: "bookmark.slash")
                                     }
@@ -253,6 +292,21 @@ struct LibraryView: View {
                                 } label: {
                                     Label("Note & Tags...", systemImage: "note.text")
                                 }
+
+                                // The swipe's Unfollow, for a mouse (#189).
+                                if work.isFollowed && !work.isComplete {
+                                    Button {
+                                        unfollow(work)
+                                    } label: {
+                                        Label("Unfollow", systemImage: "bookmark.slash")
+                                    }
+                                }
+
+                                LibraryDownloadMenuItem(work: work) {
+                                    download(work)
+                                } removeDownload: {
+                                    workRemovingDownload = work
+                                }
                                 
                                 if !EPUBImport.isLocalWork(work.ao3Id),
                                    let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
@@ -278,7 +332,7 @@ struct LibraryView: View {
                         ContentUnavailableView.search(text: searchText)
                     } else if filter == .folders && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                        if !folders.contains(where: { $0.name.lowercased().contains(query) }) {
+                        if !visibleFolders.contains(where: { $0.name.lowercased().contains(query) }) {
                             ContentUnavailableView.search(text: searchText)
                         }
                     }
@@ -329,25 +383,67 @@ struct LibraryView: View {
         } message: {
             Text("Enter a name for the new folder.")
         }
+        .folderRenameAlerts(folder: $folderRenaming, name: $folderRenameText,
+                            taken: $folderRenameTaken, context: context)
+        .libraryDownloadAlerts(removing: $workRemovingDownload, error: $downloadError, context: context)
     }
 
+    private func startRenaming(_ folder: CustomFolder) {
+        folderRenameText = folder.name
+        folderRenaming = folder
+    }
+
+    private func download(_ work: Work) {
+        let client = client
+        let context = context
+        Task {
+            if let message = await downloads.download(work, client: client, context: context) {
+                downloadError = message
+            }
+        }
+    }
+
+    /// Waits behind the Undo toast (#169): the delete takes the offline
+    /// text, EPUB, note, tags and folder links, and AO3 may no longer have it.
     private func delete(_ work: Work) {
-        iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
-        WorkPersistence.delete(work, in: context)
+        let context = context
+        UndoCenter.shared.schedule(String(localized: "Deleted “\(work.title)”"),
+                                   keys: [UndoCenter.Key.work(work.ao3Id)],
+                                   host: undoHost) {
+            guard !work.isDeleted, work.modelContext != nil else { return }
+            iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
+            WorkPersistence.delete(work, in: context)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
+    }
+
+    /// Stops following a work's new chapters; it stays in the Library.
+    private func unfollow(_ work: Work) {
+        work.isFollowed = false
+        work.followedAt = nil
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
     }
 
     private func deleteFolder(_ folder: CustomFolder) {
-        iCloudSyncManager.recordDeletion(.folder, key: folder.name)
-        context.delete(folder)
-        try? context.save()
-        iCloudSyncManager.shared.queueBackup(context: context)
+        let context = context
+        UndoCenter.shared.schedule(String(localized: "Deleted folder “\(folder.name)”"),
+                                   keys: [UndoCenter.Key.folder(folder.name)],
+                                   host: undoHost) {
+            guard !folder.isDeleted, folder.modelContext != nil else { return }
+            iCloudSyncManager.recordDeletion(.folder, key: folder.name)
+            context.delete(folder)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
     }
 
     private func createFolder() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        // Making it again keeps a folder deleted a moment ago (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.folder(name))
         
         let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == name })
         let existing = (try? context.fetch(descriptor))?.first
@@ -413,6 +509,12 @@ struct FolderDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(AuthState.self) private var auth
     @State private var pendingDownloadIds: [Int]?
+    @State private var downloads = LibraryDownloads.shared
+    @State private var workRemovingDownload: Work?
+    @State private var downloadError: String?
+    @State private var folderRenaming: CustomFolder?
+    @State private var folderRenameText = ""
+    @State private var folderRenameTaken: String?
 
     init(folder: CustomFolder, initialSearchText: String = "") {
         self.folder = folder
@@ -421,11 +523,15 @@ struct FolderDetailView: View {
 
     var body: some View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filteredWorks = query.isEmpty ? folder.works : folder.works.filter { $0.matches(query: query) }
+        // Without a work deleted from the Library a moment ago (#169).
+        let folderWorks = folder.works.filter { !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id)) }
+        let filteredWorks = query.isEmpty ? folderWorks : folderWorks.filter { $0.matches(query: query) }
         let sortedWorks = LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(filteredWorks)
         // Any run's progress (it also re-renders the rows as each download
         // lands, so their Downloaded badges update).
         let downloadProgress = RestoreDownloadCenter.shared.progress
+        // Likewise for a row menu's download (#191).
+        let _ = downloads.inFlight
 
         VStack(spacing: 0) {
             List(selection: $selectedWorkIds) {
@@ -482,6 +588,12 @@ struct FolderDetailView: View {
                             } label: {
                                 Label("Note & Tags...", systemImage: "note.text")
                             }
+
+                            LibraryDownloadMenuItem(work: work) {
+                                download(work)
+                            } removeDownload: {
+                                workRemovingDownload = work
+                            }
                             
                             if !EPUBImport.isLocalWork(work.ao3Id),
                                let url = URL(string: "https://archiveofourown.org/works/\(work.ao3Id)") {
@@ -536,6 +648,9 @@ struct FolderDetailView: View {
         .sheet(item: $workEditingNotes) { work in
             WorkNotesSheet(work: work)
         }
+        .folderRenameAlerts(folder: $folderRenaming, name: $folderRenameText,
+                            taken: $folderRenameTaken, context: context)
+        .libraryDownloadAlerts(removing: $workRemovingDownload, error: $downloadError, context: context)
         .confirmationDialog(downloadPromptTitle, isPresented: Binding(
             get: { pendingDownloadIds != nil },
             set: { if !$0 { pendingDownloadIds = nil } }), titleVisibility: .visible,
@@ -546,7 +661,7 @@ struct FolderDetailView: View {
                 let client = client
                 let context = context
                 RestoreDownloadCenter.shared.startFolderDownload(ids: ids, signedIn: auth.isLoggedIn) { id in
-                    try await Self.saveOffline(workId: id, client: client, context: context)
+                    _ = try await WorkPersistence.saveOffline(workId: id, client: client, context: context)
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -562,7 +677,8 @@ struct FolderDetailView: View {
             if editMode != .active {
                 ToolbarItem(placement: .topBarTrailing) {
                     let downloadIds = RestoreDownloadCenter.folderDownloadCandidates(
-                        LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folder.works))
+                        LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(folderWorks))
+                        .filter { !downloads.isDownloading($0) } // a row menu's download (#191)
                     Button {
                         pendingDownloadIds = downloadIds
                     } label: {
@@ -573,6 +689,17 @@ struct FolderDetailView: View {
                     .accessibilityHint(downloadIds.isEmpty
                         ? "Every story in this folder is already downloaded."
                         : "Saves \(downloadIds.count) \(downloadIds.count == 1 ? "story" : "stories") for offline reading, one at a time.")
+                }
+            }
+            if editMode != .active {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        folderRenameText = folder.name
+                        folderRenaming = folder
+                    } label: {
+                        Label("Rename Folder", systemImage: "pencil")
+                    }
+                    .help("Rename this folder")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -590,19 +717,14 @@ struct FolderDetailView: View {
         }
     }
 
-    /// Saves one folder story for offline reading, like the reader's Save
-    /// Offline: the chapter text first when it isn't stored yet, then the EPUB.
-    @MainActor
-    private static func saveOffline(workId: Int, client: any AO3ClientProtocol, context: ModelContext) async throws {
-        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
-        // Removed from the library mid-run: nothing to save it for.
-        guard let work = try? context.fetch(descriptor).first else { return }
-        if work.chapters.isEmpty {
-            let payload = try await client.fetchWork(id: workId)
-            _ = WorkPersistence.upsert(payload: payload, into: context)
-            iCloudSyncManager.shared.queueBackup(context: context)
+    private func download(_ work: Work) {
+        let client = client
+        let context = context
+        Task {
+            if let message = await downloads.download(work, client: client, context: context) {
+                downloadError = message
+            }
         }
-        _ = try await client.downloadEPUB(workId: workId)
     }
 
     private var downloadPromptTitle: String {
@@ -654,7 +776,7 @@ struct FolderSelectionSheet: View {
                 }
                 
                 Section("All Folders") {
-                    ForEach(folders) { folder in
+                    ForEach(folders.filter { !UndoCenter.shared.isPending(UndoCenter.Key.folder($0.name)) }) { folder in
                         Button {
                             if work.folders.contains(where: { $0.id == folder.id }) {
                                 work.folders.removeAll { $0.id == folder.id }
@@ -713,6 +835,8 @@ struct FolderSelectionSheet: View {
     private func createFolder() {
         let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
+        // Making it again keeps a folder deleted a moment ago (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.folder(name))
         
         let descriptor = FetchDescriptor<CustomFolder>(predicate: #Predicate { $0.name == name })
         let existing = (try? context.fetch(descriptor))?.first
@@ -868,6 +992,46 @@ private struct LibraryStatsStrip: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.2))
                 .frame(width: 1, height: 26)
+        }
+    }
+}
+
+extension View {
+    /// The Rename Folder prompt (#191), shared by the Folders list and a
+    /// folder's own screen: the name field, then an alert when another
+    /// folder already has the name.
+    func folderRenameAlerts(folder: Binding<CustomFolder?>, name: Binding<String>,
+                            taken: Binding<String?>, context: ModelContext) -> some View {
+        alert("Rename Folder", isPresented: Binding(
+            get: { folder.wrappedValue != nil },
+            set: { if !$0 { folder.wrappedValue = nil } }),
+            presenting: folder.wrappedValue
+        ) { target in
+            TextField("Folder Name", text: name)
+            Button("Rename") {
+                guard !target.isDeleted, target.modelContext != nil else { return }
+                let newName = name.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                switch WorkPersistence.renameFolder(target, to: newName, in: context) {
+                case .renamed:
+                    iCloudSyncManager.shared.queueBackup(context: context)
+                    LibraryDownloads.announce(String(localized: "Renamed folder to \(newName)"))
+                case .taken:
+                    taken.wrappedValue = newName
+                case .unchanged:
+                    break
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Enter a new name for the folder.")
+        }
+        .alert("Name Already Used", isPresented: Binding(
+            get: { taken.wrappedValue != nil },
+            set: { if !$0 { taken.wrappedValue = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("There's already a folder named “\(taken.wrappedValue ?? "")”.")
         }
     }
 }

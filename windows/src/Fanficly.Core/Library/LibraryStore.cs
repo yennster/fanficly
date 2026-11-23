@@ -331,6 +331,14 @@ public sealed class LibraryStore : IDisposable
         lock (_gate) return work.ChapterList.OrderBy(c => c.Index).ToList();
     }
 
+    private bool _lastSaveFailed;
+
+    /// <summary>Whether the latest successful <see cref="Save"/> also wrote
+    /// changes an earlier, failed save left pending (every later save retries
+    /// them). Read it in a <see cref="Changed"/> handler: a reading-position save
+    /// that carries a failed star or follow is a library change too (#165).</summary>
+    public bool RetriedFailedChanges { get; private set; }
+
     /// <summary>Whether a <see cref="Save"/> would write anything.</summary>
     public bool HasChanges
     {
@@ -377,6 +385,10 @@ public sealed class LibraryStore : IDisposable
             var removedLinks = _persistedLinks.Where(l => !links.Contains(l)).ToList();
             if (_pendingDeletes.Count == 0 && writes.Count == 0 && bodies.Count == 0 && addedLinks.Count == 0 && removedLinks.Count == 0)
                 return;
+            // Stays set if this save fails, so the one that next succeeds knows
+            // it also wrote the failed save's changes.
+            var retried = _lastSaveFailed;
+            _lastSaveFailed = true;
 
             changed = LibraryEntityKinds.None;
             using (var tx = _conn.BeginTransaction())
@@ -420,6 +432,8 @@ public sealed class LibraryStore : IDisposable
             foreach (var w in writes) w.Entity.PersistedRow = w.Row;
             foreach (var c in bodies) c.BodyDirty = false;
             _persistedLinks = links;
+            _lastSaveFailed = false;
+            RetriedFailedChanges = retried;
         }
         if (changed != LibraryEntityKinds.None) Changed?.Invoke(changed);
     }

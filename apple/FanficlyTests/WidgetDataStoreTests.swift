@@ -90,6 +90,55 @@ final class WidgetDataStoreTests: XCTestCase {
         XCTAssertEqual(recs.first?.tags, ["Harry Potter", "Harry/Draco"])
     }
 
+    // MARK: - Reading progress leaves the library widgets alone (#165)
+
+    private func clearLibrarySnapshots() {
+        for key in [WidgetDataStore.savedSearchesKey, WidgetDataStore.customFoldersKey,
+                    WidgetDataStore.subscriptionsKey, WidgetDataStore.recommendationsKey] {
+            UserDefaults(suiteName: WidgetDataStore.appGroupIdentifier)?.removeObject(forKey: key)
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    func test_progressSave_doesNotRebuildLibrarySnapshots() throws {
+        let context = try makeContext()
+        let work = Work(ao3Id: 4242, title: "Saved Story", authorName: "Someone")
+        work.isFollowed = true
+        context.insert(work)
+        context.insert(SavedSearch(name: "Search", prompt: "slow burn"))
+        try context.save()
+        clearLibrarySnapshots()
+        defer { clearLibrarySnapshots() }
+
+        ReadingProgressStore.save(ao3Id: 4242, anchor: ReadingAnchor(chapter: 2, paragraph: 3),
+                                  title: "Saved Story", author: "Someone", in: context)
+
+        XCTAssertEqual(work.lastReadChapter, 2, "the save itself still lands")
+        XCTAssertTrue(WidgetDataStore.loadLocalRecommendations().isEmpty)
+        XCTAssertTrue(WidgetDataStore.loadLocalSubscriptions().isEmpty)
+        XCTAssertTrue(WidgetDataStore.loadLocalSavedSearches().isEmpty)
+    }
+
+    func test_recommendations_keepTheTopTwenty() throws {
+        let context = try makeContext()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        for id in 1...30 {
+            let work = Work(ao3Id: id, title: "Work \(id)", authorName: "A")
+            work.savedAt = base.addingTimeInterval(TimeInterval(id))
+            work.isStarred = id == 1
+            context.insert(work)
+        }
+        try context.save()
+        defer { clearLibrarySnapshots() }
+
+        WidgetDataStore.updateRecommendations(context: context)
+
+        let ids = WidgetDataStore.loadLocalRecommendations().map(\.workId)
+        XCTAssertEqual(ids.count, WidgetDataStore.listLimit)
+        XCTAssertEqual(ids.first, 1, "starred works come first")
+        XCTAssertEqual(Array(ids.dropFirst()), Array((12...30).reversed()), "then the most recently saved")
+    }
+
     // MARK: - Saved Searches widget route (fanficly://search?query=)
 
     /// What tapping the widget does: its link → RootView's query value →

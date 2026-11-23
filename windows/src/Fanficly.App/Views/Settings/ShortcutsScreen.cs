@@ -51,6 +51,7 @@ public sealed class ShortcutsScreen : Screen
                 ("Home / End", "Start / end of the chapter"),
                 ("Volume up / down", "Next / previous page, with “Volume buttons turn pages” on"),
                 ("Ctrl+L", "Listen to the chapter, or stop"),
+                ("Ctrl+F", "Find in this work"),
                 ("Esc", "Leave full screen, or show the reader controls"),
                 ("F11", "Full screen"),
             ]),

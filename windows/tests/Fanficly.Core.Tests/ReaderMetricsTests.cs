@@ -384,6 +384,9 @@ public class ReaderPaginationTests(ITestOutputHelper output)
             ReaderMetrics.DefaultParagraphSpacing, 0, false, 70),
         new("small sans", ReaderFontFamily.Sans, 13, 2, 8, 0, false, 90),
         new("huge bold serif", ReaderFontFamily.Serif, 27, 12, 30, 1.5, true, 100),
+        // The largest size the slider allows (#174).
+        new("maximum bold", ReaderFontFamily.NewYork, ReaderMetrics.FontSizeRange.Max, ReaderMetrics.DefaultLineSpacing,
+            ReaderMetrics.DefaultParagraphSpacing, 0, true, 90),
     ];
 
     /// <summary>~3,000 words of plain prose: paragraphs of one to twelve sentences,
@@ -446,7 +449,11 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         return new Layout(width, device.PageArea.Height - 2 * ReaderPaginator.PageVerticalMargin, spread is null ? 1 : 2);
     }
 
-    private sealed record Pagination(IReadOnlyList<ChapterPage> Pages, List<ParagraphAtom> Atoms, double ChapterHeaderHeight);
+    /// <param name="HeaderFillsPage">The chapter header leaves no room under it for the
+    /// chapter's first word (the largest text sizes on a short page), so it gets a page
+    /// to itself.</param>
+    private sealed record Pagination(IReadOnlyList<ChapterPage> Pages, List<ParagraphAtom> Atoms, double ChapterHeaderHeight,
+                                     bool HeaderFillsPage = false);
 
     /// <summary>A chapter after the first (chapter 1 adds the work's title page).
     /// <paramref name="checked"/> false paginates as unchecked adjacent chapters are:
@@ -466,7 +473,11 @@ public class ReaderPaginationTests(ITestOutputHelper output)
             // against the drawn layout.
             drawnHeight: @checked ? Drawn(type, layout) : null,
             startingAt: start);
-        return new Pagination(pages, atoms, header);
+        var room = layout.ViewportHeight - header;
+        var reserve = @checked ? ReaderPaginator.Reserve : ReaderPaginator.UncheckedReserve(room);
+        var firstWord = ReaderPaginator.CalculateHeight(ReaderPaginator.FirstWord(atoms[0]), layout.ColumnWidth,
+                                                        type.Reader, Measurer);
+        return new Pagination(pages, atoms, header, HeaderFillsPage: firstWord + 1 > room - reserve);
     }
 
     private static DrawnHeight Drawn(Typography type, Layout layout) =>
@@ -483,8 +494,16 @@ public class ReaderPaginationTests(ITestOutputHelper output)
     private static double FillTolerance(Typography type, Layout layout)
     {
         var oneLine = ReaderPaginator.Atoms("<p>Ag</p>", includeImages: false);
-        var line = Drawn(type, layout)(oneLine, new IndexRange(0, oneLine.Count)) + type.LineSpacing;
-        return ReaderPaginator.Reserve + type.ParagraphSpacing + line + 1;
+        var measure = Drawn(type, layout);
+        var line = measure(oneLine, new IndexRange(0, oneLine.Count)) + type.LineSpacing;
+        // A word wider than the column (the largest text sizes on a narrow phone)
+        // wraps onto two lines and can't be split at a space, so it may leave that
+        // much blank instead.
+        var longest = ReaderPaginator.Atoms(ChapterHtml, includeImages: false)
+            .SelectMany(a => a.Text.Text.Split(' ')).Distinct().OrderByDescending(w => w.Length).Take(5)
+            .Select(w => ReaderPaginator.Atoms($"<p><b>{w}</b></p>", includeImages: false))
+            .Max(word => measure(word, new IndexRange(0, word.Count)) + type.LineSpacing);
+        return ReaderPaginator.Reserve + type.ParagraphSpacing + Math.Max(line, longest) + 1;
     }
 
     private static void AssertEverySentenceOnOnePage(Pagination result, string label)
@@ -493,7 +512,10 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         foreach (var page in result.Pages)
         {
             Assert.True(page.ParagraphIndices.Start == next, $"{label}: gap or overlap before page {page.PageIndex}");
-            Assert.False(page.ParagraphIndices.IsEmpty, $"{label}: empty page {page.PageIndex}");
+            // Only a chapter header with no room for a line under it has a page to
+            // itself (these are later chapters, so the header is on page 0).
+            if (!(result.HeaderFillsPage && page.PageIndex == 0))
+                Assert.False(page.ParagraphIndices.IsEmpty, $"{label}: empty page {page.PageIndex}");
             next = page.ParagraphIndices.End;
         }
         Assert.True(next == result.Atoms.Count, $"{label}: sentences missing from the last page");
@@ -688,6 +710,241 @@ public class ReaderPaginationTests(ITestOutputHelper output)
                                                        "A Work", "", "", null, true, Measurer).Pages);
         output.WriteLine($"{result.Pages.Count} pages across three chapters");
     }
+
+    // MARK: - Paginating in slices (#164)
+
+    [Fact]
+    public void PagesTurnedWhileRepaginating_StayOnThePageReached()
+    {
+        // A long one-shot re-paginates in slices while the old pages stay up and
+        // turning. The new pages break where the page on screen was when it started;
+        // the page the reader turned to since is found in them.
+        ForEachLayout((_, type, layout, label) =>
+        {
+            var before = Paginate(type, layout);
+            var started = before.Pages[before.Pages.Count / 3];
+            var reached = before.Pages[before.Pages.Count * 2 / 3];
+            var start = ReaderPaginator.Start(started, before.Atoms);
+            var moved = ReaderPaginator.Start(reached, before.Atoms);
+            Assert.NotNull(start);
+            Assert.NotNull(moved);
+            var resized = layout with { ViewportHeight = layout.ViewportHeight - ControlsHeight };
+            var after = Paginate(type, resized, start: start);
+            var page = ReaderPaginator.PageContaining(moved.Value, after.Pages, after.Atoms);
+            Assert.NotNull(page);
+            // It starts at or before the place reached, and the next page after it.
+            static (int, int, int) Key(PageStart p) => (p.Paragraph, p.Sentence, p.Offset);
+            var pageStart = ReaderPaginator.Start(page, after.Atoms);
+            Assert.NotNull(pageStart);
+            Assert.True(Key(pageStart.Value).CompareTo(Key(moved.Value)) <= 0, $"{label}: the page found starts after the place reached");
+            var i = after.Pages.ToList().IndexOf(page);
+            if (i + 1 < after.Pages.Count && ReaderPaginator.Start(after.Pages[i + 1], after.Atoms) is { } next)
+                Assert.True(Key(next).CompareTo(Key(moved.Value)) > 0, $"{label}: the place reached is on a later page");
+        });
+    }
+
+    // MARK: - Refitting the pages near the reader first (#349)
+
+    private static NearbyRefit? Refit(Pagination before, PageStart start, Typography type, Layout layout,
+                                      int pagesBefore = 1, int pagesAfter = 2) =>
+        NearbyRefit.Create(2, before.Pages, before.Atoms, ReaderPaginator.Atoms(ChapterHtml, includeImages: false), start,
+                           layout.ColumnWidth, layout.ViewportHeight, before.ChapterHeaderHeight, isFirstChapter: false,
+                           showChapterHeader: true, type.Reader, Measurer, Drawn(type, layout), pagesBefore, pagesAfter);
+
+    /// <summary>Each paragraph's text as its atoms make it.</summary>
+    private static List<string> ParagraphTexts(IEnumerable<ParagraphAtom> atoms) =>
+        atoms.GroupBy(a => a.OriginalParagraphIndex).OrderBy(g => g.Key)
+             .Select(g => ReaderPageContent.ConcatenateAtoms(g.ToList()).Text).ToList();
+
+    /// <summary>A page's text.</summary>
+    private static string TextOf(ChapterPage page, List<ParagraphAtom> atoms) =>
+        ReaderPageContent.ConcatenateAtoms(atoms.GetRange(page.ParagraphIndices.Start, page.ParagraphIndices.Count)).Text;
+
+    [Fact]
+    public void RefittingNearTheReader_MakesThePagesTheFullPaginationMakesThere()
+    {
+        // A long one-shot's page area changes (the controls, a resize): the pages near
+        // the one on screen are refitted first, the rest keep their old pages until the
+        // whole chapter is paginated again.
+        ForEachLayout((_, type, layout, label) =>
+        {
+            var before = Paginate(type, layout);
+            var page = before.Pages[before.Pages.Count / 2];
+            var start = ReaderPaginator.Start(page, before.Atoms);
+            Assert.NotNull(start);
+            foreach (var change in new[] { ControlsHeight, -ControlsHeight })
+            {
+                var context = $"{label}, {(change > 0 ? "controls hidden" : "controls shown")}";
+                var resized = layout with { ViewportHeight = layout.ViewportHeight + change };
+                var full = Paginate(type, resized, start: start);
+                var refit = Refit(before, start.Value, type, resized);
+                Assert.True(refit is not null, $"{context}: no refit");
+                while (refit.PackNextPage()) { }
+                var result = new Pagination(refit.Pages, refit.Atoms, before.ChapterHeaderHeight, before.HeaderFillsPage);
+
+                // Every sentence once, the chapter's text unchanged, and pages numbered
+                // from the chapter's start.
+                AssertEverySentenceOnOnePage(result, context);
+                Assert.True(result.Pages.Select(p => p.PageIndex).SequenceEqual(Enumerable.Range(0, result.Pages.Count)),
+                            $"{context}: page numbers");
+                Assert.True(result.Pages.All(p => p.Id == $"c2-p{p.PageIndex}"), $"{context}: page ids");
+                Assert.True(ParagraphTexts(result.Atoms).SequenceEqual(ParagraphTexts(full.Atoms)), $"{context}: the text changed");
+
+                // The page on screen keeps its place, and from it on the refitted pages
+                // are the full pagination's (but the last, which stops short of the next
+                // old page).
+                var keptId = refit.KeptPageId;
+                Assert.True(keptId is not null, $"{context}: no page starts where the one on screen did");
+                var refitted = refit.RefittedPages.SkipWhile(p => p.Id != keptId).ToList();
+                var fullKept = full.Pages.First(p => ReaderPaginator.Start(p, full.Atoms) == start);
+                var fullFromKept = full.Pages.SkipWhile(p => p.Id != fullKept.Id).ToList();
+                Assert.NotEmpty(refitted);
+                foreach (var (mine, theirs) in refitted.SkipLast(1).Zip(fullFromKept))
+                    Assert.True(TextOf(mine, result.Atoms) == TextOf(theirs, full.Atoms),
+                                $"{context}: refitted page {mine.PageIndex} differs from the full pagination's");
+                AssertPagesFit(result with { Pages = refit.RefittedPages }, type, resized, context);
+                AssertPagesFull(refitted.SkipLast(1), result, type, resized, context);
+                if (layout.PagesOnScreen == 2)
+                    Assert.True(ReaderSpread.Spreads(result.Pages).Any(s => s.Left.Id == keptId),
+                                $"{context}: the kept page stays on the left of its spread");
+            }
+        });
+    }
+
+    [Fact]
+    public void RefittingNearTheReader_NeedsThePageOnScreenToBeAPageBreak()
+    {
+        var type = Typographies[0];
+        var layout = LayoutFor(Devices[1], type);
+        var before = Paginate(type, layout);
+        var atom = before.Atoms[before.Pages[before.Pages.Count / 2].ParagraphIndices.Start];
+        // A place partway into the page: not where any old page starts.
+        var inside = new PageStart(2, atom.OriginalParagraphIndex, atom.SentenceIndex, atom.SentenceOffset + 1);
+        Assert.Null(Refit(before, inside, type, layout));
+    }
+
+    [Fact]
+    public void OnlyAChangedPageArea_RefitsNearTheReader()
+    {
+        var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
+        Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(402, 610) }));
+        Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(900, 600), WidthPercent = 88 }));
+        Assert.False(trigger.DiffersOnlyInPageArea(trigger with { FontSize = 20 }));
+        Assert.False(trigger.DiffersOnlyInPageArea(trigger with { ShowImages = true }));
+        Assert.False(trigger.DiffersOnlyInPageArea(trigger with { Chapter = 3 }));
+    }
+
+    [Fact]
+    public async Task RefitNearby_RefitsOnlyALongChapter_AndKeepsItsNeighbours()
+    {
+        // A one-shot long enough to refit (and a short chapter either side).
+        var longHtml = string.Concat(Enumerable.Repeat(ChapterHtml, 8));
+        AO3ChapterPayload[] chapters = [new(1, "One", ChapterHtml), new(2, "Two", longHtml),
+                                        new(3, "Three", "<p>A short chapter. It ends here.</p>")];
+        var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
+        var before = ReaderPaginator.PerformPagination(trigger, null, chapters, "A Work", "tester", "tester", null,
+                                                       limitLineLength: true, Measurer);
+        var chapterPages = before.Pages.Where(p => p.ChapterIndex == 2).ToList();
+        Assert.True(chapterPages.Count >= NearbyRefit.MinimumPages, $"{chapterPages.Count} pages");
+        var start = ReaderPaginator.Start(chapterPages[chapterPages.Count / 2], before.Atoms[2])!.Value;
+        var smaller = trigger with { Size = new ReaderSize(402, 610) };
+        var refit = await ReaderPaginator.RefitNearbyAsync(
+            smaller, start, before.Pages, before.Atoms, chapters, limitLineLength: true, Measurer, null,
+            pause: () => Task.CompletedTask, slice: TimeSpan.Zero, CancellationToken.None);
+        Assert.NotNull(refit);
+        Assert.Equal(before.Pages.Where(p => p.ChapterIndex != 2), refit.Pages.Where(p => p.ChapterIndex != 2));
+        Assert.Equal([1, 2, 3], refit.Pages.Select(p => p.ChapterIndex).Distinct());
+        Assert.Equal([2], refit.Atoms.Keys);
+        var kept = refit.Pages.Single(p => p.Id == refit.KeptPageId);
+        Assert.Equal(start, ReaderPaginator.Start(kept, refit.Atoms[2]));
+
+        // The same place, refitted and then paginated in full, lands on a page that
+        // starts there.
+        var full = ReaderPaginator.PerformPagination(smaller, start, chapters, "A Work", "tester", "tester", null,
+                                                     limitLineLength: true, Measurer);
+        Assert.Equal(TextOf(full.Pages.Single(p => p.Id == full.KeptPageId), full.Atoms[2]), TextOf(kept, refit.Atoms[2]));
+
+        // A short chapter paginates in full straight away.
+        var shortStart = ReaderPaginator.Start(before.Pages.First(p => p.ChapterIndex == 3), before.Atoms[3])!.Value;
+        Assert.Null(await ReaderPaginator.RefitNearbyAsync(
+            smaller with { Chapter = 3 }, shortStart, before.Pages, before.Atoms, chapters, limitLineLength: true, Measurer,
+            null, pause: () => Task.CompletedTask, slice: TimeSpan.Zero, CancellationToken.None));
+    }
+
+    [Fact]
+    public void SteppingAChapter_MakesThePagesOfOneGo()
+    {
+        var type = Typographies[0];
+        var layout = LayoutFor(Devices[1], type);
+        var whole = Paginate(type, layout, isFirstChapter: true);
+        var atoms = ReaderPaginator.Atoms(ChapterHtml, includeImages: false);
+        var header = ReaderPaginator.EstimateChapterHeaderHeight("The Long Way Round", layout.ColumnWidth, type.FontSize,
+                                                                 type.Family, Measurer);
+        var run = new ChapterPagination(1, atoms, layout.ColumnWidth, layout.ViewportHeight, header, isFirstChapter: true,
+                                        showChapterHeader: true, type.Reader, Measurer, Drawn(type, layout));
+        var steps = 0;
+        while (run.PackNextPage()) steps++;
+        Assert.False(run.PackNextPage());
+        Assert.Equal(whole.Pages, run.Pages);
+        Assert.Equal(whole.Atoms.Select(a => a.Text.Text), atoms.Select(a => a.Text.Text));
+        // One step a page of text (the title page comes with the first).
+        Assert.Equal(whole.Pages.Count - 1, steps);
+    }
+
+    [Fact]
+    public void AChapterWithNoText_StillGetsItsPage()
+    {
+        var run = new ChapterPagination(3, [], 300, 500, 60, isFirstChapter: false, showChapterHeader: true,
+                                        Typographies[0].Reader, Measurer);
+        Assert.False(run.PackNextPage());
+        Assert.Equal(["c3-p0"], run.Pages.Select(p => p.Id));
+    }
+
+    [Fact]
+    public void ParsedAtoms_AreReusedUntilTheChapterChanges()
+    {
+        var cache = new ChapterAtomsCache();
+        var chapter = new AO3ChapterPayload(1, "", "<p>One. Two.</p><p>Three.</p>");
+        var first = cache.Atoms(chapter, includeImages: false);
+        Assert.Equal(3, first.Count);
+        var again = cache.Atoms(chapter, includeImages: false);
+        Assert.Equal(first.Select(a => a.Id), again.Select(a => a.Id));
+        // A copy: pagination splits the list it's given.
+        again.RemoveAt(0);
+        Assert.Equal(3, cache.Atoms(chapter, includeImages: false).Count);
+        // The images setting changes paragraph indices, so it parses again.
+        Assert.NotEqual(first.Select(a => a.Id), cache.Atoms(chapter, includeImages: true).Select(a => a.Id));
+        Assert.Single(cache.Atoms(chapter with { BodyHtml = "<p>One.</p>" }, includeImages: false));
+        var kept = cache.Atoms(chapter, includeImages: false).Select(a => a.Id).ToList();
+        cache.KeepOnly([2]);
+        Assert.NotEqual(kept, cache.Atoms(chapter, includeImages: false).Select(a => a.Id));
+    }
+
+    [Fact]
+    public async Task PaginatingInSlices_MakesThePagesOfOneGo_AndStopsOnceCancelled()
+    {
+        AO3ChapterPayload[] chapters = [new(1, "One", ChapterHtml), new(2, "Two", ChapterHtml), new(3, "Three", ChapterHtml)];
+        var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
+        var whole = ReaderPaginator.PerformPagination(trigger, null, chapters, "A Work", "tester", "tester", null,
+                                                      limitLineLength: true, Measurer);
+        var pauses = 0;
+        var sliced = await ReaderPaginator.PerformPaginationAsync(
+            trigger, null, chapters, limitLineLength: true, Measurer, new ChapterAtomsCache(),
+            pause: () => { pauses++; return Task.CompletedTask; }, slice: TimeSpan.Zero, CancellationToken.None);
+        Assert.NotNull(sliced);
+        Assert.Equal(whole.Pages, sliced.Pages);
+        // A pause after every page (and every chapter's parsing).
+        Assert.True(pauses >= whole.Pages.Count, $"{pauses} pauses for {whole.Pages.Count} pages");
+
+        // A newer trigger cancels a run at its next pause.
+        using var cancel = new CancellationTokenSource();
+        var cancelledPauses = 0;
+        var cancelled = await ReaderPaginator.PerformPaginationAsync(
+            trigger, null, chapters, limitLineLength: true, Measurer, null,
+            pause: () => { cancelledPauses++; cancel.Cancel(); return Task.CompletedTask; }, slice: TimeSpan.Zero, cancel.Token);
+        Assert.Null(cancelled);
+        Assert.Equal(1, cancelledPauses);
+    }
 }
 
 /// <summary>Ctrl+Plus / Ctrl+Minus step the reader's text size, as the Mac's
@@ -707,8 +964,19 @@ public class ReaderFontSizeStepTests
         var (min, max) = ReaderMetrics.FontSizeRange;
         Assert.Equal(max, ReaderMetrics.SteppedFontSize(max, bigger: true));
         Assert.Equal(min, ReaderMetrics.SteppedFontSize(min, bigger: false));
-        Assert.Equal(max, ReaderMetrics.SteppedFontSize(40, bigger: false));
+        Assert.Equal(max, ReaderMetrics.SteppedFontSize(max + 10, bigger: false));
         Assert.Equal(min, ReaderMetrics.SteppedFontSize(4, bigger: true));
+    }
+
+    /// <summary>Story text goes well past the old 30-point ceiling, and the Aa
+    /// menu's presets reach the top of the range (#174).</summary>
+    [Fact]
+    public void RangeAndPresets_ReachSixtyPoints()
+    {
+        Assert.Equal(60, ReaderMetrics.FontSizeRange.Max);
+        foreach (var (name, value) in ReaderMetrics.FontSizePresets)
+            Assert.True(value >= ReaderMetrics.FontSizeRange.Min && value <= ReaderMetrics.FontSizeRange.Max, name);
+        Assert.Equal(ReaderMetrics.FontSizeRange.Max, ReaderMetrics.FontSizePresets[^1].Value);
     }
 
     [Fact]
