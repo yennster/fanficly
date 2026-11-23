@@ -105,7 +105,7 @@ internal sealed class WorkExporter
             if (path is null) return false;
             var file = await StorageFile.GetFileFromPathAsync(path);
             if (saveAs) await SaveCopyAsync(file, title, WorkExportFormat.Epub);
-            else ShareService.Share(file, title);
+            else Library.ShareService.ShareFile(file, title);
         }
         catch (Exception e)
         {
