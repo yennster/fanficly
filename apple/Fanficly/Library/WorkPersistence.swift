@@ -163,6 +163,8 @@ enum WorkPersistence {
             try? FileManager.default.removeItem(at: url)
         }
         deindexWork(ao3Id: work.ao3Id)
+        // The Continue reading widget mustn't keep its title (#209).
+        clearLastRead(workId: work.ao3Id)
         // Saved again later, it starts without an earlier Remove Download.
         setDownloadRemoved(work.ao3Id, removed: false)
         context.delete(work)
@@ -277,6 +279,24 @@ enum WorkPersistence {
         folder.createdAt = stamp
         try? context.save()
         return .renamed
+    }
+
+    /// Forgets the last-read widget entry when it names `workId` (nil: any
+    /// work): a deleted or hidden work, or a cleared history (#209). Not in
+    /// demo mode: its library is in memory, but the widget's store is the
+    /// device's own.
+    @MainActor
+    static func clearLastRead(workId: Int?) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.clear(workId: workId)
+    }
+
+    /// A hidden work never shows as the last-read widget entry, whenever its
+    /// copy was saved, until it's unhidden (#209). Not in demo mode.
+    @MainActor
+    static func setLastReadHidden(_ workId: Int, hidden: Bool) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.setHidden(workId, hidden: hidden)
     }
 
     @MainActor

@@ -82,6 +82,8 @@ struct CommentsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
+                        // Closing mid-post would hide a late failure (#204).
+                        .disabled(isPosting)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -99,6 +101,14 @@ struct CommentsView: View {
                 guard !didLoad else { return }
                 didLoad = true
                 await load()
+            }
+            // Done or a swipe down never loses a long comment (#204).
+            .onAppear {
+                if draft.isEmpty { draft = CommentDrafts.shared.text(workId: workId, chapterId: chapterId) }
+            }
+            .interactiveDismissDisabled(isPosting)
+            .onChange(of: draft) { _, text in
+                CommentDrafts.shared.set(text, workId: workId, chapterId: chapterId)
             }
         }
     }
@@ -225,6 +235,8 @@ struct CommentsView: View {
         defer { isPosting = false }
         do {
             try await client.postComment(workId: workId, chapterId: chapterId, text: text)
+            // Here too, not only through onChange: the sheet may have closed meanwhile.
+            CommentDrafts.shared.clearIfPosted(text, workId: workId, chapterId: chapterId)
             draft = ""
             composerFocused = false
             // Re-fetch so the new comment shows (AO3 may hold it for moderation).
@@ -232,10 +244,10 @@ struct CommentsView: View {
         } catch AO3Error.unauthorized {
             auth.markSessionExpired()
             postError = "Couldn't post: your AO3 login has expired. Log in again in Settings → AO3 Login, then post again. Your comment is still here."
-        } catch AO3Error.commentRejected(let message) {
-            postError = message
         } catch {
-            postError = "Couldn't post. \(error.localizedDescription) Your comment may be awaiting moderation, or try again."
+            // Worded by what went wrong: AO3's own refusal, or after a timeout
+            // "It may have been posted anyway…", so a retry doesn't post it twice.
+            postError = CommentPostError.message(for: error)
         }
     }
 }
