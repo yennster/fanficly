@@ -35,6 +35,9 @@ struct WorkFilterSheet: View {
     @State private var wordsTo: String = ""
     @State private var showingSaveDialog = false
     @State private var saveName = ""
+    /// Words typed in the Fandom field and not yet added: Apply adds them, as
+    /// Return would, so a typed fandom isn't silently dropped.
+    @State private var fandomTerm = ""
 
     init(filters: Binding<AO3SearchFilters>, editsFandom: Bool = false, onApply: @escaping () -> Void) {
         _filters = filters
@@ -64,6 +67,7 @@ struct WorkFilterSheet: View {
         f.freeformNames = splitTags(freeformsText)
         f.excludedFreeforms = splitTags(excludeText)
         f.wordCount = Self.wordCount(from: wordsFrom, to: wordsTo)
+        if editsFandom { f.fandomNames = SearchSuggestions.addingFandom(fandomTerm, to: f.fandomNames) }
         return f
     }
 
@@ -73,7 +77,7 @@ struct WorkFilterSheet: View {
         NavigationStack {
             Form {
                 if editsFandom {
-                    FandomPickerSection(fandoms: $draft.fandomNames)
+                    FandomPickerSection(fandoms: $draft.fandomNames, term: $fandomTerm)
                 }
                 savedFiltersSection
                 sortSection
@@ -350,6 +354,7 @@ struct WorkFilterSheet: View {
     private func reset() {
         var fresh = AO3SearchFilters()
         if !editsFandom { fresh.fandomNames = draft.fandomNames }
+        fandomTerm = ""
         draft = fresh
         seedText()
     }
@@ -360,14 +365,22 @@ struct WorkFilterSheet: View {
 /// AO3's fandom autocomplete (debounced, one throttled request, memoized);
 /// an empty field offers the popular fandoms. Only a tapped row (or Return,
 /// which keeps the typed words for `TagResolver` to canonicalize on search)
-/// adds a fandom: nothing is guessed. Picked fandoms go in
+/// adds a fandom, and Apply adds words left in the field the same way:
+/// nothing is guessed from the search box. Picked fandoms go in
 /// `work_search[fandom_names]`, so a work must be in every one.
 struct FandomPickerSection: View {
     @Binding var fandoms: [String]
+    /// The field's text; the sheet adds it on Apply.
+    @Binding var term: String
     @Environment(\.ao3Client) private var client
-    @State private var term = ""
     @State private var matches: [String] = []
     @State private var isLooking = false
+    @State private var lookupFailed = false
+    /// Read once: the live Popular snapshot, else the curated seed.
+    @State private var popular: [String] = {
+        let live = PopularStore.cached()?.fandoms ?? []
+        return live.isEmpty ? PopularTags.fandoms : live
+    }()
 
     private var trimmedTerm: String { term.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -410,7 +423,9 @@ struct FandomPickerSection: View {
             .task(id: trimmedTerm) { await lookUp() }
             ForEach(rows, id: \.self) { name in
                 Button {
-                    pick(name, fromAO3: true)
+                    // Only AO3's own answers are known canonical; the curated
+                    // names still go through TagResolver.
+                    pick(name, fromAO3: matches.contains(name))
                 } label: {
                     Label(name, systemImage: "plus.circle")
                         .foregroundStyle(.primary)
@@ -427,8 +442,7 @@ struct FandomPickerSection: View {
     /// Matches while typing; popular fandoms when the field is empty.
     private var rows: [String] {
         if trimmedTerm.isEmpty {
-            let popular = PopularStore.cached()?.fandoms ?? []
-            return SearchSuggestions.popularFandomPicks(popular.isEmpty ? PopularTags.fandoms : popular,
+            return SearchSuggestions.popularFandomPicks(popular,
                                                         excluding: fandoms,
                                                         limit: fandoms.isEmpty ? 6 : 0)
         }
@@ -439,8 +453,12 @@ struct FandomPickerSection: View {
         if fandoms.isEmpty && trimmedTerm.isEmpty {
             return "Popular fandoms are shown. Type to search AO3's list of fandoms."
         }
-        if !trimmedTerm.isEmpty && rows.isEmpty && !isLooking {
-            return "No AO3 fandom matches yet. Keep typing, or press Return to use what you typed."
+        if !trimmedTerm.isEmpty && rows.isEmpty {
+            if lookupFailed { return "Couldn't reach AO3's fandom list. Press Return to use what you typed." }
+            if isLooking { return "Looking up fandoms on AO3…" }
+            return trimmedTerm.count < 2
+                ? "Keep typing to search AO3's list of fandoms."
+                : "No AO3 fandom matches. Press Return to use what you typed."
         }
         return "Works must be tagged with every fandom you pick."
     }
@@ -460,19 +478,27 @@ struct FandomPickerSection: View {
     private func lookUp() async {
         matches = []
         isLooking = false
+        lookupFailed = false
         let phrase = trimmedTerm
         guard phrase.count >= 2 else { return }
+        isLooking = true
+        defer { if !Task.isCancelled { isLooking = false } }
         // Wait for a pause in typing: every lookup is a throttled AO3 request.
         try? await Task.sleep(for: .milliseconds(350))
         guard !Task.isCancelled else { return }
         let key = "fandom:" + phrase
         if let cached = await TagSuggestionCache.shared.value(for: key) {
+            guard !Task.isCancelled else { return }
             matches = cached
             return
         }
-        isLooking = true
-        defer { if !Task.isCancelled { isLooking = false } }
-        guard let fetched = try? await client.autocomplete(field: .fandom, term: phrase) else { return }
+        let fetched: [String]
+        do {
+            fetched = try await client.autocomplete(field: .fandom, term: phrase)
+        } catch {
+            if !Task.isCancelled { lookupFailed = true }
+            return
+        }
         await TagSuggestionCache.shared.set(fetched, for: key)
         guard !Task.isCancelled else { return }
         matches = fetched
