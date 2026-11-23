@@ -3512,8 +3512,9 @@ final class PersistenceTests: XCTestCase {
         work.noteCheckFailed(.signIn)
         work.noteCheckFailed(.signIn)
         XCTAssertEqual(work.checkStatus, .failing(.signIn))
-        XCTAssertFalse(WorkPersistence.toggleFollow(summary: summary, into: ctx))
-        XCTAssertTrue(WorkPersistence.toggleFollow(summary: summary, into: ctx))
+        // The Library swipe's Unfollow, then Save to Library follows again.
+        work.isFollowed = false
+        XCTAssertTrue(WorkPersistence.saveToLibrary(summary: summary, into: ctx).isFollowed)
         XCTAssertNil(work.checkStatus)
         XCTAssertNil(work.lastCheckedAt)
     }
