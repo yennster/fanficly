@@ -185,7 +185,14 @@ public sealed class SettingsScreen : Screen
         });
         MainWindow.Current.Announce($"Exporting {plan.Count} EPUB {(plan.Count == 1 ? "file" : "files")}.");
         var export = BulkEpubExport.ExportAsync(plan, AppHost.Library, folder, progress, cts.Token);
-        _ = export.ContinueWith(_ => dialog.DispatcherQueue.TryEnqueue(dialog.Hide), TaskScheduler.Default);
+        // Close the dialog when the export ends, but only once it's open: Hide
+        // does nothing to a dialog still waiting its turn, which would then
+        // sit at "N of N" until Cancel.
+        dialog.Opened += (_, _) =>
+        {
+            if (export.IsCompleted) dialog.Hide();
+            else _ = export.ContinueWith(_ => dialog.DispatcherQueue.TryEnqueue(dialog.Hide), TaskScheduler.Default);
+        };
         await Dialogs.ShowAsync(dialog);
         // Closed before the export finished: that was Cancel.
         if (!export.IsCompleted) cts.Cancel();

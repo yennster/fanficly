@@ -880,6 +880,36 @@
           }
         }
       }
+    },
+    "Exporting EPUBs… %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting EPUBs… %lld of %lld"
+          }
+        }
+      }
+    },
+    "Export %lld EPUB %@ (about %@)?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export %lld EPUB %@ (about %@)?"
+          }
+        }
+      }
+    },
+    "Couldn't write the EPUB files. %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't write the EPUB files. %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

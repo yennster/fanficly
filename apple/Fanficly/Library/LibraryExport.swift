@@ -78,7 +78,8 @@ enum LibraryCSV {
             "starred": yesNo(work.isStarred),
             "pinned": yesNo(work.isPinned),
             "following": yesNo(work.isFollowed),
-            "folders": list(folderNames.sorted()),
+            // UTF-16 order, as the Windows app's ordinal sort.
+            "folders": list(folderNames.sorted { $0.utf16.lexicographicallyPrecedes($1.utf16) }),
             "personal_tags": list(work.personalTags),
             "note": work.note ?? "",
             "downloaded": yesNo(downloaded ?? WorkPersistence.isDownloaded(work)),
@@ -138,7 +139,9 @@ enum LibraryCSV {
     /// RFC 4180: a field holding a comma, a quote or a line break is quoted,
     /// with its quotes doubled.
     static func escape(_ field: String) -> String {
-        guard field.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else {
+        // By UTF-8 byte, not Character: "\r\n" is one Character, equal to
+        // neither "\r" nor "\n".
+        guard field.utf8.contains(where: { $0 == 0x2C || $0 == 0x22 || $0 == 0x0A || $0 == 0x0D }) else {
             return field
         }
         return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""

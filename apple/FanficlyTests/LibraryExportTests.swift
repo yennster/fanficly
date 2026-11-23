@@ -220,8 +220,8 @@ final class LibraryExportTests: XCTestCase {
 
         // No client is involved at all: the export never reaches AO3.
         let exporter = BulkEPUBExporter()
-        let urls = try XCTUnwrap(try await exporter.export(plan, context: context, epubDirectory: epubs,
-                                                           outputDirectory: out))
+        let result = try await exporter.export(plan, context: context, epubDirectory: epubs, outputDirectory: out)
+        let urls = try XCTUnwrap(result)
         XCTAssertEqual(Set(urls.map(\.lastPathComponent)),
                        ["Same Name (917001).epub", "Same Name (917002).epub"])
         for url in urls {
