@@ -116,6 +116,7 @@ public static class Symbols
         ["xmark"] = "",
         ["xmark.circle.fill"] = "",
         ["checkmark"] = "",
+        ["circle"] = "",        // RadioBtnOff
         ["checkmark.circle"] = "",
         ["checkmark.circle.fill"] = "",
         ["plus.circle"] = "",

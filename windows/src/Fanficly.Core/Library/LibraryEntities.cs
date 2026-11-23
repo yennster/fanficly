@@ -993,10 +993,10 @@ public sealed class SubscriptionRecord : LibraryEntity, ICheckedRecord
 {
     internal static readonly string[] Columns =
         ["key", "kind", "display_name", "author_name", "last_seen_chapter_count", "last_checked_at",
-         "last_succeeded_at", "check_failures", "last_check_failure"];
+         "last_succeeded_at", "check_failures", "last_check_failure", "updated_at"];
     private string _kind, _displayName, _authorName;
     private int? _lastSeenChapterCount;
-    private DateTimeOffset? _lastCheckedAt, _lastSucceededAt;
+    private DateTimeOffset? _lastCheckedAt, _lastSucceededAt, _updatedAt;
     private int _checkFailures;
     private string? _lastCheckFailure;
 
@@ -1019,6 +1019,11 @@ public sealed class SubscriptionRecord : LibraryEntity, ICheckedRecord
     public int? LastSeenChapterCount { get => _lastSeenChapterCount; set => Set(ref _lastSeenChapterCount, value); }
     /// <summary>When the poller last tried this record (drives the rotation).</summary>
     public DateTimeOffset? LastCheckedAt { get => _lastCheckedAt; set => Set(ref _lastCheckedAt, value); }
+    /// <summary>AO3's Updated date for the work, from the poller's last good
+    /// check (#197); the Subscriptions widget sorts by it. Null until then. Not
+    /// backed up (the Swift <c>SubscriptionRecord.updatedAt</c> isn't either),
+    /// since the next check fills it in.</summary>
+    public DateTimeOffset? UpdatedAt { get => _updatedAt; set => Set(ref _updatedAt, value); }
     /// <summary>See <see cref="Work.LastSucceededAt"/> (#195). This PC only, not backed up.</summary>
     public DateTimeOffset? LastSucceededAt { get => _lastSucceededAt; set => Set(ref _lastSucceededAt, value); }
     public int CheckFailures { get => _checkFailures; set => Set(ref _checkFailures, value); }
@@ -1026,7 +1031,7 @@ public sealed class SubscriptionRecord : LibraryEntity, ICheckedRecord
 
     internal override object?[] ToRow() =>
         [Key, Kind, DisplayName, AuthorName, Db.I(LastSeenChapterCount), Db.D(LastCheckedAt),
-         Db.D(LastSucceededAt), Db.I(CheckFailures), LastCheckFailure];
+         Db.D(LastSucceededAt), Db.I(CheckFailures), LastCheckFailure, Db.D(UpdatedAt)];
     internal static SubscriptionRecord Read(SqliteDataReader r) =>
         new(Db.Str(r, 1), Db.Str(r, 2), Db.Str(r, 3), Db.Str(r, 4))
         {
@@ -1035,6 +1040,7 @@ public sealed class SubscriptionRecord : LibraryEntity, ICheckedRecord
             _lastSucceededAt = Db.DateN(r, 7),
             _checkFailures = Db.Int(r, 8),
             _lastCheckFailure = Db.StrN(r, 9),
+            _updatedAt = Db.DateN(r, 10),
         };
 }
 

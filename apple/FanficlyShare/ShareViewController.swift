@@ -44,7 +44,12 @@ class ShareViewController: UIViewController {
     
     private func openMainApp(with sharedURL: URL) {
         let scheme = "fanficly://import?url="
-        guard let encodedURL = sharedURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        // Encode the shared link's own "&", "=", "+", "?" and "#" too, so the
+        // whole link arrives as the `url` value and nothing spills into
+        // fanficly://import's own query.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        guard let encodedURL = sharedURL.absoluteString.addingPercentEncoding(withAllowedCharacters: allowed),
               let appURL = URL(string: "\(scheme)\(encodedURL)") else {
             self.cancelRequest()
             return

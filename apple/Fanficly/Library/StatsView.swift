@@ -154,6 +154,9 @@ struct StatsView: View {
         }
         .navigationTitle("Stats")
         .navigationBarTitleDisplayMode(.inline)
+        // A widget, Spotlight or notification tap opens the reader over this
+        // tab, and its byline, series and tag links push these.
+        .workAndAuthorDestinations()
         .toolbar {
             if !stats.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {

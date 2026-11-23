@@ -51,10 +51,15 @@ struct SubscriptionsView: View {
     @ViewBuilder
     private func subscriptionRow(_ sub: SubscriptionRecord) -> some View {
         if sub.kind == "work", let workId = workId(from: sub) {
-            // Tap a work subscription to open the fic. Render the same
-            // LibraryRow when we have the work cached locally — the
-            // subscription record alone only carries title + chapter count.
-            NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+            // Tap a work subscription to open the fic: a work saved in the
+            // Library opens its saved copy, like the Library does, so offline
+            // text reads offline (#175); any other opens the live work page.
+            // A new-chapter alert still opens the live page (RootView's
+            // NotificationRoute), since the saved copy lacks that chapter.
+            // Render the same LibraryRow when we have the work cached
+            // locally — the subscription record alone only carries title +
+            // chapter count.
+            NavigationLink(value: SavedFirstWorkRoute(workId: workId)) {
                 if let work = cachedWork(ao3Id: workId) {
                     LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: workId) != nil)
                 } else {
@@ -62,7 +67,7 @@ struct SubscriptionsView: View {
                 }
             }
             .contextMenu {
-                NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+                NavigationLink(value: SavedFirstWorkRoute(workId: workId)) {
                     Label("Open", systemImage: "book")
                 }
                 openOnAO3Button(ao3Page(for: sub))
@@ -200,8 +205,7 @@ struct SubscriptionsView: View {
     }
 
     private func cachedWork(ao3Id: Int) -> Work? {
-        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
-        return (try? context.fetch(descriptor))?.first
+        WorkPersistence.savedWork(ao3Id: ao3Id, in: context)
     }
 
     private func workId(from sub: SubscriptionRecord) -> Int? {
@@ -336,6 +340,7 @@ struct SubscriptionsView: View {
                 syncIfNew()
             }
         }
+        .savedFirstWorkDestination()
         .navigationDestination(for: Work.self) { SavedWorkReader(work: $0) }
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
@@ -415,10 +420,15 @@ struct SubscriptionsView: View {
         // The per-work and per-author checks are throttled (1 req/sec) and
         // only feed notifications, so run them after the list is showing.
         // Followed works and authors need no login (#186).
+        // Skipped while a full check runs: it covers these works too, and
+        // two at once could alert twice for the same chapter.
         isChecking = true
-        let chapters = await poller.checkWorksForNewChapters()
-        let newWorks = await poller.checkFollowedAuthors()
+        let counts = await BackgroundRefresh.exclusive {
+            (await poller.checkWorksForNewChapters(), await poller.checkFollowedAuthors())
+        }
         isChecking = false
+        guard let counts else { return }
+        let (chapters, newWorks) = counts
         // Cancelled, or another account's: the results aren't this one's to show.
         guard !Task.isCancelled, auth.username == username, !poller.accountChanged else {
             syncIfNew()
