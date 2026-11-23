@@ -81,6 +81,7 @@ public static class Symbols
         ["backward.fill"] = "",        // Previous
         ["forward.fill"] = "",         // Next
         ["speedometer"] = "",
+        ["moon.zzz"] = "\uE708",           // QuietHours (sleep timer)
         ["music.note"] = "",
 
         // Fandom categories

@@ -1,5 +1,8 @@
 namespace Fanficly.App.Shell;
 
+/// <summary>How the stack changed: a new tab root, a push, or a step back.</summary>
+public enum NavigationChange { Root, Push, Back }
+
 /// <summary>
 /// The detail column's navigation stack (SwiftUI's NavigationPath). The root
 /// is the selected sidebar tab; screens push on top of it.
@@ -8,8 +11,8 @@ public sealed class Navigator
 {
     private readonly List<Screen> _stack = [];
 
-    /// <summary>Raised after every change, with whether it moved forward (a push).</summary>
-    public event Action<bool>? Changed;
+    /// <summary>Raised after every change, with how the stack moved.</summary>
+    public event Action<NavigationChange>? Changed;
 
     public Screen? Current => _stack.Count > 0 ? _stack[^1] : null;
     public Screen? Root => _stack.Count > 0 ? _stack[0] : null;
@@ -27,28 +30,30 @@ public sealed class Navigator
         root.Navigator = this;
         _stack.Add(root);
         root.OnAppearing();
-        Changed?.Invoke(false);
+        Changed?.Invoke(NavigationChange.Root);
     }
 
     public void Push(Screen screen)
     {
+        Current?.RememberFocus();
         Current?.OnDisappearing();
         screen.Navigator = this;
         _stack.Add(screen);
         screen.OnAppearing();
-        Changed?.Invoke(true);
+        Changed?.Invoke(NavigationChange.Push);
     }
 
     /// <summary>Replaces everything above the root with <paramref name="screen"/>
     /// (a notification or widget route opening on top of the current tab).</summary>
     public void ReplacePath(Screen screen)
     {
+        if (Current == Root) Current?.RememberFocus();
         Current?.OnDisappearing();
         for (var i = _stack.Count - 1; i >= 1; i--) { _stack[i].OnRemoved(); _stack.RemoveAt(i); }
         screen.Navigator = this;
         _stack.Add(screen);
         screen.OnAppearing();
-        Changed?.Invoke(true);
+        Changed?.Invoke(NavigationChange.Push);
     }
 
     public bool GoBack()
@@ -60,7 +65,7 @@ public sealed class Navigator
         _stack.RemoveAt(_stack.Count - 1);
         top.OnRemoved();
         Current?.OnAppearing();
-        Changed?.Invoke(false);
+        Changed?.Invoke(NavigationChange.Back);
         return true;
     }
 
@@ -72,7 +77,7 @@ public sealed class Navigator
         Current?.OnDisappearing();
         for (var i = _stack.Count - 1; i >= index; i--) { _stack[i].OnRemoved(); _stack.RemoveAt(i); }
         Current?.OnAppearing();
-        Changed?.Invoke(false);
+        Changed?.Invoke(NavigationChange.Back);
     }
 
     public void PopToRoot()
@@ -81,6 +86,6 @@ public sealed class Navigator
         Current?.OnDisappearing();
         for (var i = _stack.Count - 1; i >= 1; i--) { _stack[i].OnRemoved(); _stack.RemoveAt(i); }
         Current?.OnAppearing();
-        Changed?.Invoke(false);
+        Changed?.Invoke(NavigationChange.Back);
     }
 }

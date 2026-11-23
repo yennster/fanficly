@@ -167,6 +167,42 @@ enum SearchSuggestions {
             .map(\.element)
     }
 
+    /// The Filters sheet's fandom picker: what to offer for `term`. A known
+    /// abbreviation's fandom ("hp", "mcu") comes first, then AO3's fandom
+    /// autocomplete (`names`) re-ranked like the typeahead's; fandoms already
+    /// picked are left out. Nothing is ever picked for the user.
+    static func fandomPicks(for term: String, from names: [String], excluding picked: [String] = [], limit: Int = 8) -> [String] {
+        let phrase = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !phrase.isEmpty else { return [] }
+        let taken = Set(picked.map { $0.lowercased() })
+        var out: [String] = []
+        var seen = taken
+        if let alias = KnownTags.fandomAliases[phrase.lowercased()], seen.insert(alias.lowercased()).inserted {
+            out.append(alias)
+        }
+        for name in rankTags(names, for: phrase, limit: limit + taken.count + 1)
+        where seen.insert(name.lowercased()).inserted {
+            out.append(name)
+        }
+        return Array(out.prefix(limit))
+    }
+
+    /// Quick picks for an empty fandom field: the popular fandoms (live
+    /// snapshot, else the curated seed), minus the ones already picked.
+    static func popularFandomPicks(_ popular: [String], excluding picked: [String] = [], limit: Int = 6) -> [String] {
+        let taken = Set(picked.map { $0.lowercased() })
+        var seen = taken
+        return Array(popular.filter { seen.insert($0.lowercased()).inserted }.prefix(limit))
+    }
+
+    /// Adds a fandom to the picked list unless it's already there (any case).
+    static func addingFandom(_ name: String, to picked: [String]) -> [String] {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !picked.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else { return picked }
+        return picked + [trimmed]
+    }
+
     /// Applies a tapped suggestion: the filter goes into `filters`, and the
     /// words it came from leave the search text.
     static func apply(_ candidate: SuggestionCandidate, text: inout String, filters: inout AO3SearchFilters) {

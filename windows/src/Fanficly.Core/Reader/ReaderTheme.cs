@@ -129,7 +129,11 @@ public static class ReaderMetrics
     public const double MaxLineLengthEm = 40;
 
     public const double DefaultFontSize = 18;
-    public static readonly (double Min, double Max) FontSizeRange = (12, 30);
+    /// <summary>Up to 60 points, as the Swift app (#174). Windows' Text size setting
+    /// (Settings → Accessibility, up to 225 %) scales the reader's XAML text on top
+    /// of this by itself, and the paginator measures that same scaled text, so the
+    /// default needs no adjusting for it; page by page measures any size.</summary>
+    public static readonly (double Min, double Max) FontSizeRange = (12, 60);
     public const double FontSizeStep = 1;
 
     /// <summary>Ctrl+Plus / Ctrl+Minus (the Mac's ⌘+ / ⌘−, Reader → Bigger / Smaller
@@ -158,6 +162,7 @@ public static class ReaderMetrics
     [
         ("Extra Small", 13), ("Small", 15), ("Medium", 18),
         ("Large", 20), ("Extra Large", 23), ("Huge", 27),
+        ("Giant", 34), ("Jumbo", 44), ("Maximum", 60),
     ];
     public static readonly IReadOnlyList<(string Name, double Value)> LineSpacingPresets =
     [
