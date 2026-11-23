@@ -67,7 +67,7 @@ struct SubscriptionsView: View {
                 }
             }
             .contextMenu {
-                NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+                NavigationLink(value: SavedFirstWorkRoute(workId: workId)) {
                     Label("Open", systemImage: "book")
                 }
                 openOnAO3Button(ao3Page(for: sub))
