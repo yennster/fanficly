@@ -20,6 +20,22 @@ commits don't redeploy the site.
 `www.fanficly.app` and the old `fanficly.jennyspeelman.dev` redirect to
 `fanficly.app` (also in `vercel.json`).
 
+## Shared work links and the App Clip
+
+`https://fanficly.app/works/<id>` (optionally `?chapter=n`) is the link the
+Apple app's App Clip opens (#292; `apple/Fanficly/WorkLink.swift`). On an
+iPhone or iPad iOS opens the installed app or the App Clip; anywhere else
+`vercel.json` rewrites every `/works/` path to `work.html`, which links to the
+work on AO3 and carries Safari's App Clip banner. It makes no requests of its
+own and isn't indexed.
+
+`/.well-known/apple-app-site-association` lists the app's universal links and
+the App Clip, served as `application/json` (`vercel.json`). It holds the Apple
+team ID, so the **App Clip** workflow writes it (task `website-association`,
+`apple/bin/app-clip.py`) and pushes it to a branch to merge; Apple's CDN
+fetches it from here, so it must stay on `fanficly.app`, not behind a redirect.
+CI checks it against `apple/project.yml`.
+
 ## Images
 
 Everything in `assets/` comes from the app's own screenshots, resized and

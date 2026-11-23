@@ -51,6 +51,8 @@ public sealed class AO3Client : IAO3Client, IDisposable
     private CookieContainer _cookies = new();
     private bool _cookiesLoaded;
     private string? _lastSavedCookies;
+    // The last vault save failed: retried on every answer until one succeeds (#210).
+    private bool _cookieSaveFailed;
     /// <summary>Signed in on this PC: cookie changes are saved. Read from the
     /// vault at the first request, set by a sign-in, cleared by logout.</summary>
     private bool _signedIn;
@@ -198,6 +200,7 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 _cookieGeneration++;
                 hadSession = SiteCookiesLocked().Any(IsAccountCookie);
                 _lastSavedCookies = SerializableCookie.ToJson([]);
+                _cookieSaveFailed = false;
             }
             // The username too, right away (with the saved cookies; the jar still
             // has them for AO3's logout): close the app while AO3 is being asked,
@@ -1119,16 +1122,17 @@ public sealed class AO3Client : IAO3Client, IDisposable
             }
             catch (OperationCanceledException e) when (!ct.IsCancellationRequested)
             {
-                Log?.Invoke($"{method} {uri.AbsolutePath} timed out after {Elapsed(started)}");
+                Log?.Invoke($"{method} {AO3Endpoints.RouteShape(uri)} timed out after {Elapsed(started)}");
                 throw new TimeoutException("The request timed out.", e);
             }
             catch (HttpRequestException e)
             {
-                Log?.Invoke($"{method} {uri.AbsolutePath} failed after {Elapsed(started)}: {e.Message}");
+                Log?.Invoke($"{method} {AO3Endpoints.RouteShape(uri)} failed after {Elapsed(started)}: {e.Message}");
                 throw;
             }
-            // Path only: queries can hold search terms, and nothing here is a secret.
-            Log?.Invoke($"{method} {uri.AbsolutePath} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
+            // The route's shape only (/works/{id}): the path names the work, author or
+            // tag the reader opened, and the query can hold search terms (#208).
+            Log?.Invoke($"{method} {AO3Endpoints.RouteShape(uri)} → {(int)response.StatusCode} over HTTP/{response.Version} in {Elapsed(started)}");
             NoteAltSvc(uri, response);
 
             using (response)
@@ -1212,7 +1216,14 @@ public sealed class AO3Client : IAO3Client, IDisposable
     /// last logout: those belong to the session it ended.</summary>
     private void StoreCookies(Uri uri, HttpResponseMessage response, int generation)
     {
-        if (!response.Headers.TryGetValues("Set-Cookie", out var values)) return;
+        if (!response.Headers.TryGetValues("Set-Cookie", out var values))
+        {
+            // A save that failed tries again on the next answer, cookies or not.
+            bool retry;
+            lock (_cookieGate) retry = SaveNeedsRetryLocked && generation == _cookieGeneration;
+            if (retry) PersistCookies();
+            return;
+        }
         lock (_cookieGate)
         {
             if (generation != _cookieGeneration) return;
@@ -1240,19 +1251,42 @@ public sealed class AO3Client : IAO3Client, IDisposable
                 if (!_signedIn) return;
                 snapshot = SiteCookiesLocked().Select(SerializableCookie.FromCookie).ToList();
                 json = SerializableCookie.ToJson(snapshot);
-                if (json == _lastSavedCookies) return;
+                if (json == _lastSavedCookies && !SaveNeedsRetryLocked) return;
             }
             // Outside the cookie lock: a file read and a DPAPI decrypt.
             if (!signingIn && StoredUsername() is null) return;
+            try
+            {
+                _vault.SaveCookies(snapshot);
+            }
+            catch (Exception e)
+            {
+                // A vault failure must not fail the request. Leaving the last-saved
+                // copy alone makes the next response save again (#210): AO3 sends
+                // remember_user_token only at sign-in, so skipping it would lose
+                // the sign-in at the next launch.
+                bool first;
+                lock (_cookieGate)
+                {
+                    first = !_cookieSaveFailed;
+                    _cookieSaveFailed = true;
+                }
+                // Once until a save gets through, not on every retry.
+                if (first) Log?.Invoke($"Couldn't save the AO3 sign-in ({e.GetType().Name}): {e.Message}");
+                return;
+            }
             lock (_cookieGate)
             {
                 // Logout can't run meanwhile (it takes _vaultGate first).
                 _lastSavedCookies = json;
+                _cookieSaveFailed = false;
             }
-            try { _vault.SaveCookies(snapshot); }
-            catch (Exception) { /* A vault failure must not fail the request. */ }
         }
     }
+
+    /// <summary>The last save failed, here or in the vault (a username the
+    /// sign-in couldn't write), so the next answer saves again (#210).</summary>
+    private bool SaveNeedsRetryLocked => _cookieSaveFailed || _vault is KeyedCookieVault { IsSessionUnsaved: true };
 
     private List<Cookie> SiteCookies()
     {

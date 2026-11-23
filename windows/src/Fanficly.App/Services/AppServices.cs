@@ -62,6 +62,9 @@ public static partial class AppHost
                     LibrarySyncManager.QueueBackupShared(Library);
                 },
             };
+            // Launch runs on the UI thread; the vault reports from request threads.
+            if (CredentialStore.Shared is KeyedCookieVault vault && Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread() is { } uiQueue)
+                vault.SessionSaveChanged += () => uiQueue.TryEnqueue(() => OnSessionSaveChanged(vault));
         }
 
         // This runs on the UI thread (OnLaunched): backups, restores and the
@@ -162,6 +165,20 @@ public static partial class AppHost
         };
         LibraryHooks.UpdateWidgetData = store => WidgetDataStore.UpdateAll(WidgetSources(store));
         if (!IsDemoMode) Library.Changed += _ => LibrarySyncManager.QueueBackupShared(Library);
+    }
+
+    /// <summary>The sign-in couldn't be written, or a retry finally wrote it
+    /// (#210): AuthState follows on the UI thread, and the first failure says so.</summary>
+    private static void OnSessionSaveChanged(KeyedCookieVault vault)
+    {
+        var saved = !vault.IsSessionUnsaved;
+        if (Auth.IsSessionSaved == saved) return;
+        Auth.IsSessionSaved = saved;
+        // Not gated on IsLoggedIn: at a fresh sign-in the first cookie save
+        // fails before AuthState has stored the name.
+        if (!saved)
+            MainWindow.Current?.ShowMessage("Couldn't save your AO3 sign-in", AuthState.SessionOnlyMessage,
+                Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning);
     }
 
     private static long _lastSaveFailureShown;
