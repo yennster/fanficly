@@ -908,7 +908,7 @@ public sealed class SearchScreen : Screen
                 MainWindow.Current.Announce(saved ? "Saved to Library" : "Removed from Library");
             }), followed ? "bookmark.slash" : "bookmark"));
             menu.Items.Add(UI.UI.MenuItem("Share Story...", () =>
-                ShareLink.Share(work.Title, new Uri($"https://archiveofourown.org/works/{work.Id}"), $"Check out this story: {work.Title}"),
+                Library.ShareService.ShareWork(work.Id, work.Title),
                 "square.and.arrow.up"));
         };
         holder.ContextFlyout = menu;
