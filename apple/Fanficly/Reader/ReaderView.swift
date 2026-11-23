@@ -34,6 +34,8 @@ struct ReaderView: View {
     // Text width inside each page of a two-page spread (one-page mode keeps
     // widthPercent, the Margins setting).
     @AppStorage(ReaderProfile.deviceKey("reader.spreadWidthPercent")) private var spreadWidthPercent: Double = ReaderSpread.defaultWidthPercent
+    /// Page-by-page's top and bottom margin inside each page.
+    @AppStorage(ReaderProfile.deviceKey("reader.pageMarginPt")) private var pageMarginPt: Double = ReaderMetrics.defaultPageMargin
     // Keep the display awake while reading (like a video player), so the screen
     // doesn't dim/lock mid-page when you go a while without touching it.
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
@@ -523,11 +525,17 @@ struct ReaderView: View {
             case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
-        // Hiding or showing the controls never moves the page: while they're
-        // hidden it keeps the place it had with them up, whatever the status
-        // bar and the toolbar strip do to the space around it.
+        // Hiding or showing the controls doesn't slide the page about: while
+        // they're hidden it keeps the place it had with them up, whatever the
+        // status bar and the toolbar strip do to the space around it. In
+        // page-by-page it also takes the empty bar's room at the top, so the
+        // page grows into it (its first words stay put) instead of leaving a
+        // blank band; the scrolling modes already run under it
+        // (scrollClipDisabled). Not iPhone Duo's open book, whose pages are
+        // pinned under the bar already (bookTopShift).
         // The narration bar coming or going changes the area for real.
-        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive)))
+        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive),
+                                       fillsTop: mode == .pageByPage && !duoBookLayout))
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             Group {
@@ -566,10 +574,10 @@ struct ReaderView: View {
         // shows or hides every control at once (the toolbar's items, the
         // system back button, the status bar, the page footer's details), and
         // with them hidden nothing is left on screen. The bar itself stays,
-        // empty, so the page under it never moves (see HoldStillWhileHidden).
-        // Before iOS 26 the bar has no glass, so it keeps its background there.
-        // The hosting screen drops its own items via ReaderFullScreenKey.
-        .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
+        // empty and see-through, and the text runs up under it (see
+        // HoldStillWhileHidden). The hosting screen drops its own items via
+        // ReaderFullScreenKey.
+        .toolbarBackground(duoBookLayout || isUIMinimized ? .hidden : .visible,
                            for: .navigationBar)
         .navigationBarBackButtonHidden(isUIMinimized)
         .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
@@ -1567,7 +1575,11 @@ struct ReaderView: View {
 
     /// A page's top and bottom margin, inside the area between the reader's
     /// bars. Pagination subtracts exactly this, so measured pages match drawn ones.
-    static let pageVerticalMargin: CGFloat = 12
+    static let pageVerticalMargin = CGFloat(ReaderMetrics.defaultPageMargin)
+
+    /// Page-by-page's top and bottom margin now (the Top & bottom margins
+    /// setting), in points as drawn under the app's zoom.
+    private var pageMargin: CGFloat { pageMarginPt / zoomScale }
 
     /// The text column in a page `containerWidth` wide, clear of the Duo's
     /// side column (`column`; the reader's own unless given).
@@ -1646,7 +1658,8 @@ struct ReaderView: View {
                     // re-paginates, keeping the page on screen in place.
                     height: readingHeight
                 ),
-                sideColumn: spread == nil ? sideColumn : .empty
+                sideColumn: spread == nil ? sideColumn : .empty,
+                verticalMargin: pageMargin
             )
             
             let content = Group {
@@ -1812,12 +1825,6 @@ struct ReaderView: View {
         }
     }
 
-    /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
-    private static var hasGlassBars: Bool {
-        if #available(iOS 26.0, *) { return true }
-        return false
-    }
-
     /// Where an open-book spread's pages start on iPhone Duo: clear of the
     /// display's rounded corners and camera, with room to breathe.
     private static let duoTopMargin: CGFloat = 32
@@ -1929,7 +1936,7 @@ struct ReaderView: View {
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
             .textColumn(placement(containerWidth, widthPercent: percent, column: column), in: containerWidth)
-            .padding(.vertical, Self.pageVerticalMargin)
+            .padding(.vertical, pageMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ProgressView()
@@ -2422,10 +2429,14 @@ struct ReaderView: View {
     /// so pinning pagination to it keeps the page count stable as the user
     /// shows/hides the chrome. Falls back to the supplied live height when no
     /// window is reachable (SwiftUI previews / unit tests).
+    /// The window's own height, to tell a genuine window resize from the page
+    /// area changing inside it. Not less its safe area: an iPad's status bar
+    /// hides with the controls, and full screen would read as a new window
+    /// (clearing `PageAreaTracker.controlsUpHeight`, so two pages could turn
+    /// into one).
     private func immersiveReadingHeight(fallback: CGFloat) -> CGFloat {
         guard let window = ReaderView.activeKeyWindow() else { return fallback }
-        let insets = window.safeAreaInsets
-        let height = window.bounds.height - insets.top - insets.bottom
+        let height = window.bounds.height
         return height > 100 ? height : fallback
     }
 
@@ -2446,7 +2457,7 @@ struct ReaderView: View {
                                                   limitLineLength: Self.limitsLineLength,
                                                   reservedLeading: trigger.sideColumn.leading,
                                                   reservedTrailing: trigger.sideColumn.trailing).width
-        return (w, trigger.size.height - 2 * Self.pageVerticalMargin)
+        return (w, max(trigger.size.height - 2 * trigger.verticalMargin, 1))
     }
 
     /// The pages on screen with only the ones near the reader refitted for
@@ -2840,6 +2851,10 @@ struct ReaderView: View {
                        icon: "text.justify.left")
             presetMenu("Character spacing", value: $kerningPt, presets: ReaderMetrics.kerningPresets,
                        icon: "character.textbox")
+            if mode == .pageByPage {
+                presetMenu("Top & bottom margins", value: $pageMarginPt, presets: ReaderMetrics.pageMarginPresets,
+                           icon: "arrow.up.and.down.square")
+            }
 
             // Margins adjust whichever layout is on screen: a two-page spread
             // has its own width, so tuning one never disturbs the other.
@@ -2905,6 +2920,9 @@ struct PaginationTrigger: Equatable {
     let size: CGSize
     /// The Duo's side column the text keeps clear of (none on a spread).
     let sideColumn: SideColumn
+    /// The page's top and bottom margin (the Top & bottom margins setting),
+    /// inside `size`. Part of the page area, like the side margins.
+    var verticalMargin: CGFloat = CGFloat(ReaderMetrics.defaultPageMargin)
 
     /// Whether `other` lays out the same text in the same type, so only the
     /// page area (the controls, the narration bar, a resize, the margins)

@@ -170,6 +170,34 @@ final class ReaderSideColumnTests: XCTestCase {
     }
 }
 
+/// Page-by-page's frame with the controls hidden:
+/// the page takes the empty bar's room at the top instead of a blank margin.
+@MainActor
+final class HiddenControlsFrameTests: XCTestCase {
+    func test_growsUpToTheStatusBar() {
+        // iPhone 17: status bar to 62 pt, the bar to 116 pt, page to 790 pt.
+        let up = CGRect(x: 0, y: 116, width: 402, height: 674)
+        let filled = HoldStillWhileHidden.filledTop(up, windowTop: 62)
+        XCTAssertEqual(filled, CGRect(x: 0, y: 62, width: 402, height: 728))
+    }
+
+    func test_keepsTheMinimumTopWhereTheWindowReportsNone() {
+        // An iPad keeps its status bar's 24 pt; an iPhone in landscape
+        // reports no top safe area.
+        let up = CGRect(x: 320, y: 74, width: 700, height: 1000)
+        XCTAssertEqual(HoldStillWhileHidden.filledTop(up, windowTop: 24).minY, 24)
+        let landscape = HoldStillWhileHidden.filledTop(CGRect(x: 62, y: 32, width: 750, height: 300), windowTop: 0)
+        XCTAssertEqual(landscape.minY, HoldStillWhileHidden.minimumTop)
+        XCTAssertEqual(landscape.maxY, 332, "the foot stays put")
+    }
+
+    func test_aPageAlreadyAtTheTop_staysPut() {
+        // iPhone Duo folded: the bar is a strip at the side, nothing on top.
+        let up = CGRect(x: 0, y: 0, width: 434, height: 900)
+        XCTAssertEqual(HoldStillWhileHidden.filledTop(up, windowTop: 20), up)
+    }
+}
+
 /// Page-by-page's page height: pages fill the page area on screen, shrink at
 /// once and grow only once the area settles. The heights are an iPhone's page
 /// area: 700 with the controls up, 784 with them hidden.
@@ -663,12 +691,17 @@ final class ReaderPaginationTests: XCTestCase {
     func test_onlyAChangedPageArea_refitsNearTheReader() {
         let content = ChapterContentSignature([AO3ChapterPayload(index: 1, title: "", bodyHTML: "<p>One.</p>")])
         func trigger(fontSize: Double = 17, showImages: Bool = false, chapter: Int = 1,
-                     size: CGSize = CGSize(width: 400, height: 700), widthPercent: Double = 70) -> PaginationTrigger {
+                     size: CGSize = CGSize(width: 400, height: 700), widthPercent: Double = 70,
+                     verticalMargin: CGFloat = 12) -> PaginationTrigger {
             PaginationTrigger(chapter: chapter, fontSize: fontSize, fontFamily: "newYork", widthPercent: widthPercent,
                               lineSpacing: 4, paragraphSpacing: 12, kerning: 0, boldText: false,
-                              showImages: showImages, content: content, size: size, sideColumn: .empty)
+                              showImages: showImages, content: content, size: size, sideColumn: .empty,
+                              verticalMargin: verticalMargin)
         }
         let base = trigger()
+        // The Top & bottom margins setting re-paginates, as a page-area change.
+        XCTAssertNotEqual(base, trigger(verticalMargin: 40))
+        XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(verticalMargin: 40)))
         XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(size: CGSize(width: 400, height: 616))))
         XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(size: CGSize(width: 900, height: 600), widthPercent: 88)))
         XCTAssertFalse(base.differsOnlyInPageArea(from: trigger(fontSize: 20)))
