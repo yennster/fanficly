@@ -32,6 +32,14 @@ public static class TagResolver
         return resolved;
     }
 
+    /// <summary>Records a name picked from AO3's own list (the Filters sheet's
+    /// fandom picker) as already canonical, so searching with it costs no lookup.
+    /// Swift's <c>TagResolver.noteCanonical</c>.</summary>
+    public static void NoteCanonical(string name, AO3AutocompleteField field)
+    {
+        lock (CacheGate) Cache[$"{field.RawValue()}|{name.ToLowerInvariant()}"] = name;
+    }
+
     /// <summary>Clears the process-lifetime resolution cache. For tests, so a
     /// memoized result from one case can't bleed into another.</summary>
     public static void ClearCacheForTesting()
