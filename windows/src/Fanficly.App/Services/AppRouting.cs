@@ -68,7 +68,8 @@ public static partial class AppHost
 
     /// <summary>An AO3 link dropped on the window or pasted with Ctrl+V outside
     /// a text box imports that work, as on the Mac (RootView's onDrop and
-    /// paste command).</summary>
+    /// paste command). Dropped EPUB files, or folders of them (#418), are
+    /// imported into the Library.</summary>
     public static void InstallDropAndPaste(MainWindow window)
     {
         var root = window.RootElement;
@@ -77,6 +78,12 @@ public static partial class AppHost
         {
             // Nothing is imported past the 17+ gate (#203).
             if (Views.Account.ContentSafetyViews.AgeGateActive) return;
+            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            {
+                e.AcceptedOperation = DataPackageOperation.Copy;
+                e.DragUIOverride.Caption = "Import EPUBs into the Library";
+                return;
+            }
             if (e.DataView.Contains(StandardDataFormats.WebLink) || e.DataView.Contains(StandardDataFormats.Uri)
                 || e.DataView.Contains(StandardDataFormats.Text))
             {
@@ -88,6 +95,21 @@ public static partial class AppHost
         {
             if (Views.Account.ContentSafetyViews.AgeGateActive) return;
             var deferral = e.GetDeferral();
+            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            {
+                IReadOnlyList<Windows.Storage.IStorageItem> items;
+                try { items = await e.DataView.GetStorageItemsAsync(); }
+                catch (Exception ex)
+                {
+                    Log($"Drop failed: {ex.Message}");
+                    deferral.Complete();
+                    return;
+                }
+                deferral.Complete();
+                MainWindow.Current?.Select(SidebarItem.Library);
+                _ = Views.Library.EpubImporter.ImportAsync(items);
+                return;
+            }
             try { ImportOrWarn(await WorkIdFromDataAsync(e.DataView), "Drop a link to archiveofourown.org/works/…"); }
             catch (Exception ex) { Log($"Drop failed: {ex.Message}"); }
             finally { deferral.Complete(); }

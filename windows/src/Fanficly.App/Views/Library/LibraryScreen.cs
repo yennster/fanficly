@@ -167,6 +167,12 @@ public sealed class LibraryScreen : Screen
         AutomationProperties.SetAutomationId(import, "library.importEpub");
         ToolTipService.SetToolTip(import, "Import EPUB files, like AO3 downloads, to read offline");
         yield return import;
+        var folder = UI.UI.ToolbarButton("folder.badge.plus", "Import Folder", () => _ = EpubImporter.PickFolderAndImportAsync(), showLabel: true);
+        folder.IsEnabled = !EpubImporter.IsImporting;
+        AutomationProperties.SetAutomationId(folder, "library.importFolder");
+        AutomationProperties.SetHelpText(folder, "Adds every EPUB file in a folder and its subfolders to the Library.");
+        ToolTipService.SetToolTip(folder, "Import every EPUB in a folder, subfolders included");
+        yield return folder;
     }
 
     private void OnImportingChanged() => InvalidateChrome();

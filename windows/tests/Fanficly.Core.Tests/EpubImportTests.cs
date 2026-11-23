@@ -138,6 +138,122 @@ public sealed class EpubImportTests : IDisposable
         }
     }
 
+    // MARK: - Folder import (#418)
+
+    /// A folder with nested subfolders, a text file, a broken EPUB, a book
+    /// already in the Library and two copies of one AO3 work: one new work, one
+    /// update, one skipped copy, one failure (Swift: the same test).
+    [Fact]
+    public async Task FolderImportCountsAndKeepsOneEntryPerWork()
+    {
+        var oldFolder = WorkPersistence.LibraryFolder;
+        WorkPersistence.LibraryFolder = Path.Combine(_dir, "library");
+        try
+        {
+            var root = Path.Combine(_dir, "pick");
+            Directory.CreateDirectory(Path.Combine(root, "Fandom", "Older", "Even older"));
+            Directory.CreateDirectory(Path.Combine(root, "Unpacked.epub", "OEBPS"));
+            File.WriteAllText(Path.Combine(root, "notes.txt"), "notes");
+            File.WriteAllText(Path.Combine(root, "Unpacked.epub", "OEBPS", "one.xhtml"), "<html/>");
+            var ao3 = Convert.FromBase64String(Ao3Epub);
+            var plainBytes = Convert.FromBase64String(PlainEpub);
+            File.WriteAllBytes(Path.Combine(root, "Fandom", "The Long Way Home.epub"), ao3);
+            File.WriteAllBytes(Path.Combine(root, "Fandom", "Older", "Even older", "The Long Way Home (12345).EPUB"), ao3);
+            File.WriteAllText(Path.Combine(root, "Fandom", "Older", "broken.epub"), "not a zip");
+            File.WriteAllBytes(Path.Combine(root, "A Plain Book.epub"), plainBytes);
+
+            using var store = LibraryStore.Open(Path.Combine(_dir, "library.sqlite"));
+            var plain = EpubImport.Save(EpubImport.Parse(plainBytes), plainBytes, store);
+
+            var files = EpubFolderImport.FindEpubs(root);
+            // Subfolders included, the text file and the unpacked EPUB folder left out.
+            Assert.Equal(["A Plain Book.epub", "broken.epub", "The Long Way Home (12345).EPUB", "The Long Way Home.epub"],
+                         files.Select(Path.GetFileName));
+
+            var reported = new List<int>();
+            var result = await EpubFolderImport.ImportAsync(files, store, (done, _) => reported.Add(done));
+            Assert.Equal((4, 4, 1, 1, 1, false), (result.Found, result.Processed, result.Imported, result.Updated, result.Skipped, result.Cancelled));
+            Assert.StartsWith("broken.epub: ", Assert.Single(result.Failures));
+            Assert.Equal([0, 1, 2, 3, 4], reported);
+            Assert.Equal([12345, plain.Ao3Id], store.Works.Select(w => w.Ao3Id).Order().Reverse());
+            Assert.NotNull(WorkPersistence.EpubPath(12345));
+
+            var (title, message) = EpubFolderImport.Outcome(result);
+            Assert.Equal("Imported", title);
+            Assert.Equal("1 new story added to your Library.\n1 story already in your Library updated.\n" +
+                         "1 extra copy of a story skipped.\n1 file couldn't be imported:\n" + result.Failures[0], message);
+        }
+        finally
+        {
+            WorkPersistence.LibraryFolder = oldFolder;
+        }
+    }
+
+    [Fact]
+    public async Task FolderImportStopsWhenCancelledAndKeepsWhatItSaved()
+    {
+        var oldFolder = WorkPersistence.LibraryFolder;
+        WorkPersistence.LibraryFolder = Path.Combine(_dir, "library");
+        try
+        {
+            var root = Path.Combine(_dir, "pick");
+            Directory.CreateDirectory(root);
+            File.WriteAllBytes(Path.Combine(root, "a.epub"), Convert.FromBase64String(Ao3Epub));
+            File.WriteAllBytes(Path.Combine(root, "b.epub"), Convert.FromBase64String(PlainEpub));
+            using var store = LibraryStore.Open(Path.Combine(_dir, "library.sqlite"));
+            using var cts = new CancellationTokenSource();
+
+            var result = await EpubFolderImport.ImportAsync(EpubFolderImport.FindEpubs(root), store,
+                (done, _) => { if (done == 1) cts.Cancel(); }, cts.Token);
+            Assert.True(result.Cancelled);
+            Assert.Equal((1, 1), (result.Processed, result.Imported));
+            Assert.Equal([12345], store.Works.Select(w => w.Ao3Id));
+            var (title, message) = EpubFolderImport.Outcome(result);
+            Assert.Equal("Import stopped", title);
+            Assert.StartsWith("Stopped after 1 of 2 files.", message);
+        }
+        finally
+        {
+            WorkPersistence.LibraryFolder = oldFolder;
+        }
+    }
+
+    /// <summary>Two copies of one work keep the one with more chapters, and the other counts as skipped.</summary>
+    [Fact]
+    public void FolderTallyKeepsTheCopyWithMoreChapters()
+    {
+        var tally = new EpubFolderTally();
+        Assert.True(tally.ShouldSave(7, 2));
+        tally.Saved(7, 2, wasInLibrary: false);
+        Assert.False(tally.ShouldSave(7, 2));
+        Assert.False(tally.ShouldSave(7, 1));
+        Assert.True(tally.ShouldSave(7, 3));
+        tally.Saved(7, 3, wasInLibrary: true);
+        Assert.False(tally.ShouldSave(7, 3));
+        tally.SkippedCopy();
+        Assert.True(tally.ShouldSave(8, 1));
+        tally.Saved(8, 1, wasInLibrary: true);
+        var r = tally.Result;
+        Assert.Equal((1, 1, 2), (r.Imported, r.Updated, r.Skipped));
+    }
+
+    [Fact]
+    public void FolderOutcomeListsTheFirstFailuresAndSumsUpTheRest()
+    {
+        var result = new EpubFolderImportResult
+        {
+            Found = 9, Processed = 9, Imported = 2,
+            Failures = Enumerable.Range(1, 7).Select(i => $"f{i}.epub: bad").ToList(),
+        };
+        var (title, message) = EpubFolderImport.Outcome(result);
+        Assert.Equal("Imported", title);
+        Assert.Equal("2 new stories added to your Library.\n7 files couldn't be imported:\n" +
+                     "f1.epub: bad\nf2.epub: bad\nf3.epub: bad\nf4.epub: bad\nf5.epub: bad\n…and 2 more.", message);
+        Assert.Equal("No EPUBs found", EpubFolderImport.Outcome(new EpubFolderImportResult()).Title);
+        Assert.Equal("Couldn't import",
+            EpubFolderImport.Outcome(new EpubFolderImportResult { Found = 1, Processed = 1, Failures = ["x: bad"] }).Title);
+    }
+
     private const string Ao3Epub =
         "UEsDBBQAAAAAAAAAIQBvYassFAAAABQAAAAIAAAAbWltZXR5cGVhcHBsaWNhdGlvbi9lcHViK3ppcFBLAwQUAAAACADKtl5dHgvX" +
         "yZkAAADdAAAAFgAAAE1FVEEtSU5GL2NvbnRhaW5lci54bWxVjsEOwiAQRH+l4Wpa9EoAExPPmvgFK90qEXYJUKN/L3qoeptk5s2M" +

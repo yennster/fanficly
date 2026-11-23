@@ -155,8 +155,9 @@ public static partial class EpubImport
     /// work's EPUB so it shows as Downloaded. A work already in the Library (an
     /// AO3 book) keeps its AO3 details and reading position and takes the
     /// book's chapters, unless it already holds more of them; a new one gets the book's details too. Saves and queues
-    /// a backup like every <see cref="WorkPersistence"/> change.</summary>
-    public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store)
+    /// a backup like every <see cref="WorkPersistence"/> change, unless <paramref name="queueBackup"/>
+    /// is false (a folder import queues one at the end, #418).</summary>
+    public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store, bool queueBackup = true)
     {
         Work work;
         if (store.GetWork(payload.Summary.Id) is { } existing)
@@ -183,7 +184,7 @@ public static partial class EpubImport
         var temp = target + ".tmp";
         File.WriteAllBytes(temp, epub);
         File.Move(temp, target, overwrite: true);
-        LibrarySyncManager.QueueBackupShared(store);
+        if (queueBackup) LibrarySyncManager.QueueBackupShared(store);
         return work;
     }
 
