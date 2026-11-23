@@ -123,10 +123,10 @@ final class ReaderLayoutTests: XCTestCase {
         #endif
     }
 
-    func test_togglingTheControls_keepsThePageStill() throws {
+    func test_togglingTheControls_keepsThePlace() throws {
         let footer = openReader()
         turnToMiddlePage(footer)
-        try assertTogglingKeepsThePageStill(footer, "one page", screenshots: ("03-full-screen", "04-controls-back"))
+        try assertTogglingKeepsThePlace(footer, "one page", screenshots: ("03-full-screen", "04-controls-back"))
     }
 
     func test_keyboard_leavesTheFooterAndPagesAlone() throws {
@@ -181,7 +181,7 @@ final class ReaderLayoutTests: XCTestCase {
         turnToMiddlePage(footer)
         capture("07-wide-window")
         try assertPageLayout(footer, "in a wide window")
-        try assertTogglingKeepsThePageStill(footer, "in a wide window",
+        try assertTogglingKeepsThePlace(footer, "in a wide window",
                                             screenshots: ("08-wide-full-screen", "09-wide-controls-back"))
     }
 
@@ -251,7 +251,7 @@ final class ReaderLayoutTests: XCTestCase {
         #endif
         capture("\(shots)13-full-margins-wide")
         try assertPageLayout(footer, "full margins in a wide window")
-        try assertTogglingKeepsThePageStill(footer, "full margins in a wide window",
+        try assertTogglingKeepsThePlace(footer, "full margins in a wide window",
                                             screenshots: ("\(shots)14-full-margins-full-screen",
                                                           "\(shots)15-full-margins-controls-back"))
     }
@@ -431,16 +431,22 @@ final class ReaderLayoutTests: XCTestCase {
 
     // MARK: - Layout checks
 
-    /// Hides the controls (full screen) and shows them again, as Apple Books
-    /// does: the page doesn't move or re-flow either way. Hidden, the footer
-    /// keeps its room but shows only the page number.
-    private func assertTogglingKeepsThePageStill(_ footer: XCUIElement, _ context: String,
-                                                 screenshots: (hidden: String, shown: String),
-                                                 file: StaticString = #filePath, line: UInt = #line) throws {
+    /// Hides the controls (full screen) and shows them again. The page keeps
+    /// its place: the same first words either way. Hidden, it grows into the
+    /// empty bar's room at the top (where there's a bar above it) and still
+    /// ends just above the footer's room, which shows only the page number;
+    /// shown again, it's full above the footer once more.
+    private func assertTogglingKeepsThePlace(_ footer: XCUIElement, _ context: String,
+                                             screenshots: (hidden: String, shown: String),
+                                             file: StaticString = #filePath, line: UInt = #line) throws {
         let bar = footer.frame
-        let label = footer.label
         let shown = try storyTexts(above: bar)
-        XCTAssertNotNil(openingWords(shown), "\(context): text on the page", file: file, line: line)
+        let words = try XCTUnwrap(openingWords(shown), "\(context): text on the page", file: file, line: line)
+        let topBefore = shown.map(\.frame.minY).min() ?? bar.minY
+        // A bar across the top of the page, whose room full screen hands over
+        // (not iPhone Duo's strip at the side, or its open book, pinned under it).
+        let window = app.windows.firstMatch.frame
+        let barOnTop = !isDuoUnfolded && readerTopEdge(above: bar) > window.minY + 30
         let pageNumber = app.descendants(matching: .any).matching(identifier: "reader.pageNumber").firstMatch
         // The middle third of the page shows or hides the controls.
         let middle = CGPoint(x: bar.midX, y: bar.minY - 200)
@@ -450,35 +456,30 @@ final class ReaderLayoutTests: XCTestCase {
         capture(screenshots.hidden)
         XCTAssertTrue(pageNumber.exists, "\(context): full screen shows the page number", file: file, line: line)
         if pageNumber.exists {
-            XCTAssertEqual(pageNumber.label, label, "\(context): full screen moved to another page", file: file, line: line)
             XCTAssertEqual(pageNumber.frame.midY, bar.midY, accuracy: 2,
                            "\(context): the footer's room changed in full screen", file: file, line: line)
         }
-        assertSameText(try storyTexts(above: bar), shown, "\(context): hiding the controls", file: file, line: line)
+        let hidden = try storyTexts(above: bar)
+        XCTAssertEqual(openingWords(hidden), words, "\(context): hiding the controls lost the place",
+                       file: file, line: line)
+        let topHidden = hidden.map(\.frame.minY).min() ?? bar.minY
+        XCTAssertLessThanOrEqual(topHidden, topBefore + 1, "\(context): hiding the controls pushed the text down",
+                                 file: file, line: line)
+        if barOnTop {
+            XCTAssertGreaterThanOrEqual(topBefore - topHidden, 12,
+                                        "\(context): the page didn't take the bar's room (text top \(topBefore) → \(topHidden))",
+                                        file: file, line: line)
+        }
+        assertPagesFull(hidden, endingAt: bar.minY, spread: page(footer)?.isSpread == true,
+                        across: bar, "\(context), full screen", file: file, line: line)
         try assertTextStaysOnItsPage("\(context), full screen", file: file, line: line)
         tap(middle)
         XCTAssertTrue(footer.waitForExistence(timeout: 5), "\(context): the controls came back", file: file, line: line)
         settle()
         capture(screenshots.shown)
-        XCTAssertEqual(footer.label, label, "\(context): showing the controls moved to another page", file: file, line: line)
-        assertSameText(try storyTexts(above: footer.frame), shown, "\(context): showing the controls",
-                       file: file, line: line)
+        XCTAssertEqual(openingWords(try storyTexts(above: footer.frame)), words,
+                       "\(context): showing the controls lost the place", file: file, line: line)
         try assertPageLayout(footer, "\(context), after toggling the controls", file: file, line: line)
-    }
-
-    /// The same paragraphs at the same places (within a point): nothing moved or re-flowed.
-    private func assertSameText(_ texts: [(frame: CGRect, text: String)], _ before: [(frame: CGRect, text: String)],
-                                _ context: String, file: StaticString = #filePath, line: UInt = #line) {
-        let order = { (texts: [(frame: CGRect, text: String)]) in
-            texts.sorted { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
-        }
-        let now = order(texts), then = order(before)
-        XCTAssertEqual(now.map(\.text), then.map(\.text), "\(context) re-flowed the page", file: file, line: line)
-        for (a, b) in zip(now, then) where abs(a.frame.minX - b.frame.minX) > 1 || abs(a.frame.minY - b.frame.minY) > 1
-            || abs(a.frame.width - b.frame.width) > 1 || abs(a.frame.height - b.frame.height) > 1 {
-            XCTFail("\(context) moved \"\(a.text.prefix(30))\" from \(b.frame) to \(a.frame)", file: file, line: line)
-            break
-        }
     }
 
     /// The footer sits on the bottom edge, and each page on screen is full:

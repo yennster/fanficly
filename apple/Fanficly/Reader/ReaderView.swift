@@ -523,11 +523,17 @@ struct ReaderView: View {
             case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
-        // Hiding or showing the controls never moves the page: while they're
-        // hidden it keeps the place it had with them up, whatever the status
-        // bar and the toolbar strip do to the space around it.
+        // Hiding or showing the controls doesn't slide the page about: while
+        // they're hidden it keeps the place it had with them up, whatever the
+        // status bar and the toolbar strip do to the space around it. In
+        // page-by-page it also takes the empty bar's room at the top, so the
+        // page grows into it (its first words stay put) instead of leaving a
+        // blank band; the scrolling modes already run under it
+        // (scrollClipDisabled). Not iPhone Duo's open book, whose pages are
+        // pinned under the bar already (bookTopShift).
         // The narration bar coming or going changes the area for real.
-        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive)))
+        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive),
+                                       fillsTop: mode == .pageByPage && !duoBookLayout))
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             Group {
@@ -566,10 +572,10 @@ struct ReaderView: View {
         // shows or hides every control at once (the toolbar's items, the
         // system back button, the status bar, the page footer's details), and
         // with them hidden nothing is left on screen. The bar itself stays,
-        // empty, so the page under it never moves (see HoldStillWhileHidden).
-        // Before iOS 26 the bar has no glass, so it keeps its background there.
-        // The hosting screen drops its own items via ReaderFullScreenKey.
-        .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
+        // empty and see-through, and the text runs up under it (see
+        // HoldStillWhileHidden). The hosting screen drops its own items via
+        // ReaderFullScreenKey.
+        .toolbarBackground(duoBookLayout || isUIMinimized ? .hidden : .visible,
                            for: .navigationBar)
         .navigationBarBackButtonHidden(isUIMinimized)
         .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
@@ -1810,12 +1816,6 @@ struct ReaderView: View {
         func shift(for area: CGSize) -> CGFloat? {
             abs(area.width - size.width) < 1 && abs(area.height - size.height) < 1 ? shift : nil
         }
-    }
-
-    /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
-    private static var hasGlassBars: Bool {
-        if #available(iOS 26.0, *) { return true }
-        return false
     }
 
     /// Where an open-book spread's pages start on iPhone Duo: clear of the
