@@ -47,11 +47,10 @@ internal static class SubscriptionRows
             meta.Children.Add(UI.UI.Caption(text));
             parts.Add(text);
         }
-        if (sub.LastCheckedAt is { } checkedAt)
+        if (AccountKit.CheckCaptionText(sub) is { } caption)
         {
-            var text = AccountKit.CheckedAgo(checkedAt);
-            meta.Children.Add(UI.UI.Caption(text));
-            parts.Add(text);
+            meta.Children.Add(caption);
+            parts.Add(caption.Text);
         }
         stack.Children.Add(meta);
         return (stack, string.Join(", ", parts));
@@ -60,7 +59,7 @@ internal static class SubscriptionRows
     /// <summary>The Library row for a work in the library: title with pinned /
     /// starred / downloaded badges, author, first fandom, rating · words ·
     /// chapters, and the reading-progress strip for a started work.</summary>
-    public static (FrameworkElement Content, string AccessibleName) CachedWork(Work work, string? extraCaption = null)
+    public static (FrameworkElement Content, string AccessibleName) CachedWork(Work work, TextBlock? extraCaption = null)
     {
         var parts = new List<string> { work.Title, $"by {work.AuthorName}" };
         var titleRow = UI.UI.Grid("*,Auto", columnSpacing: 8);
@@ -143,8 +142,8 @@ internal static class SubscriptionRows
 
         if (extraCaption is not null)
         {
-            stack.Children.Add(UI.UI.Caption(extraCaption));
-            parts.Add(extraCaption);
+            stack.Children.Add(extraCaption);
+            parts.Add(extraCaption.Text);
         }
         return (stack, string.Join(", ", parts));
     }

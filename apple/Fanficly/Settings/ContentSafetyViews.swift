@@ -81,6 +81,17 @@ struct HiddenWorksView: View {
                             }
                             .tint(.accentColor)
                         }
+                        // A mouse can't swipe (#189).
+                        .contextMenu {
+                            Button {
+                                HiddenWorkStore.unhide(ao3Id: item.ao3Id, in: context)
+                            } label: {
+                                Label("Unhide", systemImage: "eye")
+                            }
+                        }
+                        .accessibilityAction(named: "Unhide") {
+                            HiddenWorkStore.unhide(ao3Id: item.ao3Id, in: context)
+                        }
                     }
                 }
             }
@@ -232,6 +243,14 @@ struct BlockedTermsView: View {
                                     Label("Unblock", systemImage: "eye")
                                 }
                                 .tint(.accentColor)
+                            }
+                            // A mouse can't swipe (#189).
+                            .contextMenu {
+                                Button {
+                                    unblock(item)
+                                } label: {
+                                    Label("Unblock", systemImage: "eye")
+                                }
                             }
                             .accessibilityAction(named: "Unblock") { unblock(item) }
                         }
