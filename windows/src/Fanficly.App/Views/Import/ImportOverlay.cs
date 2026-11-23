@@ -156,6 +156,6 @@ public static class ImportOverlay
         window.Select(SidebarItem.Library);
         Routes.OpenSavedWork(workId);
         if (epubError is not null)
-            window.ShowMessage("Saved to Library, but the EPUB download failed", epubError, InfoBarSeverity.Warning, seconds: 6);
+            window.ShowMessage("Saved to Library, but the EPUB download failed", epubError, InfoBarSeverity.Warning);
     }
 }

@@ -75,6 +75,8 @@ public static partial class AppHost
         root.AllowDrop = true;
         root.DragOver += (_, e) =>
         {
+            // Nothing is imported past the 17+ gate (#203).
+            if (Views.Account.ContentSafetyViews.AgeGateActive) return;
             if (e.DataView.Contains(StandardDataFormats.WebLink) || e.DataView.Contains(StandardDataFormats.Uri)
                 || e.DataView.Contains(StandardDataFormats.Text))
             {
@@ -84,6 +86,7 @@ public static partial class AppHost
         };
         root.Drop += async (_, e) =>
         {
+            if (Views.Account.ContentSafetyViews.AgeGateActive) return;
             var deferral = e.GetDeferral();
             try { ImportOrWarn(await WorkIdFromDataAsync(e.DataView), "Drop a link to archiveofourown.org/works/…"); }
             catch (Exception ex) { Log($"Drop failed: {ex.Message}"); }
@@ -95,6 +98,7 @@ public static partial class AppHost
     /// Anything else on the clipboard is left alone, so a stray paste says nothing.</summary>
     public static bool PasteImport()
     {
+        if (Views.Account.ContentSafetyViews.AgeGateActive) return false;
         try
         {
             var data = Clipboard.GetContent();
@@ -140,7 +144,10 @@ public static partial class AppHost
     }
 
     /// <summary>Opens a tapped notification's route on top of the current tab.</summary>
-    internal static void OpenNotificationRoute(NotificationRoute route)
+    internal static void OpenNotificationRoute(NotificationRoute route) =>
+        Views.Account.ContentSafetyViews.RunAfterAgeGate(() => OpenNotificationRouteNow(route));
+
+    private static void OpenNotificationRouteNow(NotificationRoute route)
     {
         var window = MainWindow.Current;
         if (window is null) return;
