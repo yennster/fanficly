@@ -116,22 +116,82 @@ public abstract class KeyedCookieVault : ICookieVault
     protected abstract void Write(string key, string value);
     protected abstract void Delete(string key);
 
-    public string? StoredUsername() => Read(UsernameKey);
+    private readonly Lock _stateGate = new();
+    private string? _unsavedUsername;
+    private bool _cookiesUnsaved;
+
+    /// <summary>Raised (on the writing thread) when <see cref="IsSessionUnsaved"/>
+    /// changes.</summary>
+    public event Action? SessionSaveChanged;
+
+    /// <summary>The sign-in couldn't be written (a locked file, a full disk, a
+    /// DPAPI error): it works for this run but won't survive a restart until a
+    /// later write gets through (#210). Every cookie save tries again.</summary>
+    public bool IsSessionUnsaved
+    {
+        get { lock (_stateGate) return _unsavedUsername is not null || _cookiesUnsaved; }
+    }
+
+    /// <summary>The stored username, or the one a failed write is still holding
+    /// for this run, so the session keeps saving cookies (and retrying) meanwhile.</summary>
+    public string? StoredUsername()
+    {
+        lock (_stateGate) if (_unsavedUsername is { } pending) return pending;
+        return Read(UsernameKey);
+    }
 
     public void SetUsername(string? username)
     {
         if (!string.IsNullOrEmpty(username))
         {
+            UpdateState(() => _unsavedUsername = username);
             Write(UsernameKey, username);
+            UpdateState(() => _unsavedUsername = null);
         }
         else
         {
+            UpdateState(() => { _unsavedUsername = null; _cookiesUnsaved = false; });
             Delete(UsernameKey);
             Delete(CookiesKey);
         }
     }
 
-    public void SaveCookies(IReadOnlyList<SerializableCookie> cookies) => Write(CookiesKey, SerializableCookie.ToJson(cookies));
+    /// <summary>Saves the cookies, first writing a username an earlier write
+    /// couldn't. Throws when either write fails, leaving the session marked
+    /// unsaved.</summary>
+    public void SaveCookies(IReadOnlyList<SerializableCookie> cookies)
+    {
+        string? pending;
+        lock (_stateGate) pending = _unsavedUsername;
+        try
+        {
+            if (pending is not null)
+            {
+                Write(UsernameKey, pending);
+                // A sign-out (or another sign-in) meanwhile owns the name now.
+                UpdateState(() => { if (_unsavedUsername == pending) _unsavedUsername = null; });
+            }
+            Write(CookiesKey, SerializableCookie.ToJson(cookies));
+            UpdateState(() => _cookiesUnsaved = false);
+        }
+        catch
+        {
+            UpdateState(() => _cookiesUnsaved = true);
+            throw;
+        }
+    }
+
+    private void UpdateState(Action change)
+    {
+        bool before, after;
+        lock (_stateGate)
+        {
+            before = _unsavedUsername is not null || _cookiesUnsaved;
+            change();
+            after = _unsavedUsername is not null || _cookiesUnsaved;
+        }
+        if (before != after) SessionSaveChanged?.Invoke();
+    }
 
     public IReadOnlyList<SerializableCookie> LoadCookies() => SerializableCookie.ListFromJson(Read(CookiesKey));
 }

@@ -74,22 +74,7 @@ struct FanficlyApp: App {
     }
 
     private static let sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Work.self,
-            Chapter.self,
-            TagRecord.self,
-            BookmarkRecord.self,
-            SubscriptionRecord.self,
-            SavedSearch.self,
-            ReadingProgress.self,
-            SavedFilter.self,
-            RecentlyViewed.self,
-            HiddenWork.self,
-            CustomFolder.self,
-            FollowedAuthor.self,
-            ReadingStat.self,
-            BlockedTerm.self,
-        ])
+        let schema = AppSchema.schema
         let config = ModelConfiguration(isStoredInMemoryOnly: isDemoMode, cloudKitDatabase: .none)
         return try! ModelContainer(for: schema, configurations: config)
     }()

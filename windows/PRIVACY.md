@@ -1,6 +1,6 @@
 # Privacy Policy: Fanficly for Windows
 
-Effective: 2026-10-18
+Effective: 2026-11-16
 
 This policy covers Fanficly for Windows, the app in the Microsoft Store. The iPhone, iPad and Mac app has its own policy, [`PRIVACY.md`](../PRIVACY.md) at the root of this repository.
 
@@ -28,7 +28,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
   - which works you've left kudos on, as work numbers only, deleted when you sign out;
   - the size and position of the window.
 - **Widget data.** The story you read last, your reading streak, your folders, saved searches, subscriptions and a recommendation are kept in a small file that Fanficly's own widgets read, so the Windows Widgets board can show them.
-- **A local diagnostic log** (`Logs\fanficly.log`). It records errors, which can include a work's title, a fandom name or a web address. It never records passwords or cookies. It's capped at 512 KB, and Fanficly never sends it anywhere.
+- **A local diagnostic log** (`Logs\fanficly.log`). It records errors, which can include a work's title or number, an author, a fandom or tag name, a saved search's name, or a web address. It also records one line for each request to AO3 with only the kind of page (for example `/works/{id}`), the response code and how long it took, never which work, author, tag or search it was, and connection details such as whether a proxy is in use and which HTTP version AO3 answered with. It never records passwords or cookies. It's capped at 512 KB, Fanficly never sends it anywhere, and clearing Recently Viewed deletes it.
 - **The taskbar jump list.** Right-clicking Fanficly on the taskbar shows "Continue “title”" for the story you read last. Windows keeps that list on your PC.
 - **A cached Popular list.** This is the daily snapshot of popular fandoms, ships and characters.
 
@@ -41,8 +41,10 @@ Sync is **off** until you turn it on in Settings → Sync and choose a folder. T
 - **`library_backup.json`.** It holds:
   - your saved works, including downloaded chapter text
   - folders, your notes and tags on saved works, reading positions and reading stats
-  - your AO3 bookmarks and subscriptions lists
+  - your AO3 bookmarks and subscriptions lists (each subscription tagged with the AO3 username it belongs to)
   - saved searches and filters, hidden works, and blocked tags and authors
+  - the authors you follow, with the works of theirs Fanficly has already seen so it only tells you about new ones
+  - a short record of what you deleted (work numbers and folder, saved search and filter names, with the date), kept for 90 days so a delete on one device reaches your others
   - your reader settings, your content settings, and whether you confirmed you're 17 or older
 - **`library_backup.prev.json`.** The previous `library_backup.json`, kept each time Fanficly replaces it, so a bad write can be undone.
 - **`fanficly-settings-sync.json`.** It holds:

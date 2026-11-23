@@ -349,7 +349,11 @@ public sealed class SubscriptionPoller
                 if (recs.TryAdd(id, rec)) ids.Add(id);
             }
             // A key that names no work can't be checked; stamp it like a failed check.
-            else rec.LastCheckedAt = DateTimeOffset.Now;
+            else
+            {
+                rec.LastCheckedAt = DateTimeOffset.Now;
+                rec.NoteCheckFailed(CheckFailure.Other);
+            }
         }
         foreach (var work in followed)
             if (works.TryAdd(work.Ao3Id, work) && !recs.ContainsKey(work.Ao3Id)) ids.Add(work.Ao3Id);
@@ -375,7 +379,11 @@ public sealed class SubscriptionPoller
         // A record's key and id never change, so they're read here.
         if (WorkId(rec) is not { } workId)
         {
-            await OnRecords(() => rec.LastCheckedAt = DateTimeOffset.Now).ConfigureAwait(false);
+            await OnRecords(() =>
+            {
+                rec.LastCheckedAt = DateTimeOffset.Now;
+                rec.NoteCheckFailed(CheckFailure.Other);
+            }).ConfigureAwait(false);
             return 0;
         }
         return await CheckWorkAsync(workId, rec, null, ct).ConfigureAwait(false);
@@ -405,6 +413,8 @@ public sealed class SubscriptionPoller
                 var seen = new[] { rec?.LastSeenChapterCount, work?.LastSeenChapterCount }.Max();
                 if (rec is not null) rec.LastSeenChapterCount = meta.ChapterCount;
                 if (work is not null) work.LastSeenChapterCount = meta.ChapterCount;
+                rec?.NoteCheckSucceeded();
+                work?.NoteCheckSucceeded();
                 return (seen, work?.Title ?? rec?.DisplayName ?? "");
             }).ConfigureAwait(false);
             if (lastSeen is not { } seenCount || meta.ChapterCount <= seenCount) return 0;
@@ -417,6 +427,16 @@ public sealed class SubscriptionPoller
         {
             FailedChecks++;
             LibraryHooks.Log?.Invoke($"Skipping work {workId}: {e.Message}");
+            // A check cut off (the background run ending) isn't AO3 failing (#195).
+            if (e is not OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                var failure = CheckStatus.FailureOf(e);
+                await OnRecords(() =>
+                {
+                    Rec()?.NoteCheckFailed(failure);
+                    work?.NoteCheckFailed(failure);
+                }).ConfigureAwait(false);
+            }
             return 0;
         }
         finally
@@ -449,7 +469,11 @@ public sealed class SubscriptionPoller
                 (newWorks, undated) = await WorksPostedSinceFollowAsync(result.Works, followedAt, ct).ConfigureAwait(false);
             known.UnionWith(latestIds);
             known.ExceptWith(undated);
-            await OnRecords(() => author.KnownWorkIds = known.ToList()).ConfigureAwait(false);
+            await OnRecords(() =>
+            {
+                author.KnownWorkIds = known.ToList();
+                author.NoteCheckSucceeded();
+            }).ConfigureAwait(false);
             if (newWorks.Count == 0) return 0;
             await PostAsync(NewWorkContent(username, displayName, newWorks)).ConfigureAwait(false);
             return newWorks.Count;
@@ -458,6 +482,12 @@ public sealed class SubscriptionPoller
         {
             FailedChecks++;
             LibraryHooks.Log?.Invoke($"Skipping author {username}: {e.Message}");
+            // A check cut off (the background run ending) isn't AO3 failing (#195).
+            if (e is not OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                var failure = CheckStatus.FailureOf(e);
+                await OnRecords(() => author.NoteCheckFailed(failure)).ConfigureAwait(false);
+            }
             return 0;
         }
         finally

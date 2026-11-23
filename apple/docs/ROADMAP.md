@@ -152,6 +152,20 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** parser tests on a real-page fixture (works listed, empty list, login page fails closed), endpoint tests for the URL and pagination, `MockAO3Client`/`DemoAO3Client`/`StubAO3Client` support, and the PR lists what to check on a device: the tab logged out (sign-in prompt) and logged in, on iPhone, iPad and the Mac.
 - **Touches:** `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`, `Networking/DemoAO3Client.swift`, `Subscriptions/SubscriptionsView.swift`, `RootView.swift`, `FanficlyApp.swift`, `FanficlyTests/` (incl. `StubAO3Client.swift`).
 
+### RM-027 — Download count and saved-reader error wording (Windows #205 parity)
+- **Status:** open · **Size:** S · **Validation:** unit
+- **Why:** Windows fixed these in #205 (PR #396). The restore and folder download banner reads "Downloaded 1 stories", and a bookmarked work that fails to load in `SavedWorkReader` always says to connect to the internet, dropping the real reason (rate limited, signed out, AO3 down). Errors themselves already stay up on Apple, since they're alerts that wait for OK.
+- **Scope:** `RestoreDownloadCenter.DownloadProgress`'s finished title and announcement say "1 story" / "N stories"; `SavedWorkReader.load()` leads with the error's message, then how to save the work offline, as `WorkDetailView` does.
+- **Done when:** a test of the singular and plural wording.
+- **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/SavedWorkReader.swift`, `FanficlyTests/`.
+
+### RM-028 — Say when the AO3 sign-in couldn't be saved (Windows #210 parity)
+- **Status:** open · **Size:** S · **Validation:** unit
+- **Why:** Windows fixed this in #210. On Apple, `CredentialStore.setUsername` and `saveCookies` drop Keychain errors (`try?`). Cookie saves already run again on every cookie change, so a failed one heals itself, but a failed username write is never retried: the reader stays signed in for the run and is signed out at the next launch without a word. The synced-settings half of #210 doesn't apply: `NSUbiquitousKeyValueStore` resolves its own conflicts and doesn't hand back a stale value over one just set.
+- **Scope:** `CredentialStore` notes a failed username or cookie write, keeps the username for the run and writes it again with the next cookie save; `AuthState` exposes it, and Settings' account row says "You're signed in for this session only" until a write gets through, as Windows does.
+- **Done when:** tests with a failing `LoginNameStore`/`CookieVault`: a failed username write is retried with the next cookie save, and sign-out clears the state.
+- **Touches:** `Auth/Credentials.swift`, `Settings/SettingsView.swift`, `FanficlyTests/`.
+
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos
@@ -216,7 +230,15 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no volume buttons for a remote to press, so the setting is hidden there.
 - **Windows counterpart:** RM-124 (#305).
 
-### RM-027 — Delete key for Library rows (iPad, Mac)
+### RM-031 — App Clip for shared work links (iPhone, iPad)
+- **Status:** done · **Size:** M · **Validation:** mac
+- **Why:** Someone sent a fanficly.app work link should be able to read that one work without installing Fanficly first (#292).
+- **Scope:** The `FanficlyClip` target (`FanficlyClip/`, the app's own sources compiled with `APP_CLIP`): a `https://fanficly.app/works/<id>[?chapter=n]` link (`WorkLink`) opens the work in the app's reader behind the 17+ confirmation, with the "Get the full app" overlay; no library, account or follows. The installed app takes over the same links as universal links and, on its first launch, opens the work last read in the clip (`ClipHandoff`, through the app group). The website serves the link page and `apple-app-site-association`; `bin/app-clip.py` and the App Clip workflow set up the association file, capabilities and App Clip experiences.
+- **Done when:** `WorkLinkTests`; CI builds the clip and checks its size; a person opens a fanficly.app link on a device without Fanficly once a build with the clip is on TestFlight.
+- **Touches:** `FanficlyClip/`, `Fanficly/WorkLink.swift`, `Search/WorkDetailView.swift`, `RootView.swift`, `project.yml`, the entitlements, `bin/app-clip.py`, `../website/`.
+- **Parity exception:** iPhone, iPhone Duo and iPad only. App Clips exist only on iOS and iPadOS, so the Mac has none; there the same fanficly.app link opens the installed app through universal links (the app's `applinks:fanficly.app`). Windows has no App Clip equivalent: RM-127 in `windows/ROADMAP.md` opens the same links in Fanficly for Windows.
+
+### RM-033 — Delete key for Library rows (iPad, Mac)
 - **Status:** open · **Size:** S · **Validation:** mac
 - **Why:** On Windows, Delete removes the focused Library or folder row (behind Undo, #169). The Apple Library's rows can't take keyboard focus outside Edit mode, so there's no row for Delete to act on (#188).
 - **Scope:** Let a hardware keyboard select a Library and folder row (List selection outside Edit mode, without breaking a tap opening the work), then Delete (and ⌘⌫) deletes it through `UndoCenter.schedule`, as the swipe action does.

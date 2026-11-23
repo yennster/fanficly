@@ -588,7 +588,7 @@ internal sealed partial class ReaderView
     /// <summary>The final paragraph's anchor once the end of the work is on screen
     /// (so a finished work reads 100%), else null.</summary>
     private ReadingAnchor? EndOfContent(IReadOnlyDictionary<string, double> offsets, double viewportHeight) =>
-        ChapterTracking.EndOfContentAnchor(offsets, _chapters, viewportHeight, ShowImages);
+        ChapterTracking.EndOfContentAnchor(offsets, _chapters, viewportHeight, c => Paragraphs(c.Index).Count);
 
     // MARK: - Reading-time stats
 
