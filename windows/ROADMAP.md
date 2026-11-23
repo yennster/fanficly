@@ -258,6 +258,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Why it's an exception:** Windows has no system-wide Bold Text setting for apps to follow. Its accessibility text options are Text size (which the reader already follows, since XAML scales its text) and contrast themes (which the reader's colours follow). The reader's own Bold text switch is the way to get heavier strokes.
 - **Revisit when:** Windows adds a bold or heavier-text accessibility setting that apps can read.
 
+### RM-127 — Open fanficly.app work links in the app
+- **Status:** open · **Size:** S · **Validation:** windows
+- **Why:** The Apple app's App Clip (RM-031 in `apple/docs/ROADMAP.md`, #292) opens a shared `https://fanficly.app/works/<id>[?chapter=n]` link on an iPhone or iPad without installing Fanficly. Windows has no App Clip equivalent (no install-free slice of a Store app), so this is the nearest alternative: the same link opens the work in Fanficly for Windows when it's installed, and the website's `/works/` page (links to the work on AO3 and to fanficly.app) otherwise.
+- **Scope:** A `windows.appUriHandler` extension in `Package.appxmanifest` for `fanficly.app`, the `windows-app-web-link` file on the website (`website/.well-known/`, served as JSON, listing the package family name and `/works/*`), and `DeepLink.Parse` reading the link (the Swift `WorkLink` rules: only `/works/<positive id>`, an optional positive `chapter`) into the resume route, through the age gate like any other link.
+- **Done when:** `DeepLinkTests` cover the link's accepted and refused shapes; on Windows, a fanficly.app work link clicked in a browser or another app opens the work in the installed app.
+- **Touches:** `windows/src/Fanficly.Core/Widget/DeepLink.cs`, `windows/src/Fanficly.App/Package.appxmanifest`, `Services/AppRouting.cs`, `website/`, `windows/tests/Fanficly.Core.Tests/`.
+- **Parity exception:** no App Clip on Windows (see Why).
+
 ### RM-109 — Localization groundwork
 - **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Every string is English and inline in C#.
@@ -319,6 +327,16 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 ## Ideas from the Apple roadmap
 
 The Apple app's roadmap on `main` has features that apply here too once they ship there (kudos is RM-115, creating AO3 bookmarks RM-119, bulk download for a folder RM-116, notes and personal tags the RM-009 port, series pages RM-122). Port each one after it lands on `main`, as a new `RM-1nn` item that names the Swift change it follows.
+
+## Built here first
+
+Features the Windows app has that the Apple app doesn't yet. Each has an Apple roadmap item (or, where an Apple device can't support it, a parity exception there with the reason):
+
+- App theme (Light, Dark or System; `AppearanceSettings`): Apple RM-032.
+- Game controller navigation (`Platform/GamepadInput.cs`): Apple RM-029; moving focus with the D-pad is that item's open question.
+- The jump list's "Go to" tabs (`Platform/JumpListService.cs`): Apple RM-030, Home Screen quick actions.
+
+When the Windows app gets a feature Apple lacks, add a line here and an Apple roadmap item in a separate roadmap PR (keep each app's PR to one app).
 
 ## Engineering health (any release)
 

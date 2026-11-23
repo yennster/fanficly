@@ -10,6 +10,7 @@ request, so merging never ships anything.
 | **Release** (`release.yml`) | Signed builds to TestFlight or the App Store version, metadata, signing setup | yes, after approval |
 | **Store assets** (`store-assets.yml`) | Regenerates screenshots (captured in Xcode Cloud), app previews and creative art; optionally uploads them | the Xcode Cloud capture and the optional upload |
 | **Restore the creative art** (`creative-restore.yml`) | Downloads the live iOS version's header and search-results art, keeps it in git, and puts it back on the editable version | yes, after approval |
+| **App Clip** (`app-clip.yml`) | The App Clip's capabilities, website association file and App Clip experiences (see App Clip) | yes, after approval |
 
 Every job that touches secrets runs in the **`app-store` environment**: it
 waits until the repo owner approves it, and only runs from `main`. The
@@ -140,6 +141,46 @@ for review stays in App Store Connect.
 gh workflow run release.yml -f lane=attach_build -f platform=mac -f build=220 -f art_run=<run id> -f notes="$(cat notes.txt)"
 ```
 
+## Accessibility declarations
+
+The App Store product page lists the accessibility features the app supports
+(Apple's Accessibility Nutrition Labels), per device: iPhone (which covers the
+iPhone Duo), iPad and Mac. The answers live in
+`fastlane/accessibility.json`, one true/false per feature, and the
+`accessibility` lane publishes them through the App Store Connect API
+(`accessibilityDeclarations`; fastlane has no action for it, so
+`fastlane/accessibility_declarations.rb` makes the calls, and CI runs its
+tests). A published declaration goes live on the product page at once, with
+no App Review and no new version, so only run it when the maintainer asks:
+
+```bash
+gh workflow run release.yml -f lane=accessibility
+```
+
+It always publishes all three device families: the workflow's `platform`
+input doesn't apply to it.
+
+The lane leaves a family alone when its published answers already match,
+publishes a leftover draft rather than making another, and otherwise creates
+and publishes a new declaration (the old one becomes REPLACED). Locally,
+`bundle exec fastlane accessibility dry_run:true` lists what would change.
+
+Claim a feature only when people can do the app's common tasks (search, open
+and read a story, Listen, manage the Library) with it, as Apple's criteria
+ask. When a change adds or removes one, update the JSON in the same PR and
+`ACCESSIBILITY.md` with it. What the file says today, and why:
+
+| Feature | Claimed | Why |
+| --- | --- | --- |
+| VoiceOver | yes | Labeled controls, page turns and chapter jumps as VoiceOver actions, an accessible Listen player and widgets; `NonReaderAccessibilityTests` checks icon-only buttons. |
+| Voice Control | no | Not yet tested with Voice Control on a device. |
+| Larger Text | no | Story text stops at 30 pt (167% of the 18 pt default) and ignores the system text size; #174 fixes it. |
+| Dark Interface | yes | System colors follow Dark Mode, plus the Dark, OLED Black and Dracula Navy reading themes. |
+| Differentiate Without Color Alone | yes | Status always has a symbol or text with its color (Finished, Starred, Downloaded, errors). |
+| Sufficient Contrast | no | Story text is 10:1 to 18:1, but the reader's page counters and story details are its text color at 50–55% opacity (about 2.7:1 on Sepia) and don't follow Increase Contrast. |
+| Reduced Motion | no | Page turns and the Undo toast follow Reduce Motion, but Listen's scroll to each paragraph, the import overlay's zoom and the restore banner's slide don't. |
+| Captions, Audio Descriptions | no | The app has no video or recorded audio (Listen speaks the story text shown on screen). |
+
 ## Regenerating the store art
 
 Run **Store assets**:
@@ -176,6 +217,41 @@ log bundle. The app previews are simulator video
 recordings, which Xcode Cloud can't make, so they still record on GitHub's
 runner (they show the iPhone and iPad, not the Duo). The art needs Apple's SF Pro and New York fonts, which the workflow
 installs from developer.apple.com.
+
+## App Clip
+
+The App Clip (`FanficlyClip`, #292) ships inside the iOS app: the **Release**
+archive builds and embeds it, and nothing about it is set up by hand. Its
+setup outside the archive runs from the **App Clip** workflow
+(`app-clip.yml`, `bin/app-clip.py`), from `main`, with the `app-store`
+secrets; without "apply" each step only reports. In order, once:
+
+1. Task `identifiers`, with apply: turns on Associated Domains for the app's
+   bundle ID (its `applinks:fanficly.app` entitlement needs it). The clip's
+   own bundle ID (`io.github.yennster.fanficly.Clip`) can't be made an App
+   Clip ID through the public API, so Xcode Cloud's cloud-managed signing
+   registers it with its capabilities the first time **Release** archives the
+   app with the clip; run `identifiers` again afterwards to check. The
+   fastlane fallback build (`build_signed`) reads the clip's profile from
+   match, so it fails for iOS from this change until lane `signing_setup` has
+   run once after that.
+2. Task `website-association`: writes
+   `website/.well-known/apple-app-site-association` with the team ID and the
+   bundle IDs from `project.yml`, and pushes it to an `app-clip/aasa-run-N`
+   branch; merge it with a PR and Vercel serves it at fanficly.app.
+   CI (`ci.yml`'s tooling job) runs `bin/app-clip.py aasa --check`, so the
+   file can't drift from `project.yml` and the entitlements.
+3. After a **Release** (or `beta`) build with the clip is in App Store
+   Connect and the iOS version is editable, task `experiences`, with apply:
+   creates the default App Clip experience on that version and the advanced
+   experience for `https://fanficly.app/works` from
+   `appclip/experiences.json`, with the card image cut from
+   `screenshots/creative/header-3840x1646.png`. Run it again after editing
+   the file. Apple reviews advanced experiences before they go live.
+
+App Clip Codes aren't generated: a shared link is how the clip is meant to
+open. Apple's App Clip Code Generator runs only on a Mac, and a clip with
+physical invocations (codes, NFC) must stay under 15 MB instead of 100 MB.
 
 ## Xcode Cloud
 

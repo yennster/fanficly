@@ -9,6 +9,7 @@
 
 require "json"
 require "fileutils"
+require_relative "accessibility_declarations"
 
 default_platform(:ios)
 
@@ -23,14 +24,18 @@ SCHEME = "Fanficly"
 API_KEY_JSON = File.join(FASTLANE_DIR, "api_key.json")
 SIGNING_XCCONFIG = File.join(ROOT, "Signing.xcconfig")
 BUILD_DIR = File.join(ROOT, "build", "release")
+ACCESSIBILITY_JSON = File.join(FASTLANE_DIR, "accessibility.json")
 
 # Targets that ship, and their bundle IDs (the Mac app is the same
 # universal-purchase app built with Mac Catalyst, so it shares them).
 TARGETS = {
   "Fanficly" => "io.github.yennster.fanficly",
   "FanficlyShare" => "io.github.yennster.fanficly.share",
-  "FanficlyWidget" => "io.github.yennster.fanficly.widget"
+  "FanficlyWidget" => "io.github.yennster.fanficly.widget",
+  "FanficlyClip" => "io.github.yennster.fanficly.Clip"
 }.freeze
+# Targets the Mac Catalyst build has: not the App Clip (#292), which is iOS only.
+MAC_TARGETS = TARGETS.reject { |target, _| target == "FanficlyClip" }.freeze
 
 METADATA = { "ios" => File.join(FASTLANE_DIR, "metadata"), "osx" => File.join(FASTLANE_DIR, "metadata-mac") }.freeze
 SCREENSHOTS = { "ios" => File.join(FASTLANE_DIR, "screenshots"), "osx" => File.join(FASTLANE_DIR, "screenshots-mac") }.freeze
@@ -114,6 +119,20 @@ platform :ios do
       Dir.glob(File.join(METADATA[p], "review_information", "{first_name,last_name,email_address,phone_number,demo_user,demo_password}.txt"))
          .each { |f| File.delete(f) }
     end
+  end
+
+  desc "Publish the App Store accessibility declarations (Accessibility Nutrition Labels) for"
+  desc "iPhone, iPad and Mac from fastlane/accessibility.json. They go live on the product page"
+  desc "at once, with no App Review. dry_run:true only lists what would change."
+  lane :accessibility do |options|
+    asc_api_key
+    dry_run = options[:dry_run].to_s == "true"
+    app = Spaceship::ConnectAPI::App.find(TARGETS["Fanficly"])
+    UI.user_error!("No app #{TARGETS['Fanficly']} on App Store Connect") unless app
+    AccessibilityDeclarations.sync(Spaceship::ConnectAPI.client.tunes_request_client, app.id,
+                                   AccessibilityDeclarations.load(ACCESSIBILITY_JSON),
+                                   dry_run: dry_run, log: ->(line) { UI.message(line) })
+    UI.success(dry_run ? "Dry run: nothing published" : "Accessibility declarations match #{File.basename(ACCESSIBILITY_JSON)}")
   end
 
   # -------------------------------------------------------------- store art
@@ -253,10 +272,9 @@ platform :ios do
     team = ENV["APPLE_TEAM_ID"].to_s
     UI.user_error!("Set APPLE_TEAM_ID") if team.empty?
     setup_ci if ENV["CI"]
-    ids = TARGETS.values
-    match(app_identifier: ids, platform: "ios", readonly: readonly, team_id: team)
+    match(app_identifier: TARGETS.values, platform: "ios", readonly: readonly, team_id: team)
     ios = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING].dup
-    match(app_identifier: ids, platform: "catalyst", readonly: readonly, team_id: team,
+    match(app_identifier: MAC_TARGETS.values, platform: "catalyst", readonly: readonly, team_id: team,
           additional_cert_types: ["mac_installer_distribution"])
     mac = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING].dup
 
@@ -270,7 +288,7 @@ platform :ios do
     ]
     TARGETS.each do |target, id|
       lines << "FANFICLY_IOS_PROFILE_#{target} = #{ios.fetch(id)}"
-      lines << "FANFICLY_MAC_PROFILE_#{target} = #{mac.fetch(id)}"
+      lines << "FANFICLY_MAC_PROFILE_#{target} = #{mac.fetch(id)}" if MAC_TARGETS.key?(target)
     end
     File.write(SIGNING_XCCONFIG, lines.join("\n") + "\n")
     { "ios" => ios, "osx" => mac }
