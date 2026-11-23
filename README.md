@@ -152,7 +152,7 @@ Yes. Follow a work or an author and Fanficly checks in the background, then send
 
 ### Does Fanficly collect my data?
 
-No. There is no Fanficly account or server, no analytics, no ads and no tracking. Your library, reading progress and settings stay on your devices. On Apple devices, reader profiles and your last-read position sync through your own iCloud, and you can turn on a full library backup there too. On Windows, sync is off until you pick a folder, such as OneDrive or any folder you already sync.
+No. There is no Fanficly account or server, no analytics, no ads and no tracking. Your library, reading progress and settings stay on your devices. On Apple devices, reader profiles, your last-read position and your reading-streak days sync through your own iCloud, and you can turn on a full library backup there too. On Windows, sync is off until you pick a folder, such as OneDrive or any folder you already sync.
 
 ### How does Fanficly get stories from AO3?
 

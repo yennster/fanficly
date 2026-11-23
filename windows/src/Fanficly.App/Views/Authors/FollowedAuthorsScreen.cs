@@ -53,8 +53,24 @@ public sealed class FollowedAuthorsScreen : Screen
         });
     }
 
+    /// <summary>Unfollows once the Undo bar closes (#169); the Authors tab and
+    /// Subscriptions leave the author out meanwhile (<see cref="IsUnfollowing"/>).</summary>
+    internal static void ScheduleUnfollow(FollowedAuthor author) =>
+        UndoQueue.Shared.Schedule($"Unfollowed {author.DisplayName}", [UndoQueue.Keys.Author(author.Username)],
+            LibraryEntityKinds.FollowedAuthors, () =>
+            {
+                if (!author.IsInserted) return;
+                AppHost.Library.Delete(author);
+                AppHost.Library.TrySave();
+                LibrarySyncManager.QueueBackupShared(AppHost.Library);
+            });
+
+    internal static bool IsUnfollowing(FollowedAuthor author) =>
+        UndoQueue.Shared.IsPending(UndoQueue.Keys.Author(author.Username));
+
     private static IReadOnlyList<FollowedAuthor> Authors() =>
         AppHost.Library.All<FollowedAuthor>()
+            .Where(a => !IsUnfollowing(a))
             .OrderBy(a => a.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
@@ -121,15 +137,12 @@ public sealed class FollowedAuthorsScreen : Screen
         return stack;
     }
 
-    /// <summary>The list's onDelete: removes the follow (no confirmation, like a
-    /// swipe-to-delete).</summary>
+    /// <summary>The list's onDelete: removes the follow once its Undo bar
+    /// closes (#169), since the follow holds the works already seen.</summary>
     private void Unfollow(FollowedAuthor author)
     {
-        var name = author.DisplayName;
         var index = _list?.Items.IndexOf(author) ?? -1;
-        AppHost.Library.Delete(author);
-        AppHost.Library.TrySave();
-        LibrarySyncManager.QueueBackupShared(AppHost.Library);
+        ScheduleUnfollow(author);
         if (index >= 0 && _list is not null && _list.Items.Count > 1)
         {
             // Remove in place so the list keeps its scroll position.
@@ -140,6 +153,5 @@ public sealed class FollowedAuthorsScreen : Screen
         {
             Render();
         }
-        MainWindow.Current.Announce($"Unfollowed {name}");
     }
 }
