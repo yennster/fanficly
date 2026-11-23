@@ -84,8 +84,9 @@ def latest_xcode() -> tuple[dict, dict]:
 
 # Releases that only run on the iPhone Duo. The API lists them for every
 # device anyway, and Xcode Cloud then refuses an iPhone 17 Pro Max or iPad Pro
-# on them as "incompatible with iOS 27.1". Drop one once others can run it.
-DUO_ONLY_RUNTIMES = {"iOS 27.1"}
+# on them as "incompatible with iOS 27.1" (and, since Xcode 27.2 became the
+# Latest Release, "incompatible with iOS 27.2"). Drop one once others can run it.
+DUO_ONLY_RUNTIMES = {"iOS 27.1", "iOS 27.2"}
 
 
 def latest_runtime(runtimes: list[dict], duo: bool = False) -> dict:

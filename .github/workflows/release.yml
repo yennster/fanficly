@@ -31,7 +31,7 @@ on:
         options:
           - beta            # Apple build + upload to TestFlight
           - release         # every store (no App Store submit), docs refresh, tag + GitHub release
-          - metadata_only   # Apple metadata + screenshots, no build
+          - metadata_only   # Apple metadata + screenshots, no build (`notes` replaces What's New)
           - pull_metadata   # download the live Apple store copy (artifact)
           - signing_setup   # create Apple certificates/profiles in the match repo
           - tag_only        # tag vX.Y.Z on `sha` + GitHub release, no build or store step
@@ -162,6 +162,17 @@ jobs:
       - name: Use the release notes
         if: needs.notes.result == 'success'
         run: echo "RELEASE_NOTES_FILE=$PWD/build/release/notes.txt" >> "$GITHUB_ENV"
+
+      # metadata_only with `notes`: replace an App Store version's What's New
+      # (say, with a shorter summary) without building again.
+      - name: Use the written notes
+        if: inputs.lane == 'metadata_only' && inputs.notes != ''
+        env:
+          NOTES: ${{ inputs.notes }}
+        run: |
+          mkdir -p build/release
+          printf '%s\n' "$NOTES" > build/release/notes.txt
+          echo "RELEASE_NOTES_FILE=$PWD/build/release/notes.txt" >> "$GITHUB_ENV"
 
       # attach_build finishes a release whose build is already on App Store
       # Connect but whose version couldn't be made then (say, the previous Mac

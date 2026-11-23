@@ -89,7 +89,7 @@ struct SearchView: View {
             _ = await poller.checkStaleSavedSearches()
         }
         .sheet(isPresented: $showingFilters) {
-            WorkFilterSheet(filters: $active) {
+            WorkFilterSheet(filters: $active, editsFandom: true) {
                 if active.sortColumn != sortWhenFiltersOpened { userPickedSort = true }
                 if hasSearched || !currentFilters.isEmpty { submit() }
             }
@@ -469,6 +469,14 @@ struct SearchView: View {
                                     recentRaw = RecentSearches.removing(prompt, from: recentRaw)
                                 } label: {
                                     Label("Remove", systemImage: "trash")
+                                }
+                            }
+                            // A mouse can't swipe (#189).
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    recentRaw = RecentSearches.removing(prompt, from: recentRaw)
+                                } label: {
+                                    Label("Remove from Recent", systemImage: "trash")
                                 }
                             }
                         }
