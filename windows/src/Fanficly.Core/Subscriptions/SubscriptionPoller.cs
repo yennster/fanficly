@@ -624,7 +624,10 @@ public sealed class SubscriptionPoller
 
     private IReadOnlyList<Work> FollowedWorks() => _store.FollowedWorks();
 
-    private IReadOnlyList<FollowedAuthor> FollowedAuthors() => _store.Where<FollowedAuthor>(a => a.Username.Length > 0);
+    /// <summary>Followed authors to check: not one whose unfollow waits behind the
+    /// Undo bar (#169), as the Swift poller skips it (#186).</summary>
+    private IReadOnlyList<FollowedAuthor> FollowedAuthors() => _store.Where<FollowedAuthor>(a =>
+        a.Username.Length > 0 && !UndoQueue.Shared.IsPending(UndoQueue.Keys.Author(a.Username)));
 
     /// <summary>At most <see cref="SavedSearchAlerts.MaxAlertingSearches"/>, the most
     /// recently switched on first: a backup merge can bring in more than this PC

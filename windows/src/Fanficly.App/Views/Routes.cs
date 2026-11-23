@@ -69,7 +69,10 @@ public static class Routes
     /// a new-chapter alert stays live, since a saved copy lacks the new chapter.</summary>
     public static void OpenSavedOrLiveWork(int workId, AO3WorkSummary? summary = null)
     {
-        if (AppHost.Library.GetWork(workId) is not null) OpenSavedWork(workId);
+        // A work waiting behind the Undo bar is as good as deleted (#169): the
+        // reader would be left on a record about to go (the Swift SavedFirstWorkView).
+        if (AppHost.Library.GetWork(workId) is not null
+            && !UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(workId))) OpenSavedWork(workId);
         else OpenWork(workId, summary);
     }
 

@@ -37,7 +37,25 @@ public static class WorkPersistence
     /// (re-sharing a saved story used to move it to the top as if new).</summary>
     public static Work SaveImported(AO3WorkPayload payload, LibraryStore store)
     {
-        var work = Upsert(payload, store, save: false);
+        Work work;
+        if (store.GetWork(payload.Summary.Id) is { } saved
+            && store.ChaptersOf(saved).Count > payload.Chapters.Count)
+        {
+            // AO3 now has fewer chapters than the saved copy (the author deleted
+            // some): an import never throws away offline text, as
+            // DownloadUpdate.Apply and an EPUB import don't.
+            work = UpsertMetadata(payload.Summary, store, save: false);
+        }
+        else
+        {
+            work = Upsert(payload, store, save: false);
+            // The chapters just saved aren't news: move the follow's and the AO3
+            // subscription's baselines up with them, never down, as an update does.
+            var count = payload.Summary.ChapterCount;
+            if (work.LastSeenChapterCount < count) work.LastSeenChapterCount = count;
+            if (store.GetSubscription($"work:{work.Ao3Id}") is { } record && record.LastSeenChapterCount < count)
+                record.LastSeenChapterCount = count;
+        }
         if (!work.IsFollowed)
         {
             work.IsFollowed = true;
