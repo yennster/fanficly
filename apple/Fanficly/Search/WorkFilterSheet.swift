@@ -388,17 +388,21 @@ struct FandomPickerSection: View {
         Section {
             ForEach(fandoms, id: \.self) { name in
                 HStack {
-                    Label(name, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.primary)
+                    Label {
+                        Text(name).foregroundStyle(.primary)
+                    } icon: {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                    }
                     Spacer(minLength: 8)
                     Button {
                         fandoms.removeAll { $0 == name }
                         UIAccessibility.post(notification: .announcement, argument: "Removed fandom: \(name)")
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.secondary)
                     }
                     .buttonStyle(.borderless)
+                    .tint(.secondary)
                     .accessibilityLabel("Remove \(name)")
                 }
                 .accessibilityElement(children: .contain)
