@@ -104,6 +104,9 @@ internal static class WorkHeaderMetadataView
         AutomationProperties.SetHelpText(open, "Shows every work in this series.");
         ToolTipService.SetToolTip(open, label);
         open.Click += (_, _) => Routes.OpenSeries(part.SeriesId, part.Title);
+        // Top-aligned, like the Mac's FlowLayout: "Next in series" stays level
+        // with the first line of a two-line series title.
+        open.VerticalAlignment = VerticalAlignment.Top;
         row.Children.Add(open);
 
         if (part.NextWorkId is { } next)
@@ -115,6 +118,7 @@ internal static class WorkHeaderMetadataView
                 $"Opens part {(part.Position + 1).ToString(CultureInfo.CurrentCulture)} of this series.");
             ToolTipService.SetToolTip(nextButton, $"Next in {part.Title}");
             nextButton.Click += (_, _) => Routes.OpenWork(next);
+            nextButton.VerticalAlignment = VerticalAlignment.Top;
             row.Children.Add(nextButton);
         }
         return row;

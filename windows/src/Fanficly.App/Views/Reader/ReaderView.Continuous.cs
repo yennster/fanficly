@@ -226,23 +226,25 @@ internal sealed partial class ReaderView
         ReportCurrentChapter();
         if (anchor is not { } target || IsWorkStart(target)) return;
         _isRestoring = true;
+        // A Find jump meanwhile owns the scroll (and _isRestoring) from then on.
+        var find = _findGeneration;
         try
         {
             await Task.Delay(250);
-            if (generation != _contGeneration) return;
+            if (generation != _contGeneration || find != _findGeneration) return;
             ScrollToEntry(_chapterFirstEntry.GetValueOrDefault(target.Chapter), 0, animated: false);
             // Paragraph heights below are estimates until realized: keep landing
             // on the paragraph until the layout around it has settled.
             for (var i = 0; i < 10; i++)
             {
                 await Task.Delay(180);
-                if (generation != _contGeneration) return;
+                if (generation != _contGeneration || find != _findGeneration) return;
                 ScrollToParagraph(target, 0, animated: false);
             }
         }
         finally
         {
-            if (generation == _contGeneration) _isRestoring = false;
+            if (generation == _contGeneration && find == _findGeneration) _isRestoring = false;
         }
     }
 

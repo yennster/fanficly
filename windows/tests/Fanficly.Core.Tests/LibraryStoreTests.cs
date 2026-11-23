@@ -96,6 +96,41 @@ public sealed class LibraryStoreTests : IDisposable
         }
     }
 
+    /// <summary>The #195 check fields round-trip on all three record types.</summary>
+    [Fact]
+    public void CheckStatusFieldsPersist()
+    {
+        var at = DateTimeOffset.FromUnixTimeSeconds(1_780_000_000);
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            ICheckedRecord[] records =
+            [
+                new Work(1, "T", "A") { IsFollowed = true },
+                new SubscriptionRecord("work:1", "work", "T"),
+                new FollowedAuthor("someone", "Someone"),
+            ];
+            foreach (var record in records)
+            {
+                record.NoteCheckSucceeded(at);
+                record.NoteCheckFailed(CheckFailure.SignIn);
+                record.NoteCheckFailed(CheckFailure.SignIn);
+                store.Insert((LibraryEntity)record);
+            }
+            store.Save();
+        }
+        using (var store = LibraryStore.Open(DbPath))
+        {
+            foreach (var record in new ICheckedRecord[]
+                     { store.GetWork(1)!, store.GetSubscription("work:1")!, Assert.Single(store.All<FollowedAuthor>()) })
+            {
+                Assert.Equal(at, record.LastSucceededAt);
+                Assert.Equal(2, record.CheckFailures);
+                Assert.Equal("signIn", record.LastCheckFailure);
+                Assert.Equal(CheckStatus.Failing(CheckFailure.SignIn), record.CurrentCheckStatus());
+            }
+        }
+    }
+
     [Fact]
     public void ChapterBodiesLoadLazilyAndUpdatesPersist()
     {

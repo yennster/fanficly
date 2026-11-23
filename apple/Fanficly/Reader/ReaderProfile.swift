@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ReaderProfile: Codable, Identifiable, Equatable {
     var id: String { name }
-    let name: String
+    var name: String
     var themeRaw: String
     var fontFamilyRaw: String
     var widthRaw: String?
@@ -209,6 +209,40 @@ struct ReaderProfile: Codable, Identifiable, Equatable {
         }
 
         return saveProfiles(result)
+    }
+
+    /// What renaming a profile comes to (#193).
+    enum RenameResult: Equatable {
+        /// The list with the profile under its new name, in the same place
+        /// and with the same settings; `name` is the trimmed new name.
+        case renamed([ReaderProfile], name: String)
+        /// Nothing to do: a blank name, the same name, the Default profile,
+        /// or a profile that's no longer there.
+        case unchanged
+        /// "Default" or another profile already has the name (any case).
+        case nameTaken(String)
+    }
+
+    /// Renames `current` to `newName`, the Windows app's rules: the Default
+    /// profile keeps its name, and no two profiles share one ignoring case
+    /// (changing only the case of a profile's own name is allowed). Saved
+    /// through `saveProfiles(_:previousJSON:)`, the old name becomes a
+    /// tombstone and the new one a fresh entry, so the rename reaches other
+    /// devices (and the Windows app) instead of leaving a copy behind. A
+    /// rename that only changes case keeps one entry, stamped as an edit.
+    static func renaming(_ current: String, to newName: String, in list: [ReaderProfile]) -> RenameResult {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultName = defaultProfiles[0].name
+        guard !trimmed.isEmpty, trimmed != current, current != defaultName,
+              let index = list.firstIndex(where: { $0.name == current }) else {
+            return .unchanged
+        }
+        let taken = trimmed.localizedCaseInsensitiveCompare(defaultName) == .orderedSame
+            || list.contains { $0.name != current && $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }
+        if taken { return .nameTaken(trimmed) }
+        var renamed = list
+        renamed[index].name = trimmed
+        return .renamed(renamed, name: trimmed)
     }
 
     /// Merges two stored-profile JSON strings, resolving per-name conflicts

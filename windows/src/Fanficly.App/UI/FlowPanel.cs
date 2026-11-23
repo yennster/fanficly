@@ -1,3 +1,4 @@
+using Fanficly.Core;
 using Windows.Foundation;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -6,7 +7,10 @@ namespace Fanficly.App.UI;
 
 /// <summary>
 /// Lays children out left to right and wraps to a new line when one won't fit
-/// — the Mac app's FlowLayout (tag chips, filter chips, metadata rows).
+/// — the Mac app's FlowLayout (tag chips, filter chips, metadata rows). Each
+/// child is centered vertically on its line (Core's <see cref="FlowLines"/>), so
+/// an icon lines up with the chips beside it (#246); a child whose
+/// <c>VerticalAlignment</c> is <c>Top</c> stays at the top of its line.
 /// </summary>
 public sealed partial class FlowPanel : Panel
 {
@@ -15,59 +19,32 @@ public sealed partial class FlowPanel : Panel
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        var maxWidth = availableSize.Width;
-        double lineWidth = 0, lineHeight = 0, totalHeight = 0, widest = 0;
-        var firstOnLine = true;
         foreach (var child in Children)
-        {
-            child.Measure(new Size(maxWidth, double.PositiveInfinity));
-            var size = child.DesiredSize;
-            if (size.Width == 0 && size.Height == 0) continue;
-            var needed = firstOnLine ? size.Width : lineWidth + Spacing + size.Width;
-            if (!firstOnLine && needed > maxWidth)
-            {
-                totalHeight += lineHeight + LineSpacing;
-                widest = Math.Max(widest, lineWidth);
-                lineWidth = size.Width;
-                lineHeight = size.Height;
-            }
-            else
-            {
-                lineWidth = needed;
-                lineHeight = Math.Max(lineHeight, size.Height);
-            }
-            firstOnLine = false;
-        }
-        widest = Math.Max(widest, lineWidth);
-        totalHeight += lineHeight;
-        return new Size(double.IsInfinity(maxWidth) ? widest : Math.Min(widest, maxWidth), totalHeight);
+            child.Measure(new Size(availableSize.Width, double.PositiveInfinity));
+        var (width, height) = FlowLines.Measure(DesiredSizes(), availableSize.Width, Spacing, LineSpacing);
+        return new Size(width, height);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
-        double x = 0, y = 0, lineHeight = 0;
-        var firstOnLine = true;
-        foreach (var child in Children)
+        var placements = FlowLines.Arrange(DesiredSizes(), finalSize.Width, Spacing, LineSpacing,
+            i => Children[i] is FrameworkElement { VerticalAlignment: VerticalAlignment.Top });
+        for (var i = 0; i < Children.Count; i++)
         {
-            var size = child.DesiredSize;
-            if (size.Width == 0 && size.Height == 0)
-            {
-                child.Arrange(new Rect(0, 0, 0, 0));
-                continue;
-            }
-            if (!firstOnLine && x + Spacing + size.Width > finalSize.Width)
-            {
-                x = 0;
-                y += lineHeight + LineSpacing;
-                lineHeight = 0;
-                firstOnLine = true;
-            }
-            if (!firstOnLine) x += Spacing;
-            child.Arrange(new Rect(x, y, Math.Min(size.Width, finalSize.Width), size.Height));
-            x += size.Width;
-            lineHeight = Math.Max(lineHeight, size.Height);
-            firstOnLine = false;
+            var p = placements[i];
+            Children[i].Arrange(new Rect(p.X, p.Y, p.Width, p.Height));
         }
         return finalSize;
+    }
+
+    private (double Width, double Height)[] DesiredSizes()
+    {
+        var sizes = new (double Width, double Height)[Children.Count];
+        for (var i = 0; i < Children.Count; i++)
+        {
+            var size = Children[i].DesiredSize;
+            sizes[i] = (size.Width, size.Height);
+        }
+        return sizes;
     }
 }
