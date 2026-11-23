@@ -19,6 +19,7 @@ public sealed class BookmarksScreen : Screen
     private PagedWorksList? _works;
     private string? _shownUser;
     private AppBarButton? _refresh;
+    private bool _isVisible;
 
     public BookmarksScreen()
     {
@@ -34,7 +35,16 @@ public sealed class BookmarksScreen : Screen
 
     public override void OnAppearing()
     {
+        _isVisible = true;
         if (IsBuilt) Render();
+    }
+
+    public override void OnDisappearing() => _isVisible = false;
+
+    public override void OnRemoved()
+    {
+        AppHost.Auth.PropertyChanged -= OnAuthChanged;
+        _works?.Cancel();
     }
 
     private void OnAuthChanged(object? sender, PropertyChangedEventArgs e)
@@ -44,8 +54,24 @@ public sealed class BookmarksScreen : Screen
         {
             // Signing out (or into another account) must not leave the old
             // account's private bookmarks on screen, even underneath.
-            if (_shownUser != AppHost.Auth.Username) Render();
+            if (_shownUser == AppHost.Auth.Username) return;
+            // Off screen, only drop the old list: the new account's loads when
+            // the tab shows, so a sign-in doesn't fetch every account tab's
+            // first page behind the throttle (#207).
+            if (_isVisible) Render();
+            else ForgetList();
         });
+    }
+
+    /// <summary>Drops the shown account's list without loading another;
+    /// <see cref="Render"/> starts the current account's when the tab shows.</summary>
+    private void ForgetList()
+    {
+        _works?.Clear();
+        _works = null;
+        _shownUser = null;
+        _host.Children.Clear();
+        InvalidateChrome();
     }
 
     public override IEnumerable<ICommandBarElement> PrimaryCommands()

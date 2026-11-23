@@ -119,4 +119,40 @@ final class SearchSuggestionsTests: XCTestCase {
         XCTAssertEqual(try SearchResultsParser.parse(html: html).totalFound, 126_555)
         XCTAssertNil(try SearchResultsParser.parse(html: "<html><body><ol class=\"work index group\"></ol></body></html>").totalFound)
     }
+
+    // MARK: Fandom picker (Filters sheet)
+
+    func test_fandomPicks_putTheKnownAbbreviationFirst_thenAO3sMatchesRanked() {
+        let ao3 = ["Harry Potter - Fandom", "Harry Potter - J. K. Rowling", "Harry Potter and the Cursed Child - Thorne & Rowling"]
+        let picks = SearchSuggestions.fandomPicks(for: "hp", from: ao3)
+        XCTAssertEqual(picks.first, "Harry Potter - J. K. Rowling")
+        XCTAssertEqual(picks.filter { $0 == "Harry Potter - J. K. Rowling" }.count, 1, "no duplicate of the alias")
+
+        let typed = SearchSuggestions.fandomPicks(for: "teen wolf", from: ["Teen Wolf - Episode: Lunatic", "Teen Wolf (TV)"])
+        XCTAssertEqual(typed.first, "Teen Wolf (TV)", "a prefix match beats AO3's order")
+    }
+
+    func test_fandomPicks_leaveOutPickedFandoms_andNeverPickForAnEmptyTerm() {
+        let picks = SearchSuggestions.fandomPicks(for: "teen", from: ["Teen Wolf (TV)", "Teen Titans (Cartoon)"], excluding: ["teen wolf (tv)"])
+        XCTAssertEqual(picks, ["Teen Titans (Cartoon)"])
+        XCTAssertEqual(SearchSuggestions.fandomPicks(for: "  ", from: ["Teen Wolf (TV)"]), [])
+    }
+
+    func test_popularFandomPicks_skipPicked_andCap() {
+        let popular = ["A (TV)", "B (Movie)", "C (Anime)"]
+        XCTAssertEqual(SearchSuggestions.popularFandomPicks(popular, excluding: ["b (movie)"], limit: 2), ["A (TV)", "C (Anime)"])
+        XCTAssertEqual(SearchSuggestions.popularFandomPicks(popular, limit: 0), [])
+    }
+
+    func test_addingFandom_trims_andIgnoresDuplicates() {
+        XCTAssertEqual(SearchSuggestions.addingFandom("  Naruto ", to: []), ["Naruto"])
+        XCTAssertEqual(SearchSuggestions.addingFandom("naruto", to: ["Naruto"]), ["Naruto"])
+        XCTAssertEqual(SearchSuggestions.addingFandom("", to: ["Naruto"]), ["Naruto"])
+    }
+
+    func test_demoClient_fandomAutocomplete_offersOnlyFandoms() async throws {
+        let names = try await DemoAO3Client().autocomplete(field: .fandom, term: "original work")
+        XCTAssertFalse(names.isEmpty)
+        XCTAssertTrue(names.allSatisfy { name in DemoCatalog.works.contains { $0.fandoms.contains(name) } })
+    }
 }

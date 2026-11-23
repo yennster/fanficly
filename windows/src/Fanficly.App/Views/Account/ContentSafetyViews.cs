@@ -99,6 +99,52 @@ public static class ContentSafetyViews
     private static Task? _gate;
 
     /// <summary>
+    /// Whether the 17+ confirmation still stands between the user and the app:
+    /// not yet confirmed, and not demo mode. Activation (links, shares, files,
+    /// notification taps, jump lists) waits on it through
+    /// <see cref="RunAfterAgeGate"/>.
+    /// </summary>
+    /// <remarks>True while the overlay is up even if the setting turned true
+    /// underneath it (a library backup restored at launch carries it): the
+    /// overlay still stands until it's pressed.</remarks>
+    public static bool AgeGateRequired =>
+        AgeGateActive || (!AppHost.IsDemoMode && !KeyValueStores.Default.GetBool(ContentControl.AgeConfirmedKey));
+
+    /// <summary>
+    /// Whether the 17+ overlay is on screen now. Keyboard shortcuts, screen
+    /// keys, Ctrl+V and drag-and-drop import, the mouse's back button and the
+    /// controller's buttons check it: the overlay hides the app's content, but
+    /// those reach the app around it (#203).
+    /// </summary>
+    public static bool AgeGateActive => _gate is { IsCompleted: false };
+
+    /// <summary>
+    /// Runs <paramref name="action"/> now when the 17+ gate is already
+    /// confirmed, or else once it is (showing the gate if it isn't up yet), so
+    /// a link, share, file or notification that arrives while the gate is up
+    /// opens nothing until the user confirms (#203). Call it on the UI thread.
+    /// </summary>
+    public static void RunAfterAgeGate(Action action)
+    {
+        if (!AgeGateRequired)
+        {
+            action();
+            return;
+        }
+        _ = RunAfterAgeGateAsync(action);
+    }
+
+    private static async Task RunAfterAgeGateAsync(Action action)
+    {
+        try
+        {
+            await (AgeGateActive ? _gate! : EnsureAgeGateAsync());
+            action();
+        }
+        catch (Exception e) { AppHost.Log($"Activation after the age gate failed: {e}"); }
+    }
+
+    /// <summary>
     /// The first-launch 17+ confirmation (AgeGateView, a full-screen cover over
     /// RootView). Covers the window's content until the user confirms, then
     /// stores content.ageConfirmed and completes. Completes at once when already

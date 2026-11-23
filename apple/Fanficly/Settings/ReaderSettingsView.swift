@@ -18,6 +18,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnAnimations")) private var pageTurnAnimations: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.twoPageSpread")) private var twoPageSpread: Bool = true
     @AppStorage(ReaderProfile.deviceKey("reader.spreadWidthPercent")) private var spreadWidthPercent: Double = ReaderSpread.defaultWidthPercent
+    @AppStorage(ReaderProfile.deviceKey("reader.pageMarginPt")) private var pageMarginPt: Double = ReaderMetrics.defaultPageMargin
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
@@ -324,6 +325,9 @@ struct ReaderSettingsView: View {
                                      range: ReaderSpread.widthPercentRange,
                                      step: 2.0, unit: "%", icon: "arrow.left.and.right.square")
                     }
+                    metricSlider("Top & bottom margins", value: $pageMarginPt,
+                                 range: ReaderMetrics.pageMarginRange,
+                                 step: 2.0, unit: "pt", icon: "arrow.up.and.down.square")
                 }
 
                 if Self.hasPageTurnHaptics {
