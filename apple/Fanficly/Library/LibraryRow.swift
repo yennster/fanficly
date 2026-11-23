@@ -5,6 +5,8 @@ import UIKit
 struct LibraryRow: View {
     let work: Work
     let downloaded: Bool
+    /// The poller's last check of a followed work, shown in Subscriptions (#186).
+    var checkedAt: Date? = nil
     @AppStorage("library.showReadingProgress") private var showReadingProgress = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -78,6 +80,12 @@ struct LibraryRow: View {
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Your tag: \(tag)")
                 }
+            }
+
+            if let checkedAt {
+                Text("checked \(checkedAt, style: .relative) ago")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if let note = work.note, !note.isEmpty {
