@@ -79,12 +79,19 @@ internal abstract class ReaderHostScreen : Screen
 
     /// <summary>Fetches the whole work behind a reader that opened on one chapter,
     /// retrying while AO3 is struggling, and waits for narration to stop before
-    /// handing it over, so Listen isn't cut off. Null when the screen closed or
+    /// handing it over, so Listen isn't cut off. The reader's top bar says the
+    /// other chapters are loading meanwhile; when AO3 never answers it says so,
+    /// with Try again calling <paramref name="retry"/> (#177).
+    /// <paramref name="wholeWork"/> is the whole work when the screen already
+    /// got it another way (Save Offline fetches it too): then that's used rather
+    /// than asking AO3 again or saying it failed. Null when the screen closed or
     /// AO3 never answered (the open chapter stays readable).</summary>
-    protected async Task<AO3WorkPayload?> FetchRestAsync(int workId)
+    protected async Task<AO3WorkPayload?> FetchRestAsync(int workId, Func<AO3WorkPayload?> wholeWork, Action retry)
     {
         var ct = _lifetime.Token;
-        AO3WorkPayload? full = null;
+        var partial = Reader;
+        AO3WorkPayload? full = wholeWork();
+        if (full is null && partial is not null) partial.IsLoadingRest = true;
         for (var attempt = 0; full is null; attempt++)
         {
             try { full = await AppHost.Client.FetchWorkAsync(workId, ct); }
@@ -92,11 +99,18 @@ internal abstract class ReaderHostScreen : Screen
             catch (Exception e)
             {
                 AppHost.Log($"Loading the rest of work {workId} failed: {e.Message}");
-                if (attempt >= 2) return null;
+                if (wholeWork() is { } got) { full = got; break; }
+                if (attempt >= 2)
+                {
+                    if (!_removed && Reader is { } reader && reader == partial) reader.ShowRestFailed(retry);
+                    return null;
+                }
                 try { await Task.Delay(TimeSpan.FromSeconds(30), ct); }
                 catch (OperationCanceledException) { return null; }
             }
         }
+        // Here, not loading any more: what's left is waiting for Listen to stop.
+        if (partial is not null) partial.IsLoadingRest = false;
         while (Reader is { IsListening: true } && !_removed)
         {
             try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }

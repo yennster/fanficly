@@ -75,6 +75,15 @@ public class DemoAO3ClientTests
     {
         var tags = await _client.AutocompleteAsync(AO3AutocompleteField.Tag, "slow");
         Assert.Equal(["Slow Burn"], tags);
-        Assert.Equal(["anything"], await _client.AutocompleteAsync(AO3AutocompleteField.Fandom, "anything"));
+        Assert.Equal(["anything"], await _client.AutocompleteAsync(AO3AutocompleteField.Relationship, "anything"));
+    }
+
+    [Fact]
+    public async Task FandomAutocompleteOffersOnlyTheCatalogsFandoms()
+    {
+        var names = await _client.AutocompleteAsync(AO3AutocompleteField.Fandom, "original work");
+        Assert.NotEmpty(names);
+        Assert.All(names, n => Assert.Contains(DemoCatalog.Works, w => w.Fandoms.Contains(n)));
+        Assert.Empty(await _client.AutocompleteAsync(AO3AutocompleteField.Fandom, "no such fandom"));
     }
 }

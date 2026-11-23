@@ -309,12 +309,40 @@ public struct AO3ChapterPayload: Sendable {
     /// nil when the markup doesn't expose it (e.g. some single-chapter works),
     /// in which case callers fall back to work-level comments.
     public let aoId: Int?
+    /// The author's chapter summary, beginning notes and end notes (HTML),
+    /// nil when the chapter has none. The first chapter's notes also carry
+    /// the work's beginning notes and the last chapter's end notes the work's
+    /// end notes, as AO3's chapter-by-chapter view shows them. They're never
+    /// part of `bodyHTML`, so paragraph indices, pagination and Listen
+    /// count only the story text.
+    public let summaryHTML: String?
+    public let notesHTML: String?
+    public let endNotesHTML: String?
 
-    public init(index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
+    public init(index: Int, title: String, bodyHTML: String, aoId: Int? = nil,
+                summaryHTML: String? = nil, notesHTML: String? = nil, endNotesHTML: String? = nil) {
         self.index = index
         self.title = title
         self.bodyHTML = bodyHTML
         self.aoId = aoId
+        self.summaryHTML = summaryHTML
+        self.notesHTML = notesHTML
+        self.endNotesHTML = endNotesHTML
+    }
+
+    /// Whether the chapter has any notes or summary to show.
+    public var hasNotes: Bool {
+        summaryHTML != nil || notesHTML != nil || endNotesHTML != nil
+    }
+
+    func with(notesHTML: String?) -> AO3ChapterPayload {
+        AO3ChapterPayload(index: index, title: title, bodyHTML: bodyHTML, aoId: aoId,
+                          summaryHTML: summaryHTML, notesHTML: notesHTML, endNotesHTML: endNotesHTML)
+    }
+
+    func with(endNotesHTML: String?) -> AO3ChapterPayload {
+        AO3ChapterPayload(index: index, title: title, bodyHTML: bodyHTML, aoId: aoId,
+                          summaryHTML: summaryHTML, notesHTML: notesHTML, endNotesHTML: endNotesHTML)
     }
 }
 
