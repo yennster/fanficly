@@ -65,7 +65,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     protected override void Start()
     {
-        _isDownloaded = WorkPersistence.EpubPath(_work.Ao3Id) is not null;
+        _isDownloaded = WorkPersistence.IsDownloaded(_work);
         try { WorkPersistence.RecordView(_work, AppHost.Library); }
         catch (Exception e) { AppHost.Log($"Recording the view failed: {e.Message}"); }
 
@@ -286,9 +286,13 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
                 _isWholeWork = true;
                 textSaved = true;
             }
+            // Here the text is saved (a failed fetch with no saved chapters
+            // threw), and Downloaded means saved text (#173), whatever the
+            // EPUB download does: Export builds an EPUB from the text.
+            textSaved = true;
+            _isDownloaded = true;
             fetchingEpub = true;
             await AppHost.Client.DownloadEpubAsync(_work.Ao3Id);
-            _isDownloaded = true;
             MainWindow.Current.ShowMessage("Downloaded", "This work is available offline.");
         }
         catch (Exception e)
