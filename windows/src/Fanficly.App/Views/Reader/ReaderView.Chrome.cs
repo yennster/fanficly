@@ -581,6 +581,8 @@ internal sealed partial class ReaderView
         menu.Items.Add(PresetMenu("Line spacing", ReaderPrefs.LineSpacingPt, ReaderMetrics.LineSpacingPresets, "arrow.up.and.down.text.horizontal", v => ReaderPrefs.LineSpacingPt = v));
         menu.Items.Add(PresetMenu("Paragraph spacing", ReaderPrefs.ParagraphSpacingPt, ReaderMetrics.ParagraphSpacingPresets, "text.justify.left", v => ReaderPrefs.ParagraphSpacingPt = v));
         menu.Items.Add(PresetMenu("Character spacing", ReaderPrefs.KerningPt, ReaderMetrics.KerningPresets, "character.textbox", v => ReaderPrefs.KerningPt = v));
+        if (_builtMode == ReadingMode.PageByPage)
+            menu.Items.Add(PresetMenu("Top & bottom margins", ReaderPrefs.PageMarginPt, ReaderMetrics.PageMarginPresets, "arrow.up.and.down.square", v => ReaderPrefs.PageMarginPt = v));
 
         // Margins adjust whichever layout is on screen: a two-page spread has its
         // own width, so tuning one never disturbs the other.

@@ -116,7 +116,8 @@ public sealed record PaginationTrigger(
     double Kerning,
     bool BoldText,
     bool ShowImages,
-    ReaderSize Size)
+    ReaderSize Size,
+    double VerticalMargin = ReaderPaginator.PageVerticalMargin)
 {
     /// <summary>Whether <paramref name="other"/> lays out the same text in the same type,
     /// so only the page area (the controls, the Listen bar, a resize, the margins)
@@ -203,10 +204,12 @@ public static class ReaderPageContent
 /// unit-tested across device sizes and reader settings.</summary>
 public static partial class ReaderPaginator
 {
-    /// <summary>A page's top and bottom margin, inside the area between the reader's
-    /// bars. Pagination subtracts exactly this, so measured pages match drawn ones
-    /// (Swift: <c>ReaderView.pageVerticalMargin</c>).</summary>
-    public const double PageVerticalMargin = 12;
+    /// <summary>A page's top and bottom margin by default, inside the area between the
+    /// reader's bars; the Top &amp; bottom margins setting changes it
+    /// (<see cref="PaginationTrigger.VerticalMargin"/>). Pagination subtracts exactly
+    /// the trigger's, so measured pages match drawn ones (Swift:
+    /// <c>ReaderMetrics.defaultPageMargin</c>).</summary>
+    public const double PageVerticalMargin = ReaderMetrics.DefaultPageMargin;
 
     /// <summary>What pages checked against the drawn layout (<see cref="DrawnHeight"/>)
     /// are packed short of their area by: nothing. The check measures the page
@@ -710,7 +713,7 @@ public static partial class ReaderPaginator
         var chapter = chapters.FirstOrDefault(c => c.Index == trigger.Chapter);
         if (chapter is null) return null;
         var w = ReaderMetrics.TextColumnWidth(trigger.Size.Width, trigger.WidthPercent, trigger.FontSize, limitLineLength);
-        var h = trigger.Size.Height - 2 * PageVerticalMargin;
+        var h = trigger.Size.Height - 2 * trigger.VerticalMargin;
         if (!(w > 50 && h > 100)) return null;
         var fontFamily = ReaderFontFamilyExtensions.FromRawValue(trigger.FontFamily) ?? ReaderFontFamily.NewYork;
         var typography = new ReaderTypography(fontFamily, trigger.FontSize, trigger.LineSpacing,
@@ -757,7 +760,7 @@ public static partial class ReaderPaginator
         // Must match the drawn page's column, or pages are measured at one width
         // and drawn at another.
         var w = ReaderMetrics.TextColumnWidth(trigger.Size.Width, trigger.WidthPercent, trigger.FontSize, limitLineLength);
-        var h = trigger.Size.Height - 2 * PageVerticalMargin;
+        var h = trigger.Size.Height - 2 * trigger.VerticalMargin;
         if (!(w > 50 && h > 100))
         {
             yield return new PaginationResult([], new Dictionary<int, List<ParagraphAtom>>());

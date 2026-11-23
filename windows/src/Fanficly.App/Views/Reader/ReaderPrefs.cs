@@ -26,6 +26,7 @@ internal static class ReaderPrefs
     public const string BoldTextBase = "reader.boldText";
     public const string TwoPageSpreadBase = "reader.twoPageSpread";
     public const string SpreadWidthBase = "reader.spreadWidthPercent";
+    public const string PageMarginBase = "reader.pageMarginPt";
     public const string KeepScreenAwakeKey = "reader.keepScreenAwake";
     public const string ShowImagesKey = "reader.showImages";
     public const string ZoomKey = "app.zoomScale";
@@ -126,6 +127,13 @@ internal static class ReaderPrefs
     {
         get => Store.GetDouble(K(SpreadWidthBase), ReaderSpread.DefaultWidthPercent);
         set => Store.SetDouble(K(SpreadWidthBase), value);
+    }
+
+    /// <summary>Page-by-page's top and bottom margin (the Top &amp; bottom margins setting).</summary>
+    public static double PageMarginPt
+    {
+        get => Store.GetDouble(K(PageMarginBase), ReaderMetrics.DefaultPageMargin);
+        set => Store.SetDouble(K(PageMarginBase), value);
     }
 
     public static bool KeepScreenAwake => Store.GetBool(KeepScreenAwakeKey, true);
