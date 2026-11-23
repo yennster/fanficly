@@ -203,12 +203,7 @@ public sealed class ReaderSettingsScreen : Screen
             }, "square.and.arrow.down", tooltip: "Overwrite the selected profile with your current settings."));
             rows.Add(SettingsKit.ActionRow($"Rename Profile “{active}”…", () => _ = RenameProfileAsync(active), "pencil",
                 tooltip: "Give the selected profile a new name."));
-            rows.Add(SettingsKit.ActionRow($"Delete Profile “{active}”", () =>
-            {
-                DeleteProfile(active);
-                MainWindow.Current.Announce($"Deleted profile {active}");
-                RebuildSoon();
-            }, "trash", destructive: true, automationId: "settings.reader.deleteProfile", tooltip: "Delete the selected profile."));
+            rows.Add(SettingsKit.ActionRow($"Delete Profile “{active}”", () => DeleteProfile(active, RebuildSoon), "trash", destructive: true, automationId: "settings.reader.deleteProfile", tooltip: "Delete the selected profile."));
         }
         return UI.UI.Section("Reader Profile", rows);
     }
@@ -263,8 +258,13 @@ public sealed class ReaderSettingsScreen : Screen
         QueueBackup();
     }
 
-    private static void DeleteProfile(string name)
+    /// <summary>Deletes at once (the deletion syncs as a tombstone) and offers
+    /// Undo (#169), which saves the profile again, newer than its tombstone, and
+    /// makes it active again if it was. <paramref name="after"/> runs after either.</summary>
+    private static void DeleteProfile(string name, Action? after = null)
     {
+        var deleted = Profiles.FirstOrDefault(p => p.Name == name);
+        var wasActive = ActiveProfileName == name;
         var list = Profiles.ToList();
         list.RemoveAll(p => p.Name == name);
         if (ActiveProfileName == name)
@@ -273,6 +273,27 @@ public sealed class ReaderSettingsScreen : Screen
             SelectProfile(list.FirstOrDefault(p => p.Name == DefaultProfileName) ?? ReaderProfile.DefaultProfiles[0]);
         }
         SaveProfiles(list);
+        QueueBackup();
+        after?.Invoke();
+        if (deleted is null) return;
+        UndoQueue.Shared.Offer($"Deleted profile “{name}”", () =>
+        {
+            RestoreProfile(deleted, wasActive);
+            after?.Invoke();
+        });
+    }
+
+    private static void RestoreProfile(ReaderProfile profile, bool makeActive)
+    {
+        var list = Profiles.ToList();
+        if (list.Any(p => string.Equals(p.Name, profile.Name, StringComparison.CurrentCultureIgnoreCase))) return;
+        list.Add(profile);
+        SaveProfiles(list);
+        if (makeActive)
+        {
+            ActiveProfileName = profile.Name;
+            SelectProfile(profile);
+        }
         QueueBackup();
     }
 
@@ -474,14 +495,38 @@ public sealed class ReaderSettingsScreen : Screen
 
     private StackPanel ListenSection()
     {
-        var voices = SpeechSample.Voices();
-        var items = new List<(string, string)> { ("", "System default") };
-        items.AddRange(voices.Select(v => (v.Id, $"{v.DisplayName} ({v.Language})")));
+        // Every installed voice under its language's heading (#184), after Automatic:
+        // a voice for each work's language, else the default voice.
+        var groups = SpeechSample.VoiceGroups();
+        var voices = groups.SelectMany(g => g.Voices).ToList();
+        const string HeaderTag = "\u0001";
+        var items = new List<(string, string)> { ("", "Automatic") };
+        foreach (var group in groups)
+        {
+            items.Add((HeaderTag + group.Language, group.LanguageName));
+            items.AddRange(group.Voices.Select(v => (v.Id, $"{v.DisplayName} ({v.Language})")));
+        }
         var stored = TtsVoiceId;
         // A voice id from another device (an Apple voice) or an uninstalled voice
-        // shows as the default, which is what the reader falls back to.
-        var selected = items.Any(i => i.Item1 == stored) ? stored : "";
+        // shows as Automatic, which is what the reader falls back to.
+        var selected = voices.Any(v => v.Id == stored) ? stored : "";
         var voiceCombo = SettingsKit.Choice("Voice", items, selected, id => { TtsVoiceId = id; QueueBackup(); }, minWidth: 240);
+        foreach (var item in voiceCombo.Items.OfType<ComboBoxItem>())
+        {
+            if (item.Tag is not string tag || !tag.StartsWith(HeaderTag, StringComparison.Ordinal)) continue;
+            // A language heading: not a choice.
+            item.Tag = null;
+            item.IsEnabled = false;
+            item.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+            AutomationProperties.SetHeadingLevel(item, Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel.Level2);
+        }
+        // Keys on the closed box can land on a heading: go back to the voice before.
+        var lastVoiceIndex = voiceCombo.SelectedIndex;
+        voiceCombo.SelectionChanged += (_, _) =>
+        {
+            if (voiceCombo.SelectedItem is ComboBoxItem { Tag: string }) lastVoiceIndex = voiceCombo.SelectedIndex;
+            else if (voiceCombo.SelectedIndex >= 0) voiceCombo.SelectedIndex = lastVoiceIndex;
+        };
         AutomationProperties.SetAutomationId(voiceCombo, "settings.reader.voice");
         ToolTipService.SetToolTip(voiceCombo, "Select a voice for reading aloud.");
 
@@ -538,7 +583,7 @@ public sealed class ReaderSettingsScreen : Screen
                 "exclamationmark.triangle", Theme.Warning));
 
         return UI.UI.Section("Listen", rows,
-            footer: "Choose Listen to Chapter in the reader's Aa menu (or press Ctrl+L) to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. For more natural-sounding voices, add them in Windows Settings → Time & language → Speech → Manage voices. Voices run entirely on this PC and are free.");
+            footer: "Choose Listen to Chapter in the reader's Aa menu (or press Ctrl+L) to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. On Automatic, each work is read by a voice for its language, or by your default voice when the work is in its language or no voice for its language is installed. For more natural-sounding voices, add them in Windows Settings → Time & language → Speech → Manage voices. Voices run entirely on this PC and are free.");
     }
 
     private void ToggleSample()

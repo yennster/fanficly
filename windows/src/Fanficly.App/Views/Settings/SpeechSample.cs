@@ -1,5 +1,6 @@
 using System.Globalization;
 using Fanficly.App.Shell;
+using Fanficly.Core;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Media.SpeechSynthesis;
@@ -36,24 +37,33 @@ internal static class SpeechSample
 
     public static bool IsPlaying => _player is not null;
 
-    /// <summary>On-device voices for the current language (all installed voices
-    /// when the language has none), sorted by name. Empty when speech isn't available.</summary>
-    public static IReadOnlyList<VoiceInformation> Voices()
+    /// <summary>Every installed voice, grouped by language (#184): the default voice's
+    /// language first, then the rest by language name, each group by voice name.
+    /// Empty when speech isn't available.</summary>
+    public static IReadOnlyList<(string Language, string LanguageName, IReadOnlyList<VoiceInformation> Voices)> VoiceGroups()
     {
         try
         {
-            var all = SpeechSynthesizer.AllVoices.ToList();
-            var lang = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
-            var matching = all.Where(v => v.Language.StartsWith(lang, StringComparison.OrdinalIgnoreCase)).ToList();
-            return (matching.Count == 0 ? all : matching)
-                .OrderBy(v => v.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-                .ToList();
+            var system = SpeechSynthesizer.DefaultVoice?.Language ?? CultureInfo.CurrentUICulture.Name;
+            var groups = SpeechSynthesizer.AllVoices
+                .GroupBy(v => v.Language, StringComparer.OrdinalIgnoreCase)
+                .Select(g => (Language: g.Key, LanguageName: LanguageName(g.Key),
+                    Voices: (IReadOnlyList<VoiceInformation>)g.OrderBy(v => v.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList()));
+            return SpeechLanguage.SortGroups(groups, g => g.Language, g => g.LanguageName, system);
         }
         catch (Exception e)
         {
             AppHost.Log($"Speech voices unavailable: {e.Message}");
             return [];
         }
+    }
+
+    /// <summary>"Spanish (Mexico)" for "es-MX", in the app's language; the tag itself
+    /// when Windows doesn't know it.</summary>
+    private static string LanguageName(string tag)
+    {
+        try { return CultureInfo.GetCultureInfo(tag).DisplayName; }
+        catch (CultureNotFoundException) { return tag; }
     }
 
     /// <summary>The multiplier shown for a stored rate (1.0× at the default).</summary>

@@ -92,6 +92,8 @@ public static class ImportOverlay
 
                 SetStatus("Saving to library...");
                 var library = AppHost.Library;
+                // Importing a work deleted a moment ago keeps it (#169).
+                UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(workId));
                 // Metadata + every chapter, for offline reading; a saved work
                 // keeps its saved and followed dates (#176).
                 var work = WorkPersistence.SaveImported(payload, library);
