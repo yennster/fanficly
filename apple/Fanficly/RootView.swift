@@ -312,8 +312,9 @@ struct RootView: View {
                 self.handleImportProviders(providers)
             }
             // ⌘V with a work link, and File → Open AO3 Link… (⇧⌘O).
-            .onPasteWorkLink { importingWorkId = $0 }
-            .modifier(OpenAO3LinkModifier { importingWorkId = $0 })
+            // Like every other way in, nothing opens behind the 17+ cover.
+            .onPasteWorkLink { workId in runAfterAgeGate { importingWorkId = workId } }
+            .modifier(OpenAO3LinkModifier { workId in runAfterAgeGate { importingWorkId = workId } })
             // A shared or dropped link Fanficly can't open (a series, an
             // author, a tag, another site) says so instead of doing nothing.
             .alert("Fanficly can open AO3 work links", isPresented: $showNotAWorkLink) {
