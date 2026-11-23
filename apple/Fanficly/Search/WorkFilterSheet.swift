@@ -444,10 +444,11 @@ struct FandomPickerSection: View {
         }
     }
 
-    /// No fandom is a choice too: ticked while nothing is picked, and a
-    /// one-tap way back to every fandom once something is.
+    /// No fandom is a choice too: ticked while nothing is picked or typed
+    /// (Apply adds typed words), and a one-tap way back to every fandom
+    /// otherwise.
     @ViewBuilder private var anyFandomRow: some View {
-        if fandoms.isEmpty {
+        if fandoms.isEmpty && trimmedTerm.isEmpty {
             Label {
                 Text("Any fandom").foregroundStyle(.primary)
             } icon: {
