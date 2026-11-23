@@ -1,15 +1,18 @@
 import SwiftUI
 import SwiftData
 
-/// AO3-style filter panel that edits an `AO3SearchFilters`. The fandom (or
-/// any other already-fixed field) is preserved by the caller; this sheet
-/// edits ratings, warnings, categories, status, word count, tags, etc.
+/// AO3-style filter panel that edits an `AO3SearchFilters`: ratings,
+/// warnings, categories, status, word count, tags, etc. Browse fixes the
+/// fandom, so the sheet keeps it; Search passes `editsFandom` and gets a
+/// Fandom section to pick fandoms from AO3's list.
 ///
 /// It edits a draft and writes it back only on Apply, so Cancel (or a swipe
 /// down with nothing changed) leaves the caller's filters, and the chips and
 /// results they drive, as they were (#156).
 struct WorkFilterSheet: View {
     @Binding var filters: AO3SearchFilters
+    /// Shows the Fandom picker, and lets Reset clear the fandom (Search).
+    let editsFandom: Bool
     let onApply: () -> Void
     @State private var draft: AO3SearchFilters
     /// The caller's filters as the fields would write them back unchanged
@@ -32,9 +35,13 @@ struct WorkFilterSheet: View {
     @State private var wordsTo: String = ""
     @State private var showingSaveDialog = false
     @State private var saveName = ""
+    /// Words typed in the Fandom field and not yet added: Apply adds them, as
+    /// Return would, so a typed fandom isn't silently dropped.
+    @State private var fandomTerm = ""
 
-    init(filters: Binding<AO3SearchFilters>, onApply: @escaping () -> Void) {
+    init(filters: Binding<AO3SearchFilters>, editsFandom: Bool = false, onApply: @escaping () -> Void) {
         _filters = filters
+        self.editsFandom = editsFandom
         let f = filters.wrappedValue
         _draft = State(initialValue: f)
         self.onApply = onApply
@@ -60,6 +67,7 @@ struct WorkFilterSheet: View {
         f.freeformNames = splitTags(freeformsText)
         f.excludedFreeforms = splitTags(excludeText)
         f.wordCount = Self.wordCount(from: wordsFrom, to: wordsTo)
+        if editsFandom { f.fandomNames = SearchSuggestions.addingFandom(fandomTerm, to: f.fandomNames) }
         return f
     }
 
@@ -68,6 +76,9 @@ struct WorkFilterSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if editsFandom {
+                    FandomPickerSection(fandoms: $draft.fandomNames, term: $fandomTerm)
+                }
                 savedFiltersSection
                 sortSection
                 ratingsSection
@@ -122,6 +133,10 @@ struct WorkFilterSheet: View {
                         .foregroundStyle(.primary)
                 }
                 .swipeActions {
+                    SavedFilterDeleteButton(saved: saved)
+                }
+                // A mouse can't swipe (#189).
+                .contextMenu {
                     SavedFilterDeleteButton(saved: saved)
                 }
             }
@@ -338,8 +353,158 @@ struct WorkFilterSheet: View {
 
     private func reset() {
         var fresh = AO3SearchFilters()
-        fresh.fandomNames = draft.fandomNames
+        if !editsFandom { fresh.fandomNames = draft.fandomNames }
+        fandomTerm = ""
         draft = fresh
         seedText()
+    }
+}
+
+/// The Filters sheet's Fandom section (Search only): pick fandoms from AO3's
+/// own list instead of having to know a fandom's exact name. Typing asks
+/// AO3's fandom autocomplete (debounced, one throttled request, memoized);
+/// an empty field offers the popular fandoms. Only a tapped row (or Return,
+/// which keeps the typed words for `TagResolver` to canonicalize on search)
+/// adds a fandom, and Apply adds words left in the field the same way:
+/// nothing is guessed from the search box. Picked fandoms go in
+/// `work_search[fandom_names]`, so a work must be in every one.
+struct FandomPickerSection: View {
+    @Binding var fandoms: [String]
+    /// The field's text; the sheet adds it on Apply.
+    @Binding var term: String
+    @Environment(\.ao3Client) private var client
+    @State private var matches: [String] = []
+    @State private var isLooking = false
+    @State private var lookupFailed = false
+    /// Read once: the live Popular snapshot, else the curated seed.
+    @State private var popular: [String] = {
+        let live = PopularStore.cached()?.fandoms ?? []
+        return live.isEmpty ? PopularTags.fandoms : live
+    }()
+
+    private var trimmedTerm: String { term.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        Section {
+            ForEach(fandoms, id: \.self) { name in
+                HStack {
+                    Label {
+                        Text(name).foregroundStyle(.primary)
+                    } icon: {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                    }
+                    Spacer(minLength: 8)
+                    Button {
+                        fandoms.removeAll { $0 == name }
+                        UIAccessibility.post(notification: .announcement, argument: "Removed fandom: \(name)")
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Color.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .tint(.secondary)
+                    .accessibilityLabel("Remove \(name)")
+                }
+                .accessibilityElement(children: .contain)
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                TextField(fandoms.isEmpty ? "Search for a fandom" : "Add another fandom", text: $term)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .onSubmit { pick(trimmedTerm, fromAO3: false) }
+                    .accessibilityIdentifier("filters.fandom.field")
+                if isLooking {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            // Debounced AO3 lookups; restarts (cancelling the last) on every
+            // edit. On the field's row, which is always there: a modifier on
+            // the Section itself would reach every row.
+            .task(id: trimmedTerm) { await lookUp() }
+            ForEach(rows, id: \.self) { name in
+                Button {
+                    // Only AO3's own answers are known canonical; the curated
+                    // names still go through TagResolver.
+                    pick(name, fromAO3: matches.contains(name))
+                } label: {
+                    Label(name, systemImage: "plus.circle")
+                        .foregroundStyle(.primary)
+                }
+                .accessibilityLabel("Add fandom: \(name)")
+            }
+        } header: {
+            Text("Fandom")
+        } footer: {
+            Text(footer)
+        }
+    }
+
+    /// Matches while typing; popular fandoms when the field is empty.
+    private var rows: [String] {
+        if trimmedTerm.isEmpty {
+            return SearchSuggestions.popularFandomPicks(popular,
+                                                        excluding: fandoms,
+                                                        limit: fandoms.isEmpty ? 6 : 0)
+        }
+        return SearchSuggestions.fandomPicks(for: trimmedTerm, from: matches, excluding: fandoms)
+    }
+
+    private var footer: String {
+        if fandoms.isEmpty && trimmedTerm.isEmpty {
+            return "Popular fandoms are shown. Type to search AO3's list of fandoms."
+        }
+        if !trimmedTerm.isEmpty && rows.isEmpty {
+            if lookupFailed { return "Couldn't reach AO3's fandom list. Press Return to use what you typed." }
+            if isLooking { return "Looking up fandoms on AO3…" }
+            return trimmedTerm.count < 2
+                ? "Keep typing to search AO3's list of fandoms."
+                : "No AO3 fandom matches. Press Return to use what you typed."
+        }
+        return "Works must be tagged with every fandom you pick."
+    }
+
+    /// `fromAO3`: a row from AO3's own autocomplete answer, so
+    /// already canonical; typed words still go through `TagResolver`.
+    private func pick(_ name: String, fromAO3: Bool) {
+        let updated = SearchSuggestions.addingFandom(name, to: fandoms)
+        guard updated != fandoms else { return }
+        if fromAO3 { Task { await TagResolver.noteCanonical(name, field: .fandom) } }
+        fandoms = updated
+        term = ""
+        matches = []
+        UIAccessibility.post(notification: .announcement, argument: "Added fandom: \(name)")
+    }
+
+    private func lookUp() async {
+        matches = []
+        isLooking = false
+        lookupFailed = false
+        let phrase = trimmedTerm
+        guard phrase.count >= 2 else { return }
+        isLooking = true
+        defer { if !Task.isCancelled { isLooking = false } }
+        // Wait for a pause in typing: every lookup is a throttled AO3 request.
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        let key = "fandom:" + phrase
+        if let cached = await TagSuggestionCache.shared.value(for: key) {
+            guard !Task.isCancelled else { return }
+            matches = cached
+            return
+        }
+        let fetched: [String]
+        do {
+            fetched = try await client.autocomplete(field: .fandom, term: phrase)
+        } catch {
+            if !Task.isCancelled { lookupFailed = true }
+            return
+        }
+        await TagSuggestionCache.shared.set(fetched, for: key)
+        guard !Task.isCancelled else { return }
+        matches = fetched
     }
 }

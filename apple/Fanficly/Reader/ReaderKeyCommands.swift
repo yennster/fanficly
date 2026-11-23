@@ -146,6 +146,9 @@ struct ReaderKeyPressModifier: ViewModifier {
     /// Esc: brings hidden controls back (false when they're already up), as
     /// on Windows, so a keyboard is never left with only a tap to get out.
     let showControls: () -> Bool
+    /// ⌘F: Find in this work (#183). The Reader menu has it too (Mac, iPad);
+    /// this covers a keyboard on iPhone, which has no menu bar.
+    let find: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -163,6 +166,13 @@ struct ReaderKeyPressModifier: ViewModifier {
                         mode: mode)
                 else { return .ignored }
                 perform(action)
+                return .handled
+            }
+            .onKeyPress("f", phases: .down) { press in
+                guard isReaderFocused,
+                      press.modifiers.subtracting([.capsLock, .numericPad, .function]) == .command
+                else { return .ignored }
+                find()
                 return .handled
             }
             .onKeyPress(.escape) {

@@ -49,7 +49,17 @@ public sealed partial class MainWindow : Window
     private const string SelectedTabKey = "app.selectedTabRaw";
     private const string ZoomKey = "app.zoomScale";
     private const string BoundsKey = "app.windowBounds";
+    private const string MaximizedKey = "app.windowMaximized";
 
+    // Kept alive for its change event (a collected instance stops raising it).
+    private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
+    /// <summary>The window's last normal (not maximized, minimized or full screen)
+    /// bounds, which are what a maximized window reopens to when un-maximized.</summary>
+    private RectInt32? _restoredBounds;
+    /// <summary>Whether the window was last maximized (minimized and full screen
+    /// leave it as it was); saved on close.</summary>
+    private bool _isMaximized;
+    private bool _maximizeWhenShown;
     private readonly TitleBar _titleBar;
     private readonly NavigationView _nav;
     private readonly Dictionary<SidebarItem, NavigationViewItem> _navItems = [];
@@ -203,6 +213,20 @@ public sealed partial class MainWindow : Window
         if (Platform.CaptureMode.IsOn) _titleBar.RightHeader = Platform.CaptureMode.CaptionGlyphs();
 
         RootElement.ActualThemeChanged += (_, _) => Theme.Apply(RootElement.ActualTheme);
+        // Turning high contrast on or off (or switching between contrast themes)
+        // while the app runs doesn't always change ActualTheme, so re-apply the
+        // palette when the system colours change too; it arrives off the UI
+        // thread (#206). Not AccessibilitySettings.HighContrastChanged: it needs
+        // a CoreWindow, which a WinUI 3 desktop window doesn't have, and
+        // subscribing to it crashed the app at launch.
+        try
+        {
+            _uiSettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => Theme.Apply(RootElement.ActualTheme));
+        }
+        catch (Exception ex)
+        {
+            AppHost.Log($"Couldn't watch the system colours: {ex.Message}");
+        }
         RootElement.Loaded += (_, _) => Theme.Apply(RootElement.ActualTheme);
         Theme.Apply(Application.Current.RequestedTheme == ApplicationTheme.Dark ? ElementTheme.Dark : ElementTheme.Light);
 
@@ -213,7 +237,7 @@ public sealed partial class MainWindow : Window
         {
             // Mouse "back" button.
             var props = e.GetCurrentPoint(RootElement).Properties;
-            if (props.IsXButton1Pressed) { e.Handled = GoBack(); }
+            if (props.IsXButton1Pressed && !Views.Account.ContentSafetyViews.AgeGateActive) { e.Handled = GoBack(); }
         };
 
         _zoom = UiZoom.Clamped(KeyValueStores.Default.GetDouble(ZoomKey, UiZoom.ActualSize));
@@ -223,6 +247,19 @@ public sealed partial class MainWindow : Window
             presenter.PreferredMinimumWidth = 360;
             presenter.PreferredMinimumHeight = 480;
         }
+        AppWindow.Changed += (_, e) =>
+        {
+            if (AppWindow.Presenter is not OverlappedPresenter overlapped) return;   // full screen keeps both
+            // Minimized keeps whether it was maximized, so closing from the
+            // taskbar reopens the window the way it was before.
+            if (overlapped.State == OverlappedPresenterState.Maximized) _isMaximized = true;
+            else if (overlapped.State == OverlappedPresenterState.Restored)
+            {
+                _isMaximized = false;
+                if (e.DidPositionChange || e.DidSizeChange)
+                    _restoredBounds = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+            }
+        };
         AppWindow.Closing += (_, _) => SaveBounds();
     }
 
@@ -265,15 +302,11 @@ public sealed partial class MainWindow : Window
     public T? RootScreen<T>(SidebarItem item) where T : Screen =>
         _roots.TryGetValue(item, out var s) ? s as T : null;
 
-    /// <summary>Drops a tab's cached root so it rebuilds next time (sign-in changes).</summary>
-    public void ResetRoot(SidebarItem item)
-    {
-        _roots.Remove(item);
-        if (SelectedItem == item && Navigator.Depth <= 1) ShowRoot(item);
-    }
-
     public bool GoBack()
     {
+        // Nothing goes back behind the 17+ gate, whatever asked (the title
+        // bar's back button included) (#203).
+        if (Views.Account.ContentSafetyViews.AgeGateActive) return false;
         if (Navigator.Current?.HandleBack() == true) return true;
         return Navigator.GoBack();
     }
@@ -409,20 +442,50 @@ public sealed partial class MainWindow : Window
 
     // MARK: - In-app messages
 
-    /// <summary>A short, self-dismissing message at the bottom of the window
-    /// (and announced to Narrator).</summary>
-    public void ShowMessage(string title, string? message = null, InfoBarSeverity severity = InfoBarSeverity.Success, int seconds = 4)
+    /// <summary>A message at the bottom of the window, announced to Narrator.
+    /// A confirmation closes by itself after <paramref name="seconds"/> (4 by
+    /// default); an error or warning stays until closed (<see cref="MessageLifetime"/>, #205).</summary>
+    public void ShowMessage(string title, string? message = null, InfoBarSeverity severity = InfoBarSeverity.Success, int? seconds = null)
     {
+        // The same words again keep the bar already up (and any focus on it)
+        // rather than stacking a copy.
+        var bars = _messages.Children.OfType<InfoBar>().ToList();
+        if (bars.Any(b => b.Title == title && b.Message == (message ?? "") && b.Severity == severity))
+        {
+            Announce(message is null ? title : $"{title}. {message}");
+            return;
+        }
+        // Errors stay until closed, so keep the stack from covering the window:
+        // past MaxMessages the oldest goes.
+        for (var i = 0; i <= bars.Count - MessageLifetime.MaxMessages; i++) _messages.Children.Remove(bars[i]);
         var bar = UI.UI.Banner(title, message, severity);
         bar.Background = Theme.CardBackground;
         bar.Shadow = new ThemeShadow();
         _messages.Children.Add(bar);
         Announce(message is null ? title : $"{title}. {message}");
+        bar.Closed += (_, _) => _messages.Children.Remove(bar);
+        if (MessageLifetime.Seconds(severity == InfoBarSeverity.Error || severity == InfoBarSeverity.Warning, seconds) is not { } lifetime) return;
+
+        // A confirmation closes by itself, but never while the pointer is over
+        // it or keyboard focus is inside it (WCAG 2.2.1): the countdown starts
+        // again when they leave.
         var timer = DispatcherQueue.CreateTimer();
-        timer.Interval = TimeSpan.FromSeconds(seconds);
+        timer.Interval = TimeSpan.FromSeconds(lifetime);
         timer.IsRepeating = false;
         timer.Tick += (_, _) => _messages.Children.Remove(bar);
-        bar.Closed += (_, _) => _messages.Children.Remove(bar);
+        var pointerOver = false;
+        var focusInside = false;
+        void Hold()
+        {
+            if (pointerOver || focusInside) timer.Stop();
+            else timer.Start();
+        }
+        bar.PointerEntered += (_, _) => { pointerOver = true; Hold(); };
+        bar.PointerExited += (_, _) => { pointerOver = false; Hold(); };
+        bar.PointerCanceled += (_, _) => { pointerOver = false; Hold(); };
+        bar.GotFocus += (_, _) => { focusInside = true; Hold(); };
+        bar.LostFocus += (_, _) => { focusInside = false; Hold(); };
+        bar.Closed += (_, _) => timer.Stop();
         timer.Start();
     }
 
@@ -495,10 +558,17 @@ public sealed partial class MainWindow : Window
     private void InstallKeyboard()
     {
         RootElement.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
-        void Add(VirtualKey key, VirtualKeyModifiers mods, Action action)
+        // While the 17+ gate is up only the shortcuts that change how the window
+        // looks (zoom, full screen) work; the rest would open tabs, go back or
+        // change reader settings behind it (#203).
+        void Add(VirtualKey key, VirtualKeyModifiers mods, Action action, bool duringAgeGate = false)
         {
             var accel = new KeyboardAccelerator { Key = key, Modifiers = mods };
-            accel.Invoked += (_, a) => { a.Handled = true; action(); };
+            accel.Invoked += (_, a) =>
+            {
+                a.Handled = true;
+                if (duringAgeGate || !Views.Account.ContentSafetyViews.AgeGateActive) action();
+            };
             RootElement.KeyboardAccelerators.Add(accel);
         }
         foreach (var item in SidebarItems.All)
@@ -514,25 +584,30 @@ public sealed partial class MainWindow : Window
         Add(VirtualKey.Add, VirtualKeyModifiers.Control, BiggerText);
         Add((VirtualKey)189, VirtualKeyModifiers.Control, SmallerText);  // Ctrl+-
         Add(VirtualKey.Subtract, VirtualKeyModifiers.Control, SmallerText);
-        Add((VirtualKey)187, ctrlShift, ZoomIn);
-        Add(VirtualKey.Add, ctrlShift, ZoomIn);
-        Add((VirtualKey)189, ctrlShift, ZoomOut);
-        Add(VirtualKey.Subtract, ctrlShift, ZoomOut);
-        Add(VirtualKey.Number0, VirtualKeyModifiers.Control, ResetZoom);
-        Add(VirtualKey.NumberPad0, VirtualKeyModifiers.Control, ResetZoom);
+        Add((VirtualKey)187, ctrlShift, ZoomIn, duringAgeGate: true);
+        Add(VirtualKey.Add, ctrlShift, ZoomIn, duringAgeGate: true);
+        Add((VirtualKey)189, ctrlShift, ZoomOut, duringAgeGate: true);
+        Add(VirtualKey.Subtract, ctrlShift, ZoomOut, duringAgeGate: true);
+        Add(VirtualKey.Number0, VirtualKeyModifiers.Control, ResetZoom, duringAgeGate: true);
+        Add(VirtualKey.NumberPad0, VirtualKeyModifiers.Control, ResetZoom, duringAgeGate: true);
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => GoBack());
         Add(VirtualKey.GoBack, VirtualKeyModifiers.None, () => GoBack());
-        Add(VirtualKey.F11, VirtualKeyModifiers.None, ToggleFullScreen);
+        Add(VirtualKey.F11, VirtualKeyModifiers.None, ToggleFullScreen, duringAgeGate: true);
 
         // Keys offered to the screen on top first (reader page turns), unless
         // a text box has focus.
         RootElement.PreviewKeyDown += (_, e) =>
         {
+            // Behind the 17+ gate keys only reach the gate itself (#203).
+            if (Views.Account.ContentSafetyViews.AgeGateActive) return;
             if (FocusManager.GetFocusedElement(RootElement.XamlRoot) is TextBox or PasswordBox or AutoSuggestBox or RichEditBox) return;
             var mods = CurrentModifiers();
             if (Navigator.Current?.HandleKey(e.Key, mods) == true) { e.Handled = true; return; }
             if (e.Key == VirtualKey.V && mods == VirtualKeyModifiers.Control) { e.Handled = AppHost.PasteImport(); return; }
-            if (e.Key is VirtualKey.Escape or VirtualKey.GamepadB && mods == VirtualKeyModifiers.None && Navigator.CanGoBack)
+            // Esc goes back, and on a tab's root still lets the screen leave a
+            // mode first (Recently Viewed's edit mode); GoBack returns false when
+            // there's nothing to leave, so Esc then reaches whatever else wants it (#206).
+            if (e.Key is VirtualKey.Escape or VirtualKey.GamepadB && mods == VirtualKeyModifiers.None)
             {
                 e.Handled = GoBack();
             }
@@ -562,6 +637,10 @@ public sealed partial class MainWindow : Window
             if (DisplayArea.GetFromRect(rect, DisplayAreaFallback.None) is not null)
             {
                 AppWindow.MoveAndResize(rect);
+                _restoredBounds = rect;
+                // Reopen maximized when it closed maximized, on the display the
+                // normal bounds are on, and un-maximize to those bounds (#206).
+                _maximizeWhenShown = _isMaximized = KeyValueStores.Default.GetBool(MaximizedKey);
                 return;
             }
         }
@@ -569,17 +648,39 @@ public sealed partial class MainWindow : Window
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var width = Math.Min(1280, (int)(area.Width * 0.85));
         var height = Math.Min(860, (int)(area.Height * 0.85));
-        AppWindow.MoveAndResize(new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height));
+        var initial = new RectInt32(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height);
+        AppWindow.MoveAndResize(initial);
+        _restoredBounds = initial;
     }
 
+    /// <summary>Maximizes the window when it closed maximized last time. Called
+    /// by App.OnLaunched right after <c>Activate()</c>: Maximize() on a hidden
+    /// window would show it before then (#206).</summary>
+    public void MaximizeIfItWasMaximized()
+    {
+        if (!_maximizeWhenShown) return;
+        _maximizeWhenShown = false;
+        if (AppWindow.Presenter is OverlappedPresenter overlapped) overlapped.Maximize();
+    }
+
+    /// <summary>Saves the normal bounds, and whether the window was last
+    /// maximized (closing minimized or full screen keeps the state before).</summary>
     private void SaveBounds()
     {
         if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
         {
             var p = AppWindow.Position;
             var s = AppWindow.Size;
-            KeyValueStores.Default.SetString(BoundsKey, $"{p.X},{p.Y},{s.Width},{s.Height}");
+            _restoredBounds = new RectInt32(p.X, p.Y, s.Width, s.Height);
+            _isMaximized = false;
         }
+        else if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized })
+        {
+            _isMaximized = true;
+        }
+        KeyValueStores.Default.SetBool(MaximizedKey, _isMaximized);
+        if (_restoredBounds is { } r)
+            KeyValueStores.Default.SetString(BoundsKey, $"{r.X},{r.Y},{r.Width},{r.Height}");
     }
 }
 

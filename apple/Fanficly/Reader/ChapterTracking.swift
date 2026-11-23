@@ -151,3 +151,31 @@ enum ChapterTracking {
         return order[target]
     }
 }
+
+/// Each loaded chapter's paragraph count as the reader renders it, kept per
+/// (chapter, HTML, images setting). The end-of-work check and progress run on
+/// every scroll-preference change, before the sample throttle; asking
+/// `HTMLToAttributed`'s shared cache there builds a key the length of the
+/// chapter and hashes it each frame, which adds up on a long one-shot (#198).
+/// `includeImages` must be the reader's images setting, or the final
+/// paragraph's index misses the rendered one and the work can't reach 100%.
+@MainActor
+final class ChapterParagraphCounts {
+    private struct Entry {
+        let html: String
+        let includeImages: Bool
+        let count: Int
+    }
+    private var entries: [Int: Entry] = [:]
+
+    func count(for chapter: AO3ChapterPayload, includeImages: Bool) -> Int {
+        // String == short-circuits on shared storage, so an unchanged chapter
+        // costs no full comparison.
+        if let entry = entries[chapter.index], entry.includeImages == includeImages, entry.html == chapter.bodyHTML {
+            return entry.count
+        }
+        let count = HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: includeImages).count
+        entries[chapter.index] = Entry(html: chapter.bodyHTML, includeImages: includeImages, count: count)
+        return count
+    }
+}

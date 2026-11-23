@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- A shared work link, fanficly.app/works/<id> (vercel.json rewrites
+       every /works/ path here). On an iPhone or iPad these links open the
+       Fanficly app, or its App Clip when the app isn't installed (#292); this
+       page is for everywhere else, and for a link opened in a browser. It
+       reads the work's number from the address and links to it on AO3.
+       Nothing is sent anywhere: no requests, no analytics. -->
+  <title>A story shared from Fanficly</title>
+  <meta name="description" content="A story from Archive of Our Own, shared from Fanficly.">
+  <meta name="robots" content="noindex, follow">
+  <meta name="theme-color" content="#2C2170">
+  <link rel="icon" type="image/png" href="/assets/favicon-64.png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <!-- Safari's App Clip card: opens this work in the clip, or the app. -->
+  <meta name="apple-itunes-app" content="app-id=6775897153, app-clip-bundle-id=io.github.yennster.fanficly.Clip, app-clip-display=card">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .shared { max-width: 560px; margin: 0 auto; padding: 18vh var(--gutter) 64px; text-align: center; }
+    .shared img { margin: 0 auto 28px; border-radius: 22%; }
+    .shared h1 { font-size: clamp(32px, 6vw, 44px); line-height: 1.15; }
+    .shared p { color: var(--ink-soft); margin: 18px 0 32px; }
+    .shared .links { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+    .shared .links a { padding: 12px 22px; border-radius: 999px; text-decoration: none; font-weight: 600;
+                       border: 1px solid var(--rule); }
+    .shared .links a.primary { background: var(--indigo); border-color: var(--indigo); color: #fff; }
+  </style>
+</head>
+<body>
+  <main class="shared">
+    <img src="/assets/icon.png" alt="" width="88" height="88">
+    <h1>A story shared from <em>Fanficly</em></h1>
+    <p id="about">Read it on Archive of Our Own, or in Fanficly, the free, ad-free AO3 reader for iPhone, iPad, Mac and Windows.</p>
+    <div class="links">
+      <a class="primary" id="ao3" href="https://archiveofourown.org/">Read on AO3</a>
+      <a href="/">Get Fanficly</a>
+    </div>
+  </main>
+  <script>
+    // fanficly.app/works/<id>[?chapter=n], as the app's WorkLink parses it.
+    (function () {
+      var match = location.pathname.match(/^\/works\/0*([1-9]\d*)\/?$/i);
+      if (!match) {
+        document.getElementById("about").textContent =
+          "This link doesn't point to a story. Fanficly is a free, ad-free AO3 reader for iPhone, iPad, Mac and Windows.";
+        return;
+      }
+      document.getElementById("ao3").href = "https://archiveofourown.org/works/" + match[1];
+    })();
+  </script>
+</body>
+</html>

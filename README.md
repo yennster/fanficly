@@ -1,4 +1,4 @@
-# Fanficly: an AO3 reader app for iPhone, iPad, Mac and Windows
+# Fanficly: an AO3 reader app for iPhone, iPhone Duo, iPad, Mac and Windows
 
 Fanficly is a free, ad-free app for reading fanfiction from [Archive of Our Own (AO3)](https://archiveofourown.org) on iPhone, iPhone Duo, iPad, Mac and Windows. Its source code is public. There are no Fanficly servers or accounts, no ads and no analytics: everything runs on your device and talks directly to AO3.
 
@@ -107,7 +107,7 @@ The two apps share behavior, not code: the Windows app is a port of the Swift ap
 <summary>Repository layout</summary>
 
 ```text
-apple/        the iPhone, iPad and Mac app (Xcode project from project.yml)
+apple/        the iPhone, iPhone Duo, iPad and Mac app (Xcode project from project.yml)
 windows/      the Windows app (Fanficly.Windows.slnx)
 website/      fanficly.app (static site, deployed by Vercel)
 CITATION.cff  machine-readable summary of the app (GitHub's "Cite this repository")
@@ -168,7 +168,7 @@ Yes. The source code for every app is public in this repository under the [PolyF
 
 ## Privacy
 
-We collect nothing. Each store listing links its own policy: [PRIVACY.md](PRIVACY.md) for iPhone, iPad and Mac, and [windows/PRIVACY.md](windows/PRIVACY.md) for Windows.
+We collect nothing. Each store listing links its own policy: [PRIVACY.md](PRIVACY.md) for iPhone, iPhone Duo, iPad and Mac, and [windows/PRIVACY.md](windows/PRIVACY.md) for Windows.
 
 ## Contributing
 
