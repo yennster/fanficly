@@ -150,6 +150,35 @@ public sealed class PersistenceTests : IDisposable
     // MARK: Result-row badges (RM-002)
 
     [Fact]
+    public void SaveImported_KeepsEveryChapterAndFollows()
+    {
+        using var ctx = MakeContext();
+        var work = WorkPersistence.SaveImported(Payload(30, 3), ctx);
+        Assert.Equal(3, work.Chapters.Count);
+        Assert.True(work.IsFollowed);
+        Assert.NotNull(work.FollowedAt);
+        Assert.Equal(3, work.LastSeenChapterCount);
+    }
+
+    [Fact]
+    public void SaveImported_KeepsWhenASavedWorkWasSavedAndFollowed()
+    {
+        // #176: re-sharing a saved story doesn't move it to the top as if new.
+        using var ctx = MakeContext();
+        var first = WorkPersistence.SaveImported(Payload(31, 2), ctx);
+        var savedAt = new DateTimeOffset(2020, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        var followedAt = new DateTimeOffset(2021, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        first.SavedAt = savedAt;
+        first.FollowedAt = followedAt;
+        ctx.TrySave();
+
+        var again = WorkPersistence.SaveImported(Payload(31, 4), ctx);
+        Assert.Equal(savedAt, again.SavedAt);
+        Assert.Equal(followedAt, again.FollowedAt);
+        Assert.Equal(4, again.Chapters.Count);
+    }
+
+    [Fact]
     public void ResultBadge_UnknownWorkHasNone()
     {
         Assert.Null(WorkPersistence.ResultBadgeFor(inLibrary: false, started: false, progress: null, isComplete: false));

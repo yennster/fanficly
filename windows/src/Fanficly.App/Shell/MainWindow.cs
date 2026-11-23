@@ -153,6 +153,7 @@ public sealed partial class MainWindow : Window
             MaxWidth = 520,
         };
         detail.Children.Add(_messages.Row(0, 2));
+        UndoBar.Install(_messages);
 
         _nav = new NavigationView
         {
@@ -604,6 +605,8 @@ public sealed partial class MainWindow : Window
             var mods = CurrentModifiers();
             if (Navigator.Current?.HandleKey(e.Key, mods) == true) { e.Handled = true; return; }
             if (e.Key == VirtualKey.V && mods == VirtualKeyModifiers.Control) { e.Handled = AppHost.PasteImport(); return; }
+            // Ctrl+Z brings back a delete still behind its Undo bar (#169).
+            if (e.Key == VirtualKey.Z && mods == VirtualKeyModifiers.Control && UndoQueue.Shared.Undo()) { e.Handled = true; return; }
             // Esc goes back, and on a tab's root still lets the screen leave a
             // mode first (Recently Viewed's edit mode); GoBack returns false when
             // there's nothing to leave, so Esc then reaches whatever else wants it (#206).
