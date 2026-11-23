@@ -43,6 +43,12 @@ final class Work {
     /// work — drives the oldest-first rotation in `runFullPoll`. Additive
     /// (optional) so SwiftData migrates existing stores automatically.
     var lastCheckedAt: Date?
+    /// The poller's last check that read AO3's answer, the failed checks
+    /// since then and what the last one ran into (#195): rows show these,
+    /// not `lastCheckedAt`. This device only, not backed up.
+    var lastSucceededAt: Date?
+    var checkFailures: Int = 0
+    var lastCheckFailure: String?
 
     var isStarred: Bool = false
     var isPinned: Bool = false
@@ -165,13 +171,29 @@ final class Chapter {
     /// comments. Optional (older saved chapters predate this / single-chapter
     /// works may lack it) → callers fall back to work-level comments.
     var aoId: Int?
+    /// The author's chapter summary, beginning notes and end notes (HTML; see
+    /// `AO3ChapterPayload`). Optional: chapters saved before #181 have none
+    /// until the work is downloaded again.
+    var summaryHTML: String?
+    var notesHTML: String?
+    var endNotesHTML: String?
 
-    init(work: Work? = nil, index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
+    init(work: Work? = nil, index: Int, title: String, bodyHTML: String, aoId: Int? = nil,
+         summaryHTML: String? = nil, notesHTML: String? = nil, endNotesHTML: String? = nil) {
         self.work = work
         self.index = index
         self.title = title
         self.bodyHTML = bodyHTML
         self.aoId = aoId
+        self.summaryHTML = summaryHTML
+        self.notesHTML = notesHTML
+        self.endNotesHTML = endNotesHTML
+    }
+
+    /// This chapter as the reader shows it.
+    var payload: AO3ChapterPayload {
+        AO3ChapterPayload(index: index, title: title, bodyHTML: bodyHTML, aoId: aoId,
+                          summaryHTML: summaryHTML, notesHTML: notesHTML, endNotesHTML: endNotesHTML)
     }
 }
 
@@ -417,7 +439,17 @@ final class SubscriptionRecord {
     var displayName: String
     var authorName: String = ""
     var lastSeenChapterCount: Int?
+    /// When the poller last tried this record (drives the rotation).
     var lastCheckedAt: Date?
+    /// See `Work.lastSucceededAt` (#195). This device only, not backed up.
+    var lastSucceededAt: Date?
+    var checkFailures: Int = 0
+    var lastCheckFailure: String?
+    /// AO3's Updated date for the work, from the poller's last good check
+    /// (#197); the Subscriptions widget sorts by it. Nil until then. Additive
+    /// (optional) so SwiftData migrates existing stores automatically; not
+    /// backed up, since the next check fills it in.
+    var updatedAt: Date?
 
     init(key: String, kind: String, displayName: String, authorName: String = "") {
         self.key = key
@@ -439,8 +471,13 @@ final class FollowedAuthor {
     @Attribute(.unique) var username: String
     var displayName: String
     var followedAt: Date
+    /// When the poller last tried this author (drives the rotation).
     var lastCheckedAt: Date?
     var knownWorkIds: [Int]
+    /// See `Work.lastSucceededAt` (#195). This device only, not backed up.
+    var lastSucceededAt: Date?
+    var checkFailures: Int = 0
+    var lastCheckFailure: String?
 
     init(username: String, displayName: String, followedAt: Date = .now,
          lastCheckedAt: Date? = nil, knownWorkIds: [Int] = []) {

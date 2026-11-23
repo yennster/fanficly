@@ -172,6 +172,7 @@ struct SubscriptionPoller {
             notifyCount += await checkFollowedWork(work)
         }
         try? context.save()
+        WidgetDataStore.updateAll(context: context)
         return notifyCount
     }
 
@@ -296,6 +297,7 @@ struct SubscriptionPoller {
             guard let id = Self.workId(subscriptionKey: rec.key) else {
                 // A key that names no work can't be checked; stamp it like a failed check.
                 rec.lastCheckedAt = .now
+                rec.noteCheckFailed(.other)
                 continue
             }
             guard recs[id] == nil else { continue }
@@ -321,6 +323,7 @@ struct SubscriptionPoller {
     private func checkWorkSubscription(_ rec: SubscriptionRecord) async -> Int {
         guard let workId = Self.workId(subscriptionKey: rec.key) else {
             rec.lastCheckedAt = .now
+            rec.noteCheckFailed(.other)
             return 0
         }
         return await checkWork(id: workId, subscription: rec, followed: nil)
@@ -367,12 +370,43 @@ struct SubscriptionPoller {
             }
             rec?.lastSeenChapterCount = meta.chapterCount
             work?.lastSeenChapterCount = meta.chapterCount
+            rec?.noteCheckSucceeded()
+            work?.noteCheckSucceeded()
+            // The Library row and the widgets read these, so they must move
+            // with the baseline, or the alert says 12 while they say 11 (#197).
+            rec?.updatedAt = meta.updatedAt ?? meta.publishedAt ?? rec?.updatedAt
+            if let saved = work ?? libraryWork(ao3Id: workId) {
+                Self.applyCounts(meta, to: saved)
+            }
             return notifyCount
         } catch {
             tally.failed += 1
+            // A check cut off (the background window ending) isn't AO3 failing.
+            if !Task.isCancelled {
+                rec?.noteCheckFailed(CheckFailure(error))
+                work?.noteCheckFailed(CheckFailure(error))
+            }
             logger.warning("Skipping work \(workId, privacy: .private): \(error.localizedDescription, privacy: .public)")
             return 0
         }
+    }
+
+    /// The Library's copy of a work only subscribed on AO3 (not followed),
+    /// so its row's chapter count moves too. Nil when it isn't saved.
+    private func libraryWork(ao3Id: Int) -> Work? {
+        var descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first.flatMap { $0.isDeleted ? nil : $0 }
+    }
+
+    /// A poll's chapter counts and Updated date on a library work (#197). The
+    /// metadata parser fails closed (#130), so these come from a real work
+    /// page. A one-shot has no Updated date, so its Published date stands in.
+    static func applyCounts(_ meta: AO3WorkMetadata, to work: Work) {
+        work.chapterCount = meta.chapterCount
+        work.totalChapters = meta.totalChapters
+        work.isComplete = meta.totalChapters == meta.chapterCount
+        if let updatedAt = meta.updatedAt ?? meta.publishedAt { work.updatedAt = updatedAt }
     }
 
     private func checkFollowedAuthor(_ author: FollowedAuthor) async -> Int {
@@ -407,9 +441,12 @@ struct SubscriptionPoller {
             }
             if gone { return notifyCount }
             author.knownWorkIds = Array(known.union(latestIds).subtracting(undated))
+            author.noteCheckSucceeded()
             return notifyCount
         } catch {
             if !gone { tally.failed += 1 }
+            // A check cut off (the background window ending) isn't AO3 failing.
+            if !gone, !Task.isCancelled { author.noteCheckFailed(CheckFailure(error)) }
             logger.warning("Skipping author \(author.username, privacy: .private): \(error.localizedDescription, privacy: .public)")
             return 0
         }
@@ -688,10 +725,16 @@ struct SubscriptionPoller {
 }
 
 enum NotificationsAuthorization {
-    static func request() async -> Bool {
+    /// `promptIfOff`: a follow asked, so if notifications are already off,
+    /// say so once (#192).
+    static func request(promptIfOff: Bool = false) async -> Bool {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
-        switch settings.authorizationStatus {
+        let status = settings.authorizationStatus
+        if promptIfOff {
+            await NotificationsOffPrompt.shared.noteRequest(statusBeforeAsking: status)
+        }
+        switch status {
         case .authorized, .provisional, .ephemeral:
             return true
         case .denied:
@@ -712,6 +755,97 @@ enum NotificationsAuthorization {
     @MainActor
     static func requestAfterFollow() {
         guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode else { return }
-        Task { _ = await request() }
+        Task { _ = await request(promptIfOff: true) }
     }
 }
+
+// MARK: - Check status (#195)
+
+/// Why the poller's last check of a follow or subscription failed, stored as
+/// its raw value in the record's `lastCheckFailure` (the Windows app's values).
+enum CheckFailure: String, Sendable {
+    /// AO3 asked for a sign-in: a restricted work followed while signed out,
+    /// or an expired session.
+    case signIn
+    /// AO3 has no such work or author any more (a 404).
+    case notFound
+    /// Anything else: AO3 down, a Cloudflare page, markup the app can't read.
+    case other
+
+    init(_ error: Error) {
+        switch error as? AO3Error {
+        case .unauthorized?: self = .signIn
+        case .http(status: 404)?: self = .notFound
+        default: self = .other
+        }
+    }
+}
+
+/// What a row says about a follow's or subscription's checks. The poller
+/// stamps `lastCheckedAt` on every attempt, since it orders the queue, so a
+/// follow that could never be checked used to read "checked just now"
+/// forever (#195). Rows go by the last check that worked instead, and after
+/// `failuresBeforeWarning` failed checks in a row say why they fail.
+enum CheckStatus: Equatable, Sendable {
+    case checked(Date)
+    case failing(CheckFailure)
+
+    /// One failure can be AO3 having a bad minute; two in a row (hours apart
+    /// in the background) is worth showing.
+    static let failuresBeforeWarning = 2
+
+    /// The status to show, or nil for nothing (never checked, or the only
+    /// news is a failure not yet repeated and no check ever worked).
+    static func of(lastCheckedAt: Date?, lastSucceededAt: Date?,
+                   failures: Int, failure: String?) -> CheckStatus? {
+        if failures >= failuresBeforeWarning {
+            return .failing(failure.flatMap(CheckFailure.init(rawValue:)) ?? .other)
+        }
+        if let lastSucceededAt { return .checked(lastSucceededAt) }
+        // A record from before #195 has only the attempt stamp. With no
+        // failure recorded since, that's the best there is.
+        if failures == 0, let lastCheckedAt { return .checked(lastCheckedAt) }
+        return nil
+    }
+
+    /// The row's text for a failing check.
+    static func message(for failure: CheckFailure) -> String {
+        switch failure {
+        case .signIn: "Couldn't check: sign in to AO3"
+        case .notFound: "Couldn't check: not found on AO3"
+        case .other: "Couldn't check lately"
+        }
+    }
+}
+
+/// The records the poller checks, each with the #195 fields.
+protocol CheckedRecord: AnyObject {
+    var lastCheckedAt: Date? { get set }
+    var lastSucceededAt: Date? { get set }
+    var checkFailures: Int { get set }
+    var lastCheckFailure: String? { get set }
+}
+
+extension CheckedRecord {
+    /// A check that read AO3's answer.
+    func noteCheckSucceeded(at date: Date = .now) {
+        lastSucceededAt = date
+        checkFailures = 0
+        lastCheckFailure = nil
+    }
+
+    /// A check that didn't.
+    func noteCheckFailed(_ failure: CheckFailure) {
+        checkFailures += 1
+        lastCheckFailure = failure.rawValue
+    }
+
+    var checkStatus: CheckStatus? {
+        CheckStatus.of(lastCheckedAt: lastCheckedAt, lastSucceededAt: lastSucceededAt,
+                       failures: checkFailures, failure: lastCheckFailure)
+    }
+}
+
+extension Work: CheckedRecord {}
+extension SubscriptionRecord: CheckedRecord {}
+extension FollowedAuthor: CheckedRecord {}

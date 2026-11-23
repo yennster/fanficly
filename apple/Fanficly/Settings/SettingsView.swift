@@ -64,6 +64,7 @@ struct SettingsView: View {
             } footer: {
                 Text("Shows a progress bar and percentage on works you've started. Your reading position is always saved — this only hides the display.")
             }
+            NotificationsSettingsSection()
             Section("iCloud Sync") {
                 Toggle("Sync Library to iCloud", isOn: $iCloudSyncEnabled)
                     .onChange(of: iCloudSyncEnabled) { _, newValue in
@@ -282,6 +283,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        // A widget, Spotlight or notification tap opens the reader over this
+        // tab, and its byline, series and tag links push these.
+        .workAndAuthorDestinations()
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .login:

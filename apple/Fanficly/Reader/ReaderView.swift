@@ -18,7 +18,7 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
     @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
@@ -27,6 +27,8 @@ struct ReaderView: View {
     @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    // The system's Bold Text setting turns story text bold too (#174).
+    @Environment(\.legibilityWeight) private var legibilityWeight
     // Page-by-page shows two pages side by side on a wide window (iPhone Duo
     // unfolded, iPad landscape, Mac). Per device but not in reading profiles:
     // it's about the screen's shape, not typography.
@@ -62,7 +64,13 @@ struct ReaderView: View {
     /// Bumped by `jump(toChapter:)`; continuous scroll jumps on it rather than
     /// on `selectedChapterIndex`, which scrolling never updates there.
     @State private var continuousJump = 0
+    /// Bumped by End in continuous scroll: scrolls the end of
+    /// `continuousEndChapter` to the bottom of the screen.
+    @State private var continuousEndJump = 0
+    @State private var continuousEndChapter = 1
     @State private var currentAnchor: ReadingAnchor?
+    /// The author's notes sections open right now (#181).
+    @State private var openNotes: Set<String> = []
     @State private var loadedFromDisk = false
     /// Where a saved position past the loaded chapters was moved to (see
     /// `ChapterTracking.clampedAnchor`). Never saved: opening a shorter copy
@@ -314,6 +322,9 @@ struct ReaderView: View {
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) / CGFloat(zoomScale) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) / CGFloat(zoomScale) }
     private var kerning: CGFloat { CGFloat(kerningPt) / CGFloat(zoomScale) }
+    /// Story text is bold: the Bold text setting, or the system's Bold Text.
+    private var drawsBold: Bool { ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight) }
+    private var systemBoldText: Bool { legibilityWeight == .bold }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -333,7 +344,7 @@ struct ReaderView: View {
         self.authorUsername = work.authorUsername
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
-            .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
+            .map(\.payload)
         self.summary = work.workSummary
     }
 
@@ -452,7 +463,7 @@ struct ReaderView: View {
 
         func body(content: Content) -> some View {
             content
-                .focusedSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
+                .onScreenSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
                 .sheet(isPresented: $showingFind) {
                     WorkFindView(chapters: chapters, includeImages: includeImages,
                                  query: $query, onSelect: select)
@@ -652,8 +663,12 @@ struct ReaderView: View {
                 toggleChromeAccessibly()
                 return true
             },
-            find: { showingFind = true }
+            find: { showingFind = true },
+            command: { performCommandKey($0) }
         ))
+        // The Reader menu's Previous / Next Chapter and Listen (iPad, Mac),
+        // not while Find's sheet is up (its field keeps ⌘← / ⌘→).
+        .onScreenSceneValue(\.readerMenu, showingFind ? nil : readerMenuActions)
         .modifier(FindPresentationModifier(
             showingFind: $showingFind,
             query: $findQuery,
@@ -688,6 +703,73 @@ struct ReaderView: View {
         case .turnChapter(let forward): turnPage(forward: forward)
         case .scrollScreen(let forward): keyScroll(forward: forward, screenful: true)
         case .scrollLine(let forward): keyScroll(forward: forward, screenful: false)
+        case .chapterEdge(let end): goToChapterEdge(end: end)
+        }
+    }
+
+    /// ⌘← / ⌘→ and ⌘L, from the reader's own keys on iPhone or the Reader
+    /// menu on iPad and the Mac.
+    private func performCommandKey(_ key: ReaderCommandKey) {
+        switch key {
+        case .chapter(let forward): turnChapterAnnounced(forward: forward)
+        case .listen: toggleListening()
+        }
+    }
+
+    private var readerMenuActions: ReaderMenuActions {
+        let order = chapters.map(\.index)
+        let current = effectiveChapterIndex
+        return ReaderMenuActions(
+            hasPreviousChapter: ChapterTracking.adjacentChapter(in: order, current: current, forward: false) != nil,
+            hasNextChapter: ChapterTracking.adjacentChapter(in: order, current: current, forward: true) != nil,
+            isListening: speech.isActive,
+            turnChapter: { turnChapterAnnounced(forward: $0) },
+            toggleListening: { toggleListening() })
+    }
+
+    /// The next or previous chapter from its top, in every reading mode (as
+    /// the Chapters menu does), announced for VoiceOver as on Windows.
+    private func turnChapterAnnounced(forward: Bool) {
+        guard let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
+                                                           current: effectiveChapterIndex, forward: forward)
+        else { return }
+        jump(toChapter: target)
+        UIAccessibility.post(notification: .pageScrolled,
+                             argument: "Chapter \(target) of \(chapters.count)")
+    }
+
+    /// Home / End: the first or last page of the chapter (page-by-page), or
+    /// the top or bottom of it (the scrolling modes), as on Windows.
+    private func goToChapterEdge(end: Bool) {
+        switch mode {
+        case .pageByPage:
+            guard let target = ReaderChapterEdge.pageId(in: paginatedPages, selected: selectedPageId,
+                                                        end: end, spreads: spreadLayout != nil)
+            else { return }
+            updatePageSelection(target)
+        case .paginated:
+            guard let scrollView = keyScrollViews[selectedChapterIndex] else { return }
+            let inset = scrollView.adjustedContentInset
+            let top = -inset.top
+            let y = end ? max(scrollView.contentSize.height + inset.bottom - scrollView.bounds.height, top) : top
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: pageTurnAnimations)
+        case .continuous:
+            if end {
+                continuousEndChapter = visibleChapterIndex
+                continuousEndJump &+= 1
+            } else {
+                jump(toChapter: visibleChapterIndex)
+            }
+        }
+    }
+
+    /// Listen to the chapter, or stop: the Aa menu's Listen item, ⌘L.
+    private func toggleListening() {
+        if speech.isActive {
+            speech.stop()
+            listeningChapter = nil
+        } else {
+            startNarration()
         }
     }
 
@@ -739,12 +821,7 @@ struct ReaderView: View {
     @ViewBuilder
     private var listenMenuButton: some View {
         Button {
-            if speech.isActive {
-                speech.stop()
-                listeningChapter = nil
-            } else {
-                startNarration()
-            }
+            toggleListening()
         } label: {
             Label(speech.isActive ? "Stop listening" : "Listen to chapter",
                   systemImage: speech.isActive ? "stop.circle" : "headphones")
@@ -785,7 +862,8 @@ struct ReaderView: View {
         // on to the next, rather than leaving the last chapter's text loaded
         // under this chapter's number.
         if !speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
-                        workTitle: title, author: author, chapterLabel: label, from: paragraph) {
+                        workTitle: title, author: author, language: summary?.language ?? "",
+                        chapterLabel: label, from: paragraph) {
             advanceNarration()
         }
     }
@@ -1004,7 +1082,15 @@ struct ReaderView: View {
                                 if chapters.count > 1 {
                                     chapterHeader(chapter, fg: fg)
                                 }
+                                notesBefore(chapter, fg: fg)
                                 chapterBlock(chapter, fg: fg)
+                                    // End's target in continuous scroll.
+                                    .overlay(alignment: .bottom) {
+                                        Color.clear.frame(height: 1)
+                                            .id(ChapterEndID(chapter: chapter.index))
+                                            .accessibilityHidden(true)
+                                    }
+                                notesAfter(chapter, fg: fg)
                             }
                             .id(chapter.index)
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
@@ -1103,6 +1189,17 @@ struct ReaderView: View {
                     Task {
                         try? await Task.sleep(nanoseconds: 60_000_000)
                         proxy.scrollTo(newIndex, anchor: .top)
+                    }
+                }
+                .onChange(of: continuousEndJump) { _, _ in
+                    let target = ChapterEndID(chapter: continuousEndChapter)
+                    withAnimation(pageTurnAnimations && !reduceMotion ? .default : nil) {
+                        proxy.scrollTo(target, anchor: .bottom)
+                    }
+                    // Again once the layout settles, as a chapter jump does.
+                    Task {
+                        try? await Task.sleep(nanoseconds: 60_000_000)
+                        proxy.scrollTo(target, anchor: .bottom)
                     }
                 }
                 .onChange(of: currentAnchor) { _, anchor in
@@ -1354,7 +1451,9 @@ struct ReaderView: View {
         .accessibilityLabel("\(label), chapter \(visibleChapterIndex) of \(chapters.count)")
     }
 
-    private func chapterHeader(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+    /// `notesButton`: page-by-page mode's "Notes" button under the heading
+    /// (its height is in `ReaderPaginator.estimateChapterHeaderHeight`).
+    private func chapterHeader(_ chapter: AO3ChapterPayload, fg: Color, notesButton: Bool = false) -> some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
                 Rectangle().fill(Color.accentColor.opacity(0.3)).frame(height: 1)
@@ -1369,6 +1468,9 @@ struct ReaderView: View {
                     .font(fontFamily.font(size: fontSize + 5, weight: .bold))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
+            }
+            if notesButton {
+                pageNotesButton(chapter, fg: fg)
             }
         }
         .padding(.top, Spacing.xl)
@@ -1469,7 +1571,9 @@ struct ReaderView: View {
                         if chapters.count > 1 {
                             chapterHeader(chapter, fg: fg)
                         }
+                        notesBefore(chapter, fg: fg)
                         chapterBlock(chapter, fg: fg)
+                        notesAfter(chapter, fg: fg)
                         if let newChapters, chapter.index == chapters.last?.index {
                             NewChaptersBanner(notice: newChapters, foreground: fg)
                         }
@@ -1648,7 +1752,7 @@ struct ReaderView: View {
                 lineSpacing: lineSpacingPt / zoomScale,
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 kerning: kerningPt / zoomScale,
-                boldText: boldText,
+                boldText: drawsBold,
                 showImages: showImages,
                 content: ChapterContentSignature(chapters),
                 size: CGSize(
@@ -1925,13 +2029,19 @@ struct ReaderView: View {
                 showTitleHeader: page.pageIndex == 0 && page.chapterIndex == chapters.first?.index,
                 showChapterHeader: (page.pageIndex == 0 && page.chapterIndex != chapters.first?.index && chapters.count > 1) ||
                                    (page.pageIndex == 1 && page.chapterIndex == chapters.first?.index && chapters.count > 1),
-                titleHeaderView: AnyView(titleHeader(fg: fg)),
-                chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg)),
+                // The first chapter's notes button is on the title page, which
+                // holds no story text; the others' under their heading.
+                titleHeaderView: AnyView(VStack(alignment: .leading, spacing: Spacing.lg) {
+                    titleHeader(fg: fg)
+                    pageNotesButton(chapter, fg: fg)
+                }),
+                chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg,
+                                                         notesButton: chapter.index != chapters.first?.index)),
                 font: fontFamily.font(size: fontSize),
                 lineSpacing: lineSpacing,
                 paragraphSpacing: paragraphSpacing,
                 kerning: kerning,
-                boldText: boldText,
+                boldText: drawsBold,
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
@@ -2545,7 +2655,8 @@ struct ReaderView: View {
                 title: chapter.title,
                 width: w,
                 fontSize: CGFloat(trigger.fontSize),
-                fontFamily: fontFamily
+                fontFamily: fontFamily,
+                hasNotesButton: chapter.hasNotes && chIndex != chapters.first?.index
             )
             
             let isFirstChapter = chIndex == chapters.first?.index
@@ -2638,11 +2749,56 @@ struct ReaderView: View {
             foreground: fg,
             scrollSpace: scrollSpace,
             kerning: kerning,
-            boldText: boldText,
+            boldText: drawsBold,
             highlightParagraph: highlightedParagraph(for: chapter.index),
             showImages: showImages
         )
         .padding(.vertical, Spacing.sm)
+    }
+
+    // MARK: - Author's notes (#181)
+
+    private var notesFont: Font { fontFamily.font(size: fontSize - 1) }
+
+    /// Whether a chapter's notes section (`"<chapter>-before"` / `-after`) is open.
+    private func notesExpanded(_ key: String) -> Binding<Bool> {
+        Binding(get: { openNotes.contains(key) },
+                set: { open in if open { openNotes.insert(key) } else { openNotes.remove(key) } })
+    }
+
+    /// The chapter's summary and notes, collapsed, above its text.
+    @ViewBuilder
+    private func notesBefore(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        let notes = chapter.notesBefore
+        if !notes.isEmpty {
+            ReaderNotesDisclosure(title: notes.count == 1 ? notes[0].label : "Notes",
+                                  notes: notes, foreground: fg, font: notesFont,
+                                  isExpanded: notesExpanded("\(chapter.index)-before"))
+                .padding(.top, Spacing.sm)
+        }
+    }
+
+    /// The chapter's end notes, collapsed, below its text.
+    @ViewBuilder
+    private func notesAfter(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        let notes = chapter.notesAfter
+        if !notes.isEmpty {
+            ReaderNotesDisclosure(title: "End Notes", notes: notes, foreground: fg, font: notesFont,
+                                  isExpanded: notesExpanded("\(chapter.index)-after"))
+                .padding(.bottom, Spacing.sm)
+        }
+    }
+
+    /// Page-by-page mode's "Notes" button for a chapter with notes.
+    @ViewBuilder
+    private func pageNotesButton(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        if chapter.hasNotes {
+            let scheme = theme.preferredColorScheme ?? systemColorScheme
+            ReaderNotesButton(chapter: chapter,
+                              title: chapters.count > 1 ? Text("Chapter \(chapter.index) Notes") : Text("Notes"),
+                              foreground: fg, background: theme.background(for: scheme),
+                              colorScheme: scheme, font: notesFont)
+        }
     }
 
     /// The paragraph to karaoke-highlight in `chapterIndex`, or nil when that
@@ -2839,9 +2995,11 @@ struct ReaderView: View {
                 Label("Font · \(fontFamily.displayName)", systemImage: "character")
             }
 
-            Toggle(isOn: $boldText) {
+            // On, and locked on, while the system's Bold Text is on.
+            Toggle(isOn: systemBoldText ? .constant(true) : $boldText) {
                 Label("Bold text", systemImage: "bold")
             }
+            .disabled(systemBoldText)
 
             presetMenu("Text size", value: $fontSizePt, presets: ReaderMetrics.fontSizePresets,
                        icon: "textformat.size")

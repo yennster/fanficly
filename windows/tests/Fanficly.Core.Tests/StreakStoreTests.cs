@@ -54,42 +54,34 @@ public class StreakStoreTests
     public void GetLast7DaysActivity()
     {
         var reference = Date("2026-06-11"); // June 11, 2026 is a Thursday
-        string[] dates = ["2026-06-11", "2026-06-10", "2026-06-08"]; // Read Thursday, Wednesday, Monday.
+        string[] dates = ["2026-06-11", "2026-06-10", "2026-06-08", "2026-06-04"]; // Thu, Wed, Mon, and the Thursday before (outside the window)
 
-        // The Swift test branches on the device calendar's first weekday; both
-        // branches run here by passing the culture explicitly.
+        // The rolling seven days ending today: Fri 5 … Thu 11, whatever the
+        // culture's first day of the week, with no future days.
+        foreach (var name in new[] { "en-US", "en-GB" })
+        {
+            var days = StreakStore.GetLast7DaysActivity(dates, reference, CultureInfo.GetCultureInfo(name));
+            Assert.Equal(7, days.Count);
+            Assert.Equal(new[] { false, false, false, true, false, true, true }, days.Select(d => d.IsRead));
+            Assert.Equal(new[] { false, false, false, false, false, false, true }, days.Select(d => d.IsToday));
+            Assert.Equal("F", days[0].Name);
+            Assert.Equal("Friday", days[0].FullName);
+            Assert.Equal("T", days[6].Name);
+            Assert.Equal("Thursday", days[6].FullName);
+        }
 
-        // Sunday start — days: Sun 7, Mon 8, Tue 9, Wed 10, Thu 11, Fri 12, Sat 13
-        var sunday = StreakStore.GetLast7DaysActivity(dates, reference, CultureInfo.GetCultureInfo("en-US"));
-        Assert.Equal(7, sunday.Count);
-        Assert.False(sunday[0].IsToday);
-        Assert.False(sunday[0].IsRead);
-        Assert.Equal("S", sunday[0].Name);
-        Assert.False(sunday[1].IsToday);
-        Assert.True(sunday[1].IsRead);
-        Assert.Equal("M", sunday[1].Name);
-        Assert.False(sunday[3].IsToday);
-        Assert.True(sunday[3].IsRead);
-        Assert.Equal("W", sunday[3].Name);
-        Assert.True(sunday[4].IsToday);
-        Assert.True(sunday[4].IsRead);
-        Assert.Equal("T", sunday[4].Name);
+        // Whatever the current culture: exactly one today, and it's last.
+        Assert.True(StreakStore.GetLast7DaysActivity(dates, reference)[6].IsToday);
+    }
 
-        // Monday start — days: Mon 8, Tue 9, Wed 10, Thu 11, Fri 12, Sat 13, Sun 14
-        var monday = StreakStore.GetLast7DaysActivity(dates, reference, CultureInfo.GetCultureInfo("en-GB"));
-        Assert.Equal(7, monday.Count);
-        Assert.False(monday[0].IsToday);
-        Assert.True(monday[0].IsRead);
-        Assert.Equal("M", monday[0].Name);
-        Assert.False(monday[2].IsToday);
-        Assert.True(monday[2].IsRead);
-        Assert.Equal("W", monday[2].Name);
-        Assert.True(monday[3].IsToday);
-        Assert.True(monday[3].IsRead);
-        Assert.Equal("T", monday[3].Name);
-
-        // Whatever the current culture: exactly one today.
-        Assert.Single(StreakStore.GetLast7DaysActivity(dates, reference), a => a.IsToday);
+    [Fact]
+    public void GetLast7DaysActivity_MondayCountsTheWholeWeek()
+    {
+        // #200: on a Monday after a week of daily reading, the calendar week read "1 of last 7 days".
+        var reference = Date("2026-06-15"); // Monday
+        string[] dates = ["2026-06-09", "2026-06-10", "2026-06-11", "2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15"];
+        var days = StreakStore.GetLast7DaysActivity(dates, reference, CultureInfo.GetCultureInfo("en-GB"));
+        Assert.Equal(7, days.Count(d => d.IsRead));
     }
 
     // MARK: - Windows-only: the stores behind the streak

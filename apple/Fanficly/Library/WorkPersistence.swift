@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 enum WorkPersistence {
     @MainActor
-    static func upsert(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+    static func upsert(payload: AO3WorkPayload, into context: ModelContext, save: Bool = true) -> Work {
         let work = upsertMetadata(summary: payload.summary, into: context, save: false)
         // New text makes a saved EPUB stale; the caller saves a current one
         // (Save Offline, an import), and until then Export builds from the
@@ -15,12 +15,36 @@ enum WorkPersistence {
         for ch in work.chapters { context.delete(ch) }
         work.chapters.removeAll()
         for ch in payload.chapters {
-            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId,
+                                  summaryHTML: ch.summaryHTML, notesHTML: ch.notesHTML, endNotesHTML: ch.endNotesHTML)
             context.insert(chapter)
         }
         // Saving the text again undoes an earlier Remove Download.
         setDownloadRemoved(work.ao3Id, removed: false)
 
+        if save { try? context.save() }
+        return work
+    }
+
+    /// Saves a work opened from a shared, dropped or pasted link (#176): its
+    /// metadata and every chapter, from the fetch the import already made, so
+    /// the story reads offline with no second request. The work is followed;
+    /// one already in the Library keeps when it was saved and followed.
+    @MainActor
+    @discardableResult
+    static func saveImported(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+        // Importing a work deleted a moment ago keeps it (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
+        let work = upsert(payload: payload, into: context, save: false)
+        if !work.isFollowed {
+            work.isFollowed = true
+            work.followedAt = .now
+            // Following now isn't news: alert only for chapters after this.
+            work.lastSeenChapterCount = payload.summary.chapterCount
+        }
+        // AO3 just answered for it, so an earlier follow's failed checks
+        // are over (#195).
+        work.noteCheckSucceeded()
         try? context.save()
         return work
     }
@@ -142,6 +166,8 @@ enum WorkPersistence {
             try? FileManager.default.removeItem(at: url)
         }
         deindexWork(ao3Id: work.ao3Id)
+        // The Continue reading widget mustn't keep its title (#209).
+        clearLastRead(workId: work.ao3Id)
         // Saved again later, it starts without an earlier Remove Download.
         setDownloadRemoved(work.ao3Id, removed: false)
         context.delete(work)
@@ -258,6 +284,24 @@ enum WorkPersistence {
         return .renamed
     }
 
+    /// Forgets the last-read widget entry when it names `workId` (nil: any
+    /// work): a deleted or hidden work, or a cleared history (#209). Not in
+    /// demo mode: its library is in memory, but the widget's store is the
+    /// device's own.
+    @MainActor
+    static func clearLastRead(workId: Int?) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.clear(workId: workId)
+    }
+
+    /// A hidden work never shows as the last-read widget entry, whenever its
+    /// copy was saved, until it's unhidden (#209). Not in demo mode.
+    @MainActor
+    static func setLastReadHidden(_ workId: Int, hidden: Bool) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.setHidden(workId, hidden: hidden)
+    }
+
     @MainActor
     static func deindexWork(ao3Id: Int) {
         CSSearchableIndex.default().deleteSearchableItems(
@@ -358,6 +402,12 @@ enum WorkPersistence {
             work.isFollowed = true
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
+            // A follow starts unchecked: an earlier follow's failed checks
+            // (or one that worked months ago) say nothing about this one (#195).
+            work.lastCheckedAt = nil
+            work.lastSucceededAt = nil
+            work.checkFailures = 0
+            work.lastCheckFailure = nil
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is
             // the moment to ask for permission, not the login-gated

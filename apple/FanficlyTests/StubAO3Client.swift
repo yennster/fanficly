@@ -18,6 +18,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     var onFetchSubscriptions: (@MainActor () -> Void)?
     /// Scripted author works page (SubscriptionPoller tests); empty when nil.
     var authorWorksResponse: AO3SearchResults?
+    /// Scripted author works failure (SubscriptionPoller tests).
+    var authorWorksError: Error?
     /// Scripted search results (saved search alert tests); empty when nil.
     var searchResponse: AO3SearchResults?
     /// Scripted search failure.
@@ -33,6 +35,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     /// ids it was asked for (SubscriptionPoller tests).
     var workPublishedAt: [Int: Date] = [:]
     private(set) var workMetadataCalls: [Int] = []
+    /// Scripted `fetchWorkMetadata` failure (SubscriptionPoller tests).
+    var workMetadataError: Error?
     /// Runs while a work's metadata is "on the wire" (account switch tests).
     var onFetchWorkMetadata: (@MainActor () -> Void)?
     /// Scripted EPUB download failures by work id (RestoreDownloadCenter tests).
@@ -65,7 +69,8 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
         return searchResponse ?? AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     func fetchAuthorWorks(username: String, page: Int) async throws -> AO3SearchResults {
-        authorWorksResponse ?? AO3SearchResults(works: [], totalPages: 0, currentPage: page)
+        if let authorWorksError { throw authorWorksError }
+        return authorWorksResponse ?? AO3SearchResults(works: [], totalPages: 0, currentPage: page)
     }
     func fetchBookmarks(username: String, page: Int) async throws -> AO3SearchResults {
         AO3SearchResults(works: [], totalPages: 0, currentPage: page)
@@ -82,6 +87,7 @@ final class StubAO3Client: AO3ClientProtocol, @unchecked Sendable {
     func fetchWorkMetadata(id: Int) async throws -> AO3WorkMetadata {
         workMetadataCalls.append(id)
         if let onFetchWorkMetadata { await onFetchWorkMetadata() }
+        if let workMetadataError { throw workMetadataError }
         if let publishedAt = workPublishedAt[id] {
             return AO3WorkMetadata(id: id, chapterCount: 2, totalChapters: nil, updatedAt: nil, publishedAt: publishedAt)
         }

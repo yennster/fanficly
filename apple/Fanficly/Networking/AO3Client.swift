@@ -309,12 +309,40 @@ public struct AO3ChapterPayload: Sendable {
     /// nil when the markup doesn't expose it (e.g. some single-chapter works),
     /// in which case callers fall back to work-level comments.
     public let aoId: Int?
+    /// The author's chapter summary, beginning notes and end notes (HTML),
+    /// nil when the chapter has none. The first chapter's notes also carry
+    /// the work's beginning notes and the last chapter's end notes the work's
+    /// end notes, as AO3's chapter-by-chapter view shows them. They're never
+    /// part of `bodyHTML`, so paragraph indices, pagination and Listen
+    /// count only the story text.
+    public let summaryHTML: String?
+    public let notesHTML: String?
+    public let endNotesHTML: String?
 
-    public init(index: Int, title: String, bodyHTML: String, aoId: Int? = nil) {
+    public init(index: Int, title: String, bodyHTML: String, aoId: Int? = nil,
+                summaryHTML: String? = nil, notesHTML: String? = nil, endNotesHTML: String? = nil) {
         self.index = index
         self.title = title
         self.bodyHTML = bodyHTML
         self.aoId = aoId
+        self.summaryHTML = summaryHTML
+        self.notesHTML = notesHTML
+        self.endNotesHTML = endNotesHTML
+    }
+
+    /// Whether the chapter has any notes or summary to show.
+    public var hasNotes: Bool {
+        summaryHTML != nil || notesHTML != nil || endNotesHTML != nil
+    }
+
+    func with(notesHTML: String?) -> AO3ChapterPayload {
+        AO3ChapterPayload(index: index, title: title, bodyHTML: bodyHTML, aoId: aoId,
+                          summaryHTML: summaryHTML, notesHTML: notesHTML, endNotesHTML: endNotesHTML)
+    }
+
+    func with(endNotesHTML: String?) -> AO3ChapterPayload {
+        AO3ChapterPayload(index: index, title: title, bodyHTML: bodyHTML, aoId: aoId,
+                          summaryHTML: summaryHTML, notesHTML: notesHTML, endNotesHTML: endNotesHTML)
     }
 }
 
@@ -818,9 +846,19 @@ public actor AO3Client: AO3ClientProtocol {
         fields["commit"] = "Comment"
         request.httpBody = encodeForm(fields).data(using: .utf8)
 
+        // From here a failure can come after AO3 saved the comment (a timeout,
+        // a dropped connection, a 5xx), so it says so (#204): the composer
+        // warns against posting again before a refresh. Never retried.
+        let data: Data
+        let response: HTTPURLResponse
+        do {
+            (data, response) = try await performRequest(request)
+        } catch let error as AO3Error where CommentPostUncertain.mayHaveReachedAO3(error) {
+            throw CommentPostUncertain(underlying: error)
+        }
+
         // AO3 answers a refused comment with a 200 page (or a redirect that
         // URLSession follows), never an error status, so judge by the page.
-        let (data, response) = try await performRequest(request)
         let html = String(data: data, encoding: .utf8) ?? ""
         switch CommentsParser.postOutcome(html: html, finalURL: response.url, formAction: form.action) {
         case .posted: return

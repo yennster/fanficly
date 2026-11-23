@@ -45,6 +45,7 @@ struct RootView: View {
     @AppStorage(ContentControl.ageConfirmedKey) private var ageConfirmed: Bool = false
     
     @State private var importingWorkId: Int? = nil
+    @State private var showNotAWorkLink = false
     @State private var compactSelection: SidebarItem?
     @State private var detailPath = NavigationPath()
     @State private var pendingResumeRoute: ResumeWorkRoute?
@@ -296,24 +297,37 @@ struct RootView: View {
                     
                     ImportOverlay(workId: workId) { work in
                         self.importingWorkId = nil
-                        select(.library)
+                        // Open the story itself, saved and ready offline (#176).
+                        openResumeRoute(ResumeWorkRoute(workId: work.ao3Id, anchor: nil))
                     } onCancel: {
                         self.importingWorkId = nil
                     }
+                    // A second link shared mid-import starts over for that work
+                    // instead of the old fetch finishing under the new id.
+                    .id(workId)
                     .transition(.scale)
                 }
             }
             .onDrop(of: [.url, .text], isTargeted: nil) { providers in
                 self.handleImportProviders(providers)
             }
-            .onPasteCommandIfAvailable { providers in
-                _ = self.handleImportProviders(providers)
+            // ⌘V with a work link, and File → Open AO3 Link… (⇧⌘O).
+            .onPasteWorkLink { importingWorkId = $0 }
+            .modifier(OpenAO3LinkModifier { importingWorkId = $0 })
+            // A shared or dropped link Fanficly can't open (a series, an
+            // author, a tag, another site) says so instead of doing nothing.
+            .alert("Fanficly can open AO3 work links", isPresented: $showNotAWorkLink) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Share or drop the page of a story on archiveofourown.org (a link with /works/ in it).")
             }
             // Post-iCloud-restore "re-download offline stories?" prompt and
             // its progress banner — root-level so it shows on any tab.
             .restoreRedownloadUI()
             // How an EPUB import went, from the Library or an opened file.
             .epubImportAlert()
+            // "Notifications are off" once, after a follow (#192).
+            .notificationsOffPrompt()
             // "Deleted 'X' · Undo" after a one-tap delete (#169).
             .undoToastHost()
             // The Go menu's ⌘1–⌘9 and ⌘, (`GoCommands`).
@@ -392,11 +406,16 @@ struct RootView: View {
             return
         }
 
-        if let workId = parseWorkId(from: url) {
+        if let workId = ImportLink.workId(from: url) {
             importingWorkId = workId
             return
         }
-        
+
+        if ImportLink.isLinkToImport(url) {
+            showNotAWorkLink = true
+            return
+        }
+
         // Custom Folder Shortcut routing (fanficly://library?folder=name)
         if url.host == "library",
            let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
@@ -536,66 +555,128 @@ struct RootView: View {
         return ResumeWorkRoute(workId: id, anchor: anchor)
     }
     
-    private func parseWorkId(from url: URL) -> Int? {
-        var targetURL = url
-        if url.scheme == "fanficly" {
-            if url.host == "import" {
-                if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                   let queryItem = components.queryItems?.first(where: { $0.name == "url" }),
-                   let urlString = queryItem.value,
-                   let decodedURL = URL(string: urlString) {
-                    targetURL = decodedURL
-                }
-            } else if let host = url.host, host == "works" || host == "work",
-                      let firstPath = url.pathComponents.dropFirst().first,
-                      let id = Int(firstPath) {
-                return id
-            } else if let firstPath = url.pathComponents.dropFirst().first,
-                      let id = Int(firstPath) {
-                return id
-            }
-        }
-        
-        let path = targetURL.absoluteString
-        guard let regex = try? NSRegularExpression(pattern: #"works/(\d+)"#, options: .caseInsensitive) else { return nil }
-        let range = NSRange(location: 0, length: path.utf16.count)
-        if let match = regex.firstMatch(in: path, range: range) {
-            if let idRange = Range(match.range(at: 1), in: path),
-               let id = Int(path[idRange]) {
-                return id
-            }
-        }
-        return nil
-    }
-
+    /// A link dropped on the window (Mac, iPad) or pasted with ⌘V imports the
+    /// work it points at. A dropped link to anything else says so; a paste
+    /// that isn't a work link is left alone.
     @discardableResult
-    private func handleImportProviders(_ providers: [NSItemProvider]) -> Bool {
+    private func handleImportProviders(_ providers: [NSItemProvider], warnIfNotAWork: Bool = true) -> Bool {
         guard let provider = providers.first else { return false }
         if provider.canLoadObject(ofClass: URL.self) {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                if let url = url {
-                    Task { @MainActor in
-                        if let workId = self.parseWorkId(from: url) {
-                            self.runAfterAgeGate { self.importingWorkId = workId }
-                        }
-                    }
-                }
+                guard let url, !url.isFileURL else { return }
+                Task { @MainActor in self.importOrWarn(url: url, warn: warnIfNotAWork) }
             }
             return true
         } else if provider.canLoadObject(ofClass: String.self) {
             _ = provider.loadObject(ofClass: String.self) { text, _ in
-                if let text = text,
-                   let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    Task { @MainActor in
-                        if let workId = self.parseWorkId(from: url) {
-                            self.runAfterAgeGate { self.importingWorkId = workId }
-                        }
+                guard let text else { return }
+                Task { @MainActor in
+                    if let workId = ImportLink.workId(fromText: text) {
+                        self.runAfterAgeGate { self.importingWorkId = workId }
+                    } else if warnIfNotAWork && ImportLink.hasWebLink(text) {
+                        // Plain text dropped from Notes was never a link: no alert.
+                        self.showNotAWorkLink = true
                     }
                 }
             }
             return true
         }
         return false
+    }
+
+    private func importOrWarn(url: URL, warn: Bool) {
+        if let workId = ImportLink.workId(from: url) {
+            runAfterAgeGate { importingWorkId = workId }
+        } else if warn && ImportLink.isLinkToImport(url) {
+            showNotAWorkLink = true
+        }
+    }
+}
+
+/// Which AO3 work a shared, dropped, pasted or opened link points at (#176).
+/// Only links to a work on AO3 itself count: a series, author or tag page, or
+/// another site's `/works/<n>` path, is not a work Fanficly can import.
+enum ImportLink {
+    /// AO3's own hosts (and their subdomains, such as `www.` and `download.`).
+    static let ao3Hosts = ["archiveofourown.org", "archiveofourown.com", "archiveofourown.net", "ao3.org"]
+
+    /// The work id from `fanficly://import?url=<AO3 link>` (the share
+    /// extension), `fanficly://works/<id>` or `fanficly://work/<id>`, or an AO3
+    /// work link itself (with or without `https://`). Nil for anything else.
+    static func workId(from url: URL) -> Int? {
+        if url.scheme?.lowercased() == "fanficly" {
+            switch url.host?.lowercased() {
+            case "import":
+                guard let embedded = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "url" })?.value else { return nil }
+                return workId(fromWebLink: embedded)
+            case "works", "work":
+                return url.pathComponents.dropFirst().first.flatMap(positiveInt)
+            default:
+                return nil
+            }
+        }
+        return workId(fromWebLink: url.absoluteString)
+    }
+
+    /// Whether the link was meant as something to import: a web link, or the
+    /// share extension's `fanficly://import`. Those get "Fanficly can open AO3
+    /// work links" when they aren't a work; the app's own widget and shortcut
+    /// links don't.
+    static func isLinkToImport(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "http", "https": true
+        case "fanficly": url.host?.lowercased() == "import"
+        default: false
+        }
+    }
+
+    /// The work in dropped or pasted text: the text as one link, or else the
+    /// first AO3 work link among its words ("My fic: https://…/works/1").
+    static func workId(fromText text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("fanficly:"), let url = URL(string: trimmed) {
+            return workId(from: url)
+        }
+        if let id = workId(fromWebLink: trimmed) { return id }
+        for word in trimmed.split(whereSeparator: \.isWhitespace) {
+            let link = word.trimmingCharacters(in: CharacterSet(charactersIn: "<>()[]{}\"'.,;:!?"))
+            if let id = workId(fromWebLink: link) { return id }
+        }
+        return nil
+    }
+
+    /// Whether dropped text has a web link in it (so a non-work link can say so).
+    static func hasWebLink(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return lowered.contains("http://") || lowered.contains("https://")
+    }
+
+    /// An `http(s)` link on an AO3 host whose path has `works/<id>`:
+    /// `/works/1`, `/works/1/chapters/2`, `/collections/x/works/1`. A link with
+    /// no scheme (`archiveofourown.org/works/1`, as pasted) reads as https.
+    static func workId(fromWebLink text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasScheme = trimmed.range(of: #"^[A-Za-z][A-Za-z0-9+.-]*://"#, options: .regularExpression) != nil
+        let absolute = hasScheme ? trimmed : "https://" + trimmed
+        guard let components = URLComponents(string: absolute),
+              let scheme = components.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = components.host?.lowercased(), isAO3Host(host) else { return nil }
+        let parts = components.path.split(separator: "/").map(String.init)
+        for (index, part) in parts.enumerated().dropLast() where part.lowercased() == "works" {
+            if let id = positiveInt(parts[index + 1]) { return id }
+        }
+        return nil
+    }
+
+    static func isAO3Host(_ host: String) -> Bool {
+        let host = host.lowercased()
+        return ao3Hosts.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    private static func positiveInt(_ text: String) -> Int? {
+        guard let value = Int(text), value > 0 else { return nil }
+        return value
     }
 }
 
@@ -749,6 +830,14 @@ struct ImportOverlay: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                // AO3 can take a minute to send a long work; the overlay
+                // covers the app, so it must never be the only way out. Once
+                // saved there's nothing left to cancel: the story opens.
+                if status != "Done!" {
+                    Button("Cancel", role: .cancel, action: onCancel)
+                        .buttonStyle(.bordered)
+                        .keyboardShortcut(.cancelAction)
+                }
             }
         }
         .padding(30)
@@ -770,23 +859,24 @@ struct ImportOverlay: View {
             guard let newError else { return }
             UIAccessibility.post(notification: .announcement, argument: "Import failed. \(newError)")
         }
+        // Cancel (or a newer import) removes the overlay, which cancels this
+        // task and the AO3 fetch with it.
         .task {
             do {
-                status = "Fetching metadata..."
+                status = "Fetching the story..."
                 let payload = try await client.fetchWork(id: workId)
+                // Cancelled while AO3 answered: save nothing.
+                try Task.checkCancellation()
                 status = "Saving to library..."
-                // Importing a work deleted a moment ago keeps it (#169).
-                UndoCenter.shared.cancel(UndoCenter.Key.work(workId))
-                let work = WorkPersistence.upsertMetadata(summary: payload.summary, into: context, save: false)
-                work.isFollowed = true
-                work.followedAt = .now
-                work.savedAt = .now
-                status = "Done!"
-                try? context.save()
+                // The fetch already has every chapter: keep them, so the story
+                // reads offline with no second request (#176).
+                let work = WorkPersistence.saveImported(payload: payload, into: context)
                 iCloudSyncManager.shared.queueBackup(context: context)
-                try? await Task.sleep(for: .seconds(1))
+                status = "Done!"
+                try await Task.sleep(for: .seconds(0.6))
                 onComplete(work)
             } catch {
+                guard !Task.isCancelled else { return }
                 self.error = error.localizedDescription
             }
         }
@@ -861,23 +951,205 @@ extension FocusedValues {
 }
 
 extension View {
-    @ViewBuilder
-    func onPasteCommandIfAvailable(perform action: @escaping ([NSItemProvider]) -> Void) -> some View {
-        #if targetEnvironment(macCatalyst)
-        self.onKeyPress { press in
-            if press.key == KeyEquivalent("v"), press.modifiers.contains(.command) {
-                if UIPasteboard.general.hasStrings {
-                    let providers = UIPasteboard.general.strings?.map { NSItemProvider(object: $0 as NSString) } ?? []
-                    if !providers.isEmpty {
-                        action(providers)
-                        return .handled
-                    }
+    /// ⌘V with an AO3 work link on the clipboard imports it, as dropping the
+    /// link on the window does (Windows' Ctrl+V). Never while a text field is
+    /// being edited, so pastes into a field go where they always did. On iPad and the Mac, Open AO3 Link… in the
+    /// File menu does the same from the keyboard wherever focus is.
+    @MainActor
+    func onPasteWorkLink(perform action: @escaping @MainActor (Int) -> Void) -> some View {
+        onKeyPress("v", phases: .down) { press in
+            guard press.modifiers.subtracting([.capsLock, .numericPad, .function]) == .command,
+                  !FirstResponder.isEditingText,
+                  UIPasteboard.general.hasStrings || UIPasteboard.general.hasURLs
+            else { return .ignored }
+            // Outside a text field nothing else takes ⌘V, so it's handled
+            // here either way. The clipboard is only read once it looks like
+            // a web link (`detectPatterns` doesn't read it): reading it from
+            // a key press shows iOS's Allow Paste prompt, which ordinary
+            // copied text shouldn't bring up.
+            UIPasteboard.general.detectPatterns(for: [\.probableWebURL]) { result in
+                guard case .success(let patterns) = result, patterns.contains(\.probableWebURL) else { return }
+                Task { @MainActor in
+                    let pasteboard = UIPasteboard.general
+                    let candidates = (pasteboard.urls ?? []).compactMap { ImportLink.workId(from: $0) }
+                        + (pasteboard.strings ?? []).compactMap { ImportLink.workId(fromText: $0) }
+                    if let workId = candidates.first { action(workId) }
                 }
             }
-            return .ignored
+            return .handled
         }
-        #else
-        self
-        #endif
+    }
+}
+
+/// Whether a text field (or any text input) is the first responder, so a
+/// window-wide key like ⌘V leaves it to the field.
+@MainActor
+enum FirstResponder {
+    fileprivate static weak var found: UIResponder?
+
+    static var isEditingText: Bool {
+        found = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.fanficlyReportFirstResponder), to: nil, from: nil, for: nil)
+        defer { found = nil }
+        return found is UITextInput
+    }
+}
+
+extension UIResponder {
+    @objc fileprivate func fanficlyReportFirstResponder() {
+        FirstResponder.found = self
+    }
+}
+
+/// A menu-bar command a screen offers while it's the one on top: Find (⌘F)
+/// focusing its search field, Refresh (⌘R), Open AO3 Link…. Handed to the
+/// menus (`FanficlyApp`) as a focused scene value, so with two windows open
+/// it acts on the one in front.
+struct MenuAction {
+    let isEnabled: Bool
+    let perform: @MainActor () -> Void
+
+    @MainActor
+    func callAsFunction() {
+        if isEnabled { perform() }
+    }
+}
+
+private struct FocusSearchKey: FocusedValueKey {
+    typealias Value = MenuAction
+}
+
+private struct RefreshListKey: FocusedValueKey {
+    typealias Value = MenuAction
+}
+
+private struct OpenAO3LinkKey: FocusedValueKey {
+    typealias Value = MenuAction
+}
+
+extension FocusedValues {
+    /// ⌘F outside the reader: focuses the search field of the screen on top.
+    var focusSearch: MenuAction? {
+        get { self[FocusSearchKey.self] }
+        set { self[FocusSearchKey.self] = newValue }
+    }
+
+    /// ⌘R: reloads Subscriptions, Bookmarks, Marked for Later or AO3 History.
+    var refreshList: MenuAction? {
+        get { self[RefreshListKey.self] }
+        set { self[RefreshListKey.self] = newValue }
+    }
+
+    /// ⇧⌘O: Open AO3 Link….
+    var openAO3Link: MenuAction? {
+        get { self[OpenAO3LinkKey.self] }
+        set { self[OpenAO3LinkKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Offers `perform` to a menu-bar item while this screen is on screen
+    /// (not while something is pushed over it or another tab is showing).
+    /// `enabled` false greys the item out.
+    @MainActor
+    func menuAction(_ keyPath: WritableKeyPath<FocusedValues, MenuAction?>, enabled: Bool = true,
+                    perform: @escaping @MainActor () -> Void) -> some View {
+        modifier(MenuActionModifier(keyPath: keyPath, enabled: enabled, perform: perform))
+    }
+
+    /// A key that a menu-bar item has on iPad and the Mac, for iPhone, which
+    /// has no menu bar: a hidden button takes it there. Elsewhere the menu
+    /// item handles it, so it never acts twice.
+    @MainActor
+    func phoneOnlyShortcut(_ key: KeyEquivalent, modifiers: EventModifiers = .command,
+                           perform: @escaping @MainActor () -> Void) -> some View {
+        background {
+            Button(action: perform) { EmptyView() }
+                .keyboardShortcut(KeyboardShortcut.phoneOnly(key, modifiers: modifiers))
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+extension KeyboardShortcut {
+    /// `key` on iPhone, nil (no shortcut) on iPad and the Mac, whose menu bar
+    /// has the item with this key.
+    @MainActor
+    static func phoneOnly(_ key: KeyEquivalent, modifiers: EventModifiers = .command) -> KeyboardShortcut? {
+        UIDevice.current.userInterfaceIdiom == .phone ? KeyboardShortcut(key, modifiers: modifiers) : nil
+    }
+}
+
+private struct MenuActionModifier: ViewModifier {
+    let keyPath: WritableKeyPath<FocusedValues, MenuAction?>
+    let enabled: Bool
+    let perform: @MainActor () -> Void
+
+    func body(content: Content) -> some View {
+        content.onScreenSceneValue(keyPath, MenuAction(isEnabled: enabled, perform: perform))
+    }
+}
+
+extension View {
+    /// `focusedSceneValue`, but only while this view is on screen: nil once
+    /// something is pushed over it, so a covered screen (or a reader under
+    /// an author page) never competes with the one on top for a menu item.
+    @MainActor
+    func onScreenSceneValue<T>(_ keyPath: WritableKeyPath<FocusedValues, T?>, _ value: T?) -> some View {
+        modifier(OnScreenSceneValue(keyPath: keyPath, value: value))
+    }
+}
+
+private struct OnScreenSceneValue<T>: ViewModifier {
+    let keyPath: WritableKeyPath<FocusedValues, T?>
+    let value: T?
+    @State private var isOnScreen = false
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { isOnScreen = true }
+            .onDisappear { isOnScreen = false }
+            .focusedSceneValue(keyPath, isOnScreen ? value : nil)
+    }
+}
+
+/// File → Open AO3 Link… (⇧⌘O): a prompt for a work's link, which is then
+/// imported as a dropped or pasted link is. The way in from the keyboard on
+/// iPad, where ⌘V outside a text field may not reach the app.
+struct OpenAO3LinkModifier: ViewModifier {
+    let open: (Int) -> Void
+    @State private var showingPrompt = false
+    @State private var showingNotAWork = false
+    @State private var text = ""
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.openAO3Link, MenuAction(isEnabled: true) {
+                text = ""
+                showingPrompt = true
+            })
+            .alert("Open AO3 Link", isPresented: $showingPrompt) {
+                TextField("archiveofourown.org/works/…", text: $text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                Button("Open") {
+                    if let workId = ImportLink.workId(fromText: text) {
+                        open(workId)
+                    } else {
+                        showingNotAWork = true
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Paste the link to an AO3 work to add it to your Library.")
+            }
+            .alert("Not a Work Link", isPresented: $showingNotAWork) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Fanficly opens links to AO3 works, like archiveofourown.org/works/123456.")
+            }
     }
 }

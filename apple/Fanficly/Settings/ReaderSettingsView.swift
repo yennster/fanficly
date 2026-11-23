@@ -11,7 +11,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
     @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
@@ -21,6 +21,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.pageMarginPt")) private var pageMarginPt: Double = ReaderMetrics.defaultPageMargin
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    @Environment(\.legibilityWeight) private var legibilityWeight
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     // Global (not per-device / not part of reader profiles): a content &
@@ -168,13 +169,47 @@ struct ReaderSettingsView: View {
         Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } })
     }
 
-    /// On-device voices for the current language (fall back to all installed
-    /// voices if the language has none), sorted by name.
-    private var voices: [AVSpeechSynthesisVoice] {
-        let all = AVSpeechSynthesisVoice.speechVoices()
-        let lang = Locale.current.language.languageCode?.identifier ?? "en"
-        let matching = all.filter { $0.language.hasPrefix(lang) }
-        return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
+    /// Every installed voice, grouped by language (#184): the system voice's
+    /// language first, then the rest by name, each group sorted by voice name.
+    private var voiceGroups: [VoiceGroup] {
+        let system = AVSpeechSynthesisVoice.currentLanguageCode()
+        return Dictionary(grouping: AVSpeechSynthesisVoice.speechVoices(), by: \.language)
+            .map { tag, voices in
+                VoiceGroup(tag: tag,
+                           name: Locale.current.localizedString(forIdentifier: tag) ?? tag,
+                           voices: voices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+            }
+            .sorted { SpeechLanguage.listsBefore(($0.tag, $0.name), ($1.tag, $1.name), systemLanguage: system) }
+    }
+
+    /// A stored voice that isn't installed here (removed, or synced from the
+    /// Windows app) shows as Automatic, which is what Listen falls back to.
+    private func voiceSelection(_ groups: [VoiceGroup]) -> Binding<String> {
+        let installed = Set(groups.flatMap { $0.voices.map(\.identifier) })
+        return Binding(
+            get: { installed.contains(ttsVoiceId) ? ttsVoiceId : "" },
+            set: { ttsVoiceId = $0 })
+    }
+
+    private struct VoiceGroup: Identifiable {
+        let tag: String
+        let name: String
+        let voices: [AVSpeechSynthesisVoice]
+        var id: String { tag }
+    }
+
+    /// Only an iPhone has the Taptic Engine page-turn haptics play on: an
+    /// iPad has none and Catalyst ignores them, so the toggle shows only
+    /// there. The setting itself stays in profiles and backups either way.
+    @MainActor private static var hasPageTurnHaptics: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
+    /// The footer's line about page-turn options.
+    private var pageTurnFooter: String {
+        Self.hasPageTurnHaptics
+            ? "Page-turn options configure haptic feedback and animations."
+            : "Page-turn animation adds a curl or slide to page flips."
     }
 
     /// The footer's line about volume buttons; there are none on the Mac.
@@ -256,12 +291,12 @@ struct ReaderSettingsView: View {
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
                         .tracking(kerningPt / zoomScale)
-                        .bold(boldText)
+                        .bold(ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight))
                     Text("Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
                         .tracking(kerningPt / zoomScale)
-                        .bold(boldText)
+                        .bold(ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight))
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -316,10 +351,12 @@ struct ReaderSettingsView: View {
                                  step: 2.0, unit: "pt", icon: "arrow.up.and.down.square")
                 }
 
-                Toggle(isOn: $pageTurnHaptics) {
-                    Label("Page-turn haptics", systemImage: "hand.tap")
+                if Self.hasPageTurnHaptics {
+                    Toggle(isOn: $pageTurnHaptics) {
+                        Label("Page-turn haptics", systemImage: "hand.tap")
+                    }
+                    .help("Enable small vibrations on page flips.")
                 }
-                .help("Enable small vibrations on page flips.")
 
                 Toggle(isOn: $pageTurnAnimations) {
                     Label("Page-turn animation", systemImage: "square.2.layers.3d")
@@ -340,7 +377,7 @@ struct ReaderSettingsView: View {
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). \(pageTurnFooter) “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
             }
 
             Section {
@@ -355,10 +392,14 @@ struct ReaderSettingsView: View {
             }
 
             Section {
-                Picker(selection: $ttsVoiceId) {
-                    Text("System default").tag("")
-                    ForEach(voices, id: \.identifier) { voice in
-                        Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                Picker(selection: voiceSelection(voiceGroups)) {
+                    Text("Automatic").tag("")
+                    ForEach(voiceGroups) { group in
+                        Section(group.name) {
+                            ForEach(group.voices, id: \.identifier) { voice in
+                                Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                            }
+                        }
                     }
                 } label: {
                     Label("Voice", systemImage: "person.wave.2")
@@ -401,7 +442,7 @@ struct ReaderSettingsView: View {
                 .accessibilityIdentifier("settings.reader.playSample")
                 .help("Hear the selected voice at this speed.")
             } footer: {
-                Text("Play Sample reads a few lines in the chosen voice at this speed. Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
+                Text("Play Sample reads a few lines in the chosen voice at this speed. Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. On Automatic, each work is read by a voice for its language, or by your system voice when the work is in your language or no voice for its language is installed. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {
@@ -421,10 +462,14 @@ struct ReaderSettingsView: View {
                 .accessibilityLabel("Font")
                 .help("Choose the typography for the reader.")
                 
-                Toggle(isOn: $boldText) {
+                // On, and locked on, while the system's Bold Text is on (#174).
+                Toggle(isOn: legibilityWeight == .bold ? .constant(true) : $boldText) {
                     Label("Bold text", systemImage: "bold")
                 }
-                .help("Make all reader text bold for easier reading.")
+                .disabled(legibilityWeight == .bold)
+                .help(legibilityWeight == .bold
+                      ? Text("On while Bold Text is on in your device's accessibility settings.")
+                      : Text("Make all reader text bold for easier reading."))
             }
 
             Section {
