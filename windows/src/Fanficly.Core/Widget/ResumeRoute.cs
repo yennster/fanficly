@@ -80,6 +80,18 @@ public static class OpeningProgressPolicy
             null, ResumeProgressPolicy.WidgetAnchor(matching), matching?.FreshnessDate,
             local is null ? null : localUpdatedAt) ?? local;
     }
+
+    /// <summary>The synced entry this device takes as its own record when it opens
+    /// the work there (#337): the one <see cref="Anchor"/> opens at, when it is
+    /// dated. An undated entry opens (with no local place) but isn't written, since
+    /// it has no date of its own to keep. The Swift <c>adoptedEntry</c>.</summary>
+    public static WidgetStoryProgress? AdoptedEntry(
+        int workId, bool hasLocal, DateTimeOffset? localUpdatedAt, WidgetStoryProgress? synced)
+    {
+        if (synced is not { Chapter: not null, UpdatedAt: { } syncedAt } entry || entry.Id != workId) return null;
+        if (hasLocal && (localUpdatedAt is not { } local || syncedAt <= local)) return null;
+        return entry;
+    }
 }
 
 /// <summary>Keeps a reader from saving the place it opened at until the reader
