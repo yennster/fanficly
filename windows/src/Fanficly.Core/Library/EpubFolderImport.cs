@@ -19,8 +19,9 @@ public sealed record EpubFolderImportResult
 /// tested without files.</summary>
 public sealed class EpubFolderTally
 {
-    // Chapter count of the copy kept for each work id so far.
-    private readonly Dictionary<int, int> _kept = [];
+    // The copy kept for each work id so far: its chapter count, and whether
+    // this import added the work (rather than updating one).
+    private readonly Dictionary<int, (int Chapters, bool Added)> _kept = [];
     private readonly List<string> _failures = [];
     private int _imported, _updated, _skipped, _processed, _found;
     private bool _cancelled;
@@ -28,16 +29,26 @@ public sealed class EpubFolderTally
     /// <summary>Whether this copy should be saved: the first copy of a work, or a
     /// later one with more chapters than the copy already kept.</summary>
     public bool ShouldSave(int workId, int chapters) =>
-        !_kept.TryGetValue(workId, out var previous) || chapters > previous;
+        !_kept.TryGetValue(workId, out var previous) || chapters > previous.Chapters;
+
+    /// <summary>Whether a better copy of this work should replace the details
+    /// too: this import added the work from an earlier copy, so those details are
+    /// only that copy's, not ones the Library had.</summary>
+    public bool ReplacesDetails(int workId) => _kept.TryGetValue(workId, out var kept) && kept.Added;
 
     /// <summary>A copy was saved. A later copy that replaced an earlier one leaves
     /// that one skipped; otherwise it's new or an update.</summary>
     public void Saved(int workId, int chapters, bool wasInLibrary)
     {
-        if (_kept.ContainsKey(workId)) _skipped++;
-        else if (wasInLibrary) _updated++;
+        if (_kept.TryGetValue(workId, out var previous))
+        {
+            _skipped++;
+            _kept[workId] = (chapters, previous.Added);
+            return;
+        }
+        if (wasInLibrary) _updated++;
         else _imported++;
-        _kept[workId] = chapters;
+        _kept[workId] = (chapters, !wasInLibrary);
     }
 
     public void SkippedCopy() => _skipped++;
@@ -63,10 +74,12 @@ public static class EpubFolderImport
     public const int ListedFailures = 5;
 
     /// <summary>Every <c>.epub</c> file in <paramref name="folder"/> and its
-    /// subfolders, in path order. Other files, hidden and system files, and
-    /// folders the user can't read are left out.</summary>
+    /// subfolders, in path order. Other files, hidden and system files, dot
+    /// files (a Mac's "._Name.epub" on a USB drive, as the Apple app skips them)
+    /// and folders the user can't read are left out.</summary>
     public static IReadOnlyList<string> FindEpubs(string folder)
     {
+        if (string.IsNullOrEmpty(folder)) return [];
         var options = new EnumerationOptions
         {
             RecurseSubdirectories = true,
@@ -79,11 +92,12 @@ public static class EpubFolderImport
         {
             return Directory.EnumerateFiles(folder, "*.epub", options)
                 // "*.epub" also matches ".epub1" style names on some file systems.
-                .Where(f => string.Equals(Path.GetExtension(f), ".epub", StringComparison.OrdinalIgnoreCase))
+                .Where(f => string.Equals(Path.GetExtension(f), ".epub", StringComparison.OrdinalIgnoreCase)
+                            && !Path.GetFileName(f).StartsWith('.'))
                 .Order(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
         {
             return [];
         }
@@ -123,7 +137,8 @@ public static class EpubFolderImport
                     var wasInLibrary = store.GetWork(id) is not null;
                     // Importing a work deleted a moment ago keeps it (#169).
                     UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(id));
-                    EpubImport.Save(payload, data, store, queueBackup: false);
+                    EpubImport.Save(payload, data, store, queueBackup: false,
+                                    replacingDetails: tally.ReplacesDetails(id));
                     tally.Saved(id, payload.Chapters.Count, wasInLibrary);
                     saved = true;
                 }

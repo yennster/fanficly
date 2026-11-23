@@ -78,7 +78,8 @@ public static partial class AppHost
         {
             // Nothing is imported past the 17+ gate (#203).
             if (Views.Account.ContentSafetyViews.AgeGateActive) return;
-            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            // A browser's link drag also carries a .url file, so links come first.
+            if (!IsLinkDrag(e.DataView) && e.DataView.Contains(StandardDataFormats.StorageItems))
             {
                 e.AcceptedOperation = DataPackageOperation.Copy;
                 e.DragUIOverride.Caption = "Import EPUBs into the Library";
@@ -95,7 +96,7 @@ public static partial class AppHost
         {
             if (Views.Account.ContentSafetyViews.AgeGateActive) return;
             var deferral = e.GetDeferral();
-            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            if (!IsLinkDrag(e.DataView) && e.DataView.Contains(StandardDataFormats.StorageItems))
             {
                 IReadOnlyList<Windows.Storage.IStorageItem> items;
                 try { items = await e.DataView.GetStorageItemsAsync(); }
@@ -115,6 +116,11 @@ public static partial class AppHost
             finally { deferral.Complete(); }
         };
     }
+
+    /// <summary>A dragged link (a browser adds a .url shortcut file to it, which
+    /// isn't an EPUB to import).</summary>
+    private static bool IsLinkDrag(DataPackageView data) =>
+        data.Contains(StandardDataFormats.WebLink) || data.Contains(StandardDataFormats.Uri);
 
     /// <summary>Ctrl+V with no text box focused: imports a copied AO3 work link.
     /// Anything else on the clipboard is left alone, so a stray paste says nothing.</summary>

@@ -156,11 +156,14 @@ public static partial class EpubImport
     /// AO3 book) keeps its AO3 details and reading position and takes the
     /// book's chapters, unless it already holds more of them; a new one gets the book's details too. Saves and queues
     /// a backup like every <see cref="WorkPersistence"/> change, unless <paramref name="queueBackup"/>
-    /// is false (a folder import queues one at the end, #418).</summary>
-    public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store, bool queueBackup = true)
+    /// is false (a folder import queues one at the end, #418). <paramref name="replacingDetails"/>
+    /// (a folder import's better copy of a work it added from another copy)
+    /// takes the book's details as for a new work.</summary>
+    public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store, bool queueBackup = true,
+                            bool replacingDetails = false)
     {
         Work work;
-        if (store.GetWork(payload.Summary.Id) is { } existing)
+        if (!replacingDetails && store.GetWork(payload.Summary.Id) is { } existing)
         {
             work = existing;
             // An older download with fewer chapters never replaces more text

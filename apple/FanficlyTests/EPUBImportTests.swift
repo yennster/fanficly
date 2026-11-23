@@ -156,6 +156,7 @@ final class EPUBImportTests: XCTestCase {
         try fm.createDirectory(at: root.appendingPathComponent("Unpacked.epub/OEBPS"), withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: root) }
         try Data("notes".utf8).write(to: root.appendingPathComponent("notes.txt"))
+        try Data("AppleDouble".utf8).write(to: root.appendingPathComponent("._A Plain Book.epub"))
         try Data("<html/>".utf8).write(to: root.appendingPathComponent("Unpacked.epub/OEBPS/one.xhtml"))
         try Self.ao3EPUB.write(to: root.appendingPathComponent("Fandom/The Long Way Home.epub"))
         try Self.ao3EPUB.write(to: root.appendingPathComponent("Fandom/Older/Even older/The Long Way Home (12345).EPUB"))
@@ -239,6 +240,26 @@ final class EPUBImportTests: XCTestCase {
         XCTAssertEqual(tally.result.updated, 1)
         XCTAssertEqual(tally.result.skipped, 2)
         XCTAssertEqual(tally.result.savedIds, [7, 8])
+        // A work this import added takes a better copy's details too; one the
+        // Library already had keeps its own.
+        XCTAssertTrue(tally.replacesDetails(workId: 7))
+        XCTAssertFalse(tally.replacesDetails(workId: 8))
+        XCTAssertFalse(tally.replacesDetails(workId: 9))
+    }
+
+    /// The copy with more chapters wins the details as well as the text when
+    /// the import added the work from a smaller copy.
+    func testABetterCopyReplacesTheDetailsOfAWorkThisImportAdded() throws {
+        let context = try makeContext()
+        let full = try EPUBImport.parse(data: Self.ao3EPUB)
+        defer { if let url = WorkPersistence.epubURL(workId: 12345) { try? FileManager.default.removeItem(at: url) } }
+        let first = try EPUBImportCenter.save(AO3WorkPayload(summary: full.summary, chapters: [full.chapters[0]]),
+                                              epub: Self.ao3EPUB, into: context)
+        first.title = "From the older copy"
+        let work = try EPUBImportCenter.save(full, epub: Self.ao3EPUB, into: context, replacingDetails: true)
+        XCTAssertEqual(work.title, "The Long Way Home")
+        XCTAssertEqual(work.chapters.count, 2)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Work>()).count, 1)
     }
 
     func testFolderOutcomeListsTheFirstFailuresAndSumsUpTheRest() {

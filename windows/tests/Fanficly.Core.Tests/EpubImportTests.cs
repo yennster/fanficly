@@ -154,6 +154,7 @@ public sealed class EpubImportTests : IDisposable
             Directory.CreateDirectory(Path.Combine(root, "Fandom", "Older", "Even older"));
             Directory.CreateDirectory(Path.Combine(root, "Unpacked.epub", "OEBPS"));
             File.WriteAllText(Path.Combine(root, "notes.txt"), "notes");
+            File.WriteAllText(Path.Combine(root, "._A Plain Book.epub"), "AppleDouble");
             File.WriteAllText(Path.Combine(root, "Unpacked.epub", "OEBPS", "one.xhtml"), "<html/>");
             var ao3 = Convert.FromBase64String(Ao3Epub);
             var plainBytes = Convert.FromBase64String(PlainEpub);
@@ -235,6 +236,35 @@ public sealed class EpubImportTests : IDisposable
         tally.Saved(8, 1, wasInLibrary: true);
         var r = tally.Result;
         Assert.Equal((1, 1, 2), (r.Imported, r.Updated, r.Skipped));
+        // A work this import added takes a better copy's details too; one the
+        // Library already had keeps its own.
+        Assert.True(tally.ReplacesDetails(7));
+        Assert.False(tally.ReplacesDetails(8));
+        Assert.False(tally.ReplacesDetails(9));
+    }
+
+    /// <summary>The copy with more chapters wins the details as well as the text
+    /// when the import added the work from a smaller copy.</summary>
+    [Fact]
+    public void ABetterCopyReplacesTheDetailsOfAWorkThisImportAdded()
+    {
+        var oldFolder = WorkPersistence.LibraryFolder;
+        WorkPersistence.LibraryFolder = Path.Combine(_dir, "library");
+        try
+        {
+            using var store = LibraryStore.Open(Path.Combine(_dir, "library.sqlite"));
+            var bytes = Convert.FromBase64String(Ao3Epub);
+            var full = EpubImport.Parse(bytes);
+            var first = EpubImport.Save(full with { Chapters = [full.Chapters[0]] }, bytes, store);
+            first.Title = "From the older copy";
+            var work = EpubImport.Save(full, bytes, store, replacingDetails: true);
+            Assert.Equal(("The Long Way Home", 2), (work.Title, work.Chapters.Count));
+            Assert.Single(store.Works);
+        }
+        finally
+        {
+            WorkPersistence.LibraryFolder = oldFolder;
+        }
     }
 
     [Fact]

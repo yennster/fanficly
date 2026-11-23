@@ -87,7 +87,6 @@ final class EPUBImportCenter {
         let scoped = folder.startAccessingSecurityScopedResource()
         defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
 
-        announce(String(localized: "Looking for EPUB files"))
         let found = await Task.detached(priority: .userInitiated) { Self.epubFiles(in: folder) }.value
         let result = await Self.importEPUBs(found, context: context,
                                             isCancelled: { [weak self] in self?.cancelRequested ?? true },
@@ -98,9 +97,8 @@ final class EPUBImportCenter {
             iCloudSyncManager.shared.queueBackup(context: context)
             WidgetDataStore.updateAll(context: context)
         }
-        let outcome = Self.folderOutcome(result)
-        self.outcome = outcome
-        announce("\(outcome.title). \(outcome.message)")
+        // VoiceOver reads the alert itself.
+        outcome = Self.folderOutcome(result)
     }
 
     private func reportProgress(done: Int, total: Int) {
@@ -134,29 +132,40 @@ final class EPUBImportCenter {
     /// outcome. Pure, so the rules are tested without files.
     struct FolderTally {
         private(set) var result = FolderResult()
-        /// Chapter count of the copy kept for each work id so far.
-        private var kept: [Int: Int] = [:]
+        /// The copy kept for each work id so far: its chapter count, and
+        /// whether this import added the work (rather than updating one).
+        private var kept: [Int: (chapters: Int, added: Bool)] = [:]
 
         /// Whether this copy should be saved: the first copy of a work, or a
         /// later one with more chapters than the copy already kept.
         func shouldSave(workId: Int, chapters: Int) -> Bool {
             guard let previous = kept[workId] else { return true }
-            return chapters > previous
+            return chapters > previous.chapters
+        }
+
+        /// Whether a better copy of this work should replace the details too:
+        /// this import added the work from an earlier copy, so those details
+        /// are only that copy's, not ones the Library had.
+        func replacesDetails(workId: Int) -> Bool {
+            kept[workId]?.added == true
         }
 
         /// A copy was saved. A later copy that replaced an earlier one leaves
         /// that one skipped; otherwise it's new or an update.
         mutating func saved(workId: Int, chapters: Int, wasInLibrary: Bool) {
-            if kept[workId] != nil {
+            if let previous = kept[workId] {
                 result.skipped += 1
-            } else if wasInLibrary {
+                kept[workId] = (chapters, previous.added)
+                return
+            }
+            if wasInLibrary {
                 result.updated += 1
                 result.savedIds.append(workId)
             } else {
                 result.imported += 1
                 result.savedIds.append(workId)
             }
-            kept[workId] = chapters
+            kept[workId] = (chapters, !wasInLibrary)
         }
 
         mutating func skippedCopy() { result.skipped += 1 }
@@ -191,7 +200,8 @@ final class EPUBImportCenter {
                     let wasInLibrary = inLibrary > 0
                     // Importing a work deleted a moment ago keeps it (#169).
                     UndoCenter.shared.cancel(UndoCenter.Key.work(id))
-                    _ = try save(payload, epub: data, into: context)
+                    _ = try save(payload, epub: data, into: context,
+                                 replacingDetails: tally.replacesDetails(workId: id))
                     tally.saved(workId: id, chapters: payload.chapters.count, wasInLibrary: wasInLibrary)
                 } else {
                     tally.skippedCopy()
@@ -345,11 +355,14 @@ final class EPUBImportCenter {
     /// work's EPUB so it shows as Downloaded. A work already in the Library
     /// (an AO3 book) keeps its AO3 details and reading position and takes
     /// the book's chapters, unless it already holds more of them; a new one gets the book's details too.
-    static func save(_ payload: AO3WorkPayload, epub data: Data, into context: ModelContext) throws -> Work {
+    /// `replacingDetails` (a folder import's better copy of a work it added
+    /// from another copy) takes the book's details as for a new work.
+    static func save(_ payload: AO3WorkPayload, epub data: Data, into context: ModelContext,
+                     replacingDetails: Bool = false) throws -> Work {
         let id = payload.summary.id
         let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == id })
         let work: Work
-        if let existing = try? context.fetch(descriptor).first {
+        if !replacingDetails, let existing = try? context.fetch(descriptor).first {
             work = existing
             // An older download with fewer chapters never replaces more text
             // (AO3 may not be there to download it again).

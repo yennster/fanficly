@@ -53,6 +53,13 @@ internal static class EpubImporter
             return;
         }
         if (folder is null) return;
+        if (string.IsNullOrEmpty(folder.Path))
+        {
+            // A phone over USB (MTP) or another virtual location has no path to read.
+            await Dialogs.AlertAsync("Couldn't Import That Folder",
+                "Fanficly can only read folders on this PC's drives. Copy the EPUBs to a folder here first.");
+            return;
+        }
         await ImportFolderAsync([folder.Path], []);
     }
 
@@ -135,7 +142,6 @@ internal static class EpubImporter
         using var cancel = new CancellationTokenSource();
         _folderCancel = cancel;
         SetFolderProgress((0, 0));
-        MainWindow.Current.Announce("Looking for EPUB files");
         EpubFolderImportResult result;
         try
         {
@@ -163,8 +169,8 @@ internal static class EpubImporter
             SetImporting(false);
         }
         if (result.Imported + result.Updated > 0) LibraryActions.NotifyFilesChanged();
+        // Narrator reads the dialog itself.
         var (title, message) = EpubFolderImport.Outcome(result);
-        MainWindow.Current.Announce($"{title}. {message}");
         await Dialogs.AlertAsync(title, message);
     }
 
