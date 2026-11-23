@@ -83,6 +83,23 @@ enum ReaderPaginator {
                          sentence: atom.sentenceIndex, offset: atom.sentenceOffset)
     }
 
+    /// The index of the atom that begins at `start` (same chapter assumed),
+    /// splitting the atom it falls inside when it starts partway through one.
+    /// Nil when no atom holds it.
+    static func atomIndex(at start: PageStart, splitting atoms: inout [ParagraphAtom]) -> Int? {
+        guard let i = atoms.firstIndex(where: {
+            $0.originalParagraphIndex == start.paragraph && $0.sentenceIndex == start.sentence
+                && start.offset >= $0.sentenceOffset
+                && start.offset < $0.sentenceOffset + $0.text.characters.count
+        }) else { return nil }
+        let k = start.offset - atoms[i].sentenceOffset
+        guard k > 0 else { return i }
+        guard let (head, tail) = splitAtom(atoms[i], at: k) else { return nil }
+        atoms[i] = head
+        atoms.insert(tail, at: i + 1)
+        return i + 1
+    }
+
     /// Splits `atom` (a sentence) so its first part, laid out after `leading`
     /// (atoms of the same paragraph already on the page), fits in `budget`.
     /// It keeps the longest run of whole words that fits, which is exactly
@@ -600,13 +617,20 @@ struct ChapterPagination {
     private var pageIndex = 0
     private var keptID: UUID?
     private var reachedKept: Bool
+    /// Where a refit of only the pages near the reader stops (NearbyRefit):
+    /// pages end short of this atom, and the run finishes on reaching it.
+    private let endID: UUID?
+    private let resumed: Bool
     private var finished = false
 
     init(chapterIndex: Int, atoms: [ParagraphAtom], width: CGFloat, viewportHeight: CGFloat,
          chapterHeaderHeight: CGFloat, isFirstChapter: Bool, showChapterHeader: Bool,
          fontSize: CGFloat, fontFamily: ReaderFontFamily, lineSpacing: CGFloat, paragraphSpacing: CGFloat,
-         kerning: CGFloat, boldText: Bool, drawnHeight: ReaderPaginator.DrawnHeight?, startingAt start: PageStart?) {
+         kerning: CGFloat, boldText: Bool, drawnHeight: ReaderPaginator.DrawnHeight?, startingAt start: PageStart?,
+         resumingAt resume: (atom: Int, page: Int)? = nil, endingBefore endID: UUID? = nil) {
         self.chapterIndex = chapterIndex
+        self.endID = endID
+        self.resumed = resume != nil
         self.atoms = atoms
         self.viewportHeight = viewportHeight
         self.chapterHeaderHeight = chapterHeaderHeight
@@ -640,7 +664,12 @@ struct ChapterPagination {
         }
         reachedKept = keptID == nil
 
-        if isFirstChapter {
+        if let resume {
+            // Carrying on from a page break partway through the chapter: the
+            // pages before it are someone else's (see NearbyRefit).
+            startIndex = resume.atom
+            pageIndex = resume.page
+        } else if isFirstChapter {
             // Page 0 is a dedicated cover/metadata page with no story text.
             pages.append(ChapterPage(
                 id: "c\(chapterIndex)-p0",
@@ -656,9 +685,9 @@ struct ChapterPagination {
     /// complete; a chapter with no text still gets its one empty page).
     mutating func packNextPage() -> Bool {
         guard !finished else { return false }
-        guard startIndex < atoms.count else {
+        guard startIndex < atoms.count, endID == nil || atoms[startIndex].id != endID else {
             finished = true
-            if pages.isEmpty {
+            if pages.isEmpty && !resumed {
                 pages.append(ChapterPage(
                     id: "c\(chapterIndex)-p0",
                     chapterIndex: chapterIndex,
@@ -682,8 +711,9 @@ struct ChapterPagination {
         let reserve = drawnHeight == nil ? ReaderPaginator.uncheckedReserve(pageMaxHeight) : ReaderPaginator.reserve
         let isKept = atoms[startIndex].id == keptID
         if isKept { reachedKept = true }
-        // Pages before the kept one stop short of it.
-        let stop = reachedKept ? nil : keptID
+        // Pages before the kept one stop short of it, and a refit's last
+        // page short of where it ends.
+        let stop = reachedKept ? endID : keptID
         var endIndex = startIndex
         var includedAny = false
         if pageMaxHeight > 40, let drawnHeight {
@@ -717,6 +747,128 @@ struct ChapterPagination {
         ))
         pageIndex += 1
         return true
+    }
+}
+
+/// A quick first refit of a long chapter when its page area changes (the
+/// controls or the narration bar showing, a resize): only the pages near the
+/// one on screen are paginated for the new area, and the rest keep their old
+/// pages until the whole chapter has been paginated again in the background
+/// (#349). A 300,000-word one-shot takes seconds to paginate in full; without
+/// this the old pages stayed up that long, and with the controls showing the
+/// foot of the page sat under them.
+///
+/// The refit runs from the old page break `pagesBefore` pages back to the one
+/// `pagesAfter` pages on. Pages from the kept page (see PageStart) on don't
+/// depend on the pages before it, which stop short of it, so up to the last
+/// one, which stops short of the old page break, they're the pages the full
+/// pagination makes. Pages keep counting from the chapter's start, so ids,
+/// "Page 3 of 12" and spread pairing work as they do; the count is
+/// provisional (it settles when the full pagination lands), and the old
+/// pages either side may be a little short or tall for the new area.
+@MainActor
+struct NearbyRefit {
+    /// Pages refitted before and after the one on screen: a spread back, and
+    /// three spreads (or six pages) on.
+    static let pagesBefore = 2
+    static let pagesAfter = 6
+    /// Chapters with fewer pages than this just paginate in full: it's quick.
+    static let minimumPages = 24
+
+    private var run: ChapterPagination
+    private let chapterIndex: Int
+    private let start: PageStart
+    /// The old pages before the refit, unchanged.
+    private let before: [ChapterPage]
+    /// The old pages after it, with their atom ranges in the old atoms.
+    private let after: [ChapterPage]
+    /// How far the old pages after the refit move in the atoms before the
+    /// refit splits any (the refitted text's old and new atoms differ).
+    private let afterShift: Int
+    private let splicedCount: Int
+
+    /// Nil when the page on screen doesn't start one of `oldPages` (then
+    /// paginate the whole chapter).
+    init?(chapterIndex: Int, oldPages: [ChapterPage], oldAtoms: [ParagraphAtom], sourceAtoms: [ParagraphAtom],
+          start: PageStart, width: CGFloat, viewportHeight: CGFloat, chapterHeaderHeight: CGFloat,
+          isFirstChapter: Bool, showChapterHeader: Bool, fontSize: CGFloat, fontFamily: ReaderFontFamily,
+          lineSpacing: CGFloat, paragraphSpacing: CGFloat, kerning: CGFloat, boldText: Bool,
+          drawnHeight: ReaderPaginator.DrawnHeight?,
+          pagesBefore: Int = NearbyRefit.pagesBefore, pagesAfter: Int = NearbyRefit.pagesAfter) {
+        let pages = oldPages.filter { $0.chapterIndex == chapterIndex }.sorted { $0.pageIndex < $1.pageIndex }
+        guard start.chapter == chapterIndex,
+              let kept = pages.firstIndex(where: { ReaderPaginator.start(of: $0, atoms: oldAtoms) == start }),
+              let firstText = pages.firstIndex(where: { !$0.paragraphIndices.isEmpty })
+        else { return nil }
+        let first = max(firstText, kept - max(0, pagesBefore))
+        let end = kept + max(1, pagesAfter) + 1   // the first old page left as it is
+        let refitsToTheEnd = end >= pages.count
+        guard let firstStart = ReaderPaginator.start(of: pages[first], atoms: oldAtoms) else { return nil }
+        var fresh = sourceAtoms
+        guard let freshFirst = ReaderPaginator.atomIndex(at: firstStart, splitting: &fresh) else { return nil }
+        var freshEnd = fresh.count
+        if !refitsToTheEnd {
+            guard let endStart = ReaderPaginator.start(of: pages[end], atoms: oldAtoms),
+                  let i = ReaderPaginator.atomIndex(at: endStart, splitting: &fresh), i > freshFirst
+            else { return nil }
+            freshEnd = i
+        }
+        let oldFirst = pages[first].paragraphIndices.lowerBound
+        let oldEnd = refitsToTheEnd ? oldAtoms.count : pages[end].paragraphIndices.lowerBound
+        guard oldFirst < oldEnd, oldEnd <= oldAtoms.count else { return nil }
+
+        // The old atoms either side, the chapter's own in between: pagination
+        // splits atoms, and the old ones are split where the old pages broke.
+        let spliced = Array(oldAtoms[..<oldFirst]) + fresh[freshFirst..<freshEnd] + oldAtoms[oldEnd...]
+        let endID = refitsToTheEnd ? nil : spliced[oldFirst + (freshEnd - freshFirst)].id
+        self.chapterIndex = chapterIndex
+        self.start = start
+        // Spreads pair from the chapter's first page; only the kept page may
+        // open one of its own (the run marks it), so the pairing on screen
+        // stays as the full pagination will make it.
+        before = pages[..<first].map { var page = $0; page.startsSpread = false; return page }
+        after = refitsToTheEnd ? [] : Array(pages[end...])
+        afterShift = oldFirst + (freshEnd - freshFirst) - oldEnd
+        splicedCount = spliced.count
+        run = ChapterPagination(
+            chapterIndex: chapterIndex, atoms: spliced, width: width, viewportHeight: viewportHeight,
+            chapterHeaderHeight: chapterHeaderHeight, isFirstChapter: isFirstChapter,
+            showChapterHeader: showChapterHeader, fontSize: fontSize, fontFamily: fontFamily,
+            lineSpacing: lineSpacing, paragraphSpacing: paragraphSpacing, kerning: kerning, boldText: boldText,
+            drawnHeight: drawnHeight, startingAt: start,
+            resumingAt: (atom: oldFirst, page: pages[first].pageIndex), endingBefore: endID)
+    }
+
+    /// Packs the next refitted page; false once the refit is done.
+    mutating func packNextPage() -> Bool {
+        run.packNextPage()
+    }
+
+    /// The pages refitted for the new area, in order.
+    var refittedPages: [ChapterPage] { run.pages }
+
+    /// The chapter's atoms: the old ones either side of the refit.
+    var atoms: [ParagraphAtom] { run.atoms }
+
+    /// The chapter's pages: the old ones before the refit, the refitted ones,
+    /// then the old ones after it, numbered on from the refitted ones.
+    var pages: [ChapterPage] {
+        let refitted = run.pages
+        let shift = afterShift + (run.atoms.count - splicedCount)
+        var next = (refitted.last ?? before.last).map { $0.pageIndex + 1 } ?? 0
+        let moved = after.map { page -> ChapterPage in
+            defer { next += 1 }
+            let range = page.paragraphIndices
+            return ChapterPage(id: "c\(chapterIndex)-p\(next)", chapterIndex: chapterIndex, pageIndex: next,
+                               paragraphIndices: (range.lowerBound + shift)..<(range.upperBound + shift))
+        }
+        return before + refitted + moved
+    }
+
+    /// The refitted page that starts where the one on screen did.
+    var keptPageId: String? {
+        let atoms = run.atoms
+        return run.pages.first { ReaderPaginator.start(of: $0, atoms: atoms) == start }?.id
     }
 }
 

@@ -192,8 +192,16 @@ struct FollowedAuthorsView: View {
                         NavigationLink(value: AuthorRef(username: author.username, displayName: author.displayName)) {
                             FollowedAuthorRow(author: author)
                         }
+                        // A mouse can't swipe to delete (#189).
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                unfollow([author])
+                            } label: {
+                                Label("Unfollow", systemImage: "person.slash")
+                            }
+                        }
                     }
-                    .onDelete(perform: unfollow)
+                    .onDelete(perform: unfollow(at:))
                 }
                 .listStyle(.plain)
             }
@@ -207,7 +215,10 @@ struct FollowedAuthorsView: View {
     /// works already seen, which a fresh follow can't get back.
     private func unfollow(at offsets: IndexSet) {
         let shown = authors
-        let removed = offsets.filter { shown.indices.contains($0) }.map { shown[$0] }
+        unfollow(offsets.filter { shown.indices.contains($0) }.map { shown[$0] })
+    }
+
+    private func unfollow(_ removed: [FollowedAuthor]) {
         guard let first = removed.first else { return }
         let message = removed.count == 1
             ? String(localized: "Unfollowed \(first.displayName)")
@@ -225,7 +236,7 @@ struct FollowedAuthorsView: View {
     }
 }
 
-private struct FollowedAuthorRow: View {
+struct FollowedAuthorRow: View {
     let author: FollowedAuthor
 
     var body: some View {

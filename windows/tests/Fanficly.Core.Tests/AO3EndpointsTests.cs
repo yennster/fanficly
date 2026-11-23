@@ -170,4 +170,56 @@ public class AO3EndpointsTests
             AO3Endpoints.WorkComments(9, _base, page: 2).AbsoluteUri);
         Assert.DoesNotContain("page=", AO3Endpoints.WorkComments(9, _base, page: 1).AbsoluteUri);
     }
+
+    /// <summary>The log names the kind of page, never the work, author, tag or
+    /// search the reader opened (#208).</summary>
+    [Theory]
+    [InlineData("https://archiveofourown.org/works/12345?view_adult=true", "/works/{id}")]
+    [InlineData("https://archiveofourown.org/works/12345/chapters/678?view_adult=true&show_comments=true", "/works/{id}/chapters/{id}")]
+    [InlineData("https://archiveofourown.org/works/12345/comments", "/works/{id}/comments")]
+    [InlineData("https://archiveofourown.org/users/HoweverSheWrites/works?page=3", "/users/{name}/works")]
+    [InlineData("https://archiveofourown.org/users/someone/pseuds/Other%20Name", "/users/{name}/pseuds/{name}")]
+    [InlineData("https://archiveofourown.org/users/someone/readings?show=to-read", "/users/{name}/readings")]
+    [InlineData("https://archiveofourown.org/users/login", "/users/login")]
+    [InlineData("https://archiveofourown.org/tags/Harry%20Potter%20-%20J*d*%20K*d*%20Rowling/works", "/tags/{name}/works")]
+    [InlineData("https://archiveofourown.org/media/Anime%20*a*%20Manga/fandoms", "/media/{name}/fandoms")]
+    [InlineData("https://archiveofourown.org/works/search?work_search%5Bquery%5D=secret", "/works/search")]
+    [InlineData("https://archiveofourown.org/autocomplete/tag?term=Draco", "/autocomplete/tag")]
+    [InlineData("https://archiveofourown.org/downloads/99/work.epub", "/downloads/{id}/work.epub")]
+    [InlineData("https://archiveofourown.org/downloads/99/Some%20Title.epub", "/downloads/{id}/{name}")]
+    [InlineData("https://archiveofourown.org/series/9?page=2", "/series/{id}")]
+    [InlineData("https://archiveofourown.org/kudos.js", "/kudos.js")]
+    [InlineData("https://archiveofourown.org/", "/")]
+    [InlineData("https://archiveofourown.org/tags/search/works", "/tags/{name}/works")]
+    [InlineData("https://archiveofourown.org/users/people/works", "/users/{name}/works")]
+    public void RouteShape_KeepsOnlyAO3sRouteWords(string url, string expected) =>
+        Assert.Equal(expected, AO3Endpoints.RouteShape(new Uri(url)));
+
+    [Fact]
+    public void RouteShape_OfEveryBuilderNamesNoWorkAuthorOrTag()
+    {
+        Uri[] uris =
+        [
+            AO3Endpoints.Work(424242, _base),
+            AO3Endpoints.WorkChapter(424242, 515151, _base),
+            AO3Endpoints.AuthorWorks("SecretReader", 2, _base),
+            AO3Endpoints.UserBookmarks("SecretReader", 1, _base),
+            AO3Endpoints.UserReadingHistory("SecretReader", 1, _base),
+            AO3Endpoints.UserSubscriptions("SecretReader", 1, _base),
+            AO3Endpoints.TagWorks("Secret Ship/Pairing", _base),
+            AO3Endpoints.MediaFandoms("Secret Category", _base),
+            AO3Endpoints.ChapterComments(424242, 515151, _base),
+            AO3Endpoints.Series(616161, 1, _base),
+            AO3Endpoints.Epub(424242, _base),
+            AO3Endpoints.Autocomplete("tag", "Secret", _base),
+        ];
+        foreach (var uri in uris)
+        {
+            var shape = AO3Endpoints.RouteShape(uri);
+            Assert.DoesNotContain("Secret", shape);
+            Assert.DoesNotContain("4242", shape);
+            Assert.DoesNotContain("5151", shape);
+            Assert.DoesNotContain("6161", shape);
+        }
+    }
 }
