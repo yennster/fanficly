@@ -3,6 +3,30 @@ import Foundation
 import MediaPlayer
 import Observation
 
+/// The Listen sleep timer (#182): bedtime listening pauses once a span runs
+/// out, after the paragraph being spoken, or at the end of the chapter.
+enum SleepTimer: Hashable, Sendable {
+    case minutes(Int)
+    case endOfChapter
+
+    /// What the narration bar offers, in order.
+    static let choices: [SleepTimer] = [.minutes(15), .minutes(30), .minutes(60), .endOfChapter]
+
+    var title: String {
+        switch self {
+        case .minutes(60): "1 hour"
+        case .minutes(let m): "\(m) minutes"
+        case .endOfChapter: "End of chapter"
+        }
+    }
+
+    /// How long a timed choice runs; nil for "End of chapter".
+    var duration: TimeInterval? {
+        if case .minutes(let m) = self { return TimeInterval(m * 60) }
+        return nil
+    }
+}
+
 /// On-device text-to-speech for the reader — turns a chapter into spoken
 /// audio with Apple's built-in `AVSpeechSynthesizer`.
 ///
@@ -35,6 +59,19 @@ final class SpeechController: NSObject {
     private(set) var spokenPosition = 0
     /// Label for the loaded chapter (shown in the mini-player / lock screen).
     private(set) var chapterLabel = ""
+    /// The sleep timer that's set, if any (#182). Cleared once it pauses
+    /// narration, and by `stop()`.
+    private(set) var sleepTimer: SleepTimer?
+    /// When a timed sleep timer runs out; nil for "End of chapter", and once
+    /// it has run out.
+    private(set) var sleepDeadline: Date?
+    /// The sleep timer ran out (or the chapter ended under "End of
+    /// chapter"): narration pauses at the end of the paragraph being spoken.
+    private(set) var sleepPausePending = false
+    /// The sleep timer paused narration and nothing has played since. The
+    /// reader keeps the screen's idle timer running then too, so a paused
+    /// bedtime chapter doesn't hold the screen on all night (#182).
+    private(set) var pausedBySleepTimer = false
     /// Called when a chapter finishes so the reader can advance to the next
     /// one (or `stop()`). A direct call rather than an observed signal: SwiftUI
     /// doesn't run a backgrounded view's `onChange`, so with the app minimized
@@ -93,6 +130,8 @@ final class SpeechController: NSObject {
     /// An interruption paused narration that was playing; only then does its
     /// end resume it (narration you paused yourself stays paused).
     private var pausedByInterruption = false
+    /// Counts down a timed sleep timer.
+    private var sleepTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -176,6 +215,17 @@ final class SpeechController: NSObject {
                 reason: "Reading a chapter aloud")
         }
         wireRemoteCommands()
+        if sleepPausePending {
+            // The sleep timer ran out at the end of the last chapter (or it
+            // was "End of chapter"): the next chapter loads paused at its start.
+            synthesizer.stopSpeaking(at: .immediate)
+            indexOf.removeAll()
+            let first = spoken.first(where: { $0 >= max(0, paragraph) }) ?? spoken[0]
+            currentParagraph = first
+            spokenPosition = (spoken.firstIndex(of: first) ?? 0) + 1
+            pauseForSleepTimer()
+            return true
+        }
         enqueue(from: max(0, paragraph))
         return true
     }
@@ -187,6 +237,8 @@ final class SpeechController: NSObject {
 
     func pause() {
         guard synthesizer.isSpeaking, !synthesizer.isPaused else { return }
+        // Pausing yourself takes over from a sleep timer that already ran out.
+        if sleepPausePending { clearSleepTimer() }
         synthesizer.pauseSpeaking(at: .word)
         isPlaying = false
         updateNowPlaying()
@@ -197,6 +249,7 @@ final class SpeechController: NSObject {
         // An interruption (a call, Siri, an alarm) deactivates the session;
         // speaking from the background needs it active again.
         activateSession()
+        pausedBySleepTimer = false
         if synthesizer.isPaused {
             synthesizer.continueSpeaking()
         } else if !synthesizer.isSpeaking {
@@ -242,6 +295,8 @@ final class SpeechController: NSObject {
         onParagraphStarted = nil
         onPlayingChanged = nil
         pausedByInterruption = false
+        clearSleepTimer()
+        pausedBySleepTimer = false
         if let narrationActivity {
             ProcessInfo.processInfo.endActivity(narrationActivity)
             self.narrationActivity = nil
@@ -272,6 +327,7 @@ final class SpeechController: NSObject {
             indexOf[ObjectIdentifier(utterance)] = i
             synthesizer.speak(utterance)
         }
+        pausedBySleepTimer = false
         isPlaying = true
         updateNowPlaying()
     }
@@ -303,20 +359,95 @@ final class SpeechController: NSObject {
 
     private func finishChapter() {
         synthesizer.stopSpeaking(at: .immediate)
+        // "End of chapter": the next chapter the reader loads stays paused.
+        if Self.pausesAtChapterEnd(sleepTimer) { sleepPausePending = true }
         isPlaying = false
         onChapterFinished?()  // reader decides whether to advance or stop()
+    }
+
+    // MARK: - Sleep timer (#182)
+
+    /// Sets the sleep timer, or turns it off with nil. A timed one counts
+    /// down from now, playing or paused; when it runs out, narration that's
+    /// playing pauses at the end of the paragraph being spoken.
+    func setSleepTimer(_ timer: SleepTimer?) {
+        clearSleepTimer()
+        sleepTimer = timer
+        guard let duration = timer?.duration else { return }
+        let deadline = Date().addingTimeInterval(duration)
+        sleepDeadline = deadline
+        sleepTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(duration))
+            guard !Task.isCancelled else { return }
+            self?.sleepTimerRanOut()
+        }
+    }
+
+    private func sleepTimerRanOut() {
+        let overdue = sleepDeadline.map { Date().timeIntervalSince($0) > 30 } ?? false
+        sleepTask = nil
+        sleepDeadline = nil
+        // An interruption (a call, an alarm) that resumes on its own counts as
+        // playing, so the timer isn't lost under it. A timer that fires long
+        // overdue ran out while the app was suspended, i.e. paused: it must
+        // not pause the next play.
+        let playing = (isPlaying || pausedByInterruption) && !overdue
+        if Self.sleepTimerRanOut(isPlaying: playing) == .pauseAfterParagraph {
+            sleepPausePending = true
+        } else {
+            sleepTimer = nil
+        }
+    }
+
+    private func clearSleepTimer() {
+        sleepTask?.cancel()
+        sleepTask = nil
+        sleepTimer = nil
+        sleepDeadline = nil
+        sleepPausePending = false
+    }
+
+    /// The pending sleep pause lands: narration is paused with nothing
+    /// queued, so `resume()` speaks again from `currentParagraph`.
+    private func pauseForSleepTimer() {
+        clearSleepTimer()
+        pausedBySleepTimer = true
+        isPlaying = false
+        updateNowPlaying()
+    }
+
+    enum SleepTimerEnd: Equatable { case pauseAfterParagraph, nothingToPause }
+
+    /// A timed sleep timer running out pauses only narration that's playing;
+    /// with narration already paused it just turns itself off.
+    nonisolated static func sleepTimerRanOut(isPlaying: Bool) -> SleepTimerEnd {
+        isPlaying ? .pauseAfterParagraph : .nothingToPause
+    }
+
+    /// Whether a chapter's end pauses narration (rather than rolling on).
+    nonisolated static func pausesAtChapterEnd(_ timer: SleepTimer?) -> Bool {
+        timer == .endOfChapter
+    }
+
+    enum ParagraphEnd: Equatable { case finishChapter, pause, carryOn }
+
+    /// What a paragraph finishing does: the chapter's last one ends the
+    /// chapter (a pending sleep pause then holds the next chapter at its
+    /// start); any other pauses before the next when a sleep pause is
+    /// pending, else narration carries on.
+    nonisolated static func paragraphEnd(isLast: Bool, sleepPausePending: Bool) -> ParagraphEnd {
+        if isLast { return .finishChapter }
+        return sleepPausePending ? .pause : .carryOn
     }
 
     // MARK: - Audio session
 
     private func activateSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [])
-        try? session.setActive(true)
+        SpokenAudioSession.claim(self)
     }
 
     private func deactivateSession() {
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        SpokenAudioSession.release(self)
     }
 
     /// A phone call, Siri or another app's audio took over: the system pauses
@@ -360,6 +491,8 @@ final class SpeechController: NSObject {
         Task { @MainActor in
             guard isActive else { return }
             pausedByInterruption = false
+            // As a pause by hand: it takes over from a sleep pause pending.
+            if sleepPausePending { clearSleepTimer() }
             // Not `pause()`, which finishes the word: not one more through the speaker.
             guard synthesizer.isSpeaking, !synthesizer.isPaused else { return }
             synthesizer.pauseSpeaking(at: .immediate)
@@ -441,9 +574,143 @@ extension SpeechController: AVSpeechSynthesizerDelegate {
         Task { @MainActor in
             // Only the last spoken paragraph's natural finish ends the chapter;
             // stopSpeaking(.immediate) fires didCancel instead, not didFinish.
-            if let i = indexOf[id], i == spokenIndices.last {
+            guard let i = indexOf[id] else { return }
+            switch Self.paragraphEnd(isLast: i == spokenIndices.last,
+                                     sleepPausePending: sleepPausePending) {
+            case .finishChapter:
                 finishChapter()
+            case .pause:
+                // The sleep timer ran out: stop before the next paragraph
+                // (the 0.15 s breath between them leaves time) and drop the
+                // queue, so playing again starts that paragraph afresh.
+                self.synthesizer.stopSpeaking(at: .immediate)
+                indexOf.removeAll()
+                if let next = spokenIndices.first(where: { $0 > i }) {
+                    currentParagraph = next
+                    spokenPosition = (spokenIndices.firstIndex(of: next) ?? 0) + 1
+                }
+                pauseForSleepTimer()
+            case .carryOn:
+                break
             }
         }
+    }
+}
+
+// MARK: - Shared audio session
+
+/// Listen and Settings' Play Sample (#193) share the app's audio session, and
+/// deactivating a session stops whatever else still plays in it, so it goes
+/// inactive only once the last of them lets go (a reader narrating in one
+/// window, the sample in another).
+@MainActor
+enum SpokenAudioSession {
+    private static var holders = Set<ObjectIdentifier>()
+
+    static func claim(_ owner: AnyObject) {
+        holders.insert(ObjectIdentifier(owner))
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .spokenAudio, options: [])
+        try? session.setActive(true)
+    }
+
+    static func release(_ owner: AnyObject) {
+        guard holders.remove(ObjectIdentifier(owner)) != nil, holders.isEmpty else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
+
+// MARK: - Play Sample
+
+/// Settings → Reader's Play Sample (#193): one short passage at the chosen
+/// voice and speaking rate, so picking among many voices doesn't mean opening
+/// a story each time. On-device like Listen. Its own synthesizer, so it never
+/// touches a chapter's narration queue; the Windows app's `SpeechSample`
+/// speaks the same passage.
+@MainActor
+@Observable
+final class SpeechSample: NSObject {
+    nonisolated static let text = "Bella poured the latte. It was hot. Edward looked up from the corner table and met her eyes."
+
+    private(set) var isPlaying = false
+    @ObservationIgnored private let synthesizer = AVSpeechSynthesizer()
+    /// The utterance playing, so a late callback from one already stopped
+    /// can't end the next.
+    @ObservationIgnored private var current: ObjectIdentifier?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+        // A call or Siri pauses the synthesizer without a didFinish or
+        // didCancel, which would leave the button on Stop.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc nonisolated private func handleAudioInterruption(_ note: Notification) {
+        guard let rawType = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              AVAudioSession.InterruptionType(rawValue: rawType) == .began else { return }
+        Task { @MainActor in stop() }
+    }
+
+    /// The utterance's rate for a stored `reader.ttsRate`, kept to the range
+    /// AVSpeech takes.
+    nonisolated static func utteranceRate(_ storedRate: Double) -> Float {
+        min(max(Float(storedRate), AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
+    }
+
+    /// Speaks the sample; `voiceId` "" is the platform default voice, as for Listen.
+    func play(voiceId: String, rate: Double) {
+        stop()
+        let utterance = AVSpeechUtterance(string: Self.text)
+        utterance.rate = Self.utteranceRate(rate)
+        if !voiceId.isEmpty { utterance.voice = AVSpeechSynthesisVoice(identifier: voiceId) }
+        // The same session as Listen, so the sample is heard with the
+        // ring/silent switch on silent, as narration is.
+        SpokenAudioSession.claim(self)
+        current = ObjectIdentifier(utterance)
+        isPlaying = true
+        synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        guard current != nil else { return }
+        current = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        finish()
+    }
+
+    private func finished(_ id: ObjectIdentifier) {
+        guard current == id else { return }
+        current = nil
+        finish()
+    }
+
+    private func finish() {
+        isPlaying = false
+        SpokenAudioSession.release(self)
+    }
+}
+
+extension SpeechSample: AVSpeechSynthesizerDelegate {
+    // Off the main actor: capture only the Sendable id, as SpeechController does.
+    @objc nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                             didFinish utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor in finished(id) }
+    }
+
+    @objc nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                             didCancel utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor in finished(id) }
     }
 }

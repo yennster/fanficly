@@ -69,6 +69,19 @@ internal sealed class SpeechController : IDisposable
     /// <summary>1-based position of the current paragraph among the spoken ones ("¶ x / y").</summary>
     public int SpokenPosition { get; private set; }
     public string ChapterLabel { get; private set; } = "";
+    /// <summary>The sleep timer that's set, if any (#182). Cleared once it pauses
+    /// narration, and by <see cref="Stop"/>.</summary>
+    public SleepTimer? CurrentSleepTimer { get; private set; }
+    /// <summary>When a timed sleep timer runs out; null for "End of chapter", and
+    /// once it has run out.</summary>
+    public DateTimeOffset? SleepDeadline { get; private set; }
+    /// <summary>The sleep timer ran out (or the chapter ended under "End of
+    /// chapter"): narration pauses at the end of the paragraph being spoken.</summary>
+    public bool SleepPausePending { get; private set; }
+    /// <summary>The sleep timer paused narration and nothing has played since; the
+    /// reader keeps the display free to sleep then too (#182).</summary>
+    public bool PausedBySleepTimer { get; private set; }
+    private DispatcherQueueTimer? _sleepTimer;
 
     /// <summary>Any state above changed (UI thread).</summary>
     public event Action? Changed;
@@ -165,6 +178,18 @@ internal sealed class SpeechController : IDisposable
         // Narration keeps going with the window minimized; keep synthesis ahead of it.
         if (!_throttlingOptedOut) { PowerThrottling.SetOptedOut(true); _throttlingOptedOut = true; }
         EnsurePlayer();
+        if (SleepPausePending)
+        {
+            // The sleep timer ran out at the end of the last chapter (or it was
+            // "End of chapter"): the next chapter loads paused at its start.
+            _generation++;
+            StopPlayback();
+            _toSpeak = [];
+            CurrentParagraph = spoken.FirstOrDefault(i => i >= Math.Max(0, paragraph), spoken[0]);
+            SpokenPosition = spoken.IndexOf(CurrentParagraph) + 1;
+            PauseForSleepTimer();
+            return true;
+        }
         Enqueue(Math.Max(0, paragraph));
         return true;
     }
@@ -179,6 +204,8 @@ internal sealed class SpeechController : IDisposable
     {
         if (!IsPlaying || _player is null) return;
         _player.Pause();
+        // Pausing yourself takes over from a sleep timer that already ran out.
+        if (SleepPausePending) CancelPendingSleepPause();
         IsPlaying = false;
         UpdateTransportControls();
         Changed?.Invoke();
@@ -187,6 +214,7 @@ internal sealed class SpeechController : IDisposable
     public void Resume()
     {
         if (!IsActive) return;
+        PausedBySleepTimer = false;
         if (_player is not null && _list is not null && _items.Count > 0 && !_starved
             && _player.PlaybackSession.PlaybackState == MediaPlaybackState.Paused)
         {
@@ -230,6 +258,8 @@ internal sealed class SpeechController : IDisposable
         SpokenCount = 0;
         SpokenPosition = 0;
         ChapterLabel = "";
+        ClearSleepTimer();
+        PausedBySleepTimer = false;
         if (_throttlingOptedOut) { PowerThrottling.SetOptedOut(false); _throttlingOptedOut = false; }
         if (_player is not null)
         {
@@ -306,6 +336,7 @@ internal sealed class SpeechController : IDisposable
         _list = new MediaPlaybackList { AutoRepeatEnabled = false, MaxPlayedItemsToKeepOpen = 1 };
         _list.CurrentItemChanged += OnCurrentItemChanged;
         _player!.Source = _list;
+        PausedBySleepTimer = false;
         IsPlaying = true;
         UpdateTransportControls();
         Changed?.Invoke();
@@ -320,13 +351,13 @@ internal sealed class SpeechController : IDisposable
         _feedingGeneration = generation;
         try
         {
-            while (generation == _generation && _list is { } list && _fed < _toSpeak.Count)
+            while (generation == _generation && _list is { } list && _fed < _toSpeak.Count && !HoldsFeeding)
             {
                 var playingAt = Math.Max(0, _itemParagraphs.IndexOf(CurrentParagraph));
                 if (_items.Count - playingAt > SynthesizeAhead) break;
                 var index = _toSpeak[_fed];
                 var stream = await SynthesizeAsync(_paragraphs[index]);
-                if (generation != _generation || !ReferenceEquals(list, _list))
+                if (generation != _generation || !ReferenceEquals(list, _list) || HoldsFeeding)
                 {
                     stream.Dispose();
                     return;
@@ -361,7 +392,7 @@ internal sealed class SpeechController : IDisposable
             if (_feedingGeneration == generation) _feedingGeneration = -1;
         }
         // The current paragraph moved on while that synthesis ran.
-        if (generation == _generation && _fed < _toSpeak.Count
+        if (generation == _generation && _fed < _toSpeak.Count && !HoldsFeeding
             && _items.Count - Math.Max(0, _itemParagraphs.IndexOf(CurrentParagraph)) <= SynthesizeAhead)
             _ = FeedAsync(generation);
     }
@@ -388,12 +419,132 @@ internal sealed class SpeechController : IDisposable
 
     private void FinishChapter()
     {
+        // "End of chapter": the next chapter the reader loads stays paused.
+        if (SleepTimer.PausesAtChapterEnd(CurrentSleepTimer)) SleepPausePending = true;
         _generation++;
         StopPlayback();
         IsPlaying = false;
         UpdateTransportControls();
         Changed?.Invoke();
         Finished?.Invoke(); // the reader decides whether to advance or stop
+    }
+
+    // MARK: - Sleep timer (#182)
+
+    /// <summary>Sets the sleep timer, or turns it off with null. A timed one
+    /// counts down from now, playing or paused; when it runs out, narration
+    /// that's playing pauses at the end of the paragraph being spoken.</summary>
+    public void SetSleepTimer(SleepTimer? timer)
+    {
+        CancelPendingSleepPause();
+        CurrentSleepTimer = timer;
+        if (timer?.Duration is { } duration)
+        {
+            SleepDeadline = DateTimeOffset.Now + duration;
+            _sleepTimer = _dispatcher.CreateTimer();
+            _sleepTimer.IsRepeating = false;
+            _sleepTimer.Interval = duration;
+            _sleepTimer.Tick += OnSleepTimerTick;
+            _sleepTimer.Start();
+        }
+        Changed?.Invoke();
+    }
+
+    private void OnSleepTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        if (_disposed || !ReferenceEquals(sender, _sleepTimer)) return;
+        StopSleepCountdown();
+        SleepDeadline = null;
+        if (!IsActive || !SleepTimer.PausesWhenRunningOut(IsPlaying))
+        {
+            CurrentSleepTimer = null;
+            Changed?.Invoke();
+            return;
+        }
+        SleepPausePending = true;
+        if (_starved)
+        {
+            // The paragraph already ended and the next is still being synthesized.
+            PauseAfterCurrentParagraph();
+            return;
+        }
+        // Drop what's queued after the paragraph being spoken, so the list ends
+        // with it (OnMediaEnded then pauses); FeedAsync adds no more. The list's
+        // own position, since CurrentParagraph follows it a dispatch later.
+        var at = _itemParagraphs.IndexOf(CurrentParagraph);
+        if (_list is { } playing && playing.CurrentItemIndex < (uint)_items.Count && (int)playing.CurrentItemIndex > at)
+        {
+            at = (int)playing.CurrentItemIndex;
+            CurrentParagraph = _itemParagraphs[at];
+            SpokenPosition = _spokenIndices.IndexOf(CurrentParagraph) + 1;
+        }
+        if (_list is { } list && at >= 0)
+        {
+            for (var k = _items.Count - 1; k > at; k--)
+            {
+                if (k < list.Items.Count) list.Items.RemoveAt(k);
+                _items.RemoveAt(k);
+                _itemParagraphs.RemoveAt(k);
+            }
+            _fed = at + 1;
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>A sleep pause is pending: feed nothing past the current paragraph.</summary>
+    private bool HoldsFeeding => SleepPausePending && _fed > _toSpeak.IndexOf(CurrentParagraph);
+
+    /// <summary>The paragraph being spoken finished with a sleep pause pending:
+    /// the chapter's last one finishes the chapter (the next loads paused);
+    /// any other leaves narration paused at the next paragraph, nothing queued,
+    /// so <see cref="Resume"/> starts it afresh.</summary>
+    private void PauseAfterCurrentParagraph()
+    {
+        var next = _spokenIndices.FirstOrDefault(i => i > CurrentParagraph, -1);
+        if (SleepTimer.ParagraphEnd(isLast: next < 0, sleepPausePending: true) == SleepParagraphEnd.FinishChapter)
+        {
+            FinishChapter();
+            return;
+        }
+        _generation++;
+        StopPlayback();
+        CurrentParagraph = next;
+        SpokenPosition = _spokenIndices.IndexOf(next) + 1;
+        PauseForSleepTimer();
+    }
+
+    private void PauseForSleepTimer()
+    {
+        ClearSleepTimer();
+        PausedBySleepTimer = true;
+        IsPlaying = false;
+        UpdateTransportControls();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Clears the timer; a pause it left pending had stopped feeding past
+    /// the current paragraph, so feeding picks up again (no gap at its end).</summary>
+    private void CancelPendingSleepPause()
+    {
+        var wasPending = SleepPausePending;
+        ClearSleepTimer();
+        if (wasPending && IsActive && _list is not null) _ = FeedAsync(_generation);
+    }
+
+    private void ClearSleepTimer()
+    {
+        StopSleepCountdown();
+        CurrentSleepTimer = null;
+        SleepDeadline = null;
+        SleepPausePending = false;
+    }
+
+    private void StopSleepCountdown()
+    {
+        if (_sleepTimer is null) return;
+        _sleepTimer.Stop();
+        _sleepTimer.Tick -= OnSleepTimerTick;
+        _sleepTimer = null;
     }
 
     // MARK: - Player events (background threads → UI thread)
@@ -421,8 +572,10 @@ internal sealed class SpeechController : IDisposable
         {
             if (_disposed || !ReferenceEquals(list, _list) || list is null) return;
             // Only the chapter's last paragraph ending finishes it; running ahead
-            // of synthesis waits for the next paragraph instead.
-            if (_fed < _toSpeak.Count) { _starved = true; _ = FeedAsync(_generation); }
+            // of synthesis waits for the next paragraph instead, unless the
+            // sleep timer ran out (feeding stopped after the current paragraph).
+            if (SleepPausePending) PauseAfterCurrentParagraph();
+            else if (_fed < _toSpeak.Count) { _starved = true; _ = FeedAsync(_generation); }
             else FinishChapter();
         });
     }

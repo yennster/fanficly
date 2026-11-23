@@ -62,6 +62,9 @@ public static partial class AppHost
                     LibrarySyncManager.QueueBackupShared(Library);
                 },
             };
+            // Launch runs on the UI thread; the vault reports from request threads.
+            if (CredentialStore.Shared is KeyedCookieVault vault && Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread() is { } uiQueue)
+                vault.SessionSaveChanged += () => uiQueue.TryEnqueue(() => OnSessionSaveChanged(vault));
         }
 
         // This runs on the UI thread (OnLaunched): backups, restores and the
@@ -152,6 +155,20 @@ public static partial class AppHost
         if (!IsDemoMode) Library.Changed += _ => LibrarySyncManager.QueueBackupShared(Library);
     }
 
+    /// <summary>The sign-in couldn't be written, or a retry finally wrote it
+    /// (#210): AuthState follows on the UI thread, and the first failure says so.</summary>
+    private static void OnSessionSaveChanged(KeyedCookieVault vault)
+    {
+        var saved = !vault.IsSessionUnsaved;
+        if (Auth.IsSessionSaved == saved) return;
+        Auth.IsSessionSaved = saved;
+        // Not gated on IsLoggedIn: at a fresh sign-in the first cookie save
+        // fails before AuthState has stored the name.
+        if (!saved)
+            MainWindow.Current?.ShowMessage("Couldn't save your AO3 sign-in", AuthState.SessionOnlyMessage,
+                Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning);
+    }
+
     private static long _lastSaveFailureShown;
 
     /// <summary>Says so when a library change didn't reach the disk, at most
@@ -165,7 +182,7 @@ public static partial class AppHost
         MainWindow.Current?.DispatcherQueue.TryEnqueue(() => MainWindow.Current?.ShowMessage(
             "Couldn't save your library",
             $"Your latest change may be lost when Fanficly closes. {error}",
-            Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 10));
+            Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error));
     }
 
     /// <summary>The rows the widgets show, read from the library.</summary>
@@ -201,7 +218,7 @@ public static partial class AppHost
             _ => (null, null),
         };
         if (title is null) return;
-        MainWindow.Current?.ShowMessage(title, message, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning, seconds: 15);
+        MainWindow.Current?.ShowMessage(title, message, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning);
     }
 
     /// <summary>The launch task (FanficlyApp's .task): restore from the sync
@@ -214,7 +231,7 @@ public static partial class AppHost
         {
             MainWindow.Current?.ShowMessage("Couldn't open your library",
                 $"Fanficly can't save anything this time. Close other copies of Fanficly and restart it. {why}",
-                Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error, seconds: 20);
+                Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error);
             return;
         }
         // Older builds stored the email address a reader signed in with; swap

@@ -207,6 +207,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         UpdateOptionsButton();
         MainWindow.Current.Announce("Downloading for offline reading");
         var textSaved = false;
+        var fetchingEpub = false;
         try
         {
             // Saving replaces the stored chapters, so never with just one of them.
@@ -214,6 +215,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
             WorkPersistence.Upsert(payload, AppHost.Library);
             textSaved = true;
             _downloaded = true;
+            fetchingEpub = true;
             await AppHost.Client.DownloadEpubAsync(payload.Summary.Id);
             _followed = WorkPersistence.IsFollowed(_workId, AppHost.Library);
             UpdateSaveButton();
@@ -222,9 +224,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         catch (Exception e)
         {
             AppHost.Log($"Download failed: {e}");
-            await Dialogs.AlertAsync("Download failed", textSaved
-                ? $"The text is saved for offline reading, but the EPUB download failed: {e.Message}"
-                : $"Couldn't get the story's text from AO3, so nothing was saved: {e.Message}");
+            await Dialogs.AlertAsync("Download failed", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message));
         }
         finally
         {

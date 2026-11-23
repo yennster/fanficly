@@ -29,8 +29,11 @@ BUILD_DIR = File.join(ROOT, "build", "release")
 TARGETS = {
   "Fanficly" => "io.github.yennster.fanficly",
   "FanficlyShare" => "io.github.yennster.fanficly.share",
-  "FanficlyWidget" => "io.github.yennster.fanficly.widget"
+  "FanficlyWidget" => "io.github.yennster.fanficly.widget",
+  "FanficlyClip" => "io.github.yennster.fanficly.Clip"
 }.freeze
+# Targets the Mac Catalyst build has: not the App Clip (#292), which is iOS only.
+MAC_TARGETS = TARGETS.reject { |target, _| target == "FanficlyClip" }.freeze
 
 METADATA = { "ios" => File.join(FASTLANE_DIR, "metadata"), "osx" => File.join(FASTLANE_DIR, "metadata-mac") }.freeze
 SCREENSHOTS = { "ios" => File.join(FASTLANE_DIR, "screenshots"), "osx" => File.join(FASTLANE_DIR, "screenshots-mac") }.freeze
@@ -253,10 +256,9 @@ platform :ios do
     team = ENV["APPLE_TEAM_ID"].to_s
     UI.user_error!("Set APPLE_TEAM_ID") if team.empty?
     setup_ci if ENV["CI"]
-    ids = TARGETS.values
-    match(app_identifier: ids, platform: "ios", readonly: readonly, team_id: team)
+    match(app_identifier: TARGETS.values, platform: "ios", readonly: readonly, team_id: team)
     ios = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING].dup
-    match(app_identifier: ids, platform: "catalyst", readonly: readonly, team_id: team,
+    match(app_identifier: MAC_TARGETS.values, platform: "catalyst", readonly: readonly, team_id: team,
           additional_cert_types: ["mac_installer_distribution"])
     mac = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING].dup
 
@@ -270,7 +272,7 @@ platform :ios do
     ]
     TARGETS.each do |target, id|
       lines << "FANFICLY_IOS_PROFILE_#{target} = #{ios.fetch(id)}"
-      lines << "FANFICLY_MAC_PROFILE_#{target} = #{mac.fetch(id)}"
+      lines << "FANFICLY_MAC_PROFILE_#{target} = #{mac.fetch(id)}" if MAC_TARGETS.key?(target)
     end
     File.write(SIGNING_XCCONFIG, lines.join("\n") + "\n")
     { "ios" => ios, "osx" => mac }

@@ -1242,6 +1242,7 @@ final class iCloudSyncManager {
             }
             
             // 1. Restore Works and their Chapters
+            let removedDownloads = WorkPersistence.removedDownloads()
             for w in backup.works where !tombstones.removes(.work, String(w.ao3Id), stamp: w.savedAt) {
                 let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == w.ao3Id })
                 let existing = (try? context.fetch(descriptor))?.first
@@ -1315,7 +1316,9 @@ final class iCloudSyncManager {
                 // Replace chapters only when the backup carries more than we
                 // hold: a metadata-only backup (chapters: []) or a stale
                 // partial download must not wipe a fuller offline download.
-                if w.chapters.count > work.chapters.count {
+                // A download removed on this device stays removed: another
+                // device's copy mustn't bring its chapters back (#191).
+                if w.chapters.count > work.chapters.count && !removedDownloads.contains(w.ao3Id) {
                     textRestored.append(w.ao3Id)
                     // A saved EPUB now holds less than the text; Export must
                     // not share it (#173). The re-download offer brings a
