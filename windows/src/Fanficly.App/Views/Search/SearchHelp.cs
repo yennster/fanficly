@@ -27,7 +27,7 @@ internal static class SearchHelp
             ]),
             Section("Filters", "line.3.horizontal.decrease.circle.fill", Theme.Accent,
             [
-                ("Filters button", "Rating, warnings, categories, complete or in progress, length, language, sort and more."),
+                ("Filters button", "Pick a fandom from AO3's list (or Any fandom for none), plus rating, warnings, categories, complete or in progress, length, language, sort and more."),
             ]),
             Section("Shortcuts you can type", "bolt.fill", Theme.Warning,
             [

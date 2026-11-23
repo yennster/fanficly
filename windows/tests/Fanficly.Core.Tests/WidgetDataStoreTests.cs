@@ -180,6 +180,30 @@ public class WidgetDataStoreTests
     }
 
     [Fact]
+    public void Subscriptions_SortByUpdatedDateNotLastCheck()
+    {
+        // #197: a subscription polled a minute ago but updated months back
+        // sorts below a follow updated yesterday; one never checked sorts last.
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_800_000_000);
+        var works = new[]
+        {
+            new WidgetWorkSource { Ao3Id = 1, Title = "Followed", ChapterCount = 12, IsFollowed = true,
+                                   SavedAt = now.AddDays(-30), UpdatedAt = now.AddDays(-1) },
+        };
+        var subs = new[]
+        {
+            new WidgetSubscriptionSource("work:2", "work", "Old", "", 3, now, now.AddDays(-200)),
+            new WidgetSubscriptionSource("work:3", "work", "Fresh", "", 5, now.AddHours(-1), now),
+            new WidgetSubscriptionSource("work:4", "work", "Unchecked", "", null, null),
+        };
+
+        var updates = WidgetDataStore.BuildSubscriptions(works, subs, now);
+
+        Assert.Equal([3, 1, 2, 4], updates.Select(u => u.WorkId));
+        Assert.Equal(12, updates[1].ChapterCount);
+    }
+
+    [Fact]
     public void Build_OrdersAndCapsLikeTheSwiftUpdater()
     {
         // Windows-only: the pure builders behind UpdateAll.

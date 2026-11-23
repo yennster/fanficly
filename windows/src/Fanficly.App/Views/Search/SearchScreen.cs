@@ -679,8 +679,10 @@ public sealed class SearchScreen : Screen
 
     // MARK: - Start view (recent and saved searches)
 
+    /// <summary>Without a search deleted a moment ago, still behind its Undo bar (#169).</summary>
     private static List<SavedSearch> SavedSearches() =>
-        Store.All<SavedSearch>().OrderByDescending(s => s.SavedAt).ToList();
+        Store.All<SavedSearch>().Where(s => !UndoQueue.Shared.IsPending(UndoQueue.Keys.Search(s.Name)))
+            .OrderByDescending(s => s.SavedAt).ToList();
 
     /// <summary>Before the first search: recent and saved searches, or a short intro.</summary>
     private FrameworkElement StartView()
@@ -731,14 +733,15 @@ public sealed class SearchScreen : Screen
             var rows = new List<ListRow>();
             foreach (var s in saved)
             {
-                void Delete()
-                {
-                    LibrarySyncManager.RecordDeletionShared(DeletionKind.Search, s.Name);
-                    Store.Delete(s);
-                    Store.TrySave();
-                    MainWindow.Current.Announce($"Deleted {s.Name}");
-                    RenderContent();
-                }
+                // Waits behind the Undo bar (#169), which redraws the list.
+                void Delete() => UndoQueue.Shared.Schedule($"Deleted saved search “{s.Name}”",
+                    [UndoQueue.Keys.Search(s.Name)], LibraryEntityKinds.SavedSearches, () =>
+                    {
+                        if (!s.IsInserted) return;
+                        LibrarySyncManager.RecordDeletionShared(DeletionKind.Search, s.Name);
+                        Store.Delete(s);
+                        Store.TrySave();
+                    });
                 var text = UI.UI.VStack(2,
                     UI.UI.Text(s.Name, Theme.Style.Headline),
                     UI.UI.Text(s.Prompt, Theme.Style.Caption, Theme.TextSecondary, wrap: false));
@@ -908,7 +911,7 @@ public sealed class SearchScreen : Screen
                 MainWindow.Current.Announce(saved ? "Saved to Library" : "Removed from Library");
             }), followed ? "bookmark.slash" : "bookmark"));
             menu.Items.Add(UI.UI.MenuItem("Share Story...", () =>
-                ShareLink.Share(work.Title, new Uri($"https://archiveofourown.org/works/{work.Id}"), $"Check out this story: {work.Title}"),
+                Library.ShareService.ShareWork(work.Id, work.Title),
                 "square.and.arrow.up"));
         };
         holder.ContextFlyout = menu;
@@ -995,7 +998,7 @@ public sealed class SearchScreen : Screen
     private async Task ShowFiltersAsync()
     {
         var sortWhenOpened = _active.SortColumn;
-        var edited = await WorkFilterSheet.ShowAsync(_active);
+        var edited = await WorkFilterSheet.ShowAsync(_active, editsFandom: true);
         if (edited is null) return;
         _active = edited;
         if (_active.SortColumn != sortWhenOpened) _userPickedSort = true;
@@ -1338,6 +1341,8 @@ public sealed class SearchScreen : Screen
             "Saves the keywords, filters and sort so you can re-run it later.");
         if (name is null) return;
         var prompt = CurrentFilters.PromptText();
+        // Saving under a name deleted a moment ago keeps it (#169).
+        UndoQueue.Shared.Cancel(UndoQueue.Keys.Search(name));
         if (Store.GetSavedSearch(name) is { } existing)
         {
             // Alerts for an edited search start over: what the old search saw
