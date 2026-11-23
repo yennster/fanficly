@@ -691,12 +691,17 @@ final class ReaderPaginationTests: XCTestCase {
     func test_onlyAChangedPageArea_refitsNearTheReader() {
         let content = ChapterContentSignature([AO3ChapterPayload(index: 1, title: "", bodyHTML: "<p>One.</p>")])
         func trigger(fontSize: Double = 17, showImages: Bool = false, chapter: Int = 1,
-                     size: CGSize = CGSize(width: 400, height: 700), widthPercent: Double = 70) -> PaginationTrigger {
+                     size: CGSize = CGSize(width: 400, height: 700), widthPercent: Double = 70,
+                     verticalMargin: CGFloat = 12) -> PaginationTrigger {
             PaginationTrigger(chapter: chapter, fontSize: fontSize, fontFamily: "newYork", widthPercent: widthPercent,
                               lineSpacing: 4, paragraphSpacing: 12, kerning: 0, boldText: false,
-                              showImages: showImages, content: content, size: size, sideColumn: .empty)
+                              showImages: showImages, content: content, size: size, sideColumn: .empty,
+                              verticalMargin: verticalMargin)
         }
         let base = trigger()
+        // The Top & bottom margins setting re-paginates, as a page-area change.
+        XCTAssertNotEqual(base, trigger(verticalMargin: 40))
+        XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(verticalMargin: 40)))
         XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(size: CGSize(width: 400, height: 616))))
         XCTAssertTrue(base.differsOnlyInPageArea(from: trigger(size: CGSize(width: 900, height: 600), widthPercent: 88)))
         XCTAssertFalse(base.differsOnlyInPageArea(from: trigger(fontSize: 20)))
