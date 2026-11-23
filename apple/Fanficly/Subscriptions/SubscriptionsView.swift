@@ -61,7 +61,7 @@ struct SubscriptionsView: View {
             // chapter count.
             NavigationLink(value: SavedFirstWorkRoute(workId: workId)) {
                 if let work = cachedWork(ao3Id: workId) {
-                    LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: workId) != nil)
+                    LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                 } else {
                     SubscriptionRow(sub: sub)
                 }
@@ -123,7 +123,7 @@ struct SubscriptionsView: View {
     private func followedWorkRow(_ work: Work) -> some View {
         // Opens the saved copy, as the Library does (offline too).
         NavigationLink(value: work) {
-            LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil,
+            LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work),
                        checkStatus: work.checkStatus)
         }
         .swipeActions(edge: .trailing) {

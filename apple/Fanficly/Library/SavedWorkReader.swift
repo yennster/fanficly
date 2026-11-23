@@ -219,7 +219,7 @@ struct SavedWorkReader: View {
         .saveOfflineAlert($saveError)
         .task { await load() }
         .onAppear {
-            isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
+            isDownloaded = WorkPersistence.isDownloaded(work)
             refreshNewChapterCount()
             WorkPersistence.recordView(work: work, into: context)
         }
@@ -322,9 +322,10 @@ struct SavedWorkReader: View {
         }
     }
 
-    /// Saves the chapter text (when it isn't stored yet), then the EPUB.
-    /// When the text can't be fetched nothing is downloaded, so the work is
-    /// never marked Downloaded without text to read offline.
+    /// Saves the chapter text (when it isn't stored yet), then AO3's EPUB.
+    /// Downloaded means the text is saved (#173), so the work is marked
+    /// Downloaded once the text is in, even if the EPUB then fails: Export
+    /// builds an EPUB from the saved text when AO3's file isn't there.
     private func saveOffline() async {
         isSavingOffline = true
         defer { isSavingOffline = false }
@@ -344,9 +345,9 @@ struct SavedWorkReader: View {
                 return
             }
         }
+        isDownloaded = true
         do {
             _ = try await client.downloadEPUB(workId: work.ao3Id)
-            isDownloaded = true
         } catch {
             saveError = "The text is saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }

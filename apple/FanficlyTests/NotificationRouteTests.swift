@@ -113,6 +113,32 @@ final class NotificationRouteTests: XCTestCase {
     }
 }
 
+/// Settings → Notifications and the one-time "notifications are off"
+/// prompt after a follow (#192).
+final class NotificationsSettingsTests: XCTestCase {
+    func test_status_readsTheSystemsAuthorization() {
+        XCTAssertEqual(NotificationsStatus(.authorized), .on)
+        XCTAssertEqual(NotificationsStatus(.provisional), .on)
+        XCTAssertEqual(NotificationsStatus(.ephemeral), .on)
+        XCTAssertEqual(NotificationsStatus(.denied), .off)
+        XCTAssertEqual(NotificationsStatus(.notDetermined), .notAsked)
+    }
+
+    func test_offPrompt_onlyWhenAlreadyOff_andOnlyOnce() {
+        XCTAssertTrue(NotificationsOffPrompt.shouldPrompt(statusBeforeAsking: .denied, alreadyShown: false))
+        XCTAssertFalse(NotificationsOffPrompt.shouldPrompt(statusBeforeAsking: .denied, alreadyShown: true))
+        // The system's own alert asks then; a second one would nag.
+        XCTAssertFalse(NotificationsOffPrompt.shouldPrompt(statusBeforeAsking: .notDetermined, alreadyShown: false))
+        XCTAssertFalse(NotificationsOffPrompt.shouldPrompt(statusBeforeAsking: .authorized, alreadyShown: false))
+        XCTAssertFalse(NotificationsOffPrompt.shouldPrompt(statusBeforeAsking: .provisional, alreadyShown: false))
+    }
+
+    /// The Windows app's key, so both apps read the same setting name.
+    func test_offPrompt_usesTheWindowsKey() {
+        XCTAssertEqual(NotificationsOffPrompt.shownKey, "notifications.permissionPromptShown")
+    }
+}
+
 /// Which shared, dropped, pasted or opened links import a work (#176).
 final class ImportLinkTests: XCTestCase {
     private func id(_ link: String) -> Int? {

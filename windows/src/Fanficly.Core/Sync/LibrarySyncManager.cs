@@ -1140,6 +1140,10 @@ public sealed class LibrarySyncManager
             if (w.Chapters.Count > work.Chapters.Count && !removedDownloads.Contains(w.Ao3Id))
             {
                 textRestored.Add(w.Ao3Id);
+                // A saved EPUB now holds less than the text; Export must not
+                // share it (#173). The re-download offer brings a current one
+                // back, and Export builds from the text.
+                WorkPersistence.RemoveSavedEpub(w.Ao3Id);
                 foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
                 foreach (var ch in w.Chapters)
                     store.Insert(new Chapter(work, ch.Index, ch.Title, ch.BodyHtml, ch.AoId));
