@@ -56,56 +56,51 @@ final class StreakStoreTests: XCTestCase {
     
     func test_getLast7DaysActivity() {
         let reference = date(from: "2026-06-11") // June 11, 2026 is a Thursday
-        let dates = ["2026-06-11", "2026-06-10", "2026-06-08"] // Read Thursday, Wednesday, Monday. Skipped Tuesday, Sunday, Saturday, Friday.
+        let dates = ["2026-06-11", "2026-06-10", "2026-06-08", "2026-06-04"] // Thu, Wed, Mon, and the Thursday before (outside the window)
         
         let activities = StreakStore.getLast7DaysActivity(from: dates, relativeTo: reference)
         
+        // The rolling seven days ending today: Fri 5 … Thu 11, whatever the
+        // calendar's first weekday, with no future days.
         XCTAssertEqual(activities.count, 7)
-        
-        let calendar = Calendar.current
-        let firstWeekday = calendar.firstWeekday
-        
-        if firstWeekday == 1 { // Sunday start
-            // Days: Sun 7, Mon 8, Tue 9, Wed 10, Thu 11, Fri 12, Sat 13
-            // index 0: Sun (isToday: false, isRead: false)
-            XCTAssertFalse(activities[0].isToday)
-            XCTAssertFalse(activities[0].isRead)
-            XCTAssertEqual(activities[0].name, "S")
-            
-            // index 1: Mon (isToday: false, isRead: true)
-            XCTAssertFalse(activities[1].isToday)
-            XCTAssertTrue(activities[1].isRead)
-            XCTAssertEqual(activities[1].name, "M")
-            
-            // index 3: Wed (isToday: false, isRead: true)
-            XCTAssertFalse(activities[3].isToday)
-            XCTAssertTrue(activities[3].isRead)
-            XCTAssertEqual(activities[3].name, "W")
-            
-            // index 4: Thu (isToday: true, isRead: true)
-            XCTAssertTrue(activities[4].isToday)
-            XCTAssertTrue(activities[4].isRead)
-            XCTAssertEqual(activities[4].name, "T")
-        } else if firstWeekday == 2 { // Monday start
-            // Days: Mon 8, Tue 9, Wed 10, Thu 11, Fri 12, Sat 13, Sun 14
-            // index 0: Mon (isToday: false, isRead: true)
-            XCTAssertFalse(activities[0].isToday)
-            XCTAssertTrue(activities[0].isRead)
-            XCTAssertEqual(activities[0].name, "M")
-            
-            // index 2: Wed (isToday: false, isRead: true)
-            XCTAssertFalse(activities[2].isToday)
-            XCTAssertTrue(activities[2].isRead)
-            XCTAssertEqual(activities[2].name, "W")
-            
-            // index 3: Thu (isToday: true, isRead: true)
-            XCTAssertTrue(activities[3].isToday)
-            XCTAssertTrue(activities[3].isRead)
-            XCTAssertEqual(activities[3].name, "T")
-        } else {
-            // General assertion: there must be exactly one today
-            let todayCount = activities.filter(\.isToday).count
-            XCTAssertEqual(todayCount, 1)
-        }
+        XCTAssertEqual(activities.map(\.isRead), [false, false, false, true, false, true, true])
+        XCTAssertEqual(activities.map(\.isToday), [false, false, false, false, false, false, true])
+        // Names follow the device's language: Friday is weekday 6, Thursday 5.
+        let symbols = Calendar.current.standaloneWeekdaySymbols
+        XCTAssertEqual(activities.first?.fullName, symbols[5])
+        XCTAssertEqual(activities.last?.fullName, symbols[4])
+        XCTAssertFalse(activities.contains { $0.name.isEmpty })
+    }
+    
+    func test_getLast7DaysActivity_mondayCountsTheWholeWeek() {
+        // Issue #200: on a Monday after a week of daily reading, the calendar
+        // week read "1 of last 7 days".
+        let reference = date(from: "2026-06-15") // Monday
+        let dates = ["2026-06-09", "2026-06-10", "2026-06-11", "2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15"]
+        let activities = StreakStore.getLast7DaysActivity(from: dates, relativeTo: reference)
+        XCTAssertEqual(activities.filter(\.isRead).count, 7)
+        XCTAssertTrue(activities.last?.isToday ?? false)
+    }
+    
+    func test_getLast7DaysActivity_lateEveningKeepsToday() {
+        let reference = date(from: "2026-06-11").addingTimeInterval(23 * 60 * 60 + 59 * 60)
+        let activities = StreakStore.getLast7DaysActivity(from: ["2026-06-11"], relativeTo: reference)
+        XCTAssertTrue(activities.last?.isRead ?? false)
+        XCTAssertTrue(activities.last?.isToday ?? false)
+    }
+    
+    func test_nextMidnight() {
+        let evening = date(from: "2026-06-11").addingTimeInterval(22 * 60 * 60)
+        XCTAssertEqual(StreakStore.nextMidnight(after: evening), date(from: "2026-06-12"))
+        XCTAssertEqual(StreakStore.nextMidnight(after: date(from: "2026-06-11")), date(from: "2026-06-12"))
+    }
+    
+    func test_streakLapsesAtMidnight() {
+        // Read Tuesday and Wednesday, not Thursday: Thursday still shows 2,
+        // Friday's midnight entry shows 0.
+        let dates = ["2026-06-09", "2026-06-10"]
+        XCTAssertEqual(StreakStore.calculateStreak(from: dates, relativeTo: date(from: "2026-06-11")), 2)
+        let midnight = StreakStore.nextMidnight(after: date(from: "2026-06-11"))
+        XCTAssertEqual(StreakStore.calculateStreak(from: dates, relativeTo: midnight), 0)
     }
 }

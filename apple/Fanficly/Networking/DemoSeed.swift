@@ -31,6 +31,12 @@ enum DemoSeed {
                 work.lastSeenChapterCount = summary.chapterCount
             }
             if downloaded.contains(summary.id) {
+                // Downloaded means saved text (#173), so these carry their
+                // chapters, plus a placeholder EPUB for Settings → Storage.
+                for ch in DemoCatalog.payload(for: summary.id).chapters {
+                    context.insert(Chapter(work: work, index: ch.index, title: ch.title,
+                                           bodyHTML: ch.bodyHTML, aoId: ch.aoId))
+                }
                 work.epubLocalPath = "library/\(summary.id).epub"
                 writePlaceholderEPUB(workId: summary.id)
             }

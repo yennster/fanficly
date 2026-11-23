@@ -17,7 +17,8 @@ struct WorkDetailView: View {
     @State private var saveError: String?
     @State private var isSavingOffline: Bool = false
     @State private var inLibrary: Bool = false
-    @State private var epubURL: URL?
+    /// The story's text is saved on this device (#173: what Downloaded means).
+    @State private var isDownloaded = false
     @State private var showingReport: Bool = false
     @State private var showingComments: Bool = false
     @State private var showingBookmark: Bool = false
@@ -110,8 +111,8 @@ struct WorkDetailView: View {
         // elsewhere (Save Offline, an import) can cancel one (#168).
         .onChange(of: UndoCenter.shared.pending?.id) {
             inLibrary = WorkPersistence.isInLibrary(workId: workId, in: context)
-            // A removal that ran took the EPUB with it.
-            epubURL = WorkPersistence.epubURL(workId: workId)
+            // A removal that ran took the saved text with it.
+            isDownloaded = WorkPersistence.isDownloaded(workId: workId, in: context)
         }
     }
 
@@ -172,13 +173,13 @@ struct WorkDetailView: View {
             } label: {
                 if isSavingOffline {
                     Label("Downloading…", systemImage: "arrow.down.circle")
-                } else if epubURL != nil {
+                } else if isDownloaded {
                     Label("Downloaded", systemImage: "checkmark.circle.fill")
                 } else {
                     Label("Download", systemImage: "arrow.down.circle")
                 }
             }
-            .disabled(isSavingOffline || epubURL != nil)
+            .disabled(isSavingOffline || isDownloaded)
             SubscribeMenuButton(workId: workId, title: payload.summary.title, author: payload.summary.author,
                                 chapterCount: payload.summary.chapterCount, subscriber: subscriber)
 
@@ -214,7 +215,7 @@ struct WorkDetailView: View {
     }
 
     private func load() async {
-        epubURL = WorkPersistence.epubURL(workId: workId)
+        isDownloaded = WorkPersistence.isDownloaded(workId: workId, in: context)
         inLibrary = WorkPersistence.isInLibrary(workId: workId, in: context)
 
         do {
@@ -234,12 +235,12 @@ struct WorkDetailView: View {
         UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
         _ = WorkPersistence.upsert(payload: payload, into: context)
         iCloudSyncManager.shared.queueBackup(context: context)
+        isDownloaded = true
         // Saving offline puts the story in the Library, so the toolbar
         // offers to remove it (#168).
         inLibrary = true
         do {
-            let url = try await client.downloadEPUB(workId: payload.summary.id)
-            epubURL = url
+            _ = try await client.downloadEPUB(workId: payload.summary.id)
         } catch {
             saveError = "The text is saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }
@@ -364,7 +365,7 @@ private struct SaveOfflineAlert: ViewModifier {
                     string: message,
                     attributes: [.accessibilitySpeechQueueAnnouncement: true]))
             }
-            .alert("Couldn't finish saving offline", isPresented: Binding(
+            .alert("Download failed", isPresented: Binding(
                 get: { message != nil },
                 set: { if !$0 { message = nil } })) {
                 Button("OK", role: .cancel) {}

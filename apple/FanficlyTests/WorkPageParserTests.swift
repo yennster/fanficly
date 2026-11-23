@@ -807,3 +807,204 @@ final class KudosParserTests: XCTestCase {
         XCTAssertFalse(KudosParser.isAlreadyLeft(message: "Sorry, you have been blocked by one or more of this work's creators."))
     }
 }
+
+/// Author's notes and chapter summaries (#181), from AO3's own markup:
+/// otwarchive's work preface (`works/_work_header_notes`), chapter preface
+/// (`chapters/_chapter`) and afterword (`works/_work_endnotes`).
+final class AuthorNotesParserTests: XCTestCase {
+    private func page(_ workskin: String, chapters: String = "2/2") -> String {
+        """
+        <html><body><div id="main" class="works-show">
+        <dl class="work meta group">
+          <dt class="rating tags">Rating:</dt><dd class="rating tags"><ul class="commas"><li><a class="tag">Teen And Up Audiences</a></li></ul></dd>
+          <dd class="stats"><dl class="stats"><dt class="chapters">Chapters:</dt><dd class="chapters">\(chapters)</dd></dl></dd>
+        </dl>
+        <div id="workskin">\(workskin)</div>
+        </div></body></html>
+        """
+    }
+
+    private let workPreface = """
+    <div class="preface group">
+      <h2 class="title heading">Lighthouse</h2>
+      <h3 class="byline heading"><a rel="author" href="/users/kit/pseuds/kit">kit</a></h3>
+      <div class="summary module" role="complementary">
+        <h3 class="heading">Summary:</h3>
+        <blockquote class="userstuff"><p>The keeper has a visitor.</p></blockquote>
+      </div>
+      <div class="notes module" role="complementary">
+        <h3 class="heading">Notes:</h3>
+        <ul class="associations"><li>Translation into Español available: <a href="/works/2">Faro</a> by <a href="/users/b">b</a></li></ul>
+        <blockquote class="userstuff"><p>Work note: thanks to my beta.</p></blockquote>
+        <p class="jump">(See the end of the work for <a href="#work_endnotes">more notes</a>.)</p>
+      </div>
+    </div>
+    """
+
+    private let workAfterword = """
+    <div class="afterword preface group">
+      <div class="end notes module" role="complementary" id="work_endnotes">
+        <h3 class="heading">Notes:</h3>
+        <blockquote class="userstuff"><p>Work end note: more soon.</p></blockquote>
+      </div>
+    </div>
+    """
+
+    private func chapter(_ n: Int, summary: String? = nil, notes: String? = nil, endNotes: String? = nil) -> String {
+        var preface = "<h3 class=\"title\"><a href=\"/works/1/chapters/\(100 + n)\">Chapter \(n)</a></h3>"
+        if let summary {
+            preface += """
+            <div id="summary" class="summary module" role="complementary">
+              <h3 class="heading">Summary:</h3>
+              <blockquote class="userstuff"><p>\(summary)</p></blockquote>
+            </div>
+            """
+        }
+        if let notes {
+            preface += """
+            <div id="notes" class="notes module" role="complementary">
+              <h3 class="heading">Notes:</h3>
+              <blockquote class="userstuff"><p>\(notes)</p></blockquote>
+              \(endNotes != nil ? "<p>(See the end of the chapter for <a href=\"#chapter_\(n)_endnotes\">more notes</a>.)</p>" : "")
+            </div>
+            """
+        } else if endNotes != nil {
+            // AO3's stub when a chapter has only end notes.
+            preface += """
+            <div id="notes" class="notes module" role="complementary">
+              <p>(See the end of the chapter for <a href="#chapter_\(n)_endnotes">notes</a>.)</p>
+            </div>
+            """
+        }
+        var after = ""
+        if let endNotes {
+            after = """
+            <div class="chapter preface group" role="complementary">
+              <div id="chapter_\(n)_endnotes" class="end notes module" role="complementary">
+                <h3 class="heading">Notes:</h3>
+                <blockquote class="userstuff"><p>\(endNotes)</p></blockquote>
+              </div>
+            </div>
+            """
+        }
+        return """
+        <div class="chapter" id="chapter-\(n)">
+          <div class="chapter preface group" role="complementary">\(preface)</div>
+          <div class="userstuff module" role="article">
+            <h3 class="landmark heading" id="work">Chapter Text</h3>
+            <p>Story text \(n).</p>
+          </div>
+          \(after)
+        </div>
+        """
+    }
+
+    func test_chapterSummaryNotesAndEndNotes() throws {
+        let html = page("""
+        <div class="preface group"><h2 class="title heading">Lighthouse</h2></div>
+        <div id="chapters" role="article">
+        \(chapter(1, summary: "Ch1 summary.", notes: "CW: a storm.", endNotes: "Ch1 end note."))
+        \(chapter(2))
+        </div>
+        """)
+        let chapters = try WorkPageParser.parse(html: html, workId: 1).chapters
+        XCTAssertEqual(chapters.count, 2)
+        let first = chapters[0]
+        XCTAssertEqual(first.summaryHTML, "<p>Ch1 summary.</p>")
+        XCTAssertEqual(first.notesHTML, "<p>CW: a storm.</p>")
+        XCTAssertEqual(first.endNotesHTML, "<p>Ch1 end note.</p>")
+        // The notes stay out of the chapter text, so paragraph indices don't move.
+        XCTAssertTrue(first.bodyHTML.contains("Story text 1."))
+        for text in ["Ch1 summary", "CW: a storm", "Ch1 end note", "See the end"] {
+            XCTAssertFalse(first.bodyHTML.contains(text), text)
+        }
+        XCTAssertNil(chapters[1].summaryHTML)
+        XCTAssertNil(chapters[1].notesHTML)
+        XCTAssertNil(chapters[1].endNotesHTML)
+        XCTAssertFalse(chapters[1].hasNotes)
+    }
+
+    func test_endNotesOnlyChapter_skipsAO3sSeeTheEndStub() throws {
+        let html = page("""
+        <div class="preface group"><h2 class="title heading">Lighthouse</h2></div>
+        <div id="chapters" role="article">\(chapter(1, endNotes: "Only an end note.")) \(chapter(2))</div>
+        """)
+        let first = try WorkPageParser.parse(html: html, workId: 1).chapters[0]
+        XCTAssertNil(first.notesHTML)
+        XCTAssertNil(first.summaryHTML)
+        XCTAssertEqual(first.endNotesHTML, "<p>Only an end note.</p>")
+    }
+
+    /// The work's notes go where AO3's chapter-by-chapter view shows them:
+    /// before the first chapter's, after the last chapter's.
+    func test_workNotesJoinTheFirstAndLastChapters() throws {
+        let html = page("""
+        \(workPreface)
+        <div id="chapters" role="article">
+        \(chapter(1, notes: "Ch1 note."))
+        \(chapter(2, endNotes: "Ch2 end note."))
+        </div>
+        \(workAfterword)
+        """)
+        let payload = try WorkPageParser.parse(html: html, workId: 1)
+        // The work summary is still the work's, not a note.
+        XCTAssertEqual(payload.summary.summary, "<p>The keeper has a visitor.</p>")
+        let chapters = payload.chapters
+        XCTAssertEqual(chapters[0].notesHTML, "<p>Work note: thanks to my beta.</p>\n<p>Ch1 note.</p>")
+        XCTAssertNil(chapters[0].endNotesHTML)
+        XCTAssertNil(chapters[0].summaryHTML)
+        XCTAssertNil(chapters[1].notesHTML)
+        XCTAssertEqual(chapters[1].endNotesHTML, "<p>Ch2 end note.</p>\n<p>Work end note: more soon.</p>")
+    }
+
+    /// A one-shot has no chapter preface: its notes are the work's.
+    func test_oneShotTakesTheWorksNotes() throws {
+        let html = page("""
+        \(workPreface)
+        <div id="chapters" role="article">
+          <h3 class="landmark heading" id="work">Work Text:</h3>
+          <div class="userstuff"><p>The whole story.</p></div>
+        </div>
+        \(workAfterword)
+        """, chapters: "1/1")
+        let chapters = try WorkPageParser.parse(html: html, workId: 1).chapters
+        XCTAssertEqual(chapters.count, 1)
+        XCTAssertEqual(chapters[0].bodyHTML.trimmingCharacters(in: .whitespacesAndNewlines), "<p>The whole story.</p>")
+        XCTAssertNil(chapters[0].summaryHTML)
+        XCTAssertEqual(chapters[0].notesHTML, "<p>Work note: thanks to my beta.</p>")
+        XCTAssertEqual(chapters[0].endNotesHTML, "<p>Work end note: more soon.</p>")
+    }
+
+    func test_noNotes_leavesEveryFieldNil() throws {
+        let html = page("""
+        <div class="preface group">
+          <h2 class="title heading">Lighthouse</h2>
+          <div class="summary module"><h3 class="heading">Summary:</h3><blockquote class="userstuff"><p>Just a summary.</p></blockquote></div>
+        </div>
+        <div id="chapters" role="article">\(chapter(1)) \(chapter(2))</div>
+        """)
+        let chapters = try WorkPageParser.parse(html: html, workId: 1).chapters
+        XCTAssertEqual(chapters.count, 2)
+        XCTAssertFalse(chapters.contains(where: \.hasNotes))
+    }
+
+    /// AO3 leaves out a blank work summary, so the first `.summary` on the
+    /// page is chapter 1's: it stays the chapter's.
+    func test_chapterSummaryIsNeverTheWorkSummary() throws {
+        let html = page("""
+        <div class="preface group"><h2 class="title heading">Lighthouse</h2></div>
+        <div id="chapters" role="article">\(chapter(1, summary: "Only chapter 1's.")) \(chapter(2))</div>
+        """)
+        let payload = try WorkPageParser.parse(html: html, workId: 1)
+        XCTAssertEqual(payload.summary.summary, "")
+        XCTAssertEqual(payload.chapters[0].summaryHTML, "<p>Only chapter 1's.</p>")
+    }
+
+    func test_emptyNoteBlockquote_isIgnored() throws {
+        let html = page("""
+        <div class="preface group"><h2 class="title heading">Lighthouse</h2></div>
+        <div id="chapters" role="article">\(chapter(1, notes: " ")) \(chapter(2))</div>
+        """)
+        XCTAssertNil(try WorkPageParser.parse(html: html, workId: 1).chapters[0].notesHTML)
+    }
+}

@@ -82,7 +82,7 @@ struct FanficlyApp: App {
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("app.zoomScale") private var zoomScale: Double = UIZoom.actualSize
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
 
     var body: some Scene {
         WindowGroup {
@@ -159,6 +159,9 @@ struct FanficlyApp: App {
                     // Stats tab isn't empty for existing readers. Runs after the
                     // restore above; demo mode seeds its own stats.
                     if !Self.isDemoMode {
+                        // Works hidden before the last-read widget honoured hiding (#209).
+                        let hidden = (try? context.fetch(FetchDescriptor<HiddenWork>())) ?? []
+                        WidgetProgressStore.matchHidden(Set(hidden.map(\.ao3Id)))
                         ReadingStatsBackfill.runIfNeeded(in: context)
                         // One-time: index works saved before every library work
                         // was indexed (only followed ones were). Not every launch:
@@ -175,11 +178,26 @@ struct FanficlyApp: App {
         .commands {
             SidebarCommands()
 
+            // File → Open AO3 Link… (⇧⌘O): imports a work from its link, as
+            // dropping or pasting one does (`OpenAO3LinkModifier`).
+            CommandGroup(after: .newItem) {
+                OpenAO3LinkMenuButton()
+            }
+
+            // Edit → Find (⌘F): Find in this work in the reader, otherwise
+            // the Search or Library search field.
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                FindMenuButton()
+            }
+
             // In the system View menu, after Show/Hide Sidebar. ⌘+ / ⌘− are
             // the reader's text size (the Reader menu). RootView keeps the
             // other spellings of these keys (⇧⌘=, ⇧⌘_) as hidden shortcuts,
             // since a menu item shows only one.
             CommandGroup(after: .sidebar) {
+                RefreshMenuButton()
+
                 Divider()
 
                 Button("Zoom In") {
@@ -201,6 +219,12 @@ struct FanficlyApp: App {
             GoCommands()
 
             CommandMenu("Reader") {
+                // ⌘← / ⌘→ and ⌘L. Home / End and the turn keys are the
+                // reader's own (`ReaderKeyPressModifier`).
+                ReaderMenuCommands()
+
+                Divider()
+
                 FindInWorkMenuButton()
 
                 Divider()
@@ -256,8 +280,11 @@ struct FanficlyApp: App {
             BackgroundRefresh.scheduleNext()
             await BackgroundRefresh.runPoll(client: client, container: Self.sharedModelContainer)
         }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .background {
+        .onChange(of: scenePhase, initial: true) { oldPhase, newPhase in
+            updateInAppPolling(for: newPhase)
+            // A real move to the background, not the initial value: a launch
+            // into the background for a refresh mustn't back up meanwhile.
+            if newPhase == .background, oldPhase != newPhase {
                 // A delete waiting behind its Undo toast runs now, before the
                 // backup snapshot, so a suspended app doesn't hold it (#169).
                 UndoCenter.shared.commitPending()
@@ -273,6 +300,48 @@ struct FanficlyApp: App {
                 }
             }
         }
+    }
+
+    /// Checks for new chapters while the app is open (#185), never in demo
+    /// mode or unit tests. On iPhone and iPad the schedule stops in the
+    /// background, where iOS suspends the app and background refresh takes
+    /// over. A Mac app keeps running with its window minimized or behind
+    /// others, and background refresh isn't something to count on there, so
+    /// on the Mac it runs for as long as the app does, like on Windows.
+    private func updateInAppPolling(for phase: ScenePhase) {
+        guard !Self.isDemoMode, !Self.isTestMode else { return }
+        #if !targetEnvironment(macCatalyst)
+        if phase == .background {
+            InAppPolling.shared.stop()
+            return
+        }
+        #endif
+        let client = client
+        InAppPolling.shared.start {
+            await BackgroundRefresh.runPoll(client: client, container: Self.sharedModelContainer)
+        }
+    }
+}
+
+/// View → Refresh (⌘R): reloads Subscriptions, Bookmarks, Marked for Later
+/// or AO3 History, whichever is on screen (F5 on Windows).
+private struct RefreshMenuButton: View {
+    @FocusedValue(\.refreshList) private var refresh
+
+    var body: some View {
+        Button("Refresh") { refresh?() }
+            .keyboardShortcut("r", modifiers: [.command])
+            .disabled(refresh?.isEnabled != true)
+    }
+}
+
+private struct OpenAO3LinkMenuButton: View {
+    @FocusedValue(\.openAO3Link) private var openLink
+
+    var body: some View {
+        Button("Open AO3 Link…") { openLink?() }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(openLink?.isEnabled != true)
     }
 }
 

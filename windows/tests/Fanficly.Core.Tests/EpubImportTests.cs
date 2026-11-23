@@ -122,8 +122,18 @@ public sealed class EpubImportTests : IDisposable
             Assert.Equal(2, again.Chapters.Count);
 
             // An older download with fewer chapters doesn't replace more text.
+            File.WriteAllBytes(WorkPersistence.EpubTargetPath(12345), [1, 2, 3]);
             EpubImport.Save(payload with { Chapters = [payload.Chapters[0]] }, bytes, store);
             Assert.Equal(2, work.Chapters.Count);
+            // ...and its file doesn't become the saved EPUB, so Export never
+            // shares a shorter book than the reader shows (#173).
+            Assert.Equal([1, 2, 3], File.ReadAllBytes(WorkPersistence.EpubTargetPath(12345)));
+
+            // New text from AO3 makes the saved EPUB stale: saving the text
+            // removes it until Save Offline downloads a current one (#173).
+            WorkPersistence.Upsert(payload, store);
+            Assert.Null(WorkPersistence.EpubPath(12345));
+            EpubImport.Save(payload, bytes, store);
 
             // A book that isn't on AO3 is never offered for download.
             var plainBytes = Convert.FromBase64String(PlainEpub);

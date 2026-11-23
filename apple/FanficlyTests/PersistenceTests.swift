@@ -74,6 +74,33 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(all.count, 1)
     }
 
+    // MARK: - Importing a shared link (#176)
+
+    func test_saveImported_keepsEveryChapterAndFollows() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.saveImported(payload: payload(id: 30, chapters: 3), into: ctx)
+        XCTAssertEqual(work.chapters.count, 3, "the fetched text is kept for offline reading")
+        XCTAssertTrue(work.isFollowed)
+        XCTAssertNotNil(work.followedAt)
+        XCTAssertEqual(work.lastSeenChapterCount, 3)
+    }
+
+    func test_saveImported_keepsWhenASavedWorkWasSavedAndFollowed() throws {
+        let ctx = try makeContext()
+        let first = WorkPersistence.saveImported(payload: payload(id: 31, chapters: 2), into: ctx)
+        let savedAt = Date(timeIntervalSince1970: 1_000_000)
+        let followedAt = Date(timeIntervalSince1970: 2_000_000)
+        first.savedAt = savedAt
+        first.followedAt = followedAt
+        try ctx.save()
+
+        let again = WorkPersistence.saveImported(payload: payload(id: 31, chapters: 4), into: ctx)
+        XCTAssertEqual(again.savedAt, savedAt)
+        XCTAssertEqual(again.followedAt, followedAt)
+        XCTAssertEqual(again.chapters.count, 4)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Work>()).count, 1)
+    }
+
     // MARK: - Spotlight
 
     func test_spotlightIdentifier_roundTrips() {
@@ -1514,6 +1541,77 @@ final class PersistenceTests: XCTestCase {
         let chapters = work.chapters.sorted { $0.index < $1.index }
         XCTAssertEqual(chapters.count, 3)
         XCTAssertEqual(chapters.map(\.aoId), [900, 901, 902])
+    }
+
+    /// A chapter's summary and notes (#181) survive saving, the backup and a
+    /// restore on another device.
+    func test_chapterNotesSurviveSaveBackupAndRestore() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let base = payload(id: 1, chapters: 2)
+        let chapters = [
+            AO3ChapterPayload(index: 1, title: "Ch 1", bodyHTML: "<p>Body 1</p>", aoId: 900,
+                              summaryHTML: "<p>Sum</p>", notesHTML: "<p>CW: storm</p>"),
+            AO3ChapterPayload(index: 2, title: "Ch 2", bodyHTML: "<p>Body 2</p>", aoId: 901,
+                              endNotesHTML: "<p>Thanks</p>"),
+        ]
+        let full = try makeContext()
+        let saved = WorkPersistence.upsert(payload: AO3WorkPayload(summary: base.summary, chapters: chapters), into: full)
+        let savedChapters = saved.chapters.sorted { $0.index < $1.index }.map(\.payload)
+        XCTAssertEqual(savedChapters[0].summaryHTML, "<p>Sum</p>")
+        XCTAssertEqual(savedChapters[0].notesHTML, "<p>CW: storm</p>")
+        XCTAssertNil(savedChapters[0].endNotesHTML)
+        XCTAssertEqual(savedChapters[1].endNotesHTML, "<p>Thanks</p>")
+        iCloudSyncManager.shared.backupToiCloud(context: full)
+
+        let device = try makeContext()
+        device.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try device.save()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        let restored = work.chapters.sorted { $0.index < $1.index }
+        XCTAssertEqual(restored.map(\.summaryHTML), ["<p>Sum</p>", nil])
+        XCTAssertEqual(restored.map(\.notesHTML), ["<p>CW: storm</p>", nil])
+        XCTAssertEqual(restored.map(\.endNotesHTML), [nil, "<p>Thanks</p>"])
+    }
+
+    /// Two devices holding the same chapters, one downloaded before #181 (no
+    /// notes): the merge keeps the notes either way round, so the two don't
+    /// rewrite each other's backup forever.
+    func test_backupMergeFillsMissingChapterNotes() {
+        let withNotes = [ChapterBackup(index: 1, title: "Ch 1", bodyHTML: "<p>a</p>", aoId: 1, notesHTML: "<p>CW</p>"),
+                         ChapterBackup(index: 2, title: "Ch 2", bodyHTML: "<p>b</p>", aoId: 2, endNotesHTML: "<p>End</p>")]
+        let without = withNotes.map { ChapterBackup(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
+        for merged in [iCloudSyncManager.mergedChapters(local: without, other: withNotes),
+                       iCloudSyncManager.mergedChapters(local: withNotes, other: without)] {
+            XCTAssertEqual(merged.map(\.notesHTML), ["<p>CW</p>", nil])
+            XCTAssertEqual(merged.map(\.endNotesHTML), [nil, "<p>End</p>"])
+        }
+        // More chapters still win whole.
+        let longer = without + [ChapterBackup(index: 3, title: "Ch 3", bodyHTML: "<p>c</p>", aoId: 3)]
+        XCTAssertEqual(iCloudSyncManager.mergedChapters(local: withNotes, other: longer).count, 3)
+    }
+
+    /// Backups from before #181 (and from a Windows app that doesn't know the
+    /// fields yet) carry chapters without notes; they still decode.
+    func test_chapterBackupWithoutNotesStillDecodes() throws {
+        let json = #"{"index":1,"title":"Ch 1","bodyHTML":"<p>x</p>","aoId":7}"#
+        let chapter = try JSONDecoder().decode(ChapterBackup.self, from: Data(json.utf8))
+        XCTAssertEqual(chapter.bodyHTML, "<p>x</p>")
+        XCTAssertEqual(chapter.aoId, 7)
+        XCTAssertNil(chapter.summaryHTML)
+        XCTAssertNil(chapter.notesHTML)
+        XCTAssertNil(chapter.endNotesHTML)
+        // And a chapter without notes writes none of the keys.
+        let encoded = try JSONEncoder().encode(chapter)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), ["index", "title", "bodyHTML", "aoId"])
     }
 
     /// Restore also runs as a background launch sync now, so it must be a
@@ -3359,6 +3457,92 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(followed.lastSeenChapterCount, 11)
     }
 
+    // A follow that can never be checked (a restricted work followed while
+    // signed out) must not read "checked just now" (#195): every attempt
+    // still moves the rotation stamp, but the row goes by the last check that
+    // worked and, after two failures in a row, says why.
+    func test_failedChecks_keepTheLastSuccessAndSayWhy() async throws {
+        let ctx = try makeContext()
+        let followed = Work(ao3Id: 2, title: "Locked", authorName: "A")
+        followed.isFollowed = true
+        ctx.insert(followed)
+        let author = FollowedAuthor(username: "gone", displayName: "Gone")
+        ctx.insert(author)
+        try ctx.save()
+        let client = StubAO3Client()
+        let poller = SubscriptionPoller(client: client, context: ctx, username: nil)
+
+        _ = await poller.checkFollowedWorks()
+        _ = await poller.checkFollowedAuthors()
+        let worked = try XCTUnwrap(followed.lastSucceededAt)
+        XCTAssertEqual(followed.checkStatus, .checked(worked))
+        XCTAssertEqual(author.checkStatus, .checked(try XCTUnwrap(author.lastSucceededAt)))
+
+        client.workMetadataError = AO3Error.unauthorized
+        client.authorWorksError = AO3Error.http(status: 404)
+        _ = await poller.checkFollowedWorks()
+        _ = await poller.checkFollowedAuthors()
+        // One failure is just AO3 having a bad minute.
+        XCTAssertEqual(followed.checkFailures, 1)
+        XCTAssertEqual(followed.checkStatus, .checked(worked))
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(followed.lastCheckedAt), worked)
+
+        _ = await poller.checkFollowedWorks()
+        _ = await poller.checkFollowedAuthors()
+        XCTAssertEqual(followed.checkStatus, .failing(.signIn))
+        XCTAssertEqual(author.checkStatus, .failing(.notFound))
+        XCTAssertEqual(followed.lastSucceededAt, worked)
+
+        // The next check that works clears it.
+        client.workMetadataError = nil
+        _ = await poller.checkFollowedWorks()
+        XCTAssertEqual(followed.checkFailures, 0)
+        XCTAssertNil(followed.lastCheckFailure)
+        XCTAssertEqual(followed.checkStatus, .checked(try XCTUnwrap(followed.lastSucceededAt)))
+    }
+
+    // Following a work again starts it unchecked: the last follow's failures
+    // don't carry over (#195).
+    func test_refollow_clearsCheckStatus() throws {
+        let ctx = try makeContext()
+        let summary = AO3WorkSummary.stub(id: 3, title: "Again")
+        let work = WorkPersistence.upsertMetadata(summary: summary, into: ctx, save: false)
+        work.isFollowed = true
+        work.lastCheckedAt = .now
+        work.noteCheckFailed(.signIn)
+        work.noteCheckFailed(.signIn)
+        XCTAssertEqual(work.checkStatus, .failing(.signIn))
+        // The Library swipe's Unfollow, then Save to Library follows again.
+        work.isFollowed = false
+        XCTAssertTrue(WorkPersistence.saveToLibrary(summary: summary, into: ctx).isFollowed)
+        XCTAssertNil(work.checkStatus)
+        XCTAssertNil(work.lastCheckedAt)
+    }
+
+    // A subscription's failures are counted like a follow's, and a record
+    // from before #195 (an attempt stamp, nothing else) still shows it.
+    func test_checkStatus_subscriptionsAndOlderRecords() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let client = StubAO3Client()
+        client.workMetadataError = AO3Error.http(status: 503)
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+        _ = await poller.checkForNewChapters()
+        _ = await poller.checkForNewChapters()
+        let rec = try XCTUnwrap(try ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" }))
+        XCTAssertEqual(rec.checkStatus, .failing(.other))
+
+        let attempted = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(CheckStatus.of(lastCheckedAt: attempted, lastSucceededAt: nil, failures: 0, failure: nil),
+                       .checked(attempted))
+        // One failure with no success on record: nothing to vouch for.
+        XCTAssertNil(CheckStatus.of(lastCheckedAt: attempted, lastSucceededAt: nil, failures: 1, failure: "signIn"))
+        XCTAssertNil(CheckStatus.of(lastCheckedAt: nil, lastSucceededAt: nil, failures: 0, failure: nil))
+        // An unknown kind (a newer app's) reads as a plain failure.
+        XCTAssertEqual(CheckStatus.of(lastCheckedAt: attempted, lastSucceededAt: attempted, failures: 3, failure: "later"),
+                       .failing(.other))
+    }
+
     // A real work page still moves the baseline forward.
     func test_pollOfWorkPage_updatesChapterBaseline() async throws {
         let ctx = try makeContext()
@@ -3373,6 +3557,76 @@ final class PersistenceTests: XCTestCase {
         _ = await poller.checkFollowedWorks()
 
         XCTAssertEqual(followed.lastSeenChapterCount, 7)
+    }
+
+    /// A poll that finds new chapters moves the Library row's counts and
+    /// Updated date with the baseline, for a followed work and for a saved
+    /// work only subscribed on AO3, and stamps the subscription's own
+    /// Updated date for the widget (#197).
+    func test_pollOfWorkPage_refreshesLibraryCountsAndUpdatedDate() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let subscribed = Work(ao3Id: 1, title: "Fic One", authorName: "A", chapterCount: 5, totalChapters: 12)
+        ctx.insert(subscribed)
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A", chapterCount: 11, totalChapters: 12)
+        followed.isFollowed = true
+        followed.lastSeenChapterCount = 11
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="status">Completed:</dt><dd class="status">2026-11-01</dd><dt class="chapters">Chapters:</dt><dd class="chapters">12/12</dd></dl></body></html>"#
+
+        let poller = SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+        _ = await poller.checkWorksForNewChapters()
+
+        let day = try XCTUnwrap(Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 11, day: 1)))
+        for work in [subscribed, followed] {
+            XCTAssertEqual(work.chapterCount, 12, "\(work.title)'s Library row shows AO3's count")
+            XCTAssertEqual(work.totalChapters, 12)
+            XCTAssertTrue(work.isComplete)
+            XCTAssertEqual(work.updatedAt, day)
+        }
+        let rec = try XCTUnwrap(ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" }))
+        XCTAssertEqual(rec.lastSeenChapterCount, 12)
+        XCTAssertEqual(rec.updatedAt, day)
+    }
+
+    /// A one-shot's work page has no Updated date, so its Published date
+    /// stands in, on the saved work and the subscription alike (#197).
+    func test_pollOfOneShot_usesPublishedDate() async throws {
+        let ctx = try makeContext()
+        seedSubscriptionRecords(into: ctx)
+        let saved = Work(ao3Id: 1, title: "Fic One", authorName: "A", chapterCount: 1, totalChapters: 1)
+        ctx.insert(saved)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = #"<html><body><dl class="stats"><dt class="published">Published:</dt><dd class="published">2026-10-05</dd><dt class="chapters">Chapters:</dt><dd class="chapters">1/1</dd></dl></body></html>"#
+
+        _ = await SubscriptionPoller(client: client, context: ctx, username: "reader", defaults: scratchDefaults())
+            .checkForNewChapters()
+
+        let day = try XCTUnwrap(Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 10, day: 5)))
+        XCTAssertEqual(saved.updatedAt, day)
+        XCTAssertTrue(saved.isComplete)
+        let rec = try XCTUnwrap(ctx.fetch(FetchDescriptor<SubscriptionRecord>()).first(where: { $0.key == "work:1" }))
+        XCTAssertEqual(rec.updatedAt, day)
+    }
+
+    /// A failed check leaves the Library's counts alone (the parser fails
+    /// closed, so nothing reads as 1/1).
+    func test_pollOfErrorPage_keepsLibraryCounts() async throws {
+        let ctx = try makeContext()
+        let followed = Work(ao3Id: 2, title: "Followed", authorName: "A", chapterCount: 11, totalChapters: nil)
+        followed.isFollowed = true
+        ctx.insert(followed)
+        try ctx.save()
+        let client = StubAO3Client()
+        client.workMetadataHTML = "<html><body><h1>Retry later</h1></body></html>"
+
+        _ = await SubscriptionPoller(client: client, context: ctx, username: nil).checkFollowedWorks()
+
+        XCTAssertEqual(followed.chapterCount, 11)
+        XCTAssertNil(followed.updatedAt)
     }
 
     // A work that's both AO3-subscribed and followed is fetched once a poll,
