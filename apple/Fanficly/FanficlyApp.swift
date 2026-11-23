@@ -82,7 +82,7 @@ struct FanficlyApp: App {
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
     @AppStorage("app.zoomScale") private var zoomScale: Double = UIZoom.actualSize
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
 
     var body: some Scene {
         WindowGroup {
@@ -178,11 +178,26 @@ struct FanficlyApp: App {
         .commands {
             SidebarCommands()
 
+            // File → Open AO3 Link… (⇧⌘O): imports a work from its link, as
+            // dropping or pasting one does (`OpenAO3LinkModifier`).
+            CommandGroup(after: .newItem) {
+                OpenAO3LinkMenuButton()
+            }
+
+            // Edit → Find (⌘F): Find in this work in the reader, otherwise
+            // the Search or Library search field.
+            CommandGroup(after: .pasteboard) {
+                Divider()
+                FindMenuButton()
+            }
+
             // In the system View menu, after Show/Hide Sidebar. ⌘+ / ⌘− are
             // the reader's text size (the Reader menu). RootView keeps the
             // other spellings of these keys (⇧⌘=, ⇧⌘_) as hidden shortcuts,
             // since a menu item shows only one.
             CommandGroup(after: .sidebar) {
+                RefreshMenuButton()
+
                 Divider()
 
                 Button("Zoom In") {
@@ -204,6 +219,12 @@ struct FanficlyApp: App {
             GoCommands()
 
             CommandMenu("Reader") {
+                // ⌘← / ⌘→ and ⌘L. Home / End and the turn keys are the
+                // reader's own (`ReaderKeyPressModifier`).
+                ReaderMenuCommands()
+
+                Divider()
+
                 FindInWorkMenuButton()
 
                 Divider()
@@ -299,6 +320,28 @@ struct FanficlyApp: App {
         InAppPolling.shared.start {
             await BackgroundRefresh.runPoll(client: client, container: Self.sharedModelContainer)
         }
+    }
+}
+
+/// View → Refresh (⌘R): reloads Subscriptions, Bookmarks, Marked for Later
+/// or AO3 History, whichever is on screen (F5 on Windows).
+private struct RefreshMenuButton: View {
+    @FocusedValue(\.refreshList) private var refresh
+
+    var body: some View {
+        Button("Refresh") { refresh?() }
+            .keyboardShortcut("r", modifiers: [.command])
+            .disabled(refresh?.isEnabled != true)
+    }
+}
+
+private struct OpenAO3LinkMenuButton: View {
+    @FocusedValue(\.openAO3Link) private var openLink
+
+    var body: some View {
+        Button("Open AO3 Link…") { openLink?() }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(openLink?.isEnabled != true)
     }
 }
 
