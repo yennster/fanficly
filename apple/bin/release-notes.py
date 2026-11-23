@@ -26,8 +26,9 @@ out). Each line is the pull request's title, tidied ("RM-003 (Windows): " and
 "Release note: none" leaves it out.
 
 The release's What's New entry in ../changelog/whats-new.json (the one whose
-version is project.yml's MARKETING_VERSION), when there is one, is the store
-text instead: one "• Title: detail" line per theme that applies to the app. It is
+version is project.yml's MARKETING_VERSION), when there is one and that version
+has no v* tag yet (a Windows-only run or a beta of an already released version
+keeps the pull request lines), is the store text instead: one "• Title: detail" line per theme that applies to the app. It is
 also what the apps show in their What's New pop-up and Settings, so the stores
 and the apps say the same short, theme-based thing. Without an entry the notes
 fall back to the pull request lines above, with a warning.
@@ -218,6 +219,13 @@ def main() -> None:
 
     version = (re.search(r'^ *MARKETING_VERSION: "([^"]+)"', Path("project.yml").read_text(), re.M) or [None, ""])[1]
     entry = changelog_entry(version)
+    if entry and run("git", "tag", "--list", f"v{version}"):
+        # Already released (a Windows-only run or a beta before the version
+        # bump): its entry describes the last release, not what's new now.
+        entry = None
+    elif entry and not entry.get("date"):
+        print(f"::warning::{version}'s What's New entry has no date, so the apps won't show it. "
+              "Give it the release day (yyyy-MM-dd) before the release.", file=sys.stderr)
     notes = os.environ.get("NOTES", "").strip()
     if notes:
         apple_text = notes[:APPLE_LIMIT]
@@ -227,8 +235,9 @@ def main() -> None:
         apple_text = bullets(changelog_lines(entry, "apple"), APPLE_LIMIT)
         windows_text = bullets(changelog_lines(entry, "windows"), WINDOWS_LIMIT, fallback="")
     else:
-        print(f"::warning::No What's New entry for {version} in changelog/whats-new.json: the apps won't "
-              "show a What's New pop-up for it, and the store notes list the merged pull requests.", file=sys.stderr)
+        if not run("git", "tag", "--list", f"v{version}"):
+            print(f"::warning::No What's New entry for {version} in changelog/whats-new.json: the apps won't "
+                  "show a What's New pop-up for it, and the store notes list the merged pull requests.", file=sys.stderr)
         apple_text = bullets(store_lines("Apple"), APPLE_LIMIT)
         # Empty when nothing changed on Windows: the Store release then keeps
         # windows/store/listing/en-us/release_notes.txt.

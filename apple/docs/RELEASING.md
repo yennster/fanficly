@@ -75,7 +75,8 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    so they stay above the 1.11.1 Mac build (141) that the runner built.
 2. Write the release's What's New in `changelog/whats-new.json` (see
    `changelog/README.md`) in the same PR, or one before it: an entry at the
-   top whose `version` is the new `MARKETING_VERSION`, with its `date` and
+   top whose `version` is the new `MARKETING_VERSION`, with its `date` (the
+   apps hide an entry without one, so add it in the version bump) and
    three to five short themes (an icon, a title, one line; `platforms` for a
    theme only one app has). Both apps show it once after the update and keep
    it in Settings → About → What's New, and the store notes come from it

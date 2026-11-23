@@ -48,7 +48,7 @@ final class WhatsNewTests: XCTestCase {
 
     func test_bundledChangelog_isValid() {
         // The app bundles the repository's changelog/whats-new.json.
-        let releases = WhatsNew.releases
+        let releases = WhatsNew.allReleases
         XCTAssertFalse(releases.isEmpty, "changelog/whats-new.json is missing from the app or doesn't decode")
         XCTAssertEqual(Set(releases.map(\.version)).count, releases.count, "a version is listed twice")
         for release in releases {
@@ -59,6 +59,17 @@ final class WhatsNewTests: XCTestCase {
                 XCTAssertNotNil(UIImage(systemName: theme.icon), "\(release.version): no SF Symbol \(theme.icon)")
             }
         }
+    }
+
+    func test_showsOnlyShippedReleases_upToThisBuild() throws {
+        let all = try WhatsNew.releases(from: sample, platform: "apple")  // 2.1.0 (no date), 2.0.0
+        // The undated 2.1.0 hasn't shipped yet.
+        XCTAssertEqual(WhatsNew.released(all, appVersion: "2.1.0").map(\.version), ["2.0.0"])
+        let dated = all.map { r -> WhatsNewRelease in var r = r; r.date = r.date ?? "2026-11-24"; return r }
+        XCTAssertEqual(WhatsNew.released(dated, appVersion: "2.1.0").map(\.version), ["2.1.0", "2.0.0"])
+        // A build older than an entry (a hotfix, a beta) doesn't show it.
+        XCTAssertEqual(WhatsNew.released(dated, appVersion: "2.0.3").map(\.version), ["2.0.0"])
+        XCTAssertEqual(WhatsNew.released(dated, appVersion: "2.10.0").map(\.version), ["2.1.0", "2.0.0"])
     }
 
     private func release(_ version: String) -> WhatsNewRelease {

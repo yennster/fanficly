@@ -9,7 +9,8 @@ using Microsoft.UI.Xaml.Controls;
 namespace Fanficly.App.Views.Settings;
 
 /// <summary>Settings → About → What's New (#422; the Swift WhatsNewHistoryView):
-/// every release's highlights, newest first, from the changelog both apps share.</summary>
+/// every release's highlights, newest first, from the changelog both apps share,
+/// headed by date rather than the Apple app's version numbers.</summary>
 public sealed class WhatsNewScreen : Screen
 {
     public WhatsNewScreen() => Title = "What's New";
@@ -22,9 +23,9 @@ public sealed class WhatsNewScreen : Screen
             page.Children.Add(UI.UI.EmptyState("sparkles", "No updates listed"));
         foreach (var release in releases)
         {
-            var header = release.Date is { } date
-                ? $"Version {release.DisplayVersion} · {LongDate(date)}"
-                : $"Version {release.DisplayVersion}";
+            // By date: the changelog's versions are the Apple app's, and this
+            // app's own version numbers (Settings → About) differ.
+            var header = release.Date is { } date ? LongDate(date) : "Coming soon";
             page.Children.Add(UI.UI.Section(header,
                 release.Themes.Select(t => (UIElement)ThemeRow(t, large: false).Margin(14, 10, 14, 10))));
         }
@@ -68,8 +69,7 @@ public static class WhatsNewDialog
                 store.SetString(WhatsNew.LastSeenKey, newest!.Version);
                 break;
             case WhatsNew.Action.Show:
-                store.SetString(WhatsNew.LastSeenKey, newest!.Version);
-                _ = ShowAsync(newest);
+                _ = ShowAsync(newest!);
                 break;
         }
     }
@@ -81,13 +81,16 @@ public static class WhatsNewDialog
         var themes = UI.UI.VStack(18, release.Themes.Select(t => (UIElement)WhatsNewScreen.ThemeRow(t, large: true)).ToArray());
         var dialog = new ContentDialog
         {
-            Title = $"What's New in Fanficly {release.DisplayVersion}",
+            Title = "What's New in Fanficly",
             Content = new ScrollViewer { Content = themes, MaxWidth = 520, Padding = new Thickness(0, 4, 12, 4) },
             PrimaryButtonText = "See All Updates",
             CloseButtonText = "Continue",
             DefaultButton = ContentDialogButton.Close,
         };
         AutomationProperties.SetAutomationId(dialog, "whatsNew.dialog");
+        // Seen once it's on screen: a dialog still queued when the app closes
+        // shows next launch.
+        dialog.Opened += (_, _) => KeyValueStores.Default.SetString(WhatsNew.LastSeenKey, release.Version);
         if (await Dialogs.ShowAsync(dialog) != ContentDialogResult.Primary) return;
         var window = MainWindow.Current;
         window.Select(SidebarItem.Settings);

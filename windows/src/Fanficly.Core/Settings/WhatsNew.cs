@@ -75,9 +75,19 @@ public static class WhatsNew
             ? list.EnumerateArray().Select(p => p.GetString() ?? "").ToList()
             : null;
 
-    /// <summary>The embedded changelog's releases for this app.</summary>
-    public static IReadOnlyList<WhatsNewRelease> Releases => _releases ??= Load();
+    /// <summary>The releases the app shows (the dialog's newest and Settings'
+    /// list): the embedded changelog's shipped ones. An entry gets its date when
+    /// its release goes out, so one written ahead of a release stays hidden
+    /// from builds shipped before it.</summary>
+    public static IReadOnlyList<WhatsNewRelease> Releases => _releases ??= Released(AllReleases);
     private static IReadOnlyList<WhatsNewRelease>? _releases;
+
+    /// <summary>Every release in the embedded changelog for this app, unreleased ones too.</summary>
+    public static IReadOnlyList<WhatsNewRelease> AllReleases => _all ??= Load();
+    private static IReadOnlyList<WhatsNewRelease>? _all;
+
+    public static IReadOnlyList<WhatsNewRelease> Released(IEnumerable<WhatsNewRelease> releases) =>
+        releases.Where(r => r.Date is not null).ToList();
 
     /// <summary>The embedded changelog/whats-new.json as text.</summary>
     internal static string EmbeddedJson()

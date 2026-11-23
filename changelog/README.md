@@ -11,7 +11,9 @@
 - **Settings → About → What's New** lists every release, newest first.
 - **The store notes.** `apple/bin/release-notes.py` turns the entry whose `version` is
   `MARKETING_VERSION` into the App Store and Microsoft Store notes, one `• Title: detail`
-  line per theme.
+  line per theme, while that version has no `v*` tag yet.
+- **On Windows** the dialog and the list go by date, not version: the entries carry the
+  Apple app's version numbers, and the Windows app's own differ.
 
 ## Writing an entry
 
@@ -36,5 +38,7 @@ Add it at the top of `releases`, in the PR that bumps the version or one before 
 - **`icon`** is an SF Symbol name that the Windows app also maps
   (`windows/src/Fanficly.App/UI/Symbols.cs`); both apps' tests fail for an icon either
   can't draw.
-- **`date`** is `yyyy-MM-dd`, the day it ships; leave it out until then.
+- **`date`** is `yyyy-MM-dd`, the day it ships. The apps show only dated entries (and the
+  Apple app none newer than its own version), so an entry written ahead of a release stays
+  hidden from builds shipped before it: add the date in the PR that bumps the version.
 - The text is shown as written (it isn't in either app's string tables).

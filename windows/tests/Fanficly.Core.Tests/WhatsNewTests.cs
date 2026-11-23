@@ -42,6 +42,10 @@ public sealed partial class WhatsNewTests
     }
 
     [Fact]
+    public void ShowsOnlyShippedReleases() =>
+        Assert.Equal(["2.0.1"], WhatsNew.Released(WhatsNew.Parse(Sample)).Select(r => r.Version));
+
+    [Fact]
     public void DisplayVersion_DropsATrailingZero()
     {
         Assert.Equal("1.14", new WhatsNewRelease("1.14.0", null, []).DisplayVersion);
@@ -84,7 +88,7 @@ public sealed partial class WhatsNewTests
     public void TheEmbeddedChangelogIsValid_AndEveryIconHasAGlyph()
     {
         var all = WhatsNew.Parse(WhatsNew.EmbeddedJson(), "apple").Concat(WhatsNew.Parse(WhatsNew.EmbeddedJson()));
-        var mine = WhatsNew.Releases;
+        var mine = WhatsNew.AllReleases;
         Assert.NotEmpty(mine);
         Assert.Equal(mine.Count, mine.Select(r => r.Version).Distinct().Count());
 

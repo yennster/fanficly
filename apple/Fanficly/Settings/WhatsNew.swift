@@ -62,12 +62,25 @@ enum WhatsNew {
         }
     }
 
-    /// The bundled changelog (empty in the App Clip, which doesn't carry it).
-    static let releases: [WhatsNewRelease] = {
+    /// Every release in the bundled changelog for this app, unreleased ones
+    /// too (empty in the App Clip, which doesn't carry it).
+    static let allReleases: [WhatsNewRelease] = {
         guard let url = Bundle.main.url(forResource: "whats-new", withExtension: "json"),
               let data = try? Data(contentsOf: url) else { return [] }
         return (try? releases(from: data)) ?? []
     }()
+
+    /// The releases the app shows: the pop-up's newest and Settings' list.
+    static let releases: [WhatsNewRelease] = released(allReleases, appVersion: Bundle.main.shortVersionString)
+
+    /// Only shipped releases: an entry gets its `date` when its release goes
+    /// out, and one newer than this build (a beta, a hotfix built after the
+    /// next version's entry was written) describes features it doesn't have.
+    static func released(_ releases: [WhatsNewRelease], appVersion: String) -> [WhatsNewRelease] {
+        releases.filter { release in
+            release.date != nil && release.version.compare(appVersion, options: .numeric) != .orderedDescending
+        }
+    }
 
     enum LaunchDecision: Equatable {
         /// Nothing to do this launch.
