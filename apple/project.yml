@@ -50,11 +50,12 @@ targets:
       - path: Fanficly
         excludes:
           - "**/.DS_Store"
+      # What's New (#422): the changelog both apps share, at the repo root.
+      - path: ../changelog/whats-new.json
+        buildPhase: resources
     resources:
       - path: Fanficly/Resources
         optional: true
-      # What's New (#422): the changelog both apps share, at the repo root.
-      - path: ../changelog/whats-new.json
     dependencies:
       - package: SwiftSoup
       - package: KeychainAccess
