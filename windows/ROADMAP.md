@@ -273,6 +273,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Touches:** `windows/src/Fanficly.Core/Widget/DeepLink.cs`, `windows/src/Fanficly.App/Package.appxmanifest`, `Services/AppRouting.cs`, `website/`, `windows/tests/Fanficly.Core.Tests/`.
 - **Parity exception:** no App Clip on Windows (see Why).
 
+### RM-128 — Export All My Data: library spreadsheet and every downloaded EPUB
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** #417, the Apple app's RM-034. The library file (RM-113) is JSON for importing back; this adds a spreadsheet of the library with AO3 links, and every downloaded story as an EPUB file at once.
+- **Scope:** Settings → Sync → Library file → *Export Spreadsheet (CSV)…* (`LibraryCsv`, a `FileSavePicker`): the Apple app's columns, order and formatting exactly. Settings → Storage → *Export All Downloaded EPUBs…* (`BulkEpubExport`): the count and an estimated size, a `FolderPicker`, then one `.epub` per downloaded story through #173's offline path (the saved AO3 file, or `EpubBuilder` from the saved text), with progress and Cancel. Names as the Apple app's. No AO3 requests.
+- **Done when:** `LibraryCsvTests` and `BulkEpubExportTests` cover what the Apple tests do; on Windows, the CSV opens in Excel with non-English titles intact and a few exported EPUBs open in a reader.
+- **Touches:** `Fanficly.Core/Library/LibraryCsv.cs`, `Fanficly.Core/Library/BulkEpubExport.cs`, `Views/Settings/SettingsScreen.cs`, `Views/Settings/SyncSettingsScreen.cs`.
+
 ### RM-109 — Localization groundwork
 - **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Every string is English and inline in C#.

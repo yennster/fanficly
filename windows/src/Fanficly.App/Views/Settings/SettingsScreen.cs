@@ -105,10 +105,12 @@ public sealed class SettingsScreen : Screen
         var size = UI.UI.SettingsRow("Saved EPUB files", UI.UI.Secondary(summary, Theme.Style.Body), sfSymbol: "book");
         AutomationProperties.SetName(size, $"Saved EPUB files: {summary}");
         AutomationProperties.SetAutomationId(size, "settings.storage.epubs");
+        var exportAll = SettingsKit.ActionRow("Export All Downloaded EPUBs…", () => _ = ExportAllEpubsAsync(), "books.vertical",
+            automationId: "settings.storage.exportEpubs");
         var remove = SettingsKit.ActionRow("Remove Saved EPUB Files…", () => _ = RemoveEpubsAsync(storage.Count), "trash",
             destructive: true, automationId: "settings.storage.removeEpubs").Also(b => b.IsEnabled = storage.Count > 0);
         _storageHost.Children.Clear();
-        _storageHost.Children.Add(UI.UI.Section("Storage", [size, remove],
+        _storageHost.Children.Add(UI.UI.Section("Storage", [size, exportAll, remove],
             footer: "Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay. Books you imported keep their original files."));
     }
 
@@ -122,6 +124,87 @@ public sealed class SettingsScreen : Screen
         var removed = WorkPersistence.RemoveAllSavedEpubs();
         RefreshStorage();
         MainWindow.Current.ShowMessage("EPUB files removed", $"Removed {removed} {(removed == 1 ? "file" : "files")}.");
+    }
+
+    private bool _exportingEpubs;
+
+    /// <summary>Export All Downloaded EPUBs (#417; Swift: <c>BulkEPUBExporter</c>):
+    /// the count and an estimated size, a folder to write into, then one
+    /// <c>.epub</c> per downloaded story, made offline (<see cref="BulkEpubExport"/>),
+    /// with progress and Cancel.</summary>
+    private async Task ExportAllEpubsAsync()
+    {
+        if (_exportingEpubs) return;
+        _exportingEpubs = true;
+        try
+        {
+            var plan = BulkEpubExport.MakePlan(AppHost.Library, id => UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(id)));
+            if (plan.Count == 0)
+            {
+                await Dialogs.AlertAsync("Nothing to Export", "There were no downloaded stories to export.");
+                return;
+            }
+            var confirmed = await Dialogs.ConfirmAsync(
+                $"Export {plan.Count} EPUB {(plan.Count == 1 ? "file" : "files")} (about {FormatBytes(plan.EstimatedBytes)})?",
+                "Makes one EPUB file per story from what's saved on this PC, without going online, in a folder you choose.",
+                "Choose Folder…");
+            if (!confirmed) return;
+            var picker = new Windows.Storage.Pickers.FolderPicker
+            {
+                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+            };
+            picker.FileTypeFilter.Add("*");
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(MainWindow.Current));
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder is null) return;
+            await RunEpubExportAsync(plan, folder.Path);
+        }
+        finally
+        {
+            _exportingEpubs = false;
+        }
+    }
+
+    private static async Task RunEpubExportAsync(BulkEpubExport.Plan plan, string folder)
+    {
+        var label = UI.UI.Text($"0 of {plan.Count}", Theme.Style.Body);
+        var bar = new ProgressBar { Minimum = 0, Maximum = Math.Max(plan.Count, 1), MinHeight = 4, MinWidth = 300 };
+        AutomationProperties.SetName(bar, "Export progress");
+        var dialog = new ContentDialog
+        {
+            Title = "Exporting EPUBs…",
+            Content = UI.UI.VStack(10, label, bar),
+            CloseButtonText = "Cancel",
+        };
+        using var cts = new CancellationTokenSource();
+        // Progress<T> posts to the UI thread, where this runs.
+        var progress = new Progress<int>(done =>
+        {
+            label.Text = $"{done} of {plan.Count}";
+            bar.Value = done;
+        });
+        MainWindow.Current.Announce($"Exporting {plan.Count} EPUB {(plan.Count == 1 ? "file" : "files")}.");
+        var export = BulkEpubExport.ExportAsync(plan, AppHost.Library, folder, progress, cts.Token);
+        _ = export.ContinueWith(_ => dialog.DispatcherQueue.TryEnqueue(dialog.Hide), TaskScheduler.Default);
+        await Dialogs.ShowAsync(dialog);
+        // Closed before the export finished: that was Cancel.
+        if (!export.IsCompleted) cts.Cancel();
+        try
+        {
+            var written = await export;
+            var folderName = Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar));
+            MainWindow.Current.ShowMessage("EPUBs Exported",
+                $"{written.Count} EPUB {(written.Count == 1 ? "file" : "files")} saved in {(folderName.Length > 0 ? folderName : folder)}.");
+        }
+        catch (OperationCanceledException)
+        {
+            MainWindow.Current.ShowMessage("Export Cancelled", "The files already written stay in the folder.", InfoBarSeverity.Informational);
+        }
+        catch (Exception e)
+        {
+            AppHost.Log($"EPUB export failed: {e}");
+            await Dialogs.AlertAsync("Export Failed", $"Couldn't write the EPUB files: {e.Message}");
+        }
     }
 
     /// <summary>"12.3 MB", like the Mac's file sizes (decimal units).</summary>

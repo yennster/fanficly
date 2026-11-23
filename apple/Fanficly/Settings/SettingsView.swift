@@ -233,10 +233,18 @@ struct SettingsView: View {
                     showingImporter = true
                 }
                 .disabled(isRestoring || isSyncing)
+                Button("Export Spreadsheet (CSV)…") {
+                    do {
+                        exportItem = ShareItem(url: try LibraryCSV.writeTemporaryFile(context: context))
+                        announce(String(localized: "The spreadsheet is ready to share."))
+                    } catch {
+                        fileAlert = .spreadsheetFailed
+                    }
+                }
             } header: {
                 Text("Library File")
             } footer: {
-                Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards.")
+                Text("The library file saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards. The spreadsheet lists every work with its AO3 link and details, for Numbers, Excel, Google Sheets or a reading tracker; it can't be imported back.")
             }
             EPUBStorageSection()
             Section {
@@ -384,12 +392,51 @@ struct SettingsView: View {
 /// still reads offline, still shows as Downloaded and still exports as EPUB
 /// (built from the text).
 struct EPUBStorageSection: View {
+    @Environment(\.modelContext) private var context
     @State private var storage = WorkPersistence.EPUBStorage(count: 0, bytes: 0)
     @State private var confirming = false
+    @State private var exporter = BulkEPUBExporter()
+    @State private var exportPlan: BulkEPUBExporter.Plan?
 
     var body: some View {
         Section {
             LabeledContent("Saved EPUB files", value: Self.summary(storage))
+                .confirmationDialog(Self.exportTitle(exportPlan), isPresented: Binding(
+                    get: { exportPlan != nil }, set: { if !$0 { exportPlan = nil } }),
+                                    titleVisibility: .visible, presenting: exportPlan) { plan in
+                    Button("Export") { exporter.start(plan, context: context) }
+                    Button("Cancel", role: .cancel) {}
+                } message: { _ in
+                    Text("Makes one EPUB file per story from what's saved on this device, without going online, then opens the share sheet so you can save them to Files, AirDrop them or open them in Books.")
+                }
+                .sheet(isPresented: Binding(
+                    get: { exporter.shareURLs != nil }, set: { if !$0 { exporter.shareURLs = nil } })) {
+                    ShareSheet(items: exporter.shareURLs ?? [])
+                }
+                .alert("Export Failed", isPresented: Binding(
+                    get: { exporter.errorMessage != nil }, set: { if !$0 { exporter.errorMessage = nil } })) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(exporter.errorMessage ?? "")
+                }
+            if let progress = exporter.progress {
+                VStack(alignment: .leading, spacing: 6) {
+                    ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1))) {
+                        Text("Exporting EPUBs… \(progress.done) of \(progress.total)")
+                    }
+                    Button("Cancel Export", role: .cancel) { exporter.cancel() }
+                        .buttonStyle(.borderless)
+                }
+            } else {
+                Button("Export All Downloaded EPUBs…") {
+                    let plan = BulkEPUBExporter.plan(in: context)
+                    if plan.count == 0 {
+                        exporter.errorMessage = String(localized: "There were no downloaded stories to export.")
+                    } else {
+                        exportPlan = plan
+                    }
+                }
+            }
             Button("Remove Saved EPUB Files…", role: .destructive) {
                 confirming = true
             }
@@ -414,6 +461,13 @@ struct EPUBStorageSection: View {
             Text("Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay. Books you imported keep their original files.")
         }
         .onAppear(perform: refresh)
+    }
+
+    /// "Export 12 EPUB files (about 4.5 MB)?"
+    static func exportTitle(_ plan: BulkEPUBExporter.Plan?) -> String {
+        guard let plan else { return "" }
+        let size = ByteCountFormatter.string(fromByteCount: plan.estimatedBytes, countStyle: .file)
+        return String(localized: "Export \(plan.count) EPUB \(plan.count == 1 ? "file" : "files") (about \(size))?")
     }
 
     private func refresh() {
@@ -458,7 +512,7 @@ struct ClearResultAlert {
 
 /// The outcome alerts for exporting and importing a library file.
 private enum LibraryFileAlert: String, Identifiable {
-    case imported, importFailed, exportFailed
+    case imported, importFailed, exportFailed, spreadsheetFailed
 
     var id: String { rawValue }
 
@@ -466,7 +520,7 @@ private enum LibraryFileAlert: String, Identifiable {
         switch self {
         case .imported: "Library Imported"
         case .importFailed: "Import Failed"
-        case .exportFailed: "Export Failed"
+        case .exportFailed, .spreadsheetFailed: "Export Failed"
         }
     }
 
@@ -475,6 +529,7 @@ private enum LibraryFileAlert: String, Identifiable {
         case .imported: "The file's works, reading progress and stats have been added to your library."
         case .importFailed: "That file couldn't be imported. Make sure it's a Fanficly library file and try again."
         case .exportFailed: "Your library couldn't be written to a file. Please try again."
+        case .spreadsheetFailed: "The spreadsheet couldn't be written. Please try again."
         }
     }
 }
