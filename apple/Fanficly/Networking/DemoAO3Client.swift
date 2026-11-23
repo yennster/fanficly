@@ -123,13 +123,14 @@ public final class DemoAO3Client: AO3ClientProtocol, @unchecked Sendable {
     }
 
     public func autocomplete(field: AO3AutocompleteField, term: String) async throws -> [String] {
-        guard field == .tag else { return [term] }
-        // Search suggestions: real tags from the curated catalog, so the
-        // offline demo (and its screenshots) shows genuine matches.
+        guard field == .tag || field == .fandom else { return [term] }
+        // Search suggestions and the Filters sheet's fandom picker: real tags
+        // from the curated catalog, so the offline demo (and its screenshots)
+        // shows genuine matches.
         let needle = term.lowercased()
         var seen = Set<String>()
         return DemoCatalog.works
-            .flatMap { $0.fandoms + $0.relationships + $0.characters + $0.freeforms }
+            .flatMap { field == .fandom ? $0.fandoms : $0.fandoms + $0.relationships + $0.characters + $0.freeforms }
             .filter { $0.lowercased().contains(needle) && seen.insert($0).inserted }
     }
 

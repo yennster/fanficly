@@ -2557,6 +2557,73 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(baseEntry?.updatedAt, 1_000)
     }
 
+    /// Rename (#193): the profile keeps its place and settings under the new
+    /// name, and the old name syncs as a tombstone, as on Windows.
+    func test_profileRenameTombstonesOldNameAndBeatsStaleCopies() {
+        let base = ReaderProfile.defaultProfiles[0]
+        let night = readerProfile(name: "Night", theme: "dracula", fontSize: 20)
+        let cozy = readerProfile(name: "Cozy", theme: "sepia", fontSize: 18)
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        let t1 = Date(timeIntervalSince1970: 2_000)
+        let original = ReaderProfile.saveProfiles([base, night, cozy], previousJSON: "", now: t0)
+
+        guard case let .renamed(list, name) = ReaderProfile.renaming(
+            "Night", to: "  Midnight ", in: ReaderProfile.loadProfiles(from: original)) else {
+            return XCTFail("expected a rename")
+        }
+        XCTAssertEqual(name, "Midnight")
+        XCTAssertEqual(list.map(\.name), ["Default", "Midnight", "Cozy"])
+        XCTAssertEqual(list[1].themeRaw, "dracula")
+        XCTAssertEqual(list[1].fontSizePt, 20)
+
+        let renamed = ReaderProfile.saveProfiles(list, previousJSON: original, now: t1)
+        XCTAssertEqual(ReaderProfile.loadProfiles(from: renamed).map(\.name), ["Default", "Midnight", "Cozy"])
+        let stored = ReaderProfile.decodeProfiles(from: renamed) ?? []
+        XCTAssertEqual(stored.first { $0.name == "Midnight" }?.updatedAt, t1.timeIntervalSince1970)
+        XCTAssertEqual(stored.first { $0.name == "Night" }?.deletedAt, t1.timeIntervalSince1970)
+        XCTAssertEqual(stored.first { $0.name == "Cozy" }?.updatedAt, t0.timeIntervalSince1970)
+
+        // Another device's copy from before the rename doesn't bring "Night" back.
+        for merged in [
+            ReaderProfile.mergedProfiles(localJSON: original, incomingJSON: renamed, now: t1),
+            ReaderProfile.mergedProfiles(localJSON: renamed, incomingJSON: original, now: t1),
+        ] {
+            XCTAssertEqual(Set(ReaderProfile.loadProfiles(from: merged).map(\.name)), ["Default", "Midnight", "Cozy"])
+        }
+    }
+
+    func test_profileRenameRules() {
+        let base = ReaderProfile.defaultProfiles[0]
+        let night = readerProfile(name: "Night", theme: "dracula", fontSize: 20)
+        let cozy = readerProfile(name: "Cozy", theme: "sepia", fontSize: 18)
+        let list = [base, night, cozy]
+
+        // Nothing to do.
+        XCTAssertEqual(ReaderProfile.renaming("Default", to: "Plain", in: list), .unchanged)
+        XCTAssertEqual(ReaderProfile.renaming("Night", to: "   ", in: list), .unchanged)
+        XCTAssertEqual(ReaderProfile.renaming("Night", to: "Night ", in: list), .unchanged)
+        XCTAssertEqual(ReaderProfile.renaming("Gone", to: "Other", in: list), .unchanged)
+
+        // Names are unique ignoring case, Default included.
+        XCTAssertEqual(ReaderProfile.renaming("Night", to: "cozy", in: list), .nameTaken("cozy"))
+        XCTAssertEqual(ReaderProfile.renaming("Night", to: "DEFAULT", in: list), .nameTaken("DEFAULT"))
+
+        // Changing only the case of its own name is a rename, one entry
+        // stamped as an edit (no tombstone), which wins the merge.
+        guard case let .renamed(recased, _) = ReaderProfile.renaming("Night", to: "NIGHT", in: list) else {
+            return XCTFail("expected a rename")
+        }
+        let original = ReaderProfile.saveProfiles(list, previousJSON: "", now: Date(timeIntervalSince1970: 1_000))
+        let saved = ReaderProfile.saveProfiles(recased, previousJSON: original, now: Date(timeIntervalSince1970: 2_000))
+        XCTAssertEqual(ReaderProfile.decodeProfiles(from: saved)?.map(\.name), ["Default", "NIGHT", "Cozy"])
+        for merged in [
+            ReaderProfile.mergedProfiles(localJSON: original, incomingJSON: saved),
+            ReaderProfile.mergedProfiles(localJSON: saved, incomingJSON: original),
+        ] {
+            XCTAssertEqual(ReaderProfile.loadProfiles(from: merged).map(\.name), ["Default", "NIGHT", "Cozy"])
+        }
+    }
+
     func test_profileTombstoneExpires() {
         let base = ReaderProfile.defaultProfiles[0]
         let night = readerProfile(name: "Night", theme: "dracula", fontSize: 20)

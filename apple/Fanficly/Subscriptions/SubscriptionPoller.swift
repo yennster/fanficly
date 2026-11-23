@@ -370,7 +370,7 @@ struct SubscriptionPoller {
             return notifyCount
         } catch {
             tally.failed += 1
-            logger.warning("Skipping work \(workId): \(error.localizedDescription, privacy: .public)")
+            logger.warning("Skipping work \(workId, privacy: .private): \(error.localizedDescription, privacy: .public)")
             return 0
         }
     }
@@ -387,7 +387,7 @@ struct SubscriptionPoller {
             // public works still alert; restricted ones aren't in the baseline
             // yet, so they alert once a signed-in poll sees them.
             if username != nil, result.servedAsGuest {
-                logger.warning("Author \(author.username, privacy: .public) came back as a guest page: the AO3 session expired")
+                logger.warning("Author \(author.username, privacy: .private) came back as a guest page: the AO3 session expired")
             }
             let latestIds = result.works.map(\.id)
             let known = Set(author.knownWorkIds)
@@ -410,7 +410,7 @@ struct SubscriptionPoller {
             return notifyCount
         } catch {
             if !gone { tally.failed += 1 }
-            logger.warning("Skipping author \(author.username, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            logger.warning("Skipping author \(author.username, privacy: .private): \(error.localizedDescription, privacy: .public)")
             return 0
         }
     }
@@ -451,7 +451,7 @@ struct SubscriptionPoller {
                     undated.insert(work.id)
                 }
             } catch {
-                logger.warning("Couldn't date work \(work.id): \(error.localizedDescription, privacy: .public)")
+                logger.warning("Couldn't date work \(work.id, privacy: .private): \(error.localizedDescription, privacy: .public)")
                 undated.insert(work.id)
             }
         }

@@ -132,6 +132,15 @@ enum ReaderMetrics {
     static let kerningPresets: [(name: String, value: Double)] = [
         ("Tight", -0.2), ("Standard", 0.0), ("Medium", 0.5), ("Wide", 1.2), ("Extra Wide", 2.2)
     ]
+
+    /// Page-by-page's margin at the top and the bottom of every page, inside
+    /// the page area (`reader.pageMarginPt`, per device). 12 pt was the fixed
+    /// margin before it became a setting.
+    static let defaultPageMargin: Double = 12
+    static let pageMarginRange: ClosedRange<Double> = 0...60
+    static let pageMarginPresets: [(name: String, value: Double)] = [
+        ("Small (6 pt)", 6), ("Standard (12 pt)", 12), ("Medium (24 pt)", 24), ("Large (40 pt)", 40)
+    ]
 }
 
 /// Page-by-page's two-page spread: on a wide window (iPhone Duo unfolded,
