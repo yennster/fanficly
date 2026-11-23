@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 enum WorkPersistence {
     @MainActor
-    static func upsert(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+    static func upsert(payload: AO3WorkPayload, into context: ModelContext, save: Bool = true) -> Work {
         let work = upsertMetadata(summary: payload.summary, into: context, save: false)
 
         for ch in work.chapters { context.delete(ch) }
@@ -18,6 +18,26 @@ enum WorkPersistence {
         // Saving the text again undoes an earlier Remove Download.
         setDownloadRemoved(work.ao3Id, removed: false)
 
+        if save { try? context.save() }
+        return work
+    }
+
+    /// Saves a work opened from a shared, dropped or pasted link (#176): its
+    /// metadata and every chapter, from the fetch the import already made, so
+    /// the story reads offline with no second request. The work is followed;
+    /// one already in the Library keeps when it was saved and followed.
+    @MainActor
+    @discardableResult
+    static func saveImported(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+        // Importing a work deleted a moment ago keeps it (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
+        let work = upsert(payload: payload, into: context, save: false)
+        if !work.isFollowed {
+            work.isFollowed = true
+            work.followedAt = .now
+            // Following now isn't news: alert only for chapters after this.
+            work.lastSeenChapterCount = payload.summary.chapterCount
+        }
         try? context.save()
         return work
     }
