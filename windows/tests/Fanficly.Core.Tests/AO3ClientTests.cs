@@ -235,7 +235,7 @@ public sealed class AO3ClientTests : IDisposable
     }
 
     [Fact]
-    public async Task LogsEachRequestWithoutItsQuery()
+    public async Task LogsEachRequestAsItsRouteShape()
     {
         _handler.Respond(_ => FakeHandler.Html(WorkHtml));
         var lines = new List<string>();
@@ -244,7 +244,9 @@ public sealed class AO3ClientTests : IDisposable
         await client.FetchWorkMetadataAsync(7);
 
         var line = Assert.Single(lines);
-        Assert.StartsWith("GET /works/7 → 200 over HTTP/", line);
+        // Which work was opened stays out of the log (#208), and so does the query.
+        Assert.StartsWith("GET /works/{id} → 200 over HTTP/", line);
+        Assert.Equal("GET /works/{id} ", line.Split('→')[0]);
         Assert.DoesNotContain("view_adult", line);
     }
 

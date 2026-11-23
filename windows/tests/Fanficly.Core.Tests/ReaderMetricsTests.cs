@@ -743,6 +743,134 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         });
     }
 
+    // MARK: - Refitting the pages near the reader first (#349)
+
+    private static NearbyRefit? Refit(Pagination before, PageStart start, Typography type, Layout layout,
+                                      int pagesBefore = 1, int pagesAfter = 2) =>
+        NearbyRefit.Create(2, before.Pages, before.Atoms, ReaderPaginator.Atoms(ChapterHtml, includeImages: false), start,
+                           layout.ColumnWidth, layout.ViewportHeight, before.ChapterHeaderHeight, isFirstChapter: false,
+                           showChapterHeader: true, type.Reader, Measurer, Drawn(type, layout), pagesBefore, pagesAfter);
+
+    /// <summary>Each paragraph's text as its atoms make it.</summary>
+    private static List<string> ParagraphTexts(IEnumerable<ParagraphAtom> atoms) =>
+        atoms.GroupBy(a => a.OriginalParagraphIndex).OrderBy(g => g.Key)
+             .Select(g => ReaderPageContent.ConcatenateAtoms(g.ToList()).Text).ToList();
+
+    /// <summary>A page's text.</summary>
+    private static string TextOf(ChapterPage page, List<ParagraphAtom> atoms) =>
+        ReaderPageContent.ConcatenateAtoms(atoms.GetRange(page.ParagraphIndices.Start, page.ParagraphIndices.Count)).Text;
+
+    [Fact]
+    public void RefittingNearTheReader_MakesThePagesTheFullPaginationMakesThere()
+    {
+        // A long one-shot's page area changes (the controls, a resize): the pages near
+        // the one on screen are refitted first, the rest keep their old pages until the
+        // whole chapter is paginated again.
+        ForEachLayout((_, type, layout, label) =>
+        {
+            var before = Paginate(type, layout);
+            var page = before.Pages[before.Pages.Count / 2];
+            var start = ReaderPaginator.Start(page, before.Atoms);
+            Assert.NotNull(start);
+            foreach (var change in new[] { ControlsHeight, -ControlsHeight })
+            {
+                var context = $"{label}, {(change > 0 ? "controls hidden" : "controls shown")}";
+                var resized = layout with { ViewportHeight = layout.ViewportHeight + change };
+                var full = Paginate(type, resized, start: start);
+                var refit = Refit(before, start.Value, type, resized);
+                Assert.True(refit is not null, $"{context}: no refit");
+                while (refit.PackNextPage()) { }
+                var result = new Pagination(refit.Pages, refit.Atoms, before.ChapterHeaderHeight, before.HeaderFillsPage);
+
+                // Every sentence once, the chapter's text unchanged, and pages numbered
+                // from the chapter's start.
+                AssertEverySentenceOnOnePage(result, context);
+                Assert.True(result.Pages.Select(p => p.PageIndex).SequenceEqual(Enumerable.Range(0, result.Pages.Count)),
+                            $"{context}: page numbers");
+                Assert.True(result.Pages.All(p => p.Id == $"c2-p{p.PageIndex}"), $"{context}: page ids");
+                Assert.True(ParagraphTexts(result.Atoms).SequenceEqual(ParagraphTexts(full.Atoms)), $"{context}: the text changed");
+
+                // The page on screen keeps its place, and from it on the refitted pages
+                // are the full pagination's (but the last, which stops short of the next
+                // old page).
+                var keptId = refit.KeptPageId;
+                Assert.True(keptId is not null, $"{context}: no page starts where the one on screen did");
+                var refitted = refit.RefittedPages.SkipWhile(p => p.Id != keptId).ToList();
+                var fullKept = full.Pages.First(p => ReaderPaginator.Start(p, full.Atoms) == start);
+                var fullFromKept = full.Pages.SkipWhile(p => p.Id != fullKept.Id).ToList();
+                Assert.NotEmpty(refitted);
+                foreach (var (mine, theirs) in refitted.SkipLast(1).Zip(fullFromKept))
+                    Assert.True(TextOf(mine, result.Atoms) == TextOf(theirs, full.Atoms),
+                                $"{context}: refitted page {mine.PageIndex} differs from the full pagination's");
+                AssertPagesFit(result with { Pages = refit.RefittedPages }, type, resized, context);
+                AssertPagesFull(refitted.SkipLast(1), result, type, resized, context);
+                if (layout.PagesOnScreen == 2)
+                    Assert.True(ReaderSpread.Spreads(result.Pages).Any(s => s.Left.Id == keptId),
+                                $"{context}: the kept page stays on the left of its spread");
+            }
+        });
+    }
+
+    [Fact]
+    public void RefittingNearTheReader_NeedsThePageOnScreenToBeAPageBreak()
+    {
+        var type = Typographies[0];
+        var layout = LayoutFor(Devices[1], type);
+        var before = Paginate(type, layout);
+        var atom = before.Atoms[before.Pages[before.Pages.Count / 2].ParagraphIndices.Start];
+        // A place partway into the page: not where any old page starts.
+        var inside = new PageStart(2, atom.OriginalParagraphIndex, atom.SentenceIndex, atom.SentenceOffset + 1);
+        Assert.Null(Refit(before, inside, type, layout));
+    }
+
+    [Fact]
+    public void OnlyAChangedPageArea_RefitsNearTheReader()
+    {
+        var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
+        Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(402, 610) }));
+        Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(900, 600), WidthPercent = 88 }));
+        Assert.False(trigger.DiffersOnlyInPageArea(trigger with { FontSize = 20 }));
+        Assert.False(trigger.DiffersOnlyInPageArea(trigger with { ShowImages = true }));
+        Assert.False(trigger.DiffersOnlyInPageArea(trigger with { Chapter = 3 }));
+    }
+
+    [Fact]
+    public async Task RefitNearby_RefitsOnlyALongChapter_AndKeepsItsNeighbours()
+    {
+        // A one-shot long enough to refit (and a short chapter either side).
+        var longHtml = string.Concat(Enumerable.Repeat(ChapterHtml, 8));
+        AO3ChapterPayload[] chapters = [new(1, "One", ChapterHtml), new(2, "Two", longHtml),
+                                        new(3, "Three", "<p>A short chapter. It ends here.</p>")];
+        var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
+        var before = ReaderPaginator.PerformPagination(trigger, null, chapters, "A Work", "tester", "tester", null,
+                                                       limitLineLength: true, Measurer);
+        var chapterPages = before.Pages.Where(p => p.ChapterIndex == 2).ToList();
+        Assert.True(chapterPages.Count >= NearbyRefit.MinimumPages, $"{chapterPages.Count} pages");
+        var start = ReaderPaginator.Start(chapterPages[chapterPages.Count / 2], before.Atoms[2])!.Value;
+        var smaller = trigger with { Size = new ReaderSize(402, 610) };
+        var refit = await ReaderPaginator.RefitNearbyAsync(
+            smaller, start, before.Pages, before.Atoms, chapters, limitLineLength: true, Measurer, null,
+            pause: () => Task.CompletedTask, slice: TimeSpan.Zero, CancellationToken.None);
+        Assert.NotNull(refit);
+        Assert.Equal(before.Pages.Where(p => p.ChapterIndex != 2), refit.Pages.Where(p => p.ChapterIndex != 2));
+        Assert.Equal([1, 2, 3], refit.Pages.Select(p => p.ChapterIndex).Distinct());
+        Assert.Equal([2], refit.Atoms.Keys);
+        var kept = refit.Pages.Single(p => p.Id == refit.KeptPageId);
+        Assert.Equal(start, ReaderPaginator.Start(kept, refit.Atoms[2]));
+
+        // The same place, refitted and then paginated in full, lands on a page that
+        // starts there.
+        var full = ReaderPaginator.PerformPagination(smaller, start, chapters, "A Work", "tester", "tester", null,
+                                                     limitLineLength: true, Measurer);
+        Assert.Equal(TextOf(full.Pages.Single(p => p.Id == full.KeptPageId), full.Atoms[2]), TextOf(kept, refit.Atoms[2]));
+
+        // A short chapter paginates in full straight away.
+        var shortStart = ReaderPaginator.Start(before.Pages.First(p => p.ChapterIndex == 3), before.Atoms[3])!.Value;
+        Assert.Null(await ReaderPaginator.RefitNearbyAsync(
+            smaller with { Chapter = 3 }, shortStart, before.Pages, before.Atoms, chapters, limitLineLength: true, Measurer,
+            null, pause: () => Task.CompletedTask, slice: TimeSpan.Zero, CancellationToken.None));
+    }
+
     [Fact]
     public void SteppingAChapter_MakesThePagesOfOneGo()
     {
