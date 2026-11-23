@@ -140,33 +140,33 @@ final class ReaderKeyCommandsTests: XCTestCase {
 }
 
 /// Work links from a drop, ⌘V or Open AO3 Link….
-final class AO3WorkLinkTests: XCTestCase {
+final class PastedWorkLinkTests: XCTestCase {
     func test_ao3WorkLinks() {
-        XCTAssertEqual(AO3WorkLink.workId(fromText: "https://archiveofourown.org/works/123456"), 123456)
-        XCTAssertEqual(AO3WorkLink.workId(fromText: "  https://archiveofourown.org/works/42/chapters/99?view_adult=true\n"), 42)
-        XCTAssertEqual(AO3WorkLink.workId(fromText: "archiveofourown.org/works/7"), 7)
+        XCTAssertEqual(ImportLink.workId(fromText: "https://archiveofourown.org/works/123456"), 123456)
+        XCTAssertEqual(ImportLink.workId(fromText: "  https://archiveofourown.org/works/42/chapters/99?view_adult=true\n"), 42)
+        XCTAssertEqual(ImportLink.workId(fromText: "archiveofourown.org/works/7"), 7)
     }
 
     func test_fanficlyLinks() {
-        XCTAssertEqual(AO3WorkLink.workId(fromText: "fanficly://works/55"), 55)
+        XCTAssertEqual(ImportLink.workId(fromText: "fanficly://works/55"), 55)
         let wrapped = "fanficly://import?url=" + "https://archiveofourown.org/works/77"
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
-        XCTAssertEqual(AO3WorkLink.workId(fromText: wrapped), 77)
+        XCTAssertEqual(ImportLink.workId(fromText: wrapped), 77)
     }
 
     func test_otherTextIsNotAWork() {
-        XCTAssertNil(AO3WorkLink.workId(fromText: ""))
-        XCTAssertNil(AO3WorkLink.workId(fromText: "hello there"))
-        XCTAssertNil(AO3WorkLink.workId(fromText: "https://archiveofourown.org/users/someone"))
-        XCTAssertNil(AO3WorkLink.workId(fromText: "https://archiveofourown.org/tags/Fluff/works"))
+        XCTAssertNil(ImportLink.workId(fromText: ""))
+        XCTAssertNil(ImportLink.workId(fromText: "hello there"))
+        XCTAssertNil(ImportLink.workId(fromText: "https://archiveofourown.org/users/someone"))
+        XCTAssertNil(ImportLink.workId(fromText: "https://archiveofourown.org/tags/Fluff/works"))
         // Another archive running AO3's software: not an AO3 work.
-        XCTAssertNil(AO3WorkLink.workId(fromText: "https://squidgeworld.org/works/12345"))
-        XCTAssertNil(AO3WorkLink.workId(fromText: "https://notarchiveofourown.org/works/12345"))
+        XCTAssertNil(ImportLink.workId(fromText: "https://squidgeworld.org/works/12345"))
+        XCTAssertNil(ImportLink.workId(fromText: "https://notarchiveofourown.org/works/12345"))
     }
 
     func test_ao3Domains() {
-        XCTAssertEqual(AO3WorkLink.workId(fromText: "https://ao3.org/works/9"), 9)
-        XCTAssertEqual(AO3WorkLink.workId(fromText: "https://www.archiveofourown.org/works/10"), 10)
-        XCTAssertEqual(AO3WorkLink.workId(fromText: "HTTPS://ArchiveOfOurOwn.org/works/11"), 11)
+        XCTAssertEqual(ImportLink.workId(fromText: "https://ao3.org/works/9"), 9)
+        XCTAssertEqual(ImportLink.workId(fromText: "https://www.archiveofourown.org/works/10"), 10)
+        XCTAssertEqual(ImportLink.workId(fromText: "HTTPS://ArchiveOfOurOwn.org/works/11"), 11)
     }
 }

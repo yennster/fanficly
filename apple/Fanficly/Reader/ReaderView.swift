@@ -67,6 +67,8 @@ struct ReaderView: View {
     @State private var continuousEndJump = 0
     @State private var continuousEndChapter = 1
     @State private var currentAnchor: ReadingAnchor?
+    /// The author's notes sections open right now (#181).
+    @State private var openNotes: Set<String> = []
     @State private var loadedFromDisk = false
     /// Where a saved position past the loaded chapters was moved to (see
     /// `ChapterTracking.clampedAnchor`). Never saved: opening a shorter copy
@@ -337,7 +339,7 @@ struct ReaderView: View {
         self.authorUsername = work.authorUsername
         self.chapters = work.chapters
             .sorted(by: { $0.index < $1.index })
-            .map { AO3ChapterPayload(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
+            .map(\.payload)
         self.summary = work.workSummary
     }
 
@@ -855,7 +857,8 @@ struct ReaderView: View {
         // on to the next, rather than leaving the last chapter's text loaded
         // under this chapter's number.
         if !speech.play(paragraphs: HTMLToAttributed.speechParagraphs(chapter.bodyHTML, includeImages: showImages),
-                        workTitle: title, author: author, chapterLabel: label, from: paragraph) {
+                        workTitle: title, author: author, language: summary?.language ?? "",
+                        chapterLabel: label, from: paragraph) {
             advanceNarration()
         }
     }
@@ -1074,6 +1077,7 @@ struct ReaderView: View {
                                 if chapters.count > 1 {
                                     chapterHeader(chapter, fg: fg)
                                 }
+                                notesBefore(chapter, fg: fg)
                                 chapterBlock(chapter, fg: fg)
                                     // End's target in continuous scroll.
                                     .overlay(alignment: .bottom) {
@@ -1081,6 +1085,7 @@ struct ReaderView: View {
                                             .id(ChapterEndID(chapter: chapter.index))
                                             .accessibilityHidden(true)
                                     }
+                                notesAfter(chapter, fg: fg)
                             }
                             .id(chapter.index)
                             .trackChapterOffset(index: chapter.index, in: scrollSpace)
@@ -1441,7 +1446,9 @@ struct ReaderView: View {
         .accessibilityLabel("\(label), chapter \(visibleChapterIndex) of \(chapters.count)")
     }
 
-    private func chapterHeader(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+    /// `notesButton`: page-by-page mode's "Notes" button under the heading
+    /// (its height is in `ReaderPaginator.estimateChapterHeaderHeight`).
+    private func chapterHeader(_ chapter: AO3ChapterPayload, fg: Color, notesButton: Bool = false) -> some View {
         VStack(spacing: 10) {
             HStack(spacing: 12) {
                 Rectangle().fill(Color.accentColor.opacity(0.3)).frame(height: 1)
@@ -1456,6 +1463,9 @@ struct ReaderView: View {
                     .font(fontFamily.font(size: fontSize + 5, weight: .bold))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
+            }
+            if notesButton {
+                pageNotesButton(chapter, fg: fg)
             }
         }
         .padding(.top, Spacing.xl)
@@ -1556,7 +1566,9 @@ struct ReaderView: View {
                         if chapters.count > 1 {
                             chapterHeader(chapter, fg: fg)
                         }
+                        notesBefore(chapter, fg: fg)
                         chapterBlock(chapter, fg: fg)
+                        notesAfter(chapter, fg: fg)
                         if let newChapters, chapter.index == chapters.last?.index {
                             NewChaptersBanner(notice: newChapters, foreground: fg)
                         }
@@ -2012,8 +2024,14 @@ struct ReaderView: View {
                 showTitleHeader: page.pageIndex == 0 && page.chapterIndex == chapters.first?.index,
                 showChapterHeader: (page.pageIndex == 0 && page.chapterIndex != chapters.first?.index && chapters.count > 1) ||
                                    (page.pageIndex == 1 && page.chapterIndex == chapters.first?.index && chapters.count > 1),
-                titleHeaderView: AnyView(titleHeader(fg: fg)),
-                chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg)),
+                // The first chapter's notes button is on the title page, which
+                // holds no story text; the others' under their heading.
+                titleHeaderView: AnyView(VStack(alignment: .leading, spacing: Spacing.lg) {
+                    titleHeader(fg: fg)
+                    pageNotesButton(chapter, fg: fg)
+                }),
+                chapterHeaderView: AnyView(chapterHeader(chapter, fg: fg,
+                                                         notesButton: chapter.index != chapters.first?.index)),
                 font: fontFamily.font(size: fontSize),
                 lineSpacing: lineSpacing,
                 paragraphSpacing: paragraphSpacing,
@@ -2632,7 +2650,8 @@ struct ReaderView: View {
                 title: chapter.title,
                 width: w,
                 fontSize: CGFloat(trigger.fontSize),
-                fontFamily: fontFamily
+                fontFamily: fontFamily,
+                hasNotesButton: chapter.hasNotes && chIndex != chapters.first?.index
             )
             
             let isFirstChapter = chIndex == chapters.first?.index
@@ -2730,6 +2749,51 @@ struct ReaderView: View {
             showImages: showImages
         )
         .padding(.vertical, Spacing.sm)
+    }
+
+    // MARK: - Author's notes (#181)
+
+    private var notesFont: Font { fontFamily.font(size: fontSize - 1) }
+
+    /// Whether a chapter's notes section (`"<chapter>-before"` / `-after`) is open.
+    private func notesExpanded(_ key: String) -> Binding<Bool> {
+        Binding(get: { openNotes.contains(key) },
+                set: { open in if open { openNotes.insert(key) } else { openNotes.remove(key) } })
+    }
+
+    /// The chapter's summary and notes, collapsed, above its text.
+    @ViewBuilder
+    private func notesBefore(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        let notes = chapter.notesBefore
+        if !notes.isEmpty {
+            ReaderNotesDisclosure(title: notes.count == 1 ? notes[0].label : "Notes",
+                                  notes: notes, foreground: fg, font: notesFont,
+                                  isExpanded: notesExpanded("\(chapter.index)-before"))
+                .padding(.top, Spacing.sm)
+        }
+    }
+
+    /// The chapter's end notes, collapsed, below its text.
+    @ViewBuilder
+    private func notesAfter(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        let notes = chapter.notesAfter
+        if !notes.isEmpty {
+            ReaderNotesDisclosure(title: "End Notes", notes: notes, foreground: fg, font: notesFont,
+                                  isExpanded: notesExpanded("\(chapter.index)-after"))
+                .padding(.bottom, Spacing.sm)
+        }
+    }
+
+    /// Page-by-page mode's "Notes" button for a chapter with notes.
+    @ViewBuilder
+    private func pageNotesButton(_ chapter: AO3ChapterPayload, fg: Color) -> some View {
+        if chapter.hasNotes {
+            let scheme = theme.preferredColorScheme ?? systemColorScheme
+            ReaderNotesButton(chapter: chapter,
+                              title: chapters.count > 1 ? Text("Chapter \(chapter.index) Notes") : Text("Notes"),
+                              foreground: fg, background: theme.background(for: scheme),
+                              colorScheme: scheme, font: notesFont)
+        }
     }
 
     /// The paragraph to karaoke-highlight in `chapterIndex`, or nil when that

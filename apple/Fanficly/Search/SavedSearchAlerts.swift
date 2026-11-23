@@ -15,7 +15,8 @@ enum SavedSearchAlerts {
     static let knownWorkIdLimit = 200
     /// The Search tab checks an alerting search when it's shown and the last
     /// check is older than this (the background refresh rarely has time for
-    /// an AO3 search, see `checkStaleSavedSearches`).
+    /// an AO3 search, see `checkStaleSavedSearches`; the in-app schedule,
+    /// `InAppPolling`, also checks every four hours while the app is open).
     static let foregroundCheckInterval: TimeInterval = 4 * 60 * 60
     /// …and no check has started in this long, so a search that's failing
     /// (or was just cut off) isn't retried every time the tab appears.

@@ -40,6 +40,7 @@ public sealed class ShortcutsScreen : Screen
                 ("Enter or Space", "Activate the focused control"),
                 ("Shift+F10 or Menu key", "Open the focused item's context menu"),
                 ("Ctrl+V", "Open a copied AO3 link (outside a text box; or drop the link on the window)"),
+                ("Ctrl+Z", "Undo a delete while its Undo bar is showing (outside a text box)"),
             ]),
             Group("Reader",
             [
