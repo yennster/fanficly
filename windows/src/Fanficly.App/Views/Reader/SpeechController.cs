@@ -1,3 +1,4 @@
+using System.Globalization;
 using Fanficly.App.Platform;
 using Fanficly.App.Shell;
 using Fanficly.Core;
@@ -23,8 +24,8 @@ namespace Fanficly.App.Views.Reader;
 /// media transport controls (keyboard media keys, the volume flyout, Bluetooth
 /// headsets) get play / pause / next / previous paragraph.
 ///
-/// Settings are the Swift keys: <c>reader.ttsVoiceId</c> ("" = the system's default
-/// voice) and <c>reader.ttsRate</c>, stored on AVSpeechUtterance's scale where 0.5
+/// Settings are the Swift keys: <c>reader.ttsVoiceId</c> ("" = Automatic: a voice for
+/// the work's language, else the system's default voice) and <c>reader.ttsRate</c>, stored on AVSpeechUtterance's scale where 0.5
 /// is normal speed (1.0×).
 /// </summary>
 internal sealed class SpeechController : IDisposable
@@ -55,6 +56,8 @@ internal sealed class SpeechController : IDisposable
     private bool _disposed;
     private string _workTitle = "";
     private string _author = "";
+    /// <summary>The work's language as AO3 names it ("Español"), for the voice.</summary>
+    private string _language = "";
     private double _rateMultiplier;
     private bool _throttlingOptedOut;
 
@@ -164,7 +167,7 @@ internal sealed class SpeechController : IDisposable
 
     /// <summary>Loads a chapter's paragraphs and starts speaking from <paramref name="paragraph"/>.
     /// False when the chapter has nothing to speak (nothing is loaded then).</summary>
-    public bool Play(IReadOnlyList<string> paragraphs, string workTitle, string author, string chapterLabel, int paragraph = 0)
+    public bool Play(IReadOnlyList<string> paragraphs, string workTitle, string author, string chapterLabel, int paragraph = 0, string language = "")
     {
         var spoken = Enumerable.Range(0, paragraphs.Count).Where(i => paragraphs[i].Trim().Length > 0).ToList();
         if (spoken.Count == 0) return false;
@@ -173,6 +176,7 @@ internal sealed class SpeechController : IDisposable
         SpokenCount = spoken.Count;
         _workTitle = workTitle;
         _author = author;
+        _language = language;
         ChapterLabel = chapterLabel;
         IsActive = true;
         // Narration keeps going with the window minimized; keep synthesis ahead of it.
@@ -405,7 +409,7 @@ internal sealed class SpeechController : IDisposable
             _synth ??= new SpeechSynthesizer();
             var voiceId = KeyValueStores.Default.GetString(VoiceKey) ?? "";
             var voice = voiceId.Length > 0 ? SpeechSynthesizer.AllVoices.FirstOrDefault(v => v.Id == voiceId) : null;
-            _synth.Voice = voice ?? SpeechSynthesizer.DefaultVoice;
+            _synth.Voice = voice ?? AutomaticVoice(_language) ?? SpeechSynthesizer.DefaultVoice;
             _synth.Options.SpeakingRate = Math.Clamp(_rateMultiplier, MinMultiplier, MaxMultiplier);
             // A small breath between paragraphs (Swift: postUtteranceDelay 0.15 s).
             _synth.Options.AppendedSilence = SpeechAppendedSilence.Default;
@@ -415,6 +419,19 @@ internal sealed class SpeechController : IDisposable
         {
             _synthesisGate.Release();
         }
+    }
+
+    /// <summary>An installed voice for the work's language (#184), or null, which is
+    /// the system's default voice: when the work is in that voice's language, its
+    /// language is unknown, or no voice speaks it. Used when no voice is picked in
+    /// Settings, or the picked one isn't installed here (Swift: <c>automaticVoice</c>).</summary>
+    private static VoiceInformation? AutomaticVoice(string language)
+    {
+        if (SpeechLanguage.Tag(language) is not { } tag) return null;
+        var all = SpeechSynthesizer.AllVoices;
+        var id = SpeechLanguage.VoiceId(tag, all.Select(v => new SpeechLanguage.Voice(v.Id, v.Language)),
+            SpeechSynthesizer.DefaultVoice?.Language ?? CultureInfo.CurrentUICulture.Name);
+        return id is null ? null : all.FirstOrDefault(v => v.Id == id);
     }
 
     private void FinishChapter()

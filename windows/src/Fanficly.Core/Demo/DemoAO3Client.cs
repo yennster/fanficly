@@ -130,13 +130,17 @@ public sealed class DemoAO3Client : IAO3Client
 
     public Task<IReadOnlyList<string>> AutocompleteAsync(AO3AutocompleteField field, string term, CancellationToken ct = default)
     {
-        if (field != AO3AutocompleteField.Tag) return Task.FromResult<IReadOnlyList<string>>([term]);
-        // Search suggestions: real tags from the curated catalog, so the offline
-        // demo (and its screenshots) shows genuine matches.
+        if (field is not (AO3AutocompleteField.Tag or AO3AutocompleteField.Fandom))
+            return Task.FromResult<IReadOnlyList<string>>([term]);
+        // Search suggestions and the Filters sheet's fandom picker: real tags from
+        // the curated catalog, so the offline demo (and its screenshots) shows
+        // genuine matches.
         var needle = term.ToLowerInvariant();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         IReadOnlyList<string> matches = DemoCatalog.Works
-            .SelectMany(w => w.Fandoms.Concat(w.Relationships).Concat(w.Characters).Concat(w.Freeforms))
+            .SelectMany(w => field == AO3AutocompleteField.Fandom
+                ? w.Fandoms
+                : w.Fandoms.Concat(w.Relationships).Concat(w.Characters).Concat(w.Freeforms))
             .Where(t => t.ToLowerInvariant().Contains(needle, StringComparison.Ordinal) && seen.Add(t))
             .ToList();
         return Task.FromResult(matches);

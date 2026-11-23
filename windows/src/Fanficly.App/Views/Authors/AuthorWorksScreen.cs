@@ -75,7 +75,9 @@ public sealed class AuthorWorksScreen : Screen
 
     public override void OnAppearing()
     {
-        var following = WorkPersistence.IsAuthorFollowed(_author.Username, AppHost.Library);
+        // An unfollow waiting behind the Undo bar already reads as unfollowed (#169).
+        var following = WorkPersistence.IsAuthorFollowed(_author.Username, AppHost.Library)
+            && !UndoQueue.Shared.IsPending(UndoQueue.Keys.Author(_author.Username));
         if (following != _isFollowingAuthor)
         {
             _isFollowingAuthor = following;
@@ -91,8 +93,17 @@ public sealed class AuthorWorksScreen : Screen
     {
         // Follow is local-only; ToggleFollowAuthor asks for notification
         // permission (NotificationsAuthorization.RequestAfterFollow) on follow.
-        _isFollowingAuthor = WorkPersistence.ToggleFollowAuthor(
-            _author.Username, _author.DisplayName, AppHost.Library, _works.WorkIds);
+        // Following again while an unfollow waits keeps the follow (#169).
+        if (UndoQueue.Shared.IsPending(UndoQueue.Keys.Author(_author.Username)))
+        {
+            UndoQueue.Shared.Cancel(UndoQueue.Keys.Author(_author.Username));
+            _isFollowingAuthor = true;
+        }
+        else
+        {
+            _isFollowingAuthor = WorkPersistence.ToggleFollowAuthor(
+                _author.Username, _author.DisplayName, AppHost.Library, _works.WorkIds);
+        }
         UpdateFollowButton();
         MainWindow.Current.Announce(_isFollowingAuthor
             ? $"Following {_author.DisplayName}"

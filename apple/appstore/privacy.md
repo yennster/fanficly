@@ -10,12 +10,13 @@ Set these in App Store Connect → your app → **App Privacy**. They match
 That single answer produces the **"Data Not Collected"** label. Rationale:
 
 - No analytics, crash reporting, ads, or SDKs with a network side-channel.
-- No account is required. If the user logs into AO3, the session cookie is
-  stored only in the iOS Keychain on-device and is never sent anywhere except
-  archiveofourown.org.
+- No account is required. If the user logs into AO3, their AO3 username and
+  AO3's cookies are stored only in the Keychain on-device and are never sent
+  anywhere except archiveofourown.org. The password is never stored.
 - Saved works, reading position, hidden works, folders, followed authors, and
-  preferences live in on-device storage. Optional iCloud sync (library backup,
-  reader profiles, last-read progress for the widget) goes only to the user's
+  preferences live in on-device storage. iCloud sync (the optional library
+  backup, and the automatic reader profiles, last-read progress for the widget
+  and reading-streak days) goes only to the user's
   **own** iCloud account — never to the developer or any third party — so it is
   not "data collection" under App Privacy definitions (data must be sent off
   device to you or your partners to count).
