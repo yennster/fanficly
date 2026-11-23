@@ -63,6 +63,16 @@ of your device), starting from your system text size and following Bold Text as
 described above. Improving support for assistive technologies like VoiceOver is
 an ongoing effort.
 
+## On the App Store
+
+The App Store product page lists the accessibility features Fanficly claims on
+iPhone, iPad and Mac, by Apple's criteria for each: today VoiceOver, Dark
+Interface and Differentiate Without Color Alone. Larger Text isn't claimed yet:
+story text now follows the system text size up to 60 pt (#174), so it can be
+added the next time the declarations are published. The answers live in `fastlane/accessibility.json`;
+[docs/RELEASING.md](docs/RELEASING.md#accessibility-declarations) explains each
+one and how they're published.
+
 ## Feedback
 
 Accessibility is never "done." If something isn't working for you, please open
