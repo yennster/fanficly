@@ -92,17 +92,17 @@ public static class Dialogs
         box.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = box.Text.Trim().Length > 0;
         dialog.IsPrimaryButtonEnabled = initial.Trim().Length > 0;
         dialog.Opened += (_, _) => { box.Focus(FocusState.Programmatic); box.SelectAll(); };
+        // Each prompt keeps its own flag: a prompt queued behind another (Dialogs
+        // shows one at a time) must never read the earlier prompt's Enter (#206).
+        var confirmed = false;
         box.KeyDown += (_, e) =>
         {
-            if (e.Key == Windows.System.VirtualKey.Enter && box.Text.Trim().Length > 0) { e.Handled = true; dialog.Hide(); confirmed = true; }
+            if (e.Key == Windows.System.VirtualKey.Enter && box.Text.Trim().Length > 0) { e.Handled = true; confirmed = true; dialog.Hide(); }
         };
-        confirmed = false;
         var result = await ShowAsync(dialog);
         var text = box.Text.Trim();
         return (result == ContentDialogResult.Primary || confirmed) && text.Length > 0 ? text : null;
     }
-
-    private static bool confirmed;
 
     /// <summary>A wide dialog for sheet-like content (filters, move-to-folder):
     /// the content scrolls; primary/close buttons are optional.</summary>

@@ -34,6 +34,8 @@ struct ReaderView: View {
     // Text width inside each page of a two-page spread (one-page mode keeps
     // widthPercent, the Margins setting).
     @AppStorage(ReaderProfile.deviceKey("reader.spreadWidthPercent")) private var spreadWidthPercent: Double = ReaderSpread.defaultWidthPercent
+    /// Page-by-page's top and bottom margin inside each page.
+    @AppStorage(ReaderProfile.deviceKey("reader.pageMarginPt")) private var pageMarginPt: Double = ReaderMetrics.defaultPageMargin
     // Keep the display awake while reading (like a video player), so the screen
     // doesn't dim/lock mid-page when you go a while without touching it.
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
@@ -96,9 +98,15 @@ struct ReaderView: View {
     /// any: a re-pagination (the controls toggling, a resize) reuses them
     /// instead of parsing a long one-shot's HTML again (#164).
     @State private var sourceAtoms = ChapterAtomsCache()
+    /// Rendered paragraph counts for progress and the end-of-work check,
+    /// which run on every scroll-preference change (#198).
+    @State private var paragraphCounts = ChapterParagraphCounts()
     /// The page width the pages on screen were made for; see the
     /// live-resize wait in handlePaginationTrigger.
     @State private var paginatedWidth: CGFloat?
+    /// What the pages on screen were made for: a re-pagination that changes
+    /// only the page area refits the pages near the reader first (#349).
+    @State private var paginatedTrigger: PaginationTrigger?
     @State private var stableWidth: CGFloat = 0
     @State private var stableHeight: CGFloat = 0
     /// The page area pages are measured for: the page container's height as
@@ -128,6 +136,9 @@ struct ReaderView: View {
     @AppStorage("reader.profiles") private var profilesJSON: String = ""
     @State private var showingNewProfileAlert = false
     @State private var newProfileName = ""
+    /// The profile the Aa menu's Rename… is renaming (#193), and the name typed.
+    @State private var renamingProfile: String?
+    @State private var renameText = ""
     @FocusState private var isReaderFocused: Bool
     /// The scroll views key scrolls move (see ReaderKeyCommands).
     @State private var keyScrollViews = ReaderScrollViews()
@@ -252,6 +263,23 @@ struct ReaderView: View {
         saveCurrentToActiveProfile()
     }
 
+    /// Renames a profile in place (#193); the old name syncs as a tombstone.
+    /// Unlike selecting a profile, it leaves the settings on screen alone.
+    private func renameProfile(_ current: String, to newName: String) {
+        switch ReaderProfile.renaming(current, to: newName, in: profiles) {
+        case .unchanged:
+            return
+        case .nameTaken(let name):
+            errorMessage = "A profile named \"\(name)\" already exists."
+            showingErrorAlert = true
+        case .renamed(let list, let name):
+            saveProfiles(list)
+            if activeProfileName == current { activeProfileName = name }
+            queueBackup()
+            UIAccessibility.post(notification: .announcement, argument: "Renamed to \(name)")
+        }
+    }
+
     private func overwriteProfile(_ name: String) {
         var list = profiles
         if let idx = list.firstIndex(where: { $0.name == name }) {
@@ -340,7 +368,7 @@ struct ReaderView: View {
         currentChapter?.wrappedValue = effectiveChapterIndex
     }
 
-    /// The Aa menu's New Profile prompt and its error, presented from the
+    /// The Aa menu's New Profile and Rename prompts and their error, presented from the
     /// reader itself rather than the menu's toolbar item: anchored there, the
     /// prompt never appeared on iPhone Duo's vertical toolbar strip. Kept off
     /// the main reader chain so the SwiftUI type-checker stays within budget.
@@ -350,9 +378,14 @@ struct ReaderView: View {
         @Binding var showingError: Bool
         let errorMessage: String
         let save: (String) -> Void
+        @Binding var renamingProfile: String?
+        @Binding var renameText: String
+        let rename: (String, String) -> Void
         /// ReaderLayoutTests' way to the prompt where the Aa menu won't open
         /// under XCUITest (Xcode Cloud's folded iPhone Duo, though it opens
-        /// there by hand): demo mode with -demoNewProfileButton only.
+        /// there by hand, on the simulator and a real Duo; #279): demo mode with
+        /// -demoNewProfileButton only. Remove it once a newer iOS 27.x keeps
+        /// the menu open under XCUITest.
         private static let testButton = FanficlyApp.isDemoMode
             && ProcessInfo.processInfo.arguments.contains("-demoNewProfileButton")
         func body(content: Content) -> some View {
@@ -378,6 +411,16 @@ struct ReaderView: View {
                     Button("Save") { save(newProfileName) }
                 } message: {
                     Text("Enter a name for this reader settings configuration profile.")
+                }
+                .alert("Rename Profile",
+                       isPresented: Binding(get: { renamingProfile != nil },
+                                            set: { if !$0 { renamingProfile = nil } }),
+                       presenting: renamingProfile) { current in
+                    TextField("Profile Name", text: $renameText)
+                    Button("Cancel", role: .cancel) { }
+                    Button("Rename") { rename(current, renameText) }
+                } message: { current in
+                    Text("Enter a new name for \"\(current)\".")
                 }
                 .alert(errorMessage, isPresented: $showingError) {
                     Button("OK", role: .cancel) { }
@@ -482,11 +525,17 @@ struct ReaderView: View {
             case .pageByPage: pageByPageBody(fg: fg, bg: bg)
             }
         }
-        // Hiding or showing the controls never moves the page: while they're
-        // hidden it keeps the place it had with them up, whatever the status
-        // bar and the toolbar strip do to the space around it.
+        // Hiding or showing the controls doesn't slide the page about: while
+        // they're hidden it keeps the place it had with them up, whatever the
+        // status bar and the toolbar strip do to the space around it. In
+        // page-by-page it also takes the empty bar's room at the top, so the
+        // page grows into it (its first words stay put) instead of leaving a
+        // blank band; the scrolling modes already run under it
+        // (scrollClipDisabled). Not iPhone Duo's open book, whose pages are
+        // pinned under the bar already (bookTopShift).
         // The narration bar coming or going changes the area for real.
-        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive)))
+        .modifier(HoldStillWhileHidden(hidden: isUIMinimized, layout: AnyHashable(speech.isActive),
+                                       fillsTop: mode == .pageByPage && !duoBookLayout))
         // Floating narration controls when "Listen" is active.
         .safeAreaInset(edge: .bottom) {
             Group {
@@ -525,10 +574,10 @@ struct ReaderView: View {
         // shows or hides every control at once (the toolbar's items, the
         // system back button, the status bar, the page footer's details), and
         // with them hidden nothing is left on screen. The bar itself stays,
-        // empty, so the page under it never moves (see HoldStillWhileHidden).
-        // Before iOS 26 the bar has no glass, so it keeps its background there.
-        // The hosting screen drops its own items via ReaderFullScreenKey.
-        .toolbarBackground(duoBookLayout || (isUIMinimized && Self.hasGlassBars) ? .hidden : .visible,
+        // empty and see-through, and the text runs up under it (see
+        // HoldStillWhileHidden). The hosting screen drops its own items via
+        // ReaderFullScreenKey.
+        .toolbarBackground(duoBookLayout || isUIMinimized ? .hidden : .visible,
                            for: .navigationBar)
         .navigationBarBackButtonHidden(isUIMinimized)
         .toolbar(removing: isUIMinimized ? .sidebarToggle : nil)
@@ -560,7 +609,10 @@ struct ReaderView: View {
             newProfileName: $newProfileName,
             showingError: $showingErrorAlert,
             errorMessage: errorMessage,
-            save: { saveNewProfile(name: $0) }
+            save: { saveNewProfile(name: $0) },
+            renamingProfile: $renamingProfile,
+            renameText: $renameText,
+            rename: { renameProfile($0, to: $1) }
         ))
         // Screen-awake + speech teardown + the Stats active-reading timer, all
         // in one ViewModifier so this long body chain stays within the
@@ -1222,10 +1274,12 @@ struct ReaderView: View {
     /// stride-sampled topmost anchors alone top out a viewport short of the
     /// end, leaving fully-read works stuck below the Finished threshold.
     private func endOfContentAnchor(_ offsets: [String: CGFloat], viewportHeight: CGFloat) -> ReadingAnchor? {
-        guard let last = chapters.max(by: { $0.index < $1.index }),
-              // Only convert (cached, but not free) once the last chapter's
-              // anchors are actually being laid out near the viewport.
-              offsets.keys.contains(where: { $0.hasPrefix("c\(last.index)-p") }) else { return nil }
+        guard let last = chapters.max(by: { $0.index < $1.index }) else { return nil }
+        // Only count (memoized, but the first count converts the chapter)
+        // once the last chapter's anchors are actually being laid out near
+        // the viewport.
+        let prefix = "c\(last.index)-p"
+        guard offsets.keys.contains(where: { $0.hasPrefix(prefix) }) else { return nil }
         let lastParagraph = paragraphCount(ofChapter: last.index) - 1
         return ChapterTracking.endOfContentAnchor(
             offsets,
@@ -1244,7 +1298,7 @@ struct ReaderView: View {
     /// isn't loaded); the conversion is cached.
     private func paragraphCount(ofChapter index: Int) -> Int {
         guard let chapter = chapters.first(where: { $0.index == index }) else { return 0 }
-        return HTMLToAttributed.convertParagraphs(chapter.bodyHTML, includeImages: showImages).count
+        return paragraphCounts.count(for: chapter, includeImages: showImages)
     }
 
     private func nearbyChapterIndexes(current: Int) -> Set<Int> {
@@ -1521,7 +1575,11 @@ struct ReaderView: View {
 
     /// A page's top and bottom margin, inside the area between the reader's
     /// bars. Pagination subtracts exactly this, so measured pages match drawn ones.
-    static let pageVerticalMargin: CGFloat = 12
+    static let pageVerticalMargin = CGFloat(ReaderMetrics.defaultPageMargin)
+
+    /// Page-by-page's top and bottom margin now (the Top & bottom margins
+    /// setting), in points as drawn under the app's zoom.
+    private var pageMargin: CGFloat { pageMarginPt / zoomScale }
 
     /// The text column in a page `containerWidth` wide, clear of the Duo's
     /// side column (`column`; the reader's own unless given).
@@ -1600,7 +1658,8 @@ struct ReaderView: View {
                     // re-paginates, keeping the page on screen in place.
                     height: readingHeight
                 ),
-                sideColumn: spread == nil ? sideColumn : .empty
+                sideColumn: spread == nil ? sideColumn : .empty,
+                verticalMargin: pageMargin
             )
             
             let content = Group {
@@ -1766,12 +1825,6 @@ struct ReaderView: View {
         }
     }
 
-    /// Whether toolbars draw as Liquid Glass (iOS 26 and later).
-    private static var hasGlassBars: Bool {
-        if #available(iOS 26.0, *) { return true }
-        return false
-    }
-
     /// Where an open-book spread's pages start on iPhone Duo: clear of the
     /// display's rounded corners and camera, with room to breathe.
     private static let duoTopMargin: CGFloat = 32
@@ -1883,7 +1936,7 @@ struct ReaderView: View {
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
             .textColumn(placement(containerWidth, widthPercent: percent, column: column), in: containerWidth)
-            .padding(.vertical, Self.pageVerticalMargin)
+            .padding(.vertical, pageMargin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             ProgressView()
@@ -1920,10 +1973,27 @@ struct ReaderView: View {
         // chapter jump re-paginates from the new chapter's start).
         let start = !repaginating ? nil : pageStart.flatMap { $0.chapter == trigger.chapter ? $0 : nil }
         let startedFrom = pageStart
+        // A long chapter whose page area changed (the controls, the narration
+        // bar, a resize): refit the pages near the reader first, so the page
+        // on screen fits at once, then paginate the whole chapter (#349).
+        if let start, let previous = paginatedTrigger, previous.differsOnlyInPageArea(from: trigger) {
+            let refit = await refitNearby(trigger: trigger, start: start)
+            guard !Task.isCancelled else { return }
+            if let refit {
+                applyPagination(refit, trigger: trigger, repaginating: repaginating, startedFrom: startedFrom)
+            }
+        }
         // A newer trigger (a resize mid-pagination, e.g. the sidebar
         // collapsing) cancels this task; applying its now-stale pages after
         // the newer ones produced pages taller than the screen.
         guard let result = await performPagination(trigger: trigger, start: start), !Task.isCancelled else { return }
+        applyPagination(result, trigger: trigger, repaginating: repaginating, startedFrom: startedFrom)
+    }
+
+    /// Puts new pages on screen, keeping the reader on the page kept in
+    /// place, or the one they turned to since the pagination started.
+    private func applyPagination(_ result: PaginationResult, trigger: PaginationTrigger, repaginating: Bool,
+                                 startedFrom: PageStart?) {
         var activeChapters = Set<Int>()
         activeChapters.insert(selectedChapterIndex)
         if let prev = ChapterTracking.adjacentChapter(in: chapters.map(\.index), current: selectedChapterIndex, forward: false) {
@@ -1955,6 +2025,7 @@ struct ReaderView: View {
         self.parsedAtoms.merge(result.atoms) { _, new in new }
         self.paginatedPages = result.pages
         paginatedWidth = trigger.size.width
+        paginatedTrigger = trigger
 
         restoreOrValidatePageSelection(keeping: kept)
         // A Find match in this chapter: the page with the words, which in a
@@ -2358,10 +2429,14 @@ struct ReaderView: View {
     /// so pinning pagination to it keeps the page count stable as the user
     /// shows/hides the chrome. Falls back to the supplied live height when no
     /// window is reachable (SwiftUI previews / unit tests).
+    /// The window's own height, to tell a genuine window resize from the page
+    /// area changing inside it. Not less its safe area: an iPad's status bar
+    /// hides with the controls, and full screen would read as a new window
+    /// (clearing `PageAreaTracker.controlsUpHeight`, so two pages could turn
+    /// into one).
     private func immersiveReadingHeight(fallback: CGFloat) -> CGFloat {
         guard let window = ReaderView.activeKeyWindow() else { return fallback }
-        let insets = window.safeAreaInsets
-        let height = window.bounds.height - insets.top - insets.bottom
+        let height = window.bounds.height
         return height > 100 ? height : fallback
     }
 
@@ -2372,16 +2447,65 @@ struct ReaderView: View {
             .first { $0.isKeyWindow }
     }
 
-    private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult? {
-        // Must match `makePageCell`'s column, or pages are measured at one
-        // width and drawn at another.
+    /// The text column's width and the page's height for text that pages
+    /// are measured for. Must match `makePageCell`'s column, or pages are
+    /// measured at one width and drawn at another.
+    private func pageTextArea(_ trigger: PaginationTrigger) -> (width: CGFloat, height: CGFloat) {
         let w = ReaderMetrics.textColumnPlacement(containerWidth: trigger.size.width,
                                                   widthPercent: trigger.widthPercent,
                                                   fontSize: trigger.fontSize,
                                                   limitLineLength: Self.limitsLineLength,
                                                   reservedLeading: trigger.sideColumn.leading,
                                                   reservedTrailing: trigger.sideColumn.trailing).width
-        let h = trigger.size.height - 2 * Self.pageVerticalMargin
+        return (w, max(trigger.size.height - 2 * trigger.verticalMargin, 1))
+    }
+
+    /// The pages on screen with only the ones near the reader refitted for
+    /// the new page area (NearbyRefit), or nil when the chapter is short
+    /// enough to paginate in full straight away or the page on screen isn't
+    /// one of its page breaks.
+    private func refitNearby(trigger: PaginationTrigger, start: PageStart) async -> PaginationResult? {
+        let oldPages = paginatedPages.filter { $0.chapterIndex == trigger.chapter }
+        guard oldPages.count >= NearbyRefit.minimumPages,
+              let oldAtoms = parsedAtoms[trigger.chapter],
+              let chapter = chapters.first(where: { $0.index == trigger.chapter }) else { return nil }
+        let (w, h) = pageTextArea(trigger)
+        guard w > 50 && h > 100 else { return nil }
+        let fontSize = CGFloat(trigger.fontSize)
+        let drawnHeight = ReaderPaginator.drawnHeightMeasure(
+            width: w, fontSize: fontSize, fontFamily: fontFamily,
+            lineSpacing: CGFloat(trigger.lineSpacing), paragraphSpacing: CGFloat(trigger.paragraphSpacing),
+            kerning: CGFloat(trigger.kerning), boldText: trigger.boldText)
+        guard var refit = NearbyRefit(
+            chapterIndex: trigger.chapter, oldPages: oldPages, oldAtoms: oldAtoms,
+            sourceAtoms: sourceAtoms.atoms(for: chapter, includeImages: trigger.showImages), start: start,
+            width: w, viewportHeight: h,
+            chapterHeaderHeight: ReaderPaginator.estimateChapterHeaderHeight(
+                title: chapter.title, width: w, fontSize: fontSize, fontFamily: fontFamily),
+            isFirstChapter: trigger.chapter == chapters.first?.index, showChapterHeader: chapters.count > 1,
+            fontSize: fontSize, fontFamily: fontFamily, lineSpacing: CGFloat(trigger.lineSpacing),
+            paragraphSpacing: CGFloat(trigger.paragraphSpacing), kerning: CGFloat(trigger.kerning),
+            boldText: trigger.boldText, drawnHeight: drawnHeight)
+        else { return nil }
+        var pacer = PaginationPacer()
+        while refit.packNextPage() {
+            guard await pacer.pause() else { return nil }
+        }
+        // The chapters either side keep their pages.
+        let refitted = refit.pages
+        var pages: [ChapterPage] = []
+        for page in paginatedPages {
+            if page.chapterIndex != trigger.chapter {
+                pages.append(page)
+            } else if page.id == oldPages.first?.id {
+                pages.append(contentsOf: refitted)
+            }
+        }
+        return PaginationResult(pages: pages, atoms: [trigger.chapter: refit.atoms], keptPageId: refit.keptPageId)
+    }
+
+    private func performPagination(trigger: PaginationTrigger, start: PageStart?) async -> PaginationResult? {
+        let (w, h) = pageTextArea(trigger)
         
         guard w > 50 && h > 100 else {
             return PaginationResult(pages: [], atoms: [:])
@@ -2646,6 +2770,10 @@ struct ReaderView: View {
                             Button("Save Current Settings Here") {
                                 overwriteProfile(profile.name)
                             }
+                            Button("Rename...") {
+                                renameText = profile.name
+                                renamingProfile = profile.name
+                            }
                             Button("Delete", role: .destructive) {
                                 deleteProfile(profile.name)
                             }
@@ -2723,6 +2851,10 @@ struct ReaderView: View {
                        icon: "text.justify.left")
             presetMenu("Character spacing", value: $kerningPt, presets: ReaderMetrics.kerningPresets,
                        icon: "character.textbox")
+            if mode == .pageByPage {
+                presetMenu("Top & bottom margins", value: $pageMarginPt, presets: ReaderMetrics.pageMarginPresets,
+                           icon: "arrow.up.and.down.square")
+            }
 
             // Margins adjust whichever layout is on screen: a two-page spread
             // has its own width, so tuning one never disturbs the other.
@@ -2788,6 +2920,20 @@ struct PaginationTrigger: Equatable {
     let size: CGSize
     /// The Duo's side column the text keeps clear of (none on a spread).
     let sideColumn: SideColumn
+    /// The page's top and bottom margin (the Top & bottom margins setting),
+    /// inside `size`. Part of the page area, like the side margins.
+    var verticalMargin: CGFloat = CGFloat(ReaderMetrics.defaultPageMargin)
+
+    /// Whether `other` lays out the same text in the same type, so only the
+    /// page area (the controls, the narration bar, a resize, the margins)
+    /// changed: the old page breaks are then still places in the text, and a
+    /// long chapter can refit the pages near the reader first (#349).
+    func differsOnlyInPageArea(from other: PaginationTrigger) -> Bool {
+        chapter == other.chapter && fontSize == other.fontSize && fontFamily == other.fontFamily
+            && lineSpacing == other.lineSpacing && paragraphSpacing == other.paragraphSpacing
+            && kerning == other.kerning && boldText == other.boldText && showImages == other.showImages
+            && content == other.content
+    }
 }
 
 /// Which chapters are loaded and how long each one's text is: cheap to

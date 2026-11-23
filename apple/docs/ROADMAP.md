@@ -152,6 +152,20 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** parser tests on a real-page fixture (works listed, empty list, login page fails closed), endpoint tests for the URL and pagination, `MockAO3Client`/`DemoAO3Client`/`StubAO3Client` support, and the PR lists what to check on a device: the tab logged out (sign-in prompt) and logged in, on iPhone, iPad and the Mac.
 - **Touches:** `Networking/AO3Endpoints.swift`, `Networking/AO3Client.swift`, `Networking/DemoAO3Client.swift`, `Subscriptions/SubscriptionsView.swift`, `RootView.swift`, `FanficlyApp.swift`, `FanficlyTests/` (incl. `StubAO3Client.swift`).
 
+### RM-027 — Download count and saved-reader error wording (Windows #205 parity)
+- **Status:** open · **Size:** S · **Validation:** unit
+- **Why:** Windows fixed these in #205 (PR #396). The restore and folder download banner reads "Downloaded 1 stories", and a bookmarked work that fails to load in `SavedWorkReader` always says to connect to the internet, dropping the real reason (rate limited, signed out, AO3 down). Errors themselves already stay up on Apple, since they're alerts that wait for OK.
+- **Scope:** `RestoreDownloadCenter.DownloadProgress`'s finished title and announcement say "1 story" / "N stories"; `SavedWorkReader.load()` leads with the error's message, then how to save the work offline, as `WorkDetailView` does.
+- **Done when:** a test of the singular and plural wording.
+- **Touches:** `Library/RestoreDownloadCenter.swift`, `Library/SavedWorkReader.swift`, `FanficlyTests/`.
+
+### RM-028 — Say when the AO3 sign-in couldn't be saved (Windows #210 parity)
+- **Status:** open · **Size:** S · **Validation:** unit
+- **Why:** Windows fixed this in #210. On Apple, `CredentialStore.setUsername` and `saveCookies` drop Keychain errors (`try?`). Cookie saves already run again on every cookie change, so a failed one heals itself, but a failed username write is never retried: the reader stays signed in for the run and is signed out at the next launch without a word. The synced-settings half of #210 doesn't apply: `NSUbiquitousKeyValueStore` resolves its own conflicts and doesn't hand back a stale value over one just set.
+- **Scope:** `CredentialStore` notes a failed username or cookie write, keeps the username for the run and writes it again with the next cookie save; `AuthState` exposes it, and Settings' account row says "You're signed in for this session only" until a write gets through, as Windows does.
+- **Done when:** tests with a failing `LoginNameStore`/`CookieVault`: a failed username write is retried with the next cookie save, and sign-out clears the state.
+- **Touches:** `Auth/Credentials.swift`, `Settings/SettingsView.swift`, `FanficlyTests/`.
+
 ## Later (needs design, or a person at a Mac)
 
 ### RM-013 — Leave kudos
@@ -216,15 +230,6 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Parity exception:** iPhone, iPhone Duo and iPad only. The Mac has no volume buttons for a remote to press, so the setting is hidden there.
 - **Windows counterpart:** RM-124 (#305).
 
-### RM-028 — Light, Dark or System for the app (iPhone, iPad, Mac)
-- **Status:** open · **Size:** S · **Validation:** unit + mac
-- **Why:** Windows has Settings → Appearance → App theme (Light, Dark, or follow Windows; key `app.theme`, `AppearanceSettings`). The Apple app always follows the system appearance, and neither roadmap recorded the gap (#194).
-- **Scope:** An "App theme" picker (System, Light, Dark; default System) in Settings, stored per device under `app.theme` with the Windows raw values (`system`, `light`, `dark`). It isn't in the backup on either app; adding it there is a separate item for both. `FanficlyApp` applies it as `.preferredColorScheme` on the root scene (nil for System; demo mode keeps forcing light). Reader page themes are unchanged: the reader keeps painting its own background and theming its bar with `.toolbarColorScheme`, never its own `.preferredColorScheme` (see AGENTS.md). A reader theme that follows the system (`systemColorScheme`, from `@Environment(\.colorScheme)`) then follows the app theme, which is what Windows does too. Every platform including iPhone Duo; no exception needed.
-- **Overlap:** #271 (color themes with matching alternate icons) adds an Appearance section to Settings too. Put this picker in that section, whichever lands first, and keep the two settings separate: #271 picks the accent color, this one light or dark.
-- **Done when:** a pure mapping from the stored value to a `ColorScheme?` with tests (unknown values fall back to System); the PR lists what to check on a device: switching the theme with a light and a dark reader theme open, Dark back to System without a relaunch (if SwiftUI keeps the old scheme, set the window's `overrideUserInterfaceStyle` instead), and the choice after a relaunch.
-- **Touches:** `FanficlyApp.swift`, `Settings/SettingsView.swift`, `Localizable.xcstrings`.
-- **Windows counterpart:** already built (`windows/src/Fanficly.App/Views/Settings/SettingsScreen.cs`, `AppearanceSettings`).
-
 ### RM-029 — Game controller support (iPhone, iPad, Mac)
 - **Status:** open · **Size:** M · **Validation:** mac
 - **Why:** Windows reads Xbox and other XInput controllers (`Platform/GamepadInput.cs`, Settings → Input, `SettingsScreen.ControllerMap`): A selects, B goes back or closes a dialog, the D-pad and left stick move focus (and turn pages in the reader), LB/RB switch sidebar tabs (in the reader, change chapter), LT/RT turn pages, the right stick scrolls, View toggles full screen and Menu shows or hides the sidebar. iPhone, iPad and the Mac all pair MFi, Xbox and PlayStation controllers through the GameController framework, and the app does nothing with them (#194).
@@ -245,6 +250,23 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Done when:** a pure shortcut-type-to-`SidebarItem` mapping with tests; the PR lists what to try: each action from a cold launch and with the app already open, on an iPhone (and the Duo folded and unfolded), an iPad and the Mac's Dock.
 - **Touches:** `project.yml`, `FanficlyApp.swift`, `RootView.swift`.
 - **Windows counterpart:** already built (`JumpListService`).
+
+### RM-031 — App Clip for shared work links (iPhone, iPad)
+- **Status:** done · **Size:** M · **Validation:** mac
+- **Why:** Someone sent a fanficly.app work link should be able to read that one work without installing Fanficly first (#292).
+- **Scope:** The `FanficlyClip` target (`FanficlyClip/`, the app's own sources compiled with `APP_CLIP`): a `https://fanficly.app/works/<id>[?chapter=n]` link (`WorkLink`) opens the work in the app's reader behind the 17+ confirmation, with the "Get the full app" overlay; no library, account or follows. The installed app takes over the same links as universal links and, on its first launch, opens the work last read in the clip (`ClipHandoff`, through the app group). The website serves the link page and `apple-app-site-association`; `bin/app-clip.py` and the App Clip workflow set up the association file, capabilities and App Clip experiences.
+- **Done when:** `WorkLinkTests`; CI builds the clip and checks its size; a person opens a fanficly.app link on a device without Fanficly once a build with the clip is on TestFlight.
+- **Touches:** `FanficlyClip/`, `Fanficly/WorkLink.swift`, `Search/WorkDetailView.swift`, `RootView.swift`, `project.yml`, the entitlements, `bin/app-clip.py`, `../website/`.
+- **Parity exception:** iPhone, iPhone Duo and iPad only. App Clips exist only on iOS and iPadOS, so the Mac has none; there the same fanficly.app link opens the installed app through universal links (the app's `applinks:fanficly.app`). Windows has no App Clip equivalent: RM-127 in `windows/ROADMAP.md` opens the same links in Fanficly for Windows.
+
+### RM-032 — Light, Dark or System for the app (iPhone, iPad, Mac)
+- **Status:** open · **Size:** S · **Validation:** unit + mac
+- **Why:** Windows has Settings → Appearance → App theme (Light, Dark, or follow Windows; key `app.theme`, `AppearanceSettings`). The Apple app always follows the system appearance, and neither roadmap recorded the gap (#194).
+- **Scope:** An "App theme" picker (System, Light, Dark; default System) in Settings, stored per device under `app.theme` with the Windows raw values (`system`, `light`, `dark`). It isn't in the backup on either app; adding it there is a separate item for both. `FanficlyApp` applies it as `.preferredColorScheme` on the root scene (nil for System; demo mode keeps forcing light). Reader page themes are unchanged: the reader keeps painting its own background and theming its bar with `.toolbarColorScheme`, never its own `.preferredColorScheme` (see AGENTS.md). A reader theme that follows the system (`systemColorScheme`, from `@Environment(\.colorScheme)`) then follows the app theme, which is what Windows does too. Every platform including iPhone Duo; no exception needed.
+- **Overlap:** #271 (color themes with matching alternate icons) adds an Appearance section to Settings too. Put this picker in that section, whichever lands first, and keep the two settings separate: #271 picks the accent color, this one light or dark.
+- **Done when:** a pure mapping from the stored value to a `ColorScheme?` with tests (unknown values fall back to System); the PR lists what to check on a device: switching the theme with a light and a dark reader theme open, Dark back to System without a relaunch (if SwiftUI keeps the old scheme, set the window's `overrideUserInterfaceStyle` instead), and the choice after a relaunch.
+- **Touches:** `FanficlyApp.swift`, `Settings/SettingsView.swift`, `Localizable.xcstrings`.
+- **Windows counterpart:** already built (`windows/src/Fanficly.App/Views/Settings/SettingsScreen.cs`, `AppearanceSettings`).
 
 ## Engineering health (any release)
 
