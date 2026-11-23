@@ -81,6 +81,12 @@ public static class WorkPersistence
         {
             work.FollowedAt = DateTimeOffset.Now;
             work.LastSeenChapterCount = summary.ChapterCount;
+            // A follow starts unchecked: an earlier follow's failed checks (or
+            // one that worked months ago) say nothing about this one (#195).
+            work.LastCheckedAt = null;
+            work.LastSucceededAt = null;
+            work.CheckFailures = 0;
+            work.LastCheckFailure = null;
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is the
             // moment to ask for permission, not the login-gated Subscriptions tab.

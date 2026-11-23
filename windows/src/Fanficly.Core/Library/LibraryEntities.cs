@@ -150,7 +150,7 @@ public sealed class EntityLinks<TOwner, TItem> : IReadOnlyList<TItem>
 
 /// <summary>A saved work: metadata, local follow/star/pin state, reading
 /// position stamps, and (when downloaded) its chapters.</summary>
-public sealed class Work : LibraryEntity, ILibrarySortable
+public sealed class Work : LibraryEntity, ILibrarySortable, ICheckedRecord
 {
     internal static readonly string[] Columns =
     [
@@ -160,6 +160,7 @@ public sealed class Work : LibraryEntity, ILibrarySortable
         "updated_at", "saved_at", "last_read_at", "last_read_chapter", "last_read_progress", "epub_local_path",
         "is_followed", "followed_at", "last_seen_chapter_count", "last_checked_at", "is_starred", "is_pinned",
         "folder_id", "note", "personal_tags", "notes_updated_at",
+        "last_succeeded_at", "check_failures", "last_check_failure",
     ];
 
     private string _title, _authorName, _authorUsername = "", _summary, _rating, _language;
@@ -169,7 +170,9 @@ public sealed class Work : LibraryEntity, ILibrarySortable
     private int _wordCount, _chapterCount, _kudos, _hits, _bookmarksCount, _commentsCount;
     private int? _totalChapters, _lastReadChapter, _lastSeenChapterCount;
     private bool _isComplete, _isFollowed, _isStarred, _isPinned;
-    private DateTimeOffset? _publishedAt, _updatedAt, _lastReadAt, _followedAt, _lastCheckedAt, _notesUpdatedAt;
+    private DateTimeOffset? _publishedAt, _updatedAt, _lastReadAt, _followedAt, _lastCheckedAt, _notesUpdatedAt, _lastSucceededAt;
+    private int _checkFailures;
+    private string? _lastCheckFailure;
     private DateTimeOffset _savedAt;
     private double? _lastReadProgress;
     private string? _epubLocalPath;
@@ -270,6 +273,12 @@ public sealed class Work : LibraryEntity, ILibrarySortable
     /// followed work — drives the oldest-first rotation in
     /// <see cref="SubscriptionPoller.RunFullPollAsync"/>.</summary>
     public DateTimeOffset? LastCheckedAt { get => _lastCheckedAt; set => Set(ref _lastCheckedAt, value); }
+    /// <summary>The poller's last check that read AO3's answer, the failed
+    /// checks in a row since and what the last one ran into (#195): rows show
+    /// these, not <see cref="LastCheckedAt"/>. This PC only, not backed up.</summary>
+    public DateTimeOffset? LastSucceededAt { get => _lastSucceededAt; set => Set(ref _lastSucceededAt, value); }
+    public int CheckFailures { get => _checkFailures; set => Set(ref _checkFailures, value); }
+    public string? LastCheckFailure { get => _lastCheckFailure; set => Set(ref _lastCheckFailure, value); }
 
     public bool IsStarred { get => _isStarred; set => Set(ref _isStarred, value); }
     public bool IsPinned { get => _isPinned; set => Set(ref _isPinned, value); }
@@ -389,6 +398,7 @@ public sealed class Work : LibraryEntity, ILibrarySortable
         Db.D(FollowedAt), Db.I(LastSeenChapterCount), Db.D(LastCheckedAt), Db.B(IsStarred), Db.B(IsPinned),
         Folder is { RowId: > 0 } f && f.Store is not null ? f.RowId : null,
         Note, LibraryJson.Strings(PersonalTags), Db.D(NotesUpdatedAt),
+        Db.D(LastSucceededAt), Db.I(CheckFailures), LastCheckFailure,
     ];
 
     /// <summary>Reads a row (column 0 is the row id). Returns the legacy folder id
@@ -431,6 +441,9 @@ public sealed class Work : LibraryEntity, ILibrarySortable
             _note = Db.StrN(r, 36),
             _personalTags = LibraryJson.ParseStrings(Db.StrN(r, 37)),
             _notesUpdatedAt = Db.DateN(r, 38),
+            _lastSucceededAt = Db.DateN(r, 39),
+            _checkFailures = Db.Int(r, 40),
+            _lastCheckFailure = Db.StrN(r, 41),
         };
         legacyFolderId = Db.LongN(r, 35);
         return w;
@@ -976,12 +989,16 @@ public sealed class BlockedTerm : LibraryEntity
 
 /// <summary>A mirror of one AO3 account subscription ("work:123", "series:9",
 /// "user:name"), plus the new-chapter baseline the poller compares against.</summary>
-public sealed class SubscriptionRecord : LibraryEntity
+public sealed class SubscriptionRecord : LibraryEntity, ICheckedRecord
 {
-    internal static readonly string[] Columns = ["key", "kind", "display_name", "author_name", "last_seen_chapter_count", "last_checked_at"];
+    internal static readonly string[] Columns =
+        ["key", "kind", "display_name", "author_name", "last_seen_chapter_count", "last_checked_at",
+         "last_succeeded_at", "check_failures", "last_check_failure"];
     private string _kind, _displayName, _authorName;
     private int? _lastSeenChapterCount;
-    private DateTimeOffset? _lastCheckedAt;
+    private DateTimeOffset? _lastCheckedAt, _lastSucceededAt;
+    private int _checkFailures;
+    private string? _lastCheckFailure;
 
     public SubscriptionRecord(string key, string kind, string displayName, string authorName = "")
     {
@@ -1000,15 +1017,24 @@ public sealed class SubscriptionRecord : LibraryEntity
     public string DisplayName { get => _displayName; set => Set(ref _displayName, value); }
     public string AuthorName { get => _authorName; set => Set(ref _authorName, value); }
     public int? LastSeenChapterCount { get => _lastSeenChapterCount; set => Set(ref _lastSeenChapterCount, value); }
+    /// <summary>When the poller last tried this record (drives the rotation).</summary>
     public DateTimeOffset? LastCheckedAt { get => _lastCheckedAt; set => Set(ref _lastCheckedAt, value); }
+    /// <summary>See <see cref="Work.LastSucceededAt"/> (#195). This PC only, not backed up.</summary>
+    public DateTimeOffset? LastSucceededAt { get => _lastSucceededAt; set => Set(ref _lastSucceededAt, value); }
+    public int CheckFailures { get => _checkFailures; set => Set(ref _checkFailures, value); }
+    public string? LastCheckFailure { get => _lastCheckFailure; set => Set(ref _lastCheckFailure, value); }
 
     internal override object?[] ToRow() =>
-        [Key, Kind, DisplayName, AuthorName, Db.I(LastSeenChapterCount), Db.D(LastCheckedAt)];
+        [Key, Kind, DisplayName, AuthorName, Db.I(LastSeenChapterCount), Db.D(LastCheckedAt),
+         Db.D(LastSucceededAt), Db.I(CheckFailures), LastCheckFailure];
     internal static SubscriptionRecord Read(SqliteDataReader r) =>
         new(Db.Str(r, 1), Db.Str(r, 2), Db.Str(r, 3), Db.Str(r, 4))
         {
             _lastSeenChapterCount = Db.IntN(r, 5),
             _lastCheckedAt = Db.DateN(r, 6),
+            _lastSucceededAt = Db.DateN(r, 7),
+            _checkFailures = Db.Int(r, 8),
+            _lastCheckFailure = Db.StrN(r, 9),
         };
 }
 
@@ -1018,12 +1044,16 @@ public sealed class SubscriptionRecord : LibraryEntity
 /// work notifies exactly once (see <c>SubscriptionPoller.NewlyPostedWorks</c>
 /// for which unknown ones count as new); it's seeded at follow time so previously
 /// published works don't all alert on the first poll.</summary>
-public sealed class FollowedAuthor : LibraryEntity
+public sealed class FollowedAuthor : LibraryEntity, ICheckedRecord
 {
-    internal static readonly string[] Columns = ["username", "display_name", "followed_at", "last_checked_at", "known_work_ids"];
+    internal static readonly string[] Columns =
+        ["username", "display_name", "followed_at", "last_checked_at", "known_work_ids",
+         "last_succeeded_at", "check_failures", "last_check_failure"];
     private string _displayName;
     private DateTimeOffset _followedAt;
-    private DateTimeOffset? _lastCheckedAt;
+    private DateTimeOffset? _lastCheckedAt, _lastSucceededAt;
+    private int _checkFailures;
+    private string? _lastCheckFailure;
     private IReadOnlyList<int> _knownWorkIds;
 
     public FollowedAuthor(string username, string displayName, DateTimeOffset? followedAt = null,
@@ -1045,11 +1075,21 @@ public sealed class FollowedAuthor : LibraryEntity
     public DateTimeOffset FollowedAt { get => _followedAt; set => Set(ref _followedAt, value); }
     public DateTimeOffset? LastCheckedAt { get => _lastCheckedAt; set => Set(ref _lastCheckedAt, value); }
     public IReadOnlyList<int> KnownWorkIds { get => _knownWorkIds; set => Set(ref _knownWorkIds, value); }
+    /// <summary>See <see cref="Work.LastSucceededAt"/> (#195). This PC only, not backed up.</summary>
+    public DateTimeOffset? LastSucceededAt { get => _lastSucceededAt; set => Set(ref _lastSucceededAt, value); }
+    public int CheckFailures { get => _checkFailures; set => Set(ref _checkFailures, value); }
+    public string? LastCheckFailure { get => _lastCheckFailure; set => Set(ref _lastCheckFailure, value); }
 
     internal override object?[] ToRow() =>
-        [Username, DisplayName, Db.D(FollowedAt), Db.D(LastCheckedAt), LibraryJson.Ints(KnownWorkIds)];
+        [Username, DisplayName, Db.D(FollowedAt), Db.D(LastCheckedAt), LibraryJson.Ints(KnownWorkIds),
+         Db.D(LastSucceededAt), Db.I(CheckFailures), LastCheckFailure];
     internal static FollowedAuthor Read(SqliteDataReader r) =>
-        new(Db.Str(r, 1), Db.Str(r, 2), Db.Date(r, 3), Db.DateN(r, 4), LibraryJson.ParseInts(Db.StrN(r, 5)));
+        new(Db.Str(r, 1), Db.Str(r, 2), Db.Date(r, 3), Db.DateN(r, 4), LibraryJson.ParseInts(Db.StrN(r, 5)))
+        {
+            _lastSucceededAt = Db.DateN(r, 6),
+            _checkFailures = Db.Int(r, 7),
+            _lastCheckFailure = Db.StrN(r, 8),
+        };
 }
 
 /// <summary>Aggregated reading statistics for one work the user has read — the

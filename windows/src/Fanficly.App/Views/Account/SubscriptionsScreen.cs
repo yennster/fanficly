@@ -68,6 +68,13 @@ public sealed class SubscriptionsScreen : Screen
 
     public override void OnDisappearing() => _isVisible = false;
 
+    public override void OnRemoved()
+    {
+        AppHost.Library.Changed -= OnLibraryChanged;
+        AppHost.Auth.PropertyChanged -= OnAuthChanged;
+        _cts?.Cancel();
+    }
+
     private static string? Username => AppHost.Auth.Username;
 
     private static bool HasLocalFollows =>
@@ -458,7 +465,7 @@ public sealed class SubscriptionsScreen : Screen
 
     private UIElement FollowedWorkRow(Work work)
     {
-        var caption = work.LastCheckedAt is { } c ? AccountKit.CheckedAgo(c) : null;
+        var caption = AccountKit.CheckCaptionText(work);
         var (content, name) = SubscriptionRows.CachedWork(work, caption);
         var id = work.Ao3Id;
         void Open() => Routes.OpenSavedWork(id);
@@ -479,10 +486,10 @@ public sealed class SubscriptionsScreen : Screen
     {
         var meta = UI.UI.Flow(8, 2, AccountKit.KindLabel("person", "Author"));
         var parts = new List<string> { author.DisplayName, "Author" };
-        if (author.LastCheckedAt is { } c)
+        if (AccountKit.CheckCaptionText(author) is { } caption)
         {
-            meta.Children.Add(UI.UI.Caption(AccountKit.CheckedAgo(c)));
-            parts.Add(AccountKit.CheckedAgo(c));
+            meta.Children.Add(caption);
+            parts.Add(caption.Text);
         }
         var content = UI.UI.VStack(4, UI.UI.Text(author.DisplayName, Theme.Style.Headline), meta);
         void Open() => Routes.OpenAuthor(new AuthorRef(author.Username, author.DisplayName));

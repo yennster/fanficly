@@ -128,6 +128,20 @@ public class OpeningProgressPolicyTests
         Assert.Null(OpeningProgressPolicy.Anchor(1, null, null, null));
     }
 
+    // #337: the entry this device keeps as its own is exactly the dated one it opens at.
+    [Fact]
+    public void AdoptedEntry_OnlyAStrictlyNewerDatedEntryForThisWork()
+    {
+        var newer = Synced(Noon.AddSeconds(60));
+        Assert.Equal(newer, OpeningProgressPolicy.AdoptedEntry(1, true, Noon, newer));
+        Assert.Null(OpeningProgressPolicy.AdoptedEntry(1, true, Noon, Synced(Noon)));
+        Assert.Null(OpeningProgressPolicy.AdoptedEntry(1, true, Noon, Synced(Noon.AddSeconds(-60))));
+        Assert.Null(OpeningProgressPolicy.AdoptedEntry(1, true, Noon, newer with { Id = 2 }));
+        Assert.Null(OpeningProgressPolicy.AdoptedEntry(1, true, Noon, newer with { Chapter = null, Paragraph = null }));
+        Assert.Equal(newer, OpeningProgressPolicy.AdoptedEntry(1, false, null, newer));
+        Assert.Null(OpeningProgressPolicy.AdoptedEntry(1, false, null, Synced(null)));
+    }
+
     [Fact]
     public void Gate_SkipsTheOpenedPlaceUntilTheReaderMoves()
     {
