@@ -62,7 +62,7 @@ struct LibraryDownloadMenuItem: View {
                 Label("Downloading…", systemImage: "arrow.down.circle")
             }
             .disabled(true)
-        } else if WorkPersistence.epubURL(workId: work.ao3Id) != nil {
+        } else if WorkPersistence.isDownloaded(work) {
             Button(action: removeDownload) {
                 Label("Remove Download", systemImage: "xmark.circle")
             }

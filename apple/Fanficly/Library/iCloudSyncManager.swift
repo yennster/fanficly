@@ -1335,13 +1335,15 @@ final class iCloudSyncManager {
                 
                 // Replace chapters only when the backup carries more than we
                 // hold: a metadata-only backup (chapters: []) or a stale
-                // partial download must not wipe a fuller offline download —
-                // the Downloaded badge keys off the epub file, so deleting
-                // here would silently strand it.
+                // partial download must not wipe a fuller offline download.
                 // A download removed on this device stays removed: another
                 // device's copy mustn't bring its chapters back (#191).
                 if w.chapters.count > work.chapters.count && !removedDownloads.contains(w.ao3Id) {
                     textRestored.append(w.ao3Id)
+                    // A saved EPUB now holds less than the text; Export must
+                    // not share it (#173). The re-download offer brings a
+                    // current one back, and Export builds from the text.
+                    WorkPersistence.removeSavedEPUB(workId: w.ao3Id)
                     // Clear existing chapters first to prevent duplicates
                     for ch in work.chapters { context.delete(ch) }
                     work.chapters.removeAll()
