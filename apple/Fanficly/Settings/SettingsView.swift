@@ -431,36 +431,48 @@ private enum LibraryFileAlert: String, Identifiable {
 }
 
 struct PrivacyTransparencyView: View {
+    /// The full policy, the one the App Store listing links to.
+    static let policyURL = URL(string: "https://github.com/yennster/fanficly/blob/main/PRIVACY.md")!
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("What this app sees and stores")
                     .font(.title2).bold()
 
-                Text("Fanficly has no servers. Everything happens on your phone.")
+                Text("Fanficly has no servers. Everything happens on your device.")
 
                 section(
                     "What we collect",
                     "Nothing. No analytics, no crash reports, no device IDs, no telemetry."
                 )
                 section(
-                    "What's stored on your phone",
+                    "What's stored on your device",
                     """
-                    • Your AO3 session cookie (in iOS Keychain), so you stay logged in.
+                    • Your AO3 username and AO3's sign-in cookies (in the Keychain), so you stay logged in. Your password is never stored.
                     • Works you've saved offline, your notes and tags on them, and your reading position (in app storage).
                     • Your preferences (theme, font size).
+                    • What the widgets show: the story you read last, your reading streak, and short lists of saved searches, folders, subscriptions and recommendations.
                     • The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.
-                    • An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled.
                     """
                 )
                 section(
-                    "What goes off your phone",
-                    "Requests to archiveofourown.org so you can read, search, and log in. We never send your data anywhere else."
+                    "What goes off your device",
+                    """
+                    • Requests to archiveofourown.org so you can read, search and log in, and so Fanficly can check works, authors and saved searches you follow for new chapters, sometimes in the background.
+                    • Your reader profiles, last-read progress and reading days, synced automatically through your own iCloud.
+                    • An optional backup of your library and settings in your private iCloud storage, if Sync Library to iCloud is on.
+                    • Images in stories, fetched from the author's image host, only if you turn on Show images in stories.
+                    Nothing is ever sent to us.
+                    """
                 )
                 section(
                     "How to delete everything",
-                    "Delete the app. iOS will erase all on-device storage including the session cookie. There's no server to wipe — there's no server."
+                    "Log out of AO3 first, clear your iCloud backup in Settings → iCloud Sync if you turned it on, then delete the app. Your device's own iCloud backups can still hold a copy until they're replaced. There's no server to wipe — there's no server."
                 )
+                Link(destination: Self.policyURL) {
+                    Label("Read the full privacy policy", systemImage: "arrow.up.right.square")
+                }
             }
             .padding()
         }
