@@ -237,7 +237,7 @@ struct SubscriptionsView: View {
             NavigationLink {
                 LoginView()
             } label: {
-                Text("Open Settings → AO3 Login").font(.callout)
+                Text("Log In to AO3").font(.callout)
             }
         }
     }
@@ -571,7 +571,7 @@ struct BookmarksView: View {
                     Text("Your AO3 bookmarks show here once you log in, including private ones.")
                 } actions: {
                     NavigationLink { LoginView() } label: {
-                        Text("Open Settings → AO3 Login").font(.callout)
+                        Text("Log In to AO3").font(.callout)
                     }
                 }
             } else if isLoading && works.isEmpty {
@@ -837,7 +837,7 @@ struct ReadingListView: View {
                     Text(list.loginPrompt)
                 } actions: {
                     NavigationLink { LoginView() } label: {
-                        Text("Open Settings → AO3 Login").font(.callout)
+                        Text("Log In to AO3").font(.callout)
                     }
                 }
             } else if isLoading && works.isEmpty {
