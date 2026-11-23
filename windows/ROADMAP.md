@@ -252,6 +252,20 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Already covered:** the "Continue reading" Widgets-board widget already supports the small size (`Package.appxmanifest`), so where Windows offers lock-screen widgets people can add it there. It and the jump list's "Continue “<title>”" entry both open `fanficly://resume/<id>`.
 - **Revisit when:** Windows gives widget providers a lock-screen size or template of their own.
 
+### RM-125 — Follow the system's Bold Text in the reader
+- **Status:** exception · **Size:** S · **Validation:** windows
+- **Why:** The Swift app draws story text bold when the system's Bold Text accessibility setting is on (#174), as well as when the reader's own Bold text switch is.
+- **Why it's an exception:** Windows has no system-wide Bold Text setting for apps to follow. Its accessibility text options are Text size (which the reader already follows, since XAML scales its text) and contrast themes (which the reader's colours follow). The reader's own Bold text switch is the way to get heavier strokes.
+- **Revisit when:** Windows adds a bold or heavier-text accessibility setting that apps can read.
+
+### RM-127 — Open fanficly.app work links in the app
+- **Status:** open · **Size:** S · **Validation:** windows
+- **Why:** The Apple app's App Clip (RM-031 in `apple/docs/ROADMAP.md`, #292) opens a shared `https://fanficly.app/works/<id>[?chapter=n]` link on an iPhone or iPad without installing Fanficly. Windows has no App Clip equivalent (no install-free slice of a Store app), so this is the nearest alternative: the same link opens the work in Fanficly for Windows when it's installed, and the website's `/works/` page (links to the work on AO3 and to fanficly.app) otherwise.
+- **Scope:** A `windows.appUriHandler` extension in `Package.appxmanifest` for `fanficly.app`, the `windows-app-web-link` file on the website (`website/.well-known/`, served as JSON, listing the package family name and `/works/*`), and `DeepLink.Parse` reading the link (the Swift `WorkLink` rules: only `/works/<positive id>`, an optional positive `chapter`) into the resume route, through the age gate like any other link.
+- **Done when:** `DeepLinkTests` cover the link's accepted and refused shapes; on Windows, a fanficly.app work link clicked in a browser or another app opens the work in the installed app.
+- **Touches:** `windows/src/Fanficly.Core/Widget/DeepLink.cs`, `windows/src/Fanficly.App/Package.appxmanifest`, `Services/AppRouting.cs`, `website/`, `windows/tests/Fanficly.Core.Tests/`.
+- **Parity exception:** no App Clip on Windows (see Why).
+
 ### RM-109 — Localization groundwork
 - **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Every string is English and inline in C#.

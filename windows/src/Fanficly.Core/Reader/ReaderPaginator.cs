@@ -116,7 +116,19 @@ public sealed record PaginationTrigger(
     double Kerning,
     bool BoldText,
     bool ShowImages,
-    ReaderSize Size);
+    ReaderSize Size)
+{
+    /// <summary>Whether <paramref name="other"/> lays out the same text in the same type,
+    /// so only the page area (the controls, the Listen bar, a resize, the margins)
+    /// changed: the old page breaks are then still places in the text, and a long
+    /// chapter can refit the pages near the reader first (#349; Swift's
+    /// <c>differsOnlyInPageArea</c>). A reader's chapters never change under it
+    /// (an update swaps the reader), so there's no content to compare.</summary>
+    public bool DiffersOnlyInPageArea(PaginationTrigger other) =>
+        Chapter == other.Chapter && FontSize == other.FontSize && FontFamily == other.FontFamily
+        && LineSpacing == other.LineSpacing && ParagraphSpacing == other.ParagraphSpacing
+        && Kerning == other.Kerning && BoldText == other.BoldText && ShowImages == other.ShowImages;
+}
 
 /// <param name="Atoms">Each paginated chapter's atoms, after pagination split
 /// sentences at line ends — pages index into these lists.</param>
@@ -241,6 +253,23 @@ public static partial class ReaderPaginator
         return new PageStart(page.ChapterIndex, atom.OriginalParagraphIndex, atom.SentenceIndex, atom.SentenceOffset);
     }
 
+    /// <summary>The index of the atom that begins at <paramref name="start"/> (same
+    /// chapter assumed), splitting the atom it falls inside when it starts partway
+    /// through one. -1 when no atom holds it.</summary>
+    public static int AtomIndex(PageStart start, List<ParagraphAtom> atoms)
+    {
+        var i = atoms.FindIndex(a =>
+            a.OriginalParagraphIndex == start.Paragraph && a.SentenceIndex == start.Sentence
+            && start.Offset >= a.SentenceOffset && start.Offset < a.SentenceOffset + a.Text.Length);
+        if (i < 0) return -1;
+        var k = start.Offset - atoms[i].SentenceOffset;
+        if (k <= 0) return i;
+        if (SplitAtom(atoms[i], k) is not (var head, var tail)) return -1;
+        atoms[i] = head;
+        atoms.Insert(i + 1, tail);
+        return i + 1;
+    }
+
     /// <summary>Splits <paramref name="atom"/> (a sentence) so its first part, laid out
     /// after <paramref name="leading"/> (atoms of the same paragraph already on the
     /// page), fits in <paramref name="budget"/>. It keeps the longest run of whole
@@ -272,6 +301,14 @@ public static partial class ReaderPaginator
             if (Fits(mid)) lo = mid; else hi = mid - 1;
         }
         return SplitAtom(atom, breaks[lo] + 1);
+    }
+
+    /// <summary>The atom's text up to its first space: the least of it a page can take
+    /// (see <see cref="SplitAtomToFit"/>).</summary>
+    public static ReaderRichText FirstWord(ParagraphAtom atom)
+    {
+        var space = atom.Text.Text.IndexOf(' ', 1);
+        return space > 0 ? atom.Text.Slice(0, space) : atom.Text;
     }
 
     /// <summary>Splits <paramref name="atom"/> so its second part starts at character
@@ -648,6 +685,65 @@ public static partial class ReaderPaginator
         return null;
     }
 
+    /// <summary>The pages on screen (<paramref name="pages"/>, <paramref name="atoms"/>)
+    /// with only the ones near the reader refitted for <paramref name="trigger"/>'s page
+    /// area (<see cref="NearbyRefit"/>), in slices like
+    /// <see cref="PerformPaginationAsync"/>; the chapters either side keep their pages.
+    /// Null when the chapter is too short to bother (it paginates in full quickly), the
+    /// page on screen isn't one of its page breaks, or <paramref name="cancellation"/>
+    /// is cancelled.</summary>
+    public static async Task<PaginationResult?> RefitNearbyAsync(
+        PaginationTrigger trigger,
+        PageStart start,
+        IReadOnlyList<ChapterPage> pages,
+        IReadOnlyDictionary<int, List<ParagraphAtom>> atoms,
+        IReadOnlyList<AO3ChapterPayload> chapters,
+        bool limitLineLength,
+        IReaderTextMeasurer measurer,
+        ChapterAtomsCache? atomsCache,
+        Func<Task> pause,
+        TimeSpan slice,
+        CancellationToken cancellation)
+    {
+        var oldPages = pages.Where(p => p.ChapterIndex == trigger.Chapter).ToList();
+        if (oldPages.Count < NearbyRefit.MinimumPages || !atoms.TryGetValue(trigger.Chapter, out var oldAtoms)) return null;
+        var chapter = chapters.FirstOrDefault(c => c.Index == trigger.Chapter);
+        if (chapter is null) return null;
+        var w = ReaderMetrics.TextColumnWidth(trigger.Size.Width, trigger.WidthPercent, trigger.FontSize, limitLineLength);
+        var h = trigger.Size.Height - 2 * PageVerticalMargin;
+        if (!(w > 50 && h > 100)) return null;
+        var fontFamily = ReaderFontFamilyExtensions.FromRawValue(trigger.FontFamily) ?? ReaderFontFamily.NewYork;
+        var typography = new ReaderTypography(fontFamily, trigger.FontSize, trigger.LineSpacing,
+                                              trigger.ParagraphSpacing, trigger.Kerning, trigger.BoldText);
+        var refit = NearbyRefit.Create(
+            trigger.Chapter, oldPages, oldAtoms,
+            atomsCache?.Atoms(chapter, trigger.ShowImages) ?? Atoms(chapter.BodyHtml, trigger.ShowImages), start,
+            w, h, EstimateChapterHeaderHeight(chapter.Title, w, trigger.FontSize, fontFamily, measurer),
+            isFirstChapter: chapters.Count > 0 && trigger.Chapter == chapters[0].Index,
+            showChapterHeader: chapters.Count > 1, typography, measurer, DrawnHeightMeasure(measurer, w, typography));
+        if (refit is null) return null;
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (refit.PackNextPage())
+        {
+            if (watch.Elapsed >= slice)
+            {
+                await pause();
+                watch.Restart();
+            }
+            if (cancellation.IsCancellationRequested) return null;
+        }
+        var refitted = refit.Pages;
+        var result = new List<ChapterPage>();
+        foreach (var page in pages)
+        {
+            if (page.ChapterIndex != trigger.Chapter) result.Add(page);
+            else if (page.Id == oldPages[0].Id) result.AddRange(refitted);
+        }
+        return new PaginationResult(result, new Dictionary<int, List<ParagraphAtom>> { [trigger.Chapter] = refit.Atoms },
+                                    refit.KeptPageId);
+    }
+
     /// <summary>Pagination a page at a time: null after each page (and each chapter's
     /// parsing), then the result.</summary>
     private static IEnumerable<PaginationResult?> PaginationSteps(
@@ -735,6 +831,11 @@ public sealed class ChapterPagination
     /// <summary>One line of body text.</summary>
     private readonly double _oneLine;
     private readonly Guid? _keptId;
+    /// <summary>Where a refit of only the pages near the reader stops
+    /// (<see cref="NearbyRefit"/>): pages end short of this atom, and the run finishes
+    /// on reaching it.</summary>
+    private readonly Guid? _endId;
+    private readonly bool _resumed;
     private bool _reachedKept;
     private int _startIndex;
     private int _pageIndex;
@@ -743,9 +844,12 @@ public sealed class ChapterPagination
     public ChapterPagination(int chapterIndex, List<ParagraphAtom> atoms, double width, double viewportHeight,
                              double chapterHeaderHeight, bool isFirstChapter, bool showChapterHeader,
                              ReaderTypography typography, IReaderTextMeasurer measurer,
-                             DrawnHeight? drawnHeight = null, PageStart? startingAt = null)
+                             DrawnHeight? drawnHeight = null, PageStart? startingAt = null,
+                             (int Atom, int Page)? resumingAt = null, Guid? endingBefore = null)
     {
         _chapterIndex = chapterIndex;
+        _endId = endingBefore;
+        _resumed = resumingAt is not null;
         _atoms = atoms;
         _viewportHeight = viewportHeight;
         _chapterHeaderHeight = chapterHeaderHeight;
@@ -782,7 +886,14 @@ public sealed class ChapterPagination
         }
         _reachedKept = _keptId is null;
 
-        if (isFirstChapter)
+        if (resumingAt is { } resume)
+        {
+            // Carrying on from a page break partway through the chapter: the pages
+            // before it are someone else's (see NearbyRefit).
+            _startIndex = resume.Atom;
+            _pageIndex = resume.Page;
+        }
+        else if (isFirstChapter)
         {
             // Page 0 is a dedicated cover/metadata page with no story text.
             _pages.Add(new ChapterPage($"c{chapterIndex}-p0", chapterIndex, 0, new IndexRange(0, 0)));
@@ -798,7 +909,7 @@ public sealed class ChapterPagination
     public bool PackNextPage()
     {
         if (_finished) return false;
-        if (_startIndex >= _atoms.Count)
+        if (_startIndex >= _atoms.Count || _endId is { } end && _atoms[_startIndex].Id == end)
         {
             Finish();
             return false;
@@ -812,17 +923,25 @@ public sealed class ChapterPagination
         var reserve = _drawnHeight is null ? ReaderPaginator.UncheckedReserve(pageMaxHeight) : ReaderPaginator.Reserve;
         var isKept = _atoms[_startIndex].Id == _keptId;
         if (isKept) _reachedKept = true;
-        // Pages before the kept one stop short of it.
-        var stop = _reachedKept ? null : _keptId;
+        // Pages before the kept one stop short of it, and a refit's last page short
+        // of where it ends.
+        var stop = _reachedKept ? _endId : _keptId;
         var endIndex = _startIndex;
         var includedAny = false;
-        if (pageMaxHeight > 40 && _drawnHeight is not null)
+        // Room under the chapter header for the first word: at the largest text
+        // sizes on a short page (a phone in landscape) the header can leave less,
+        // and a sentence that can't be split put under it ran far past the page.
+        // That header gets the page to itself (#174).
+        var hasRoom = pageMaxHeight > 40
+                      && (!displaysChapterHeader || _measure(ReaderPaginator.FirstWord(_atoms[_startIndex])) + 1
+                          <= pageMaxHeight - reserve);
+        if (hasRoom && _drawnHeight is not null)
         {
             endIndex = ReaderPaginator.FitPage(_atoms, _startIndex, pageMaxHeight, reserve, _paragraphSpacing, _oneLine,
                                                _measure, _drawnHeight, stop);
             includedAny = true;
         }
-        else if (pageMaxHeight > 40)
+        else if (hasRoom)
         {
             endIndex = ReaderPaginator.PackPage(_atoms, _startIndex, pageMaxHeight - reserve, _paragraphSpacing, _oneLine,
                                                 _measure, stop);
@@ -845,8 +964,8 @@ public sealed class ChapterPagination
             // right, so the kept page opens a spread of its own.
             StartsSpread: isKept && includedAny && _pageIndex % 2 == 1));
         _pageIndex += 1;
-        // A page area too short for any text (≤ 40) would loop forever; the Swift
-        // only ever gets here with a chapter header taller than the page.
+        // A page area too short for any text (≤ 40) would loop forever; otherwise
+        // only a chapter header with no room for a line under it gets here.
         if (!includedAny && _pageIndex > _atoms.Count + 2)
         {
             Finish();
@@ -858,9 +977,149 @@ public sealed class ChapterPagination
     private void Finish()
     {
         _finished = true;
-        if (_pages.Count == 0)
+        if (_pages.Count == 0 && !_resumed)
             _pages.Add(new ChapterPage($"c{_chapterIndex}-p0", _chapterIndex, 0, new IndexRange(0, 0)));
     }
+}
+
+/// <summary>A quick first refit of a long chapter when its page area changes (the
+/// controls or the Listen bar showing, a resize; Swift's <c>NearbyRefit</c>, #349):
+/// only the pages near the one on screen are paginated for the new area, and the rest
+/// keep their old pages until the whole chapter has been paginated again in the
+/// background. A 300,000-word one-shot takes seconds to paginate in full; without this
+/// the old pages stayed up that long, and with the controls showing the foot of the
+/// page sat under them.
+///
+/// The refit runs from the old page break <c>pagesBefore</c> pages back to the one
+/// <c>pagesAfter</c> pages on. Pages from the kept page (see <see cref="PageStart"/>)
+/// on don't depend on the pages before it, which stop short of it, so up to the last
+/// one, which stops short of the old page break, they're the pages the full pagination
+/// makes. Pages keep counting from the chapter's start, so ids, "Page 3 of 12" and
+/// spread pairing work as they do; the count is provisional (it settles when the full
+/// pagination lands), and the old pages either side may be a little short or tall for
+/// the new area.</summary>
+public sealed class NearbyRefit
+{
+    /// <summary>Pages refitted before and after the one on screen: a spread back, and
+    /// three spreads (or six pages) on.</summary>
+    public const int PagesBefore = 2;
+    public const int PagesAfter = 6;
+    /// <summary>Chapters with fewer pages than this just paginate in full: it's quick.</summary>
+    public const int MinimumPages = 24;
+
+    private readonly ChapterPagination _run;
+    private readonly List<ParagraphAtom> _atoms;
+    private readonly int _chapterIndex;
+    private readonly PageStart _start;
+    /// <summary>The old pages before the refit, unchanged.</summary>
+    private readonly List<ChapterPage> _before;
+    /// <summary>The old pages after it, with their atom ranges in the old atoms.</summary>
+    private readonly List<ChapterPage> _after;
+    /// <summary>How far the old pages after the refit move in the atoms before the
+    /// refit splits any (the refitted text's old and new atoms differ).</summary>
+    private readonly int _afterShift;
+    private readonly int _splicedCount;
+
+    private NearbyRefit(ChapterPagination run, List<ParagraphAtom> atoms, int chapterIndex, PageStart start,
+                        List<ChapterPage> before, List<ChapterPage> after, int afterShift, int splicedCount)
+    {
+        _run = run;
+        _atoms = atoms;
+        _chapterIndex = chapterIndex;
+        _start = start;
+        _before = before;
+        _after = after;
+        _afterShift = afterShift;
+        _splicedCount = splicedCount;
+    }
+
+    /// <summary>Null when the page on screen doesn't start one of
+    /// <paramref name="oldPages"/> (then paginate the whole chapter).</summary>
+    public static NearbyRefit? Create(int chapterIndex, IReadOnlyList<ChapterPage> oldPages,
+                                      IReadOnlyList<ParagraphAtom> oldAtoms, IReadOnlyList<ParagraphAtom> sourceAtoms,
+                                      PageStart start, double width, double viewportHeight, double chapterHeaderHeight,
+                                      bool isFirstChapter, bool showChapterHeader, ReaderTypography typography,
+                                      IReaderTextMeasurer measurer, DrawnHeight? drawnHeight,
+                                      int pagesBefore = PagesBefore, int pagesAfter = PagesAfter)
+    {
+        if (start.Chapter != chapterIndex) return null;
+        var pages = oldPages.Where(p => p.ChapterIndex == chapterIndex).OrderBy(p => p.PageIndex).ToList();
+        var kept = pages.FindIndex(p => ReaderPaginator.Start(p, oldAtoms) == start);
+        var firstText = pages.FindIndex(p => !p.ParagraphIndices.IsEmpty);
+        if (kept < 0 || firstText < 0) return null;
+        var first = Math.Max(firstText, kept - Math.Max(0, pagesBefore));
+        var end = kept + Math.Max(1, pagesAfter) + 1; // the first old page left as it is
+        var refitsToTheEnd = end >= pages.Count;
+        if (ReaderPaginator.Start(pages[first], oldAtoms) is not { } firstStart) return null;
+        var fresh = sourceAtoms.ToList();
+        var freshFirst = ReaderPaginator.AtomIndex(firstStart, fresh);
+        if (freshFirst < 0) return null;
+        var freshEnd = fresh.Count;
+        if (!refitsToTheEnd)
+        {
+            if (ReaderPaginator.Start(pages[end], oldAtoms) is not { } endStart) return null;
+            freshEnd = ReaderPaginator.AtomIndex(endStart, fresh);
+            if (freshEnd <= freshFirst) return null;
+        }
+        var oldFirst = pages[first].ParagraphIndices.Start;
+        var oldEnd = refitsToTheEnd ? oldAtoms.Count : pages[end].ParagraphIndices.Start;
+        if (oldFirst >= oldEnd || oldEnd > oldAtoms.Count) return null;
+
+        // The old atoms either side, the chapter's own in between: pagination splits
+        // atoms, and the old ones are split where the old pages broke.
+        var spliced = new List<ParagraphAtom>(oldAtoms.Count);
+        spliced.AddRange(oldAtoms.Take(oldFirst));
+        spliced.AddRange(fresh.Skip(freshFirst).Take(freshEnd - freshFirst));
+        spliced.AddRange(oldAtoms.Skip(oldEnd));
+        Guid? endId = refitsToTheEnd ? null : spliced[oldFirst + (freshEnd - freshFirst)].Id;
+        // Counted before the run splits any (it splits the list it's given).
+        var splicedCount = spliced.Count;
+        var run = new ChapterPagination(chapterIndex, spliced, width, viewportHeight, chapterHeaderHeight,
+                                        isFirstChapter, showChapterHeader, typography, measurer, drawnHeight, start,
+                                        resumingAt: (oldFirst, pages[first].PageIndex), endingBefore: endId);
+        // Spreads pair from the chapter's first page; only the kept page may open one
+        // of its own (the run marks it), so the pairing on screen stays as the full
+        // pagination will make it.
+        var before = pages.Take(first).Select(p => p with { StartsSpread = false }).ToList();
+        List<ChapterPage> after = refitsToTheEnd ? [] : pages.Skip(end).ToList();
+        return new NearbyRefit(run, spliced, chapterIndex, start, before, after,
+                               oldFirst + (freshEnd - freshFirst) - oldEnd, splicedCount);
+    }
+
+    /// <summary>Packs the next refitted page; false once the refit is done.</summary>
+    public bool PackNextPage() => _run.PackNextPage();
+
+    /// <summary>The pages refitted for the new area, in order.</summary>
+    public IReadOnlyList<ChapterPage> RefittedPages => _run.Pages;
+
+    /// <summary>The chapter's atoms: the old ones either side of the refit.</summary>
+    public List<ParagraphAtom> Atoms => _atoms;
+
+    /// <summary>The chapter's pages: the old ones before the refit, the refitted ones,
+    /// then the old ones after it, numbered on from the refitted ones.</summary>
+    public IReadOnlyList<ChapterPage> Pages
+    {
+        get
+        {
+            var refitted = _run.Pages;
+            var shift = _afterShift + (_atoms.Count - _splicedCount);
+            var last = refitted.Count > 0 ? refitted[^1] : _before.LastOrDefault();
+            var next = last is null ? 0 : last.PageIndex + 1;
+            var pages = new List<ChapterPage>(_before);
+            pages.AddRange(refitted);
+            foreach (var page in _after)
+            {
+                var range = page.ParagraphIndices;
+                pages.Add(new ChapterPage($"c{_chapterIndex}-p{next}", _chapterIndex, next,
+                                          new IndexRange(range.Start + shift, range.End + shift)));
+                next++;
+            }
+            return pages;
+        }
+    }
+
+    /// <summary>The refitted page that starts where the one on screen did.</summary>
+    public string? KeptPageId => _run.Pages.FirstOrDefault(p => ReaderPaginator.Start(p, _atoms) == _start)?.Id;
 }
 
 /// <summary>Chapters' atoms as parsed from their HTML, before pagination splits any,

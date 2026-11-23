@@ -106,6 +106,11 @@ public sealed class VirtualList<T>
         Append(copy);
     }
 
+    /// <summary>The row element at <paramref name="index"/>, realizing it if it
+    /// was scrolled away (to put focus back on a row).</summary>
+    public UIElement? ElementAt(int index) =>
+        index >= 0 && index < _indices.Count ? _repeater.GetOrCreateElement(index) : null;
+
     private async Task CheckLoadMoreAsync()
     {
         if (_loadingMore || !HasMore || LoadMore is null || Items.Count == 0) return;

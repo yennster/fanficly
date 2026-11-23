@@ -28,7 +28,8 @@ internal static class HistoryRegistration
 /// offline text reads offline); remove one with Delete or its context menu (the Mac's swipe
 /// action); <b>Edit</b> switches to multi-select to remove several at once
 /// (the Mac's EditButton); <b>Clear</b> empties the history after a
-/// confirmation. Removing history never touches AO3 or the Library.
+/// confirmation, and deletes the local diagnostic log with it, since its error
+/// lines can name a work (#208). Removing history never touches AO3 or the Library.
 /// </summary>
 internal sealed class RecentlyViewedScreen : Screen
 {
@@ -225,11 +226,12 @@ internal sealed class RecentlyViewedScreen : Screen
         var count = _recents.Count;
         if (count == 0) return;
         var confirmed = await Dialogs.ConfirmAsync("Clear recently viewed?",
-            $"This removes all {count} entries. It won't delete anything from AO3 or your library.",
+            $"This removes all {count} entries and Fanficly's diagnostic log. It won't delete anything from AO3 or your library.",
             "Clear All", destructive: true);
         if (!confirmed) return;
         foreach (var item in AppHost.Library.RecentlyViewedNewestFirst()) AppHost.Library.Delete(item);
         AppHost.Library.TrySave();
+        AppHost.ClearLog();
         _editing = false;
         _list.SelectionMode = ListViewSelectionMode.None;
         _list.IsItemClickEnabled = true;
