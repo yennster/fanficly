@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import SwiftUI
 import SwiftData
 
@@ -478,13 +479,13 @@ struct ReaderSettingsView: View {
             Button("OK", role: .cancel) { }
         }
         .onDisappear { sample?.stop() }
-        .task {
-            if voiceGroups.isEmpty { voiceGroups = await VoiceCatalog.load() }
-        }
-        // A voice downloaded in iOS Settings (the footer says how) shows up
-        // when the reader comes back.
-        .onReceive(NotificationCenter.default.publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)) { _ in
-            Task { voiceGroups = await VoiceCatalog.load(refresh: true) }
+        // The last list shows at once; a fresh read replaces it, so a voice
+        // downloaded in iOS Settings (the footer says how) shows up.
+        .task { voiceGroups = await VoiceCatalog.load() }
+        .onReceive(NotificationCenter.default
+            .publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)
+            .receive(on: RunLoop.main)) { _ in
+            Task { voiceGroups = await VoiceCatalog.load() }
         }
     }
 
@@ -560,22 +561,27 @@ struct VoiceGroup: Identifiable, Hashable, Sendable {
     var id: String { tag }
 }
 
-/// The installed voices, read once per launch (and again when iOS says the
-/// set changed). `speechVoices()` can block for seconds, far longer on a cold
+/// The installed voices, read off the main thread each time Reader settings
+/// opens (and when iOS says the set changed), keeping the last list to show
+/// meanwhile. `speechVoices()` can block for seconds, far longer on a cold
 /// simulator, and Reader settings used to call it on every redraw, so opening
 /// Theme & typography at the largest text sizes stalled the main thread long
 /// enough to hang UI tests.
 enum VoiceCatalog {
     @MainActor static private(set) var cached: [VoiceGroup]?
+    /// Counts reads, so one that finishes after a newer one started is dropped.
+    @MainActor private static var generation = 0
 
-    @MainActor static func load(refresh: Bool = false) async -> [VoiceGroup] {
-        if !refresh, let cached { return cached }
+    @MainActor static func load() async -> [VoiceGroup] {
+        generation += 1
+        let mine = generation
         let list = await Task.detached(priority: .userInitiated) {
             groups(from: AVSpeechSynthesisVoice.speechVoices().map {
                 VoiceOption(id: $0.identifier, name: $0.name, language: $0.language)
             }, systemLanguage: AVSpeechSynthesisVoice.currentLanguageCode(),
                languageName: { Locale.current.localizedString(forIdentifier: $0) })
         }.value
+        guard mine == generation else { return cached ?? list }
         cached = list
         return list
     }
