@@ -18,6 +18,8 @@ namespace Fanficly.App.Views.Account;
 /// client and then re-fetches, since AO3 may hold the new comment for
 /// moderation. A thread longer than one AO3 page ends in "Load more comments",
 /// which appends the next page (a button, as on the Mac, not infinite scroll).
+/// The composer's text is kept in <see cref="CommentDrafts"/>, so going Back
+/// (Alt+Left, the mouse back button, controller B) never loses it (#204).
 /// </summary>
 public sealed class CommentsScreen : Screen
 {
@@ -49,6 +51,7 @@ public sealed class CommentsScreen : Screen
     private TextBlock? _postErrorText;
     private AppBarButton? _refresh;
     private bool _isVisible;
+    private bool _isRemoved;
 
     /// <param name="workTitle">The work's title (the screen's subtitle).</param>
     /// <param name="chapterNumber">1-based chapter shown in the title on multi-chapter works.</param>
@@ -77,6 +80,8 @@ public sealed class CommentsScreen : Screen
 
     protected override FrameworkElement Build()
     {
+        // A post that failed after its screen closed (#204).
+        _postError = CommentDrafts.Shared.TakeNotice(_workId, _chapterId);
         var root = UI.UI.Grid("*", "*,Auto");
         root.Children.Add(_content.Row(0));
         root.Children.Add(_composerHost.Row(1));
@@ -95,11 +100,22 @@ public sealed class CommentsScreen : Screen
 
     public override void OnDisappearing() => _isVisible = false;
 
+    /// <summary>Back waits while a comment is posting, so a post that fails late
+    /// still shows its message here, with the draft (#204).</summary>
+    public override bool HandleBack()
+    {
+        if (!_isPosting) return false;
+        MainWindow.Current.ShowMessage("Posting your comment", "Go back once it's posted.", InfoBarSeverity.Informational);
+        return true;
+    }
+
     public override void OnRemoved()
     {
+        _isRemoved = true;
         AppHost.Auth.PropertyChanged -= OnAuthChanged;
         _loadCts?.Cancel();
-        _postCts?.Cancel();
+        // A post in flight goes on: cut off, it could reach AO3 while the draft
+        // stayed, inviting a second post. It clears the draft once AO3 confirms.
     }
 
     private void OnAuthChanged(object? sender, PropertyChangedEventArgs e)
@@ -323,7 +339,8 @@ public sealed class CommentsScreen : Screen
         }
         else
         {
-            var previous = _draft?.Text ?? "";
+            // A rebuilt composer (signed in again) or a reopened screen keeps the draft.
+            var previous = _draft?.Text is { Length: > 0 } typed ? typed : CommentDrafts.Shared.Get(_workId, _chapterId);
             _draft = new TextBox
             {
                 PlaceholderText = $"Add a comment as {username}…",
@@ -337,7 +354,11 @@ public sealed class CommentsScreen : Screen
             AutomationProperties.SetName(_draft, "Comment");
             AutomationProperties.SetHelpText(_draft, "Ctrl+Enter posts the comment.");
             ScrollViewer.SetVerticalScrollBarVisibility(_draft, ScrollBarVisibility.Auto);
-            _draft.TextChanged += (_, _) => UpdatePostButton();
+            _draft.TextChanged += (sender, _) =>
+            {
+                CommentDrafts.Shared.Set(_workId, _chapterId, ((TextBox)sender).Text);
+                UpdatePostButton();
+            };
             _draft.PreviewKeyDown += (_, e) =>
             {
                 if (e.Key == VirtualKey.Enter && MainWindow.CurrentModifiers().HasFlag(VirtualKeyModifiers.Control))
@@ -409,10 +430,12 @@ public sealed class CommentsScreen : Screen
         try
         {
             await AppHost.Client.PostCommentAsync(_workId, _chapterId, text, cts.Token);
-            if (_draft is not null) _draft.Text = "";
+            CommentDrafts.Shared.ClearIfPosted(_workId, _chapterId, text);
+            if (!_isRemoved && _draft is not null) _draft.Text = "";
             _isPosting = false;
             UpdatePostButton();
             MainWindow.Current.Announce("Comment posted");
+            if (_isRemoved) return;
             // Re-fetch so the new comment shows (AO3 may hold it for moderation).
             await LoadAsync();
         }
@@ -424,17 +447,16 @@ public sealed class CommentsScreen : Screen
             SessionExpiry.Explains(e);
             _postError = "Couldn't post: your AO3 session expired. Sign in again, then post again. Your comment is still here.";
             MainWindow.Current.Announce(_postError);
-            if (await Dialogs.ConfirmAsync("Sign in to AO3", _postError, SessionExpiry.ActionTitle)) Routes.OpenLogin();
-        }
-        catch (AO3Exception e) when (e is { Kind: AO3ErrorKind.Rejected, Reason: { Length: > 0 } })
-        {
-            _postError = e.Reason;
-            MainWindow.Current.Announce(_postError);
+            if (_isRemoved) CommentDrafts.Shared.SetNotice(_workId, _chapterId, _postError);
+            else if (await Dialogs.ConfirmAsync("Sign in to AO3", _postError, SessionExpiry.ActionTitle)) Routes.OpenLogin();
         }
         catch (Exception e)
         {
-            _postError = $"Couldn't post: {e.Message}. Your comment may be awaiting moderation, or try again.";
+            // Worded by what went wrong: AO3's own refusal, or after a timeout
+            // "It may have been posted anyway…", so a retry doesn't post it twice.
+            _postError = CommentPostError.Message(e);
             MainWindow.Current.Announce(_postError);
+            if (_isRemoved) CommentDrafts.Shared.SetNotice(_workId, _chapterId, _postError);
         }
         finally
         {

@@ -261,6 +261,8 @@ internal static class LibrarySchema
                 AddColumnIfMissing(conn, table, "last_check_failure", "TEXT");
             }
         },
+        // Version 7: AO3's Updated date on a subscription, for the widget (#197).
+        conn => AddColumnIfMissing(conn, "subscriptions", "updated_at", "INTEGER"),
     ];
 
     internal static int CurrentVersion => Migrations.Length;

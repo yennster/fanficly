@@ -7,6 +7,10 @@ enum WorkPersistence {
     @MainActor
     static func upsert(payload: AO3WorkPayload, into context: ModelContext, save: Bool = true) -> Work {
         let work = upsertMetadata(summary: payload.summary, into: context, save: false)
+        // New text makes a saved EPUB stale; the caller saves a current one
+        // (Save Offline, an import), and until then Export builds from the
+        // text (#173).
+        removeSavedEPUB(workId: payload.summary.id)
 
         for ch in work.chapters { context.delete(ch) }
         work.chapters.removeAll()
@@ -159,6 +163,8 @@ enum WorkPersistence {
             try? FileManager.default.removeItem(at: url)
         }
         deindexWork(ao3Id: work.ao3Id)
+        // The Continue reading widget mustn't keep its title (#209).
+        clearLastRead(workId: work.ao3Id)
         // Saved again later, it starts without an earlier Remove Download.
         setDownloadRemoved(work.ao3Id, removed: false)
         context.delete(work)
@@ -273,6 +279,24 @@ enum WorkPersistence {
         folder.createdAt = stamp
         try? context.save()
         return .renamed
+    }
+
+    /// Forgets the last-read widget entry when it names `workId` (nil: any
+    /// work): a deleted or hidden work, or a cleared history (#209). Not in
+    /// demo mode: its library is in memory, but the widget's store is the
+    /// device's own.
+    @MainActor
+    static func clearLastRead(workId: Int?) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.clear(workId: workId)
+    }
+
+    /// A hidden work never shows as the last-read widget entry, whenever its
+    /// copy was saved, until it's unhidden (#209). Not in demo mode.
+    @MainActor
+    static func setLastReadHidden(_ workId: Int, hidden: Bool) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.setHidden(workId, hidden: hidden)
     }
 
     @MainActor
@@ -557,13 +581,88 @@ enum WorkPersistence {
         return removed
     }
 
+    /// The saved EPUB for a work (AO3's download or an imported book), if
+    /// there is one. Only Export reads it (#173); Downloaded doesn't depend
+    /// on it, since the saved EPUBs can be removed in Settings → Storage.
     static func epubURL(workId: Int) -> URL? {
-        guard let docs = try? FileManager.default.url(
-            for: .documentDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: false
-        ) else { return nil }
-        let url = docs.appendingPathComponent("library/\(workId).epub")
+        guard let dir = epubDirectory() else { return nil }
+        let url = dir.appendingPathComponent("\(workId).epub")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Deletes one work's saved EPUB, if there is one.
+    static func removeSavedEPUB(workId: Int) {
+        if let url = epubURL(workId: workId) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// `Documents/library`, where saved EPUBs live.
+    static func epubDirectory() -> URL? {
+        (try? FileManager.default.url(
+            for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ))?.appendingPathComponent("library", isDirectory: true)
+    }
+
+    /// Downloaded means the story's text is saved on this device, so it reads
+    /// offline (#173). The EPUB file is an extra copy for Export: a restore
+    /// doesn't bring it back and Settings → Storage can remove them all, and
+    /// neither should make a readable story look not downloaded.
+    static func isDownloaded(_ work: Work) -> Bool {
+        !work.chapters.isEmpty
+    }
+
+    @MainActor
+    static func isDownloaded(workId: Int, in context: ModelContext) -> Bool {
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        guard let work = (try? context.fetch(descriptor))?.first else { return false }
+        return isDownloaded(work)
+    }
+
+    /// How many saved EPUBs there are and how many bytes they take, for
+    /// Settings → Storage.
+    struct EPUBStorage: Equatable, Sendable {
+        var count: Int
+        var bytes: Int64
+    }
+
+    static func savedEPUBStorage(directory: URL? = nil) -> EPUBStorage {
+        var total = EPUBStorage(count: 0, bytes: 0)
+        for file in savedEPUBFiles(directory: directory) {
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            total.count += 1
+            total.bytes += Int64(size)
+        }
+        return total
+    }
+
+    /// Deletes every saved EPUB (Settings → Storage). The saved chapter text
+    /// stays, so every story still reads offline, shows as Downloaded and
+    /// exports (Export builds the EPUB from the text). Returns how many it
+    /// removed.
+    @discardableResult
+    static func removeAllSavedEPUBs(directory: URL? = nil) -> Int {
+        var removed = 0
+        for file in savedEPUBFiles(directory: directory)
+        where (try? FileManager.default.removeItem(at: file)) != nil {
+            removed += 1
+        }
+        return removed
+    }
+
+    /// AO3 downloads only: an imported book that isn't on AO3 (a negative
+    /// id) keeps its file, the only copy of the original with its pictures,
+    /// which nothing can download again.
+    private static func savedEPUBFiles(directory: URL?) -> [URL] {
+        guard let dir = directory ?? epubDirectory(),
+              let files = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.fileSizeKey])
+        else { return [] }
+        return files.filter {
+            guard $0.pathExtension.lowercased() == "epub" else { return false }
+            let id = Int($0.deletingPathExtension().lastPathComponent)
+            return !(id.map(EPUBImport.isLocalWork) ?? false)
+        }
     }
 }
 
